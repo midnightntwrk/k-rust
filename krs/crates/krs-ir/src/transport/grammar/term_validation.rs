@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 
 use super::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorApplicationReference,
-    DescriptorLiteral, DescriptorSortReference, DescriptorTerm, GrammarTransportError, TermSide,
-    WireKeys, require_key, validate_collection_application_shape,
+    DescriptorLiteral, DescriptorSortReference, DescriptorTerm, GrammarTransportError, require_key,
+    validate_collection_application_shape,
 };
 use crate::transport::detail::{GrammarApplicationReason, GrammarTermReason};
 use crate::transport::validation::TermValidation;
@@ -355,273 +355,6 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
     }
 }
 
-/// Collects the keys of a rule term's nodes on one side: each node defines
-/// its keys, of the roles its kind has on that side.
-pub(super) struct TermProvenanceValidation<'a> {
-    pub(super) keys: &'a mut WireKeys,
-    pub(super) side: TermSide,
-    /// Whether the validator is inside a `k::matches!` pattern.
-    pub(super) in_matches_pattern: bool,
-    /// Whether the validator is inside a `let` pattern.
-    pub(super) in_let_pattern: bool,
-}
-
-impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
-    type Error = GrammarTransportError;
-
-    fn variable(
-        &mut self,
-        key: &ProvenanceKey,
-        path_key: &ProvenanceKey,
-        _: &str,
-    ) -> Result<(), Self::Error> {
-        self.keys.define(path_key, self.side.path_role())?;
-        self.keys.define(key, self.side.reference_role())?;
-        Ok(())
-    }
-
-    fn application(
-        &mut self,
-        head_class: DescriptorApplicationHeadClass,
-        reference: &DescriptorApplicationReference,
-        path_key: &ProvenanceKey,
-        _: &crate::Arguments<crate::DescriptorStage>,
-    ) -> Result<(), Self::Error> {
-        // The head and the path are two nodes over one path, each keyed.
-        self.keys.define(path_key, self.side.path_role())?;
-        let role = match head_class {
-            DescriptorApplicationHeadClass::Applied => self.side.application_role(),
-            DescriptorApplicationHeadClass::BareReference => self.side.reference_role(),
-        };
-        self.keys.define(&reference.key, role)?;
-        Ok(())
-    }
-
-    fn literal(&mut self, key: &ProvenanceKey, _: &DescriptorLiteral) -> Result<(), Self::Error> {
-        self.keys.define(key, self.side.literal_role())?;
-        Ok(())
-    }
-
-    fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        let role = if self.in_let_pattern {
-            ProvenanceRole::LetWildcard
-        } else if self.in_matches_pattern {
-            ProvenanceRole::MatchesWildcard
-        } else {
-            self.side
-                .wildcard_role()
-                .ok_or(GrammarTransportError::InvalidTerm(
-                    GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
-                ))?
-        };
-        self.keys.define(key, role)?;
-        Ok(())
-    }
-
-    fn builtin_token(
-        &mut self,
-        key: &ProvenanceKey,
-        sort: BuiltinSort,
-        value: &str,
-    ) -> Result<(), Self::Error> {
-        self.keys.define(key, builtin_token_role(sort, value)?)?;
-        Ok(())
-    }
-
-    fn anonymous(
-        &mut self,
-        _: &ProvenanceKey,
-        _: &DescriptorSortReference,
-        _: &str,
-    ) -> Result<(), Self::Error> {
-        unsupported_claim_term()
-    }
-
-    fn or_bool(
-        &mut self,
-        _: &ProvenanceKey,
-        _: &crate::AtLeastTwo<DescriptorTerm>,
-    ) -> Result<(), Self::Error> {
-        unsupported_claim_term()
-    }
-
-    fn lexeme(
-        &mut self,
-        key: &ProvenanceKey,
-        sort: &DescriptorSortReference,
-        _: &str,
-    ) -> Result<(), Self::Error> {
-        self.keys.define(&sort.key, ProvenanceRole::LexemeSort)?;
-        self.keys.define(key, ProvenanceRole::LexemeText)?;
-        Ok(())
-    }
-
-    fn cell(
-        &mut self,
-        _: &ProvenanceKey,
-        _: &StableItemId,
-        _: &[CellTermField<DescriptorStage>],
-        _: bool,
-    ) -> Result<(), Self::Error> {
-        unsupported_cell_term()
-    }
-
-    fn sort_test(
-        &mut self,
-        key: &ProvenanceKey,
-        _: SortTestKind,
-        sort: &DescriptorSortReference,
-    ) -> Result<(), Self::Error> {
-        self.keys.define(&sort.key, ProvenanceRole::SortTestSort)?;
-        self.keys.define(key, ProvenanceRole::SortTest)?;
-        Ok(())
-    }
-
-    fn application_instance(&mut self, sort: &DescriptorSortReference) -> Result<(), Self::Error> {
-        self.keys
-            .define(&sort.key, ProvenanceRole::ApplicationInstance)?;
-        Ok(())
-    }
-
-    fn pattern_as(
-        &mut self,
-        key: &ProvenanceKey,
-        binding_key: &ProvenanceKey,
-        _: &str,
-    ) -> Result<(), Self::Error> {
-        if self.in_let_pattern || (!matches!(self.side, TermSide::Left) && !self.in_matches_pattern)
-        {
-            return Err(GrammarTransportError::InvalidTerm(
-                GrammarTermReason::PatternAsOutsideLeftHandSide,
-            ));
-        }
-        self.keys.define(key, ProvenanceRole::PatternAs)?;
-        self.keys
-            .define(binding_key, ProvenanceRole::PatternAsBinding)?;
-        Ok(())
-    }
-
-    fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if self.in_let_pattern || (!matches!(self.side, TermSide::Left) && !self.in_matches_pattern)
-        {
-            return Err(GrammarTransportError::InvalidTerm(
-                GrammarTermReason::PatternOrOutsideLeftHandSide,
-            ));
-        }
-        self.keys.define(key, ProvenanceRole::PatternOr)?;
-        Ok(())
-    }
-
-    fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if matches!(self.side, TermSide::Left) || self.in_matches_pattern || self.in_let_pattern {
-            return Err(GrammarTransportError::InvalidTerm(
-                GrammarTermReason::MatchesInPattern,
-            ));
-        }
-        self.keys.define(key, ProvenanceRole::Matches)?;
-        Ok(())
-    }
-
-    fn matches_pattern(&mut self, inside: bool) {
-        self.in_matches_pattern = inside;
-    }
-
-    fn let_binding(
-        &mut self,
-        key: &ProvenanceKey,
-        sort: Option<&DescriptorSortReference>,
-    ) -> Result<(), Self::Error> {
-        if matches!(self.side, TermSide::Left) || self.in_matches_pattern || self.in_let_pattern {
-            return Err(GrammarTransportError::InvalidTerm(
-                GrammarTermReason::LetInPattern,
-            ));
-        }
-        if let Some(sort) = sort {
-            self.keys.define(&sort.key, ProvenanceRole::LetSort)?;
-        }
-        self.keys.define(key, ProvenanceRole::Let)?;
-        Ok(())
-    }
-
-    fn let_pattern(&mut self, inside: bool) {
-        self.in_let_pattern = inside;
-    }
-
-    fn closure(
-        &mut self,
-        key: &ProvenanceKey,
-        binder_key: &ProvenanceKey,
-        sort: &DescriptorSortReference,
-    ) -> Result<(), Self::Error> {
-        if matches!(self.side, TermSide::Left) || self.in_matches_pattern || self.in_let_pattern {
-            return Err(GrammarTransportError::InvalidTerm(
-                GrammarTermReason::ClosureInPattern,
-            ));
-        }
-        self.keys.define(key, ProvenanceRole::MlConnective)?;
-        self.keys.define(binder_key, ProvenanceRole::MlBinder)?;
-        self.keys.define(&sort.key, ProvenanceRole::MlBinderSort)?;
-        Ok(())
-    }
-
-    fn rewrite(
-        &mut self,
-        key: &ProvenanceKey,
-        from_key: &ProvenanceKey,
-        to_key: &ProvenanceKey,
-        _: bool,
-    ) -> Result<(), Self::Error> {
-        self.keys.define(key, ProvenanceRole::RuleLocalRewrite)?;
-        self.keys
-            .define(from_key, ProvenanceRole::RuleLocalRewriteFrom)?;
-        self.keys
-            .define(to_key, ProvenanceRole::RuleLocalRewriteTo)?;
-        Ok(())
-    }
-
-    fn rewrite_right(&mut self, _: bool) {}
-
-    fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}
-
-    fn argument(
-        &mut self,
-        argument: crate::TermArgumentRef<'_, crate::DescriptorStage>,
-        _: &mut BTreeSet<ProductionFieldId>,
-    ) -> Result<(), Self::Error> {
-        if let crate::TermArgumentRef::Named { key, .. } = argument {
-            self.keys.define(key, self.side.record_field_role())?;
-        }
-        Ok(())
-    }
-
-    fn cell_field(
-        &mut self,
-        _: &CellTermField<DescriptorStage>,
-        _: &mut BTreeSet<ProductionFieldId>,
-    ) -> Result<(), Self::Error> {
-        unsupported_cell_term()
-    }
-
-    fn record_update(&mut self, base: &DescriptorTerm) -> Result<(), Self::Error> {
-        let DescriptorTerm::Variable {
-            key,
-            path_key,
-            name,
-        } = base
-        else {
-            return Err(GrammarTransportError::InvalidTerm(
-                GrammarTermReason::RecordUpdateBase,
-            ));
-        };
-        if matches!(self.side, TermSide::Left) && !self.in_matches_pattern {
-            return Err(GrammarTransportError::InvalidTerm(
-                GrammarTermReason::RecordUpdateBase,
-            ));
-        }
-        self.variable(key, path_key, name)
-    }
-}
-
 /// The provenance role of a builtin `Id` or `Bytes` literal: one constant
 /// of its builtin sort, which a rule may match or build as a claim may.
 /// The token must be a valid literal of the sort.
@@ -649,6 +382,8 @@ fn unsupported_cell_term() -> Result<(), GrammarTransportError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transport::keys::WireKeys;
+    use crate::transport::rule::ValidationSide;
     use crate::{
         DescriptorApplicationRef, DescriptorTermArgument, ItemKind, ProvenanceRole, testing,
     };
@@ -771,7 +506,7 @@ mod tests {
             *class = head_class;
             reference.key = key(head_role, 0);
             let mut keys = WireKeys::default();
-            term.collect_wire_term_keys(&mut keys, TermSide::Left)
+            term.collect_wire_term_keys(&mut keys, ValidationSide::Left)
                 .unwrap();
             assert_eq!(
                 keys.defined(),
@@ -821,7 +556,7 @@ mod tests {
             Ok(())
         );
         let mut keys = WireKeys::default();
-        term.collect_wire_term_keys(&mut keys, TermSide::Left)
+        term.collect_wire_term_keys(&mut keys, ValidationSide::Left)
             .unwrap();
         assert!(
             keys.defined()

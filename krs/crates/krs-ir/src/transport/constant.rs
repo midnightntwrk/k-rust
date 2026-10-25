@@ -56,3 +56,77 @@ impl ConstantDescriptor {
         Ok(keys)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ConstantDescriptor;
+    use crate::transport::detail::GrammarTermReason;
+    use crate::{
+        BuiltinSort, DescriptorLiteral, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
+        GrammarTransportError, ProvenanceKey, ProvenanceRole,
+    };
+
+    fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
+        ProvenanceKey::new(role, ordinal)
+    }
+
+    fn constant(value: DescriptorTerm) -> ConstantDescriptor {
+        ConstantDescriptor {
+            sort: DescriptorSortReference {
+                key: key(ProvenanceRole::ConstantType, 0),
+                sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
+            },
+            value,
+        }
+    }
+
+    fn literal() -> DescriptorTerm {
+        DescriptorTerm::Literal {
+            key: key(ProvenanceRole::RuleRightLiteral, 0),
+            literal: DescriptorLiteral::Int("1".into()),
+        }
+    }
+
+    /// A constant's value is keyed as a rule result is, and holds what a
+    /// rule result may: no claim or cell term, and no pattern.
+    #[test]
+    fn a_constant_value_is_a_result_term() {
+        let anchors = [
+            key(ProvenanceRole::ConstantDeclaration, 0),
+            key(ProvenanceRole::ConstantType, 0),
+            key(ProvenanceRole::ConstantValue, 0),
+            key(ProvenanceRole::RuleRightLiteral, 0),
+        ];
+        constant(literal())
+            .wire_keys()
+            .unwrap()
+            .close(&anchors)
+            .unwrap();
+        let anonymous = DescriptorTerm::Anonymous {
+            key: key(ProvenanceRole::ClaimAnonymous, 0),
+            sort: DescriptorSortReference {
+                key: key(ProvenanceRole::ClaimAnonymousSort, 0),
+                sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
+            },
+            spelling: "_x".into(),
+        };
+        assert_eq!(
+            constant(anonymous).wire_keys().err(),
+            Some(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::UnexpectedClaimTerm
+            ))
+        );
+        let pattern = DescriptorTerm::As {
+            key: key(ProvenanceRole::PatternAs, 0),
+            binding_key: key(ProvenanceRole::PatternAsBinding, 0),
+            name: "x".into(),
+            pattern: Box::new(literal()),
+        };
+        assert_eq!(
+            constant(pattern).wire_keys().err(),
+            Some(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::PatternAsOutsideLeftHandSide
+            ))
+        );
+    }
+}

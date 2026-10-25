@@ -1091,7 +1091,7 @@ fn collect_cells_keys<I>(
     for cell in &cells.cells {
         keys.insert(cell.field.cell_key().clone());
         keys.extend(cell.wrapper_key.iter().cloned());
-        collect_state_keys(&cell.value, keys);
+        collect_state_key_set(&cell.value, keys);
     }
 }
 
@@ -1104,6 +1104,88 @@ impl CellKeyAccess for DescriptorCellReference {
     }
 }
 
+/// Collects the keys of a rule state's own nodes on `side`, each of its
+/// role there: a K sequence's payload, `.K`, items and tail, a map's
+/// payload, entries, update and remainder, and instances, their fields and
+/// their rest. Each term the state holds goes to `term`, which collects its
+/// keys as its rule's terms are keyed.
+pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
+    state: &ProtocolRuleStateTerm<T>,
+    side: RuleSide,
+    keys: &mut WireKeys,
+    term: &mut impl FnMut(&T, &mut WireKeys) -> Result<(), E>,
+) -> Result<(), E> {
+    let define = |keys: &mut WireKeys, key: &ProvenanceKey, role: RuleRole| {
+        keys.define(key, role.on_side(side))
+    };
+    match state {
+        ProtocolRuleStateTerm::Term(value) | ProtocolRuleStateTerm::Group(value) => {
+            term(value, keys)?;
+        }
+        ProtocolRuleStateTerm::Present { value } => collect_state_keys(value, side, keys, term)?,
+        ProtocolRuleStateTerm::Absent => {}
+        ProtocolRuleStateTerm::Instances(instances) => {
+            for instance in instances.front.iter().chain(&instances.back) {
+                define(keys, &instance.key, RuleRole::CellsInstance)?;
+                for field in &instance.fields {
+                    define(keys, &field.key, RuleRole::CellsInstanceField)?;
+                    collect_state_keys(&field.value, side, keys, term)?;
+                }
+            }
+            if let Some(key) = frame_key(&instances.rest) {
+                define(keys, key, RuleRole::CellsInstancesRest)?;
+            }
+        }
+        ProtocolRuleStateTerm::KSequence(sequence) => {
+            if let Some(key) = &sequence.payload_key {
+                define(keys, key, RuleRole::KSequencePayload)?;
+            }
+            for key in sequence.dot_k_key.iter().chain(frame_key(&sequence.tail)) {
+                define(keys, key, RuleRole::KSequenceTail)?;
+            }
+            for item in &sequence.items {
+                define(keys, &item.key, RuleRole::KSequenceItem)?;
+                term(&item.value, keys)?;
+            }
+        }
+        ProtocolRuleStateTerm::Map(map) => {
+            if let Some(key) = &map.payload_key {
+                define(keys, key, RuleRole::MapPayload)?;
+            }
+            match &map.body {
+                ProtocolRuleMapBody::Empty { .. } => {}
+                ProtocolRuleMapBody::Items { items, remainder } => {
+                    for item in items {
+                        define(keys, &item.key_key, RuleRole::MapKey)?;
+                        define(keys, &item.value_key, RuleRole::MapValue)?;
+                        term(&item.key, keys)?;
+                        term(&item.value, keys)?;
+                    }
+                    if let Some(key) = frame_key(remainder) {
+                        define(keys, key, RuleRole::MapRemainder)?;
+                    }
+                }
+                ProtocolRuleMapBody::Update {
+                    base_key,
+                    base,
+                    key_key,
+                    key,
+                    value_key,
+                    value,
+                } => {
+                    define(keys, base_key, RuleRole::MapUpdateBase)?;
+                    define(keys, key_key, RuleRole::MapKey)?;
+                    define(keys, value_key, RuleRole::MapValue)?;
+                    for value in [base, key, value] {
+                        term(value, keys)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn frame_key(frame: &ProtocolRuleFrame) -> Option<&ProvenanceKey> {
     match frame {
         ProtocolRuleFrame::Exact => None,
@@ -1113,7 +1195,7 @@ pub(super) fn frame_key(frame: &ProtocolRuleFrame) -> Option<&ProvenanceKey> {
     }
 }
 
-fn collect_state_keys(
+fn collect_state_key_set(
     state: &ProtocolRuleStateTerm<DescriptorTerm>,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) {
@@ -1121,7 +1203,7 @@ fn collect_state_keys(
         ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
             collect_term_keys(term, keys);
         }
-        ProtocolRuleStateTerm::Present { value } => collect_state_keys(value, keys),
+        ProtocolRuleStateTerm::Present { value } => collect_state_key_set(value, keys),
         ProtocolRuleStateTerm::Absent => {}
         ProtocolRuleStateTerm::Instances(instances) => {
             if let Some(key) = frame_key(&instances.rest) {
@@ -1131,7 +1213,7 @@ fn collect_state_keys(
                 keys.insert(instance.key.clone());
                 for field in &instance.fields {
                     keys.insert(field.key.clone());
-                    collect_state_keys(&field.value, keys);
+                    collect_state_key_set(&field.value, keys);
                 }
             }
         }
@@ -2209,16 +2291,21 @@ fn validate_rule_cells<S: RuleValidationStage>(
             keys.define(wrapper_key, RuleRole::CellsWrapper.on_side(side))?;
         }
         validate_rule_wrapper(cell.wrapper, &cell.value)?;
+        // The state's terms are keyed by their validation below.
+        collect_state_keys(&cell.value, side, keys, &mut |_, _| {
+            Ok::<_, StateTransportError>(())
+        })?;
         validate_rule_state::<S>(&cell.value, side, bindings, discovered, walk, keys)?;
+    }
+    if let Some(key) = frame_key(&cells.remainder) {
+        keys.define(key, RuleRole::CellsRemainder.on_side(side))?;
     }
     validate_frame(
         &cells.remainder,
         side,
-        RuleRole::CellsRemainder,
         bindings,
         RuleBindingUse::ConfigurationFrame,
         discovered,
-        keys,
     )
 }
 
@@ -2292,9 +2379,8 @@ fn validate_rule_state<S: RuleValidationStage>(
             validate_rule_term::<S>(term, side.into(), bindings, discovered, walk, keys)
         }
         ProtocolRuleStateTerm::KSequence(sequence) => {
-            validate_k_shell(sequence, side, keys)?;
+            validate_k_shell(sequence)?;
             for item in &sequence.items {
-                keys.define(&item.key, RuleRole::KSequenceItem.on_side(side))?;
                 walk.k_item_root = true;
                 let validated = validate_rule_term::<S>(
                     &item.value,
@@ -2313,22 +2399,18 @@ fn validate_rule_state<S: RuleValidationStage>(
                 validate_frame(
                     &sequence.tail,
                     side,
-                    RuleRole::KSequenceTail,
                     bindings,
                     RuleBindingUse::KSequenceFrame,
                     discovered,
-                    keys,
                 )
             }
         }
         ProtocolRuleStateTerm::Map(map) => {
-            validate_map_shell(map, side, keys)?;
+            validate_map_shell(map, side)?;
             match &map.body {
                 ProtocolRuleMapBody::Empty { .. } => Ok(()),
                 ProtocolRuleMapBody::Items { items, remainder } => {
                     for item in items {
-                        keys.define(&item.key_key, RuleRole::MapKey.on_side(side))?;
-                        keys.define(&item.value_key, RuleRole::MapValue.on_side(side))?;
                         // A map rewrite changes a value; it never adds or
                         // removes an entry (KF-011).
                         if super::validation::contains_rewrite(&item.key) {
@@ -2356,24 +2438,14 @@ fn validate_rule_state<S: RuleValidationStage>(
                     validate_frame(
                         remainder,
                         side,
-                        RuleRole::MapRemainder,
                         bindings,
                         RuleBindingUse::MapFrame,
                         discovered,
-                        keys,
                     )
                 }
                 ProtocolRuleMapBody::Update {
-                    base_key,
-                    base,
-                    key_key,
-                    key,
-                    value_key,
-                    value,
+                    base, key, value, ..
                 } => {
-                    keys.define(base_key, RuleRole::MapUpdateBase.on_side(side))?;
-                    keys.define(key_key, RuleRole::MapKey.on_side(side))?;
-                    keys.define(value_key, RuleRole::MapValue.on_side(side))?;
                     for term in [base, key, value] {
                         validate_rule_term::<S>(
                             term,
@@ -2415,7 +2487,6 @@ fn validate_rule_instances<S: RuleValidationStage>(
                              walk: &mut RuleWalk,
                              keys: &mut WireKeys|
      -> Result<(), StateTransportError> {
-        keys.define(&instance.key, RuleRole::CellsInstance.on_side(side))?;
         let rest_valid = match (&instance.rest, side) {
             (ProtocolInstanceRest::Update { label }, RuleSide::Right) => !label.is_empty(),
             (ProtocolInstanceRest::Update { .. }, RuleSide::Left) => false,
@@ -2432,7 +2503,6 @@ fn validate_rule_instances<S: RuleValidationStage>(
             if field.field.is_empty() || !names.insert(field.field.as_str()) {
                 return Err(invalid());
             }
-            keys.define(&field.key, RuleRole::CellsInstanceField.on_side(side))?;
             if matches!(
                 field.value,
                 ProtocolRuleStateTerm::Present { .. }
@@ -2448,19 +2518,14 @@ fn validate_rule_instances<S: RuleValidationStage>(
     for instance in &instances.front {
         validate_instance(instance, discovered, walk, keys)?;
     }
-    match (side, &instances.rest) {
-        (RuleSide::Right, ProtocolRuleFrame::Anonymous { key }) => {
-            keys.define(key, RuleRole::CellsInstancesRest.on_side(side))?;
-        }
-        (_, rest) => validate_frame(
-            rest,
+    if !(side == RuleSide::Right && matches!(instances.rest, ProtocolRuleFrame::Anonymous { .. })) {
+        validate_frame(
+            &instances.rest,
             side,
-            RuleRole::CellsInstancesRest,
             bindings,
             RuleBindingUse::InstancesFrame,
             discovered,
-            keys,
-        )?,
+        )?;
     }
     for instance in &instances.back {
         validate_instance(instance, discovered, walk, keys)?;
@@ -2468,14 +2533,7 @@ fn validate_rule_instances<S: RuleValidationStage>(
     Ok(())
 }
 
-fn validate_k_shell<T>(
-    sequence: &ProtocolRuleKSequence<T>,
-    side: RuleSide,
-    keys: &mut WireKeys,
-) -> Result<(), StateTransportError> {
-    if let Some(payload) = &sequence.payload_key {
-        keys.define(payload, RuleRole::KSequencePayload.on_side(side))?;
-    }
+fn validate_k_shell<T>(sequence: &ProtocolRuleKSequence<T>) -> Result<(), StateTransportError> {
     match sequence.notation {
         DescriptorKSequenceNotation::DotK => {
             if !sequence.items.is_empty()
@@ -2486,14 +2544,11 @@ fn validate_k_shell<T>(
                     StateCellContentReason::InvalidStandaloneDotKShell,
                 ));
             }
-            let key =
-                sequence
-                    .dot_k_key
-                    .as_ref()
-                    .ok_or(StateTransportError::InvalidCellContent(
-                        StateCellContentReason::DotKMissingProvenance,
-                    ))?;
-            keys.define(key, RuleRole::KSequenceTail.on_side(side))?;
+            if sequence.dot_k_key.is_none() {
+                return Err(StateTransportError::InvalidCellContent(
+                    StateCellContentReason::DotKMissingProvenance,
+                ));
+            }
         }
         DescriptorKSequenceNotation::Comma | DescriptorKSequenceNotation::Operator => {
             if sequence.dot_k_key.is_some()
@@ -2513,11 +2568,7 @@ fn validate_k_shell<T>(
 fn validate_map_shell<T>(
     map: &ProtocolRuleMap<T>,
     side: RuleSide,
-    keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
-    if let Some(payload) = &map.payload_key {
-        keys.define(payload, RuleRole::MapPayload.on_side(side))?;
-    }
     match &map.body {
         ProtocolRuleMapBody::Empty { explicit_dot } => {
             if *explicit_dot != map.payload_key.is_some() {
@@ -3008,35 +3059,29 @@ fn validate_term_path_key(
 fn validate_frame<S>(
     frame: &ProtocolRuleFrame,
     side: RuleSide,
-    role_suffix: RuleRole,
     bindings: &[ProtocolRuleBinding<S>],
     binding_kind: RuleBindingUse,
     discovered: &mut Vec<String>,
-    keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
     match (side, frame) {
-        (_, ProtocolRuleFrame::Exact) => Ok(()),
-        (RuleSide::Left, ProtocolRuleFrame::Anonymous { key }) => {
-            keys.define(key, role_suffix.on_side(side))?;
+        (_, ProtocolRuleFrame::Exact) | (RuleSide::Left, ProtocolRuleFrame::Anonymous { .. }) => {
             Ok(())
         }
-        (RuleSide::Left, ProtocolRuleFrame::Bind { key, binding }) => {
+        (RuleSide::Left, ProtocolRuleFrame::Bind { binding, .. }) => {
             if !binding_has_kind(bindings, binding, binding_kind) {
                 return Err(StateTransportError::InvalidTerm(
                     StateTermReason::SubjectFrameBindingKind,
                 ));
             }
-            keys.define(key, role_suffix.on_side(side))?;
             discover_binding(side.into(), binding, discovered);
             Ok(())
         }
-        (RuleSide::Right, ProtocolRuleFrame::Reuse { key, binding }) => {
+        (RuleSide::Right, ProtocolRuleFrame::Reuse { binding, .. }) => {
             if !binding_has_kind(bindings, binding, binding_kind) {
                 return Err(StateTransportError::InvalidTerm(
                     StateTermReason::ResultFrameBindingKind,
                 ));
             }
-            keys.define(key, role_suffix.on_side(side))?;
             Ok(())
         }
         (RuleSide::Left, ProtocolRuleFrame::Reuse { .. })

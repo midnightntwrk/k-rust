@@ -14,8 +14,12 @@
 //!   anchors' keys (closure), and every reference names a defined key.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::marker::PhantomData;
 
-use crate::{ProvenanceKey, ProvenanceRole};
+use super::grammar::{CellTermField, DescriptorApplicationHeadClass, DescriptorLiteral, Term};
+use super::rule::{TermRole, ValidationSide};
+use super::validation::{TermValidation, ValidationStage, validate_term};
+use crate::{BuiltinSort, ProductionFieldId, ProvenanceKey, ProvenanceRole, SortTestKind};
 
 /// A failed key check, which each stage reports as its own transport error.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -160,6 +164,325 @@ impl WireKeys {
             return Err(KeyFailure::Missing(dangling.clone()));
         }
         Ok(())
+    }
+}
+
+/// A term node the key walk refuses, which each stage reports as its own
+/// term reason.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TermRefusal {
+    /// A wildcard outside a subject and a pattern, where no wildcard role
+    /// exists.
+    Wildcard,
+    /// A builtin token that is no literal of its sort, which has no role.
+    BuiltinToken,
+    /// `name @ pattern` outside a left-hand side or a `k::matches!` pattern.
+    PatternAs,
+    /// `A | B` outside a left-hand side or a `k::matches!` pattern.
+    PatternOr,
+    /// `k::matches!` in a pattern.
+    Matches,
+    /// A `let` block in a pattern.
+    Let,
+    /// An `ml::exists` closure in a pattern.
+    Closure,
+    /// A record update whose base is not a variable outside a pattern.
+    RecordUpdateBase,
+}
+
+/// How a rule term's nodes carry their keys, and what the walk checks of
+/// them besides their roles.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TermKeying {
+    /// A structured rule's or a constant's term: each path and each head is
+    /// keyed, and the walk refuses a node its side does not admit (for a
+    /// constant's value, no other check does).
+    Grammar,
+    /// A readable clause's term: each path and each head is keyed; where a
+    /// node stands is the collector's and the compiler's to check.
+    Readable,
+    /// A readable term that repeats nodes another wire term carries, the
+    /// bracket alternative's: it refers to their keys.
+    ReadableClone,
+}
+
+/// Collects the keys of a rule term's nodes on `side`, each checked for the
+/// role its node has there: the one role table of structured rules,
+/// constants and readable clauses.
+pub(super) fn collect_term_keys<S, E>(
+    term: &Term<S>,
+    side: ValidationSide,
+    keying: TermKeying,
+    keys: &mut WireKeys,
+) -> Result<(), E>
+where
+    S: ValidationStage,
+    E: From<KeyFailure> + From<TermRefusal>,
+{
+    validate_term(
+        term,
+        &mut TermKeys {
+            keys,
+            side,
+            keying,
+            in_matches_pattern: false,
+            in_let_pattern: false,
+            error: PhantomData,
+        },
+    )
+}
+
+/// The term walk of [`collect_term_keys`].
+struct TermKeys<'a, E> {
+    keys: &'a mut WireKeys,
+    side: ValidationSide,
+    keying: TermKeying,
+    in_matches_pattern: bool,
+    in_let_pattern: bool,
+    error: PhantomData<fn() -> E>,
+}
+
+impl<E: From<KeyFailure> + From<TermRefusal>> TermKeys<'_, E> {
+    /// Records the key of a node of `role`: a clone refers to it.
+    fn node(&mut self, key: &ProvenanceKey, role: ProvenanceRole) -> Result<(), E> {
+        if self.keying == TermKeying::ReadableClone {
+            self.keys.refer(key, role)?;
+        } else {
+            self.keys.define(key, role)?;
+        }
+        Ok(())
+    }
+
+    /// Records a node that carries no key of its own; a clone's is another
+    /// term's.
+    fn implicit(&mut self, role: ProvenanceRole) {
+        if self.keying != TermKeying::ReadableClone {
+            self.keys.implicit(role);
+        }
+    }
+
+    /// Refuses a node that stands where its side does not admit it, where
+    /// the walk checks that.
+    fn place(&self, misplaced: bool, refusal: TermRefusal) -> Result<(), E> {
+        if misplaced && self.keying == TermKeying::Grammar {
+            Err(refusal.into())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Whether the walk stands in a left-hand side or a pattern, where an
+    /// expression node is refused.
+    fn in_pattern(&self) -> bool {
+        matches!(self.side, ValidationSide::Left) || self.in_matches_pattern || self.in_let_pattern
+    }
+}
+
+impl<S, E> TermValidation<S> for TermKeys<'_, E>
+where
+    S: ValidationStage,
+    E: From<KeyFailure> + From<TermRefusal>,
+{
+    type Error = E;
+
+    fn variable(
+        &mut self,
+        key: &ProvenanceKey,
+        path_key: &ProvenanceKey,
+        _: &str,
+    ) -> Result<(), E> {
+        self.node(path_key, TermRole::Path.on_side(self.side))?;
+        self.node(key, TermRole::Reference.on_side(self.side))
+    }
+
+    fn application(
+        &mut self,
+        head_class: DescriptorApplicationHeadClass,
+        reference: &S::Application,
+        path_key: &ProvenanceKey,
+        _: &crate::Arguments<S>,
+    ) -> Result<(), E> {
+        // The head and the path are two nodes over one path, each keyed.
+        self.node(path_key, TermRole::Path.on_side(self.side))?;
+        let role = match head_class {
+            DescriptorApplicationHeadClass::Applied => TermRole::ApplicationHead,
+            DescriptorApplicationHeadClass::BareReference => TermRole::Reference,
+        };
+        self.node(S::application_key(reference), role.on_side(self.side))
+    }
+
+    fn literal(&mut self, key: &ProvenanceKey, _: &DescriptorLiteral) -> Result<(), E> {
+        self.node(key, TermRole::Literal.on_side(self.side))
+    }
+
+    fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), E> {
+        let role = if self.in_let_pattern {
+            ProvenanceRole::LetWildcard
+        } else if self.in_matches_pattern {
+            ProvenanceRole::MatchesWildcard
+        } else {
+            match self.side {
+                ValidationSide::Left => ProvenanceRole::RuleLeftWildcard,
+                ValidationSide::Right => ProvenanceRole::RuleRightWildcard,
+                ValidationSide::Requires
+                | ValidationSide::Ensures
+                | ValidationSide::RuleEnsures => return Err(TermRefusal::Wildcard.into()),
+            }
+        };
+        self.node(key, role)
+    }
+
+    fn builtin_token(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: BuiltinSort,
+        value: &str,
+    ) -> Result<(), E> {
+        let role = super::validation::builtin_token_literal_role(sort, value)
+            .ok_or(TermRefusal::BuiltinToken)?;
+        self.node(key, role)
+    }
+
+    fn anonymous(&mut self, key: &ProvenanceKey, sort: &S::Sort, _: &str) -> Result<(), E> {
+        self.node(key, ProvenanceRole::ClaimAnonymous)?;
+        self.node(S::sort_key(sort), ProvenanceRole::ClaimAnonymousSort)?;
+        // The constant's spelling is a node of its own, which the term
+        // carries as text.
+        self.implicit(ProvenanceRole::ClaimAnonymousSpelling);
+        Ok(())
+    }
+
+    fn or_bool(&mut self, key: &ProvenanceKey, _: &crate::AtLeastTwo<Term<S>>) -> Result<(), E> {
+        self.node(key, ProvenanceRole::ClaimOrBool)
+    }
+
+    fn lexeme(&mut self, key: &ProvenanceKey, sort: &S::Sort, _: &str) -> Result<(), E> {
+        self.node(S::sort_key(sort), ProvenanceRole::LexemeSort)?;
+        self.node(key, ProvenanceRole::LexemeText)
+    }
+
+    fn cell(
+        &mut self,
+        key: &ProvenanceKey,
+        _: &S::Nominal,
+        _: &[CellTermField<S>],
+        _: bool,
+    ) -> Result<(), E> {
+        self.node(key, TermRole::ApplicationHead.on_side(self.side))?;
+        // The fragment's cell path is denoted by its declaration reference,
+        // which carries no key.
+        self.implicit(TermRole::Path.on_side(self.side));
+        Ok(())
+    }
+
+    fn sort_test(&mut self, key: &ProvenanceKey, _: SortTestKind, sort: &S::Sort) -> Result<(), E> {
+        self.node(S::sort_key(sort), ProvenanceRole::SortTestSort)?;
+        self.node(key, ProvenanceRole::SortTest)
+    }
+
+    fn application_instance(&mut self, sort: &S::Sort) -> Result<(), E> {
+        self.node(S::sort_key(sort), ProvenanceRole::ApplicationInstance)
+    }
+
+    fn pattern_as(
+        &mut self,
+        key: &ProvenanceKey,
+        binding_key: &ProvenanceKey,
+        _: &str,
+    ) -> Result<(), E> {
+        self.place(
+            self.in_let_pattern
+                || (!matches!(self.side, ValidationSide::Left) && !self.in_matches_pattern),
+            TermRefusal::PatternAs,
+        )?;
+        self.node(key, ProvenanceRole::PatternAs)?;
+        self.node(binding_key, ProvenanceRole::PatternAsBinding)
+    }
+
+    fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), E> {
+        self.place(
+            self.in_let_pattern
+                || (!matches!(self.side, ValidationSide::Left) && !self.in_matches_pattern),
+            TermRefusal::PatternOr,
+        )?;
+        self.node(key, ProvenanceRole::PatternOr)
+    }
+
+    fn matches(&mut self, key: &ProvenanceKey) -> Result<(), E> {
+        self.place(self.in_pattern(), TermRefusal::Matches)?;
+        self.node(key, ProvenanceRole::Matches)
+    }
+
+    fn matches_pattern(&mut self, inside: bool) {
+        self.in_matches_pattern = inside;
+    }
+
+    fn let_binding(&mut self, key: &ProvenanceKey, sort: Option<&S::Sort>) -> Result<(), E> {
+        self.place(self.in_pattern(), TermRefusal::Let)?;
+        if let Some(sort) = sort {
+            self.node(S::sort_key(sort), ProvenanceRole::LetSort)?;
+        }
+        self.node(key, ProvenanceRole::Let)
+    }
+
+    fn let_pattern(&mut self, inside: bool) {
+        self.in_let_pattern = inside;
+    }
+
+    fn closure(
+        &mut self,
+        key: &ProvenanceKey,
+        binder_key: &ProvenanceKey,
+        sort: &S::Sort,
+    ) -> Result<(), E> {
+        self.place(self.in_pattern(), TermRefusal::Closure)?;
+        self.node(key, ProvenanceRole::MlConnective)?;
+        self.node(binder_key, ProvenanceRole::MlBinder)?;
+        self.node(S::sort_key(sort), ProvenanceRole::MlBinderSort)
+    }
+
+    fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}
+
+    fn rewrite(
+        &mut self,
+        key: &ProvenanceKey,
+        from_key: &ProvenanceKey,
+        to_key: &ProvenanceKey,
+        _: bool,
+    ) -> Result<(), E> {
+        self.node(key, ProvenanceRole::RuleLocalRewrite)?;
+        self.node(from_key, ProvenanceRole::RuleLocalRewriteFrom)?;
+        self.node(to_key, ProvenanceRole::RuleLocalRewriteTo)
+    }
+
+    fn rewrite_right(&mut self, _: bool) {}
+
+    fn argument(
+        &mut self,
+        argument: crate::TermArgumentRef<'_, S>,
+        _: &mut BTreeSet<ProductionFieldId>,
+    ) -> Result<(), E> {
+        if let crate::TermArgumentRef::Named { key, .. } = argument {
+            self.node(key, TermRole::RecordFieldName.on_side(self.side))?;
+        }
+        Ok(())
+    }
+
+    fn cell_field(
+        &mut self,
+        field: &CellTermField<S>,
+        _: &mut BTreeSet<ProductionFieldId>,
+    ) -> Result<(), E> {
+        self.node(&field.key, TermRole::RecordFieldName.on_side(self.side))
+    }
+
+    fn record_update(&mut self, base: &Term<S>) -> Result<(), E> {
+        self.place(
+            !matches!(base, Term::Variable { .. })
+                || (matches!(self.side, ValidationSide::Left) && !self.in_matches_pattern),
+            TermRefusal::RecordUpdateBase,
+        )?;
+        validate_term(base, self)
     }
 }
 

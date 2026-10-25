@@ -12,7 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use super::detail::{StateCellContentReason, StateTermReason, TransportField, TransportItemKind};
-use super::keys::{KeyFailure, WireKeys};
+use super::keys::{KeyFailure, TermRefusal, WireKeys};
 use crate::stage::{DescriptorStage, HostStage, Stage, protocol_shape, stage_shape};
 
 use crate::host::{HostTypeKey, HostTypeReference};
@@ -846,6 +846,21 @@ impl From<KeyFailure> for StateTransportError {
             KeyFailure::Missing(key) => Self::MissingProvenance(key),
             KeyFailure::Extra(key) => Self::ExtraProvenance(key),
         }
+    }
+}
+
+impl From<TermRefusal> for StateTransportError {
+    fn from(refusal: TermRefusal) -> Self {
+        Self::InvalidTerm(match refusal {
+            TermRefusal::Wildcard => StateTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
+            TermRefusal::BuiltinToken => StateTermReason::InvalidCompilerOwnedBuiltinToken,
+            TermRefusal::PatternAs => StateTermReason::PatternAsOutsideLeftHandSide,
+            TermRefusal::PatternOr => StateTermReason::PatternOrOutsideLeftHandSide,
+            TermRefusal::Matches => StateTermReason::MatchesInPattern,
+            TermRefusal::Let => StateTermReason::LetInPattern,
+            TermRefusal::Closure => StateTermReason::ClosureInPattern,
+            TermRefusal::RecordUpdateBase => StateTermReason::RecordUpdateBase,
+        })
     }
 }
 

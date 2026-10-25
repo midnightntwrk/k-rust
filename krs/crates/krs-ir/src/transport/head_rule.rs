@@ -5,19 +5,15 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use super::detail::{StateTermReason, TransportField, TransportItemKind};
-use super::keys::WireKeys;
-use super::rule::{TermRole, ValidationSide, frame_key};
-use super::validation::{TermValidation, validate_term};
+use super::keys::{TermKeying, WireKeys};
+use super::rule::{ValidationSide, collect_state_keys};
 use crate::stage::{protocol_shape, stage_shape};
-use crate::transport::grammar::{
-    CellTermField, DescriptorApplicationHeadClass, HostApplicationReference, RuleCondition, Term,
-};
+use crate::transport::grammar::{RuleCondition, Term};
 
 use crate::{
-    BuiltinSort, DescriptorCellReference, DescriptorLiteral, DescriptorRuleLabel,
-    DescriptorRulePriority, DescriptorSortReference, DescriptorStage, DescriptorTerm,
-    HostSortReference, HostStage, HostTerm, ItemKind, ProvenanceKey, ProvenanceRole, RuleRole,
-    RuleSide, SentenceKind, StateTransportError,
+    DescriptorCellReference, DescriptorRuleLabel, DescriptorRulePriority, DescriptorSortReference,
+    DescriptorStage, DescriptorTerm, HostSortReference, HostStage, HostTerm, ItemKind,
+    ProvenanceKey, ProvenanceRole, RuleSide, SentenceKind, StateTransportError,
 };
 
 protocol_shape! {
@@ -341,7 +337,7 @@ stage_shape! {
 }
 
 /// Host descriptor emitted before configuration and cell selection.
-pub type HostHeadRule = HeadRule<crate::HostStage>;
+pub type HostHeadRule = HeadRule<HostStage>;
 
 /// The claim metadata of a readable claim clause (`k::claims!`, F7): its
 /// reachability modality and flags. A readable claim's binders are the
@@ -1183,10 +1179,12 @@ fn collect_extra_keys(
         ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
             keys.define(&cell.key, left_cell)?;
             // An entry denotes its key term's payload and its value binder,
-            // and carries neither key.
+            // and carries neither key; a clone's are another entry's.
             for entry in entries {
-                keys.implicit(ProvenanceRole::RuleLeftMapKey);
-                keys.implicit(ProvenanceRole::RuleLeftMapValue);
+                if !cloned_terms {
+                    keys.implicit(ProvenanceRole::RuleLeftMapKey);
+                    keys.implicit(ProvenanceRole::RuleLeftMapValue);
+                }
                 collect_term_keys(&entry.key, ValidationSide::Left, cloned_terms, keys)?;
             }
         }
@@ -1219,9 +1217,17 @@ fn collect_extra_keys(
             if let Some(result_key) = result_key {
                 keys.define(result_key, right_cell)?;
             }
-            collect_state_keys(before, RuleSide::Left, cloned_terms, keys)?;
-            if let Some(after) = after {
-                collect_state_keys(after, RuleSide::Right, cloned_terms, keys)?;
+            // The state's structure defines its keys; its terms define theirs
+            // unless cloned.
+            for (state, side) in [
+                (Some(before), RuleSide::Left),
+                (after.as_ref(), RuleSide::Right),
+            ] {
+                if let Some(state) = state {
+                    collect_state_keys(state, side, keys, &mut |term, keys| {
+                        collect_term_keys(term, side.into(), cloned_terms, keys)
+                    })?;
+                }
             }
         }
         ProtocolHeadRuleExtra::RewriteList {
@@ -1245,84 +1251,6 @@ fn collect_extra_keys(
     Ok(())
 }
 
-/// Collects the keys of a readable cell state on `side`: its sequence,
-/// instance and map structure defines its keys, and its terms define theirs
-/// unless `cloned_terms`.
-fn collect_state_keys(
-    state: &crate::ProtocolRuleStateTerm<HostTerm>,
-    side: RuleSide,
-    cloned_terms: bool,
-    keys: &mut WireKeys,
-) -> Result<(), StateTransportError> {
-    use crate::ProtocolRuleStateTerm as State;
-    match state {
-        State::Term(term) | State::Group(term) => {
-            collect_term_keys(term, side.into(), cloned_terms, keys)?;
-        }
-        State::Present { value } => collect_state_keys(value, side, cloned_terms, keys)?,
-        State::Absent => {}
-        State::Instances(instances) => {
-            for instance in instances.front.iter().chain(&instances.back) {
-                keys.define(&instance.key, RuleRole::CellsInstance.on_side(side))?;
-                for field in &instance.fields {
-                    keys.define(&field.key, RuleRole::CellsInstanceField.on_side(side))?;
-                    collect_state_keys(&field.value, side, cloned_terms, keys)?;
-                }
-            }
-            if let Some(key) = frame_key(&instances.rest) {
-                keys.define(key, RuleRole::CellsInstancesRest.on_side(side))?;
-            }
-        }
-        State::KSequence(sequence) => {
-            if let Some(key) = &sequence.payload_key {
-                keys.define(key, RuleRole::KSequencePayload.on_side(side))?;
-            }
-            for key in sequence.dot_k_key.iter().chain(frame_key(&sequence.tail)) {
-                keys.define(key, RuleRole::KSequenceTail.on_side(side))?;
-            }
-            for item in &sequence.items {
-                keys.define(&item.key, RuleRole::KSequenceItem.on_side(side))?;
-                collect_term_keys(&item.value, side.into(), cloned_terms, keys)?;
-            }
-        }
-        State::Map(map) => {
-            if let Some(key) = &map.payload_key {
-                keys.define(key, RuleRole::MapPayload.on_side(side))?;
-            }
-            match &map.body {
-                crate::ProtocolRuleMapBody::Empty { .. } => {}
-                crate::ProtocolRuleMapBody::Items { items, remainder } => {
-                    for item in items {
-                        keys.define(&item.key_key, RuleRole::MapKey.on_side(side))?;
-                        keys.define(&item.value_key, RuleRole::MapValue.on_side(side))?;
-                        collect_term_keys(&item.key, side.into(), cloned_terms, keys)?;
-                        collect_term_keys(&item.value, side.into(), cloned_terms, keys)?;
-                    }
-                    if let Some(key) = frame_key(remainder) {
-                        keys.define(key, RuleRole::MapRemainder.on_side(side))?;
-                    }
-                }
-                crate::ProtocolRuleMapBody::Update {
-                    base_key,
-                    base,
-                    key_key,
-                    key,
-                    value_key,
-                    value,
-                } => {
-                    keys.define(base_key, RuleRole::MapUpdateBase.on_side(side))?;
-                    keys.define(key_key, RuleRole::MapKey.on_side(side))?;
-                    keys.define(value_key, RuleRole::MapValue.on_side(side))?;
-                    for term in [base, key, value] {
-                        collect_term_keys(term, side.into(), cloned_terms, keys)?;
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Collects the keys of a readable term's nodes on `side`. The clause's
 /// terms are keyed as a rule's are: a path and its head are two nodes, each
 /// keyed. A `cloned` term repeats another wire term's nodes and refers to
@@ -1333,263 +1261,12 @@ fn collect_term_keys(
     cloned: bool,
     keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
-    validate_term(
-        term,
-        &mut ReadableTermKeys {
-            keys,
-            side,
-            cloned,
-            in_matches_pattern: false,
-            in_let_pattern: false,
-        },
-    )
-}
-
-/// The term walk of [`collect_term_keys`]: it checks each node's key roles
-/// only; a readable term's placement rules are the collector's and the
-/// compiler's.
-struct ReadableTermKeys<'a> {
-    keys: &'a mut WireKeys,
-    side: ValidationSide,
-    cloned: bool,
-    in_matches_pattern: bool,
-    in_let_pattern: bool,
-}
-
-impl ReadableTermKeys<'_> {
-    fn node(
-        &mut self,
-        key: &ProvenanceKey,
-        role: ProvenanceRole,
-    ) -> Result<(), StateTransportError> {
-        if self.cloned {
-            self.keys.refer(key, role)?;
-        } else {
-            self.keys.define(key, role)?;
-        }
-        Ok(())
-    }
-
-    /// A node that carries no key of its own: a clone repeats one another
-    /// term carries.
-    fn implicit(&mut self, role: ProvenanceRole) {
-        if !self.cloned {
-            self.keys.implicit(role);
-        }
-    }
-}
-
-impl TermValidation<HostStage> for ReadableTermKeys<'_> {
-    type Error = StateTransportError;
-
-    fn variable(
-        &mut self,
-        key: &ProvenanceKey,
-        path_key: &ProvenanceKey,
-        _: &str,
-    ) -> Result<(), Self::Error> {
-        self.node(path_key, TermRole::Path.on_side(self.side))?;
-        self.node(key, TermRole::Reference.on_side(self.side))
-    }
-
-    fn application(
-        &mut self,
-        head_class: DescriptorApplicationHeadClass,
-        reference: &HostApplicationReference,
-        path_key: &ProvenanceKey,
-        _: &crate::Arguments<HostStage>,
-    ) -> Result<(), Self::Error> {
-        self.node(path_key, TermRole::Path.on_side(self.side))?;
-        let role = match head_class {
-            DescriptorApplicationHeadClass::Applied => TermRole::ApplicationHead,
-            DescriptorApplicationHeadClass::BareReference => TermRole::Reference,
-        };
-        self.node(&reference.key, role.on_side(self.side))
-    }
-
-    fn literal(&mut self, key: &ProvenanceKey, _: &DescriptorLiteral) -> Result<(), Self::Error> {
-        self.node(key, TermRole::Literal.on_side(self.side))
-    }
-
-    fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        let role = if self.in_let_pattern {
-            ProvenanceRole::LetWildcard
-        } else if self.in_matches_pattern {
-            ProvenanceRole::MatchesWildcard
-        } else {
-            match self.side {
-                ValidationSide::Left => ProvenanceRole::RuleLeftWildcard,
-                ValidationSide::Right => ProvenanceRole::RuleRightWildcard,
-                ValidationSide::Requires
-                | ValidationSide::Ensures
-                | ValidationSide::RuleEnsures => {
-                    return Err(StateTransportError::InvalidTerm(
-                        StateTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
-                    ));
-                }
-            }
-        };
-        self.node(key, role)
-    }
-
-    fn builtin_token(
-        &mut self,
-        key: &ProvenanceKey,
-        sort: BuiltinSort,
-        value: &str,
-    ) -> Result<(), Self::Error> {
-        let role = super::validation::builtin_token_literal_role(sort, value).ok_or(
-            StateTransportError::InvalidTerm(StateTermReason::InvalidCompilerOwnedBuiltinToken),
-        )?;
-        self.node(key, role)
-    }
-
-    fn anonymous(
-        &mut self,
-        key: &ProvenanceKey,
-        sort: &HostSortReference,
-        _: &str,
-    ) -> Result<(), Self::Error> {
-        self.node(key, ProvenanceRole::ClaimAnonymous)?;
-        self.node(&sort.key, ProvenanceRole::ClaimAnonymousSort)?;
-        // The constant's spelling is a node of its own, which the term
-        // carries as text.
-        self.implicit(ProvenanceRole::ClaimAnonymousSpelling);
-        Ok(())
-    }
-
-    fn or_bool(
-        &mut self,
-        key: &ProvenanceKey,
-        _: &crate::AtLeastTwo<HostTerm>,
-    ) -> Result<(), Self::Error> {
-        self.node(key, ProvenanceRole::ClaimOrBool)
-    }
-
-    fn lexeme(
-        &mut self,
-        key: &ProvenanceKey,
-        sort: &HostSortReference,
-        _: &str,
-    ) -> Result<(), Self::Error> {
-        self.node(&sort.key, ProvenanceRole::LexemeSort)?;
-        self.node(key, ProvenanceRole::LexemeText)
-    }
-
-    fn cell(
-        &mut self,
-        key: &ProvenanceKey,
-        _: &<HostStage as crate::Stage>::Nominal,
-        _: &[CellTermField<HostStage>],
-        _: bool,
-    ) -> Result<(), Self::Error> {
-        self.node(key, TermRole::ApplicationHead.on_side(self.side))?;
-        // The fragment's cell path is denoted by its declaration reference,
-        // which carries no key.
-        self.implicit(TermRole::Path.on_side(self.side));
-        Ok(())
-    }
-
-    fn sort_test(
-        &mut self,
-        key: &ProvenanceKey,
-        _: crate::SortTestKind,
-        sort: &HostSortReference,
-    ) -> Result<(), Self::Error> {
-        self.node(&sort.key, ProvenanceRole::SortTestSort)?;
-        self.node(key, ProvenanceRole::SortTest)
-    }
-
-    fn application_instance(&mut self, sort: &HostSortReference) -> Result<(), Self::Error> {
-        self.node(&sort.key, ProvenanceRole::ApplicationInstance)
-    }
-
-    fn pattern_as(
-        &mut self,
-        key: &ProvenanceKey,
-        binding_key: &ProvenanceKey,
-        _: &str,
-    ) -> Result<(), Self::Error> {
-        self.node(key, ProvenanceRole::PatternAs)?;
-        self.node(binding_key, ProvenanceRole::PatternAsBinding)
-    }
-
-    fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        self.node(key, ProvenanceRole::PatternOr)
-    }
-
-    fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        self.node(key, ProvenanceRole::Matches)
-    }
-
-    fn matches_pattern(&mut self, inside: bool) {
-        self.in_matches_pattern = inside;
-    }
-
-    fn let_binding(
-        &mut self,
-        key: &ProvenanceKey,
-        sort: Option<&HostSortReference>,
-    ) -> Result<(), Self::Error> {
-        if let Some(sort) = sort {
-            self.node(&sort.key, ProvenanceRole::LetSort)?;
-        }
-        self.node(key, ProvenanceRole::Let)
-    }
-
-    fn let_pattern(&mut self, inside: bool) {
-        self.in_let_pattern = inside;
-    }
-
-    fn closure(
-        &mut self,
-        key: &ProvenanceKey,
-        binder_key: &ProvenanceKey,
-        sort: &HostSortReference,
-    ) -> Result<(), Self::Error> {
-        self.node(key, ProvenanceRole::MlConnective)?;
-        self.node(binder_key, ProvenanceRole::MlBinder)?;
-        self.node(&sort.key, ProvenanceRole::MlBinderSort)
-    }
-
-    fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}
-
-    fn rewrite(
-        &mut self,
-        key: &ProvenanceKey,
-        from_key: &ProvenanceKey,
-        to_key: &ProvenanceKey,
-        _: bool,
-    ) -> Result<(), Self::Error> {
-        self.node(key, ProvenanceRole::RuleLocalRewrite)?;
-        self.node(from_key, ProvenanceRole::RuleLocalRewriteFrom)?;
-        self.node(to_key, ProvenanceRole::RuleLocalRewriteTo)
-    }
-
-    fn rewrite_right(&mut self, _: bool) {}
-
-    fn argument(
-        &mut self,
-        argument: crate::TermArgumentRef<'_, HostStage>,
-        _: &mut BTreeSet<crate::ProductionFieldId>,
-    ) -> Result<(), Self::Error> {
-        if let crate::TermArgumentRef::Named { key, .. } = argument {
-            self.node(key, TermRole::RecordFieldName.on_side(self.side))?;
-        }
-        Ok(())
-    }
-
-    fn cell_field(
-        &mut self,
-        field: &CellTermField<HostStage>,
-        _: &mut BTreeSet<crate::ProductionFieldId>,
-    ) -> Result<(), Self::Error> {
-        self.node(&field.key, TermRole::RecordFieldName.on_side(self.side))
-    }
-
-    fn record_update(&mut self, base: &HostTerm) -> Result<(), Self::Error> {
-        validate_term(base, self)
-    }
+    let keying = if cloned {
+        TermKeying::ReadableClone
+    } else {
+        TermKeying::Readable
+    };
+    super::keys::collect_term_keys(term, side, keying, keys)
 }
 
 #[cfg(test)]

@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 use super::detail::{
     GrammarApplicationReason, GrammarProductionReason, GrammarTermReason, TransportField,
 };
-use super::keys::{KeyFailure, WireKeys};
+use super::keys::{KeyFailure, TermKeying, TermRefusal, WireKeys, collect_term_keys};
+use super::rule::ValidationSide;
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 use crate::{
@@ -2310,6 +2311,21 @@ impl From<KeyFailure> for GrammarTransportError {
     }
 }
 
+impl From<TermRefusal> for GrammarTransportError {
+    fn from(refusal: TermRefusal) -> Self {
+        Self::InvalidTerm(match refusal {
+            TermRefusal::Wildcard => GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
+            TermRefusal::BuiltinToken => GrammarTermReason::InvalidCompilerOwnedBuiltinToken,
+            TermRefusal::PatternAs => GrammarTermReason::PatternAsOutsideLeftHandSide,
+            TermRefusal::PatternOr => GrammarTermReason::PatternOrOutsideLeftHandSide,
+            TermRefusal::Matches => GrammarTermReason::MatchesInPattern,
+            TermRefusal::Let => GrammarTermReason::LetInPattern,
+            TermRefusal::Closure => GrammarTermReason::ClosureInPattern,
+            TermRefusal::RecordUpdateBase => GrammarTermReason::RecordUpdateBase,
+        })
+    }
+}
+
 impl DescriptorSortRef {
     /// Checks the stable namespace of a declared sort.
     ///
@@ -4152,12 +4168,12 @@ impl StructuredRuleDescriptor {
             keys.define(result_key, ProvenanceRole::RuleResult)?;
         }
         self.subject
-            .collect_wire_term_keys(&mut keys, TermSide::Left)?;
+            .collect_wire_term_keys(&mut keys, ValidationSide::Left)?;
         if let Some(context) = &self.function_context {
             context.collect_keys(&mut keys)?;
         }
         if let Some(result_term) = &self.result {
-            result_term.collect_wire_term_keys(&mut keys, TermSide::Right)?;
+            result_term.collect_wire_term_keys(&mut keys, ValidationSide::Right)?;
         }
         self.collect_condition_keys(&mut keys)?;
         Ok(keys)
@@ -4169,7 +4185,7 @@ impl StructuredRuleDescriptor {
         if let Some(requires) = &self.requires {
             requires
                 .term
-                .collect_wire_term_keys(keys, TermSide::Requires)?;
+                .collect_wire_term_keys(keys, ValidationSide::Requires)?;
         }
         for binder in &self.existentials {
             keys.define(
@@ -4188,7 +4204,7 @@ impl StructuredRuleDescriptor {
             keys.define(&ensures.key, ProvenanceRole::RuleEnsures)?;
             ensures
                 .term
-                .collect_wire_term_keys(keys, TermSide::Ensures)?;
+                .collect_wire_term_keys(keys, ValidationSide::RuleEnsures)?;
         }
         Ok(())
     }
@@ -4208,81 +4224,15 @@ pub fn valid_rule_label_name(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
-#[derive(Clone, Copy)]
-enum TermSide {
-    Left,
-    Right,
-    Requires,
-    Ensures,
-}
-
-impl TermSide {
-    const fn path_role(self) -> ProvenanceRole {
-        match self {
-            Self::Left => ProvenanceRole::RuleLeftPath,
-            Self::Right => ProvenanceRole::RuleRightPath,
-            Self::Requires => ProvenanceRole::RuleRequiresPath,
-            Self::Ensures => ProvenanceRole::RuleEnsuresPath,
-        }
-    }
-    const fn application_role(self) -> ProvenanceRole {
-        match self {
-            Self::Left => ProvenanceRole::RuleLeftApplicationHead,
-            Self::Right => ProvenanceRole::RuleRightApplicationHead,
-            Self::Requires => ProvenanceRole::RuleRequiresApplicationHead,
-            Self::Ensures => ProvenanceRole::RuleEnsuresApplicationHead,
-        }
-    }
-    const fn reference_role(self) -> ProvenanceRole {
-        match self {
-            Self::Left => ProvenanceRole::RuleLeftReference,
-            Self::Right => ProvenanceRole::RuleRightReference,
-            Self::Requires => ProvenanceRole::RuleRequiresReference,
-            Self::Ensures => ProvenanceRole::RuleEnsuresReference,
-        }
-    }
-    const fn literal_role(self) -> ProvenanceRole {
-        match self {
-            Self::Left => ProvenanceRole::RuleLeftLiteral,
-            Self::Right => ProvenanceRole::RuleRightLiteral,
-            Self::Requires => ProvenanceRole::RuleRequiresLiteral,
-            Self::Ensures => ProvenanceRole::RuleEnsuresLiteral,
-        }
-    }
-    const fn record_field_role(self) -> ProvenanceRole {
-        match self {
-            Self::Left => ProvenanceRole::RuleLeftRecordFieldName,
-            Self::Right => ProvenanceRole::RuleRightRecordFieldName,
-            Self::Requires => ProvenanceRole::RuleRequiresRecordFieldName,
-            Self::Ensures => ProvenanceRole::RuleEnsuresRecordFieldName,
-        }
-    }
-    const fn wildcard_role(self) -> Option<ProvenanceRole> {
-        match self {
-            Self::Left => Some(ProvenanceRole::RuleLeftWildcard),
-            Self::Right => Some(ProvenanceRole::RuleRightWildcard),
-            Self::Requires | Self::Ensures => None,
-        }
-    }
-}
-
 impl DescriptorTerm {
     /// Collects the keys of a term on `side`, each checked for its node's
     /// role on that side.
     fn collect_wire_term_keys(
         &self,
         keys: &mut WireKeys,
-        side: TermSide,
+        side: ValidationSide,
     ) -> Result<(), GrammarTransportError> {
-        super::validation::validate_term(
-            self,
-            &mut term_validation::TermProvenanceValidation {
-                keys,
-                side,
-                in_matches_pattern: false,
-                in_let_pattern: false,
-            },
-        )
+        collect_term_keys(self, side, TermKeying::Grammar, keys)
     }
 }
 
@@ -4295,8 +4245,31 @@ pub(super) fn collect_constant_keys(
 ) -> Result<(), GrammarTransportError> {
     keys.define(&constant.sort.key, ProvenanceRole::ConstantType)?;
     constant.sort.sort.validate()?;
+    if let Some(reason) = configuration_term(&constant.value) {
+        return Err(GrammarTransportError::InvalidTerm(reason));
+    }
     keys.implicit(ProvenanceRole::ConstantValue);
-    constant.value.collect_wire_term_keys(keys, TermSide::Right)
+    constant
+        .value
+        .collect_wire_term_keys(keys, ValidationSide::Right)
+}
+
+/// Why `term` is no grammar term, if it holds a node only configuration
+/// rules hold: a claim term or a complete cell term. A structured rule's
+/// terms are refused these by their validation; a constant's value has no
+/// other check.
+fn configuration_term(term: &DescriptorTerm) -> Option<GrammarTermReason> {
+    match term {
+        DescriptorTerm::Anonymous { .. } | DescriptorTerm::OrBool { .. } => {
+            Some(GrammarTermReason::UnexpectedClaimTerm)
+        }
+        DescriptorTerm::Cell { .. } => {
+            Some(GrammarTermReason::CompleteCellTermsRequireConfigurationRules)
+        }
+        _ => super::validation::term_children(term)
+            .into_iter()
+            .find_map(configuration_term),
+    }
 }
 
 fn validate_sort_reference(
