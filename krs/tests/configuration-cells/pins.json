@@ -7,7 +7,7 @@
     "krs-configuration-cells-threads": "54236db69ae18f2fb2c287024f8cda7c4f6323e54edc5466cfa5155f6a9c9e71",
     "krs-configuration-cells-objects": "8fa40aba16561970ac7d87508e9b81b3e551ff3875d97e3a4b42e72bfb116b8e",
     "krs-configuration-cells-queue": "7f1e1998155b9a78e6db091517dbc68eab134462fcf2cb7f4a974920c11437bc",
-    "krs-configuration-cells-optional-config-var-initial": "b86f3180319bf8c6be4dddb2c2b7a16ca94bedfd4197e469a5997a7ba75ac775"
+    "krs-configuration-cells-optional-config-var-initial": "1555ca710bc44489fbf4cf3859070ceb000eb210558b6c6adff185a36a9bc99c"
   },
   "emitted": {
     "krs-configuration-cells-framing": {

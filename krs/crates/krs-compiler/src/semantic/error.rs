@@ -1071,6 +1071,8 @@ impl DescriptorLoweringError {
 
     /// The error's diagnostics: one for each cell of [`Self::ImplicitPresence`], since each cell
     /// is its own mistake, and the one of [`ToDiagnostic::to_diagnostic`] for any other error.
+    /// Render through this: `to_diagnostic` joins an `ImplicitPresence` error's cells into one
+    /// diagnostic located at the first cell.
     #[must_use]
     pub fn to_diagnostics(&self) -> Vec<Diagnostic> {
         let Self::ImplicitPresence { cells, item } = self else {

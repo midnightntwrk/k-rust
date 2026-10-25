@@ -456,7 +456,7 @@ fn an_exit_cell_must_be_an_int_outside_every_repeated_cell() {
         env.exit = Some(exit(1));
     });
     assert!(
-        error.contains("exit cell `env` is inside the repeated cell `env`"),
+        error.contains("exit cell `env` is a repeated cell"),
         "{error}"
     );
 }
@@ -473,7 +473,7 @@ fn a_stream_cell_is_outside_every_repeated_cell() {
         env.stream = Some(stream(1, CellStream::Stdout));
     });
     assert!(
-        error.contains("stream cell `env` is inside the repeated cell `env`"),
+        error.contains("stream cell `env` is a repeated cell"),
         "{error}"
     );
 }

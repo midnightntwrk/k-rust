@@ -174,6 +174,15 @@ struct CellScope<'a> {
     repeated: Option<String>,
 }
 
+/// How a `stream` or `exit` cell sits in its repeated ancestor, which may be the cell itself.
+fn within_repeated(name: &str, repeated: &str) -> String {
+    if name == repeated {
+        "is a repeated cell".to_owned()
+    } else {
+        format!("is inside the repeated cell `{repeated}`")
+    }
+}
+
 fn console_error(reason: String, origin: &NodeOrigin) -> DescriptorLoweringError {
     DescriptorLoweringError::InvalidConsoleCell {
         reason,
@@ -224,7 +233,8 @@ impl ConsoleCells {
                 if let Some(repeated) = repeated {
                     return Err(console_error(
                         format!(
-                            "stream cell `{name}` is inside the repeated cell `{repeated}`; K connects a stream to one cell, so it must be outside every multiplicity cell"
+                            "stream cell `{name}` {}; K connects a stream to one cell, so it must be outside every multiplicity cell",
+                            within_repeated(name, repeated)
                         ),
                         origin,
                     ));
@@ -267,7 +277,8 @@ impl ConsoleCells {
                 if let Some(repeated) = repeated {
                     return Err(console_error(
                         format!(
-                            "exit cell `{name}` is inside the repeated cell `{repeated}`; K reads the exit status from one cell, so it must be outside every multiplicity cell"
+                            "exit cell `{name}` {}; K reads the exit status from one cell, so it must be outside every multiplicity cell",
+                            within_repeated(name, repeated)
                         ),
                         origin,
                     ));
