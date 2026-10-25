@@ -1167,6 +1167,11 @@ pub fn main(args: &[String]) {
     write_file(&get("out-soundness"), &sound);
 }
 
+/// `xs` joined by spaces, after a space; nothing when empty.
+fn spaced(xs: &[String]) -> String {
+    xs.iter().map(|x| format!(" {x}")).collect()
+}
+
 /// The two modules, `Typing.lean` and `Soundness.lean`.
 fn generate(a: &Lib, b: &Lib, syms: &[String], ns: &str, o: &Opts) -> (String, String) {
     let (na, nb) = (&a.ns, &b.ns);
@@ -1230,8 +1235,23 @@ fn generate(a: &Lib, b: &Lib, syms: &[String], ns: &str, o: &Opts) -> (String, S
         fail("the types are expected to be an enumeration");
     }
     let accept: Vec<&TFn> = tfs.iter().filter(|t| t.accepts).collect();
-    let [prog] = accept.as_slice() else {
-        fail("exactly one Bool-valued typing function (it accepts programs) is expected")
+    // the function that accepts programs: the Bool-valued one, or, when there is none, the one
+    // type-returning function, whose programs then end with a value on `<k>` (an expression
+    // language), so that `kty` and `Final` allow one value left
+    let (prog, value_result): (&TFn, bool) = match accept.as_slice() {
+        [p] => (p, false),
+        [] => match tfs
+            .iter()
+            .filter(|t| !t.accepts)
+            .collect::<Vec<_>>()
+            .as_slice()
+        {
+            [p] => (p, true),
+            _ => fail(
+                "with no Bool-valued typing function, exactly one type-returning function (it accepts programs) is expected",
+            ),
+        },
+        _ => fail("at most one Bool-valued typing function (it accepts programs) is expected"),
     };
     let cx = Ctx {
         a,
@@ -1481,8 +1501,10 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
     writeln!(
         t,
         "\n/-- An item that receives a pending value of type `t`: a freezer, typed as the item that\ncooling makes of it and a value of type `t`. -/\ndef item (G : TEnv) : Option Ty → {kitem_t} → Option (Option Ty)\n  | none, it => item0 G it\n  | some t, {na}.SortKItem.inj_KItem f => (plug f (dflt t)).bind (item0 G)\n  | some _, _ => none\n\n\
-/-- A well-typed continuation: each item consumes what the previous one leaves, and nothing is\nleft at the end. -/\ndef kty (G : TEnv) : Option Ty → {na}.SortK → Bool\n  | i, .dotk => i.isNone\n  | i, .kseq it k => match item G i it with\n    | some o => kty G o k\n    | none => false\n\nattribute [k2l_pres] dflt plug\n",
-        kitem_t = ty(na, "SortKItem")
+/-- A well-typed continuation: each item consumes what the previous one leaves, and {kend_doc}\nleft at the end. -/\ndef kty (G : TEnv) : Option Ty → {na}.SortK → Bool\n  {kend}\n  | i, .kseq it k => match item G i it with\n    | some o => kty G o k\n    | none => false\n\nattribute [k2l_pres] dflt plug\n",
+        kitem_t = ty(na, "SortKItem"),
+        kend_doc = if value_result { "at most one value is" } else { "nothing is" },
+        kend = if value_result { "| _, .dotk => true" } else { "| i, .dotk => i.isNone" },
     )
     .unwrap();
     for (l, c, lt, rhs) in &item_arms {
@@ -1520,13 +1542,14 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         t,
         "@[k2l_pres] theorem item_none (G : TEnv) (it : {kitem_t}) : item G none it = item0 G it := by cases it <;> rfl\n\
 @[k2l_pres] theorem item_frz (G : TEnv) (t : Ty) (f : {kitem_own}) : item G (some t) ({na}.SortKItem.inj_KItem f) = (plug f (dflt t)).bind (item0 G) := rfl\n\
-@[k2l_pres] theorem kty_dotk (G : TEnv) (i : Option Ty) : kty G i .dotk = i.isNone := rfl\n\
+@[k2l_pres] theorem kty_dotk (G : TEnv) (i : Option Ty) : kty G i .dotk = {kty_end} := rfl\n\
 @[k2l_pres] theorem kty_kseq (G : TEnv) (i : Option Ty) (it : {kitem_t}) (k : {na}.SortK) :\n    kty G i (.kseq it k) = (match item G i it with | some o => kty G o k | none => false) := rfl\n\
 @[k2l_pres] theorem {}_dflt (G : TEnv) (t : Ty) : {} G (dflt t) = some t := by\n  cases t <;> simp only [dflt, {}]\n",
         ty_fn.name,
         ty_fn.name,
         value_lemmas.join(", "),
-        kitem_t = ty(na, "SortKItem")
+        kitem_t = ty(na, "SortKItem"),
+        kty_end = if value_result { "true" } else { "i.isNone" }
     )
     .unwrap();
     let proj_lemmas: Vec<String> = projs
@@ -1594,14 +1617,45 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
     };
     writeln!(
         t,
-        "/-- A well-typed configuration: `<k>` is a well-typed continuation that leaves nothing, and each\ncell typed by hand is typed by its typing. -/\ndef WTc {st_bs}(G : TEnv) (c : {top_t}) : Prop :=\n  {}\n",
+        "/-- A well-typed configuration: `<k>` is a well-typed continuation that leaves {}, and each\ncell typed by hand is typed by its typing. -/\ndef WTc {st_bs}(G : TEnv) (c : {top_t}) : Prop :=\n  {}\n",
+        if value_result { "at most one value" } else { "nothing" },
         conj.join(" ∧ ")
     )
     .unwrap();
+    // with a value result, also a value alone (a leaf of `KResult` at the head, nothing after)
+    let final_values: Vec<String> = if value_result {
+        a.m.sorts
+            .get("SortKResult")
+            .map(|kr| {
+                kitem
+                    .leaves
+                    .iter()
+                    .filter(|l| kr.leaves.contains(l))
+                    .map(|l| {
+                        pat_at(
+                            kpos,
+                            &format!(
+                                "({} (.kseq ({na}.{} _) .dotk))",
+                                cells[kpos].ctor,
+                                a.m.leaf_ctor("SortKItem", l)
+                            ),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
     writeln!(
         t,
-        "/-- A terminated configuration: nothing left in `<k>`. -/\ndef Final : {top_t} → Prop\n  | {} => True\n  | _ => False\n",
-        pat_at(kpos, &format!("({} .dotk)", cells[kpos].ctor))
+        "/-- A terminated configuration: nothing left in `<k>`{}. -/\ndef Final : {top_t} → Prop\n  | {} => True\n{}  | _ => False\n",
+        if value_result { ", or one value" } else { "" },
+        pat_at(kpos, &format!("({} .dotk)", cells[kpos].ctor)),
+        final_values
+            .iter()
+            .map(|p| format!("  | {p} => True\n"))
+            .collect::<String>()
     )
     .unwrap();
     // init
@@ -1927,9 +1981,28 @@ macro \"prog_leaf\" : tactic => `(tactic| (prog_cases; all_goals (intro _hk; (tr
     } else {
         format!(" {}", he_names.join(" "))
     };
+    // with a value result, a value alone is terminated, so each case chooses `App` itself
+    // (`progress_app`), and the value case before it, where nothing follows, `Final`
+    let (right, to_app) = if value_result {
+        writeln!(
+            s,
+            "/-- A case that ends in a rule that applies. -/\ntheorem progress_app {{p q r : Prop}} (h : p → r) : p → q ∨ r := fun hp => Or.inr (h hp)\n"
+        )
+        .unwrap();
+        ("", "apply progress_app\n      ")
+    } else {
+        ("    right\n", "")
+    };
+    // the typing: a conjunction with the cells typed by hand, or the typing of `<k>` alone
+    let hw_get = if he_names.is_empty() {
+        unf.insert(0, wtc.to_string());
+        "have hk := hw".to_string()
+    } else {
+        format!("obtain ⟨{hw_pat}⟩ := hw")
+    };
     writeln!(
         s,
-        "theorem progress {{G : TEnv}} (c : {top_t}) (hw : {wtc} G c) : Final c ∨ {na}.App c := by\n  obtain ⟨{}⟩ := c\n  cases k with\n  | dotk => exact Or.inl trivial\n  | kseq it K =>\n    right\n    obtain ⟨{hw_pat}⟩ := hw\n    simp only [{}] at hk{he_at}\n    revert hk\n    cases it",
+        "theorem progress {{G : TEnv}} (c : {top_t}) (hw : {wtc} G c) : Final c ∨ {na}.App c := by\n  obtain ⟨{}⟩ := c\n  cases k with\n  | dotk => exact Or.inl trivial\n  | kseq it K =>\n{right}    {hw_get}\n    simp only [{}] at hk{he_at}\n    revert hk\n    cases it",
         obt.join(", "),
         unf.join(", ")
     )
@@ -1951,8 +2024,10 @@ macro \"prog_leaf\" : tactic => `(tactic| (prog_cases; all_goals (intro _hk; (tr
             .collect();
         writeln!(
             s,
-            "    -- a value: the next item is a freezer waiting for it (a cooling rule applies)\n    case {} =>\n      cases K with\n      | dotk => prog_absurd\n      | kseq it₂ K₂ =>\n        cases it₂ <;> (try prog_absurd)\n        rename_i f\n        cases f <;> (try prog_absurd) <;>\n          (k2l_cases_frz [{na}.SortKItem.inj_KItem] [{na}.SortK] => prog_absurd) <;> prog_leaf",
-            cs.join(" | ")
+            "    -- a value: the next item is a freezer waiting for it (a cooling rule applies)\n    case {} =>\n      cases K with\n      | dotk => {}\n      | kseq it₂ K₂ =>\n        {}cases it₂ <;> (try prog_absurd)\n        rename_i f\n        cases f <;> (try prog_absurd) <;>\n          (k2l_cases_frz [{na}.SortKItem.inj_KItem] [{na}.SortK] => prog_absurd) <;> prog_leaf",
+            cs.join(" | "),
+            if value_result { "exact fun _ => Or.inl trivial" } else { "prog_absurd" },
+            if value_result { "apply progress_app\n        " } else { "" }
         )
         .unwrap();
     }
@@ -1964,9 +2039,11 @@ macro \"prog_leaf\" : tactic => `(tactic| (prog_cases; all_goals (intro _hk; (tr
             .join(", ");
         writeln!(
             s,
-            "    -- the head of rule {rule}, which reads a cell typed by hand\n    case inj_{} x => exact fun hk => hand.progress.{rule} {} ⟨{hw_args}⟩",
+            "    -- the head of rule {rule}, which reads a cell typed by hand\n    case inj_{} x => exact fun hk => {}hand.progress.{rule} {} ⟨{hw_args}⟩{}",
             names::short_sort(leaf),
-            call_args.join(" ")
+            if value_result { "Or.inr (" } else { "" },
+            call_args.join(" "),
+            if value_result { ")" } else { "" }
         )
         .unwrap();
     }
@@ -1983,11 +2060,11 @@ macro \"prog_leaf\" : tactic => `(tactic| (prog_cases; all_goals (intro _hk; (tr
         }
         let short = names::short_sort(l);
         if a.m.sort(l).own.is_empty() {
-            writeln!(s, "    case inj_{short} x => prog_leaf").unwrap();
+            writeln!(s, "    case inj_{short} x =>\n      {to_app}prog_leaf").unwrap();
         } else {
             writeln!(
                 s,
-                "    case inj_{short} x =>\n      cases x <;> k2l_cases_args [{}] [{}] <;> prog_leaf",
+                "    case inj_{short} x =>\n      {to_app}cases x <;> k2l_cases_args [{}] [{}] <;> prog_leaf",
                 own_typed.join(", "),
                 ty(na, &hole_sort)
             )
@@ -2019,6 +2096,13 @@ macro \"prog_leaf\" : tactic => `(tactic| (prog_cases; all_goals (intro _hk; (tr
         })
         .collect();
     let mut implicit: Vec<String> = vec![format!("{{P : {}}}", ty(na, &prog.sort))];
+    // the program is accepted: the Bool-valued function says `true`, or it has a type `t`
+    let accepted = if value_result {
+        implicit.push("{t : Ty}".to_string());
+        "some t"
+    } else {
+        "some true"
+    };
     for (v, vt) in &store_vars {
         implicit.push(format!("{{{v} : {vt}}}"));
     }
@@ -2049,22 +2133,29 @@ macro \"prog_leaf\" : tactic => `(tactic| (prog_cases; all_goals (intro _hk; (tr
         .chain(he_args.iter().cloned())
         .collect::<Vec<_>>()
         .join(", ");
+    // a conjunction with the cells typed by hand, or the typing of `<k>` alone
+    let wt_init_pf = if he_args.is_empty() {
+        format!("by simp [init, {wtc}, k2l_pres, hP]")
+    } else {
+        format!("⟨{wt_init_he}⟩")
+    };
     writeln!(
         s,
         "/-! ## Soundness -/\n\n\
-theorem wt_init {{G : TEnv}} {} (hP : {} G P = some true) {} :\n    {wtc} G (init {init_call}) :=\n  ⟨{wt_init_he}⟩\n\n\
+theorem wt_init {{G : TEnv}} {} (hP : {} G P = {accepted}){} :\n    {wtc} G (init {init_call}) :=\n  {wt_init_pf}\n\n\
 theorem wt_stepsN {{G : TEnv}} : ∀ {{n : Nat}} {{c c' : {top_t}}},\n    StepsN {na}.Step n c c' → {wtc} G c → {wtc} G c'\n  | _, _, _, .refl _, h => h\n  | _, _, _, .step hs rest, h => wt_stepsN rest (preservation hs h)\n\n\
-/-- **Type soundness.** A program that the type checker accepts, started with cells typed by\nhand by their typings, never gets stuck: every reachable configuration has terminated or has a\nrule that applies (a step, or an undefined result). -/\n\
-theorem soundness {{G : TEnv}} {}\n    (hP : {} (tr_{} P) G = some true) {}\n    {{n : Nat}} {{c : {top_t}}} (h : StepsN {na}.Step n (init {init_call}) c) :\n    Final c ∨ {na}.App c :=\n  progress c (wt_stepsN h (wt_init hP {}))\n\n\
+/-- **Type soundness.** A program that the type checker accepts, started with cells typed by\nhand by their typings, never gets stuck: every reachable configuration has terminated{} or has a\nrule that applies (a step, or an undefined result). -/\n\
+theorem soundness {{G : TEnv}} {}\n    (hP : {} (tr_{} P) G = {accepted}){}\n    {{n : Nat}} {{c : {top_t}}} (h : StepsN {na}.Step n (init {init_call}) c) :\n    Final c ∨ {na}.App c :=\n  progress c (wt_stepsN h (wt_init hP{}))\n\n\
 #k2l_assert_axioms preserved preservation progress wt_init wt_stepsN soundness\n\nend {ns}",
         implicit.join(" "),
         prog.name,
-        he_bs.join(" "),
+        spaced(&he_bs),
+        if value_result { " (nothing left, or one value)" } else { "" },
         implicit.join(" "),
         prog.lean_b,
         terms::fsuffix(&prog.sort),
-        he_bs.join(" "),
-        he_args.join(" ")
+        spaced(&he_bs),
+        spaced(&he_args)
     )
     .unwrap();
     eprintln!(

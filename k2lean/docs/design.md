@@ -286,6 +286,13 @@ Progress alone, run three times in turn on one tree (2026-10-25, Lean v4.34.0, l
 Compared with that proof, `soundness` has the same statement; `WTc G` became `WTc envTy G` (the store typing is a parameter), and the hand-written `tyOf`, `wtS : … → Bool` became `typeOf`, `wt : … → Option Bool`, so `preservation` is stated over `WTc envTy G`.
 The case splits are prelude tactics (`KPrelude.Soundness`: `k2l_cases_apps`, `k2l_cases_args`, `k2l_cases_bools`, `k2l_cases_frz`, `k2l_cases_typing`) whose arguments are the library's constants; `Soundness.lean` instantiates them in a few macros.
 It is a command of its own rather than an option of `relate`: it reads the checker's equations and the semantics' rules and writes two modules around a hand module, while `relate --roots` stays the translation.
+
+**Programs that end with a value** (`demos/ExprTypes`: kimp's expression language `expr.k`, whose configuration is `<k> $PGM:Expr </k>`, against the checker `k/expr-typing.k`).
+With no Bool-valued typing function (`--typing typeOf`), the one type-returning function accepts programs, and the theorem assumes `typeOf (tr P) G = some t`.
+A program then ends with its value on `<k>`, so `kty` accepts what the last item leaves (`kty G i .dotk = true`: the type of the program, of a subterm being evaluated, or of a value), and `Final c` holds when `<k>` is empty or is one value (a leaf of `KResult`) followed by nothing; `progress` proves that case `Final` and every other case `App` (`progress_app`).
+With no `--store-cell`, `WTc G c` is the typing of `<k>` alone and the hand module is empty.
+With a Bool-valued function, all of it is as above (ImpTypes generates as before).
+On EXPR (2026-10-25, Lean v4.34.0): 16 inversion lemmas, 24 cases of `plug`, `k2l_preserve` 66 of 66 rules, and `Soundness.lean` builds in about 20 s; nothing is written by hand.
 Not supported (the command stops with a message): rules of several priorities; a top cell whose children are not leaf cells; holes of several sorts; types that are not an enumeration; typing functions that are not `Option`-valued or take other than a term and an environment; a store-reading rule whose head of `<k>` is not a `KItem` injection of variables, or two such rules with one head.
 
 ### 3.4 Scaffolds: what is generated and what is supplied
