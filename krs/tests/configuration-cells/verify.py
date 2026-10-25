@@ -64,10 +64,12 @@ the outcomes must agree:
   collection with sibling cells, a `?` cell on a plain field, an `Option`
   field without `multiplicity = "?"`, a `None` template, `..ghost` naming no
   labelled instance, braces on a List collection, one List rule changing
-  both ends, a created Map instance without its key, and a stream cell
-  inside a `?` group. A `?` template that
-  reads a configuration variable without `initial` is accepted with a
-  pinned warning.
+  both ends, a created Map instance without its key, a stream cell inside
+  a `?` group, and a `?` template that reads a configuration variable
+  without `initial`;
+- `optional-config-var-initial`: the same `?` template with `initial` is
+  accepted without a warning and starts present on both routes, holding
+  `$START`: from `-cSTART=3`, `go 2` writes 5 to the computation cell.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -321,12 +323,13 @@ NEGATIVE = (
     "list-both-ends",
     "map-created-without-key",
     "stream-in-optional",
+    "optional-config-var",
 )
 
-# Accepted, with a pinned warning: a `?` template that reads a configuration
-# variable without `initial` starts present in K.
-WARNING = "optional-config-var"
-WARNING_CODE = "warning[krs::analysis::collection-config-var-without-initial]"
+# Accepted: a `?` template that reads a configuration variable, with `initial`.
+PRESENT = "optional-config-var-initial"
+PRESENT_PROGRAMS = (Program("go", "go 2", "accepted", "5", variables=(("START", "3"),)),)
+PRESENT_K = "    <counter multiplicity=\"?\" initial=\"\">"
 
 
 def materialize(name: str, workspace: Path) -> Path:
@@ -476,13 +479,17 @@ def main() -> int:
             message = harness.diagnostic(name, Fixture(manifest, f"krs-configuration-cells-{name}"))
             print(f"PASS negative {name}: {message.splitlines()[0]}")
 
-        manifest = materialize(WARNING, workspace)
-        process = harness.check(Fixture(manifest, f"krs-configuration-cells-{WARNING}"))
-        warnings = diagnostic_lines(process.stderr)
-        if not any(line.startswith(WARNING_CODE) for line in warnings):
-            raise GateError(f"{WARNING}: krs check did not warn {WARNING_CODE}:\n{process.stderr}")
-        harness.pins.expect(("warnings", WARNING), warnings)
-        print(f"PASS warning {WARNING}: {warnings[0]}")
+        present = Fixture(materialize(PRESENT, workspace), f"krs-configuration-cells-{PRESENT}")
+        warnings = diagnostic_lines(harness.check(present).stderr)
+        if warnings:
+            raise GateError(f"{PRESENT}: krs check reported diagnostics:\n" + "\n".join(warnings))
+        harness.expand(present)
+        emitted = harness.emit(present)
+        source = emitted.source.read_text(encoding="utf-8")
+        if PRESENT_K not in source:
+            raise GateError(f"{PRESENT}: the emitted counter is not `initial`:\n{source}")
+        harness.compare(emitted, PRESENT_PROGRAMS, sort="Stmt")
+        print(f"PASS {PRESENT}: the `initial` counter starts as $START on both routes, without a warning")
 
     pins.finish("configuration-cells")
     print("PASS configuration-cells")
