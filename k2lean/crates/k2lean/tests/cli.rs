@@ -320,6 +320,46 @@ fn a_map_built_on_an_int_range_gets_its_entries_lemma() {
     assert_eq!(defs.matches("@[k2l_coll]").count(), 1, "{defs}");
 }
 
+/// `gen --invariant envsOk` on the `walk` fixture, whose invariant walks the `<workers>` cell map
+/// and each worker's `<env>` map by free-key patterns: each walk gets its test of one binding,
+/// read through projections (the cell map's key and the worker's `<wid>` read equal), and its
+/// element-wise form `Invariant.f_walk`, and both join the unfolding set, instead of the note
+/// that the recursion is neither a fold nor structural.
+#[test]
+fn map_walks_by_free_key_patterns_get_their_element_wise_form() {
+    let d = tmp("cli-walk");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/walk");
+    let out = d.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("gen")
+        .arg("--kore")
+        .arg(fx.join("definition.kore"))
+        .arg("--runtime")
+        .arg(fx.join("runtime.json"))
+        .arg("--out")
+        .arg(&out)
+        .args([
+            "--name",
+            "KWalk",
+            "--prelude",
+            "../../prelude",
+            "--invariant",
+            "envsOk",
+        ])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!err.contains("is neither a map walk"), "{err}");
+    let defs = std::fs::read_to_string(out.join("KWalk/InvariantDefs.lean")).unwrap();
+    assert!(defs.contains("def Invariant.allIn_test (k : SortKItem) (v : SortKItem) (S : SortMap) : Prop :=\n  KPrelude.MapHook.inKeys v S = true"), "{defs}");
+    assert!(defs.contains("def Invariant.workersIn_test (k : SortWidCell) (v : SortWorkerCell) (S : SortMap) : Prop :=\n  (Invariant.content_wid (Invariant.cell_wid v)) = (Invariant.content_wid k) ∧ (K.«allIn(_,_)_WALK_Bool_Map_Map» (Invariant.content_env (Invariant.cell_env v)) S) = some true"), "{defs}");
+    assert!(defs.contains("theorem Invariant.workersIn_walk (m : SortWorkerCellMap) (S : SortMap) :\n    K.«workersIn(_,_)_WALK_Bool_WorkersCell_Map» (SortWorkersCell.«<workers>» m) S = some true ↔\n      KPrelude.MapHook.WF m ∧ KPrelude.MapHook.EntriesOn (fun q => Invariant.workersIn_test q.1 q.2 S) m := by"), "{defs}");
+    let thms = std::fs::read_to_string(out.join("KWalk/Invariants.lean")).unwrap();
+    assert!(thms.contains("Invariant.allIn_walk, Invariant.allIn_test, Invariant.workersIn_walk, Invariant.workersIn_test"), "{thms}");
+}
+
 fn gen_fixture(dir: &Path, out: &Path, ns: &str) {
     let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
         .arg("gen")
