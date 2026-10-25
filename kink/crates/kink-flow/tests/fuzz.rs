@@ -963,6 +963,58 @@ mod kink_tier {
         );
     }
 
+    /// A template on a definition that reads standard input (stock SIMPLE) and binds no `$STDIN`
+    /// assembles as kink's program does: the campaign binds `$STDIN` to empty input, as kink does,
+    /// where k-rust-fuzz's own default is krun's buffered `"\n"`, which made every such job a
+    /// `template-assembly-differs` refusal (INT9 review K2). The fragment does not print the
+    /// binding, which kink's default gives the program anyway. A template that binds `$STDIN`
+    /// itself keeps kink's order (its binding, then `$IO`'s default) and also assembles as kink's.
+    #[test]
+    #[ignore = "kink"]
+    fn a_template_without_stdin_on_a_stream_definition_assembles_as_kinks() {
+        let spec =
+            fs::read_to_string(repository().join("testdata/k/runlist/simple-untyped.md")).unwrap();
+        let manifest = "[spec]\nentry = \"simple-untyped.md\"\nmain_module = \"SIMPLE-UNTYPED\"\n\
+                        syntax_module = \"SIMPLE-UNTYPED-SYNTAX\"\n\n[[program]]\nid = \"add\"\n\
+                        text = 'function main() { var x; x = 1 + 2; }'\n\n[[program]]\nid = \
+                        \"add-stdin\"\ntext = 'function main() { var x; x = 1 + 2; }'\nvariables = \
+                        { STDIN = '\"\"' }\n";
+        let mutations = "[[mutation]]\nid = \"add-becomes-sub\"\nnote = \"addition subtracts\"\n\
+                         [[mutation.edit]]\nline = 603\nfind = \"I1 +Int I2\"\nreplace = \"I1 -Int \
+                         I2\"\n";
+        let hole = "[[template.hole]]\nname = \"A\"\nsort = \"Int\"\nfind = \"1 + 2\"\nliteral = \
+                    \"1\"\nrange = { min = 0, max = 3 }\n";
+        let templates = format!(
+            "[[template]]\nid = \"add-holes\"\nprogram = \"add\"\n{hole}[[template]]\nid = \
+             \"add-stdin-holes\"\nprogram = \"add-stdin\"\n{hole}"
+        );
+        let dir = scratch_flow("stdin", "simple-untyped.md", &spec, manifest, mutations);
+        for (template, prints_stdin) in [("add-holes", false), ("add-stdin-holes", true)] {
+            let (document, ok) = fuzz_kill(
+                &dir,
+                "MUTATIONS.toml",
+                Some(&templates),
+                template,
+                "add-becomes-sub",
+                imp_options(20),
+            );
+            assert!(ok, "{template}: {document:#}");
+            assert_eq!(document["stopped"], Value::Null, "{template}: {document:#}");
+            assert_eq!(
+                document["attempts"][0]["candidate"]["assembly"]["status"], "match",
+                "{template}: {document:#}"
+            );
+            assert_eq!(
+                document["program"]["fragment"]
+                    .as_str()
+                    .unwrap()
+                    .contains("STDIN"),
+                prints_stdin,
+                "{template}: {document:#}"
+            );
+        }
+    }
+
     /// The last `run` document (read from `--cache`, never written by `fuzz`): no document, then
     /// the mutation's reaching programs suggested as templates with a warning for a template outside
     /// them, and a warning for a template whose program is not comparable; `--time-limit-ms` warns

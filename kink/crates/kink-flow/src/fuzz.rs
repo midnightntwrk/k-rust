@@ -780,6 +780,10 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
         .collect::<BTreeMap<_, _>>();
     for (name, text) in &case.config_vars {
         let name = name.strip_prefix('$').unwrap_or(name);
+        if !variables.contains_key(name) && KINK_STREAM_DEFAULTS.contains(&(name, text.as_str())) {
+            // `campaign_variables`' binding, which kink's default gives the program anyway.
+            continue;
+        }
         variables.insert(name.to_owned(), text.clone());
     }
     for hole in &case.holes {
@@ -1008,6 +1012,31 @@ pub fn check_assembly(
             detail: details.join("; "),
         }
     }
+}
+
+/// The stream defaults kink assembles a program with (kink-corpus `assemble_input_with`): `$IO`
+/// off and `$STDIN` empty, each as K text.
+const KINK_STREAM_DEFAULTS: [(&str, &str); 2] = [("IO", "\"off\""), ("STDIN", "\"\"")];
+
+/// The configuration variables the campaign assembles the template with, in kink's binding
+/// order: the template's, then kink's stream defaults for each stream variable the definition
+/// declares and the template does not bind. k-rust-fuzz's own default binds `$STDIN` to krun's
+/// buffered empty input (`"\n"`) where kink binds `""`, so without these bindings every template
+/// on a definition with stream cells assembled differently from kink's program and the job was
+/// refused (`template-assembly-differs`; INT9 review K2). The order matters as much as the
+/// values: the initial configuration lists the bindings in the order they are made.
+fn campaign_variables(spec: &AdmittedSpec, instance: &Instance) -> Vec<(String, String)> {
+    let declared = &spec.compiled.artifacts().configuration_variables;
+    let mut variables = instance.variables.clone();
+    for (name, text) in KINK_STREAM_DEFAULTS {
+        let bound = variables
+            .iter()
+            .any(|(bound, _)| bound.strip_prefix('$').unwrap_or(bound) == name);
+        if declared.contains_key(name) && !bound {
+            variables.push((name.to_owned(), text.to_owned()));
+        }
+    }
+    variables
 }
 
 /// The template as a `[[program]]` of the flow (its text inline): what kink would assemble and
@@ -1422,7 +1451,7 @@ pub fn kill(
                 text: instance.text.clone(),
                 start_sort: instance.start_sort.clone(),
             }),
-            config_vars: instance.variables.clone(),
+            config_vars: campaign_variables(&spec, &instance),
         }),
         holes: template.holes.clone(),
         target: Target {
