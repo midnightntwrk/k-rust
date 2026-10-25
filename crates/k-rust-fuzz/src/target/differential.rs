@@ -742,6 +742,7 @@ mod tests {
             data_end,
             diagnostics: Vec::new(),
             term_conjunction: false,
+            undefined_rule: None,
         }
     }
 
@@ -759,6 +760,7 @@ mod tests {
             data_end: None,
             diagnostics: Vec::new(),
             term_conjunction: false,
+            undefined_rule: None,
         }
     }
 

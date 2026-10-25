@@ -25,7 +25,8 @@ pub(crate) use self::live::ConfigurationBuilder;
 pub(crate) use self::schedule::derive_seed;
 use self::{
     campaign_loop::{
-        Cuts, Ending, FiniteDomain, LoopSettings, no_witness, report_without_cases, run_loop,
+        Cuts, Ending, FiniteDomain, LoopSettings, no_witness, report_without_cases,
+        run_loop_filtered,
     },
     live::{GraphCheck, LiveCases, LiveRunner, RunSetup},
     proposer::{BlindProposer, Proposer},
@@ -254,11 +255,77 @@ impl Campaign {
         reason = "ARCHITECTURE 9.2 fixes this signature; a token is a shared handle"
     )]
     pub fn run(&mut self, budget: Budget, cancel: Option<CancellationToken>) -> FuzzReport {
-        if self.equivalent {
-            return report_without_cases(&self.settings, budget, CampaignOutcome::Equivalent);
-        }
-        if let Some(outcome) = &self.not_comparable {
-            return report_without_cases(&self.settings, budget, outcome.clone());
+        self.run_with(budget, cancel.as_ref(), None)
+    }
+
+    /// [`Campaign::run`] with the client's witness filter `filter` ([`crate::filter`],
+    /// FZ-COMPARABLE-B): a candidate hit becomes a witness only when the filter accepts its case
+    /// before the confirmation and the confirmed case after it, every shrink candidate is judged
+    /// the same way, and a refused hit is `unsupported` (reason `client-refused`) and, when the
+    /// campaign shrinks, repaired from the filter's candidates
+    /// ([`crate::filter::WitnessFilter::repair`]). The report records the filter's identity
+    /// (`identity.filter`), each cause's first refused hit (`client-refusals`) and the filter's
+    /// counts (`totals.filter`). The filter is called on the calling thread. A filter that
+    /// accepts every case gives [`Campaign::run`]'s report, apart from `identity.filter`.
+    ///
+    /// # Panics
+    ///
+    /// As [`Campaign::run`]: never. A panic of the filter aborts the campaign (`client-panic`).
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the signature of `run`; a token is a shared handle"
+    )]
+    pub fn run_filtered(
+        &mut self,
+        budget: Budget,
+        cancel: Option<CancellationToken>,
+        filter: &mut dyn crate::filter::WitnessFilter,
+    ) -> FuzzReport {
+        self.run_with(budget, cancel.as_ref(), Some(filter))
+    }
+
+    /// The report of a run of an equivalent pair or a campaign not comparable at setup: no case
+    /// runs, so `filter` judges nothing, but its identity is recorded.
+    fn report_without_running(
+        &self,
+        budget: Budget,
+        filter: Option<&mut dyn crate::filter::WitnessFilter>,
+    ) -> FuzzReport {
+        let id = filter.map(|filter| crate::crash::catch(|| filter.id()));
+        let outcome = match (&self.not_comparable, &id) {
+            (_, Some(Err(record))) => CampaignOutcome::Aborted {
+                kind: AbortKind::ClientPanic,
+                reason: format!(
+                    "the client's witness filter panicked (phase filter, in `id`): {}",
+                    record.message
+                ),
+                case: None,
+                holes: Vec::new(),
+                panic: Some(record.clone()),
+                no_witness: no_witness(
+                    Ending::Aborted,
+                    &Totals::default(),
+                    &Cuts::default(),
+                    budget,
+                    &self.spec.options,
+                    self.spec.rejection_cap,
+                ),
+            },
+            (Some(outcome), _) => outcome.clone(),
+            (None, _) => CampaignOutcome::Equivalent,
+        };
+        report_without_cases(&self.settings, budget, outcome, id.and_then(Result::ok))
+    }
+
+    /// [`Campaign::run`], with the witness filter when one is given.
+    fn run_with(
+        &mut self,
+        budget: Budget,
+        cancel: Option<&CancellationToken>,
+        filter: Option<&mut dyn crate::filter::WitnessFilter>,
+    ) -> FuzzReport {
+        if self.equivalent || self.not_comparable.is_some() {
+            return self.report_without_running(budget, filter);
         }
         let mut cases = match self.cases.take() {
             Some(cases) => cases,
@@ -284,6 +351,7 @@ impl Campaign {
                             panic: None,
                             no_witness,
                         },
+                        filter.and_then(|filter| crate::crash::catch(|| filter.id()).ok()),
                     );
                 }
             },
@@ -341,7 +409,7 @@ impl Campaign {
         }
         proposers.extend(self.corpus_proposer(&cases));
         #[cfg(feature = "z3")]
-        proposers.extend(self.solve_proposer(&cases, cancel.as_ref()));
+        proposers.extend(self.solve_proposer(&cases, cancel));
         let mut schedule = Schedule::new(self.spec.seed, self.explicit.clone(), proposers);
         // One assembler per side for the whole run, so that every case reuses its parsers.
         let parts = cases.assembly_parts();
@@ -354,12 +422,13 @@ impl Campaign {
             setup,
             sessions: None,
         };
-        run_loop(
+        run_loop_filtered(
             &mut runner,
             &mut schedule,
             &self.settings,
             budget,
-            cancel.as_ref(),
+            cancel,
+            filter,
         )
     }
 }
@@ -930,6 +999,8 @@ fn identity(
         solve: (weight(&spec.proposers, ProposerKind::Solve) > 0).then(SolveParameters::current),
         // Filled by `Campaign::new` from the resolved holes.
         effective_constraints: Vec::new(),
+        // Filled by `Campaign::run_filtered` from its filter.
+        filter: None,
     })
 }
 

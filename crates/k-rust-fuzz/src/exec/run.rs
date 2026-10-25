@@ -933,6 +933,7 @@ impl Executor {
             data_end: None,
             diagnostics: Vec::new(),
             term_conjunction: false,
+            undefined_rule: None,
         };
         let judge = Judge {
             normal_end: &self.normal_end,
@@ -1208,6 +1209,9 @@ impl Judge<'_> {
                 data_end: None,
                 diagnostics: LeafDiagnostic::of_leaf(leaf),
                 term_conjunction: false,
+                undefined_rule: (leaf.reason == HaltReasonOutput::Trivial)
+                    .then(|| leaf.rule_id.clone())
+                    .flatten(),
             });
         }
         let mut internal = match self.judge_internally(backend, &leaves) {

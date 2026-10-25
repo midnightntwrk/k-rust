@@ -7,7 +7,10 @@ use k_rust::backend::CancellationToken;
 use num_bigint::BigInt;
 
 use super::{
-    campaign_loop::{CutCounts, Cuts, Ending, LoopSettings, MAX_SHRINK_RUNS, no_witness, run_loop},
+    campaign_loop::{
+        CutCounts, Cuts, Ending, LoopSettings, MAX_SHRINK_RUNS, no_witness, run_loop,
+        run_loop_filtered,
+    },
     explicit_proposals,
     proposer::{
         CoverageFeedback, Feedback as _, Observation, Origin, Proposal, ProposalContext, Proposer,
@@ -20,6 +23,7 @@ use super::{
 use crate::{
     error::CampaignError,
     exec::{Abort, ComparableCondition, OutcomeClass},
+    filter::{FilterRefusal, WitnessFilter},
     holes::HoleLocation,
     report::{
         CampaignOutcome, Comparability, DefinitionIdentity, DefinitionRole, FuzzReport, HitLabel,
@@ -94,6 +98,8 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
             initial_configuration: format!("init{values:?}"),
             final_configurations: vec![state.to_owned()],
             halts: Vec::new(),
+            undefined_rules: Vec::new(),
+            work: None,
         }],
         reaching: Reaching {
             role: DefinitionRole::Baseline,
@@ -312,6 +318,7 @@ fn identity() -> ReportIdentity {
         corpus: None,
         solve: None,
         effective_constraints: Vec::new(),
+        filter: None,
     }
 }
 
@@ -3077,4 +3084,488 @@ fn an_observer_panic_while_a_witness_shrinks_aborts_and_names_the_witness() {
         "{:?}",
         report.warnings
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The witness filter (FZ-COMPARABLE-B)
+
+type JudgeScript = Box<dyn FnMut(&crate::report::WitnessCase) -> Option<FilterRefusal>>;
+type RepairScript = Box<dyn FnMut(&[Value]) -> Vec<Vec<Value>>>;
+
+/// A witness filter whose verdicts and repair candidates follow closures, recording the hole
+/// values of every case it judged and every repair it was asked for.
+struct Judging {
+    refuse: JudgeScript,
+    repair: RepairScript,
+    judged: Vec<Vec<Value>>,
+    repairs: Vec<Vec<Value>>,
+}
+
+impl Judging {
+    fn new(
+        refuse: impl FnMut(&crate::report::WitnessCase) -> Option<FilterRefusal> + 'static,
+    ) -> Self {
+        Self {
+            refuse: Box::new(refuse),
+            repair: Box::new(|_| Vec::new()),
+            judged: Vec::new(),
+            repairs: Vec::new(),
+        }
+    }
+
+    /// Refuse every case whose first hole is below `bound`, for the cause `small`.
+    fn below(bound: i64) -> Self {
+        Self::new(move |case| (as_int(&case.holes[0].value) < bound).then(|| refusal("small")))
+    }
+}
+
+impl WitnessFilter for Judging {
+    fn id(&self) -> String {
+        "test-filter/v1".into()
+    }
+
+    fn judge(&mut self, case: &crate::report::WitnessCase) -> Result<(), FilterRefusal> {
+        self.judged
+            .push(case.holes.iter().map(|hole| hole.value.clone()).collect());
+        (self.refuse)(case).map_or(Ok(()), Err)
+    }
+
+    fn repair(
+        &mut self,
+        _case: &crate::report::WitnessCase,
+        values: &[Value],
+        _refusal: &FilterRefusal,
+    ) -> Vec<Vec<Value>> {
+        self.repairs.push(values.to_vec());
+        (self.repair)(values)
+    }
+}
+
+fn refusal(cause: &str) -> FilterRefusal {
+    FilterRefusal {
+        cause: cause.into(),
+        detail: format!("{cause} detail"),
+        remedy: Some(format!("avoid {cause}")),
+    }
+}
+
+fn filtered(
+    runner: &mut Scripted,
+    schedule: &mut Schedule,
+    settings: &LoopSettings,
+    budget: Budget,
+    filter: &mut Judging,
+) -> FuzzReport {
+    run_loop_filtered(runner, schedule, settings, budget, None, Some(filter))
+}
+
+fn ints(values: &[Vec<Value>]) -> Vec<Vec<i64>> {
+    values
+        .iter()
+        .map(|values| values.iter().map(as_int).collect())
+        .collect()
+}
+
+/// A refused hit is judged before its confirmation, so it costs no confirmation run, and is
+/// counted `unsupported` (`client-refused`) under its cause; the search goes on, and a later hit
+/// the filter accepts is the witness. Shrink candidates the filter refuses are dropped before
+/// their confirmation.
+#[test]
+fn a_refused_hit_is_demoted_and_a_later_accepted_hit_is_the_witness() {
+    let mut runner = Scripted::new(
+        |values| {
+            if as_int(&values[0]) >= 3 {
+                hit(values, 10, "end")
+            } else {
+                run(OutcomeClass::Miss, 10)
+            }
+        },
+        |values| Ok(hit(values, 7, "end")),
+    );
+    let mut filter = Judging::below(5);
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(10),
+        &mut filter,
+    );
+    let witness = report.witness().cloned().expect("a witness");
+    assert_eq!(witness.first.holes[0].value, int(5));
+    assert_eq!(witness.shrunk, None);
+    assert_eq!(witness.repaired_from, None);
+    // Cases 1, 2, 3, 4, 5, then shrink candidates 0, 2, 3, 4 (bisection between 0 and 5): only
+    // the accepted case 5 is confirmed.
+    assert_eq!(ints(&runner.confirmed), [[5]]);
+    assert_eq!(report.totals.cases, 5);
+    assert_eq!(
+        report.totals.unsupported_reasons,
+        BTreeMap::from([(crate::exec::UnjudgedReason::ClientRefused, 2)])
+    );
+    assert_eq!(
+        report.totals.filter.refused,
+        BTreeMap::from([("small".into(), 2)])
+    );
+    assert_eq!(report.totals.filter.refused_shrink_candidates, 2);
+    assert_eq!(report.client_refusals.len(), 1);
+    let refused = &report.client_refusals[0];
+    assert_eq!(
+        (refused.case, refused.count, refused.repaired),
+        (2, 2, false)
+    );
+    assert_eq!(refused.holes[0].value, int(3));
+    assert_eq!(refused.remedy.as_deref(), Some("avoid small"));
+    assert_eq!(report.identity.filter.as_deref(), Some("test-filter/v1"));
+    // 3 and 4 judged once each (refused), 5 before and after its confirmation, and the shrink
+    // candidates that hit (3 and 4) once each.
+    assert_eq!(ints(&filter.judged), [[3], [4], [5], [5], [3], [4]]);
+}
+
+/// The shrink screen keeps only candidates the filter accepts both before and after their
+/// confirmation: the hit needs X >= 1, the filter refuses X < 3, so the witness shrinks to 3,
+/// not to 1, and 2 is never confirmed.
+#[test]
+fn the_shrink_screen_keeps_only_candidates_the_filter_accepts() {
+    let mut runner = Scripted::new(
+        |values| {
+            if as_int(&values[0]) >= 1 {
+                hit(values, 1, "end")
+            } else {
+                run(OutcomeClass::Miss, 1)
+            }
+        },
+        |values| Ok(hit(values, 1, "end")),
+    );
+    let mut filter = Judging::below(3);
+    let mut schedule = Schedule::new(
+        1,
+        Vec::new(),
+        vec![(1, Counter::boxed(ProposerKind::Blind, 10, 0))],
+    );
+    let report = filtered(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Cases(1),
+        &mut filter,
+    );
+    let witness = report.witness().cloned().expect("a witness");
+    assert_eq!(witness.first.holes[0].value, int(10));
+    assert_eq!(
+        witness.shrunk.expect("a shrunk witness").holes[0].value,
+        int(3)
+    );
+    assert_eq!(ints(&runner.confirmed), [[10], [5], [3]]);
+    // 2 in the first pass, then 1 and 2 again in the pass from 3; none is confirmed.
+    assert_eq!(report.totals.filter.refused_shrink_candidates, 3);
+    assert!(report.totals.filter.refused.is_empty());
+}
+
+/// A refused hit is repaired from the filter's candidates: each runs as a full case, charged as
+/// extra work, and a candidate the filter refuses again is not taken; the first that hits, is
+/// accepted, confirmed and accepted again is the witness's `first`, and the witness names the
+/// refused case (`repaired-from`).
+#[test]
+fn a_refused_hit_is_repaired_from_the_filters_candidates() {
+    let mut runner = Scripted::new(
+        |values| hit(values, 10, "end"),
+        |values| Ok(hit(values, 7, "end")),
+    );
+    runner.admissible = Box::new(|_, value| as_int(value) != 99);
+    let mut filter = Judging::new(|case| {
+        case.holes
+            .iter()
+            .any(|hole| as_int(&hole.value) < 0)
+            .then(|| refusal("negative"))
+    });
+    filter.repair = Box::new(|values| {
+        vec![
+            // The refused case itself, and an inadmissible candidate, are never run.
+            values.to_vec(),
+            vec![int(99), int(99)],
+            // Still negative: refused again.
+            vec![int(-1), int(4)],
+            vec![int(3), int(4)],
+            vec![int(3), int(4)],
+        ]
+    });
+    let mut schedule = Schedule::new(1, vec![vec![int(-3), int(4)]], Vec::new());
+    let report = filtered(
+        &mut runner,
+        &mut schedule,
+        &settings(2),
+        Budget::Cases(1),
+        &mut filter,
+    );
+    let witness = report.witness().cloned().expect("a repaired witness");
+    assert_eq!(
+        witness
+            .first
+            .holes
+            .iter()
+            .map(|hole| as_int(&hole.value))
+            .collect::<Vec<_>>(),
+        [3, 4]
+    );
+    let from = witness.repaired_from.expect("repaired-from");
+    assert_eq!((from.case, from.cause.as_str()), (0, "negative"));
+    assert_eq!(from.holes[0].value, int(-3));
+    assert!(report.client_refusals[0].repaired);
+    assert_eq!(report.totals.filter.repairs, 1);
+    assert_eq!(report.totals.filter.repair_candidates, 2);
+    // Two candidate runs (10 each) and one confirmation (7).
+    assert_eq!(report.totals.filter.repair_work, 27);
+    assert_eq!(report.totals.cases, 1);
+    // The candidate refused again is never confirmed.
+    assert_eq!(ints(&runner.confirmed)[0], [3, 4]);
+    assert_eq!(ints(&filter.repairs), [[-3, 4]]);
+}
+
+/// Without shrinking the found case itself is the witness the caller asked for, so a refused hit
+/// is not repaired.
+#[test]
+fn without_shrinking_a_refused_hit_is_not_repaired() {
+    let mut runner = Scripted::new(
+        |values| hit(values, 1, "end"),
+        |values| Ok(hit(values, 1, "end")),
+    );
+    let mut filter = Judging::below(100);
+    filter.repair = Box::new(|_| vec![vec![int(500)]]);
+    let mut settings = settings(1);
+    settings.options.shrink = false;
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings,
+        Budget::Cases(3),
+        &mut filter,
+    );
+    assert_eq!(report.witness(), None);
+    assert!(filter.repairs.is_empty());
+    assert_eq!(
+        report.totals.filter.refused,
+        BTreeMap::from([("small".into(), 3)])
+    );
+}
+
+/// A cause whose repairs failed `MAX_FAILED_REPAIRS` times is repaired no more (review M7), and
+/// a campaign whose every hit was refused says so in its statement and a warning, so that it
+/// does not read as survival (review M5).
+#[test]
+fn a_cause_whose_repairs_failed_is_no_longer_repaired() {
+    let mut runner = Scripted::new(
+        |values| hit(values, 1, "end"),
+        |values| Ok(hit(values, 1, "end")),
+    );
+    let mut filter = Judging::new(|_| Some(refusal("always")));
+    filter.repair = Box::new(|values| vec![vec![int(as_int(&values[0]) + 1000)]]);
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(10),
+        &mut filter,
+    );
+    assert_eq!(report.witness(), None);
+    let max = crate::filter::MAX_FAILED_REPAIRS;
+    assert_eq!(filter.repairs.len(), usize::try_from(max).expect("small"));
+    assert_eq!(report.totals.filter.repairs, max);
+    assert_eq!(report.totals.filter.repair_candidates, max);
+    assert_eq!(report.totals.filter.repairs_skipped, 10 - max);
+    assert_eq!(
+        report.totals.filter.refused,
+        BTreeMap::from([("always".into(), 10)])
+    );
+    let statement = report.no_witness().cloned().expect("no witness").statement;
+    assert!(
+        statement.contains(
+            "10 candidate hits were refused by the client's witness filter, so none is a witness \
+             the client accepts (by cause: 10 always). For always: avoid always."
+        ),
+        "{statement}"
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("client-refused:")),
+        "{:?}",
+        report.warnings
+    );
+}
+
+/// A panic of the filter aborts the campaign as a panicking observer does (`client-panic`),
+/// naming the case and its values.
+#[test]
+fn a_panicking_filter_aborts_the_campaign_with_client_panic() {
+    let mut runner = Scripted::new(
+        |values| hit(values, 1, "end"),
+        |values| Ok(hit(values, 1, "end")),
+    );
+    let mut filter = Judging::new(|_| panic!("the filter fails"));
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 7),
+        &settings(1),
+        Budget::Cases(3),
+        &mut filter,
+    );
+    let json = report_json(&report);
+    let outcome = &json["outcome"];
+    assert_eq!(outcome["status"], "aborted", "{outcome}");
+    assert_eq!(outcome["kind"], "client-panic", "{outcome}");
+    assert_eq!(outcome["holes"][0]["value"]["int"], "7", "{outcome}");
+    assert!(
+        outcome["reason"].as_str().unwrap().contains("phase filter"),
+        "{outcome}"
+    );
+    assert!(runner.confirmed.is_empty());
+}
+
+/// A filter that judges two equal witness cases differently (here: it accepts a case once, then
+/// refuses every case) breaks its contract: the campaign aborts with `client-defect` (review
+/// M1).
+#[test]
+fn a_filter_that_judges_equal_cases_differently_is_a_client_defect() {
+    let mut runner = Scripted::new(
+        |values| hit(values, 1, "end"),
+        |values| Ok(hit(values, 1, "end")),
+    );
+    let mut calls = 0;
+    let mut filter = Judging::new(move |_| {
+        calls += 1;
+        (calls > 1).then(|| refusal("flaky"))
+    });
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 4),
+        &settings(1),
+        Budget::Cases(3),
+        &mut filter,
+    );
+    let json = report_json(&report);
+    assert_eq!(json["outcome"]["kind"], "client-defect", "{json}");
+    assert_eq!(json["outcome"]["case"], 0, "{json}");
+    assert!(
+        json["outcome"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("not a function of the case"),
+        "{json}"
+    );
+}
+
+/// A refusal whose cause is no cause token is client misuse: `client-defect` (review M1).
+#[test]
+fn a_malformed_cause_is_a_client_defect() {
+    let mut runner = Scripted::new(
+        |values| hit(values, 1, "end"),
+        |values| Ok(hit(values, 1, "end")),
+    );
+    let mut filter = Judging::new(|_| Some(refusal("Not A Token")));
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 4),
+        &settings(1),
+        Budget::Cases(3),
+        &mut filter,
+    );
+    let json = report_json(&report);
+    assert_eq!(json["outcome"]["kind"], "client-defect", "{json}");
+    assert_eq!(report.totals.cases, 1);
+}
+
+/// When the confirmation's witness case differs from the case's in what the filter reads (here a
+/// side's work) and the filter refuses it, the refusal wins and the difference is an engine
+/// defect, not the client's (review M1).
+#[test]
+fn a_refused_confirmation_of_another_case_is_an_engine_defect_and_the_refusal_wins() {
+    let mut runner = Scripted::new(
+        |values| hit(values, 1, "end"),
+        |values| {
+            let mut confirmation = hit(values, 1, "end");
+            if let Some(detail) = confirmation.hit.as_mut() {
+                detail.sides[0].work = Some(2);
+            }
+            Ok(confirmation)
+        },
+    );
+    let mut filter = Judging::new(|case| (case.sides[0].work == Some(2)).then(|| refusal("work")));
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 4),
+        &settings(1),
+        Budget::Cases(1),
+        &mut filter,
+    );
+    assert_eq!(report.witness(), None);
+    assert_eq!(
+        report.totals.filter.refused,
+        BTreeMap::from([("work".into(), 1)])
+    );
+    assert_eq!(
+        report.engine_defects.len(),
+        1,
+        "{:?}",
+        report.engine_defects
+    );
+    assert!(
+        report.engine_defects[0]
+            .description
+            .contains("the refusal wins"),
+        "{:?}",
+        report.engine_defects
+    );
+}
+
+/// A filter that accepts every case gives the unfiltered report, byte for byte, apart from
+/// `identity.filter` (review M8): the filter only removes candidates.
+#[test]
+fn an_accepting_filter_gives_the_unfiltered_report() {
+    let script = || {
+        Scripted::new(
+            |values| {
+                if as_int(&values[0]) >= 40 {
+                    hit(values, 10, "end")
+                } else {
+                    run(OutcomeClass::Miss, 10)
+                }
+            },
+            |values| Ok(hit(values, 5, "end")),
+        )
+    };
+    let schedule = || {
+        Schedule::new(
+            1,
+            Vec::new(),
+            vec![(1, Counter::boxed(ProposerKind::Blind, 7, 13))],
+        )
+    };
+    let unfiltered = run_loop(
+        &mut script(),
+        &mut schedule(),
+        &settings(1),
+        Budget::Cases(20),
+        None,
+    );
+    let mut filter = Judging::new(|_| None);
+    let mut accepted = filtered(
+        &mut script(),
+        &mut schedule(),
+        &settings(1),
+        Budget::Cases(20),
+        &mut filter,
+    );
+    assert!(!filter.judged.is_empty());
+    assert!(
+        unfiltered
+            .witness()
+            .and_then(|w| w.shrunk.as_ref())
+            .is_some()
+    );
+    assert_eq!(
+        accepted.identity.filter.take().as_deref(),
+        Some("test-filter/v1")
+    );
+    assert_eq!(accepted.to_canonical_json(), unfiltered.to_canonical_json());
 }

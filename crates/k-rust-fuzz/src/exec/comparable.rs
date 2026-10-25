@@ -448,6 +448,7 @@ mod tests {
             data_end: Some(true),
             diagnostics: Vec::new(),
             term_conjunction: false,
+            undefined_rule: None,
         }
     }
 

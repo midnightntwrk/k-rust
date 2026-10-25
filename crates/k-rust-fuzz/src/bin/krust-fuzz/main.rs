@@ -608,6 +608,13 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
             unverified.join(" and ")
         );
     }
+    if let Some(filter) = &file.report.identity.filter {
+        eprintln!(
+            "note: the witness was found under the client's witness filter `{filter}`, and the \
+             replay runs without it: a filter only chooses which cases become witnesses, so a \
+             confirmed witness reproduces without it"
+        );
+    }
     if replay.cases.is_empty() {
         let mut message = String::from("the witness's identity is not the replay's:");
         for mismatch in &replay.mismatches {
@@ -1186,6 +1193,8 @@ mod tests {
             initial_configuration: "init".into(),
             final_configurations: (0..count).map(|index| format!("end-{index}")).collect(),
             halts: vec![HaltReasonOutput::Stuck; count],
+            undefined_rules: Vec::new(),
+            work: None,
         };
         let case = WitnessCase {
             holes: Vec::new(),

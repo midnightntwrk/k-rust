@@ -90,6 +90,13 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// ([`ExecutionModality`]), `reaching.configuration` and the reasons `fired-off-trace` and
 /// `any-state-unattributed`. A version-8 reader refuses the new fields and reasons, and
 /// `--replay` refuses a version-8 witness by its version.
+///
+/// Within version 9 (FZ-COMPARABLE-B, the same round-3 wave): a campaign run with a client's
+/// witness filter ([`crate::filter`]) records `identity.filter`, the top-level `client-refusals`,
+/// `totals.filter`, a repaired witness's `repaired-from`, the reason `client-refused`, the abort
+/// kind `client-defect` and the crash phase `repair`; every witness side records its run's `work`
+/// and, for undefined steps, `undefined-rules`. A reader of the round's earlier version-9 reports
+/// refuses the new fields.
 pub const REPORT_VERSION: u32 = 9;
 
 /// A campaign's report (ARCHITECTURE 9.3).
@@ -124,6 +131,11 @@ pub struct FuzzReport {
     /// [`crate::crash::MAX_CRASH_SIGNATURES`] signatures; absent when 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub crashes_omitted: u64,
+    /// The first refused hit of each cause the client's witness filter gave
+    /// ([`ClientRefusal`], [`crate::filter`]), at most [`crate::filter::MAX_CLIENT_REFUSALS`];
+    /// absent when no hit was refused.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub client_refusals: Vec<ClientRefusal>,
     /// Records the definitions' loads observed, reported once per campaign; they taint no leaf
     /// (T-5).
     pub load_records: Vec<LoadRecord>,
@@ -299,6 +311,12 @@ pub struct ReportIdentity {
     /// hole was narrowed. The declared constraints stay the ones every case is checked against.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effective_constraints: Vec<EffectiveConstraints>,
+    /// The identity of the client's witness filter the campaign ran with
+    /// ([`crate::filter::WitnessFilter::id`]): the filter chooses which cases become witnesses, so
+    /// the report is a function of it too. Absent for a campaign without a filter. Replay
+    /// ignores it: a confirmed witness reproduces without the filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
 }
 
 /// How a run reports its paths: k-rust's `ExecuteRequest::result_modality`
@@ -1036,6 +1054,78 @@ pub struct Totals {
     /// when 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub crash_work: u64,
+    /// What the client's witness filter refused and what its repairs cost ([`FilterTotals`]);
+    /// absent when it refused nothing.
+    #[serde(default, skip_serializing_if = "FilterTotals::is_empty")]
+    pub filter: FilterTotals,
+}
+
+/// What a campaign's witness filter refused and what its repairs cost ([`Totals::filter`],
+/// [`crate::filter`]).
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct FilterTotals {
+    /// Refused hits per cause; each is a case counted `unsupported` with the reason
+    /// `client-refused`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub refused: BTreeMap<String, u64>,
+    /// Shrink candidates that hit, refused before or after their confirmation (no case).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub refused_shrink_candidates: u64,
+    /// Refused hits whose repair ran at least one candidate.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub repairs: u64,
+    /// Refused hits left unrepaired because their cause's repairs had failed
+    /// [`crate::filter::MAX_FAILED_REPAIRS`] times.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub repairs_skipped: u64,
+    /// Repair candidates run (no case each).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub repair_candidates: u64,
+    /// The work of the repair candidates' runs and confirmations, included in [`Totals::work`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub repair_work: u64,
+}
+
+impl FilterTotals {
+    /// Whether the filter refused nothing (so nothing was repaired).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// The first refused hit of one cause ([`FuzzReport::client_refusals`]).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ClientRefusal {
+    /// The refusal's cause token.
+    pub cause: String,
+    /// The refusal of this case, in the client's words.
+    pub detail: String,
+    /// What the client suggests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remedy: Option<String>,
+    /// The case refused first with this cause.
+    pub case: u64,
+    /// Its hole values, in declaration order.
+    pub holes: Vec<CrashHole>,
+    /// The hits refused with this cause.
+    pub count: u64,
+    /// Whether a refused hit of this cause was repaired into the campaign's witness.
+    pub repaired: bool,
+}
+
+/// The refused hit a repaired witness came from ([`Witness::repaired_from`]).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct RepairedFrom {
+    /// The refused case.
+    pub case: u64,
+    /// Its hole values, in declaration order.
+    pub holes: Vec<CrashHole>,
+    /// The cause of its refusal.
+    pub cause: String,
 }
 
 /// Whether a count is 0, for the counts a report leaves out when they are. (A `u64` is
@@ -1194,6 +1284,10 @@ pub struct Witness {
     /// mode. Absent for every other target, and when no `krun` run is equivalent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mutant_krun_command: Option<String>,
+    /// For a witness the client's witness filter repaired ([`crate::filter`]): the refused hit
+    /// its repair started from, which `first` replaces; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repaired_from: Option<RepairedFrom>,
 }
 
 /// One confirmed witness case (ARCHITECTURE 2.6).
@@ -1336,6 +1430,21 @@ pub struct WitnessSide {
     /// witness kind. Replay compares it with the configurations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub halts: Vec<HaltReasonOutput>,
+    /// For each leaf of [`Self::final_configurations`], in the same order, the unique id of the
+    /// rule whose step is undefined at a `trivial` leaf, when the backend names one, and `null`
+    /// for every other leaf; absent when no leaf names one. Replay compares it when present.
+    #[serde(default, skip_serializing_if = "no_rule")]
+    pub undefined_rules: Vec<Option<String>>,
+    /// The backend work of this side's run (`ExecutionResult::work`, the states it visited):
+    /// for a differential witness, the run its ends come from (the mutant's run of every path for
+    /// a removed end of the one-path mode).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work: Option<u64>,
+}
+
+/// Whether no leaf names an undefined step's rule ([`WitnessSide::undefined_rules`]).
+fn no_rule(rules: &[Option<String>]) -> bool {
+    rules.iter().all(Option::is_none)
 }
 
 /// One hole of a witness: its location and its value as K text, KORE and value
@@ -1637,10 +1746,14 @@ pub enum AbortKind {
     /// The solver did not start for this definition: its SMT declarations, k-rust's translation
     /// of them, or the host.
     SolverInit,
-    /// The client's observer panicked: its state cannot be rebuilt, so no case can run after it.
+    /// The client's observer or witness filter panicked: its state cannot be rebuilt, so no case
+    /// can run after it.
     ClientPanic,
     /// The campaign's backends did not rebuild (after a crash, or for a second run).
     RebuildFailed,
+    /// The client's witness filter broke its contract ([`crate::filter`]): it refused with a
+    /// cause that is no cause token, or judged two equal witness cases differently.
+    ClientDefect,
 }
 
 /// What crashed: a panic, an error k-rust or the engine answered that a correct build never
@@ -1729,6 +1842,8 @@ pub enum CrashPhase {
     Shrink,
     /// The run of every path that judged a witness case's comparability outside its case.
     Comparability,
+    /// The screening of a repair candidate of a hit the client's witness filter refused.
+    Repair,
 }
 
 /// Whether a crash repeats on every run of its input. It is never known to: after a panic or an
@@ -1994,6 +2109,8 @@ mod tests {
                 initial_configuration: "Lbl'-LT-'generatedTop'-GT-'{}()".into(),
                 final_configurations: vec!["Lbl'-LT-'generatedTop'-GT-'{}()".into()],
                 halts: vec![HaltReasonOutput::Stuck],
+                undefined_rules: Vec::new(),
+                work: Some(12),
             }],
             reaching: Reaching {
                 role: DefinitionRole::Baseline,
@@ -2068,6 +2185,7 @@ mod tests {
                 corpus: None,
                 solve: None,
                 effective_constraints: Vec::new(),
+                filter: None,
             },
             outcome: CampaignOutcome::WitnessFound {
                 witness: Witness {
@@ -2077,6 +2195,7 @@ mod tests {
                     clean_leaf_facts: vec!["ceil-free".into()],
                     krun_command: Some("krust krun transfer.imp".into()),
                     mutant_krun_command: Some("krust krun --definition <mutant-dir>".into()),
+                    repaired_from: None,
                 },
             },
             totals: Totals {
@@ -2126,6 +2245,7 @@ mod tests {
                 case_sequence_digest: digest_hex(b"cases"),
                 solve: None,
                 crash_work: 0,
+                filter: FilterTotals::default(),
             },
             normal_end: Some(NormalEnds {
                 baseline: NormalEndKind::EveryK,
@@ -2134,6 +2254,7 @@ mod tests {
             incidental: Incidentals::default(),
             crashes: CrashFindings::default(),
             crashes_omitted: 0,
+            client_refusals: Vec::new(),
             load_records: vec![LoadRecord {
                 kind: "contradicted-claim".into(),
                 detail: "total".into(),
@@ -2216,6 +2337,7 @@ mod tests {
                         AbortKind::SolverInit,
                         AbortKind::ClientPanic,
                         AbortKind::RebuildFailed,
+                        AbortKind::ClientDefect,
                     ]
                     .iter()
                     .map(|kind| {
@@ -2249,6 +2371,33 @@ mod tests {
                 "'path-set'",
                 // FZ-STATESET-MATCH: an any-state witness's reaching configuration.
                 "step?: number; configuration?: string }",
+            ] {
+                assert!(declarations.contains(key), "{key} is not declared");
+            }
+        }
+    }
+
+    /// (FZ-COMPARABLE-B) Both bindings declare the witness filter's keys, its reason, abort kind
+    /// and crash phase.
+    #[test]
+    fn typescript_declarations_name_the_witness_filters_keys() {
+        for declarations in [
+            include_str!("../../k-rust-napi/typescript/index.ts"),
+            include_str!("../../k-rust-wasm/typescript/index.ts"),
+        ] {
+            for key in [
+                "filter?: string",
+                "'undefined-rules'?:",
+                "work?: number",
+                "'repaired-from'?:",
+                "'client-refusals'?:",
+                "'refused-shrink-candidates'?:",
+                "'repairs-skipped'?:",
+                "'repair-candidates'?:",
+                "'repair-work'?:",
+                "| 'repair'",
+                "| 'client-refused'",
+                "| 'client-defect'",
             ] {
                 assert!(declarations.contains(key), "{key} is not declared");
             }
@@ -2411,7 +2560,7 @@ mod tests {
             r#""sides":[{"role":"baseline","#,
             r#""initial-configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","#,
             r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"],"#,
-            r#""halts":["stuck"]}],"#,
+            r#""halts":["stuck"],"work":12}],"#,
             r#""reaching":{"role":"baseline","leaf":0,"step":4},"steps":12}"#,
         );
         let expected = expected

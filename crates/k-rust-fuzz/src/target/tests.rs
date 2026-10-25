@@ -332,6 +332,7 @@ fn leaf(halt: HaltReasonOutput, unclean: Vec<UncleanReason>, natural_end: bool) 
         data_end: None,
         diagnostics: Vec::new(),
         term_conjunction: false,
+        undefined_rule: None,
     }
 }
 

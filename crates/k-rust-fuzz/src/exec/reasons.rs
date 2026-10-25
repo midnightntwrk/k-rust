@@ -196,6 +196,11 @@ pub enum UnjudgedReason {
     Unconfirmed,
     /// The engine met a defect judging the case (see the report's engine defects).
     EngineDefect,
+    /// A candidate hit the client's witness filter refused (`crate::filter`, FZ-COMPARABLE-B):
+    /// the client would not accept the case as a witness, for the cause the report's
+    /// `totals.filter` counts it under. Judged before the case's confirmation, so the hit it
+    /// demotes is unconfirmed; it is the only reason of its case.
+    ClientRefused,
     /// A rule or pattern hit under `comparable-end` (`crate::Target::comparable`) whose witness
     /// program's run of every path is not comparable: it fails the named condition, the first
     /// in [`ComparableCondition`]'s order (`crate::exec::comparable::end_conditions`).
@@ -312,6 +317,13 @@ const ANY_STATE_UNATTRIBUTED_REMEDY: &str = concat!(
     "and a program or hole range whose every path ends cleanly can be one with it",
 );
 
+/// The remedy of [`UnjudgedReason::ClientRefused`].
+const CLIENT_REFUSED_REMEDY: &str = concat!(
+    "the client's witness filter refused the hit (the report's client-refusals give each ",
+    "cause's first case, the client's detail and remedy); another program or hole range may ",
+    "give a hit the client accepts",
+);
+
 /// The remedy of [`UnjudgedReason::EndNotComparable`].
 const END_NOT_COMPARABLE_REMEDY: &str = concat!(
     "the target was reached, but the witness program's run of every path is not one kink can ",
@@ -334,7 +346,7 @@ impl UnjudgedReason {
     /// Every reason that names no condition, in declaration order: the reasons that name one
     /// ([`Self::EndNotComparable`], [`Self::QueryNotConfirmable`]) are one per
     /// [`ComparableCondition`].
-    pub const ALL: [Self; 43] = [
+    pub const ALL: [Self; 44] = [
         Self::Panic,
         Self::InternalError,
         Self::InternalHalt,
@@ -378,6 +390,7 @@ impl UnjudgedReason {
         Self::BaselineEndNotData,
         Self::Unconfirmed,
         Self::EngineDefect,
+        Self::ClientRefused,
     ];
 
     /// The reason's report name (`"natural-end-undecided"`, …).
@@ -471,6 +484,7 @@ impl UnjudgedReason {
             }
             Self::EndNotComparable(_) => END_NOT_COMPARABLE_REMEDY,
             Self::QueryNotConfirmable(_) => QUERY_NOT_CONFIRMABLE_REMEDY,
+            Self::ClientRefused => CLIENT_REFUSED_REMEDY,
             Self::TooDeep => {
                 "the case's configuration is nested deeper than the backend's stack holds; \
                  choose a smaller hole range or program, or run krust-fuzz on a thread with a \
@@ -923,6 +937,7 @@ mod tests {
             data_end: None,
             diagnostics: Vec::new(),
             term_conjunction: false,
+            undefined_rule: None,
         };
         let result = |halt, safety_limit_hit| CaseResult {
             leaves: vec![leaf(halt)],
@@ -984,6 +999,7 @@ mod tests {
             data_end: None,
             diagnostics: Vec::new(),
             term_conjunction: false,
+            undefined_rule: None,
         };
         assert_eq!(beyond_halt(&leaf), Some(UnjudgedReason::NotCeilFree));
     }

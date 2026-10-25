@@ -1455,6 +1455,8 @@ export interface FuzzReportIdentity {
    * negative integer back); absent when no hole was narrowed.
    */
   'effective-constraints'?: FuzzEffectiveConstraints[]
+  /** The identity of the client's witness filter the campaign ran with; absent without one. */
+  filter?: string
 }
 
 /**
@@ -1613,6 +1615,10 @@ export interface FuzzWitnessCase {
     'final-configurations': string[]
     /** The halt of each final configuration, in order (`trivial`: an undefined step, no end). */
     halts?: Array<ExecutionLeaf['reason']>
+    /** Per final configuration, the rule of a `trivial` leaf's undefined step, else null; absent when none names one. */
+    'undefined-rules'?: Array<string | null>
+    /** The work of the side's run (the states it visited). */
+    work?: number
   }[]
   /**
    * `step`: for an observer target, the step of the leaf's path at which the observer hit; for a
@@ -1636,6 +1642,8 @@ export interface FuzzWitness {
   'krun-command': string | null
   /** Differential witnesses: the krun line on the mutant (`<mutant-dir>`). */
   'mutant-krun-command'?: string
+  /** For a witness the client's witness filter repaired: the refused hit it started from. */
+  'repaired-from'?: { case: number; holes: FuzzCrashHole[]; cause: string }
 }
 
 /** The bounded statement of a campaign without a witness; never a claim that none exists. */
@@ -1655,7 +1663,7 @@ export type FuzzCampaignOutcome =
       status: 'aborted'
       kind: FuzzAbortKind
       reason: string
-      /** For `client-panic`: the case the observer panicked in, its hole values, and the panic. */
+      /** For `client-panic` (the observer or witness filter) and `client-defect`: the case, its hole values, and the panic. */
       case?: number
       holes?: FuzzCrashHole[]
       panic?: FuzzPanicRecord
@@ -1670,6 +1678,7 @@ export type FuzzAbortKind =
   | 'solver-init'
   | 'client-panic'
   | 'rebuild-failed'
+  | 'client-defect'
 
 /** What a panic left: its message and, when the campaign's hook saw it, its `file:line:column`. */
 export interface FuzzPanicRecord {
@@ -1706,7 +1715,7 @@ export interface FuzzCrashSignature {
  */
 export interface FuzzCrashFinding {
   signature: FuzzCrashSignature
-  phase: 'case' | 'confirmation' | 'shrink' | 'comparability'
+  phase: 'case' | 'confirmation' | 'shrink' | 'comparability' | 'repair'
   /** At most 1 KiB. */
   message: string
   case: number
@@ -1783,6 +1792,7 @@ export type FuzzUnjudgedReason =
   | 'baseline-end-not-data'
   | 'unconfirmed'
   | 'engine-defect'
+  | 'client-refused'
   | `end-not-comparable:${FuzzComparableCondition}`
   | `query-not-confirmable:${FuzzComparableCondition}`
 
@@ -1874,6 +1884,17 @@ export interface FuzzTotals {
   solve?: FuzzSolveTotals
   /** The work of the runs that examined crashes (charged to no budget, not in `work`); absent when 0. */
   'crash-work'?: number
+  /** What the client's witness filter refused and what its repairs cost; absent when it refused nothing. */
+  filter?: {
+    /** Refused hits per cause (each `unsupported`, `client-refused`). */
+    refused?: Record<string, number>
+    'refused-shrink-candidates'?: number
+    repairs?: number
+    'repairs-skipped'?: number
+    'repair-candidates'?: number
+    /** Included in `work`. */
+    'repair-work'?: number
+  }
 }
 
 /**
@@ -1918,6 +1939,16 @@ export interface FuzzReport {
   crashes?: FuzzCrashFinding[]
   /** Crashed cases of signatures beyond those kept; absent when 0. */
   'crashes-omitted'?: number
+  /** The first refused hit of each cause the client's witness filter gave (at most 16). */
+  'client-refusals'?: {
+    cause: string
+    detail: string
+    remedy?: string
+    case: number
+    holes: FuzzCrashHole[]
+    count: number
+    repaired: boolean
+  }[]
   'load-records': { kind: string; detail: string }[]
   'sort-overrides': { hole: string; sort: string; refusal: string }[]
   warnings: string[]

@@ -371,6 +371,101 @@ fn an_undefined_step_where_the_baseline_stops_is_a_confirmed_removed_end() {
     }
 }
 
+/// Each witness side records its run's work and, at an undefined step, the rule whose step is
+/// undefined (FZ-COMPARABLE-B, S4 and S5): `div-guard-dropped`'s mutant takes its division rule
+/// at `2 / 0`, whose result is undefined, so its one leaf is `trivial` and names that rule, while
+/// the baseline's stuck leaf names none.
+#[test]
+fn a_witness_names_each_sides_work_and_the_rule_of_an_undefined_step() {
+    let report = Campaign::new(trial_spec(
+        &IMP_DIFF,
+        &IMP_DIV_GUARD_DROPPED,
+        "imp-diff/primes.imp",
+        primes_holes(),
+        vec![int_assignment(&[("I", 0)])],
+        PathMode::OnePath,
+    ))
+    .expect("valid")
+    .run(Budget::Cases(8), None);
+    let witness = report
+        .witness()
+        .unwrap_or_else(|| panic!("a kill, not {:?}", report.outcome));
+    for case in [Some(&witness.first), witness.shrunk.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        let [baseline, mutant] = case.sides.as_slice() else {
+            panic!("two sides: {:?}", case.sides);
+        };
+        assert!(baseline.work.is_some_and(|work| work > 0), "{baseline:?}");
+        assert!(mutant.work.is_some_and(|work| work > 0), "{mutant:?}");
+        assert!(baseline.undefined_rules.is_empty(), "{baseline:?}");
+        assert_eq!(mutant.halts, [k_rust::backend::HaltReasonOutput::Trivial]);
+        let [Some(rule)] = mutant.undefined_rules.as_slice() else {
+            panic!("the mutant's undefined step names its rule: {mutant:?}");
+        };
+        assert_eq!(rule.len(), 64, "a unique id: {rule}");
+    }
+    // The fields read back.
+    let text = report.to_canonical_json();
+    assert!(text.contains(r#""undefined-rules":[""#), "{text}");
+    assert_eq!(k_rust_fuzz::FuzzReport::from_json(&text).ok(), Some(report));
+}
+
+/// A filter that accepts every case gives the unfiltered campaign's report, byte for byte, apart
+/// from `identity.filter` (FZ-COMPARABLE-B review M8): the filter only removes candidates, on a
+/// campaign whose witness is confirmed and shrunk.
+#[test]
+fn an_accepting_filter_gives_the_unfiltered_report() {
+    struct Accept(usize);
+    impl k_rust_fuzz::WitnessFilter for Accept {
+        fn id(&self) -> String {
+            "accept-all".into()
+        }
+        fn judge(
+            &mut self,
+            _case: &k_rust_fuzz::report::WitnessCase,
+        ) -> Result<(), k_rust_fuzz::FilterRefusal> {
+            self.0 += 1;
+            Ok(())
+        }
+    }
+    let spec = || {
+        trial_spec(
+            &IMP_DIFF,
+            &IMP_DIV_GUARD_DROPPED,
+            "imp-diff/primes.imp",
+            primes_holes(),
+            vec![int_assignment(&[("I", 0), ("M", 7)])],
+            PathMode::OnePath,
+        )
+    };
+    let unfiltered = Campaign::new(spec())
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    let mut filter = Accept(0);
+    let mut filtered =
+        Campaign::new(spec())
+            .expect("valid")
+            .run_filtered(Budget::Cases(8), None, &mut filter);
+    assert!(
+        filter.0 > 0,
+        "the filter judged the hit and its shrink candidates"
+    );
+    assert!(
+        unfiltered
+            .witness()
+            .is_some_and(|witness| witness.shrunk.is_some()),
+        "{:?}",
+        unfiltered.outcome
+    );
+    assert_eq!(
+        filtered.identity.filter.take().as_deref(),
+        Some("accept-all")
+    );
+    assert_eq!(filtered.to_canonical_json(), unfiltered.to_canonical_json());
+}
+
 #[test]
 fn an_undefined_redeclaration_where_the_baseline_stops_is_killed() {
     // TRIAL2 item 7, `decl-allows-redeclaration` on `sum` with the `Id` hole: `int n, n;`

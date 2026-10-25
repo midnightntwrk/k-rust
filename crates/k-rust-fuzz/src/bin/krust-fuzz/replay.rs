@@ -173,7 +173,7 @@ impl WitnessFile {
 /// The identity fields of `recorded` that `now` does not have, one sentence each, named by
 /// their path in the report (`definitions[0].syntax-definition-digest`).
 ///
-/// Every field of the report's identity is compared except nine, and `target-rule`'s name: the
+/// Every field of the report's identity is compared except ten, and `target-rule`'s name: the
 /// proposers and the budget, which the replay sets itself (one explicit assignment, one case),
 /// `options.shrink` (a replay does not shrink), the engine version, which covers the proposer and
 /// generator code that chooses cases, `dictionary`, the dictionary proposer's parameters, which
@@ -183,7 +183,9 @@ impl WitnessFile {
 /// the solve proposer's parameters, which only decide its queries, and `effective-constraints`,
 /// the generation bounds narrowed to the program's syntax, which only bound what is drawn (each
 /// case is still checked against the declared constraints, and the definitions, program and
-/// overlay they derive from are compared). None of the code the last six describe runs when a
+/// overlay they derive from are compared), and `filter`, the client's witness filter, which only
+/// chooses which cases become witnesses (a confirmed witness hits without it, and the replay
+/// runs none; the command notes a recorded one). None of the code the last seven describe runs when a
 /// fixed assignment is replayed, so they cannot
 /// change the replayed case. Of `target-rule`, only the id is compared: the rule is a function
 /// of the definitions and the target, which are compared, and its name is read from the
@@ -205,6 +207,9 @@ pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> V
         identity.corpus = None;
         identity.solve = None;
         identity.effective_constraints = Vec::new();
+        // The witness filter only chose which cases became witnesses: a confirmed witness hits
+        // without it, and replay runs none (FZ-COMPARABLE-B). `main` notes a recorded filter.
+        identity.filter = None;
         let mut value = serde_json::to_value(identity).unwrap_or(serde_json::Value::Null);
         // Of `target-rule`, only the id: its name (kind, label, source paths and references)
         // is read from the definition's catalog, whose source paths name where the definition
@@ -507,6 +512,13 @@ fn differences(recorded: &WitnessCase, report: &FuzzReport) -> Vec<String> {
         // the halts are part of the reproduction.
         if now.halts != then.halts {
             differences.push(format!("the halts of side {index} differ"));
+        }
+        // The rules of undefined steps, when the witness records them (FZ-COMPARABLE-B): a
+        // client judges an undefined step by its rule.
+        if then.undefined_rules.iter().any(Option::is_some)
+            && now.undefined_rules != then.undefined_rules
+        {
+            differences.push(format!("the undefined-step rules of side {index} differ"));
         }
     }
     if replayed.sides.len() != recorded.sides.len() {

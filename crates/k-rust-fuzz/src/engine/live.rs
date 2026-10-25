@@ -1816,6 +1816,21 @@ fn side_of(role: DefinitionRole, prepared: &Prepared, result: &CaseResult) -> Wi
             .map(|leaf| leaf.state.to_string())
             .collect(),
         halts: result.leaves.iter().map(|leaf| leaf.halt).collect(),
+        // Empty when no leaf names a rule, as the report reads it back.
+        undefined_rules: if result
+            .leaves
+            .iter()
+            .any(|leaf| leaf.undefined_rule.is_some())
+        {
+            result
+                .leaves
+                .iter()
+                .map(|leaf| leaf.undefined_rule.clone())
+                .collect()
+        } else {
+            Vec::new()
+        },
+        work: Some(result.work),
     }
 }
 

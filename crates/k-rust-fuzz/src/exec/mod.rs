@@ -373,6 +373,10 @@ pub struct LeafReport {
     /// sides' first conjuncts differ also makes the leaf not ceil-free. `false` on every other
     /// leaf.
     pub term_conjunction: bool,
+    /// For a `trivial` leaf (an undefined step), the unique id of the rule whose step is
+    /// undefined, when the backend names one (`ExecutionLeaf::rule_id`); `None` for every other
+    /// leaf.
+    pub undefined_rule: Option<String>,
 }
 
 impl LeafReport {
