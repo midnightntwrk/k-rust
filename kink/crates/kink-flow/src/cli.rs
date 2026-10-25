@@ -38,7 +38,8 @@ pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FL
                          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml \
                          | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) \
                          [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
-                         [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm]";
+                         [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
+                         [--no-filter]";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -351,7 +352,7 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
     let (mut template, mut mutation, mut mutations) = (None, None, None);
     let (mut reach, mut pattern, mut patterns, mut fired) = (None, None, None, false);
     let (mut budget, mut seed, mut max_work, mut time_limit) = (None, None, None, None);
-    let (mut one_path, mut no_confirm) = (false, false);
+    let (mut one_path, mut no_confirm, mut no_filter) = (false, false, false);
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -421,6 +422,7 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
             }
             "--one-path" if !one_path => one_path = true,
             "--no-confirm" if !no_confirm => no_confirm = true,
+            "--no-filter" if !no_filter => no_filter = true,
             "--cache" if options.cache.is_none() => {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
@@ -470,6 +472,7 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
         _ => return Err("give one job: --kill, --reach or --pattern".into()),
     };
     options.confirm = !no_confirm;
+    options.filter = !no_filter;
     if let Some(budget) = budget {
         options.budget = budget;
     }
@@ -488,7 +491,7 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
 
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
 /// MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [options]
-/// [--no-confirm]`: the fuzz document ([`crate::fuzz`]) and the exit
+/// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit
 /// status: [`EXIT_OK`] when the job was done (a witness printed as a `[[program]]` fragment, or
 /// none within the budget or the time limit); [`EXIT_CORPUS`] when an input, the template or the
 /// mutation is refused, the campaign is `not-comparable`, or a run failed.

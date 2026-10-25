@@ -23,6 +23,8 @@ kink-campaign.workspace = true
 kink-corpus.workspace = true
 kink-native.workspace = true
 kink-patch.workspace = true
+# The symbol sorts kink-native's `leaf_term` reads a leaf's state with (fz26 FZ-COMPARABLE-B).
+kink-pattern.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 
@@ -39,4 +41,3 @@ name = "kink-flow"
 path = "src/main.rs"
 
 [dev-dependencies]
-kink-pattern.workspace = true

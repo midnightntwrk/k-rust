@@ -22,6 +22,7 @@ pub mod admit;
 pub mod cli;
 pub mod digest;
 pub mod fuzz;
+pub mod fuzz_filter;
 pub mod hints;
 pub mod manifest;
 pub mod memo;

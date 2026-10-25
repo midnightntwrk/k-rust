@@ -1199,14 +1199,37 @@ mod kink_tier {
     }
 
     /// A witness kink's own run refuses is not offered (KF-T4): on NA every end holds a non-ASCII
-    /// string, which the fuzz's data judgement accepts and kink's end check does not, so the
-    /// confirmation is refused with kink's cause, the job stops `unconfirmed` and prints no
-    /// program. The confirmation writes nothing under the flow's directory.
+    /// string, which the fuzz's data judgement accepts and kink's end check does not, so without
+    /// the witness filter the confirmation is refused with kink's cause, the job stops
+    /// `unconfirmed` and prints no program. The confirmation writes nothing under the flow's
+    /// directory. With the filter (the default, FZ-COMPARABLE-B) the fuzz agrees with kink inside
+    /// the campaign: every hit is refused for its non-ASCII end, nothing reaches kink's run, and the
+    /// job stops `client-refused`.
     #[test]
     #[ignore = "kink"]
     fn a_witness_kink_refuses_is_unconfirmed_with_kinks_cause() {
         let dir = scratch_flow("nonascii", "na.k", NA_K, NA_FLOW, NA_MUTATIONS);
         let before = listing(&dir);
+        let (filtered, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(NA_TEMPLATES),
+            "one-holes",
+            "plus-one",
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(20)
+            },
+        );
+        assert!(ok, "{filtered:#}");
+        assert_eq!(filtered["stopped"], "client-refused", "{filtered:#}");
+        assert_eq!(filtered["attempts"][0]["confirmation"], Value::Null);
+        assert_eq!(
+            totals(&filtered)["filter"]["refused"]["domain-value"],
+            totals(&filtered)["unsupported-reasons"]["client-refused"],
+            "{:#}",
+            totals(&filtered)
+        );
         let (document, ok) = fuzz_kill(
             &dir,
             "MUTATIONS.toml",
@@ -1215,6 +1238,7 @@ mod kink_tier {
             "plus-one",
             FuzzOptions {
                 confirm: true,
+                filter: false,
                 ..imp_options(20)
             },
         );
@@ -1233,7 +1257,10 @@ mod kink_tier {
             Some(NA_TEMPLATES),
             "one-holes",
             "plus-one",
-            imp_options(20),
+            FuzzOptions {
+                filter: false,
+                ..imp_options(20)
+            },
         );
         assert!(ok);
         assert_eq!(
@@ -1244,8 +1271,10 @@ mod kink_tier {
     }
 
     /// When kink refuses the shrunk witness, the unshrunk one is confirmed (KF-T4): only `go(0)`
-    /// writes the non-ASCII string, the shrunk case is `I = 0`, and the first case (the template's
-    /// own `go(2)`) kills under kink's run.
+    /// writes the non-ASCII string, so without the witness filter the shrunk case is `I = 0`, and
+    /// the first case (the template's own `go(2)`) kills under kink's run. With the filter (the
+    /// default, FZ-COMPARABLE-B) shrinking never keeps `I = 0`, so the shrunk case is the one kink
+    /// confirms.
     #[test]
     #[ignore = "kink"]
     fn the_unshrunk_witness_is_confirmed_when_the_shrunk_one_is_refused() {
@@ -1271,6 +1300,27 @@ endmodule
             .replace("go(1)", "go(2)")
             .replace("\"1\"", "\"2\"");
         let dir = scratch_flow("unshrunk", "na.k", spec, &flow_toml, mutations);
+        let (filtered, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(&templates),
+            "one-holes",
+            "both",
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(20)
+            },
+        );
+        assert!(ok, "{filtered:#}");
+        assert_eq!(filtered["stopped"], Value::Null, "{filtered:#}");
+        let attempt = &filtered["attempts"][0];
+        assert_eq!(attempt["candidate"]["case"], "shrunk", "{attempt:#}");
+        assert_eq!(
+            attempt["candidate"]["holes"][0]["value"]["int"], "1",
+            "{attempt:#}"
+        );
+        assert_eq!(attempt["confirmation"]["confirmed"], true, "{attempt:#}");
+        assert_eq!(attempt.get("refused_confirmations"), None, "{attempt:#}");
         let (document, ok) = fuzz_kill(
             &dir,
             "MUTATIONS.toml",
@@ -1279,6 +1329,7 @@ endmodule
             "both",
             FuzzOptions {
                 confirm: true,
+                filter: false,
                 ..imp_options(20)
             },
         );
@@ -1683,6 +1734,301 @@ endmodule
             warning_kinds(&document),
             ["time-limit-scope", "unusable-template"],
             "{document:#}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// FZ-COMPARABLE-B: the in-campaign witness filter
+// ---------------------------------------------------------------------------------------------
+
+/// Three programs whose ends hold strings. kink's end check (TV-01) gives a `String` domain value
+/// a terminal value only when its bytes are ASCII, so whether kink can compare a run's ends
+/// depends on the input: `cat` writes its two holes, `tag` always writes a non-ASCII string, and
+/// `pick` writes one below 10 and an ASCII numeral from 10 on.
+const STR_K: &str = r#"
+module STR-SYNTAX
+  imports INT-SYNTAX
+  imports STRING-SYNTAX
+  syntax Pgm ::= cat(String, String) [symbol(cat)]
+               | tag(Int) [symbol(tag)]
+               | pick(Int) [symbol(pick)]
+endmodule
+
+module STR
+  imports STR-SYNTAX
+  imports INT
+  imports STRING
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:Pgm </k> <out> "" </out>
+  rule [cat]: <k> cat(S1, S2) => .K ... </k> <out> _ => S1 +String S2 </out>
+  rule [tag]: <k> tag(N) => .K ... </k> <out> _ => "é" +String Int2String(N) </out>
+  rule [pick]: <k> pick(N) => .K ... </k> <out> _ => #if N <Int 10 #then "é" #else Int2String(N) #fi </out>
+endmodule
+"#;
+
+const STR_FLOW: &str = "[spec]\nentry = \"str.k\"\nmain_module = \"STR\"\nsyntax_module = \
+                        \"STR-SYNTAX\"\n\n[[program]]\nid = \"cat\"\ntext = 'cat(\"ab\", \"cd\")'\n\n\
+                        [[program]]\nid = \"tag\"\ntext = \"tag(1)\"\n\n[[program]]\nid = \
+                        \"pick\"\ntext = \"pick(2)\"\n";
+
+/// TRIAL3's `concat-drops-long-left` (a left operand longer than 3 characters is dropped), and two
+/// mutations whose kills hold a non-ASCII end: always (`tag-shifts`), or below 10 (`pick-shifts`).
+const STR_MUTATIONS: &str = r##"
+[[mutation]]
+id = "concat-drops-long-left"
+  [[mutation.edit]]
+  rule = "STR.cat"
+  find = "S1 +String S2"
+  replace = "#if lengthString(S1) >Int 3 #then S2 #else S1 +String S2 #fi"
+
+[[mutation]]
+id = "tag-shifts"
+  [[mutation.edit]]
+  rule = "STR.tag"
+  find = "Int2String(N)"
+  replace = "Int2String(N +Int 1)"
+
+[[mutation]]
+id = "pick-shifts"
+  [[mutation.edit]]
+  rule = "STR.pick"
+  find = "#then \"é\" #else Int2String(N)"
+  replace = "#then \"è\" #else Int2String(N +Int 1)"
+"##;
+
+const STR_TEMPLATES: &str = r#"
+[[template]]
+id = "cat-holes"
+program = "cat"
+  [[template.hole]]
+  name = "S"
+  sort = "String"
+  find = 'cat("ab"'
+  literal = '"ab"'
+  [[template.hole]]
+  name = "T"
+  sort = "String"
+  find = '"cd")'
+  literal = '"cd"'
+
+[[template]]
+id = "tag-holes"
+program = "tag"
+  [[template.hole]]
+  name = "N"
+  sort = "Int"
+  find = "tag(1)"
+  literal = "1"
+  range = { min = 0, max = 1000 }
+
+[[template]]
+id = "pick-holes"
+program = "pick"
+  [[template.hole]]
+  name = "N"
+  sort = "Int"
+  find = "pick(2)"
+  literal = "2"
+  range = { min = 0, max = 1000 }
+"#;
+
+fn str_flow(name: &str) -> PathBuf {
+    scratch_flow(name, "str.k", STR_K, STR_FLOW, STR_MUTATIONS)
+}
+
+/// The hole values of a candidate witness case, by hole name.
+fn candidate_strings(document: &Value) -> Vec<String> {
+    document["attempts"][0]["candidate"]["holes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|hole| hole["value"]["string"].as_str().map(str::to_owned))
+        .collect()
+}
+
+mod comparable_b {
+    use super::*;
+
+    /// ASCII-STRINGS (TRIAL3 item 6, D34), the headline: a String-hole kill on `cat`, whose
+    /// generated strings are almost never ASCII. Without the filter the campaign's witness ends on
+    /// non-ASCII strings, which kink's end check refuses, so kink confirms no kill. With it, the
+    /// filter refuses each such hit inside the campaign, its repair replaces the non-ASCII
+    /// characters of the String holes (lengths kept), the repaired case is a witness, and kink's
+    /// own run kills the mutation with it.
+    #[test]
+    #[ignore = "kink"]
+    fn a_string_hole_kill_is_repaired_into_one_kink_confirms() {
+        let dir = str_flow("str-cat");
+        for seed in [0, 2] {
+            let (document, ok) = fuzz_kill(
+                &dir,
+                "MUTATIONS.toml",
+                Some(STR_TEMPLATES),
+                "cat-holes",
+                "concat-drops-long-left",
+                FuzzOptions {
+                    seed,
+                    confirm: true,
+                    ..imp_options(300)
+                },
+            );
+            assert!(ok, "seed {seed}: {:#}", document["action"]);
+            assert_eq!(
+                document["stopped"],
+                Value::Null,
+                "seed {seed}: {:#}",
+                document["action"]
+            );
+            let confirmation = &document["attempts"][0]["confirmation"];
+            assert_eq!(
+                confirmation["confirmed"], true,
+                "seed {seed}: {confirmation:#}"
+            );
+            assert_eq!(confirmation["status"], "killed");
+            for text in candidate_strings(&document) {
+                assert!(text.is_ascii(), "seed {seed}: {text:?}");
+            }
+            let fuzz = &document["attempts"][0]["fuzz"];
+            let refusals = fuzz["client-refusals"].as_array().expect("refusals");
+            let refusal = refusals
+                .iter()
+                .find(|refusal| refusal["cause"] == "domain-value")
+                .unwrap_or_else(|| panic!("seed {seed}: {refusals:#?}"));
+            assert_eq!(refusal["repaired"], true, "seed {seed}: {refusal:#}");
+            let witness = &fuzz["outcome"]["witness"];
+            assert_eq!(witness["repaired-from"]["cause"], "domain-value");
+            assert!(
+                fuzz["identity"]["filter"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("kink-flow/witness-filter/"),
+                "{:#}",
+                fuzz["identity"]
+            );
+            assert_eq!(document["job"]["filter"]["on"], true);
+        }
+        // The filter and its repair are functions of the case: the same seed gives the same
+        // document (no confirmation, which reads nothing back into the campaign).
+        let run = || {
+            fuzz_kill(
+                &dir,
+                "MUTATIONS.toml",
+                Some(STR_TEMPLATES),
+                "cat-holes",
+                "concat-drops-long-left",
+                imp_options(300),
+            )
+        };
+        let (first, _) = run();
+        assert!(first["attempts"][0]["fuzz"]["outcome"]["witness"]["repaired-from"].is_object());
+        assert_eq!(first, run().0);
+        // Without the filter, the campaign's witness is one kink refuses (TRIAL3's ASCII-STRINGS).
+        let (unfiltered, _) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(STR_TEMPLATES),
+            "cat-holes",
+            "concat-drops-long-left",
+            FuzzOptions {
+                confirm: true,
+                filter: false,
+                ..imp_options(300)
+            },
+        );
+        assert_eq!(
+            unfiltered["stopped"], "unconfirmed",
+            "{:#}",
+            unfiltered["action"]
+        );
+        assert_eq!(unfiltered["job"]["filter"]["on"], false);
+    }
+
+    /// A refusal for every input of the template (`tag` always ends on a non-ASCII string) spends
+    /// the budget without a kink run: every hit is refused in the campaign (no repair applies, the
+    /// holes are integers), and the campaign stops `client-refused` with a warning, never `budget`
+    /// (review M5). Without the filter the first hit is the witness, and kink refuses it.
+    #[test]
+    #[ignore = "kink"]
+    fn a_systematic_refusal_stops_client_refused_without_kink_runs() {
+        let dir = str_flow("str-tag");
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(STR_TEMPLATES),
+            "tag-holes",
+            "tag-shifts",
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(20)
+            },
+        );
+        assert!(ok, "{:#}", document["action"]);
+        assert_eq!(
+            document["stopped"], "client-refused",
+            "{:#}",
+            document["action"]
+        );
+        assert_eq!(document["attempts"][0]["confirmation"], Value::Null);
+        assert_eq!(document["program"], Value::Null);
+        let reasons = &totals(&document)["unsupported-reasons"];
+        assert_eq!(reasons["client-refused"], 20, "{reasons:#}");
+        assert_eq!(
+            totals(&document)["filter"]["refused"]["domain-value"],
+            20,
+            "{:#}",
+            totals(&document)
+        );
+        // No repair applies: the holes are integers.
+        assert_eq!(totals(&document)["filter"].get("repairs"), None);
+        assert!(
+            warning_kinds(&document).contains(&"client-refused"),
+            "{document:#}"
+        );
+        let action = document["action"].as_str().unwrap();
+        assert!(action.contains("ASCII"), "{action}");
+    }
+
+    /// An input-dependent refusal the repair cannot fix (the non-ASCII string comes from the
+    /// definition, below 10) does not end the search: the anchor `pick(2)` is refused, a later hit
+    /// from 10 on is the witness, and shrinking stops at 10, since the filter refuses every
+    /// smaller candidate inside the shrink screen. Without the filter the anchor is the witness,
+    /// it shrinks to 0, and kink refuses both.
+    #[test]
+    #[ignore = "kink"]
+    fn an_input_dependent_refusal_is_skipped_and_shrinking_respects_it() {
+        let dir = str_flow("str-pick");
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(STR_TEMPLATES),
+            "pick-holes",
+            "pick-shifts",
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(300)
+            },
+        );
+        assert!(ok, "{:#}", document["action"]);
+        assert_eq!(document["stopped"], Value::Null, "{:#}", document["action"]);
+        assert_eq!(document["attempts"][0]["confirmation"]["confirmed"], true);
+        let fuzz = &document["attempts"][0]["fuzz"];
+        let shrunk = &fuzz["outcome"]["witness"]["shrunk"];
+        assert_eq!(shrunk["holes"][0]["value"]["int"], "10", "{shrunk:#}");
+        assert!(
+            fuzz["totals"]["unsupported-reasons"]["client-refused"]
+                .as_u64()
+                .is_some_and(|count| count >= 1),
+            "{:#}",
+            fuzz["totals"]
+        );
+        assert!(
+            fuzz["totals"]["filter"]["refused-shrink-candidates"]
+                .as_u64()
+                .is_some_and(|count| count >= 1),
+            "{:#}",
+            fuzz["totals"]
         );
     }
 }

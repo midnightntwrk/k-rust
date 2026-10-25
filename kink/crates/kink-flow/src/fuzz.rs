@@ -46,6 +46,14 @@
 //! templates), and the document warns about an unusable template, a template outside the
 //! reaching programs, and the scope of `--time-limit-ms`.
 //!
+//! **Witness filter** (fz26 FZ-COMPARABLE-B). Unless `--no-filter` is given
+//! ([`FuzzOptions::filter`]), the campaign runs with kink's own rules as a k-rust-fuzz witness
+//! filter ([`crate::fuzz_filter`]), built from the loads the definition exclusions were read
+//! from: a candidate kink would refuse for a reason that depends on the input (a non-ASCII String
+//! end) is refused inside the search, repaired when its String holes can be, and the search goes
+//! on. A campaign whose every hit was refused stops `client-refused`, never `budget`. A template
+//! whose own input kink excludes is refused before any case (`initial-state-excluded`).
+//!
 //! **Budgets.** `--cases N` (default [`DEFAULT_CASES`]) or `--work W`, `--seed S` (default 0),
 //! the library's default proposers. Every case runs with the flow's `max_depth`, a safety limit
 //! of the flow's `time_ms` per execution, and `max_work` of `--max-work` (default
@@ -65,6 +73,7 @@
 //! refuses is not offered (`stopped: unconfirmed`). Nothing under the flow's directory or the
 //! cache is written.
 
+use crate::fuzz_filter::{FilterJob, FilterSide, KinkJudgement};
 use crate::{
     admit::{AdmittedSpec, ProgramInputs, admit_spec},
     digest::{program_digest, spec_digest},
@@ -100,7 +109,7 @@ use kink_corpus::{ProgramSource, cli::DEFINITION_STACK_BYTES};
 use kink_native::{
     K_RUST_REVISION, ValidatedDefinition,
     coverage::{RuleAuthors, coverage_domain},
-    exclusion::{DefinitionExclusions, Exclusion},
+    exclusion::{DefinitionExclusions, Exclusion, ValidatedLoad},
     execution::SolverProfile,
 };
 use serde_json::{Value, json};
@@ -120,8 +129,10 @@ use toml::{Table, Value as Toml};
 
 /// The document's `schema`.
 pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
-/// The document's `version`.
-pub const FUZZ_VERSION: u32 = 2;
+/// The document's `version`. Version 3 (fz26 FZ-COMPARABLE-B) adds `job.filter`, the `stopped`
+/// value `client-refused`, the warning `client-refused` and the refusal `initial-state-excluded`,
+/// and embeds fuzz reports that carry the witness filter's fields.
+pub const FUZZ_VERSION: u32 = 3;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -449,6 +460,9 @@ pub struct FuzzOptions {
     /// Confirm each candidate with kink's own code (KF-T4; the command line's default, off with
     /// `--no-confirm`). Off in [`FuzzOptions::default`], so a library caller asks for it.
     pub confirm: bool,
+    /// Judge each candidate hit and shrink candidate inside the campaign by kink's own rules
+    /// ([`crate::fuzz_filter`], fz26 FZ-COMPARABLE-B); on by default, off with `--no-filter`.
+    pub filter: bool,
 }
 
 impl Default for FuzzOptions {
@@ -462,6 +476,7 @@ impl Default for FuzzOptions {
             paths: PathMode::AllPaths,
             cache: None,
             confirm: false,
+            filter: true,
         }
     }
 }
@@ -939,15 +954,18 @@ fn exclusion_detail(facts: &DefinitionExclusions, exclusion: Exclusion) -> Strin
 }
 
 /// The definition exclusion of one side, if any, as kink-campaign's runner reads it for every
-/// run on that side: from the side's compiled KORE loaded for `module` on this thread.
+/// run on that side: from the side's compiled KORE loaded for `module` on this thread, with the
+/// load, which the witness filter keeps ([`crate::fuzz_filter`]).
 fn side_exclusion(
     side: &ValidatedDefinition,
     module: &str,
-) -> Result<Option<(Exclusion, String)>, String> {
-    let facts = DefinitionExclusions::of_validated(side, module)?;
-    Ok(facts
+) -> Result<(ValidatedLoad, Option<(Exclusion, String)>), String> {
+    let load = DefinitionExclusions::load_validated(side, module)?;
+    let excluded = load
+        .exclusions
         .definition_exclusion()
-        .map(|exclusion| (exclusion, exclusion_detail(&facts, exclusion))))
+        .map(|exclusion| (exclusion, exclusion_detail(&load.exclusions, exclusion)));
+    Ok((load, excluded))
 }
 
 /// What kink's own assembly makes of a witness's input, against each side's initial
@@ -1529,12 +1547,17 @@ pub fn fuzz_job(
     if let Some(mutant) = &mutant {
         sides_to_check.push(("mutant", &mutant.side));
     }
+    // Each side's load, in side order, kept for the witness filter.
+    let mut loads = Vec::new();
     for (role, side) in sides_to_check {
         match side_exclusion(side, &module) {
-            Ok(None) => {
+            Ok((load, None)) => {
                 exclusions.insert(role.into(), Value::Null);
+                if options.filter {
+                    loads.push(load);
+                }
             }
-            Ok(Some((exclusion, detail))) => {
+            Ok((_, Some((exclusion, detail)))) => {
                 exclusions.insert(
                     role.into(),
                     json!({"exclusion": exclusion.name(), "detail": detail}),
@@ -1778,11 +1801,99 @@ pub fn fuzz_job(
         );
     }
 
-    let (report, fired) =
-        under_watchdog(options.time_limit_ms.map(Duration::from_millis), |token| {
-            campaign.run(options.budget, token)
-        });
+    // The witness filter (fz26 FZ-COMPARABLE-B): kink's rules judge each candidate inside the
+    // campaign, on the loads the exclusions were read from, with the data facts of the names
+    // kink's confirmation judges under (the flow's and the command line's).
+    let mut filter = None;
+    if options.filter {
+        let mut loads = loads.into_iter();
+        let job_kind = match job {
+            FuzzJob::Kill { .. } => FilterJob::Kill,
+            FuzzJob::Reach { .. } => FilterJob::Reach,
+            FuzzJob::Pattern { .. } => FilterJob::Pattern,
+        };
+        let baseline = loads
+            .next()
+            .map(|load| FilterSide::new(load, spec.data.clone()));
+        let mutant_side = mutant
+            .as_ref()
+            .and_then(|mutant| Some(FilterSide::new(loads.next()?, mutant.data.clone())));
+        if let Some(mut baseline) = baseline {
+            let mut mutant_side = mutant_side;
+            let added = options
+                .assume_joined
+                .iter()
+                .any(|name| !manifest.spec.assume_joined.contains(name));
+            if reads_data && added {
+                let names = assumed_names(manifest, options);
+                for side in std::iter::once(&mut baseline).chain(mutant_side.as_mut()) {
+                    if let Err(error) = side.recompute_data(&names) {
+                        return refuse(
+                            document,
+                            Refusal::new("filter", "filter-unavailable", error),
+                            "report this: kink's data facts of a side could not be read for the \
+                             witness filter (--no-filter runs without it)",
+                        );
+                    }
+                }
+            }
+            let mut judgement =
+                KinkJudgement::new(job_kind, baseline, mutant_side, manifest.budget.work());
+            // Hole values add no hooked or function application to the template, so a state
+            // exclusion of the anchors' input is one of every candidate's: no witness could be
+            // confirmed.
+            if let Ok(test) = &kink_template
+                && let Some((role, exclusion)) = judgement.initial_exclusion(&test.initial_state)
+            {
+                document["job"]["filter"] = json!({"on": true, "id": null});
+                return refuse(
+                    document,
+                    Refusal::new(
+                        "filter",
+                        "initial-state-excluded",
+                        format!(
+                            "kink's input of the template has the exclusion {exclusion} on the \
+                             {role}'s definition, so kink takes no evidence from any program of \
+                             this template"
+                        ),
+                    ),
+                    "choose a template whose input applies no implementation-chosen hook and no \
+                     function whose value depends on the short-circuit reading (kink-flow run gives \
+                     such a program the exclusion as its cause)",
+                );
+            }
+            filter = Some(judgement);
+        }
+    }
+    let (report, fired) = under_watchdog(
+        options.time_limit_ms.map(Duration::from_millis),
+        |token| match filter.as_mut() {
+            Some(filter) => campaign.run_filtered(options.budget, token, filter),
+            None => campaign.run(options.budget, token),
+        },
+    );
+    drop(filter);
     document["job"]["outcome"] = json!("fuzzed");
+    document["job"]["filter"] = json!({"on": options.filter, "id": report.identity.filter});
+    let refused = &report.totals.filter.refused;
+    if !refused.is_empty() {
+        let causes = refused
+            .iter()
+            .map(|(cause, count)| format!("{count} {cause}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        push_warning(
+            &mut document,
+            warning(
+                "client-refused",
+                format!(
+                    "kink's rules refused candidate hits inside the campaign ({causes}): each is \
+                     a case kink's own run would not count, judged before its confirmation; the \
+                     fuzz report's client-refusals give each cause's first case and kink's reason"
+                ),
+            ),
+        );
+    }
     document["findings"] = Value::Array(
         report
             .definition_findings
@@ -1968,6 +2079,19 @@ pub fn fuzz_job(
             document["action"] = json!(action);
             true
         }
+        CampaignOutcome::NoWitnessFound { no_witness }
+            if !report.totals.filter.refused.is_empty() =>
+        {
+            // Every hit was one kink refuses: no witness kink accepts, which is no sign of
+            // survival (FZ-COMPARABLE-B review M5).
+            document["stopped"] = json!("client-refused");
+            document["action"] = json!(format!(
+                "no witness kink accepts: {} Mark other literals as holes, narrow the holes to \
+                 values kink compares, or {sought}",
+                no_witness.statement
+            ));
+            true
+        }
         CampaignOutcome::NoWitnessFound { no_witness } => {
             document["stopped"] = json!("budget");
             document["action"] = json!(format!(
@@ -2050,6 +2174,10 @@ pub fn fuzz_job(
                 AbortKind::RebuildFailed => {
                     "the campaign's backends did not rebuild after a crash: report it with the \
                      fuzz report's crashes"
+                }
+                AbortKind::ClientDefect => {
+                    "kink-flow's witness filter broke its contract (a defect of kink-flow): \
+                     report it, and run with --no-filter meanwhile"
                 }
             };
             document["action"] = json!(format!("the campaign aborted: {what}. {reason}"));
