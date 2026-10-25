@@ -528,8 +528,8 @@ fn assert_initializer_context<S: ConfigurationValidationStage>() {
             key: key(ProvenanceRole::InitializerTermPath),
             literal: DescriptorLiteral::Int("-0".into()),
         }),
-        Err(StateTransportError::UnexpectedProvenance {
-            expected: ProvenanceRole::InitializerTerm,
+        Err(StateTransportError::MismatchedProvenance {
+            expected: key(ProvenanceRole::InitializerTerm),
             actual: key(ProvenanceRole::InitializerTermPath),
         })
     );

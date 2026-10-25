@@ -1775,9 +1775,10 @@ impl DescriptorConfigurationRule {
         } else {
             ProvenanceRole::RuleDeclaration
         };
-        if primary != &ProvenanceKey::new(declaration, 0) {
-            return Err(StateTransportError::UnexpectedProvenance {
-                expected: declaration,
+        let expected = ProvenanceKey::new(declaration, 0);
+        if primary != &expected {
+            return Err(StateTransportError::MismatchedProvenance {
+                expected,
                 actual: primary.clone(),
             });
         }

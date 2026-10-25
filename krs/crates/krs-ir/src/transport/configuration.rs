@@ -731,6 +731,15 @@ pub enum StateTransportError {
         /// Supplied key.
         actual: ProvenanceKey,
     },
+    /// A field that names one particular node held another key of its role:
+    /// a descriptor's primary key, or the key an initializer literal shares
+    /// with the node it stands in.
+    MismatchedProvenance {
+        /// The key the field must hold.
+        expected: ProvenanceKey,
+        /// Supplied key.
+        actual: ProvenanceKey,
+    },
     /// Two nodes defined one key: a key names one authored node, and every
     /// other field that names it is a reference.
     DuplicateProvenance(ProvenanceKey),
@@ -745,6 +754,7 @@ impl StateTransportError {
         match self {
             Self::InitializerDeclarationMismatch { at } => at.as_ref(),
             Self::UnexpectedProvenance { actual: key, .. }
+            | Self::MismatchedProvenance { actual: key, .. }
             | Self::DuplicateProvenance(key)
             | Self::ExtraProvenance(key) => Some(key),
             Self::InvalidText(_)
@@ -797,6 +807,14 @@ impl fmt::Display for StateTransportError {
             Self::UnexpectedProvenance { expected, actual } => write!(
                 formatter,
                 "expected a `{expected}` provenance key, found `{}#{}`",
+                actual.role(),
+                actual.ordinal()
+            ),
+            Self::MismatchedProvenance { expected, actual } => write!(
+                formatter,
+                "expected provenance key `{}#{}`, found `{}#{}`",
+                expected.role(),
+                expected.ordinal(),
                 actual.role(),
                 actual.ordinal()
             ),
@@ -1822,8 +1840,8 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         // A literal has no key of its own yet: it names the node it stands
         // in, a sequence item, a map entry's key or value, or its term.
         if key != self.structural_key {
-            return Err(StateTransportError::UnexpectedProvenance {
-                expected: self.structural_key.role(),
+            return Err(StateTransportError::MismatchedProvenance {
+                expected: self.structural_key.clone(),
                 actual: key.clone(),
             });
         }
@@ -2073,8 +2091,8 @@ fn validate_complete_set(
 ) -> Result<(), StateTransportError> {
     let expected_primary = ProvenanceKey::new(ProvenanceRole::ConfigurationDeclaration, 0);
     if primary != &expected_primary {
-        return Err(StateTransportError::UnexpectedProvenance {
-            expected: expected_primary.role(),
+        return Err(StateTransportError::MismatchedProvenance {
+            expected: expected_primary,
             actual: primary.clone(),
         });
     }

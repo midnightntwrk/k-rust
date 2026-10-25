@@ -342,8 +342,20 @@ fn primary_key_is_configuration_declaration() {
             &key(ProvenanceRole::InitializerDeclaration, 0),
             &actual,
         ),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        Err(StateTransportError::MismatchedProvenance { .. })
     ));
+    // A primary of the declaration's role is still the declaration's key.
+    let error = configuration
+        .validate_complete_provenance(
+            &owner,
+            &key(ProvenanceRole::ConfigurationDeclaration, 1),
+            &actual,
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "expected provenance key `configuration_declaration#0`, found `configuration_declaration#1`"
+    );
 }
 
 fn side_role(side: &str, left: ProvenanceRole, right: ProvenanceRole) -> ProvenanceRole {

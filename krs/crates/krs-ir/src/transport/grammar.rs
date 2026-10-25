@@ -2205,6 +2205,14 @@ pub enum GrammarTransportError {
         /// Supplied parser key.
         actual: ProvenanceKey,
     },
+    /// The descriptor's primary key was another key than its payload's
+    /// declaration.
+    MismatchedProvenance {
+        /// The payload's declaration key.
+        expected: ProvenanceKey,
+        /// Supplied parser key.
+        actual: ProvenanceKey,
+    },
     /// Two nested nodes defined one parser key: a key names one authored
     /// node, and every other field that names it is a reference.
     DuplicateProvenance(ProvenanceKey),
@@ -2253,6 +2261,14 @@ impl fmt::Display for GrammarTransportError {
             Self::UnexpectedProvenance { expected, actual } => write!(
                 formatter,
                 "expected a `{expected}` provenance key, found `{}#{}`",
+                actual.role(),
+                actual.ordinal()
+            ),
+            Self::MismatchedProvenance { expected, actual } => write!(
+                formatter,
+                "expected provenance key `{}#{}`, found `{}#{}`",
+                expected.role(),
+                expected.ordinal(),
                 actual.role(),
                 actual.ordinal()
             ),

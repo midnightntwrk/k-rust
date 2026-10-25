@@ -761,8 +761,8 @@ impl Descriptor {
                 .filter(|key| key.role() != ProvenanceRole::StableSymbol),
         )?;
         if self.provenance.primary_key() != &expected_primary {
-            return Err(GrammarTransportError::UnexpectedProvenance {
-                expected: expected_primary.role(),
+            return Err(GrammarTransportError::MismatchedProvenance {
+                expected: expected_primary,
                 actual: self.provenance.primary_key().clone(),
             });
         }
