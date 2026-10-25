@@ -88,7 +88,8 @@ use k_rust_fuzz::{
     error::CampaignError,
     holes::HoleFile,
     report::{
-        CampaignOutcome, DefinitionFinding, FindingVerdict, FuzzReport, WitnessCase, digest_hex,
+        AbortKind, CampaignOutcome, DefinitionFinding, FindingVerdict, FuzzReport, WitnessCase,
+        digest_hex,
     },
     spec::{DEFAULT_REJECTION_CAP, ProgramSource as FuzzProgram, ProgramText},
     target::{DifferentialTarget, PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
@@ -1792,6 +1793,11 @@ pub fn fuzz_job(
     if reads_data {
         document["assumed"] = assumed_value(manifest, options, Some(&report));
     }
+    // A crash is no kill and moves no verdict: one warning per crash, for its report
+    // (FZ-CRASH).
+    for line in report.crashes.lines() {
+        push_warning(&mut document, warning("crash", line));
+    }
     let fuzz =
         serde_json::from_str::<Value>(&report.to_canonical_json()).expect("a fuzz report is JSON");
     let mut attempt = json!({
@@ -2023,9 +2029,30 @@ pub fn fuzz_job(
             ));
             false
         }
-        CampaignOutcome::Aborted { reason, .. } => {
+        CampaignOutcome::Aborted { kind, reason, .. } => {
             document["stopped"] = json!("aborted");
-            document["action"] = json!(format!("the campaign aborted: {reason}"));
+            let what = match kind {
+                AbortKind::SolverPreludeInconsistent | AbortKind::SolverPreludeMalformed => {
+                    "the solver's prelude failed (the definition's SMT text, a user prelude, or \
+                     k-rust's SMT translation of them): check the definition's smtlib and \
+                     smt-hook attributes, or report it"
+                }
+                AbortKind::SolverPreludeUnknown => {
+                    "the solver could not decide the prelude: try again, or report it"
+                }
+                AbortKind::SolverInit => {
+                    "the solver did not start for this definition (its SMT declarations, \
+                     k-rust's translation of them, or the host): report it"
+                }
+                AbortKind::ClientPanic => {
+                    "the campaign's observer panicked (a defect of its client): report it"
+                }
+                AbortKind::RebuildFailed => {
+                    "the campaign's backends did not rebuild after a crash: report it with the \
+                     fuzz report's crashes"
+                }
+            };
+            document["action"] = json!(format!("the campaign aborted: {what}. {reason}"));
             false
         }
     };
