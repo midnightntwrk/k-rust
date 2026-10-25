@@ -20,7 +20,9 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
 use super::state_rules::StateRuleBuilder;
-use super::terms::{TermBuilder, TermSide, WireSlots, wire_key, wire_sort_reference};
+use super::terms::{
+    KeyedTerm, TermBuilder, TermSide, WireSlots, read_key, wire_key, wire_sort_reference,
+};
 use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -101,22 +103,30 @@ fn configuration_claim(
                 let sort_ref = wire_sort_reference(
                     &mut slots,
                     &facade,
-                    ProvenanceRole::RuleBindingType,
-                    ordinal,
+                    (binding.sort_key(), ProvenanceRole::RuleBindingType, ordinal),
                     &key_fn,
                     &authored,
                 );
                 let claim_sort_ref = wire_sort_reference(
                     &mut slots,
                     &facade,
-                    ProvenanceRole::ClaimBinderSort,
-                    ordinal,
+                    (
+                        binding.binder_sort_key(),
+                        ProvenanceRole::ClaimBinderSort,
+                        ordinal,
+                    ),
                     &key_fn,
                     &authored,
                 );
                 universal_metadata.push(WireClaimBinder {
-                    declaration_key: wire_key(ProvenanceRole::ClaimUniversalBinder, ordinal),
-                    name_key: wire_key(ProvenanceRole::ClaimBinderName, ordinal),
+                    declaration_key: read_key(
+                        binding.universal_key(),
+                        wire_key(ProvenanceRole::ClaimUniversalBinder, ordinal),
+                    ),
+                    name_key: read_key(
+                        binding.binder_name_key(),
+                        wire_key(ProvenanceRole::ClaimBinderName, ordinal),
+                    ),
                     name: name.clone(),
                     sort: claim_sort_ref,
                 });
@@ -153,14 +163,23 @@ fn configuration_claim(
         let sort_ref = wire_sort_reference(
             &mut slots,
             &facade,
-            ProvenanceRole::ClaimBinderSort,
-            binder_ordinal,
+            (
+                binder.sort_key(),
+                ProvenanceRole::ClaimBinderSort,
+                binder_ordinal,
+            ),
             &key_fn,
             &authored,
         );
         existential_metadata.push(WireClaimBinder {
-            declaration_key: wire_key(ProvenanceRole::ClaimExistentialBinder, ordinal),
-            name_key: wire_key(ProvenanceRole::ClaimBinderName, binder_ordinal),
+            declaration_key: read_key(
+                binder.key(),
+                wire_key(ProvenanceRole::ClaimExistentialBinder, ordinal),
+            ),
+            name_key: read_key(
+                binder.name_key(),
+                wire_key(ProvenanceRole::ClaimBinderName, binder_ordinal),
+            ),
             name,
             sort: sort_ref,
         });
@@ -200,12 +219,15 @@ fn configuration_claim(
     condition_builder.continue_ordinals(&right.terms);
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
-            condition.term().tree(),
+            KeyedTerm::of(condition.term()),
             TermSide::Requires,
             &mut slots,
         )?;
         Some(WireRuleCondition {
-            key: wire_key(ProvenanceRole::RuleRequires, 0),
+            key: read_key(
+                condition.term().keys().payload(),
+                wire_key(ProvenanceRole::RuleRequires, 0),
+            ),
             term,
         })
     } else {
@@ -218,10 +240,16 @@ fn configuration_claim(
     ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
     ensures_builder.continue_ordinals(&condition_builder);
     let ensures = if let Some(condition) = claim.ensures() {
-        let term =
-            ensures_builder.expand_wire(condition.term().tree(), TermSide::Ensures, &mut slots)?;
+        let term = ensures_builder.expand_wire(
+            KeyedTerm::of(condition.term()),
+            TermSide::Ensures,
+            &mut slots,
+        )?;
         Some(WireRuleCondition {
-            key: wire_key(ProvenanceRole::ClaimEnsures, 0),
+            key: read_key(
+                condition.term().keys().payload(),
+                wire_key(ProvenanceRole::ClaimEnsures, 0),
+            ),
             term,
         })
     } else {
@@ -248,21 +276,29 @@ fn configuration_claim(
         SyntaxClaimModality::OnePath => ClaimModality::OnePath,
     };
     let circularity = if attribute.circularity() {
-        Some(wire_key(ProvenanceRole::ClaimCircularity, 0))
+        Some(read_key(
+            attribute.circularity_key(),
+            wire_key(ProvenanceRole::ClaimCircularity, 0),
+        ))
     } else {
         None
     };
-    let trusted = attribute
-        .trusted()
-        .then(|| wire_key(ProvenanceRole::ClaimTrusted, 0));
-    let or_bool_count = anchors
+    let trusted = attribute.trusted().then(|| {
+        read_key(
+            attribute.trusted_key(),
+            wire_key(ProvenanceRole::ClaimTrusted, 0),
+        )
+    });
+    // The claim names every `k::or_bool!` its terms hold.
+    let or_bool_anchors = anchors
         .iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::ClaimOrBool)
-        .count();
-    let or_bool_keys = (0..or_bool_count)
+        .collect::<Vec<_>>();
+    let or_bool_keys = (0..or_bool_anchors.len())
         .map(|index| {
+            let read = or_bool_anchors[index].key();
             let index = u32::try_from(index).unwrap();
-            wire_key(ProvenanceRole::ClaimOrBool, index)
+            read_key(Some(&read), wire_key(ProvenanceRole::ClaimOrBool, index))
         })
         .collect();
     let mut wrapper_checks = Vec::new();
@@ -276,15 +312,24 @@ fn configuration_claim(
     let wire = WirePayload::ConfigurationRule(Box::new(WireConfigurationRule {
         sentence_kind: krs_ir::ConfigurationSentenceKind::Claim,
         label: Some(DescriptorRuleLabel {
-            key: wire_key(ProvenanceRole::ClaimLabel, 0),
+            key: read_key(
+                attribute.label_key(),
+                wire_key(ProvenanceRole::ClaimLabel, 0),
+            ),
             name: label_name,
         }),
         priority: None,
         nondet: None,
         requires,
         claim: Some(WireClaim {
-            declaration_key: wire_key(ProvenanceRole::ClaimDeclaration, 0),
-            modality_key: wire_key(ProvenanceRole::ClaimModality, 0),
+            declaration_key: read_key(
+                rule.declaration_key(),
+                wire_key(ProvenanceRole::ClaimDeclaration, 0),
+            ),
+            modality_key: read_key(
+                attribute.modality_key(),
+                wire_key(ProvenanceRole::ClaimModality, 0),
+            ),
             modality,
             circularity_key: circularity,
             trusted_key: trusted,
@@ -293,17 +338,26 @@ fn configuration_claim(
             ensures,
             or_bool_keys,
         }),
-        pattern_key: wire_key(ProvenanceRole::RulePattern, 0),
+        pattern_key: read_key(rule.pattern_key(), wire_key(ProvenanceRole::RulePattern, 0)),
         subject_configuration: WireConfigurationReference {
-            key: wire_key(ProvenanceRole::RuleType, 0),
+            key: read_key(
+                rule.subject_type_key(),
+                wire_key(ProvenanceRole::RuleType, 0),
+            ),
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#subject_key))),
                 authored_path: subject_spelling,
             },
         },
-        result_key: Some(wire_key(ProvenanceRole::RuleResult, 0)),
+        result_key: Some(read_key(
+            rule.result_key(),
+            wire_key(ProvenanceRole::RuleResult, 0),
+        )),
         result_configuration: Some(WireConfigurationReference {
-            key: wire_key(ProvenanceRole::RuleResultType, 0),
+            key: read_key(
+                rule.result_type_key(),
+                wire_key(ProvenanceRole::RuleResultType, 0),
+            ),
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
                 authored_path: result_spelling,

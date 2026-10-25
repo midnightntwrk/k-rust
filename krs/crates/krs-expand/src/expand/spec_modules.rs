@@ -23,7 +23,7 @@ use syn::{AttrStyle, Attribute, Ident, Item, Meta, Path};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
-use super::terms::wire_key;
+use super::terms::{read_key, wire_key};
 use crate::environment::{MacroEnvironment, SourcePosition};
 use crate::provenance::host_provenance;
 use crate::{ExpandError, expand_attribute, expand_function};
@@ -337,15 +337,26 @@ fn descriptor_factory(
                 )
             })?;
             Ok(DescriptorModuleImport {
-                key: wire_key(ProvenanceRole::SpecModuleImport, ordinal),
+                key: read_key(
+                    attribute
+                        .import_keys()
+                        .get(usize::try_from(ordinal).unwrap_or(usize::MAX)),
+                    wire_key(ProvenanceRole::SpecModuleImport, ordinal),
+                ),
                 path: surface::path_text(path),
             })
         })
         .collect::<crate::Result<Vec<_>>>()?;
     let grammar = WireGrammarDescriptor::SpecModule {
-        key: wire_key(ProvenanceRole::SpecModuleDeclaration, 0),
+        key: read_key(
+            module.key(),
+            wire_key(ProvenanceRole::SpecModuleDeclaration, 0),
+        ),
         name: attribute.name().map(|name| DescriptorSpecModuleName {
-            key: wire_key(ProvenanceRole::SpecModuleName, 0),
+            key: read_key(
+                attribute.name_key(),
+                wire_key(ProvenanceRole::SpecModuleName, 0),
+            ),
             value: name.value(),
         }),
         imports,

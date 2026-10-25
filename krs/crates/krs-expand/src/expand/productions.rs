@@ -11,7 +11,9 @@ use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
+use super::terms::read_key;
 use super::tokens::{call_site_path, enum_variant_parts, spelling, variant_marker_function};
+use krs_ir::ProvenanceKey;
 
 pub(super) fn strictness_key_function<'a>(
     strictness: Option<&StrictnessAttribute>,
@@ -104,6 +106,7 @@ pub(super) struct OverloadWire {
 pub(super) fn overload_wire(
     facade: &Path,
     target: &Path,
+    read: Option<&ProvenanceKey>,
     key_fn: &Ident,
     cfg: &[Attribute],
     slots: &mut super::terms::WireSlots,
@@ -140,7 +143,7 @@ pub(super) fn overload_wire(
         tokens,
         attribute: krs_ir::wire::WireProductionAttribute::Overload {
             target: krs_ir::wire::WireApplicationReference {
-                key: wire_key(ProvenanceRole::ConstructorOverload, 0),
+                key: read_key(read, wire_key(ProvenanceRole::ConstructorOverload, 0)),
                 target: slot,
                 authored_path: spelling(target),
             },
@@ -154,8 +157,14 @@ pub(super) struct ColorMetadata<'a> {
     pub(super) colors: Option<&'a [syn::LitStr]>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "A production's metadata values and their keys come from its attribute or its family, and each value is lowered in place."
+)]
 pub(super) fn constructor_metadata_wire(
-    group: Option<String>,
+    keys: &krs_syntax::ProductionKeys,
+    (group, group_key): (Option<String>, Option<&ProvenanceKey>),
     avoid: bool,
     prefer: bool,
     placement: Option<krs_syntax::PlacementFlag>,
@@ -172,7 +181,7 @@ pub(super) fn constructor_metadata_wire(
     if let Some(group) = group {
         attributes.push(Attribute::Group {
             reference: DescriptorGroupReference {
-                key: wire_key(ProvenanceRole::ConstructorGroup, 0),
+                key: read_key(group_key, wire_key(ProvenanceRole::ConstructorGroup, 0)),
                 group: ProductionGroupId::new(group)
                     .expect("checked production groups are valid identities"),
             },
@@ -180,27 +189,36 @@ pub(super) fn constructor_metadata_wire(
     }
     if avoid {
         attributes.push(Attribute::Avoid {
-            key: wire_key(ProvenanceRole::ConstructorAvoid, 0),
+            key: read_key(keys.avoid(), wire_key(ProvenanceRole::ConstructorAvoid, 0)),
         });
     }
     if prefer {
         attributes.push(Attribute::Prefer {
-            key: wire_key(ProvenanceRole::ConstructorPrefer, 0),
+            key: read_key(
+                keys.prefer(),
+                wire_key(ProvenanceRole::ConstructorPrefer, 0),
+            ),
         });
     }
     match placement {
         Some(krs_syntax::PlacementFlag::Internal) => attributes.push(Attribute::Internal {
-            key: wire_key(ProvenanceRole::ConstructorInternal, 0),
+            key: read_key(
+                keys.placement(),
+                wire_key(ProvenanceRole::ConstructorInternal, 0),
+            ),
         }),
         Some(krs_syntax::PlacementFlag::Program) => attributes.push(Attribute::Program {
-            key: wire_key(ProvenanceRole::ConstructorProgram, 0),
+            key: read_key(
+                keys.placement(),
+                wire_key(ProvenanceRole::ConstructorProgram, 0),
+            ),
         }),
         None => {}
     }
     attributes.extend(overload);
     if let Some(color) = colors.color {
         attributes.push(Attribute::Color {
-            key: wire_key(ProvenanceRole::ConstructorColor, 0),
+            key: read_key(keys.color(), wire_key(ProvenanceRole::ConstructorColor, 0)),
             value: color.value(),
         });
     }
@@ -215,12 +233,15 @@ pub(super) fn constructor_metadata_wire(
                 )
             })?;
             values.push(krs_ir::DescriptorColorEntry {
-                key: wire_key(ProvenanceRole::ConstructorColorsEntry, ordinal),
+                key: read_key(
+                    keys.color_entries().get(index),
+                    wire_key(ProvenanceRole::ConstructorColorsEntry, ordinal),
+                ),
                 value: literal.value(),
             });
         }
         attributes.push(Attribute::Colors {
-            key: wire_key(ProvenanceRole::ConstructorColor, 0),
+            key: read_key(keys.color(), wire_key(ProvenanceRole::ConstructorColor, 0)),
             values,
         });
     }
@@ -244,12 +265,18 @@ pub(super) fn constructor_metadata_wire(
                 StructuredFormatFragment::ColorReset => FormatFragment::ColorReset,
             };
             fragments.push(DescriptorFormatFragment {
-                key: wire_key(ProvenanceRole::ConstructorFormatFragment, ordinal),
+                key: read_key(
+                    format.fragment_keys().get(index),
+                    wire_key(ProvenanceRole::ConstructorFormatFragment, ordinal),
+                ),
                 fragment,
             });
         }
         attributes.push(Attribute::Format {
-            key: wire_key(ProvenanceRole::ConstructorFormat, 0),
+            key: read_key(
+                keys.format(),
+                wire_key(ProvenanceRole::ConstructorFormat, 0),
+            ),
             fragments,
         });
     }
@@ -272,7 +299,10 @@ pub(super) fn production_documentation_wire(
                 )
             })?;
             Ok(krs_ir::wire::WireProductionAttribute::Documentation {
-                key: wire_key(ProvenanceRole::ConstructorDocumentation, ordinal),
+                key: read_key(
+                    documentation.key(),
+                    wire_key(ProvenanceRole::ConstructorDocumentation, ordinal),
+                ),
                 text: documentation.text().to_owned(),
             })
         })
@@ -280,21 +310,26 @@ pub(super) fn production_documentation_wire(
 }
 
 /// The production attribute of a `#[k::alias]` or `#[k::desugar]` marker
-/// (KF-028), with the `recursive` keyword's key when written.
+/// (KF-028), keyed `read`, the marker's name, with the `recursive`
+/// keyword's key when written.
 pub(super) fn static_mode_wire(
     marker: &krs_syntax::StaticProductionAttribute,
+    read: Option<&ProvenanceKey>,
 ) -> krs_ir::wire::WireProductionAttribute {
     use super::terms::wire_key;
-    let recursive = marker
-        .is_recursive()
-        .then(|| wire_key(ProvenanceRole::StaticRecursive, 0));
+    let recursive = marker.is_recursive().then(|| {
+        read_key(
+            marker.recursive_key(),
+            wire_key(ProvenanceRole::StaticRecursive, 0),
+        )
+    });
     match marker.mode() {
         krs_syntax::StaticMode::Alias => krs_ir::wire::WireProductionAttribute::Alias {
-            key: wire_key(ProvenanceRole::AliasProduction, 0),
+            key: read_key(read, wire_key(ProvenanceRole::AliasProduction, 0)),
             recursive,
         },
         krs_syntax::StaticMode::Desugar => krs_ir::wire::WireProductionAttribute::Desugar {
-            key: wire_key(ProvenanceRole::DesugarProduction, 0),
+            key: read_key(read, wire_key(ProvenanceRole::DesugarProduction, 0)),
             recursive,
         },
     }
@@ -321,7 +356,10 @@ pub(super) fn strictness_wire(
             module_path!(), #name, #facade::ItemKind::ContextAlias, "",
         ).expect("a strictness context alias forms a valid host identity"));
         WireContextAliasReference {
-            key: wire_key(ProvenanceRole::StrictnessContextAliasReference, 0),
+            key: read_key(
+                strictness.using_key(),
+                wire_key(ProvenanceRole::StrictnessContextAliasReference, 0),
+            ),
             slot: slots.item_slot(&expression),
         }
     });
@@ -330,9 +368,12 @@ pub(super) fn strictness_wire(
         .iter()
         .enumerate()
         .map(|(index, field)| DescriptorFieldReference {
-            key: wire_key(
-                ProvenanceRole::StrictnessFieldReference,
-                u32::try_from(index).expect("checked strictness field count"),
+            key: read_key(
+                strictness.field_keys().get(index),
+                wire_key(
+                    ProvenanceRole::StrictnessFieldReference,
+                    u32::try_from(index).expect("checked strictness field count"),
+                ),
             ),
             field: ProductionFieldId::new(field.to_string())
                 .expect("Rust field identifiers are valid production fields"),
@@ -343,12 +384,18 @@ pub(super) fn strictness_wire(
         SyntaxStrictnessKind::SeqStrict => StrictnessKind::SeqStrict,
     };
     Some(WireProductionAttribute::Strictness {
-        key: wire_key(ProvenanceRole::StrictnessDeclaration, 0),
+        key: read_key(
+            strictness.key(),
+            wire_key(ProvenanceRole::StrictnessDeclaration, 0),
+        ),
         kind,
         using,
         fields,
         result_sort: Box::new(WireSortReference {
-            key: wire_key(ProvenanceRole::StrictnessResultSort, 0),
+            key: read_key(
+                strictness.result_sort_key(),
+                wire_key(ProvenanceRole::StrictnessResultSort, 0),
+            ),
             target: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_fn))),
                 authored_path: spelling,

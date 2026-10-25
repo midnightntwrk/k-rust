@@ -12,7 +12,9 @@ use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, Path};
 
-use super::terms::{TermBuilder, TermSide, WireSlots, wire_key, wire_sort_reference};
+use super::terms::{
+    KeyedTerm, TermBuilder, TermSide, WireSlots, read_key, wire_key, wire_sort_reference,
+};
 use super::tokens::{call_site_path, spelling};
 
 /// The wire binders of a transition's existentials and the hidden sort-key
@@ -63,8 +65,7 @@ pub(super) fn evaluation_step(
                 Some(wire_sort_reference(
                     slots,
                     facade,
-                    kind.result_role(),
-                    0,
+                    (attribute.result_key(), kind.result_role(), 0),
                     &key_fn,
                     &spelling(sort),
                 )),
@@ -80,8 +81,8 @@ pub(super) fn evaluation_step(
     Ok((
         Some(WireEvaluationStep {
             kind,
-            key: wire_key(kind.role(), 0),
-            hole_key: wire_key(kind.hole_role(), 0),
+            key: read_key(attribute.evaluation_key(), wire_key(kind.role(), 0)),
+            hole_key: read_key(attribute.hole_key(), wire_key(kind.hole_role(), 0)),
             hole: hole.to_string(),
             result,
         }),
@@ -138,14 +139,13 @@ fn scoped_binders(
             fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() }
         });
         binders.push(WireClaimBinder {
-            declaration_key: wire_key(declaration_role, ordinal),
-            name_key: wire_key(name_role, ordinal),
+            declaration_key: read_key(binder.key(), wire_key(declaration_role, ordinal)),
+            name_key: read_key(binder.name_key(), wire_key(name_role, ordinal)),
             name: binder.name().unraw().to_string(),
             sort: wire_sort_reference(
                 slots,
                 facade,
-                sort_role,
-                ordinal,
+                (binder.sort_key(), sort_role, ordinal),
                 &key_fn,
                 &spelling(binder.sort()),
             ),
@@ -165,8 +165,15 @@ pub(super) fn ensures_condition(
         .ensures()
         .map(|condition| {
             Ok(WireRuleCondition {
-                key: wire_key(ProvenanceRole::RuleEnsures, 0),
-                term: builder.expand_wire(condition.tree(), TermSide::RuleEnsures, slots)?,
+                key: read_key(
+                    condition.keys().payload(),
+                    wire_key(ProvenanceRole::RuleEnsures, 0),
+                ),
+                term: builder.expand_wire(
+                    KeyedTerm::of(condition),
+                    TermSide::RuleEnsures,
+                    slots,
+                )?,
             })
         })
         .transpose()

@@ -6,7 +6,7 @@ use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
-use super::terms::{WireSlots, wire_key, wire_sort_reference};
+use super::terms::{WireSlots, anchor_key, read_key, wire_key, wire_sort_reference};
 use krs_ir::lower_hex;
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload, WireSortDescriptor, WireTypeReference};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
@@ -446,24 +446,35 @@ fn expand_readable_membership(
     let super_spelling = spelling(declaration.supersort());
     let sub_spelling = spelling(member);
     let mut slots = WireSlots::new(facade);
+    // Each member is a descriptor of its own, whose keys are the first of
+    // their roles.
     let supersort = wire_sort_reference(
         &mut slots,
         facade,
-        ProvenanceRole::SubsortSuperSort,
-        0,
+        (
+            declaration.supersort_key(),
+            ProvenanceRole::SubsortSuperSort,
+            0,
+        ),
         &super_key,
         &super_spelling,
     );
     let subsort = wire_sort_reference(
         &mut slots,
         facade,
-        ProvenanceRole::SubsortSubSort,
-        0,
+        (
+            anchor_key(anchors, ProvenanceRole::SubsortSubSort).as_ref(),
+            ProvenanceRole::SubsortSubSort,
+            0,
+        ),
         &sub_key,
         &sub_spelling,
     );
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
-        key: wire_key(subsort_declaration_role, 0),
+        key: read_key(
+            anchor_key(anchors, subsort_declaration_role).as_ref(),
+            wire_key(subsort_declaration_role, 0),
+        ),
         subsort,
         supersort,
     }));
@@ -622,21 +633,23 @@ pub(crate) fn subsort(
     let supersort = wire_sort_reference(
         &mut slots,
         &facade,
-        ProvenanceRole::SubsortSuperSort,
-        0,
+        (reference.sort_key(), ProvenanceRole::SubsortSuperSort, 0),
         &super_key,
         &super_spelling,
     );
     let subsort = wire_sort_reference(
         &mut slots,
         &facade,
-        ProvenanceRole::SubsortSubSort,
-        0,
+        (
+            declaration.sub_sort_key(),
+            ProvenanceRole::SubsortSubSort,
+            0,
+        ),
         &sub_key,
         &sub_spelling,
     );
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
-        key: wire_key(subsort_declaration_role, 0),
+        key: read_key(declaration.key(), wire_key(subsort_declaration_role, 0)),
         subsort,
         supersort,
     }));
@@ -708,7 +721,8 @@ fn expand_bracket_grammar(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "Bracket lowering passes the complete declaration context explicitly."
+    clippy::too_many_lines,
+    reason = "Bracket lowering passes the complete declaration context explicitly and keys every part of the production."
 )]
 fn expand_bracket_grammar_parts(
     env: &dyn MacroEnvironment,
@@ -736,11 +750,16 @@ fn expand_bracket_grammar_parts(
     let factory = format_ident!("__krs_bracket_descriptor_{nonce:016x}_{index}");
     let grammar_name = format!("__krs_grammar_bracket_{sort_name}_{index}");
     let mut slots = WireSlots::new(facade);
+    // The bracketed sort's name, which the descriptor's composition keys;
+    // the owner, the result and the value all name it.
     let sort_reference = wire_sort_reference(
         &mut slots,
         facade,
-        ProvenanceRole::SortDeclaration,
-        0,
+        (
+            anchor_key(anchors, ProvenanceRole::SortDeclaration).as_ref(),
+            ProvenanceRole::SortDeclaration,
+            0,
+        ),
         sort_key,
         sort_name,
     );
@@ -754,7 +773,11 @@ fn expand_bracket_grammar_parts(
                 "too many bracket items",
             )
         })?;
-        let key = wire_key(ProvenanceRole::BracketSyntaxItem, ordinal);
+        let item_keys = bracket_item_keys(bracket, item_index);
+        let key = read_key(
+            item_keys.first(),
+            wire_key(ProvenanceRole::BracketSyntaxItem, ordinal),
+        );
         match item {
             SyntaxTemplateItem::Terminal(text) => {
                 items.push(krs_ir::wire::WireProductionItem::Terminal {
@@ -763,7 +786,10 @@ fn expand_bracket_grammar_parts(
                 });
             }
             SyntaxTemplateItem::Field(_) => {
-                let field_key = wire_key(ProvenanceRole::BracketValueReference, value_ordinal);
+                let field_key = read_key(
+                    item_keys.get(1),
+                    wire_key(ProvenanceRole::BracketValueReference, value_ordinal),
+                );
                 value_ordinal = value_ordinal.checked_add(1).ok_or_else(|| {
                     ExpandError::new(
                         expand::DESCRIPTOR_CAPACITY,
@@ -786,15 +812,16 @@ fn expand_bracket_grammar_parts(
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         krs_ir::wire::WireProduction {
             parameters: Vec::new(),
-            key: wire_key(bracket_declaration_role, 0),
+            key: read_key(bracket.key(), wire_key(bracket_declaration_role, 0)),
             template_key: None,
             owner: krs_ir::wire::WireProductionOwner::BracketSort {
                 sort: sort_reference.clone(),
             },
             result_sort: sort_reference,
             items,
+            // The declaration again, as the production's attribute.
             attributes: vec![krs_ir::wire::WireProductionAttribute::Bracket {
-                key: wire_key(bracket_declaration_role, 0),
+                key: read_key(bracket.key(), wire_key(bracket_declaration_role, 0)),
             }],
         },
     )));
@@ -819,6 +846,26 @@ fn expand_bracket_grammar_parts(
     Ok(quote! {
         #factory_tokens
     })
+}
+
+/// The keys of the bracket's item at `index`: its item key, then, for its
+/// value, the value reference's. A two-delimiter bracket keys its three
+/// items and its value reference in order, all at the pair.
+fn bracket_item_keys(
+    bracket: &krs_syntax::BracketAttribute,
+    index: usize,
+) -> Vec<krs_ir::ProvenanceKey> {
+    let delimiter = bracket.delimiter_keys();
+    if delimiter.is_empty() {
+        return bracket.template().item_keys(index).to_vec();
+    }
+    let value = delimiter.get(3).filter(|_| index == 1);
+    delimiter
+        .get(index)
+        .into_iter()
+        .chain(value)
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]

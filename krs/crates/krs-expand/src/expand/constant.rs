@@ -14,7 +14,7 @@ use quote::{format_ident, quote};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
-use super::terms::{TermBuilder, TermSide, WireSlots, wire_key};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, read_key, wire_key};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -52,7 +52,10 @@ pub(crate) fn constant(
 
     let mut slots = WireSlots::new(&facade);
     let sort_reference = WireSortReference {
-        key: wire_key(ProvenanceRole::ConstantType, 0),
+        key: read_key(
+            constant.type_key(),
+            wire_key(ProvenanceRole::ConstantType, 0),
+        ),
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#sort_key))),
             authored_path: sort.sort_token_text(),
@@ -61,7 +64,8 @@ pub(crate) fn constant(
     // A constant binds nothing, so every name in its value is a path that
     // rustc resolves: another constant or a constructor.
     let mut builder = TermBuilder::new(&facade, nonce, &cfg, &[]);
-    let value = builder.expand_wire(constant.value().tree(), TermSide::Right, &mut slots)?;
+    let value =
+        builder.expand_wire(KeyedTerm::of(constant.value()), TermSide::Right, &mut slots)?;
     let key_functions = std::mem::take(&mut builder.key_functions);
     let wire = WirePayload::Constant(Box::new(WireConstant {
         sort: sort_reference,

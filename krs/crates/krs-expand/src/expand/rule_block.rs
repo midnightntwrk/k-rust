@@ -11,7 +11,7 @@ use syn::ext::IdentExt;
 use super::existentials::{ensures_condition, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
-use super::terms::{TermBuilder, TermSide, WireSlots};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, read_key};
 use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -145,7 +145,10 @@ fn expand_head_rule(
             });
             let slot = slots.type_slot(quote!(#facade::HostTypeKey(#key_fn)));
             Some(krs_ir::wire::WireSortReference {
-                key: ProvenanceRole::RuleBindingType.key(ordinal),
+                key: read_key(
+                    narrowing.sort_key(),
+                    ProvenanceRole::RuleBindingType.key(ordinal),
+                ),
                 target: krs_ir::wire::WireTypeReference {
                     slot,
                     authored_path: authored,
@@ -162,12 +165,20 @@ fn expand_head_rule(
     let alternative = clause.bracket_alternative();
     let mut items = Vec::new();
     if clause.head().is_some_and(krs_syntax::RuleHead::subject) {
-        items.push(builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?);
+        items.push(builder.expand_wire(
+            KeyedTerm::pattern(&rule.parameter().pattern, rule.subject_tree()),
+            TermSide::Left,
+            &mut slots,
+        )?);
     }
     // The computation items after the first are expanded before the other
     // cells, as the parser numbers their anchors.
     for item in clause.head().iter().flat_map(|head| head.following()) {
-        items.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
+        items.push(builder.expand_wire(
+            KeyedTerm::pattern(item.pattern(), item.tree()),
+            TermSide::Left,
+            &mut slots,
+        )?);
     }
 
     let mut have_ordinal = 0_u32;
@@ -180,7 +191,7 @@ fn expand_head_rule(
     // instance keys per side, as the parser numbers their anchors.
     let mut left_states = krs_syntax::ReadableStateCounters::default();
     let mut right_states = krs_syntax::ReadableStateCounters::after_head(clause.head_result());
-    for extra in clause.extras() {
+    for (extra, extra_keys) in clause.extras().iter().zip(clause.extra_keys()) {
         match extra {
             krs_syntax::RuleExtra::HaveMap { cell, entries } => {
                 let cell_name = cell.unraw().to_string();
@@ -189,7 +200,7 @@ fn expand_head_rule(
                     .map(|entry| {
                         Ok(krs_ir::wire::WireHeadRuleMapEntry {
                             key: builder.expand_wire(
-                                entry.key.tree(),
+                                KeyedTerm::of(&entry.key),
                                 TermSide::Left,
                                 &mut slots,
                             )?,
@@ -207,16 +218,23 @@ fn expand_head_rule(
                 })?;
                 have_extras.push(krs_ir::wire::WireHeadRuleExtra::HaveMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(ordinal),
+                        key: read_key(extra_keys.cell(), rule_left_cells_field_role.key(ordinal)),
                         name: cell_name,
                     },
                     entries,
                 });
             }
             krs_syntax::RuleExtra::RewriteCell {
-                cell, before_tree, ..
+                cell,
+                before,
+                before_tree,
+                ..
             } => {
-                let before = builder.expand_wire(before_tree, TermSide::Left, &mut slots)?;
+                let before = builder.expand_wire(
+                    KeyedTerm::pattern(before, before_tree),
+                    TermSide::Left,
+                    &mut slots,
+                )?;
                 let ordinal = have_ordinal;
                 have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
                     ExpandError::new(
@@ -225,7 +243,11 @@ fn expand_head_rule(
                         "too many readable cell reads",
                     )
                 })?;
-                rewrite_befores.push((cell.unraw().to_string(), ordinal, before));
+                rewrite_befores.push((
+                    cell.unraw().to_string(),
+                    read_key(extra_keys.cell(), rule_left_cells_field_role.key(ordinal)),
+                    before,
+                ));
             }
             krs_syntax::RuleExtra::RewriteState { cell, before, .. } => {
                 let before = readable_state_wire(
@@ -245,19 +267,27 @@ fn expand_head_rule(
                         "too many readable cell reads",
                     )
                 })?;
-                state_befores.push((cell.unraw().to_string(), ordinal, before));
+                state_befores.push((
+                    cell.unraw().to_string(),
+                    read_key(extra_keys.cell(), rule_left_cells_field_role.key(ordinal)),
+                    before,
+                ));
             }
             krs_syntax::RuleExtra::RewriteList { cell, before, .. } => {
                 let mut items = Vec::with_capacity(before.items().len());
                 for item in before.items() {
-                    items.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
+                    items.push(builder.expand_wire(
+                        KeyedTerm::pattern(item.pattern(), item.tree()),
+                        TermSide::Left,
+                        &mut slots,
+                    )?);
                 }
                 let rest = match before.rest() {
                     krs_syntax::RuleListRest::Exact => krs_ir::ProtocolHeadRuleListRest::Exact,
                     krs_syntax::RuleListRest::Shared(_) => krs_ir::ProtocolHeadRuleListRest::Shared,
                     krs_syntax::RuleListRest::Named(rest) => {
                         krs_ir::ProtocolHeadRuleListRest::Term(builder.expand_wire(
-                            rest.tree(),
+                            KeyedTerm::pattern(rest.pattern(), rest.tree()),
                             TermSide::Left,
                             &mut slots,
                         )?)
@@ -265,7 +295,11 @@ fn expand_head_rule(
                 };
                 let mut back = Vec::with_capacity(before.back().len());
                 for item in before.back() {
-                    back.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
+                    back.push(builder.expand_wire(
+                        KeyedTerm::pattern(item.pattern(), item.tree()),
+                        TermSide::Left,
+                        &mut slots,
+                    )?);
                 }
                 let ordinal = have_ordinal;
                 have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
@@ -277,7 +311,7 @@ fn expand_head_rule(
                 })?;
                 list_befores.push((
                     cell.unraw().to_string(),
-                    ordinal,
+                    read_key(extra_keys.cell(), rule_left_cells_field_role.key(ordinal)),
                     krs_ir::wire::WireHeadRuleList { items, rest, back },
                 ));
             }
@@ -289,13 +323,13 @@ fn expand_head_rule(
     let result = match clause.head_result() {
         None => None,
         Some(krs_syntax::RuleHeadResult::Replace(term)) => {
-            let term = builder.expand_wire(term.tree(), TermSide::Right, &mut slots)?;
+            let term = builder.expand_wire(KeyedTerm::of(term), TermSide::Right, &mut slots)?;
             Some(krs_ir::wire::WireHeadRuleResult::Replace(term))
         }
         Some(krs_syntax::RuleHeadResult::Splice { items, .. }) => {
             let items = items
                 .iter()
-                .map(|item| builder.expand_wire(item.tree(), TermSide::Right, &mut slots))
+                .map(|item| builder.expand_wire(KeyedTerm::of(item), TermSide::Right, &mut slots))
                 .collect::<Result<Vec<_>, _>>()?;
             Some(krs_ir::wire::WireHeadRuleResult::Splice(items))
         }
@@ -310,7 +344,7 @@ fn expand_head_rule(
     let mut rewrite_index = 0_usize;
     let mut state_index = 0_usize;
     let mut list_index = 0_usize;
-    for extra in clause.extras() {
+    for (extra, extra_keys) in clause.extras().iter().zip(clause.extra_keys()) {
         match extra {
             krs_syntax::RuleExtra::RewriteState {
                 cell,
@@ -318,7 +352,7 @@ fn expand_head_rule(
                 after,
                 ..
             } => {
-                let (cell_name, left_ordinal, before) = &state_befores[state_index];
+                let (cell_name, left_key, before) = &state_befores[state_index];
                 state_index += 1;
                 debug_assert_eq!(cell_name, &cell.unraw().to_string());
                 let (result_key, after) = match (result_cell, after) {
@@ -341,7 +375,10 @@ fn expand_head_rule(
                             )
                         })?;
                         (
-                            Some(rule_right_cells_field_role.key(right_ordinal)),
+                            Some(read_key(
+                                extra_keys.result_cell(),
+                                rule_right_cells_field_role.key(right_ordinal),
+                            )),
                             Some(after),
                         )
                     }
@@ -349,7 +386,7 @@ fn expand_head_rule(
                 };
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteState {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(*left_ordinal),
+                        key: left_key.clone(),
                         name: cell_name.clone(),
                     },
                     result_key,
@@ -360,8 +397,11 @@ fn expand_head_rule(
             krs_syntax::RuleExtra::UpdateMap { cell, base, update } => {
                 let cell_name = cell.unraw().to_string();
                 let base_binding = base.unraw().to_string();
-                let update =
-                    builder.expand_wire(update.term().tree(), TermSide::Right, &mut slots)?;
+                let update = builder.expand_wire(
+                    KeyedTerm::of(update.term()),
+                    TermSide::Right,
+                    &mut slots,
+                )?;
                 let ordinal = update_ordinal;
                 update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
                     ExpandError::new(
@@ -372,7 +412,10 @@ fn expand_head_rule(
                 })?;
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::UpdateMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_right_cells_field_role.key(ordinal),
+                        key: read_key(
+                            extra_keys.result_cell(),
+                            rule_right_cells_field_role.key(ordinal),
+                        ),
                         name: cell_name,
                     },
                     base_binding,
@@ -380,13 +423,14 @@ fn expand_head_rule(
                 });
             }
             krs_syntax::RuleExtra::RewriteCell { cell, after, .. } => {
-                let (cell_name, left_ordinal, before) = &rewrite_befores[rewrite_index];
+                let (cell_name, left_key, before) = &rewrite_befores[rewrite_index];
                 rewrite_index += 1;
                 debug_assert_eq!(cell_name, &cell.unraw().to_string());
                 // A cell the result leaves out is read only: it has no
                 // result term and no result-field key.
                 let (result_key, after) = if let Some(after) = after {
-                    let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
+                    let after =
+                        builder.expand_wire(KeyedTerm::of(after), TermSide::Right, &mut slots)?;
                     let right_ordinal = update_ordinal;
                     update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
                         ExpandError::new(
@@ -396,7 +440,10 @@ fn expand_head_rule(
                         )
                     })?;
                     (
-                        Some(rule_right_cells_field_role.key(right_ordinal)),
+                        Some(read_key(
+                            extra_keys.result_cell(),
+                            rule_right_cells_field_role.key(right_ordinal),
+                        )),
                         Some(after),
                     )
                 } else {
@@ -404,7 +451,7 @@ fn expand_head_rule(
                 };
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteCell {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(*left_ordinal),
+                        key: left_key.clone(),
                         name: cell_name.clone(),
                     },
                     result_key,
@@ -418,7 +465,7 @@ fn expand_head_rule(
                 after,
                 ..
             } => {
-                let (cell_name, left_ordinal, before) = &list_befores[list_index];
+                let (cell_name, left_key, before) = &list_befores[list_index];
                 list_index += 1;
                 debug_assert_eq!(cell_name, &cell.unraw().to_string());
                 let (result_key, after) = match (result_cell, after) {
@@ -426,7 +473,7 @@ fn expand_head_rule(
                         let mut items = Vec::with_capacity(after.items().len());
                         for item in after.items() {
                             items.push(builder.expand_wire(
-                                item.tree(),
+                                KeyedTerm::of(item),
                                 TermSide::Right,
                                 &mut slots,
                             )?);
@@ -440,7 +487,7 @@ fn expand_head_rule(
                             }
                             krs_syntax::RuleListRest::Named(rest) => {
                                 krs_ir::ProtocolHeadRuleListRest::Term(builder.expand_wire(
-                                    rest.tree(),
+                                    KeyedTerm::of(rest),
                                     TermSide::Right,
                                     &mut slots,
                                 )?)
@@ -449,7 +496,7 @@ fn expand_head_rule(
                         let mut back = Vec::with_capacity(after.back().len());
                         for item in after.back() {
                             back.push(builder.expand_wire(
-                                item.tree(),
+                                KeyedTerm::of(item),
                                 TermSide::Right,
                                 &mut slots,
                             )?);
@@ -463,7 +510,10 @@ fn expand_head_rule(
                             )
                         })?;
                         (
-                            Some(rule_right_cells_field_role.key(right_ordinal)),
+                            Some(read_key(
+                                extra_keys.result_cell(),
+                                rule_right_cells_field_role.key(right_ordinal),
+                            )),
                             Some(krs_ir::wire::WireHeadRuleList { items, rest, back }),
                         )
                     }
@@ -471,7 +521,7 @@ fn expand_head_rule(
                 };
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteList {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(*left_ordinal),
+                        key: left_key.clone(),
                         name: cell_name.clone(),
                     },
                     result_key,
@@ -522,9 +572,13 @@ fn expand_head_rule(
     extras.extend(update_extras);
     builder.reset_side();
     let requires = if let Some(condition) = rule.requires() {
-        let term = builder.expand_wire(condition.term().tree(), TermSide::Requires, &mut slots)?;
+        let term = builder.expand_wire(
+            KeyedTerm::of(condition.term()),
+            TermSide::Requires,
+            &mut slots,
+        )?;
         Some(krs_ir::wire::WireRuleCondition {
-            key: rule_requires_role.key(0),
+            key: read_key(condition.term().keys().payload(), rule_requires_role.key(0)),
             term,
         })
     } else {
@@ -568,11 +622,17 @@ fn expand_head_rule(
     // carries (F7).
     let label = Some(match clause.claim() {
         Some(claim) => krs_ir::DescriptorRuleLabel {
-            key: ProvenanceRole::ClaimLabel.key(0),
+            key: read_key(claim.label_key(), ProvenanceRole::ClaimLabel.key(0)),
             name: claim.label().value(),
         },
+        // The clause's name, or its `#[k::rule(label = ..)]`.
         None => krs_ir::DescriptorRuleLabel {
-            key: rule_label_role.key(0),
+            key: read_key(
+                clause
+                    .label_key()
+                    .or_else(|| clause.attribute().label_key()),
+                rule_label_role.key(0),
+            ),
             name: clause.attribute().label().map_or_else(
                 || rule.item().sig.ident.unraw().to_string().replace('_', "-"),
                 syn::LitStr::value,
@@ -584,15 +644,20 @@ fn expand_head_rule(
             krs_ir::SentenceKind::Claim,
             quote!(#facade::ItemKind::Claim),
             Some(krs_ir::HeadRuleClaim {
-                modality_key: ProvenanceRole::ClaimModality.key(0),
+                modality_key: read_key(claim.modality_key(), ProvenanceRole::ClaimModality.key(0)),
                 modality: match claim.modality() {
                     krs_syntax::ClaimModality::AllPaths => krs_ir::ClaimModality::AllPaths,
                     krs_syntax::ClaimModality::OnePath => krs_ir::ClaimModality::OnePath,
                 },
-                circularity_key: claim
-                    .circularity()
-                    .then(|| ProvenanceRole::ClaimCircularity.key(0)),
-                trusted_key: claim.trusted().then(|| ProvenanceRole::ClaimTrusted.key(0)),
+                circularity_key: claim.circularity().then(|| {
+                    read_key(
+                        claim.circularity_key(),
+                        ProvenanceRole::ClaimCircularity.key(0),
+                    )
+                }),
+                trusted_key: claim
+                    .trusted()
+                    .then(|| read_key(claim.trusted_key(), ProvenanceRole::ClaimTrusted.key(0))),
             }),
         ),
         None => (
@@ -605,7 +670,13 @@ fn expand_head_rule(
         .attribute()
         .transition_priority()
         .map(|(role, value)| krs_ir::DescriptorRulePriority {
-            key: role.key(0),
+            key: read_key(
+                clause
+                    .attribute()
+                    .owise_key()
+                    .or_else(|| clause.attribute().priority_key()),
+                role.key(0),
+            ),
             value,
         });
     let original = rule.item();
@@ -630,7 +701,7 @@ fn expand_head_rule(
         (
             None,
             Some(krs_ir::wire::WireConfigurationReference {
-                key: rule_type_role.key(0),
+                key: read_key(rule.parameter().type_key(), rule_type_role.key(0)),
                 configuration: krs_ir::wire::WireTypeReference {
                     slot: sort_slot,
                     authored_path: sort_spelling,
@@ -641,7 +712,7 @@ fn expand_head_rule(
     } else {
         (
             Some(krs_ir::wire::WireSortReference {
-                key: rule_type_role.key(0),
+                key: read_key(rule.parameter().type_key(), rule_type_role.key(0)),
                 target: krs_ir::wire::WireTypeReference {
                     slot: sort_slot,
                     authored_path: sort_spelling,
@@ -656,7 +727,10 @@ fn expand_head_rule(
         .attribute()
         .nondet()
         .map(|group| krs_ir::DescriptorNondetGroup {
-            key: ProvenanceRole::RuleNondetGroup.key(0),
+            key: read_key(
+                clause.attribute().nondet_key(),
+                ProvenanceRole::RuleNondetGroup.key(0),
+            ),
             name: group.unraw().to_string(),
         });
     let wire = krs_ir::wire::WirePayload::HeadRule(Box::new(krs_ir::wire::WireHeadRule {
@@ -664,8 +738,14 @@ fn expand_head_rule(
         label,
         priority,
         nondet,
-        pattern_key: rule_pattern_role.key(0),
-        result_key: rule_result_role.key(0),
+        // The whole subject record, or the computation item's pattern.
+        pattern_key: read_key(
+            clause
+                .pattern_key()
+                .or_else(|| rule.parameter().pattern_key()),
+            rule_pattern_role.key(0),
+        ),
+        result_key: read_key(clause.result_key(), rule_result_role.key(0)),
         head_sort,
         configuration,
         computation_cell_name,
@@ -730,7 +810,9 @@ struct ReadableStateContext<'a, 'b> {
 }
 
 impl ReadableStateContext<'_, '_> {
+    #[track_caller]
     fn key(
+        read: Option<&krs_ir::ProvenanceKey>,
         role: krs_syntax::RuleRole,
         side: krs_syntax::RuleSide,
         counter: &mut usize,
@@ -740,7 +822,7 @@ impl ReadableStateContext<'_, '_> {
             ExpandError::at_invocation(expand::DESCRIPTOR_CAPACITY, "too many readable state keys")
         })?;
         *counter += 1;
-        Ok(role.on_side(side).key(ordinal))
+        Ok(read_key(read, role.on_side(side).key(ordinal)))
     }
 }
 
@@ -770,7 +852,7 @@ fn readable_state_wire(
         StateTerm::Term(term) | StateTerm::Group(term) => State::Term(
             context
                 .builder
-                .expand_wire(term.tree(), term_side, context.slots)?,
+                .expand_wire(KeyedTerm::of(term), term_side, context.slots)?,
         ),
         StateTerm::KSequence(sequence) => {
             let payload_key = if sequence.items().is_empty()
@@ -779,6 +861,7 @@ fn readable_state_wire(
                 None
             } else {
                 Some(ReadableStateContext::key(
+                    sequence.payload_key(),
                     RuleRole::KSequencePayload,
                     side,
                     &mut context.counters.k_payload,
@@ -787,20 +870,24 @@ fn readable_state_wire(
             let mut items = Vec::new();
             for item in sequence.items() {
                 let key = ReadableStateContext::key(
+                    item.keys().payload(),
                     RuleRole::KSequenceItem,
                     side,
                     &mut context.counters.k_item,
                 )?;
                 items.push(krs_ir::ProtocolRuleKSequenceItem {
                     key,
-                    value: context
-                        .builder
-                        .expand_wire(item.tree(), term_side, context.slots)?,
+                    value: context.builder.expand_wire(
+                        KeyedTerm::of(item),
+                        term_side,
+                        context.slots,
+                    )?,
                 });
             }
             let tail = match sequence.tail() {
                 StateMacroRemainder::Anonymous(_) => krs_ir::ProtocolRuleFrame::Anonymous {
                     key: ReadableStateContext::key(
+                        sequence.tail_key(),
                         RuleRole::KSequenceTail,
                         side,
                         &mut context.counters.k_tail,
@@ -830,6 +917,7 @@ fn readable_state_wire(
                 krs_ir::ProtocolRuleInstance<krs_ir::wire::WireTerm>,
             > {
                 let key = ReadableStateContext::key(
+                    item.key(),
                     RuleRole::CellsInstance,
                     side,
                     &mut context.counters.instance,
@@ -837,6 +925,7 @@ fn readable_state_wire(
                 let mut fields = Vec::new();
                 for field in item.fields() {
                     let key = ReadableStateContext::key(
+                        field.name_key(),
                         RuleRole::CellsInstanceField,
                         side,
                         &mut context.counters.instance_field,
@@ -863,6 +952,7 @@ fn readable_state_wire(
                 StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
                 _ => krs_ir::ProtocolRuleFrame::Anonymous {
                     key: ReadableStateContext::key(
+                        list.rest_key(),
                         RuleRole::CellsInstancesRest,
                         side,
                         &mut context.counters.instances_rest,
@@ -977,7 +1067,10 @@ fn bracket_alternative_wire(
     .ok_or_else(mismatch)?;
     let (result_key, after) = match alternative.after() {
         Some(after) => (
-            Some(ProvenanceRole::RuleRightCellsField.key(counters.right_cell)),
+            Some(read_key(
+                alternative.result_cell_key(),
+                ProvenanceRole::RuleRightCellsField.key(counters.right_cell),
+            )),
             Some(
                 alternative_instances(after, krs_syntax::RuleSide::Right, counters.right, results)
                     .ok_or_else(mismatch)?,
@@ -1000,7 +1093,10 @@ fn bracket_alternative_wire(
         bindings,
         extra: krs_ir::wire::WireHeadRuleExtra::RewriteState {
             cell: krs_ir::wire::WireHeadRuleCellReference {
-                key: ProvenanceRole::RuleLeftCellsField.key(counters.left_cell),
+                key: read_key(
+                    alternative.cell_key(),
+                    ProvenanceRole::RuleLeftCellsField.key(counters.left_cell),
+                ),
                 name: alternative.cell().unraw().to_string(),
             },
             result_key,
@@ -1049,8 +1145,9 @@ fn alternative_instances(
     if list.front().len() != front_records.len() || list.back().len() != back_records.len() {
         return None;
     }
-    let key =
-        |role: RuleRole, counter: &mut usize| ReadableStateContext::key(role, side, counter).ok();
+    let key = |read: Option<&krs_ir::ProvenanceKey>, role: RuleRole, counter: &mut usize| {
+        ReadableStateContext::key(read, role, side, counter).ok()
+    };
     let mut instances = |items: &[krs_syntax::InstanceItem],
                          records: Vec<Vec<krs_ir::wire::WireTerm>>| {
         let mut instances = Vec::with_capacity(records.len());
@@ -1058,11 +1155,15 @@ fn alternative_instances(
             if item.fields().len() != children.len() {
                 return None;
             }
-            let instance = key(RuleRole::CellsInstance, &mut counters.instance)?;
+            let instance = key(item.key(), RuleRole::CellsInstance, &mut counters.instance)?;
             let mut fields = Vec::with_capacity(children.len());
             for (field, value) in item.fields().iter().zip(children) {
                 fields.push(krs_ir::ProtocolRuleInstanceField {
-                    key: key(RuleRole::CellsInstanceField, &mut counters.instance_field)?,
+                    key: key(
+                        field.name_key(),
+                        RuleRole::CellsInstanceField,
+                        &mut counters.instance_field,
+                    )?,
                     field: field.name().to_string(),
                     value: krs_ir::ProtocolRuleStateTerm::Term(value),
                 });
@@ -1081,7 +1182,11 @@ fn alternative_instances(
     let rest = match list.rest() {
         StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
         _ => krs_ir::ProtocolRuleFrame::Anonymous {
-            key: key(RuleRole::CellsInstancesRest, &mut counters.instances_rest)?,
+            key: key(
+                list.rest_key(),
+                RuleRole::CellsInstancesRest,
+                &mut counters.instances_rest,
+            )?,
         },
     };
     Some(krs_ir::ProtocolRuleStateTerm::Instances(

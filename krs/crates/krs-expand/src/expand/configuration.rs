@@ -20,7 +20,7 @@ use syn::{Ident, ItemStruct, Path, parse_quote};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
-use super::terms::{WireSlots, wire_key};
+use super::terms::{WireSlots, read_key, wire_key};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -60,7 +60,10 @@ pub(crate) fn configuration(
     let wire = serde_json::to_string(&(
         root,
         WireCellDeclaration {
-            key: wire_key(configuration_declaration_role, 0),
+            key: read_key(
+                declaration.name_key(),
+                wire_key(configuration_declaration_role, 0),
+            ),
             fields,
         },
     ))
@@ -153,7 +156,10 @@ pub(crate) fn cell(
         configuration_fields(&facade, &declaration, &declared, &declared_key, &mut slots)?;
 
     let wire = serde_json::to_string(&WirePayload::Cell(Box::new(WireCellDeclaration {
-        key: wire_key(configuration_declaration_role, 0),
+        key: read_key(
+            declaration.name_key(),
+            wire_key(configuration_declaration_role, 0),
+        ),
         fields,
     })))
     .expect("KRS wire values serialize");
@@ -287,7 +293,10 @@ fn configuration_root(
         .optional_root()
         .map_or(DescriptorConfigurationRoot::GeneratedTop, |root| {
             DescriptorConfigurationRoot::Named {
-                key: wire_key(ProvenanceRole::ConfigurationRoot, 0),
+                key: read_key(
+                    attribute.root_key(),
+                    wire_key(ProvenanceRole::ConfigurationRoot, 0),
+                ),
                 name: root.value(),
             }
         })
@@ -323,12 +332,19 @@ fn configuration_fields(
                 ::core::any::TypeId::of::<__KrsCellFieldMarker>()
             }
         });
+        let keys = field.attribute().keys();
         let emitted_name = field.attribute().name().map(|name| DescriptorCellName {
-            key: wire_key(ProvenanceRole::ConfigurationCellName, ordinal),
+            key: read_key(
+                keys.name(),
+                wire_key(ProvenanceRole::ConfigurationCellName, ordinal),
+            ),
             value: name.value(),
         });
         let color = field.attribute().color().map(|color| DescriptorCellColor {
-            key: wire_key(ProvenanceRole::ConfigurationCellColor, ordinal),
+            key: read_key(
+                keys.color(),
+                wire_key(ProvenanceRole::ConfigurationCellColor, ordinal),
+            ),
             value: color.value(),
         });
         let multiplicity =
@@ -336,7 +352,10 @@ fn configuration_fields(
                 .attribute()
                 .multiplicity()
                 .map(|value| DescriptorCellMultiplicity {
-                    key: wire_key(ProvenanceRole::ConfigurationCellMultiplicity, ordinal),
+                    key: read_key(
+                        keys.multiplicity(),
+                        wire_key(ProvenanceRole::ConfigurationCellMultiplicity, ordinal),
+                    ),
                     value: value.value(),
                 });
         let cell_type = field
@@ -344,7 +363,10 @@ fn configuration_fields(
             .cell_type()
             .map(|value| {
                 Ok::<_, ExpandError>(DescriptorCellType {
-                    key: wire_key(ProvenanceRole::ConfigurationCellType, ordinal),
+                    key: read_key(
+                        keys.cell_type(),
+                        wire_key(ProvenanceRole::ConfigurationCellType, ordinal),
+                    ),
                     value: value.value().try_into().map_err(|error| {
                         ExpandError::new(expand::CONFIGURATION_SHAPE, value.span(), error)
                     })?,
@@ -357,7 +379,10 @@ fn configuration_fields(
             .map(|value| {
                 krs_ir::CellStream::from_k(&value.value())
                     .map(|stream| DescriptorCellStream {
-                        key: wire_key(ProvenanceRole::ConfigurationCellStream, ordinal),
+                        key: read_key(
+                            keys.stream(),
+                            wire_key(ProvenanceRole::ConfigurationCellStream, ordinal),
+                        ),
                         value: stream,
                     })
                     .ok_or_else(|| {
@@ -370,13 +395,19 @@ fn configuration_fields(
             })
             .transpose()?;
         let exit = field.attribute().exit().map(|_| DescriptorCellExit {
-            key: wire_key(ProvenanceRole::ConfigurationCellExit, ordinal),
+            key: read_key(
+                keys.exit(),
+                wire_key(ProvenanceRole::ConfigurationCellExit, ordinal),
+            ),
         });
         let initial = field.attribute().initial().map(|_| DescriptorCellInitial {
-            key: wire_key(ProvenanceRole::ConfigurationCellInitial, ordinal),
+            key: read_key(
+                keys.initial(),
+                wire_key(ProvenanceRole::ConfigurationCellInitial, ordinal),
+            ),
         });
         let content = configuration_content(
-            field.cell_content(),
+            field,
             index,
             ordinal,
             &mut argument_ordinal,
@@ -390,7 +421,10 @@ fn configuration_fields(
         )?;
         fields.push(WireCellField {
             reference: WireCellReference {
-                key: wire_key(ProvenanceRole::ConfigurationField, ordinal),
+                key: read_key(
+                    field.key(),
+                    wire_key(ProvenanceRole::ConfigurationField, ordinal),
+                ),
                 cell: WireCellIdentity {
                     owner: slots.type_slot(quote!(#facade::HostTypeKey(#owner_key))),
                     field: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#marker))),
@@ -419,7 +453,7 @@ struct ConfigurationFieldContext<'a> {
 }
 
 fn configuration_content(
-    content: &ConfigurationCellContent,
+    field: &krs_syntax::FixedCellField,
     index: usize,
     ordinal: u32,
     argument_ordinal: &mut u32,
@@ -432,7 +466,7 @@ fn configuration_content(
         helpers,
         slots,
     } = assembly;
-    let content = match content {
+    let content = match field.cell_content() {
         ConfigurationCellContent::Leaf {
             sort,
             arguments,
@@ -462,14 +496,20 @@ fn configuration_content(
                 },
             )?;
             ProtocolCellContent::Leaf {
-                wrapper_key: wire_key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
+                wrapper_key: read_key(
+                    field.wrapper_key(),
+                    wire_key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
+                ),
                 wrapper: if *computation {
                     CellWrapper::KCell
                 } else {
                     CellWrapper::Cell
                 },
                 sort: WireSortReference {
-                    key: wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                    key: read_key(
+                        field.content_key(),
+                        wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                    ),
                     target: WireTypeReference {
                         slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#sort_key))),
                         authored_path,
@@ -490,7 +530,10 @@ fn configuration_content(
             });
             ProtocolCellContent::Nested {
                 declaration: WireCellDeclarationReference {
-                    key: wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                    key: read_key(
+                        field.content_key(),
+                        wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                    ),
                     declaration: WireTypeReference {
                         slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#nested_key))),
                         authored_path,
@@ -556,7 +599,7 @@ pub(super) fn configuration_sort_arguments(
             )
         })?;
         let sort = WireSortReference {
-            key: wire_key(context.role, ordinal),
+            key: read_key(argument.key(), wire_key(context.role, ordinal)),
             target: WireTypeReference {
                 slot: context
                     .slots

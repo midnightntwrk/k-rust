@@ -17,7 +17,7 @@ use syn::{Ident, Path};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
-use super::terms::wire_key;
+use super::terms::{read_key, wire_key};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -67,6 +67,7 @@ pub(crate) fn precedence(
                 "too many precedence chains",
             )
         })?;
+        let mut group_keys = chain.group_keys().iter();
         let groups = chain.groups().try_map_ref(|group| -> crate::Result<_> {
             let name = group.to_string();
             let ordinal = group_ordinal;
@@ -78,18 +79,21 @@ pub(crate) fn precedence(
                 )
             })?;
             Ok(DescriptorGroupReference {
-                key: wire_key(precedence_group_reference_role, ordinal),
+                key: read_key(
+                    group_keys.next(),
+                    wire_key(precedence_group_reference_role, ordinal),
+                ),
                 group: ProductionGroupId::new(name)
                     .expect("Rust identifiers are valid production groups"),
             })
         })?;
         chains.push(DescriptorPrecedenceChain {
-            key: wire_key(precedence_chain_role, chain_ordinal),
+            key: read_key(chain.key(), wire_key(precedence_chain_role, chain_ordinal)),
             groups,
         });
     }
     let grammar = WireGrammarDescriptor::Precedence {
-        key: wire_key(precedence_declaration_role, 0),
+        key: read_key(declaration.key(), wire_key(precedence_declaration_role, 0)),
         chains,
     };
     Ok(grammar_macro_descriptor(
@@ -155,7 +159,13 @@ pub(crate) fn associativity(
             SyntaxGroupAssociativity::NonAssociative => GroupAssociativity::NonAssociative,
         };
         let mut groups = Vec::new();
-        for group in sentence.groups() {
+        for (group, read) in sentence.groups().iter().zip(
+            sentence
+                .group_keys()
+                .iter()
+                .map(Some)
+                .chain(std::iter::repeat(None)),
+        ) {
             let name = group.to_string();
             let ordinal = group_ordinal;
             group_ordinal = group_ordinal.checked_add(1).ok_or_else(|| {
@@ -166,19 +176,25 @@ pub(crate) fn associativity(
                 )
             })?;
             groups.push(DescriptorGroupReference {
-                key: wire_key(associativity_group_reference_role, ordinal),
+                key: read_key(read, wire_key(associativity_group_reference_role, ordinal)),
                 group: ProductionGroupId::new(name)
                     .expect("Rust identifiers are valid production groups"),
             });
         }
         sentences.push(DescriptorAssociativitySentence {
-            key: wire_key(associativity_sentence_role, sentence_ordinal),
+            key: read_key(
+                sentence.key(),
+                wire_key(associativity_sentence_role, sentence_ordinal),
+            ),
             associativity,
             groups,
         });
     }
     let grammar = WireGrammarDescriptor::Associativity {
-        key: wire_key(associativity_declaration_role, 0),
+        key: read_key(
+            declaration.key(),
+            wire_key(associativity_declaration_role, 0),
+        ),
         sentences,
     };
     Ok(grammar_macro_descriptor(
@@ -210,9 +226,15 @@ pub(crate) fn lexical(
                 )
             })?;
             Ok(DescriptorLexical {
-                key: wire_key(ProvenanceRole::LexicalDeclaration, ordinal),
+                key: read_key(
+                    entry.key(),
+                    wire_key(ProvenanceRole::LexicalDeclaration, ordinal),
+                ),
                 name: entry.name().to_string(),
-                regex_key: wire_key(ProvenanceRole::LexicalRegex, ordinal),
+                regex_key: read_key(
+                    entry.regex_key(),
+                    wire_key(ProvenanceRole::LexicalRegex, ordinal),
+                ),
                 regex: entry.regex().value(),
             })
         })
@@ -240,7 +262,10 @@ pub(crate) fn layout(env: &dyn MacroEnvironment, input: TokenStream) -> crate::R
                 )
             })?;
             Ok(DescriptorLayoutRegex {
-                key: wire_key(ProvenanceRole::LayoutRegex, ordinal),
+                key: read_key(
+                    declaration.regex_keys().get(index),
+                    wire_key(ProvenanceRole::LayoutRegex, ordinal),
+                ),
                 regex: regex.value(),
             })
         })
@@ -307,7 +332,7 @@ pub(crate) fn raw_k(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
         .or_else(|| env.span_start(raw.literal().span()));
     let (line, column) = position.map_or((1, 1), |position| (position.line, position.column));
     let grammar = WireGrammarDescriptor::RawSentence {
-        key: wire_key(ProvenanceRole::RawKDeclaration, 0),
+        key: read_key(raw.key(), wire_key(ProvenanceRole::RawKDeclaration, 0)),
         kind: raw.kind(),
         text: raw.text(),
         line,
