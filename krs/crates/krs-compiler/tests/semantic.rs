@@ -132,38 +132,50 @@ fn origin() -> OriginStack {
 }
 
 fn sort(id: StableItemId, parents: Vec<StableItemId>) -> Descriptor {
+    let payload = DescriptorPayload::Sort(SortDescriptor {
+        parents: parents
+            .into_iter()
+            .zip(0..)
+            .map(|(sort, ordinal)| krs_ir::DescriptorSortParent {
+                sort,
+                key: ProvenanceRole::SortParent.key(ordinal),
+            })
+            .collect(),
+    });
     krs_ir::testing::descriptor(
         id,
         BTreeMap::new(),
-        provenance(ProvenanceRole::SortDeclaration),
-        DescriptorPayload::Sort(SortDescriptor {
-            parents: parents
-                .into_iter()
-                .zip(0..)
-                .map(|(sort, ordinal)| krs_ir::DescriptorSortParent {
-                    sort,
-                    key: ProvenanceRole::SortParent.key(ordinal),
-                })
-                .collect(),
-        }),
+        provenance(ProvenanceRole::SortDeclaration, &payload),
+        payload,
     )
 }
 
 fn constructor(id: StableItemId, sort: StableItemId) -> Descriptor {
+    let payload = DescriptorPayload::Constructor(ConstructorDescriptor {
+        parameters: Vec::new(),
+        sort: krs_ir::DescriptorSortRef::Declared(sort),
+        fields: Vec::new(),
+        arguments: Vec::new(),
+    });
     krs_ir::testing::descriptor(
         id,
         BTreeMap::new(),
-        provenance(ProvenanceRole::ConstructorSort),
-        DescriptorPayload::Constructor(ConstructorDescriptor {
-            parameters: Vec::new(),
-            sort: krs_ir::DescriptorSortRef::Declared(sort),
-            fields: Vec::new(),
-            arguments: Vec::new(),
-        }),
+        provenance(ProvenanceRole::ConstructorSort, &payload),
+        payload,
     )
 }
 
-fn provenance(role: ProvenanceRole) -> DescriptorProvenance {
+/// The provenance of a descriptor whose primary node has `role`, with an
+/// origin for each other node `payload` carries.
+fn provenance(role: ProvenanceRole, payload: &DescriptorPayload) -> DescriptorProvenance {
     let key = ProvenanceKey::new(role, 0);
-    DescriptorProvenance::new(key.clone(), vec![DescriptorNodeOrigin::new(key, origin())]).unwrap()
+    let mut keys = testing::declaration_keys(payload);
+    keys.insert(key.clone());
+    DescriptorProvenance::new(
+        key,
+        keys.into_iter()
+            .map(|key| DescriptorNodeOrigin::new(key, origin()))
+            .collect(),
+    )
+    .unwrap()
 }

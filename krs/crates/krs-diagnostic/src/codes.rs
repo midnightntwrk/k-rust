@@ -135,7 +135,6 @@ register_codes! {
         CONSTRUCTOR_COVERAGE: "krs::reference::constructor-coverage" [Internal] => "An enum variant does not map to exactly one constructor.",
         CONSTRUCTOR_FIELD_COVERAGE: "krs::reference::constructor-field-coverage" [Internal] => "Projected fields do not cover the collected constructor.",
         MISSING_CONSTRUCTOR_FIELD: "krs::reference::missing-constructor-field" [Internal] => "A projected field is absent from the collected constructor.",
-        MISSING_CONSTRUCTOR_FIELD_SORT: "krs::reference::missing-constructor-field-sort" [Internal] => "A collected constructor field has no resolved sort.",
         MISSING_SEMANTIC_RULE: "krs::reference::missing-semantic-rule" [Internal] => "Semantic lowering omitted a collected rule.",
         MISSING_BINDING_SORT: "krs::reference::missing-binding-sort" [Internal] => "Inference produced no sort for a readable binder.",
         EXTERNAL_DECLARATION: "krs::reference::external-declaration" => "A dependency alias cannot be reconstructed.",

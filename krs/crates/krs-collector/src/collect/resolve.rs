@@ -634,13 +634,17 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
     fn constructor_field_sort(
         &mut self,
         reference: HostSortReference,
-    ) -> Result<Option<DescriptorSortRef>, Self::Error> {
-        if let Some(name) = self.parameters.get(&reference.target.key.resolve()) {
-            return Ok(Some(DescriptorSortRef::Parameter(name.clone())));
-        }
-        resolve_constructor_field_sort(&reference.target, self.declarations, self.builtins)
-            .map(Some)
-            .map_err(|error| error.with_reference_key(reference.key))
+    ) -> Result<DescriptorSortReference, Self::Error> {
+        let sort = if let Some(name) = self.parameters.get(&reference.target.key.resolve()) {
+            DescriptorSortRef::Parameter(name.clone())
+        } else {
+            resolve_constructor_field_sort(&reference.target, self.declarations, self.builtins)
+                .map_err(|error| error.with_reference_key(reference.key.clone()))?
+        };
+        Ok(DescriptorSortReference {
+            key: reference.key,
+            sort,
+        })
     }
 
     fn term(&mut self, term: krs_ir::HostTerm) -> Result<krs_ir::HostTerm, Self::Error> {

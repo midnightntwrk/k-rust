@@ -690,7 +690,7 @@ impl Sample for DescriptorSortParent {
     fn samples() -> Vec<Self> {
         vec![Self {
             sort: sample::<StableItemId>(),
-            key: sample::<ProvenanceKey>(),
+            key: ProvenanceRole::SortParent.key(0),
         }]
     }
 }
@@ -3152,11 +3152,24 @@ impl Sample for WireTermArgument {
 }
 impl Sample for Descriptor {
     fn samples() -> Vec<Self> {
+        // The sample payload, a sort, anchors its declaration (the sample
+        // key) and its parent reference.
+        let payload = sample::<DescriptorPayload>();
+        let primary = sample::<ProvenanceKey>();
+        let mut keys = krs_ir::testing::declaration_keys(&payload);
+        keys.insert(primary.clone());
+        let provenance = DescriptorProvenance::new(
+            primary,
+            keys.into_iter()
+                .map(|key| DescriptorNodeOrigin::new(key, sample::<OriginStack>()))
+                .collect(),
+        )
+        .unwrap();
         vec![krs_ir::testing::descriptor(
             sample::<StableItemId>(),
             sample::<BTreeMap<String, Option<String>>>(),
-            sample::<DescriptorProvenance>(),
-            sample::<DescriptorPayload>(),
+            provenance,
+            payload,
         )]
     }
 }
@@ -3210,7 +3223,10 @@ impl Sample for ConstructorFieldDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
             name: sample::<String>(),
-            sort: sample::<Option<crate::DescriptorSortRef>>(),
+            sort: DescriptorSortReference {
+                key: ProvenanceRole::ConstructorFieldSort.key(0),
+                sort: sample::<DescriptorSortRef>(),
+            },
             arguments: sample::<Vec<ConstructorSortArgumentDescriptor>>(),
         }]
     }
@@ -4364,6 +4380,9 @@ pub fn assert_required_key_fields() {
     required::<ProtocolRuleKSequence<DescriptorTerm>>(None, &["payload_key"]);
     required::<ProtocolRuleMap<DescriptorTerm>>(None, &["payload_key"]);
     required::<ConstantDescriptor>(None, &["value_key"]);
+    // A resolved constructor field has a sort, keyed at its authored type.
+    required::<ConstructorFieldDescriptor>(None, &["sort"]);
+    required::<DescriptorSortReference>(None, &["key"]);
     required::<WireConstant>(None, &["value_key"]);
     for term in [
         |variant, fields| required::<DescriptorTerm>(variant, fields),

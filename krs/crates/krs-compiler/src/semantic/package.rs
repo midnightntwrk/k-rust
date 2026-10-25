@@ -322,11 +322,7 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
             }
             DescriptorPayload::Constructor(constructor) => {
                 collect_sort_ref_package(&constructor.sort, &mut packages);
-                for sort in constructor
-                    .fields
-                    .iter()
-                    .filter_map(|field| field.sort.as_ref())
-                {
+                for sort in constructor.fields.iter().map(|field| &field.sort.sort) {
                     collect_sort_ref_package(sort, &mut packages);
                 }
             }

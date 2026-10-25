@@ -421,7 +421,9 @@ pub fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
 
 pub fn descriptor(id: StableItemId, payload: DescriptorPayload) -> DescriptorInputs {
     let keys = match &payload {
-        DescriptorPayload::Sort(_) => vec![key(ProvenanceRole::SortDeclaration, 0)],
+        DescriptorPayload::Sort(_) => krs_ir::testing::declaration_keys(&payload)
+            .into_iter()
+            .collect::<Vec<_>>(),
         DescriptorPayload::FixedConfiguration(configuration) => configuration
             .expected_provenance_keys(&id)
             .unwrap()

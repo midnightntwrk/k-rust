@@ -7,11 +7,13 @@ use std::io::Write;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::stage::{DescriptorStage, stage_shape};
+use crate::stage::{DescriptorStage, Stage, stage_shape};
 use crate::transport::{
     configuration::{FixedConfiguration as TransportFixedConfiguration, StageCellDeclaration},
     grammar::{StageGrammarDescriptor, StructuredRule},
+    keys::{KeyFailure, WireKeys},
     rule::{ConfigurationRule, ContextAlias},
+    validation::ValidationStage,
 };
 
 use crate::sorted::{SortKey, SortedByKey};
@@ -720,12 +722,13 @@ impl Descriptor {
         self.provenance.primary_origin()
     }
 
-    /// Validates typed grammar or structured-rule payloads.
+    /// Validates typed grammar, structured-rule, constant, sort and
+    /// constructor payloads, each closed over its anchors.
     ///
     /// # Errors
     ///
     /// Returns [`GrammarTransportError`] for invalid ownership, shape,
-    /// references, or parser keys absent from this descriptor's provenance.
+    /// references, or parser keys that are not this descriptor's anchors.
     pub(crate) fn validate_grammar_contract(&self) -> Result<(), GrammarTransportError> {
         let contains = |key: &ProvenanceKey| self.provenance.origin_for(key).is_some();
         let (keys, expected_primary) = match &self.payload {
@@ -744,9 +747,16 @@ impl Descriptor {
                 constant.wire_keys()?,
                 crate::transport::constant::ConstantDescriptor::expected_primary_key(),
             ),
-            DescriptorPayload::Sort(_)
-            | DescriptorPayload::Constructor(_)
-            | DescriptorPayload::FixedConfiguration(_)
+            DescriptorPayload::Sort(sort) => {
+                (sort.wire_keys()?, ProvenanceRole::SortDeclaration.key(0))
+            }
+            // A constructor's primary node is its sort reference, which the
+            // resolved payload names without its key.
+            DescriptorPayload::Constructor(constructor) => (
+                constructor.wire_keys()?,
+                ProvenanceRole::ConstructorSort.key(0),
+            ),
+            DescriptorPayload::FixedConfiguration(_)
             | DescriptorPayload::Cell(_)
             | DescriptorPayload::ConfigurationRule(_)
             | DescriptorPayload::HeadRule(_)
@@ -1162,6 +1172,19 @@ pub struct DescriptorSortParent {
     pub key: ProvenanceKey,
 }
 
+impl SortDescriptor {
+    /// The keys of the resolved sort's nodes: its declaration, the
+    /// descriptor's primary node, and each parent reference.
+    pub(crate) fn wire_keys(&self) -> Result<WireKeys, KeyFailure> {
+        let mut keys = WireKeys::default();
+        keys.fixed(ProvenanceRole::SortDeclaration)?;
+        for parent in &self.parents {
+            keys.define(&parent.key, ProvenanceRole::SortParent)?;
+        }
+        Ok(keys)
+    }
+}
+
 #[cfg(feature = "test-support")]
 impl SortDescriptor {
     /// Rebuilds the direct parent-sort set from a permuted input.
@@ -1205,6 +1228,63 @@ stage_shape! {
 /// Stable descriptor-stage form of [`Constructor`].
 pub type ConstructorDescriptor = Constructor<DescriptorStage>;
 
+impl ConstructorDescriptor {
+    /// The keys of the resolved constructor's nodes: its sort reference,
+    /// the descriptor's primary node, its sort parameters, its fields'
+    /// sorts, and the element types of the result and of the fields.
+    pub(crate) fn wire_keys(&self) -> Result<WireKeys, KeyFailure> {
+        let mut keys = WireKeys::default();
+        keys.fixed(ProvenanceRole::ConstructorSort)?;
+        collect_constructor_keys(self, &mut keys)?;
+        Ok(keys)
+    }
+}
+
+/// Defines the keys of a constructor's sort parameters, its fields' sorts,
+/// and the element types of the result and of the fields: every node of its
+/// payload but its own sort reference, at the host stage or resolved.
+pub(crate) fn collect_constructor_keys<S>(
+    constructor: &Constructor<S>,
+    keys: &mut WireKeys,
+) -> Result<(), KeyFailure>
+where
+    S: ValidationStage<ConstructorFieldSort = <S as Stage>::Sort>,
+{
+    for parameter in &constructor.parameters {
+        keys.define(S::sort_key(parameter), ProvenanceRole::SortParameter)?;
+    }
+    collect_sort_argument_keys(
+        &constructor.arguments,
+        ProvenanceRole::ConstructorSortArgument,
+        keys,
+    )?;
+    for field in &constructor.fields {
+        keys.define(
+            S::sort_key(&field.sort),
+            ProvenanceRole::ConstructorFieldSort,
+        )?;
+        collect_sort_argument_keys(
+            &field.arguments,
+            ProvenanceRole::ConstructorFieldSortArgument,
+            keys,
+        )?;
+    }
+    Ok(())
+}
+
+/// Defines the keys of a constructor's element types, nested ones included.
+fn collect_sort_argument_keys<S: ValidationStage>(
+    arguments: &[ConstructorSortArgument<S>],
+    role: ProvenanceRole,
+    keys: &mut WireKeys,
+) -> Result<(), KeyFailure> {
+    for argument in arguments {
+        keys.define(S::sort_key(&argument.sort), role)?;
+        collect_sort_argument_keys(&argument.arguments, role, keys)?;
+    }
+    Ok(())
+}
+
 stage_shape! {
     /// One named constructor field.
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1218,8 +1298,8 @@ stage_shape! {
     pub struct ConstructorField<S: Stage> {
         /// Rust field name.
         pub name: String => [keep],
-        /// Declared or builtin field sort when known at descriptor collection time.
-        #[serde(skip_serializing_if = "S::skip_constructor_field_sort")]
+        /// Declared or builtin field sort, with the key of the authored
+        /// field type that names it (`constructor_field_sort`).
         pub sort: S::ConstructorFieldSort => [constructor_field_sort],
         /// The element types of a typed collection field (`Int` of
         /// `Set<Int>`), which semantic analysis checks every argument at the

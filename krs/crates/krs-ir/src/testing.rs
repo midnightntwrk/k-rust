@@ -206,6 +206,27 @@ pub fn origin_in(
     )
 }
 
+/// The keys a resolved sort or constructor payload carries, its primary
+/// node's included: the anchors its descriptor must hold. Empty for every
+/// other payload.
+///
+/// # Panics
+///
+/// Panics if the payload holds a key of another role than its field's, or
+/// two nodes with one key.
+#[must_use]
+pub fn declaration_keys(
+    payload: &crate::DescriptorPayload,
+) -> std::collections::BTreeSet<crate::ProvenanceKey> {
+    let keys = match payload {
+        crate::DescriptorPayload::Sort(sort) => sort.wire_keys(),
+        crate::DescriptorPayload::Constructor(constructor) => constructor.wire_keys(),
+        _ => return std::collections::BTreeSet::new(),
+    };
+    keys.expect("a well-keyed declaration fixture")
+        .into_defined()
+}
+
 /// Creates a descriptor fixture through its validating constructor.
 ///
 /// # Panics

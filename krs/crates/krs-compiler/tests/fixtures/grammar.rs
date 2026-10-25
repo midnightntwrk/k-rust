@@ -77,12 +77,11 @@ pub fn declaration(
     payload: DescriptorPayload,
     primary: ProvenanceRole,
 ) -> DescriptorInputs {
-    let extra = matches!(payload, DescriptorPayload::Constructor(_))
-        .then(|| key(ProvenanceRole::ConstructorDeclaration, 0));
+    let keys = testing::declaration_keys(&payload);
     DescriptorInputs::new(
         id,
         BTreeMap::new(),
-        provenance(key(primary, 0), extra),
+        provenance(key(primary, 0), keys),
         payload,
     )
 }
@@ -214,12 +213,12 @@ pub fn bundle() -> (DescriptorBundleInputs, StableItemId) {
                 fields: vec![
                     ConstructorFieldDescriptor {
                         name: "lhs".into(),
-                        sort: Some(DescriptorSortRef::Declared(expr.clone())),
+                        sort: declared_sort(ProvenanceRole::ConstructorFieldSort, 0, expr.clone()),
                         arguments: Vec::new(),
                     },
                     ConstructorFieldDescriptor {
                         name: "rhs".into(),
-                        sort: Some(DescriptorSortRef::Declared(expr.clone())),
+                        sort: declared_sort(ProvenanceRole::ConstructorFieldSort, 1, expr.clone()),
                         arguments: Vec::new(),
                     },
                 ],

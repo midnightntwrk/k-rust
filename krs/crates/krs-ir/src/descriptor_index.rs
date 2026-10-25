@@ -309,10 +309,15 @@ mod tests {
 
     fn descriptor(name: &str, kind: ItemKind, payload: DescriptorPayload) -> Descriptor {
         let id = item("lookup", name, kind);
-        // A rule's declaration is its primary node.
+        // A rule's declaration is its primary node, and a constructor's its
+        // sort reference.
         let primary = match &payload {
             DescriptorPayload::HeadRule(_) => {
                 ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0)
+            }
+            DescriptorPayload::Sort(_) => ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0),
+            DescriptorPayload::Constructor(_) => {
+                ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0)
             }
             _ => key(),
         };
@@ -335,6 +340,9 @@ mod tests {
                 head_key(ProvenanceRole::RuleLeftPath),
             ]
             .into(),
+            DescriptorPayload::Sort(_) | DescriptorPayload::Constructor(_) => {
+                crate::testing::declaration_keys(&payload)
+            }
             _ => [key()].into(),
         };
         crate::testing::descriptor(
@@ -360,11 +368,10 @@ mod tests {
                 sort: DescriptorSortRef::Declared(item("lookup", "Sort", ItemKind::Sort)),
                 fields: vec![ConstructorFieldDescriptor {
                     name: "field".into(),
-                    sort: Some(DescriptorSortRef::Declared(item(
-                        "lookup",
-                        "Sort",
-                        ItemKind::Sort,
-                    ))),
+                    sort: DescriptorSortReference {
+                        key: ProvenanceRole::ConstructorFieldSort.key(0),
+                        sort: DescriptorSortRef::Declared(item("lookup", "Sort", ItemKind::Sort)),
+                    },
                     arguments: Vec::new(),
                 }],
                 arguments: Vec::new(),
@@ -459,9 +466,16 @@ mod tests {
 
     #[test]
     fn constructor_and_deserialization_reject_payload_kind_mismatch() {
-        let descriptor = constructor("Constructor");
-        let mut inputs = crate::testing::DescriptorInputs::from(descriptor);
-        inputs.payload = DescriptorPayload::Sort(SortDescriptor::default());
+        let mut inputs = crate::testing::DescriptorInputs::from(constructor("Constructor"));
+        // A well-formed sort, provenance and payload, under a constructor's
+        // identity.
+        let sort = descriptor(
+            "Sort",
+            ItemKind::Sort,
+            DescriptorPayload::Sort(SortDescriptor::default()),
+        );
+        inputs.provenance = sort.provenance().clone();
+        inputs.payload = sort.payload().clone();
         let error = crate::DescriptorError::WrongKind {
             id: Box::new(inputs.id.clone()),
             expected: ItemKind::Sort,

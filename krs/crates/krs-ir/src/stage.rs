@@ -34,9 +34,6 @@ pub trait Stage: Clone + Debug {
     /// The declared field-sort reference in a constructor declaration.
     type ConstructorFieldSort: Clone + Debug;
 
-    /// Whether an unresolved constructor field sort is omitted from JSON.
-    fn skip_constructor_field_sort(value: &Self::ConstructorFieldSort) -> bool;
-
     /// Whether an absent optional field is omitted in this stage's JSON.
     fn skip_none<T>(value: &Option<T>) -> bool;
 }
@@ -67,9 +64,6 @@ impl Stage for WireStage {
     type ConstructorSort = crate::wire::WireSortReference;
     type ConstructorFieldSort = crate::wire::WireSortReference;
 
-    fn skip_constructor_field_sort(_: &Self::ConstructorFieldSort) -> bool {
-        false
-    }
     fn skip_none<T>(_: &Option<T>) -> bool {
         false
     }
@@ -90,9 +84,6 @@ impl Stage for HostStage {
     type ConstructorSort = crate::HostSortReference;
     type ConstructorFieldSort = crate::HostSortReference;
 
-    fn skip_constructor_field_sort(_: &Self::ConstructorFieldSort) -> bool {
-        false
-    }
     fn skip_none<T>(_: &Option<T>) -> bool {
         false
     }
@@ -111,11 +102,8 @@ impl Stage for DescriptorStage {
     type Parent = crate::DescriptorSortParent;
     type Parents = std::collections::BTreeSet<Self::Parent>;
     type ConstructorSort = crate::DescriptorSortRef;
-    type ConstructorFieldSort = Option<crate::DescriptorSortRef>;
+    type ConstructorFieldSort = crate::DescriptorSortReference;
 
-    fn skip_constructor_field_sort(value: &Self::ConstructorFieldSort) -> bool {
-        value.is_none()
-    }
     fn skip_none<T>(value: &Option<T>) -> bool {
         value.is_none()
     }

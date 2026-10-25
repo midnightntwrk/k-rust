@@ -986,11 +986,16 @@ impl HostDescriptor {
         }
     }
 
-    /// Closes the keys of the payloads the collector reshapes over the
-    /// anchors: sorts, constructors and head rules, which it resolves into
-    /// payloads that keep only some of their keys, so they are closed here,
-    /// as the expander built them. Every other payload is closed at the
-    /// descriptor stage.
+    /// Closes the keys of head rules, sorts and constructors over the
+    /// anchors, as the expander built them. The collector reshapes a head
+    /// rule, so its anchors are checked here before the reading it discards
+    /// leaves the descriptor. A sort and a constructor are closed again at
+    /// the descriptor stage, where a bundle read from disk is checked; here
+    /// each reference is still the one the macro built: a constructor's sort
+    /// reference holds its own key, which resolution replaces by the
+    /// descriptor's primary key, and two parent references of one sort are
+    /// two entries, which the resolved parent set merges when they hold one
+    /// key. Every other payload is closed at the descriptor stage only.
     ///
     /// # Errors
     ///
@@ -1048,9 +1053,8 @@ impl HostSortDescriptor {
     /// Checks that the sort's anchors are its declaration, a fixed key, and
     /// its parent references' keys.
     ///
-    /// The check reads the payload before the collector resolves it; the
-    /// resolved parents keep their keys, but the descriptor stage does not
-    /// repeat the check.
+    /// The descriptor stage repeats the check on the resolved parents,
+    /// which keep their keys.
     fn validate_complete_provenance(
         &self,
         anchors: &[HostAuthoredAnchor],
@@ -1070,45 +1074,17 @@ impl HostConstructorDescriptor {
     /// the nodes its payload denotes. The production's other nodes are its
     /// grammar descriptor's.
     ///
-    /// The check reads the payload before the collector resolves it: the
-    /// resolved payload carries no key.
+    /// The descriptor stage repeats the check on the resolved payload, whose
+    /// sort reference is its primary node.
     fn validate_complete_provenance(
         &self,
         anchors: &[HostAuthoredAnchor],
     ) -> Result<(), StateTransportError> {
         let mut keys = WireKeys::default();
         keys.define(&self.sort.key, ProvenanceRole::ConstructorSort)?;
-        for parameter in &self.parameters {
-            keys.define(&parameter.key, ProvenanceRole::SortParameter)?;
-        }
-        collect_sort_argument_keys(
-            &self.arguments,
-            ProvenanceRole::ConstructorSortArgument,
-            &mut keys,
-        )?;
-        for field in &self.fields {
-            keys.define(&field.sort.key, ProvenanceRole::ConstructorFieldSort)?;
-            collect_sort_argument_keys(
-                &field.arguments,
-                ProvenanceRole::ConstructorFieldSortArgument,
-                &mut keys,
-            )?;
-        }
+        crate::bundle::collect_constructor_keys(self, &mut keys)?;
         Ok(keys.close(payload_anchors(anchors))?)
     }
-}
-
-/// Defines the keys of a constructor's element types, nested ones included.
-fn collect_sort_argument_keys(
-    arguments: &[HostConstructorSortArgument],
-    role: ProvenanceRole,
-    keys: &mut WireKeys,
-) -> Result<(), StateTransportError> {
-    for argument in arguments {
-        keys.define(&argument.sort.key, role)?;
-        collect_sort_argument_keys(&argument.arguments, role, keys)?;
-    }
-    Ok(())
 }
 
 /// Build-local host-stage form of [`crate::bundle::ConstructorField`].

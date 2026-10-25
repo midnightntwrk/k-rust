@@ -14,4 +14,4 @@ pub mod grammar;
 pub mod head_rule;
 pub(crate) mod keys;
 pub mod rule;
-mod validation;
+pub(crate) mod validation;

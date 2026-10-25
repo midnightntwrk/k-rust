@@ -54,6 +54,13 @@ fn parent(sort: StableItemId, ordinal: u32) -> DescriptorSortParent {
     }
 }
 
+fn field_sort(ordinal: u32) -> DescriptorSortReference {
+    DescriptorSortReference {
+        key: ProvenanceRole::ConstructorFieldSort.key(ordinal),
+        sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
+    }
+}
+
 fn sort(ordinal: u32) -> DescriptorSortReference {
     DescriptorSortReference {
         key: key(ordinal),
@@ -765,12 +772,12 @@ fn sort_and_constructor_traversals_preserve_variant_data() {
         fields: vec![
             ConstructorFieldDescriptor {
                 name: "first".to_owned(),
-                sort: Some(DescriptorSortRef::Builtin(BuiltinSort::Int)),
+                sort: field_sort(0),
                 arguments: Vec::new(),
             },
             ConstructorFieldDescriptor {
                 name: "second".to_owned(),
-                sort: None,
+                sort: field_sort(1),
                 arguments: Vec::new(),
             },
         ],
@@ -808,12 +815,12 @@ fn declaration_payload_traversal_maps_references_and_propagates_errors() {
         fields: vec![
             ConstructorFieldDescriptor {
                 name: "first".to_owned(),
-                sort: Some(DescriptorSortRef::Builtin(BuiltinSort::Int)),
+                sort: field_sort(0),
                 arguments: Vec::new(),
             },
             ConstructorFieldDescriptor {
                 name: "second".to_owned(),
-                sort: None,
+                sort: field_sort(1),
                 arguments: Vec::new(),
             },
         ],

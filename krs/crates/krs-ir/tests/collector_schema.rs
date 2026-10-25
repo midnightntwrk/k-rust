@@ -62,7 +62,7 @@ fn collector_descriptor(
 ) -> Descriptor {
     let role = match id.item_kind() {
         ItemKind::Sort => ProvenanceRole::SortDeclaration,
-        ItemKind::Constructor => ProvenanceRole::ConstructorDeclaration,
+        ItemKind::Constructor => ProvenanceRole::ConstructorSort,
         _ => unreachable!(),
     };
     let key = ProvenanceKey::new(role, 0);
@@ -70,6 +70,12 @@ fn collector_descriptor(
         key.clone(),
         collector_origin(&id, populated),
     )];
+    origins.extend(
+        krs_ir::testing::declaration_keys(&payload)
+            .into_iter()
+            .filter(|node| *node != key)
+            .map(|node| DescriptorNodeOrigin::new(node, krs_ir::testing::authored(4, 7))),
+    );
     if populated {
         origins.push(DescriptorNodeOrigin::new(
             ProvenanceKey::new(ProvenanceRole::StableSymbol, 0),
@@ -102,7 +108,10 @@ fn collector_encoding_is_pinned() {
             sort: DescriptorSortRef::Declared(sort_id.clone()),
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".to_owned(),
-                sort: Some(DescriptorSortRef::Declared(sort_id)),
+                sort: krs_ir::DescriptorSortReference {
+                    key: ProvenanceRole::ConstructorFieldSort.key(0),
+                    sort: DescriptorSortRef::Declared(sort_id),
+                },
                 arguments: Vec::new(),
             }],
             arguments: Vec::new(),

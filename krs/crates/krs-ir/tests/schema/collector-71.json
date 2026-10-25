@@ -65,21 +65,27 @@
             {
               "name": "value",
               "sort": {
-                "sort": {
-                  "disambiguator": "",
-                  "item_kind": "sort",
-                  "item_name": "Value",
-                  "module_path": [
-                    "syntax"
-                  ],
-                  "package": {
-                    "cargo_name": "smoke-semantics",
-                    "cargo_source": "workspace",
-                    "cargo_version": "0.1.0",
-                    "k_namespace": "ORG-EXAMPLE-SMOKE"
-                  }
+                "key": {
+                  "ordinal": 0,
+                  "role": "constructor_field_sort"
                 },
-                "sort_source": "declared"
+                "sort": {
+                  "sort": {
+                    "disambiguator": "",
+                    "item_kind": "sort",
+                    "item_name": "Value",
+                    "module_path": [
+                      "syntax"
+                    ],
+                    "package": {
+                      "cargo_name": "smoke-semantics",
+                      "cargo_source": "workspace",
+                      "cargo_version": "0.1.0",
+                      "k_namespace": "ORG-EXAMPLE-SMOKE"
+                    }
+                  },
+                  "sort_source": "declared"
+                }
               }
             }
           ],
@@ -108,7 +114,23 @@
           {
             "key": {
               "ordinal": 0,
-              "role": "constructor_declaration"
+              "role": "constructor_field_sort"
+            },
+            "origin": [
+              [
+                0,
+                0,
+                4,
+                7,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "constructor_sort"
             },
             "origin": [
               [
@@ -163,7 +185,7 @@
         ],
         "primary_key": {
           "ordinal": 0,
-          "role": "constructor_declaration"
+          "role": "constructor_sort"
         }
       }
     },

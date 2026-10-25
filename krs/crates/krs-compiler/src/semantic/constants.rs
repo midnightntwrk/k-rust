@@ -418,8 +418,8 @@ impl RefMap<DescriptorStage, DescriptorStage> for Substitution<'_> {
     }
     fn constructor_field_sort(
         &mut self,
-        reference: Option<krs_ir::DescriptorSortRef>,
-    ) -> Result<Option<krs_ir::DescriptorSortRef>, Self::Error> {
+        reference: krs_ir::DescriptorSortReference,
+    ) -> Result<krs_ir::DescriptorSortReference, Self::Error> {
         Ok(reference)
     }
 }
