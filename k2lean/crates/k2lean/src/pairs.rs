@@ -685,9 +685,22 @@ impl Un {
     /// Unify two collection terms as far as decidable: `Ok(1)` done, `Ok(2)` progressed (retry),
     /// `Ok(0)` undecided.
     fn coll_unify(&mut self, cx: &Cx, a: &T, b: &T, d: usize) -> Result<u8, Clash> {
-        let (Some((ka, ea, ra)), Some((kb, eb, rb))) =
-            (self.coll_items(cx, a), self.coll_items(cx, b))
-        else {
+        let (ca, cb) = (self.coll_items(cx, a), self.coll_items(cx, b));
+        // a collection value against a constructor term or a builtin literal: a value of a
+        // collection sort is built by its hooks only, so the two have different leaves (they
+        // meet at a position of a supersort, `KItem`, through different injections)
+        for (c, other) in [(&ca, b), (&cb, a)] {
+            if let Some((k, _, _)) = c
+                && matches!(other, T::Ctor(..) | T::Lit(..))
+            {
+                return Err(Clash {
+                    depth: d,
+                    kind: "sort",
+                    at: format!("collection {k} / {}", head_name(other)),
+                });
+            }
+        }
+        let (Some((ka, ea, ra)), Some((kb, eb, rb))) = (ca, cb) else {
             return Ok(0);
         };
         if ka != kb {
