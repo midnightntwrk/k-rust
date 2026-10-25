@@ -73,9 +73,12 @@
 //! discharges an irreducible `value-production` application,
 //! `BackendDefinition::irreducible_application_is_defined`; H3 leaves no ceil equation to come
 //! first), so a data term whose maps and sets have keys k-rust shows apart is
-//! [`BackendDefinition::ground_defined`]. Distinct data keys of several shapes may be equal in
-//! another model, so this existence holds in `M+` (where they are distinct normal forms), which
-//! is the model the argument below reads.
+//! [`BackendDefinition::ground_defined`]. k-rust's apartness test does not separate two
+//! applications of an equation head, even of one shape (`a[4]` and `a[5]`): two distinct data keys
+//! holding one may be equal in another model, which interprets the head freely outside its
+//! equations' instances. So a map or set keyed by two such keys is data and not `ground_defined`,
+//! and the existence of data holds in `M+` (where distinct data keys are distinct normal forms),
+//! which is the model the argument below reads.
 //!
 //! # What a data term denotes, and why two of them differ
 //!

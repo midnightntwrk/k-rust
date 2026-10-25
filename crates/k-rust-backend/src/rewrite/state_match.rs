@@ -23,8 +23,10 @@
 //!
 //! The verdict of a state ([`Verdict`]) is decided as a final configuration's would be: a state
 //! *reaches* when it is decided (no constraint, no variable), shown to exist
-//! ([`BackendDefinition::ground_defined`]: it denotes exactly one value) and the pattern matches
-//! it with empty constraints, in execution mode and, when the
+//! ([`BackendDefinition::ground_defined`]: it denotes exactly one value; it runs in `Proof` mode
+//! whatever the run's mode, so it reads no value the definition leaves to the implementation and
+//! gives the answer a final configuration read back would get) and the pattern matches it with
+//! empty constraints, in execution mode and, when the
 //! request asks for proof agreement, in proof mode too, where a value the definition leaves to
 //! the implementation stays unevaluated. It is *refuted* when every required mode refutes it,
 //! and *undecided* otherwise. A state with constraints is first simplified once more as a leaf

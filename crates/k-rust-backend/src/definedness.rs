@@ -114,22 +114,43 @@ impl BackendDefinition {
     /// of this definition decides it (its condition is then the obligation) or the application
     /// is of a `value-production` symbol that no equation reduces on any instance (that
     /// declaration makes such an application a value of its sort,
-    /// [`Self::irreducible_application_is_defined`]); the disequality of each pair of map keys
-    /// or set elements not shown apart (`elements_are_apart`); and, for a term-level `\and`, the
-    /// equality of its sides' first conjuncts. So the term exists when every obligation is
-    /// `\top`. Ceil equations come before the `value-production` discharge, as in every use of
-    /// the walk: a ceil lemma is an equality of the definition.
+    /// [`Self::irreducible_application_is_defined`]) and that no ceil equation decides otherwise
+    /// (`apply_ceil_equation`: one whose matching, instance or condition is left undecided keeps
+    /// the `\ceil` owed); the disequality of each pair of map keys or set elements not shown apart
+    /// (`elements_are_apart`, which does not separate two applications of an equation head, even
+    /// of one shape such as `a[4]` and `a[5]`); and, for a term-level `\and`, the equality of its
+    /// sides' first conjuncts. So the term exists when every obligation is `\top`.
     ///
-    /// It accepts every ground term whose stored `ceil_free` attribute is true, in O(1) (the
-    /// walk skips such a term, `ceilFree_sound`), and beyond those a term holding an irreducible
-    /// `value-production` application (SIMPLE's stored `a[4]`) or a map or set whose keys of
-    /// several shapes are shown apart. Solver-free and deterministic: a function of the term
-    /// and the definition, with one memo of instance normality per call.
+    /// The walk runs in [`EvaluationMode::Proof`](crate::evaluation::EvaluationMode::Proof)
+    /// whatever scope the caller has open, so a ceil equation's condition never reads a value the
+    /// definition leaves to the implementation (`Set2List`'s order, say): the answer is a function
+    /// of the term and the definition, the same inside a run's state matching as on a leaf read
+    /// back. A stop of the caller's request inside a ceil condition's simplification leaves that
+    /// condition owed, so the answer is then `false`, never a wrong `true`.
+    ///
+    /// An application of a hooked `value-production` symbol whose hook k-rust does not evaluate
+    /// is discharged like any other irreducible one: the walk reads the definition's
+    /// declarations, not whether the hook ran. A client that must not rest on such a value reads
+    /// the run's unsupported-hook records (k-rust-fuzz does, at run level).
+    ///
+    /// It accepts every ground term whose stored `ceil_free` attribute is true at once (the walk
+    /// would skip it, `ceilFree_sound`: such a term owes nothing under every definition), and
+    /// beyond those a term holding an irreducible `value-production` application (SIMPLE's stored
+    /// `a[4]`) or a map or set whose keys k-rust shows apart. Solver-free, with one memo of
+    /// instance normality per call.
     #[must_use]
     pub fn ground_defined(&self, term: &Term) -> bool {
-        term.attributes().variables.is_empty()
-            && crate::instance_normal::with_scan_memo(|| ceil_term(self, term))
-                .is_ok_and(|obligations| only_top(&obligations))
+        let attributes = term.attributes();
+        if !attributes.variables.is_empty() {
+            return false;
+        }
+        if attributes.ceil_free() {
+            return true;
+        }
+        crate::evaluation::with_evaluation(crate::evaluation::EvaluationMode::Proof, || {
+            crate::instance_normal::with_scan_memo(|| ceil_term(self, term))
+        })
+        .is_ok_and(|obligations| only_top(&obligations))
     }
 }
 
@@ -145,15 +166,17 @@ fn only_top(obligations: &[Predicate]) -> bool {
 /// whose own obligation the walk discharges (a ceil equation whose condition is `\top`, or an
 /// application of a `value-production` symbol that no equation reduces). A client naming the
 /// first application by which a term is not shown defined reads this;
-/// [`BackendDefinition::ground_defined`] is the judgement.
+/// [`BackendDefinition::ground_defined`] is the judgement. It runs in `Proof` mode, as that does.
 #[must_use]
 pub fn application_owes_nothing(definition: &BackendDefinition, term: &Term) -> bool {
     let TermKind::Application { symbol, .. } = term.kind() else {
         return true;
     };
     symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Partial)
-        || crate::instance_normal::with_scan_memo(|| apply_ceil_equation(definition, term))
-            .is_some_and(|obligations| only_top(&obligations))
+        || crate::evaluation::with_evaluation(crate::evaluation::EvaluationMode::Proof, || {
+            crate::instance_normal::with_scan_memo(|| apply_ceil_equation(definition, term))
+        })
+        .is_some_and(|obligations| only_top(&obligations))
 }
 
 /// The definedness walk without the `ceil_free` shortcut at any depth: the reference the
@@ -993,16 +1016,107 @@ fn simplified_ceil_condition(
 }
 
 /// The definedness of the partial application `term` beyond that of its arguments, which
-/// `ceil_term_node` adds: the condition of the first unconditional ceil equation that matches it,
-/// or, for an application of a `value-production` symbol that no equation reduces on any
-/// instance, nothing, since that marker makes such an application a value
-/// (`BackendDefinition::irreducible_application_is_defined`). `None` keeps the opaque `\ceil`.
+/// `ceil_term_node` adds: the condition of the first unconditional ceil equation that matches it;
+/// otherwise, for an application of a `value-production` symbol that no equation reduces on any
+/// instance, what the other ceil equations offered at it leave
+/// ([`value_production_ceil_equations`]): nothing when none applies, since that marker makes such
+/// an application a value (`BackendDefinition::irreducible_application_is_defined`), the
+/// condition of one whose `requires` is decided true, and the opaque `\ceil` when one may apply
+/// but its matching, instance or `requires` is undecided. `None` keeps the opaque `\ceil`.
+///
+/// A ceil equation is an equality of the definition, and `value-production` speaks only of
+/// applications no equation reduces: it says such an application is a value, which is its
+/// `\ceil` only where no ceil equation states that `\ceil` differently. So the marker answers
+/// alone only where every ceil equation offered at the application is shown not to apply (it
+/// does not match, or its `requires` is decided false on every instance).
 fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
-    ceil_theory_condition(definition, term).or_else(|| {
-        definition
-            .irreducible_application_is_defined(term)
-            .then(Vec::new)
-    })
+    if let Some(condition) = ceil_theory_condition(definition, term) {
+        return Some(condition);
+    }
+    if !definition.irreducible_application_is_defined(term) {
+        return None;
+    }
+    value_production_ceil_equations(definition, term)
+}
+
+/// For an application `term` of a `value-production` symbol that no equation reduces and that no
+/// unconditional ceil equation's usable instance decides ([`apply_ceil_equation`]), what every
+/// ceil equation offered at it, conditional ones included, leaves of its definedness beyond its
+/// arguments': `Some(vec![])` when each one is shown not to apply (its left-hand side does not
+/// match, or its `requires`, simplified under the instance, is false on every instance), the
+/// condition of the first one whose `requires` is true on a usable instance, and `None` (the
+/// opaque `\ceil`, which the runtime predicate simplifier decides with the path condition) when
+/// one has an undecided matching, an instance the evaluator does not use, an undecided
+/// `requires`, or no usable right-hand side. In the definitions k-rust's compiler emits such an
+/// equation is rare: it states the existence of a production's applications, which the
+/// `value-production` marker already claims where no equation reduces them.
+fn value_production_ceil_equations(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Option<Vec<Predicate>> {
+    let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
+    // An equation that decides ends the selection: the ceil equations after it are offered
+    // (`crate::coverage::Selection`).
+    let selection = crate::coverage::Selection::new(
+        crate::coverage::by_priority(&groups),
+        crate::coverage::every,
+        crate::simplify::scan::equation_probe(definition, term),
+    );
+    for rule in selection.groups().flat_map(|(_, rules)| rules) {
+        let (rule, instances) = equation_instances(definition, rule, term, &[]);
+        let instances = match instances {
+            EquationInstances::NotMatched(_) => continue,
+            EquationInstances::Undecided => {
+                crate::coverage::note_offered(&rule.attributes.unique_id);
+                return None;
+            }
+            EquationInstances::Matched(instances) => instances,
+        };
+        crate::coverage::note_offered(&rule.attributes.unique_id);
+        let RuleRhs::Predicates(predicates) = &rule.rhs else {
+            return None;
+        };
+        if !rule.computed_attributes.unbound_result_variables.is_empty() {
+            return None;
+        }
+        for instance in instances {
+            let Instance::Usable(substitution) = instance else {
+                return None;
+            };
+            // The instance's `requires`, with the definedness of its terms stated: it holds only
+            // where its terms are defined.
+            let Ok(requires) = rule
+                .requires
+                .instantiate(&substitution)
+                .with_definedness(definition, &[])
+            else {
+                return None;
+            };
+            let requires = simplified_ceil_condition(definition, requires);
+            match predicates_truth(&requires) {
+                Truth::False => {}
+                Truth::True => {
+                    #[expect(
+                        clippy::disallowed_methods,
+                        reason = "the right-hand side of a ceil equation's usable instance whose requires holds; ceil_term_node states the definedness of the arguments the instance binds"
+                    )]
+                    let condition = simplified_ceil_condition(
+                        definition,
+                        substitute_predicates(predicates, &substitution),
+                    );
+                    crate::coverage::note_applied(&rule.attributes.unique_id);
+                    return Some(
+                        condition
+                            .into_iter()
+                            .filter(|predicate| predicate != &Predicate::True)
+                            .collect(),
+                    );
+                }
+                Truth::Unknown => return None,
+            }
+        }
+    }
+    Some(Vec::new())
 }
 
 /// The condition of the first usable instance of an unconditional ceil equation at `term`, in

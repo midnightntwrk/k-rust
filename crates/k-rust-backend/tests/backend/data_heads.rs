@@ -24,6 +24,9 @@ module MAIN
     hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
     hooked-symbol geInt{}(SortInt{}, SortInt{}) : SortBool{}
         [function{}(), total{}(), hook{}("INT.ge"), smt-hook{}(">=")]
+    hooked-symbol ltInt{}(SortInt{}, SortInt{}) : SortBool{}
+        [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+    symbol good{}(SortInt{}) : SortBool{} [function{}(), total{}()]
     sort SortKItem{} []
     sort SortId{} []
     sort SortVal{} []
@@ -308,6 +311,102 @@ fn a_head_with_a_ceil_lemma_is_not_a_data_head_and_existence_reads_the_lemma() {
     assert_eq!(judged(&definition, &at(A, &[4])), (false, true));
 }
 
+/// SD1: a conditional ceil lemma `\ceil(idx(E, [N | Ns])) = \bottom requires N < 0` is an
+/// equality of the definition, and `value-production` speaks only where no ceil equation states
+/// the `\ceil` otherwise. So `a[-1]`, where the lemma's condition holds, does not exist; `a[4]`,
+/// where it is decided false, is discharged by `value-production`; and under the same lemma
+/// guarded by `good(N)` (a total function with no equation, so `good(4)` is undecided) `a[4]`
+/// owes the lemma's `\ceil` and is not shown to exist. Before, the walk passed over every
+/// conditional lemma and the marker answered "defined" in all three.
+#[test]
+fn a_conditional_ceil_lemma_decides_existence_before_value_production() {
+    let lemma = |guard: &str| {
+        with_sentences(&format!(
+            r#"
+    axiom{{R}} \implies{{R}}(
+        \equals{{SortBool{{}}, R}}({guard}, \dv{{SortBool{{}}}}("true")),
+        \equals{{R, R}}(
+            \ceil{{SortExp{{}}, R}}(idx{{}}(VarE:SortExp{{}}, ints{{}}(VarN:SortInt{{}}, VarNs:SortInts{{}}))),
+            \bottom{{R}}()))
+        [label{{}}("ceil-negative"), simplification{{}}()]
+"#
+        ))
+    };
+    let negative = lemma(r#"ltInt{}(VarN:SortInt{}, \dv{SortInt{}}("0"))"#);
+    assert!(heads(&negative).is_empty());
+    let defined = |definition: &BackendDefinition, source: &str| {
+        definition.ground_defined(&term(definition, source))
+    };
+    assert!(!defined(&negative, &at(A, &[-1])));
+    assert!(defined(&negative, &at(A, &[4])));
+    let undecided = lemma("good{}(VarN:SortInt{})");
+    assert!(!defined(&undecided, &at(A, &[4])));
+}
+
+/// D1: existence is a function of the term and the definition. The ceil lemma
+/// `\ceil(idx(E, Is)) = \equals(set2list(S), [1, 2])` reads `Set2List`, whose order of two or
+/// more items the definition leaves to the implementation. Under an `Execution` scope the hook
+/// takes k-rust's documented order, under `Proof` it stays unevaluated; `ground_defined` runs
+/// its walk in `Proof` whatever scope is open, so it gives one answer in both, and that answer
+/// does not rest on the implementation's order (not shown to exist).
+#[test]
+fn existence_does_not_read_a_value_the_definition_leaves_to_the_implementation() {
+    let definition = with_sentences(
+        r#"
+    hooked-sort SortList{}
+        [hook{}("LIST.List"), unit{}(Lbl'Stop'List{}()), element{}(LblListItem{}()),
+         concat{}(Lbl'Unds'List'Unds'{}())]
+    hooked-symbol Lbl'Stop'List{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+    hooked-symbol LblListItem{}(SortKItem{}) : SortList{}
+        [function{}(), total{}(), hook{}("LIST.element")]
+    hooked-symbol Lbl'Unds'List'Unds'{}(SortList{}, SortList{}) : SortList{}
+        [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+    hooked-sort SortSet{}
+        [hook{}("SET.Set"), unit{}(Lbl'Stop'Set{}()), element{}(LblSetItem{}()),
+         concat{}(Lbl'Unds'Set'Unds'{}())]
+    hooked-symbol Lbl'Stop'Set{}() : SortSet{} [function{}(), total{}(), hook{}("SET.unit")]
+    hooked-symbol LblSetItem{}(SortKItem{}) : SortSet{}
+        [function{}(), total{}(), hook{}("SET.element")]
+    hooked-symbol Lbl'Unds'Set'Unds'{}(SortSet{}, SortSet{}) : SortSet{}
+        [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+    hooked-symbol set2list{}(SortSet{}) : SortList{} [function{}(), total{}(), hook{}("SET.set2list")]
+    axiom{R} \implies{R}(\top{R}(), \equals{R, R}(
+        \ceil{SortExp{}, R}(idx{}(VarE:SortExp{}, VarIs:SortInts{})),
+        \and{R}(
+            \equals{SortList{}, R}(
+                set2list{}(Lbl'Unds'Set'Unds'{}(
+                    LblSetItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))),
+                    LblSetItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))))),
+                Lbl'Unds'List'Unds'{}(
+                    LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))),
+                    LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))))),
+            \top{R}())))
+        [label{}("ceil-order"), simplification{}()]
+"#,
+    );
+    let subject = term(&definition, &at(A, &[4]));
+    let in_mode = |mode| {
+        k_rust_backend::evaluation::with_evaluation(mode, || definition.ground_defined(&subject))
+    };
+    let execution = in_mode(k_rust_backend::evaluation::EvaluationMode::Execution);
+    let proof = in_mode(k_rust_backend::evaluation::EvaluationMode::Proof);
+    assert_eq!(execution, proof);
+    assert!(!proof);
+}
+
+/// M-d: a hooked `value-production` head is no data head, but its irreducible application is
+/// discharged by the marker like any other: `ground_defined` reads declarations, not whether the
+/// hook ran. A client that must not rest on an unevaluated hook reads the run's records.
+#[test]
+fn a_hooked_value_production_application_is_shown_to_exist() {
+    let hooked = internalize(&SOURCE.replace(
+        IDX,
+        r#"hooked-symbol idx{}(SortExp{}, SortInts{}) : SortExp{} [anywhere{}(), function{}(), value-production{}(), hook{}("ARRAY.idx")]"#,
+    ));
+    assert!(heads(&hooked).is_empty());
+    assert!(hooked.ground_defined(&term(&hooked, &at(A, &[4]))));
+}
+
 /// S2: existence is the definedness walk, so a map whose value holds `a[4]` exists, while a map
 /// with the key `a[4]` beside another key owes their disequality unless k-rust shows the two
 /// apart. Its apartness test does not separate an application of an equation head from another
@@ -370,11 +469,11 @@ fn the_witness_of_a_refusal_is_the_first_application_that_owes() {
 /// `g(c) = b`) are a pair the full check does not join, so the definition has no data. Assuming
 /// the pair joined reads the definition as if it did; the load's own check withdraws the claims
 /// its taint reaches, and `g` stays no data head under the assumption: an assumed pair can only
-/// make fewer terms data.
+/// make fewer terms data. Without the second equation `g` is a data head, so the withdrawal is the
+/// load's.
 #[test]
 fn an_assumed_pair_of_a_plain_heads_equations_leaves_the_head_withdrawn() {
-    let definition = internalize(
-        r#"[]
+    let source = r#"[]
 module MAIN
     sort SortS{} []
     symbol c{}() : SortS{} [constructor{}(), functional{}()]
@@ -390,8 +489,8 @@ module MAIN
         \and{R}(\top{R}(), \and{R}(\in{SortS{}, R}(X0:SortS{}, c{}()), \top{R}())),
         \equals{SortS{}, R}(g{}(X0:SortS{}), \and{SortS{}}(rb{}(), \top{SortS{}}())))
         [label{}("at-c"), anywhere{}()]
-endmodule []"#,
-    );
+endmodule []"#;
+    let definition = internalize(source);
     let heads = definition.data_heads();
     assert!(!heads.confluent());
     assert!(
@@ -407,5 +506,22 @@ endmodule []"#,
     assert_eq!(
         assumed.names().map(ToString::to_string).collect::<Vec<_>>(),
         Vec::<String>::new()
+    );
+    // The withdrawal is the load's taint, not another condition of H1-H3: without the second
+    // equation the definition has data and the same `g` is a data head.
+    let start = source.find("    axiom{R} \\implies{R}(\n        \\and{R}(\\top{R}(), \\and{R}(\\in{SortS{}, R}(X0:SortS{}, c{}())").expect("the at-c axiom");
+    let end = source
+        .find("[label{}(\"at-c\"), anywhere{}()]")
+        .expect("its label")
+        + "[label{}(\"at-c\"), anywhere{}()]".len();
+    let single = internalize(&format!("{}{}", &source[..start], &source[end..]));
+    let single_heads = single.data_heads();
+    assert!(single_heads.confluent(), "{:?}", single_heads.findings());
+    assert_eq!(
+        single_heads
+            .names()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["g"]
     );
 }

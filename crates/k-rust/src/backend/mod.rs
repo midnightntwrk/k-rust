@@ -723,7 +723,10 @@ pub struct UndecidedStateMatchesOutput<K = Value> {
 }
 
 /// Why a matched state is undecided: it has a constraint or a variable (`undecided-state`), the
-/// pattern matches a term that is not ceil-free (`not-ceil-free`), or the matcher did not decide
+/// pattern matches a term not shown to exist (`not-ceil-free`: k-rust-backend's `ground_defined`
+/// fails, so the term may denote nothing; every term with the stored `ceil_free` attribute
+/// exists, and so does one holding an irreducible `value-production` application), or the
+/// matcher did not decide
 /// (`undecided-match`: undecided, matched under constraints, the modes disagreed, or a stop
 /// interrupted it).
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]

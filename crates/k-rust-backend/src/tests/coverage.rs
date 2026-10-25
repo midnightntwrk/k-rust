@@ -1877,6 +1877,9 @@ fn every_priority_group_selection_offers_what_it_never_tries() {
         // the definition that no run's coverage includes: it asks whether an application is
         // stuck, and applies nothing.
         ("data_term/instance.rs", "stuck"),
+        // The data heads' H3 (`data_term`): whether a ceil equation is offered at a head's index
+        // at all, read once per definition; it tries none.
+        ("data_term.rs", "data_head_names"),
         // The former lazy step, a differential-test oracle compiled only in tests.
         ("rewrite/step.rs", "rewrite_step_all_first_group_for_tests"),
     ];
