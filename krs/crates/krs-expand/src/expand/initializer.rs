@@ -376,7 +376,7 @@ struct InitializerBuilder<'a> {
 impl<'a> InitializerBuilder<'a> {
     fn new(
         facade: &'a Path,
-        ledger: &'a KeyLedger,
+        ledger: &'a KeyLedger<'a>,
         nonce: u64,
         cfg: &'a [Attribute],
         bindings: &'a [Ident],

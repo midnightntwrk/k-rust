@@ -139,7 +139,7 @@ pub(super) struct OverloadWire {
 /// Expands the target of `overload = Path`: an enum variant `Enum::Variant`
 /// or a constructor struct.
 pub(super) fn overload_wire(
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     target: &Path,
     read: Option<&ProvenanceKey>,
     key_fn: &Ident,
@@ -196,7 +196,7 @@ pub(super) struct ColorMetadata<'a> {
     reason = "A production's metadata values and their keys come from its attribute or its family."
 )]
 pub(super) fn constructor_metadata_wire(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     keys: &krs_syntax::ProductionKeys,
     (group, group_key): (Option<String>, Option<&ProvenanceKey>),
     avoid: bool,
@@ -285,7 +285,7 @@ pub(super) fn constructor_metadata_wire(
 }
 
 pub(super) fn production_documentation_wire(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     documentation: &[krs_syntax::ProductionDocumentation],
 ) -> crate::Result<Vec<krs_ir::wire::WireProductionAttribute>> {
     documentation
@@ -303,7 +303,7 @@ pub(super) fn production_documentation_wire(
 /// (KF-028), keyed `read`, the marker's name, with the `recursive`
 /// keyword's key when written.
 pub(super) fn static_mode_wire(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     marker: &krs_syntax::StaticProductionAttribute,
     read: Option<&ProvenanceKey>,
 ) -> crate::Result<krs_ir::wire::WireProductionAttribute> {
@@ -324,7 +324,7 @@ pub(super) fn static_mode_wire(
 }
 
 pub(super) fn strictness_wire(
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     strictness: Option<&StrictnessAttribute>,
     nonce: u64,
     slots: &mut super::terms::WireSlots,

@@ -37,7 +37,6 @@ pub(crate) fn configuration(
     let anchors = declaration.descriptor_provenance(&attribute)?;
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
-    // The initializer's keys are its own expansion's.
     let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(env, "configuration", declaration.name(), fallback);
     let declared_key = format_ident!(
@@ -293,7 +292,7 @@ pub(super) fn cell_marker_function(field: &Ident) -> Ident {
 }
 
 fn configuration_root(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     attribute: &krs_syntax::ConfigurationAttribute,
 ) -> crate::Result<DescriptorConfigurationRoot> {
     Ok(match attribute.optional_root() {
@@ -310,7 +309,7 @@ fn configuration_root(
     reason = "Each field kind (leaf, nested, optional, collection) maps its metadata to the wire in one place."
 )]
 fn configuration_fields(
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     declaration: &krs_syntax::ConfigurationDeclaration,
     owner: &Ident,
     owner_key: &Ident,
@@ -443,7 +442,7 @@ fn configuration_fields(
 
 struct ConfigurationFieldContext<'a> {
     facade: &'a Path,
-    ledger: &'a KeyLedger,
+    ledger: &'a KeyLedger<'a>,
     owner: &'a Ident,
     owner_key: &'a Ident,
     helpers: &'a mut Vec<TokenStream>,
@@ -539,7 +538,7 @@ fn configuration_content(
 pub(super) struct SortArgumentContext<'a, 'b> {
     pub(super) facade: &'a Path,
     /// The ledger of the descriptor the arguments belong to.
-    pub(super) ledger: &'a KeyLedger,
+    pub(super) ledger: &'a KeyLedger<'a>,
     /// The type whose associated helpers the keys are.
     pub(super) owner: &'a Ident,
     /// Distinguishes the helpers' names.

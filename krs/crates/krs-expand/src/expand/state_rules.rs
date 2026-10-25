@@ -617,7 +617,7 @@ pub(super) struct StateRuleBuilder<'a> {
 impl<'a> StateRuleBuilder<'a> {
     pub(super) fn new(
         facade: &'a Path,
-        ledger: &'a KeyLedger,
+        ledger: &'a KeyLedger<'a>,
         nonce: u64,
         cfg: &'a [Attribute],
         bindings: &'a [Ident],
@@ -1187,7 +1187,7 @@ impl<'a> StateRuleBuilder<'a> {
 
 /// A remainder, keyed `read`, the remainder's own key.
 fn expand_frame(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     frame: &StateMacroRemainder,
     read: Option<&ProvenanceKey>,
 ) -> crate::Result<ProtocolRuleFrame> {

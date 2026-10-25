@@ -18,7 +18,7 @@ use super::tokens::{call_site_path, spelling};
 /// functions that let rustc resolve each binder's sort.
 pub(super) fn existential_binders(
     existentials: &RuleExistentials,
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     nonce: u64,
     cfg: &[Attribute],
     slots: &mut WireSlots,
@@ -37,7 +37,7 @@ pub(super) fn existential_binders(
 pub(super) fn evaluation_step(
     attribute: &krs_syntax::RuleAttribute,
     existentials: &RuleExistentials,
-    (facade, ledger, nonce, cfg): (&Path, &KeyLedger, u64, &[Attribute]),
+    (facade, ledger, nonce, cfg): (&Path, &KeyLedger<'_>, u64, &[Attribute]),
     slots: &mut WireSlots,
 ) -> crate::Result<(Option<WireEvaluationStep>, Option<TokenStream>)> {
     let Some((kind, _)) = attribute.evaluation() else {
@@ -86,7 +86,7 @@ pub(super) fn evaluation_step(
 /// and their hidden sort-key functions.
 pub(super) fn fresh_binders(
     existentials: &RuleExistentials,
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     nonce: u64,
     cfg: &[Attribute],
     slots: &mut WireSlots,
@@ -104,7 +104,7 @@ pub(super) fn fresh_binders(
 fn scoped_binders(
     declared: &[ClaimBinder],
     kind: &str,
-    (facade, ledger, nonce, cfg): (&Path, &KeyLedger, u64, &[Attribute]),
+    (facade, ledger, nonce, cfg): (&Path, &KeyLedger<'_>, u64, &[Attribute]),
     slots: &mut WireSlots,
 ) -> crate::Result<(Vec<WireClaimBinder>, Vec<TokenStream>)> {
     let mut binders = Vec::new();

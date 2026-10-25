@@ -731,7 +731,7 @@ fn expand_enum_variant(
 }
 
 fn enum_variant_production_wire_items(
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     variant: &krs_syntax::EnumConstructorVariant,
     nonce: u64,
     variant_index: usize,
@@ -784,8 +784,8 @@ fn enum_variant_production_wire_items(
         }
     } else {
         // Without a template the production reads as the variant's name,
-        // which declares it.
-        // The production defines the variant's key.
+        // which declares it: the terminal names the key the production
+        // defines.
         items.push(Item::Terminal {
             key: ledger.refer(variant.key())?,
             text: variant.name().to_string(),

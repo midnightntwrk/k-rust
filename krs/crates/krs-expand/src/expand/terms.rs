@@ -176,7 +176,7 @@ impl<'t> KeyedTerm<'t> {
 
     /// Reads the term's keys as expansion reaches its nodes; each key read
     /// is defined, or referred to, in `ledger`.
-    pub(super) fn reader(self, ledger: &'t KeyLedger) -> TermKeyReader<'t> {
+    pub(super) fn reader(self, ledger: &'t KeyLedger<'t>) -> TermKeyReader<'t> {
         let mut record_fields = Vec::new();
         self.tree.record_field_names_preorder(&mut record_fields);
         let mut wildcards = Vec::new();
@@ -272,7 +272,7 @@ impl NodeKind {
 /// same token: a walker that visits nodes in another order fails with an
 /// internal error instead of giving a wire node another node's key.
 pub(super) struct TermKeyReader<'t> {
-    ledger: &'t KeyLedger,
+    ledger: &'t KeyLedger<'t>,
     nodes: &'t [TermNode],
     paths: TermPaths<'t>,
     record_fields: Vec<Ident>,
@@ -387,7 +387,7 @@ fn located_key(read: Option<&ProvenanceKey>, at: TokenRange) -> crate::Result<Pr
 /// The keys one term node holds, read by role.
 #[derive(Clone, Copy)]
 pub(super) struct NodeKeys<'t> {
-    ledger: &'t KeyLedger,
+    ledger: &'t KeyLedger<'t>,
     keys: &'t TermKeys,
     index: usize,
     at: TokenRange,
@@ -417,7 +417,7 @@ impl<'t> NodeKeys<'t> {
 
 /// The keys of one role that one term node holds, in allocation order.
 pub(super) struct NodeKeyList<'t> {
-    ledger: &'t KeyLedger,
+    ledger: &'t KeyLedger<'t>,
     keys: std::vec::IntoIter<&'t ProvenanceKey>,
 }
 
@@ -495,7 +495,7 @@ impl TermSide {
 pub(super) struct TermBuilder<'a> {
     facade: &'a Path,
     /// The ledger of the descriptor whose terms this builder expands.
-    pub(super) ledger: &'a KeyLedger,
+    pub(super) ledger: &'a KeyLedger<'a>,
     pub(super) nonce: u64,
     pub(super) cfg: &'a [Attribute],
     bindings: &'a [Ident],
@@ -539,7 +539,7 @@ pub(super) struct TermBuilder<'a> {
 impl<'a> TermBuilder<'a> {
     pub(super) fn new(
         facade: &'a Path,
-        ledger: &'a KeyLedger,
+        ledger: &'a KeyLedger<'a>,
         nonce: u64,
         cfg: &'a [Attribute],
         bindings: &'a [Ident],
@@ -1860,7 +1860,7 @@ pub(super) struct SortArgumentSink<'a> {
     pub(super) helpers: &'a mut Vec<TokenStream>,
     pub(super) slots: &'a mut WireSlots,
     /// The ledger of the descriptor whose production this is.
-    pub(super) ledger: &'a KeyLedger,
+    pub(super) ledger: &'a KeyLedger<'a>,
     /// The number of the next helper.
     pub(super) ordinal: u32,
 }
@@ -1935,7 +1935,8 @@ mod tests {
     #[test]
     fn a_permuted_read_names_another_node_and_fails() {
         let term = term("k::matches!(f(x), g(y))");
-        let ledger = KeyLedger::new(&term.provenance().unwrap(), &[]);
+        let anchors = term.provenance().unwrap();
+        let ledger = KeyLedger::new(&anchors, &[]);
         let TermTree::Matches {
             range,
             subject,
@@ -1987,7 +1988,8 @@ mod tests {
     #[test]
     fn a_permuted_record_field_read_fails() {
         let term = term("F { a: x, b: y }");
-        let ledger = KeyLedger::new(&term.provenance().unwrap(), &[]);
+        let anchors = term.provenance().unwrap();
+        let ledger = KeyLedger::new(&anchors, &[]);
         let TermTree::Application(record) = term.tree() else {
             panic!("a record");
         };

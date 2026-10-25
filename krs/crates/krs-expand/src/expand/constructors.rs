@@ -177,7 +177,7 @@ fn check_smt_fields(
 
 /// The wire attribute of a function's `underspecified` key.
 fn underspecified_wire(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     function: &krs_syntax::FunctionAttribute,
 ) -> crate::Result<Option<WireProductionAttribute>> {
     function
@@ -194,7 +194,7 @@ fn underspecified_wire(
 /// The wire attribute of a function's SMT key, whose placeholders
 /// [`check_smt_fields`] checked.
 fn smt_wire(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     function: &krs_syntax::FunctionAttribute,
 ) -> crate::Result<Option<WireProductionAttribute>> {
     let Some(smt) = function.smt() else {
@@ -699,7 +699,7 @@ fn parametric_item(item: &ItemStruct) -> ItemStruct {
 /// One sort reference per K sort parameter of `declaration`, keyed as the
 /// parameter is, whose slot is the parameter's marker type (KF-027).
 fn parameter_wire_references(
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     declaration: &krs_syntax::ConstructorDeclaration,
     markers: &[(Ident, Ident)],
     slots: &mut WireSlots,
@@ -1079,7 +1079,7 @@ pub(crate) fn token(
     reason = "Grammar lowering retains all declaration context in one expansion."
 )]
 fn constructor_grammar(
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     (attribute, function, descriptor): (
         &krs_syntax::ConstructorAttribute,
         Option<&krs_syntax::FunctionAttribute>,
@@ -1323,7 +1323,7 @@ fn constructor_grammar(
 }
 
 fn constructor_production_wire_items(
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     template: Option<&krs_syntax::SyntaxTemplate>,
     (name, declaration_key): (&Ident, Option<&krs_ir::ProvenanceKey>),
     fields: &[krs_syntax::ConstructorField],
@@ -1376,8 +1376,8 @@ fn constructor_production_wire_items(
         }
     } else {
         // Without a template the production reads as the struct's name,
-        // which declares it.
-        // The production defines the name's key.
+        // which declares it: the terminal names the key the production
+        // defines.
         let key = ledger.refer(declaration_key)?;
         items.push(WireProductionItem::Terminal {
             key,

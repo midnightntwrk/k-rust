@@ -909,7 +909,7 @@ impl<'t> AlternativeRecords<'t> {
 /// whose children are the already-expanded terms of the reading the clause
 /// took, the computation cell's head or the cell's list elements.
 fn bracket_alternative_wire(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     alternative: &krs_syntax::BracketAlternative,
     records: &AlternativeRecords<'_>,
     bindings: &[krs_ir::wire::WireHeadRuleBinding],
@@ -985,7 +985,7 @@ fn record_children(term: &krs_ir::wire::WireTerm) -> Option<Vec<krs_ir::wire::Wi
 /// and after its rest take their children from `records` in order; `None`
 /// when the list's shape does not match the records.
 fn alternative_instances(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     state: &krs_syntax::StateTerm,
     records: (
         Vec<Vec<krs_ir::wire::WireTerm>>,

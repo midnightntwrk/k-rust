@@ -22,21 +22,21 @@ use krs_syntax::{ProvenanceAnchor, ProvenanceRole};
 use crate::ExpandError;
 
 /// Which anchored keys of one descriptor its wire nodes have defined.
-pub(super) struct KeyLedger {
-    anchors: Vec<ProvenanceAnchor>,
+pub(super) struct KeyLedger<'a> {
+    anchors: &'a [ProvenanceAnchor],
     index: HashMap<ProvenanceKey, usize>,
     defined: Vec<Cell<bool>>,
     fixed: Vec<ProvenanceKey>,
 }
 
-impl KeyLedger {
+impl<'a> KeyLedger<'a> {
     /// Opens the ledger of a descriptor whose sentence anchored `anchors`.
     /// The first key of each of `fixed` is one the descriptor's kind names
     /// by itself (its primary declaration, or the clause keyword of an alias
     /// or desugar rule), which no wire field carries.
-    pub(super) fn new(anchors: &[ProvenanceAnchor], fixed: &[ProvenanceRole]) -> Self {
+    pub(super) fn new(anchors: &'a [ProvenanceAnchor], fixed: &[ProvenanceRole]) -> Self {
         Self {
-            anchors: anchors.to_vec(),
+            anchors,
             index: anchors
                 .iter()
                 .enumerate()
@@ -112,7 +112,7 @@ impl KeyLedger {
     /// anchor, by this descriptor.
     pub(super) fn finish_beside(
         &self,
-        sibling: &Self,
+        sibling: &KeyLedger<'_>,
         repeated: &[ProvenanceRole],
     ) -> crate::Result<()> {
         self.finish_with(|key| repeated.contains(&key.role()) && sibling.defines(key))

@@ -925,7 +925,7 @@ fn function_context(
 /// each sort resolves through its own type slot, keyed like a `cells!` rule's.
 fn typed_binders(
     rule: &krs_syntax::RuleItem,
-    (facade, ledger): (&Path, &KeyLedger),
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     nonce: u64,
     cfg: &[Attribute],
     slots: &mut WireSlots,
@@ -962,7 +962,7 @@ fn typed_binders(
 /// The descriptor form of an equation's or simplification's `concrete`,
 /// `symbolic`, and `smt_lemma` keys (KF-043), or `None` when none is authored.
 fn match_restriction(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     restriction: &krs_syntax::MatchRestriction,
 ) -> crate::Result<Option<krs_ir::DescriptorMatchRestriction>> {
     if restriction.is_empty() {
@@ -1009,7 +1009,7 @@ fn match_restriction(
 
 /// The descriptor form of `unbound_variables = [..]` (KF-046).
 fn unbound_variables(
-    ledger: &KeyLedger,
+    ledger: &KeyLedger<'_>,
     unbound: &krs_syntax::UnboundVariables,
 ) -> crate::Result<krs_ir::DescriptorUnboundVariables> {
     // The keys of the `unbound_variables` identifier, then of each entry.

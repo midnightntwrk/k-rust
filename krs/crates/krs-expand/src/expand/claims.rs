@@ -7,8 +7,8 @@ use krs_ir::wire::{
 use krs_ir::{ClaimModality, DescriptorRuleLabel, ProtocolRuleBinding, ProtocolRuleBindingKind};
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
-    ClaimModality as SyntaxClaimModality, ProvenanceRole, RuleSide, StateRuleBindingKind,
-    StateRuleReferenceKind, TokenRange,
+    ClaimModality as SyntaxClaimModality, ProvenanceAnchor, ProvenanceRole, RuleSide,
+    StateRuleBindingKind, StateRuleReferenceKind, TokenRange,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -245,13 +245,15 @@ fn configuration_claim(
     } else {
         None
     };
-    // The claim names every `k::or_bool!` its terms hold; each `OrBool`
-    // wire term defines its own key.
+    // The claim lists every `k::or_bool!` its terms hold, as the sentence
+    // anchored them. Each `OrBool` wire term defines its own key, so the
+    // ledger accounts for every one of them already; the list is read off
+    // the anchors, so a refer of its keys could not fail.
     let or_bool_keys = anchors
         .iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::ClaimOrBool)
-        .map(|anchor| ledger.refer_key(anchor.key()))
-        .collect::<crate::Result<_>>()?;
+        .map(ProvenanceAnchor::key)
+        .collect();
     let mut wrapper_checks = Vec::new();
     for candidate in rule.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {

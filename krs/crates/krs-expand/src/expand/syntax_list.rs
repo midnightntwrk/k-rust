@@ -284,7 +284,7 @@ impl ListContext<'_> {
 
     fn partner(
         &self,
-        ledger: &KeyLedger,
+        ledger: &KeyLedger<'_>,
         role: Role,
         slots: &mut WireSlots,
     ) -> crate::Result<WireApplicationReference> {
