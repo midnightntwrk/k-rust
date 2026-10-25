@@ -398,3 +398,180 @@ fn any_state_reads_existence_of_a_plain_anywhere_application() {
         );
     }
 }
+
+/// SIMPLE's array access in miniature: `_[_,_]` splits into two accesses when its receiver is a
+/// `Val` (SIMPLE's `V:Val[N1, N2, Vs] => V[N1][N2, Vs]`), and `_[_]` reads an array (whose
+/// right-hand side may be undefined, so the compiler declares `_[_]` a partial
+/// `value-production`); `go(E)` stores `E`.
+const STORE: &str = r#"
+module STORE-SYNTAX
+  imports INT-SYNTAX
+  imports ID-SYNTAX
+  syntax Exp ::= Id | Int | Exp "[" Int "]" | Exp "[" Int "," Int "]"
+  syntax Pgm ::= go(Exp)
+endmodule
+
+module STORE
+  imports STORE-SYNTAX
+  imports INT
+  imports ID
+  syntax Val ::= array(Int)
+  syntax Exp ::= Val
+  configuration <k> $PGM:Pgm </k> <s> .K </s>
+  rule <k> go(E) => .K </k> <s> _ => E </s>
+  rule V:Val [ N1 , N2 ] => V [ N1 ] [ N2 ] [anywhere]
+  rule array(L) [ N ] => L /Int N [anywhere]
+endmodule
+"#;
+
+/// SD4 (review M7, the subsort variant): the mutant declares `Id < Val`, so the rule
+/// `V:Val[N1, N2]` reaches the baseline's stored `a[2, 3]` through the matcher's subsort order,
+/// with no new equation: in the mutant it is reducible (the mutant stores `a[2][3]`), so the
+/// baseline's end is not data there and is never compared, and the change is never a kill
+/// through it. (On SIMPLE itself `syntax Val ::= Id` does not load: it makes the `Ids` and
+/// `Vals` list families' terminators ambiguous, so the miniature stands in.)
+#[test]
+fn a_mutant_whose_subsort_lets_an_equation_reach_a_stored_access_is_never_killed_through_it() {
+    let baseline = Arc::new(support::compile_source("store.k", STORE, "STORE"));
+    let mutant = Arc::new(support::compile_source(
+        "store.k",
+        &STORE.replace(
+            "  syntax Val ::= array(Int)\n",
+            "  syntax Val ::= array(Int) | Id\n",
+        ),
+        "STORE",
+    ));
+    let report = Campaign::new(spec(
+        baseline,
+        Some(mutant),
+        ("go.pgm", "go(a[2, 3])", "Pgm"),
+        vec![int_hole("N", "go.pgm", "2,", "2", (1, 3))],
+        TargetKind::Differential(DifferentialTarget::default()),
+    ))
+    .expect("the campaign is valid")
+    .run(Budget::Cases(4), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_eq!(
+        report.totals.unsupported_reasons.keys().collect::<Vec<_>>(),
+        [&UnjudgedReason::BaselineEndNotData],
+        "{:?}",
+        report.totals
+    );
+}
+
+/// A definition whose `value-production` head `g(Set)` has the ceil lemma
+/// `#Ceil(g(S)) => {Set2List(S) #Equals ListItem(1) ListItem(2)}`: the order `Set2List` gives two
+/// items is left to the implementation, so whether `g(SetItem(1) SetItem(2))` exists is not a
+/// consequence of the definition. The storing rule is `preserves-definedness`, so the run itself
+/// never evaluates the lemma (its step reads no chosen value and the path carries no mark): only
+/// the existence judgement reads it.
+const CHOICE: &str = r"
+module CHOICE-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= Int
+  syntax Pgm ::= go(Int)
+endmodule
+
+module CHOICE
+  imports CHOICE-SYNTAX
+  imports INT
+  imports SET
+  imports LIST
+  imports COLLECTIONS
+  imports BOOL
+  syntax Exp ::= g(Set)
+  configuration <k> $PGM:Pgm </k> <s> .K </s>
+  rule <k> go(N) => .K </k> <s> _ => g(SetItem(N) SetItem(N +Int 1)) </s> [preserves-definedness]
+  rule g(.Set) => 100 /Int 0 [anywhere]
+  rule #Ceil(g(S)) => {Set2List(S) #Equals ListItem(1) ListItem(2)} [simplification]
+endmodule
+";
+
+/// D1: existence is a function of the term and the definition, so a configuration gets the same
+/// verdict at `at: any-state` (inside the run's state matching, an `Execution` scope) and at
+/// `final` (the leaf read back): here neither, since the ceil lemma's condition reads `Set2List`'s
+/// order. Before, the any-state judgement read k-rust's documented order and reached, with no
+/// `implementation-chosen-value` mark on the reach.
+#[test]
+fn existence_is_judged_alike_at_any_state_and_at_final() {
+    let compiled = Arc::new(support::compile_source("choice.k", CHOICE, "CHOICE"));
+    let run = |at| {
+        Campaign::new(spec(
+            Arc::clone(&compiled),
+            None,
+            ("go.pgm", "go(1)", "Pgm"),
+            vec![int_hole("N", "go.pgm", "1", "1", (1, 1))],
+            TargetKind::Pattern(PatternTarget {
+                pattern: "<k> .K </k>".into(),
+                at,
+            }),
+        ))
+        .expect("the campaign is valid")
+        .run(Budget::Cases(2), None)
+    };
+    for at in [PatternAt::AnyState, PatternAt::Final] {
+        let report = run(at);
+        assert!(report.witness().is_none(), "{at:?}: {:?}", report.outcome);
+        assert_eq!(
+            report.totals.unsupported_reasons.keys().collect::<Vec<_>>(),
+            [&UnjudgedReason::NotCeilFree],
+            "{at:?}: {:?}",
+            report.totals
+        );
+    }
+}
+
+/// A rule whose `ensures` is `good(3)`, a total function's application no equation evaluates:
+/// the leaf keeps it as a constraint (no variable) and holds `b[3]`, which exists.
+const BRANCH: &str = r#"
+module BRANCH-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Exp ::= Int | "b" | "c" | Exp "[" Int "]"
+  syntax Bool ::= good(Int) [function, total]
+  syntax Pgm ::= branch(Exp)
+endmodule
+
+module BRANCH
+  imports BRANCH-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k> <s> .K </s>
+  rule good(10) => true
+  rule c [ N ] => 100 /Int N requires N >=Int 10 [anywhere]
+  rule <k> branch(E) => .K </k> <s> _ => E </s> ensures good(3)
+endmodule
+"#;
+
+/// Review M-a: a leaf with a constraint and no variable is judged by `ground_defined` like a
+/// decided one, so a leaf holding the existing `b[3]` is unjudged for its constraint
+/// (`undecided-state`), not `not-ceil-free` (before, such a leaf fell back to `ceil_free`, which
+/// refuses every partial application, and the reason named the wrong cause).
+#[test]
+fn a_constrained_leaf_holding_an_existing_application_is_an_undecided_state() {
+    let compiled = Arc::new(support::compile_source("branch.k", BRANCH, "BRANCH"));
+    let report = Campaign::new(spec(
+        compiled,
+        None,
+        ("go.pgm", "branch(b[3])", "Pgm"),
+        vec![int_hole("N", "go.pgm", "3", "3", (3, 3))],
+        TargetKind::Pattern(PatternTarget {
+            pattern: "<k> .K </k>".into(),
+            at: PatternAt::Final,
+        }),
+    ))
+    .expect("the campaign is valid")
+    .run(Budget::Cases(2), None);
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_eq!(
+        report.totals.unsupported_reasons.keys().collect::<Vec<_>>(),
+        [&UnjudgedReason::UndecidedState],
+        "{:?}",
+        report.totals
+    );
+}

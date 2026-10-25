@@ -30,7 +30,7 @@ Every case receives exactly one `OutcomeClass` (ARCHITECTURE 5.3).
 When a result has several leaves, the case takes the first of these that some leaf has:
 `hit`, `unsupported`, `reached-unfinished`, `timeout`, `work-bound`, `depth-bound`, `undefined`, `stuck`, `miss`.
 `reached-unfinished` applies only when no leaf is `unsupported`.
-A leaf that is unclean for a reason other than its halt (an implementation-chosen value, a contradicted claim, remaining constraints, a term not shown to exist (k-rust's `ground_defined`, reason `not-ceil-free`), a stack stop, an undecided solver answer, and so on) is `unsupported` whether or not it reaches the target, because it may hide a reaching state, so `miss` or `stuck` would be unsound.
+A leaf that is unclean for a reason other than its halt (an implementation-chosen value, a contradicted claim, remaining constraints, a term not shown to exist (k-rust's `ground_defined`, reason `not-ceil-free`; it reads the definition's declarations, so it counts an application of a hooked `value-production` symbol as existing whether or not its hook ran, and the run-level unsupported-hook check is what refuses a leaf resting on an unevaluated hook), a stack stop, an undecided solver answer, and so on) is `unsupported` whether or not it reaches the target, because it may hide a reaching state, so `miss` or `stuck` would be unsound.
 `rejected` is decided before execution, and `baseline-incomplete` by the differential judge before the mutant's leaves are looked at; neither is chosen by precedence.
 A stuck, truncated, timed-out, undefined or unsupported run is never reported as a pass.
 

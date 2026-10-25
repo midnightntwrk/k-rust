@@ -140,7 +140,10 @@ pub use values::{Constraints, Value};
 /// was the stored `ceil_free` attribute, and an end's data judgement admits the instance-normal
 /// applications of plain `anywhere` data heads (SIMPLE's stored `a[4]`). Cases on such programs
 /// move from `unsupported` or `baseline-incomplete` (`not-ceil-free`, an end not data) to judged
-/// classes, which the proposers read; every case judged before is judged alike.
+/// classes, which the proposers read. Every case whose class was judged before keeps its class,
+/// but an `at: any-state` hit can move to an earlier reached state (a state holding such an
+/// application is now a clean reach), so its witness's `reaching.step` and
+/// `reaching.configuration` may change.
 pub const ENGINE_VERSION: u32 = 7;
 
 #[cfg(test)]

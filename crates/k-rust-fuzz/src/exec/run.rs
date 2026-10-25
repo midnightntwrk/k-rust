@@ -11,10 +11,11 @@ use k_rust::{
     definition::{AttributeKey, Attributes, ProductionItem, ResolvedDefinition, Sentence},
     k_rust_backend::{
         data_term::DataHeads,
-        definedness::application_owes_nothing,
+        definedness::{application_owes_nothing, ceil_term},
         definition::BackendDefinition,
         evaluation::{EvaluationMode, with_evaluation},
         rewrite::Pattern,
+        rule::Predicate,
         search::{PatternMatch, PatternMatchError, match_disjunction_with_solver},
         simplify::SimplificationOptions,
         smt::{SmtError, SmtSolver},
@@ -975,7 +976,9 @@ fn run_reasons(result: &ExecutionResult) -> Vec<UncleanReason> {
     }
     // D21: an application left unevaluated as an unsupported hook can steer the equation
     // evaluator, which applies another equation of the priority group when a condition over it
-    // is undecided (FZ-08 review 2, `steer.k`), and no leaf records the choice.
+    // is undecided (FZ-08 review 2, `steer.k`), and no leaf records the choice. It also guards
+    // existence: k-rust's `ground_defined` reads declarations, so it counts an irreducible
+    // application of a hooked `value-production` symbol as existing whether or not its hook ran.
     if result
         .unsupported_hooks
         .iter()
@@ -1395,16 +1398,13 @@ impl Judge<'_> {
         if !decided {
             internal.reasons.push(UncleanReason::Undecided);
         }
-        // Existence is k-rust's one predicate on a decided state (`ground_defined`: the
+        // Existence is k-rust's one predicate (`ground_defined`: the term is ground and its
         // definedness walk owes nothing), which also discharges an irreducible
-        // `value-production` application such as SIMPLE's stored `a[4]`. An undecided leaf is
-        // unclean already; the stored `ceil_free` attribute, which every `ground_defined` term
-        // without variables has, then only adds the note naming what may be undefined.
-        let defined = if decided {
-            definition.ground_defined(&pattern.term)
-        } else {
-            attributes.ceil_free()
-        };
+        // `value-production` application such as SIMPLE's stored `a[4]`. It reads the term, not
+        // the constraints, so a leaf with constraints but no variable is judged by it too (and is
+        // `undecided-state`, not `not-ceil-free`, when its term exists). A leaf with variables is
+        // judged by the same walk on the open term: whether it owes nothing on every instance.
+        let defined = term_exists(definition, &pattern.term);
         if !defined {
             internal
                 .reasons
@@ -1574,6 +1574,27 @@ fn initial_has_k(backend: &mut Backend, state: &KorePattern) -> Option<bool> {
         })
         .ok()
         .flatten()
+}
+
+/// Whether `term`, a leaf's internalized term, is shown to exist on every instance: k-rust's
+/// `ground_defined` when it is ground; otherwise the same definedness walk
+/// (`k_rust_backend::definedness::ceil_term`, in `Proof` mode as `ground_defined` runs it)
+/// owing nothing but `\top`, which, element variables denoting elements, says the term exists
+/// whatever value they take. Every term whose stored `ceil_free` attribute is true passes.
+fn term_exists(definition: &BackendDefinition, term: &Term) -> bool {
+    if term.attributes().variables.is_empty() {
+        return definition.ground_defined(term);
+    }
+    if term.attributes().ceil_free() {
+        return true;
+    }
+    with_evaluation(EvaluationMode::Proof, || ceil_term(definition, term)).is_ok_and(
+        |obligations| {
+            obligations
+                .iter()
+                .all(|obligation| matches!(obligation, Predicate::True))
+        },
+    )
 }
 
 /// The note of [`UncleanReason::NotCeilFree`] for a term-level `\and` whose sides' first
