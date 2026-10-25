@@ -55,6 +55,11 @@ pub fn emit(m: &Model, ns: &str) -> String {
 constructor per arity of the sorts' own constructors (`Ck s` enumerates sort `s`'s constructors\n\
 of arity k), one per builtin carrier, one per collection sort (a nested list), and the leaf\n\
 injection `inj`; each K constructor is a reducible `@[match_pattern]` definition.",
+    )
+    .replacen(
+        "import KPrelude.Ext\n",
+        "import KPrelude.Ext\nimport KPrelude.Delab\n",
+        1,
     );
     let types = block_types(m);
     let names: BTreeSet<String> = types.iter().map(|(t, _)| t.clone()).collect();
@@ -929,6 +934,13 @@ injection `inj`; each K constructor is a reducible `@[match_pattern]` definition
         )
         .unwrap();
     }
+    // goals print as K (`KPrelude.Delab`): checked for every constructor and leaf injection
+    writeln!(
+        o,
+        "\n/-! Goals print family terms by their K constructors (`KPrelude.Delab`), checked for every\n\
+constructor and leaf injection. -/\n#k2l_check_delab {ns}"
+    )
+    .unwrap();
     writeln!(o, "\nend {ns}").unwrap();
     o
 }
