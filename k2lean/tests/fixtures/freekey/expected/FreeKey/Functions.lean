@@ -65,6 +65,24 @@ decreasing_by all_goals first
   | k2l_decreasing []
   | (simp_wf; (try subst_vars); (try simp_all [KPrelude.IntHook.le, KPrelude.IntHook.lt, KPrelude.IntHook.add, KPrelude.IntHook.ge, KPrelude.IntHook.gt]); (try omega))
 
+/-! `anyPos(_)_FREEKEY_Int_Map` -/
+def K.«anyPos(_)_FREEKEY_Int_Map».rule1 (x0 : SortMap) : Option (Option SortInt) :=
+  if hwf : KPrelude.MapHook.wfb x0 = true then
+    KPrelude.MapHook.chooseFirst x0 ((KPrelude.MapHook.wfb_iff _).1 hwf) fun k v _ =>
+      let Gen1 := KPrelude.MapHook.remove x0 k
+      match v with
+      | SortKItem.inj_Int V =>
+        if KPrelude.IntHook.gt V (0 : Int) = true then
+          some (some V)
+        else none
+      | _ => none
+  else none
+def K.«anyPos(_)_FREEKEY_Int_Map» (x0 : SortMap) : Option SortInt :=
+  match K.«anyPos(_)_FREEKEY_Int_Map».rule1 x0 with
+  | some r => r
+  | none =>
+    none
+
 /-! `hasNeg(_)_FREEKEY_Bool_Map` -/
 def K.«hasNeg(_)_FREEKEY_Bool_Map».rule1 (x0 : SortMap) : Option (SortBool) :=
   if hwf : KPrelude.MapHook.wfb x0 = true then
@@ -82,6 +100,36 @@ def K.«hasNeg(_)_FREEKEY_Bool_Map» (x0 : SortMap) : SortBool :=
   | some r => r
   | none =>
     false
+
+/-! `takeSum(_,_)_FREEKEY_Int_Int_Map` (recursive) -/
+def K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (x0 : SortInt) (x1 : SortMap) : Option SortInt :=
+  let e1 : Option (Option SortInt) :=
+    if hreq : KPrelude.IntHook.le x0 (0 : Int) = true then
+      some (some (0 : Int))
+    else none
+  match he1 : e1 with
+  | some r => r
+  | none =>
+    let e2 : Option (Option SortInt) :=
+      if hwf : KPrelude.MapHook.wfb x1 = true then
+        KPrelude.MapHook.chooseFirst x1 ((KPrelude.MapHook.wfb_iff _).1 hwf) fun k v hc =>
+          let R_1 := KPrelude.MapHook.remove x1 k
+          match hd : v with
+          | SortKItem.inj_Int V =>
+            match hr : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (KPrelude.IntHook.sub x0 (1 : Int)) R_1 with
+            | some r =>
+              some (some (KPrelude.IntHook.add V r))
+            | none => some none
+          | _ => none
+      else none
+    match e2 with
+    | some r => r
+    | none =>
+      none
+termination_by (x0).toNat
+decreasing_by all_goals first
+  | k2l_decreasing []
+  | (simp_wf; (try subst_vars); (try simp_all [KPrelude.IntHook.le, KPrelude.IntHook.lt, KPrelude.IntHook.add, KPrelude.IntHook.ge, KPrelude.IntHook.gt]); (try omega))
 
 /-! `total(_)_FREEKEY_Int_WorkerCellMap` (recursive) -/
 def K.«total(_)_FREEKEY_Int_WorkerCellMap» (x0 : SortWorkerCellMap) : Option SortInt :=
@@ -114,6 +162,31 @@ def K.«total(_)_FREEKEY_Int_WorkerCellMap» (x0 : SortWorkerCellMap) : Option S
 decreasing_by all_goals first
   | k2l_decreasing []
   | (simp_wf; (try subst_vars); (try simp_all [KPrelude.IntHook.le, KPrelude.IntHook.lt, KPrelude.IntHook.add, KPrelude.IntHook.ge, KPrelude.IntHook.gt]); (try omega))
+
+/-! `twoPos(_)_FREEKEY_Bool_Map` -/
+def K.«twoPos(_)_FREEKEY_Bool_Map».rule1 (x0 : SortMap) : Option (SortBool) :=
+  if hwf : KPrelude.MapHook.wfb x0 = true then
+    KPrelude.MapHook.chooseFirst x0 ((KPrelude.MapHook.wfb_iff _).1 hwf) fun k v _ =>
+      let rest := KPrelude.MapHook.remove x0 k
+      match v with
+      | SortKItem.inj_Int V1 =>
+        if hwf_3 : KPrelude.MapHook.wfb rest = true then
+          KPrelude.MapHook.chooseFirst rest ((KPrelude.MapHook.wfb_iff _).1 hwf_3) fun k_1 v_2 _ =>
+            let Gen2 := KPrelude.MapHook.remove rest k_1
+            match v_2 with
+            | SortKItem.inj_Int V2 =>
+              if KPrelude.BoolHook.and (KPrelude.IntHook.gt V1 (0 : Int)) (KPrelude.IntHook.gt V2 (0 : Int)) = true then
+                some true
+              else none
+            | _ => none
+        else none
+      | _ => none
+  else none
+def K.«twoPos(_)_FREEKEY_Bool_Map» (x0 : SortMap) : SortBool :=
+  match K.«twoPos(_)_FREEKEY_Bool_Map».rule1 x0 with
+  | some r => r
+  | none =>
+    false
 
 /-! `allNat(_)_FREEKEY_Bool_Map`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
 /-- The matcher of equation 1 in `allNat(_)_FREEKEY_Bool_Map`'s cascade. -/
@@ -185,6 +258,45 @@ theorem K.«allNat(_)_FREEKEY_Bool_Map».eq_of_agrees (x0 : SortMap) (h : K.«al
     (hv : v ∈ K.«allNat(_)_FREEKEY_Bool_Map».instances x0) : K.«allNat(_)_FREEKEY_Bool_Map» x0 = v := by
   exact (K.«allNat(_)_FREEKEY_Bool_Map».eq_instances x0).trans (KPrelude.Agree.head?_join_eq h hv)
 
+/-! `anyPos(_)_FREEKEY_Int_Map`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
+/-- The instances of equation 1 of `anyPos(_)_FREEKEY_Int_Map` at the arguments. -/
+def K.«anyPos(_)_FREEKEY_Int_Map».inst1 (x0 : SortMap) : List (Option SortInt) :=
+  if KPrelude.MapHook.wfb x0 = true then
+    KPrelude.MapHook.chooseAll x0 fun k v =>
+      let Gen1 := KPrelude.MapHook.remove x0 k
+      match v with
+      | SortKItem.inj_Int V =>
+        if KPrelude.IntHook.gt V (0 : Int) = true then
+          [some V]
+        else []
+      | _ => []
+  else []
+/-- The instances of `anyPos(_)_FREEKEY_Int_Map` at the arguments that K's axioms equate with its value: those of the
+first priority group of its equations that has one (one per matching binding of a free-key map
+pattern, in the map's order), or the value where no equation applies. -/
+def K.«anyPos(_)_FREEKEY_Int_Map».instances (x0 : SortMap) : List (Option SortInt) :=
+  KPrelude.firstNonempty [K.«anyPos(_)_FREEKEY_Int_Map».inst1 x0]
+/-- K's axioms determine `anyPos(_)_FREEKEY_Int_Map` at the arguments: its instances there agree. -/
+abbrev K.«anyPos(_)_FREEKEY_Int_Map».Agrees (x0 : SortMap) : Prop :=
+  KPrelude.Agree (K.«anyPos(_)_FREEKEY_Int_Map».instances x0)
+theorem K.«anyPos(_)_FREEKEY_Int_Map».inst1_head (x0 : SortMap) :
+    (K.«anyPos(_)_FREEKEY_Int_Map».inst1 x0).head? = K.«anyPos(_)_FREEKEY_Int_Map».rule1 x0 := by
+  unfold K.«anyPos(_)_FREEKEY_Int_Map».inst1 K.«anyPos(_)_FREEKEY_Int_Map».rule1
+  k2l_inst_head
+/-- The value of `anyPos(_)_FREEKEY_Int_Map` is its first instance (`chooseFirst`: the first matching binding in the
+map's order). -/
+theorem K.«anyPos(_)_FREEKEY_Int_Map».eq_instances (x0 : SortMap) :
+    K.«anyPos(_)_FREEKEY_Int_Map» x0 = (K.«anyPos(_)_FREEKEY_Int_Map».instances x0).head?.join := by
+  unfold K.«anyPos(_)_FREEKEY_Int_Map»
+  rw [← K.«anyPos(_)_FREEKEY_Int_Map».inst1_head x0]
+  unfold K.«anyPos(_)_FREEKEY_Int_Map».instances
+  cases K.«anyPos(_)_FREEKEY_Int_Map».inst1 x0 <;> try rfl
+/-- Where K's axioms determine `anyPos(_)_FREEKEY_Int_Map` (its instances agree), the generated value is the value of
+every instance. -/
+theorem K.«anyPos(_)_FREEKEY_Int_Map».eq_of_agrees (x0 : SortMap) (h : K.«anyPos(_)_FREEKEY_Int_Map».Agrees x0) {v : Option SortInt}
+    (hv : v ∈ K.«anyPos(_)_FREEKEY_Int_Map».instances x0) : K.«anyPos(_)_FREEKEY_Int_Map» x0 = v := by
+  exact (K.«anyPos(_)_FREEKEY_Int_Map».eq_instances x0).trans (KPrelude.Agree.head?_join_eq h hv)
+
 /-! `hasNeg(_)_FREEKEY_Bool_Map`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
 /-- The instances of equation 1 of `hasNeg(_)_FREEKEY_Bool_Map` at the arguments. -/
 def K.«hasNeg(_)_FREEKEY_Bool_Map».inst1 (x0 : SortMap) : List (SortBool) :=
@@ -223,6 +335,82 @@ every instance. -/
 theorem K.«hasNeg(_)_FREEKEY_Bool_Map».eq_of_agrees (x0 : SortMap) (h : K.«hasNeg(_)_FREEKEY_Bool_Map».Agrees x0) {v : SortBool}
     (hv : v ∈ K.«hasNeg(_)_FREEKEY_Bool_Map».instances x0) : K.«hasNeg(_)_FREEKEY_Bool_Map» x0 = v := by
   exact Option.some.inj ((K.«hasNeg(_)_FREEKEY_Bool_Map».eq_instances x0).symm.trans (KPrelude.Agree.head?_eq h hv))
+
+/-! `takeSum(_,_)_FREEKEY_Int_Int_Map`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
+/-- The matcher of equation 1 in `takeSum(_,_)_FREEKEY_Int_Int_Map`'s cascade. -/
+def K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eqn1 (x0 : SortInt) (x1 : SortMap) : Option (Option SortInt) :=
+  if hreq : KPrelude.IntHook.le x0 (0 : Int) = true then
+    some (some (0 : Int))
+  else none
+/-- The matcher of equation 2 in `takeSum(_,_)_FREEKEY_Int_Int_Map`'s cascade. -/
+def K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eqn2 (x0 : SortInt) (x1 : SortMap) : Option (Option SortInt) :=
+  if hwf : KPrelude.MapHook.wfb x1 = true then
+    KPrelude.MapHook.chooseFirst x1 ((KPrelude.MapHook.wfb_iff _).1 hwf) fun k v hc =>
+      let R_1 := KPrelude.MapHook.remove x1 k
+      match hd : v with
+      | SortKItem.inj_Int V =>
+        match hr : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (KPrelude.IntHook.sub x0 (1 : Int)) R_1 with
+        | some r =>
+          some (some (KPrelude.IntHook.add V r))
+        | none => some none
+      | _ => none
+  else none
+/-- The instances of equation 1 of `takeSum(_,_)_FREEKEY_Int_Int_Map` at the arguments. -/
+def K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst1 (x0 : SortInt) (x1 : SortMap) : List (Option SortInt) :=
+  if KPrelude.IntHook.le x0 (0 : Int) = true then
+    [some (0 : Int)]
+  else []
+/-- The instances of equation 2 of `takeSum(_,_)_FREEKEY_Int_Int_Map` at the arguments. -/
+def K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst2 (x0 : SortInt) (x1 : SortMap) : List (Option SortInt) :=
+  if KPrelude.MapHook.wfb x1 = true then
+    KPrelude.MapHook.chooseAll x1 fun k v =>
+      let R_1 := KPrelude.MapHook.remove x1 k
+      match v with
+      | SortKItem.inj_Int V =>
+        match K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (KPrelude.IntHook.sub x0 (1 : Int)) R_1 with
+        | some r =>
+          [some (KPrelude.IntHook.add V r)]
+        | none => [none]
+      | _ => []
+  else []
+/-- The instances of `takeSum(_,_)_FREEKEY_Int_Int_Map` at the arguments that K's axioms equate with its value: those of the
+first priority group of its equations that has one (one per matching binding of a free-key map
+pattern, in the map's order), or the value where no equation applies. -/
+def K.«takeSum(_,_)_FREEKEY_Int_Int_Map».instances (x0 : SortInt) (x1 : SortMap) : List (Option SortInt) :=
+  KPrelude.firstNonempty [K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst1 x0 x1 ++ K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst2 x0 x1]
+/-- K's axioms determine `takeSum(_,_)_FREEKEY_Int_Int_Map` at the arguments: its instances there agree. -/
+abbrev K.«takeSum(_,_)_FREEKEY_Int_Int_Map».Agrees (x0 : SortInt) (x1 : SortMap) : Prop :=
+  KPrelude.Agree (K.«takeSum(_,_)_FREEKEY_Int_Int_Map».instances x0 x1)
+theorem K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst1_head (x0 : SortInt) (x1 : SortMap) :
+    (K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst1 x0 x1).head? = K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eqn1 x0 x1 := by
+  unfold K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst1 K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eqn1
+  k2l_inst_head
+theorem K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst2_head (x0 : SortInt) (x1 : SortMap) :
+    (K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst2 x0 x1).head? = K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eqn2 x0 x1 := by
+  unfold K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst2 K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eqn2
+  k2l_inst_head
+/-- The value of `takeSum(_,_)_FREEKEY_Int_Int_Map` is its first instance (`chooseFirst`: the first matching binding in the
+map's order). -/
+theorem K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eq_instances (x0 : SortInt) (x1 : SortMap) :
+    K.«takeSum(_,_)_FREEKEY_Int_Int_Map» x0 x1 = (K.«takeSum(_,_)_FREEKEY_Int_Int_Map».instances x0 x1).head?.join := by
+  rw [K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eq_def]
+  show (
+    match he1 : K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eqn1 x0 x1 with
+    | some r => r
+    | none =>
+      match K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eqn2 x0 x1 with
+      | some r => r
+      | none =>
+        none) = _
+  rw [← K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst1_head x0 x1, ← K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst2_head x0 x1]
+  unfold K.«takeSum(_,_)_FREEKEY_Int_Int_Map».instances
+  cases K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst1 x0 x1 <;> try rfl
+  cases K.«takeSum(_,_)_FREEKEY_Int_Int_Map».inst2 x0 x1 <;> try rfl
+/-- Where K's axioms determine `takeSum(_,_)_FREEKEY_Int_Int_Map` (its instances agree), the generated value is the value of
+every instance. -/
+theorem K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eq_of_agrees (x0 : SortInt) (x1 : SortMap) (h : K.«takeSum(_,_)_FREEKEY_Int_Int_Map».Agrees x0 x1) {v : Option SortInt}
+    (hv : v ∈ K.«takeSum(_,_)_FREEKEY_Int_Int_Map».instances x0 x1) : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» x0 x1 = v := by
+  exact (K.«takeSum(_,_)_FREEKEY_Int_Int_Map».eq_instances x0 x1).trans (KPrelude.Agree.head?_join_eq h hv)
 
 /-! `total(_)_FREEKEY_Int_WorkerCellMap`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
 /-- The matcher of equation 1 in `total(_)_FREEKEY_Int_WorkerCellMap`'s cascade. -/
@@ -305,6 +493,52 @@ every instance. -/
 theorem K.«total(_)_FREEKEY_Int_WorkerCellMap».eq_of_agrees (x0 : SortWorkerCellMap) (h : K.«total(_)_FREEKEY_Int_WorkerCellMap».Agrees x0) {v : Option SortInt}
     (hv : v ∈ K.«total(_)_FREEKEY_Int_WorkerCellMap».instances x0) : K.«total(_)_FREEKEY_Int_WorkerCellMap» x0 = v := by
   exact (K.«total(_)_FREEKEY_Int_WorkerCellMap».eq_instances x0).trans (KPrelude.Agree.head?_join_eq h hv)
+
+/-! `twoPos(_)_FREEKEY_Bool_Map`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
+/-- The instances of equation 1 of `twoPos(_)_FREEKEY_Bool_Map` at the arguments. -/
+def K.«twoPos(_)_FREEKEY_Bool_Map».inst1 (x0 : SortMap) : List (SortBool) :=
+  if KPrelude.MapHook.wfb x0 = true then
+    KPrelude.MapHook.chooseAll x0 fun k v =>
+      let rest := KPrelude.MapHook.remove x0 k
+      match v with
+      | SortKItem.inj_Int V1 =>
+        if KPrelude.MapHook.wfb rest = true then
+          KPrelude.MapHook.chooseAll rest fun k_1 v_2 =>
+            let Gen2 := KPrelude.MapHook.remove rest k_1
+            match v_2 with
+            | SortKItem.inj_Int V2 =>
+              if KPrelude.BoolHook.and (KPrelude.IntHook.gt V1 (0 : Int)) (KPrelude.IntHook.gt V2 (0 : Int)) = true then
+                [true]
+              else []
+            | _ => []
+        else []
+      | _ => []
+  else []
+/-- The instances of `twoPos(_)_FREEKEY_Bool_Map` at the arguments that K's axioms equate with its value: those of the
+first priority group of its equations that has one (one per matching binding of a free-key map
+pattern, in the map's order), or the value where no equation applies. -/
+def K.«twoPos(_)_FREEKEY_Bool_Map».instances (x0 : SortMap) : List (SortBool) :=
+  KPrelude.firstNonempty [K.«twoPos(_)_FREEKEY_Bool_Map».inst1 x0, [false]]
+/-- K's axioms determine `twoPos(_)_FREEKEY_Bool_Map` at the arguments: its instances there agree. -/
+abbrev K.«twoPos(_)_FREEKEY_Bool_Map».Agrees (x0 : SortMap) : Prop :=
+  KPrelude.Agree (K.«twoPos(_)_FREEKEY_Bool_Map».instances x0)
+theorem K.«twoPos(_)_FREEKEY_Bool_Map».inst1_head (x0 : SortMap) :
+    (K.«twoPos(_)_FREEKEY_Bool_Map».inst1 x0).head? = K.«twoPos(_)_FREEKEY_Bool_Map».rule1 x0 := by
+  unfold K.«twoPos(_)_FREEKEY_Bool_Map».inst1 K.«twoPos(_)_FREEKEY_Bool_Map».rule1
+  k2l_inst_head
+/-- The value of `twoPos(_)_FREEKEY_Bool_Map` is its first instance (`chooseFirst`: the first matching binding in the
+map's order). -/
+theorem K.«twoPos(_)_FREEKEY_Bool_Map».eq_instances (x0 : SortMap) :
+    (K.«twoPos(_)_FREEKEY_Bool_Map».instances x0).head? = some (K.«twoPos(_)_FREEKEY_Bool_Map» x0) := by
+  unfold K.«twoPos(_)_FREEKEY_Bool_Map»
+  rw [← K.«twoPos(_)_FREEKEY_Bool_Map».inst1_head x0]
+  unfold K.«twoPos(_)_FREEKEY_Bool_Map».instances
+  cases K.«twoPos(_)_FREEKEY_Bool_Map».inst1 x0 <;> try rfl
+/-- Where K's axioms determine `twoPos(_)_FREEKEY_Bool_Map` (its instances agree), the generated value is the value of
+every instance. -/
+theorem K.«twoPos(_)_FREEKEY_Bool_Map».eq_of_agrees (x0 : SortMap) (h : K.«twoPos(_)_FREEKEY_Bool_Map».Agrees x0) {v : SortBool}
+    (hv : v ∈ K.«twoPos(_)_FREEKEY_Bool_Map».instances x0) : K.«twoPos(_)_FREEKEY_Bool_Map» x0 = v := by
+  exact Option.some.inj ((K.«twoPos(_)_FREEKEY_Bool_Map».eq_instances x0).symm.trans (KPrelude.Agree.head?_eq h hv))
 
 
 end FreeKey

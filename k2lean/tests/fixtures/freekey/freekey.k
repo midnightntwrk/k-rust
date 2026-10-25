@@ -5,7 +5,7 @@ requires "domains.md"
 
 module FREEKEY-SYNTAX
   imports INT-SYNTAX
-  syntax Pgm ::= "go"
+  syntax Pgm ::= "go" | "check" | "go2"
 endmodule
 
 module FREEKEY
@@ -32,6 +32,22 @@ module FREEKEY
   rule isNat(I:Int) => I >=Int 0
   rule isNat(_) => false [owise]
 
+  // two free keys (lexicographic choice): two positive values; the instances agree (`true`)
+  syntax Bool ::= twoPos(Map) [function, total]
+  rule twoPos((_ |-> V1:Int) (_ |-> V2:Int) _) => true requires V1 >Int 0 andBool V2 >Int 0
+  rule twoPos(_) => false [owise]
+
+  // partial, with instances that disagree on a map with two positive values: K's axioms determine
+  // no value there (`anyPos.Agrees` is false), and the definition takes the least key's
+  syntax Int ::= anyPos(Map) [function]
+  rule anyPos((_ |-> V:Int) _) => V requires V >Int 0
+
+  // recursive, after a guard-only equation whose negation the termination proof reads (the
+  // cascade names it): the sum of at most N values
+  syntax Int ::= takeSum(Int, Map) [function]
+  rule takeSum(N, _) => 0 requires N <=Int 0
+  rule takeSum(N, (_ |-> V:Int) R) => V +Int takeSum(N -Int 1, R)
+
   // recursive over a cell map: the sum of the workers' counts
   syntax WorkerCellMap
   syntax Int ::= total(WorkerCellMap) [function, total]
@@ -41,4 +57,6 @@ module FREEKEY
   rule <k> go => .K ... </k> <m> M => M[0 <- total(W)] </m> <workers> W </workers>
     requires allNat(M) andBool notBool hasNeg(M) [label(sum)]
   rule <worker> <wid> _ </wid> <cnt> C => C +Int 1 </cnt> </worker> [label(tick)]
+  rule <k> go2 => .K ... </k> <m> M => M[2 <- takeSum(3, M)] </m> [label(take)]
+  rule <k> check => .K ... </k> <m> M => M[1 <- anyPos(M)] </m> requires twoPos(M) [label(check)]
 endmodule

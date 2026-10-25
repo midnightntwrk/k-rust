@@ -27,6 +27,11 @@ inductive App : Nat → SortGeneratedTopCell → Prop where
   | tick (Gen3 : SortKCell) (Gen4 : SortMCell) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt)
       (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» C))) DotVar2 = some m) :
       App 0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» m)) DotVar0)
+  | take (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) :
+      App 0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0)
+  | check (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell)
+      (hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true) :
+      App 0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0)
 
 inductive Step0 : Nat → SortGeneratedTopCell → SortGeneratedTopCell → Prop where
   | sum (DotVar2 : SortK) (M : SortMap) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (k : SortWidCell) (v : SortWorkerCell) (rest : SortWorkerCellMap) (r : SortBool) (r_2 : SortWidCell) (r_4 : SortInt) (r_6 : SortWidCell)
@@ -44,9 +49,18 @@ inductive Step0 : Nat → SortGeneratedTopCell → SortGeneratedTopCell → Prop
       (hr : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» (KPrelude.IntHook.add C (1 : Int))))) DotVar2 = some r) :
       Step0 0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» m)) DotVar0)
         (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» r)) DotVar0)
+  | take (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
+      (hr : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (3 : Int) M = some r) :
+      Step0 0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0)
+        (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (2 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0)
+  | check (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
+      (hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true)
+      (hr : K.«anyPos(_)_FREEKEY_Int_Map» M = some r) :
+      Step0 0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0)
+        (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (1 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0)
 
 inductive Step : SortGeneratedTopCell → SortGeneratedTopCell → Prop where
-  /-- `sum` (freekey.k:41:3) (priority 50) -/
+  /-- `sum` (freekey.k:57:3) (priority 50) -/
   | sum (DotVar2 : SortK) (M : SortMap) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (k : SortWidCell) (v : SortWorkerCell) (rest : SortWorkerCellMap) (r : SortBool) (r_2 : SortWidCell) (r_4 : SortInt) (r_6 : SortWidCell)
       (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element k v) rest = some m)
       (hu : rest = KPrelude.MapHook.unit)
@@ -57,12 +71,23 @@ inductive Step : SortGeneratedTopCell → SortGeneratedTopCell → Prop where
       (hr_7 : K.WorkerCellMapKey v = some r_6) :
       Step (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» m)) DotVar0)
         (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (0 : Int)) (SortKItem.inj_Int r_4))) (SortWorkersCell.«<workers>» (KPrelude.MapHook.element r_6 v))) DotVar0)
-  /-- `tick` (freekey.k:43:3) (priority 50) -/
+  /-- `tick` (freekey.k:59:3) (priority 50) -/
   | tick (Gen3 : SortKCell) (Gen4 : SortMCell) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt) (r : SortWorkerCellMap)
       (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» C))) DotVar2 = some m)
       (hr : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» (KPrelude.IntHook.add C (1 : Int))))) DotVar2 = some r) :
       Step (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» m)) DotVar0)
         (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» r)) DotVar0)
+  /-- `take` (freekey.k:60:3) (priority 50) -/
+  | take (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
+      (hr : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (3 : Int) M = some r) :
+      Step (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0)
+        (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (2 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0)
+  /-- `check` (freekey.k:61:3) (priority 50) -/
+  | check (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
+      (hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true)
+      (hr : K.«anyPos(_)_FREEKEY_Int_Map» M = some r) :
+      Step (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0)
+        (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (1 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0)
 
 namespace Rules
 
@@ -110,26 +135,63 @@ def tick (c : SortGeneratedTopCell) : List (RuleResult (App 0) (Step0 0) c) :=
             else []
     else []
 
+def take (c : SortGeneratedTopCell) : List (RuleResult (App 0) (Step0 0) c) :=
+  match c with
+  | SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0 =>
+    match hr : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (3 : Int) M with
+    | some r =>
+      [.next (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (2 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0) (by exact Step0.take DotVar2 M DotVar1 DotVar0 r hr)]
+    | none => [.undefined (by exact App.take DotVar2 M DotVar1 DotVar0)]
+  | _ => []
+
+def check (c : SortGeneratedTopCell) : List (RuleResult (App 0) (Step0 0) c) :=
+  match c with
+  | SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0 =>
+    if hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true then
+      match hr : K.«anyPos(_)_FREEKEY_Int_Map» M with
+      | some r =>
+        [.next (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (1 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0) (by exact Step0.check DotVar2 M DotVar1 DotVar0 r hreq hr)]
+      | none => [.undefined (by exact App.check DotVar2 M DotVar1 DotVar0 hreq)]
+    else []
+  | _ => []
+
 end Rules
 
 def R.sum : Rule SortGeneratedTopCell (App 0) (Step0 0) := ⟨"sum", 0, fun c => pick (Rules.sum c)⟩
 def R.tick : Rule SortGeneratedTopCell (App 0) (Step0 0) := ⟨"tick", 1, fun c => pick (Rules.tick c)⟩
+def R.take : Rule SortGeneratedTopCell (App 0) (Step0 0) := ⟨"take", 2, fun c => pick (Rules.take c)⟩
+def R.check : Rule SortGeneratedTopCell (App 0) (Step0 0) := ⟨"check", 3, fun c => pick (Rules.check c)⟩
 
 /-- The rules of rank 0 (priority 50), in `krun`'s order. -/
 def rules0 : List (Rule SortGeneratedTopCell (App 0) (Step0 0)) := [
   R.sum,
-  R.tick]
+  R.tick,
+  R.take,
+  R.check]
 
 /-- The matchers of rank 0. -/
 def matchers0 : List ((c : SortGeneratedTopCell) → List (RuleResult (App 0) (Step0 0) c)) := [
   Rules.sum,
-  Rules.tick]
+  Rules.tick,
+  Rules.take,
+  Rules.check]
 
 /-- Every successor by a rule of rank 0, every match. -/
 def succ0 (c : SortGeneratedTopCell) : List SortGeneratedTopCell := (matchers0).flatMap fun f => nexts (f c)
 
 def bucketOf0 (c : SortGeneratedTopCell) : List (Rule SortGeneratedTopCell (App 0) (Step0 0)) :=
-  [R.sum, R.tick]
+  mergeRank
+    (
+      match c with
+      | SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» x) _ _) _ =>
+        match x with
+        | SortK.kseq _ _ =>
+          [R.sum, R.take, R.check]
+        | _ => []
+    )
+    (
+      [R.tick]
+    )
 
 /-- One step as `krun` takes it: the first rank at which a rule applies, and there the first
 rule (and match) whose result is defined. -/

@@ -145,7 +145,9 @@ inductive SortMap where
   | nil
   | cons (a0 : SortKItem) (a1 : SortKItem) (a2 : SortMap)
 inductive SortPgm where
+  | check
   | go
+  | go2
 inductive SortSet where
   | nil
   | cons (a0 : SortKItem) (a1 : SortSet)
@@ -260,7 +262,9 @@ def ser_SortMap : SortMap → List Tok
   | .nil  => [.c 0]
   | .cons a0 a1 a2 => .c 1 :: (ser_SortKItem a0 ++ (ser_SortKItem a1 ++ ser_SortMap a2))
 def ser_SortPgm : SortPgm → List Tok
-  | .go  => [.c 0]
+  | .check  => [.c 0]
+  | .go  => [.c 1]
+  | .go2  => [.c 2]
 def ser_SortSet : SortSet → List Tok
   | .nil  => [.c 0]
   | .cons a0 a1 => .c 1 :: (ser_SortKItem a0 ++ ser_SortSet a1)
@@ -392,7 +396,9 @@ def dec_SortMap : Nat → List Tok → Option (SortMap × List Tok)
   | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortKItem n t; let (a1, t) ← dec_SortKItem n t; let (a2, t) ← dec_SortMap n t; pure (.cons a0 a1 a2, t)
   | _, _ => none
 def dec_SortPgm : Nat → List Tok → Option (SortPgm × List Tok)
-  | _ + 1, .c 0 :: t => pure (.go, t)
+  | _ + 1, .c 0 :: t => pure (.check, t)
+  | _ + 1, .c 1 :: t => pure (.go, t)
+  | _ + 1, .c 2 :: t => pure (.go2, t)
   | _, _ => none
 def dec_SortSet : Nat → List Tok → Option (SortSet × List Tok)
   | _ + 1, .c 0 :: t => pure (.nil, t)
@@ -797,7 +803,15 @@ theorem dec_ser_SortMap : (a : SortMap) → ∀ (r : List Tok) (n : Nat), (ser_S
       simp only [ser_SortMap, List.cons_append, List.append_assoc, dec_SortMap, dec_ser_SortKItem a0 _ n (by omega), dec_ser_SortKItem a1 _ n (by omega), dec_ser_SortMap a2 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
 theorem dec_ser_SortPgm : (a : SortPgm) → ∀ (r : List Tok) (n : Nat), (ser_SortPgm a).length ≤ n →
     dec_SortPgm n (ser_SortPgm a ++ r) = some (a, r)
+  | .check , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortPgm] at h
+    | n + 1 => simp [ser_SortPgm, dec_SortPgm]
   | .go , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortPgm] at h
+    | n + 1 => simp [ser_SortPgm, dec_SortPgm]
+  | .go2 , r, n, h => by
     match n with
     | 0 => simp [ser_SortPgm] at h
     | n + 1 => simp [ser_SortPgm, dec_SortPgm]
@@ -1332,7 +1346,9 @@ def tag_SortMap : SortMap → Nat
   | .nil  => 0
   | .cons _ _ _ => 1
 def tag_SortPgm : SortPgm → Nat
-  | .go  => 0
+  | .check  => 0
+  | .go  => 1
+  | .go2  => 2
 def tag_SortSet : SortSet → Nat
   | .nil  => 0
   | .cons _ _ => 1
@@ -1628,9 +1644,18 @@ def cmp_SortMap (a b : SortMap) : Ordering :=
   termination_by structural a
 def cmp_SortPgm (a b : SortPgm) : Ordering :=
   match a with
+  | .check  =>
+    match b with
+    | .check  => .eq
+    | _ => compare 0 (tag_SortPgm b)
   | .go  =>
     match b with
     | .go  => .eq
+    | _ => compare 1 (tag_SortPgm b)
+  | .go2  =>
+    match b with
+    | .go2  => .eq
+    | _ => compare 2 (tag_SortPgm b)
 def cmp_SortSet (a b : SortSet) : Ordering :=
   match a with
   | .nil  =>
@@ -1886,7 +1911,11 @@ theorem cmp_SortMap_eq : ∀ (a b : SortMap), cmp_SortMap a b = compare (ser_Sor
     cases b <;> (try simp only [cmp_SortKItem_eq, cmp_SortMap, cmp_SortMap_eq, compare_append_ser_SortKItem, compare_append_ser_SortMap, compare_cons_cons, ser_SortMap, tag_SortMap, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   termination_by structural a _ => a
 theorem cmp_SortPgm_eq : ∀ (a b : SortPgm), cmp_SortPgm a b = compare (ser_SortPgm a) (ser_SortPgm b)
+  | .check , b => by
+    cases b <;> (try simp only [cmp_SortPgm, compare_cons_cons, ser_SortPgm, tag_SortPgm, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .go , b => by
+    cases b <;> (try simp only [cmp_SortPgm, compare_cons_cons, ser_SortPgm, tag_SortPgm, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .go2 , b => by
     cases b <;> (try simp only [cmp_SortPgm, compare_cons_cons, ser_SortPgm, tag_SortPgm, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
 theorem cmp_SortSet_eq : ∀ (a b : SortSet), cmp_SortSet a b = compare (ser_SortSet a) (ser_SortSet b)
   | .nil , b => by
@@ -2734,7 +2763,9 @@ def toK_SortMap : SortMap → String
   | .nil  => ".Map"
   | .cons a0 a1 a2 => toK_SortKItem a0 ++ " |-> " ++ toK_SortKItem a1 ++ " " ++ toK_SortMap a2
 def toK_SortPgm : SortPgm → String
+  | .check  => "check_FREEKEY-SYNTAX_Pgm"
   | .go  => "go_FREEKEY-SYNTAX_Pgm"
+  | .go2  => "go2_FREEKEY-SYNTAX_Pgm"
 def toK_SortSet : SortSet → String
   | .nil  => ".Set"
   | .cons a0 a1 => "SetItem(" ++ toK_SortKItem a0 ++ ") " ++ toK_SortSet a1

@@ -152,7 +152,7 @@ module FREEKEY
     concat{}(Lbl'Unds'WorkerCellMap'Unds'{}()),
     element{}(LblWorkerCellMapItem{}()),
     hook{}("MAP.Map"),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,3,36,23)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,52,23)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/freekey/freekey.k)"
     ),
@@ -293,6 +293,26 @@ module FREEKEY
     functional{}(),
     injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,18,8,22)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+    )
+  ]
+  symbol Lblcheck'Unds'FREEKEY-SYNTAX'Unds'Pgm{}() : SortPgm{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,25,8,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+    )
+  ]
+  symbol Lblgo2'Unds'FREEKEY-SYNTAX'Unds'Pgm{}() : SortPgm{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,35,8,40)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/freekey/freekey.k)"
     )
@@ -1256,11 +1276,40 @@ module FREEKEY
     ),
     total{}()
   ]
+  symbol LbltwoPos'LParUndsRParUnds'FREEKEY'Unds'Bool'Unds'Map{}(SortMap{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,19,36,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+    ),
+    total{}()
+  ]
+  symbol LblanyPos'LParUndsRParUnds'FREEKEY'Unds'Int'Unds'Map{}(SortMap{}) : SortInt{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,18,42,40)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+    )
+  ]
+  symbol LbltakeSum'LParUndsCommUndsRParUnds'FREEKEY'Unds'Int'Unds'Int'Unds'Map{}(
+    SortInt{},
+    SortMap{}
+  ) : SortInt{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,18,47,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+    )
+  ]
   symbol Lbltotal'LParUndsRParUnds'FREEKEY'Unds'Int'Unds'WorkerCellMap{}(SortWorkerCellMap{}) : SortInt{}
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,18,37,56)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(53,18,53,56)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/freekey/freekey.k)"
     ),
@@ -1548,6 +1597,42 @@ module FREEKEY
     \exists{R}(
       Val:SortPgm{},
       \equals{SortPgm{}, R}(Val:SortPgm{}, Lblgo'Unds'FREEKEY-SYNTAX'Unds'Pgm{}())
+    )
+    [functional{}()]
+  axiom{}
+    \not{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lblgo'Unds'FREEKEY-SYNTAX'Unds'Pgm{}(),
+        Lblcheck'Unds'FREEKEY-SYNTAX'Unds'Pgm{}()
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lblgo'Unds'FREEKEY-SYNTAX'Unds'Pgm{}(),
+        Lblgo2'Unds'FREEKEY-SYNTAX'Unds'Pgm{}()
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortPgm{},
+      \equals{SortPgm{}, R}(Val:SortPgm{}, Lblcheck'Unds'FREEKEY-SYNTAX'Unds'Pgm{}())
+    )
+    [functional{}()]
+  axiom{}
+    \not{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lblcheck'Unds'FREEKEY-SYNTAX'Unds'Pgm{}(),
+        Lblgo2'Unds'FREEKEY-SYNTAX'Unds'Pgm{}()
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortPgm{},
+      \equals{SortPgm{}, R}(Val:SortPgm{}, Lblgo2'Unds'FREEKEY-SYNTAX'Unds'Pgm{}())
     )
     [functional{}()]
   axiom{R}
@@ -2003,6 +2088,15 @@ module FREEKEY
       \equals{SortBool{}, R}(
         Val:SortBool{},
         LblisNat'LParUndsRParUnds'FREEKEY'Unds'Bool'Unds'KItem{}(K0:SortKItem{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LbltwoPos'LParUndsRParUnds'FREEKEY'Unds'Bool'Unds'Map{}(K0:SortMap{})
       )
     )
     [functional{}()]
@@ -2897,7 +2991,12 @@ module FREEKEY
     )
     [constructor{}()]
   axiom{}
-    \or{SortPgm{}}(Lblgo'Unds'FREEKEY-SYNTAX'Unds'Pgm{}(), \bottom{SortPgm{}}())
+    \or{SortPgm{}}(
+      Lblgo'Unds'FREEKEY-SYNTAX'Unds'Pgm{}(),
+      Lblcheck'Unds'FREEKEY-SYNTAX'Unds'Pgm{}(),
+      Lblgo2'Unds'FREEKEY-SYNTAX'Unds'Pgm{}(),
+      \bottom{SortPgm{}}()
+    )
     [constructor{}()]
   axiom{}
     \or{SortTCell{}}(
@@ -5766,6 +5865,222 @@ module FREEKEY
   axiom{R}
     \implies{R}(
       \and{R}(
+        \equals{SortBool{}, R}(
+          Lbl'Unds'andBool'Unds'{}(
+            Lbl'Unds-GT-'Int'Unds'{}(VarV1:SortInt{}, \dv{SortInt{}}("0")),
+            Lbl'Unds-GT-'Int'Unds'{}(VarV2:SortInt{}, \dv{SortInt{}}("0"))
+          ),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortMap{}, R}(
+            X0:SortMap{},
+            Lbl'Unds'Map'Unds'{}(
+              Lbl'Unds'Map'Unds'{}(
+                Lbl'UndsPipe'-'-GT-Unds'{}(
+                  Var'Unds'Gen0:SortKItem{},
+                  inj{SortInt{}, SortKItem{}}(VarV1:SortInt{})
+                ),
+                Lbl'UndsPipe'-'-GT-Unds'{}(
+                  Var'Unds'Gen1:SortKItem{},
+                  inj{SortInt{}, SortKItem{}}(VarV2:SortInt{})
+                )
+              ),
+              Var'Unds'Gen2:SortMap{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LbltwoPos'LParUndsRParUnds'FREEKEY'Unds'Bool'Unds'Map{}(X0:SortMap{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("2ea66ac4962a34e970e79d0264a58e6a46ab68fd883c5e701447603f80679afb"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,3,37,92)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen2:SortInt{},
+              \exists{R}(
+                Var'Unds'Gen4:SortInt{},
+                \exists{R}(
+                  Var'Unds'Gen1:SortKItem{},
+                  \exists{R}(
+                    Var'Unds'Gen3:SortKItem{},
+                    \exists{R}(
+                      Var'Unds'Gen5:SortMap{},
+                      \and{R}(
+                        \equals{SortBool{}, R}(
+                          Lbl'Unds'andBool'Unds'{}(
+                            Lbl'Unds-GT-'Int'Unds'{}(Var'Unds'Gen2:SortInt{}, \dv{SortInt{}}("0")),
+                            Lbl'Unds-GT-'Int'Unds'{}(Var'Unds'Gen4:SortInt{}, \dv{SortInt{}}("0"))
+                          ),
+                          \dv{SortBool{}}("true")
+                        ),
+                        \and{R}(
+                          \in{SortMap{}, R}(
+                            X0:SortMap{},
+                            Lbl'Unds'Map'Unds'{}(
+                              Lbl'Unds'Map'Unds'{}(
+                                Lbl'UndsPipe'-'-GT-Unds'{}(
+                                  Var'Unds'Gen1:SortKItem{},
+                                  inj{SortInt{}, SortKItem{}}(Var'Unds'Gen2:SortInt{})
+                                ),
+                                Lbl'UndsPipe'-'-GT-Unds'{}(
+                                  Var'Unds'Gen3:SortKItem{},
+                                  inj{SortInt{}, SortKItem{}}(Var'Unds'Gen4:SortInt{})
+                                )
+                              ),
+                              Var'Unds'Gen5:SortMap{}
+                            )
+                          ),
+                          \top{R}()
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(\in{SortMap{}, R}(X0:SortMap{}, Var'Unds'Gen0:SortMap{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LbltwoPos'LParUndsRParUnds'FREEKEY'Unds'Bool'Unds'Map{}(X0:SortMap{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("753675529627e14a38d43b1f055cf9ca973b27f1f3adc208f7e20adef239e80c"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,38,34)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+      ),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbl'Unds-GT-'Int'Unds'{}(VarV:SortInt{}, \dv{SortInt{}}("0")),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortMap{}, R}(
+            X0:SortMap{},
+            Lbl'Unds'Map'Unds'{}(
+              Lbl'UndsPipe'-'-GT-Unds'{}(
+                Var'Unds'Gen0:SortKItem{},
+                inj{SortInt{}, SortKItem{}}(VarV:SortInt{})
+              ),
+              Var'Unds'Gen1:SortMap{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        LblanyPos'LParUndsRParUnds'FREEKEY'Unds'Int'Unds'Map{}(X0:SortMap{}),
+        \and{SortInt{}}(VarV:SortInt{}, \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("d2369b8bbcbc9bce6578a71cd38e9bdb53fe9d31d8da735b2b8c7733a7bb7755"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,43,54)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbl'Unds-LT-Eqls'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0")),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortInt{}, R}(X0:SortInt{}, VarN:SortInt{}),
+          \and{R}(\in{SortMap{}, R}(X1:SortMap{}, Var'Unds'Gen0:SortMap{}), \top{R}())
+        )
+      ),
+      \equals{SortInt{}, R}(
+        LbltakeSum'LParUndsCommUndsRParUnds'FREEKEY'Unds'Int'Unds'Int'Unds'Map{}(
+          X0:SortInt{},
+          X1:SortMap{}
+        ),
+        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("210cb6b4146b1b13ba862b7cc8d4fec77732a9ff85066a3913eb173c58fee9b2"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,45)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortInt{}, R}(X0:SortInt{}, VarN:SortInt{}),
+          \and{R}(
+            \in{SortMap{}, R}(
+              X1:SortMap{},
+              Lbl'Unds'Map'Unds'{}(
+                Lbl'UndsPipe'-'-GT-Unds'{}(
+                  Var'Unds'Gen0:SortKItem{},
+                  inj{SortInt{}, SortKItem{}}(VarV:SortInt{})
+                ),
+                VarR:SortMap{}
+              )
+            ),
+            \top{R}()
+          )
+        )
+      ),
+      \equals{SortInt{}, R}(
+        LbltakeSum'LParUndsCommUndsRParUnds'FREEKEY'Unds'Int'Unds'Int'Unds'Map{}(
+          X0:SortInt{},
+          X1:SortMap{}
+        ),
+        \and{SortInt{}}(
+          Lbl'UndsPlus'Int'Unds'{}(
+            VarV:SortInt{},
+            LbltakeSum'LParUndsCommUndsRParUnds'FREEKEY'Unds'Int'Unds'Int'Unds'Map{}(
+              Lbl'Unds'-Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("1")),
+              VarR:SortMap{}
+            )
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("b75fbf8727675890549ce7ccf34fde76ffdd479fa3bf39635e5226916cb254e4"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,66)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
         \top{R}(),
         \and{R}(
           \in{SortWorkerCellMap{}, R}(X0:SortWorkerCellMap{}, Lbl'Stop'WorkerCellMap{}()),
@@ -5779,7 +6094,7 @@ module FREEKEY
     )
     [
       UNIQUE'Unds'ID{}("f52a340388eea6e5c5043c89de0ea1ffbceed6caec756b5f872cca2d1fac7a75"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,38,34)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,34)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/freekey/freekey.k)"
       )
@@ -5820,7 +6135,7 @@ module FREEKEY
     )
     [
       UNIQUE'Unds'ID{}("7e56a2375116502123a8f0197f64956246b1d86fc3e18a2cd36e9f2e0f65666b"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,3,39,84)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,55,84)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/freekey/freekey.k)"
       )
@@ -5886,7 +6201,7 @@ module FREEKEY
     [
       UNIQUE'Unds'ID{}("d99ac3ea680df0e338f6867dc93992ac647988945a54e3a17d64982b1c657295"),
       label{}("sum"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,42,62)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(57,3,58,62)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/freekey/freekey.k)"
       )
@@ -5943,7 +6258,105 @@ module FREEKEY
     [
       UNIQUE'Unds'ID{}("d22a9d44b6e2fbfd4ec6586faf052dbfc587abff7436bb39a2b42da4e89cf7dd"),
       label{}("tick"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,43,82)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,3,59,82)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'T'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(
+              kseq{}(
+                inj{SortPgm{}, SortKItem{}}(Lblgo2'Unds'FREEKEY-SYNTAX'Unds'Pgm{}()),
+                Var'Unds'DotVar2:SortK{}
+              )
+            ),
+            Lbl'-LT-'m'-GT-'{}(VarM:SortMap{}),
+            Var'Unds'DotVar1:SortWorkersCell{}
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'T'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar2:SortK{}),
+            Lbl'-LT-'m'-GT-'{}(
+              LblMap'Coln'update{}(
+                VarM:SortMap{},
+                inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2")),
+                inj{SortInt{}, SortKItem{}}(
+                  LbltakeSum'LParUndsCommUndsRParUnds'FREEKEY'Unds'Int'Unds'Int'Unds'Map{}(
+                    \dv{SortInt{}}("3"),
+                    VarM:SortMap{}
+                  )
+                )
+              )
+            ),
+            Var'Unds'DotVar1:SortWorkersCell{}
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("9dd62ea3a154aa154845156180f408f134b2de583f59f683fc0925a15cc0fb8b"),
+      label{}("take"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,80)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/freekey/freekey.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'T'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(
+              kseq{}(
+                inj{SortPgm{}, SortKItem{}}(Lblcheck'Unds'FREEKEY-SYNTAX'Unds'Pgm{}()),
+                Var'Unds'DotVar2:SortK{}
+              )
+            ),
+            Lbl'-LT-'m'-GT-'{}(VarM:SortMap{}),
+            Var'Unds'DotVar1:SortWorkersCell{}
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+          LbltwoPos'LParUndsRParUnds'FREEKEY'Unds'Bool'Unds'Map{}(VarM:SortMap{}),
+          \dv{SortBool{}}("true")
+        )
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'T'-GT-'{}(
+            Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar2:SortK{}),
+            Lbl'-LT-'m'-GT-'{}(
+              LblMap'Coln'update{}(
+                VarM:SortMap{},
+                inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")),
+                inj{SortInt{}, SortKItem{}}(
+                  LblanyPos'LParUndsRParUnds'FREEKEY'Unds'Int'Unds'Map{}(VarM:SortMap{})
+                )
+              )
+            ),
+            Var'Unds'DotVar1:SortWorkersCell{}
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("68a220a58c6e4ea0a4083a06011e96e6b8cb8251972f1445f8ca5ad360ea1698"),
+      label{}("check"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,61,98)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/freekey/freekey.k)"
       )
@@ -7716,7 +8129,7 @@ module FREEKEY
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,1,44,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,1,62,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/freekey/freekey.k)"
   )

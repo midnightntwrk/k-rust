@@ -17,48 +17,80 @@ namespace FreeKey
 
 open KPrelude
 
-/-- Rule `sum` (freekey.k:41:3) keeps `P`. -/
+/-- Rule `sum` (freekey.k:57:3) keeps `P`. -/
 def Step.Case.sum (P : SortGeneratedTopCell → Prop) : Prop :=
   ∀ (DotVar2 : SortK) (M : SortMap) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (k : SortWidCell) (v : SortWorkerCell) (rest : SortWorkerCellMap) (r : SortBool) (r_2 : SortWidCell) (r_4 : SortInt) (r_6 : SortWidCell) (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element k v) rest = some m) (hu : rest = KPrelude.MapHook.unit) (hr : K.«allNat(_)_FREEKEY_Bool_Map» M = some r) (hreq : KPrelude.BoolHook.and r (KPrelude.BoolHook.not (K.«hasNeg(_)_FREEKEY_Bool_Map» M)) = true) (hr_3 : K.WorkerCellMapKey v = some r_2) (hr_5 : K.«total(_)_FREEKEY_Int_WorkerCellMap» (KPrelude.MapHook.element r_2 v) = some r_4) (hr_7 : K.WorkerCellMapKey v = some r_6),
     P (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» m)) DotVar0) →
     P (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (0 : Int)) (SortKItem.inj_Int r_4))) (SortWorkersCell.«<workers>» (KPrelude.MapHook.element r_6 v))) DotVar0)
 
-/-- Rule `tick` (freekey.k:43:3) keeps `P`. -/
+/-- Rule `tick` (freekey.k:59:3) keeps `P`. -/
 def Step.Case.tick (P : SortGeneratedTopCell → Prop) : Prop :=
   ∀ (Gen3 : SortKCell) (Gen4 : SortMCell) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt) (r : SortWorkerCellMap) (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» C))) DotVar2 = some m) (hr : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» (KPrelude.IntHook.add C (1 : Int))))) DotVar2 = some r),
     P (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» m)) DotVar0) →
     P (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» r)) DotVar0)
 
-/-- `Preserved Step P` from one hypothesis per rule (2 rules), each named by its rule. -/
+/-- Rule `take` (freekey.k:60:3) keeps `P`. -/
+def Step.Case.take (P : SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt) (hr : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (3 : Int) M = some r),
+    P (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0) →
+    P (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (2 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0)
+
+/-- Rule `check` (freekey.k:61:3) keeps `P`. -/
+def Step.Case.check (P : SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt) (hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true) (hr : K.«anyPos(_)_FREEKEY_Int_Map» M = some r),
+    P (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0) →
+    P (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (1 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0)
+
+/-- `Preserved Step P` from one hypothesis per rule (4 rules), each named by its rule. -/
 theorem Step.preserves_of {P : SortGeneratedTopCell → Prop}
     (sum : Step.Case.sum P)
     (tick : Step.Case.tick P)
+    (take : Step.Case.take P)
+    (check : Step.Case.check P)
     : Preserved Step P := by
   intro c c' hc h
   cases h with
   | sum x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 => exact sum x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 hc
   | tick x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 => exact tick x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 hc
+  | take x1 x2 x3 x4 x5 x6 => exact take x1 x2 x3 x4 x5 x6 hc
+  | check x1 x2 x3 x4 x5 x6 x7 => exact check x1 x2 x3 x4 x5 x6 x7 hc
 /-! ## The per-rule principle for a relation between the two sides of a step -/
 
-/-- Rule `sum` (freekey.k:41:3) relates its left- and right-hand sides by `Q`. -/
+/-- Rule `sum` (freekey.k:57:3) relates its left- and right-hand sides by `Q`. -/
 def Step.Rel.sum (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
   ∀ (DotVar2 : SortK) (M : SortMap) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (k : SortWidCell) (v : SortWorkerCell) (rest : SortWorkerCellMap) (r : SortBool) (r_2 : SortWidCell) (r_4 : SortInt) (r_6 : SortWidCell) (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element k v) rest = some m) (hu : rest = KPrelude.MapHook.unit) (hr : K.«allNat(_)_FREEKEY_Bool_Map» M = some r) (hreq : KPrelude.BoolHook.and r (KPrelude.BoolHook.not (K.«hasNeg(_)_FREEKEY_Bool_Map» M)) = true) (hr_3 : K.WorkerCellMapKey v = some r_2) (hr_5 : K.«total(_)_FREEKEY_Int_WorkerCellMap» (KPrelude.MapHook.element r_2 v) = some r_4) (hr_7 : K.WorkerCellMapKey v = some r_6),
     Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» m)) DotVar0)
       (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (0 : Int)) (SortKItem.inj_Int r_4))) (SortWorkersCell.«<workers>» (KPrelude.MapHook.element r_6 v))) DotVar0)
 
-/-- Rule `tick` (freekey.k:43:3) relates its left- and right-hand sides by `Q`. -/
+/-- Rule `tick` (freekey.k:59:3) relates its left- and right-hand sides by `Q`. -/
 def Step.Rel.tick (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
   ∀ (Gen3 : SortKCell) (Gen4 : SortMCell) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt) (r : SortWorkerCellMap) (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» C))) DotVar2 = some m) (hr : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» (KPrelude.IntHook.add C (1 : Int))))) DotVar2 = some r),
     Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» m)) DotVar0)
       (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» r)) DotVar0)
 
-/-- Every step relates its source and target by `Q`, from one hypothesis per rule (2 rules). -/
+/-- Rule `take` (freekey.k:60:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.take (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt) (hr : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (3 : Int) M = some r),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (2 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0)
+
+/-- Rule `check` (freekey.k:61:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.check (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt) (hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true) (hr : K.«anyPos(_)_FREEKEY_Int_Map» M = some r),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (1 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0)
+
+/-- Every step relates its source and target by `Q`, from one hypothesis per rule (4 rules). -/
 theorem Step.rel_of {Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop}
     (sum : Step.Rel.sum Q)
     (tick : Step.Rel.tick Q)
+    (take : Step.Rel.take Q)
+    (check : Step.Rel.check Q)
     {c c' : SortGeneratedTopCell} (h : Step c c') : Q c c' := by
   cases h with
   | sum x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 => exact sum x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18
   | tick x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 => exact tick x1 x2 x3 x4 x5 x6 x7 x8 x9 x10
+  | take x1 x2 x3 x4 x5 x6 => exact take x1 x2 x3 x4 x5 x6
+  | check x1 x2 x3 x4 x5 x6 x7 => exact check x1 x2 x3 x4 x5 x6 x7
 
 end FreeKey
