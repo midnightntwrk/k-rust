@@ -405,9 +405,12 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// `is_value_production`), `only_top` and the witness `application_owes_nothing`. The module
 /// documentation (`doc`) says that k-rust's apartness test does not separate two applications of
 /// an equation head even of one shape, so data implies existence only in `M+`.
-/// Literal-row recovery adds `RecoveredLiteral` beside `Undecided` in the two ceil
+/// Literal-row recovery adds `LiteralCandidate` beside `Undecided` in the two ceil
 /// consumers. Both retain the same unknown branch; neither applies a recovered literal
 /// candidate. Removing those two alternatives recovers the previous pinned bytes exactly.
+/// POST-01 renames that branch from `RecoveredLiteral` to `LiteralCandidate`: eligibility is
+/// checked lazily only by term-equation application. The ceil consumers still take the same
+/// unknown branch, and their only changed bytes are the variant name.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -577,11 +580,11 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "value_production_ceil_equations",
-                "a3e66056eb99289978184d7df898590a9c85bc8a070c310b02f6c58c0a831d58"
+                "635cdc006a7ca7922b73f2b0419f9c49756077a152b8c2799ac7575967c3683f"
             ),
             (
                 "ceil_theory_condition",
-                "25b64d144c512cdb860a3695d647667715fc0e385ecd4cd3421348da16d120fa"
+                "16d223f688828cbd210e28fc37d035a1fbeae34cfb1d189c77758ae1b2b221c4"
             ),
             (
                 "irreducible_application_is_defined",
