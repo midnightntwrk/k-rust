@@ -77,7 +77,7 @@ Without `K_RUST_LEAN_BRIDGE=1` those tests are skipped with a message; with it, 
 | `substitutionSaturationOld` | `SubstitutionSaturation.replay false` | test-only frozen clone/remove loop | `k-rust-backend` `tests::lean_bridge::substitution` |
 
 The saturation model covers the computation changed by the optimization: snapshot/map operations, callback input values and order, output placement, the round bound and the convergence decision.
-Its callback is arbitrary, indexed by call number, and its theorems assume no property of substitution or of the dependency graph.
+Its value-based callback is arbitrary, indexed by call number, and its theorems assume no property of substitution or of the dependency graph.
 The bridge supplies arbitrary callback answers over equality-class IDs of actual Rust `Term` values and ordinals of actual ordered `Variable` keys; it compares every callback input map, final bindings and call count.
 Repeated equal terms share an ID, so the model's convergence equality is Rust's equality; the encoding preserves every key in the fixed domain.
 It deliberately does not model unchanged term reconstruction inside `substitute`: the theorem gives that function exactly the old input values and bindings at every call, and `saturation_tests` additionally compares complete extraction using the actual callback, including cycles, collections, duplicates and restricted binders.
