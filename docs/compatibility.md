@@ -3056,3 +3056,19 @@ The subject requires `X >= 0`, hence `incPos(Y1) - 1 = X + 1`; also `Y1 - 1 = X`
 The trusted claim reaches exactly the specified destination without an uncovered remainder.
 The upstream test plan's parts 6 and 8 explain evaluation under constraints; the plan also says part 8 passed an older simplification algorithm, so it does not by itself establish the current pinned backend's outcome.
 The individual step exclusions retain the observed oracle mismatch separately from these substitution arguments.
+
+## Literal integer operations in solver queries
+
+The portable SMT translator reads nonnegative literal `Int` shifts as multiplication or floor division by a power of two, and literal bit ranges as floor division followed by a nonnegative remainder.
+It reads a finite nonnegative mask by projecting its maximal runs of set bits and adding their weighted values.
+For every signed integer `X` and finite nonnegative mask `M`, with `A = X &Int M`, it also reads `X |Int M` as `X +Int M -Int A` and `X xorInt M` as `X +Int M -Int 2 *Int A`, in either operand order.
+These identities use K's unbounded two's-complement integer meaning, including negative `X`; they introduce no machine width.
+
+Shift amounts, bit-range offsets and lengths are limited to 4096 in this reading; a mask has at most 4096 bit positions and 64 set-bit runs.
+A larger or unsupported literal, a symbolic amount, a negative mask or an incompatible application sort keeps its ordinary scalar or opaque reading.
+These limits bound translation work and output; they do not make an operation mathematically undefined.
+Repeated projections share a composite operand rather than duplicate its translated expression.
+
+Value readings retain the original definedness obligations, including the operands of an untaken strict conditional or of a zero-length bit range.
+The standard symbolic integer domain rules state that `divInt` requires a nonzero divisor and `bitRangeInt` requires a nonnegative offset and length, together with all operand ceils.
+No application-specific axiom or execution step is added by a solver reading.

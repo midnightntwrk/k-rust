@@ -34,6 +34,8 @@ mod query;
 #[cfg(feature = "z3")]
 mod z3;
 
+mod literal;
+
 #[cfg(feature = "z3")]
 use query::TranslatedQuery;
 
@@ -432,17 +434,8 @@ impl TranslationState {
             TermKind::And(..) => Err(TranslationError::NonBooleanAnd(term.clone())),
             TermKind::Application {
                 symbol, arguments, ..
-            } if let Some((operand, divisor, modulus)) =
-                literal_bit_operation(symbol, &term.sort(), arguments) =>
-            {
-                let mut translated = self.translate_term(operand)?;
-                if divisor != "1" {
-                    translated = SExpr::application("div", vec![translated, SExpr::atom(divisor)]);
-                }
-                if let Some(modulus) = modulus {
-                    translated = SExpr::application("mod", vec![translated, SExpr::atom(modulus)]);
-                }
-                Ok(translated)
+            } if let Some(operation) = literal::read(symbol, &term.sort(), arguments) => {
+                operation.translate(self)
             }
             TermKind::Application {
                 symbol, arguments, ..
@@ -1111,70 +1104,6 @@ fn symbol_exactness(symbol: &Symbol) -> Exactness {
         Exactness::Approximate
     } else {
         Exactness::Exact
-    }
-}
-
-/// The largest literal amount [`literal_bit_operation`] reads: a power of two above it would be a
-/// numeral of more than a thousand digits, and the operation is read by its `smt` attribute
-/// instead.
-const LITERAL_BIT_AMOUNT_LIMIT: u32 = 4096;
-
-/// An `Int` operation by literal amounts as floor division and the nonnegative remainder by
-/// powers of two: the operand, the divisor `2^o` and, when there is one, the modulus `2^l`, as
-/// numerals, for
-/// - `bitRangeInt(X, o, l)`, which is `(X >>Int o) modInt 2^l` with `X >>Int o` the floor of
-///   `X / 2^o` (two's complement shifts down to minus infinity), for naturals `o` and `l`;
-/// - `X >>Int o`, the floor of `X / 2^o`, for a natural `o`;
-/// - `X &Int (2^l - 1)` in either order, the low `l` bits of `X`'s two's complement read as a
-///   natural, which is `X modInt 2^l` for every integer `X`, negative ones included, since two
-///   integers that agree modulo `2^l` have the same low `l` bits.
-///
-/// SMT-LIB's `div` and `mod` by a positive divisor are exactly the floor quotient and the
-/// remainder in `[0, divisor)`, so each reading is the operation's value wherever `X` has one.
-/// Each operation is defined at such amounts (a shift by a negative amount is undefined), so the
-/// reading adds no approximation. `None` for any other application, an amount that is not a
-/// natural literal no greater than [`LITERAL_BIT_AMOUNT_LIMIT`], a mask that is not one less than
-/// a power of two, or an application not over `Int`; those keep their `smt` attribute's reading.
-fn literal_bit_operation<'t>(
-    symbol: &Symbol,
-    sort: &Sort,
-    arguments: &'t [Term],
-) -> Option<(&'t Term, String, Option<String>)> {
-    let int = |sort: &Sort| sort.is_builtin(BuiltinSort::Int);
-    if !int(sort) || !arguments.iter().all(|argument| int(&argument.sort())) {
-        return None;
-    }
-    let amount = |term: &Term| {
-        crate::builtin::read_int(term)
-            .and_then(|amount| u32::try_from(amount).ok())
-            .filter(|amount| *amount <= LITERAL_BIT_AMOUNT_LIMIT)
-    };
-    let power = |exponent: u32| (num_bigint::BigInt::from(1u8) << exponent).to_string();
-    // `m` as `2^l - 1`: `l`.
-    let mask = |term: &Term| {
-        let successor = crate::builtin::read_int(term)? + 1u8;
-        let length = successor.bits().checked_sub(1)?;
-        (successor.sign() == num_bigint::Sign::Plus
-            && successor == num_bigint::BigInt::from(1u8) << length)
-            .then_some(u32::try_from(length).ok()?)
-            .filter(|length| *length <= LITERAL_BIT_AMOUNT_LIMIT)
-    };
-    match (symbol.attributes.hook.as_deref()?, arguments) {
-        ("INT.bitRange", [operand, offset, length]) => Some((
-            operand,
-            power(amount(offset)?),
-            Some(power(amount(length)?)),
-        )),
-        ("INT.shr", [operand, offset]) => Some((operand, power(amount(offset)?), None)),
-        ("INT.and", [left, right]) => {
-            let (operand, length) = match (mask(right), mask(left)) {
-                (Some(length), _) => (left, length),
-                (None, Some(length)) => (right, length),
-                (None, None) => return None,
-            };
-            Some((operand, power(0), Some(power(length))))
-        }
-        _ => None,
     }
 }
 
@@ -2301,11 +2230,8 @@ mod tests {
         );
     }
 
-    /// `bitRangeInt`, `>>Int` and a low-bit mask `&Int` by literal amounts are read as `div` and
-    /// `mod` by powers of two, exactly, whatever the symbol's `smt` attribute; a symbolic or
-    /// negative amount, or a mask that is not one less than a power of two, keeps the attribute's
-    /// reading. Each reading agrees with the hook's own value on negative and nonnegative
-    /// operands, as SMT-LIB's floor `div` and nonnegative `mod` compute it.
+    /// Literal projections/shifts and finite masks retain the hook's signed integer meaning.
+    /// Symbolic/negative amounts and unsupported masks keep the attribute's opaque reading.
     #[test]
     fn reads_bit_operations_by_literal_amounts_as_division_by_powers_of_two() {
         let int = Sort::simple("SortInt");
@@ -2317,7 +2243,10 @@ mod tests {
         };
         let bit_range = hooked("bitRange", "INT.bitRange", None, 3);
         let shr = hooked("shr", "INT.shr", Some(SmtType::Lib("shrInt".into())), 2);
+        let shl = hooked("shl", "INT.shl", Some(SmtType::Lib("shlInt".into())), 2);
         let and = hooked("and", "INT.and", Some(SmtType::Lib("andInt".into())), 2);
+        let or = hooked("or", "INT.or", Some(SmtType::Lib("orInt".into())), 2);
+        let xor = hooked("xor", "INT.xor", Some(SmtType::Lib("xorInt".into())), 2);
         let x = Term::variable(Variable::new("X", int));
         let y = Term::variable(Variable::new("Y", int));
         let apply = |symbol: &Arc<Symbol>, arguments: Vec<Term>| {
@@ -2356,13 +2285,38 @@ mod tests {
             ),
             (
                 apply(&and, vec![x.clone(), integer("0")]),
-                "(mod SMT-1 1)",
+                "0",
                 Exactness::Exact,
             ),
             (
                 apply(&and, vec![x.clone(), integer("6")]),
-                "(andInt SMT-1 6)",
-                Exactness::Approximate,
+                "(* 2 (mod (div SMT-1 2) 4))",
+                Exactness::Exact,
+            ),
+            (
+                apply(&and, vec![x.clone(), integer("128")]),
+                "(* 128 (mod (div SMT-1 128) 2))",
+                Exactness::Exact,
+            ),
+            (
+                apply(&and, vec![x.clone(), integer("165")]),
+                "(+ (mod SMT-1 2) (* 4 (mod (div SMT-1 4) 2)) (* 32 (mod (div SMT-1 32) 2)) (* 128 (mod (div SMT-1 128) 2)))",
+                Exactness::Exact,
+            ),
+            (
+                apply(&shl, vec![x.clone(), integer("4")]),
+                "(* SMT-1 16)",
+                Exactness::Exact,
+            ),
+            (
+                apply(&or, vec![x.clone(), integer("255")]),
+                "(- (+ SMT-1 255) (mod SMT-1 256))",
+                Exactness::Exact,
+            ),
+            (
+                apply(&xor, vec![integer("255"), x.clone()]),
+                "(- (+ SMT-1 255) (* 2 (mod SMT-1 256)))",
+                Exactness::Exact,
             ),
             (
                 apply(&and, vec![x.clone(), integer("-1")]),

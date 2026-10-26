@@ -3258,6 +3258,71 @@ fn partial_condition_correction_invalidates_saved_proofs_from_the_previous_readi
     assert_ne!(current, previous);
 }
 
+/// Value readings must not discard the domain of an untaken strict branch or of a consumed
+/// operand. The source state is nonempty even when the destination is undefined.
+#[test]
+fn primitive_integer_domains_and_signed_literal_values_compose_in_claims() {
+    let kore = compile(
+        r#"
+module INTEGER-DOMAINS
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:K </k> <v> 0 </v>
+endmodule
+module INTEGER-DOMAINS-SPEC
+  imports INTEGER-DOMAINS
+  claim [safe-ediv]: <k> .K </k> <v> V:Int => (#if false #then V divInt 32 #else V #fi) </v>
+  claim [safe-negative-ediv]: <k> .K </k> <v> V:Int => (#if false #then V divInt -32 #else V #fi) </v>
+  claim [safe-symbolic-ediv]: <k> .K </k> <v> V:Int => (#if false #then V divInt D:Int #else V #fi) </v> requires D =/=Int 0
+  claim [safe-range]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, 4, 1) #else V #fi) </v>
+  claim [safe-zero-range]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, 4, 0) #else V #fi) </v>
+  claim [safe-symbolic-range]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, O:Int, L:Int) #else V #fi) </v> requires O >=Int 0 andBool L >=Int 0
+  claim [undefined-ediv]: <k> .K </k> <v> V:Int => (#if false #then V divInt 0 #else V #fi) </v>
+  claim [undefined-offset]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, -1, 1) #else V #fi) </v>
+  claim [undefined-length]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, 0, -1) #else V #fi) </v>
+  claim [undefined-operand]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(1 divInt 0, 4, 0) #else V #fi) </v>
+  claim [signed-shift]: <k> .K </k> <v> V:Int <<Int 4 => V *Int 16 </v>
+  claim [shifted-mask]: <k> .K </k> <v> V:Int &Int 128 => ((V divInt 128) modInt 2) *Int 128 </v>
+  claim [signed-mask-or]: <k> .K </k> <v> V:Int |Int 255 => (V divInt 256) *Int 256 +Int 255 </v>
+  claim [signed-mask-xor]: <k> .K </k> <v> V:Int xorInt 255 => (V divInt 256) *Int 256 +Int (255 -Int (V modInt 256)) </v>
+  claim [wrong-shift]: <k> .K </k> <v> 3 <<Int 1 => 5 </v>
+endmodule
+"#,
+        "INTEGER-DOMAINS-SPEC",
+        "INTEGER-DOMAINS",
+    );
+    for (claim, expected) in [
+        ("safe-ediv", "proven"),
+        ("safe-negative-ediv", "proven"),
+        ("safe-symbolic-ediv", "proven"),
+        ("safe-range", "proven"),
+        ("safe-zero-range", "proven"),
+        ("safe-symbolic-range", "proven"),
+        ("undefined-ediv", "disproved"),
+        ("undefined-offset", "disproved"),
+        ("undefined-length", "disproved"),
+        ("undefined-operand", "disproved"),
+        ("signed-shift", "proven"),
+        ("shifted-mask", "proven"),
+        ("signed-mask-or", "proven"),
+        ("signed-mask-xor", "proven"),
+        ("wrong-shift", "disproved"),
+    ] {
+        let result = prove(
+            &kore,
+            "INTEGER-DOMAINS-SPEC",
+            &format!("INTEGER-DOMAINS-SPEC.{claim}"),
+            ProveRequest::default(),
+        );
+        assert_eq!(result.status, expected, "{claim}: {result:#?}");
+        assert!(result.leaves.iter().all(|leaf| !leaf.vacuous), "{claim}");
+        if expected == "disproved" {
+            assert!(result.leaves.iter().any(|leaf| leaf.certified), "{claim}");
+        }
+    }
+}
+
 /// Literal applicability is established as a complete condition, with no input narrowing.
 /// Reusing the backend across differently constrained claims also checks contextual cache use.
 #[test]
