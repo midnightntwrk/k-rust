@@ -3297,3 +3297,49 @@ fn literal_equation_rows_apply_only_when_the_complete_condition_is_established()
         );
     }
 }
+
+/// Equality travels forward through supported contexts without asserting their inverse laws.
+/// The same state frame must be retained, and negative truncation is not floor division.
+#[test]
+fn scalar_equalities_compose_through_total_functions_injections_and_symbolic_writes() {
+    let kore = compile(
+        proof_sources::CONTEXTUAL_SCALAR_EQUALITIES,
+        "CONTEXTUAL-EQUALITY-SPEC",
+        "CONTEXTUAL-EQUALITY",
+    );
+    let mut backend =
+        Backend::new(&kore, "CONTEXTUAL-EQUALITY-SPEC", BackendOptions::default()).unwrap();
+    for (label, proven) in [
+        ("opaque", true),
+        ("named", true),
+        ("map-write", true),
+        ("map-chain", true),
+        ("wrong-value", false),
+        ("wrong-frame", false),
+        ("different-heads", false),
+        ("opaque-partial", false),
+        ("overwritten-not-injective", false),
+        ("negative-truncation", false),
+    ] {
+        let result = backend
+            .prove(ProveRequest {
+                claim: Some(format!("CONTEXTUAL-EQUALITY-SPEC.{label}")),
+                max_depth: Some(4),
+                ..ProveRequest::default()
+            })
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
+        assert_eq!(
+            result.status == "proven",
+            proven,
+            "{label}: {} {:?}",
+            result.status,
+            result.leaves
+        );
+        if label == "overwritten-not-injective" {
+            assert_ne!(
+                result.status, "disproved",
+                "a true map law is not refuted by different UF arguments"
+            );
+        }
+    }
+}

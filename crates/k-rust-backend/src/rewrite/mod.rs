@@ -47,8 +47,8 @@ use recover::{
     solve_collection_remainders_with_narrowing,
 };
 pub(crate) use recover::{
-    RecoveredMatch, collection_unification_definedness, is_functional_pattern,
-    recover_indeterminate_match,
+    RecoveredMatch, collection_unification_definedness, functional_pattern_node,
+    is_functional_pattern, recover_indeterminate_match,
 };
 use roles::{Applicability, Remainder};
 pub use state_match::{

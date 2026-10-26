@@ -376,3 +376,41 @@ module LITERAL-CONDITIONS-SPEC
   claim [partial-operand]: <k> .K </k> <v> bitValue((1 /Int X:Int) <Int 256) => 1 </v> requires X >Int 1
 endmodule
 "#;
+
+/// Independent scalar identities stay available through opaque total functions and map writes.
+/// No function-behavior, map-extensionality or injection-injectivity axiom is supplied.
+pub const CONTEXTUAL_SCALAR_EQUALITIES: &str = r#"
+module CONTEXTUAL-EQUALITY
+  imports INT
+  imports BOOL
+  imports MAP
+  syntax Int ::= opaque(Int) [function, total]
+               | opaquePartial(Int) [function]
+               | named(Int) [function, total, smtlib(contextualNamed)]
+  configuration <T> <k> $PGM:K </k> <v> .K </v> <m> .Map </m> </T>
+endmodule
+module CONTEXTUAL-EQUALITY-SPEC
+  imports CONTEXTUAL-EQUALITY
+  claim [opaque]: <k> .K </k> <v> opaque(X:Int >>Int 8) => opaque(X /Int 256) </v>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [named]: <k> .K </k> <v> named(X:Int >>Int 8) => named(X /Int 256) </v>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [map-write]: <k> .K </k> <m> M:Map [0 <- X:Int >>Int 8] => M [0 <- X /Int 256] </m>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [map-chain]: <k> .K </k>
+    <m> M:Map [0 <- X:Int >>Int 8] [1 <- X %Int 256]
+       => M [0 <- X /Int 256] [1 <- X -Int (X /Int 256) *Int 256] </m>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [wrong-value]: <k> .K </k> <m> M:Map [0 <- X:Int >>Int 8] => M [0 <- 1] </m>
+    requires 0 <=Int X andBool X <Int 256
+  claim [wrong-frame]: <k> .K </k> <m> M:Map [0 <- X:Int >>Int 8] => .Map [0 <- X /Int 256] </m>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [different-heads]: <k> .K </k> <v> opaque(X:Int) => named(X) </v>
+  claim [opaque-partial]: <k> .K </k> <v> opaquePartial(X:Int >>Int 8) => opaquePartial(X /Int 256) </v>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [overwritten-not-injective]: <k> .K </k>
+    <m> M:Map [0 <- X:Int] [0 <- 7] => M [0 <- X +Int 1] [0 <- 7] </m>
+  claim [negative-truncation]: <k> .K </k> <v> opaque(X:Int >>Int 8) => opaque(X /Int 256) </v>
+    requires -256 <Int X andBool X <Int 0
+endmodule
+"#;

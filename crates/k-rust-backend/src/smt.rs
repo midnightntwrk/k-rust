@@ -1,24 +1,32 @@
-//! Portable SMT-LIB translation shared by native Z3 and solver-free builds: one pass per query
-//! script, and one reachability search over its conjuncts' constants for the conjuncts a validity
-//! check sends (`closure_over`); a responsibility, not an algorithm; no counter of its own.
+//! Portable SMT-LIB translation shared by native Z3 and solver-free builds.
+//! Definition-local eligibility admits pure total function contexts as query-local UFs.
+//! Operand eligibility visits each distinct term DAG node once per query; lexical let bindings
+//! keep shared composite operands from expanding exponentially in the script.
+//! A reachability search over generated constants and function names selects the conjuncts a
+//! validity check sends (`closure_over`); this module has no counter of its own.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
+    sync::Arc,
 };
 
 use k_rust_kore::names::BuiltinSort;
+use rustc_hash::FxHashMap;
 
 use crate::{
     definition::BackendDefinition,
+    matching::SortGraph,
     model::ModelQuery,
     rewrite::substitute_predicates,
     rule::{Predicate, RewriteRule, RuleRhs, Theory},
     stop::{PreludeSignal, Stoppable},
     substitution::Substitution,
-    term::{FunctionType, Sort, SortNode, Symbol, SymbolType, Term, TermKind, Variable},
+    term::{
+        FunctionType, HeadRole, Name, Sort, SortNode, Symbol, SymbolType, Term, TermKind, Variable,
+    },
 };
 
 #[cfg(feature = "z3")]
@@ -189,11 +197,12 @@ impl<'a> SExprParser<'a> {
 
 /// Whether an SMT-LIB translation denotes exactly the predicates it was made from.
 ///
-/// Every abstraction of the translation over-approximates: a term or predicate without an SMT
-/// translation becomes an unrelated fresh constant (no congruence or constructor injectivity), a
-/// free or quantified variable of a sort other than `Int` or `Bool` ranges over an
-/// uninterpreted sort that need not have the K sort's values, and an `smtlib` symbol becomes an
-/// uninterpreted function that retains only congruence. Abstraction alone therefore lets every K
+/// Every abstraction of the translation over-approximates: eligible pure total function heads
+/// and compatible injections become query-local uninterpreted functions retaining congruence;
+/// other terms or predicates without an SMT translation become unrelated fresh constants.
+/// Neither reading adds constructor injectivity. A free or quantified variable of a sort other
+/// than `Int` or `Bool` ranges over an uninterpreted sort that need not have the K sort's values,
+/// and an `smtlib` symbol retains congruence. Abstraction alone therefore lets every K
 /// valuation that satisfies the predicates induce a model of the translation. A model is a K
 /// valuation of the predicates only when the translation is `Exact`.
 ///
@@ -227,9 +236,83 @@ impl Exactness {
     }
 }
 
+/// Immutable definition-local eligibility. Query names and expressions never live here.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CongruencePolicy {
+    heads: BTreeSet<Name>,
+    effects: BTreeSet<String>,
+    sorts: SortGraph,
+}
+
+impl CongruencePolicy {
+    fn from_definition(definition: &BackendDefinition) -> Option<Self> {
+        let effects = definition.console_effect_symbols()?;
+        let heads = definition
+            .symbols()
+            .values()
+            .filter(|symbol| {
+                matches!(
+                    symbol.attributes.head_role(),
+                    HeadRole::Function { declared: true, .. }
+                ) && symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+                    && symbol.attributes.smt.is_none()
+                    // Native sizes carry a nonnegative range through constant abstraction.
+                    // Keep that existing primitive reading rather than replace it with a UF.
+                    && !collection_size_hook(symbol.attributes.hook.as_deref())
+                    && !symbol.attributes.binder
+                    && !symbol.attributes.macro_or_alias
+                    && !effects.contains(symbol.name.as_ref())
+            })
+            .map(|symbol| symbol.name.clone())
+            .collect();
+        Some(Self {
+            heads,
+            effects,
+            sorts: definition.sort_graph().clone(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum CongruenceHead {
+    Application {
+        name: Name,
+        sorts: Vec<Sort>,
+        arguments: Vec<Sort>,
+        result: Sort,
+    },
+    Injection {
+        source: Sort,
+        target: Sort,
+    },
+}
+
+impl CongruenceHead {
+    fn rank(&self) -> (Vec<Sort>, Sort) {
+        match self {
+            Self::Application {
+                arguments, result, ..
+            } => (arguments.clone(), *result),
+            Self::Injection { source, target } => (vec![*source], *target),
+        }
+    }
+}
+
+/// One term's lexical sharing scope. A node is translated once, and its parents refer to
+/// its let-bound value. The scope stays inside the current predicate quantifiers.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct SharedTerms {
+    values: FxHashMap<Term, SExpr>,
+    bindings: Vec<(String, SExpr)>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TranslationState {
     pub mappings: BTreeMap<Term, String>,
+    congruence: Option<Arc<CongruencePolicy>>,
+    opaque_functions: BTreeMap<CongruenceHead, String>,
+    eligible_operands: FxHashMap<Term, bool>,
+    shared_terms: Option<SharedTerms>,
     predicate_mappings: Vec<(Predicate, String)>,
     dependent_mappings: BTreeMap<(Predicate, Vec<Sort>), String>,
     bound_variables: Vec<(Variable, String)>,
@@ -250,6 +333,10 @@ impl TranslationState {
     pub fn new() -> Self {
         Self {
             mappings: BTreeMap::new(),
+            congruence: None,
+            opaque_functions: BTreeMap::new(),
+            eligible_operands: FxHashMap::default(),
+            shared_terms: None,
             predicate_mappings: Vec::new(),
             dependent_mappings: BTreeMap::new(),
             bound_variables: Vec::new(),
@@ -277,7 +364,56 @@ impl TranslationState {
         self.foreign_text = true;
     }
 
+    /// Share operands inside a generated function's lexical scope, preventing a small term
+    /// DAG from expanding into an exponential script. Scalar theory expressions outside
+    /// those scopes retain their previous SMT text and solver resource behavior.
     pub fn translate_term(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
+        if self.congruence.is_none()
+            || (self.shared_terms.is_none() && self.congruence_head(term).is_none())
+        {
+            return self.translate_term_node(term);
+        }
+        let root = self.shared_terms.is_none();
+        if root {
+            self.shared_terms = Some(SharedTerms::default());
+        }
+        let cached = self
+            .shared_terms
+            .as_ref()
+            .and_then(|scope| scope.values.get(term))
+            .cloned();
+        let result = match cached {
+            Some(value) => Ok(value),
+            None => self.translate_term_node(term).map(|value| {
+                if !root && matches!(value, SExpr::List(_)) {
+                    let name = self.fresh_name();
+                    let reference = SExpr::atom(name.clone());
+                    let scope = self.shared_terms.as_mut().expect("active term scope");
+                    scope.bindings.push((name, value));
+                    scope.values.insert(term.clone(), reference.clone());
+                    reference
+                } else {
+                    value
+                }
+            }),
+        };
+        if !root {
+            return result;
+        }
+        let scope = self.shared_terms.take().expect("root term scope");
+        result.map(|mut body| {
+            for (name, value) in scope.bindings.into_iter().rev() {
+                body = SExpr::List(vec![
+                    SExpr::atom("let"),
+                    SExpr::List(vec![SExpr::List(vec![SExpr::atom(name), value])]),
+                    body,
+                ]);
+            }
+            body
+        })
+    }
+
+    fn translate_term_node(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         match term.kind() {
             // A term-level `\and` denotes the intersection of its operands' values, `\bottom` where
             // they differ, not their Boolean conjunction: `true /\ false` is `\bottom`, not
@@ -311,7 +447,13 @@ impl TranslationState {
             TermKind::Application {
                 symbol, arguments, ..
             } => match &symbol.attributes.smt {
-                None => Ok(self.abstract_term(term, Exactness::Approximate)),
+                None => {
+                    if let Some(head) = self.congruence_head(term) {
+                        self.translate_congruent(head, arguments)
+                    } else {
+                        Ok(self.abstract_term(term, Exactness::Approximate))
+                    }
+                }
                 // A hook whose operation is not a term at the application's sorts (every
                 // `FLOAT` and `MINT` hook, an `INT` hook over a renamed `Int` sort) is no
                 // reading of it; the application is then an opaque value of its sort, as one
@@ -378,12 +520,156 @@ impl TranslationState {
                     None => Ok(self.abstract_term(term, Exactness::Exact)),
                 }
             }
+            TermKind::Injection { term: child, .. } => {
+                if let Some(head) = self.congruence_head(term) {
+                    self.translate_congruent(head, std::slice::from_ref(child))
+                } else {
+                    Ok(self.abstract_term(term, Exactness::Approximate))
+                }
+            }
             TermKind::DomainValue { .. }
-            | TermKind::Injection { .. }
             | TermKind::Map { .. }
             | TermKind::List { .. }
             | TermKind::Set { .. } => Ok(self.abstract_term(term, Exactness::Approximate)),
         }
+    }
+
+    /// A memoized DAG walk using the same local functionality predicate as matching, and
+    /// the existing definition's transitive effect closure. No contextual facts are cached.
+    fn eligible_operand(&mut self, term: &Term) -> bool {
+        let Some(policy) = self.congruence.clone() else {
+            return false;
+        };
+        let mut pending = vec![(term.clone(), false)];
+        while let Some((term, visited)) = pending.pop() {
+            if self.eligible_operands.contains_key(&term) {
+                continue;
+            }
+            let local = crate::rewrite::functional_pattern_node(&term)
+                && match term.kind() {
+                    TermKind::Application { symbol, .. } => {
+                        !symbol.attributes.binder
+                            && !symbol.attributes.macro_or_alias
+                            && !policy.effects.contains(symbol.name.as_ref())
+                    }
+                    TermKind::And(..)
+                    | TermKind::DomainValue { .. }
+                    | TermKind::Variable(_)
+                    | TermKind::Injection { .. }
+                    | TermKind::Map { .. }
+                    | TermKind::List { .. }
+                    | TermKind::Set { .. } => true,
+                };
+            if !local {
+                self.eligible_operands.insert(term, false);
+                continue;
+            }
+            let children = crate::deferred::children(&term);
+            if visited || children.is_empty() {
+                let eligible = children
+                    .iter()
+                    .all(|child| self.eligible_operands.get(*child) == Some(&true));
+                self.eligible_operands.insert(term, eligible);
+            } else {
+                pending.push((term.clone(), true));
+                pending.extend(children.into_iter().map(|child| (child.clone(), false)));
+            }
+        }
+        self.eligible_operands.get(term) == Some(&true)
+    }
+
+    fn congruence_head(&mut self, term: &Term) -> Option<CongruenceHead> {
+        let policy = self.congruence.clone()?;
+        let head = match term.kind() {
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            } => {
+                if !policy.heads.contains(&symbol.name)
+                    || symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Total)
+                    || arguments.len() != symbol.argument_sorts.len()
+                    || sort_arguments.len() != symbol.sort_variables.len()
+                    || sort_arguments.iter().any(Sort::has_variable)
+                {
+                    return None;
+                }
+                let substitution = symbol
+                    .sort_variables
+                    .iter()
+                    .cloned()
+                    .zip(sort_arguments.iter().copied())
+                    .collect();
+                if symbol
+                    .argument_sorts
+                    .iter()
+                    .zip(arguments)
+                    .any(|(sort, arg)| {
+                        crate::definition::substitute_sort(sort, &substitution) != arg.sort()
+                    })
+                {
+                    return None;
+                }
+                CongruenceHead::Application {
+                    name: symbol.name.clone(),
+                    sorts: sort_arguments.to_vec(),
+                    arguments: arguments.iter().map(Term::sort).collect(),
+                    result: term.sort(),
+                }
+            }
+            TermKind::Injection {
+                source,
+                target,
+                term: child,
+            } => {
+                if child.sort() != *source || policy.sorts.check_subsort(source, target) != Ok(true)
+                {
+                    return None;
+                }
+                CongruenceHead::Injection {
+                    source: *source,
+                    target: *target,
+                }
+            }
+            TermKind::And(..)
+            | TermKind::DomainValue { .. }
+            | TermKind::Variable(_)
+            | TermKind::Map { .. }
+            | TermKind::List { .. }
+            | TermKind::Set { .. } => return None,
+        };
+        let (arguments, result) = head.rank();
+        if sort_denotation(&result).is_err()
+            || arguments.iter().any(|sort| sort_denotation(sort).is_err())
+            || !self.eligible_operand(term)
+        {
+            return None;
+        }
+        Some(head)
+    }
+
+    fn translate_congruent(
+        &mut self,
+        head: CongruenceHead,
+        arguments: &[Term],
+    ) -> Result<SExpr, TranslationError> {
+        self.approximate(Exactness::Approximate);
+        let name = match self.opaque_functions.get(&head) {
+            Some(name) => name.clone(),
+            None => {
+                let name = self.fresh_name();
+                self.opaque_functions.insert(head, name.clone());
+                name
+            }
+        };
+        if arguments.is_empty() {
+            return Ok(SExpr::atom(name));
+        }
+        let arguments = arguments
+            .iter()
+            .map(|arg| self.translate_term(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SExpr::application(name, arguments))
     }
 
     pub fn translate_predicate(
@@ -691,6 +977,18 @@ impl TranslationState {
                 arguments.join(" ")
             ));
         }
+        for (head, name) in self.opaque_functions.clone() {
+            let (arguments, result) = head.rank();
+            let arguments = arguments
+                .iter()
+                .map(|sort| self.smt_sort(sort))
+                .collect::<Result<Vec<_>, _>>()?;
+            let result = self.smt_sort(&result)?;
+            declarations.push(format!(
+                "(declare-fun {name} ({}) {result})",
+                arguments.join(" ")
+            ));
+        }
         Ok(declarations)
     }
 }
@@ -892,7 +1190,17 @@ fn translate_query(
     substitution: &Substitution,
     checked: &[Predicate],
 ) -> Result<QueryTranslation, TranslationError> {
+    translate_query_with_policy(known, substitution, checked, None)
+}
+
+fn translate_query_with_policy(
+    known: &[Predicate],
+    substitution: &Substitution,
+    checked: &[Predicate],
+    congruence: Option<Arc<CongruencePolicy>>,
+) -> Result<QueryTranslation, TranslationError> {
     let mut translation = TranslationState::new();
+    translation.congruence = congruence;
     let substitution = substitution
         .iter()
         .map(|(variable, term)| {
@@ -949,6 +1257,7 @@ pub struct SmtPrelude {
     smtlib_names: BTreeSet<String>,
     /// Whether the prelude ends with a user prelude, a script k-rust did not write.
     user_script: bool,
+    congruence: Option<Arc<CongruencePolicy>>,
 }
 
 impl SmtPrelude {
@@ -1010,6 +1319,7 @@ impl SmtPrelude {
             declarations,
             smtlib_names,
             user_script: false,
+            congruence: CongruencePolicy::from_definition(definition).map(Arc::new),
         })
     }
 
@@ -1038,7 +1348,7 @@ impl SmtPrelude {
         filter_for_checked: bool,
     ) -> Result<TranslatedQuery, TranslationError> {
         let (mut translation, declarations, substitution, known, checked) =
-            translate_query(known, substitution, checked)?;
+            translate_query_with_policy(known, substitution, checked, self.congruence.clone())?;
         let (substitution, known) = if filter_for_checked {
             let interesting = smt_variables(&checked);
             let (substitution, substitution_exactness) = closure_over(&interesting, substitution);
@@ -1135,7 +1445,7 @@ fn collection_size_term(term: &Term) -> bool {
     )
 }
 
-/// The SMT constants `expression` mentions, in one walk of it.
+/// The generated SMT identifiers (constants, functions and local bindings) mentioned in one walk.
 #[cfg(feature = "z3")]
 fn smt_variables(expression: &SExpr) -> BTreeSet<&str> {
     fn collect<'a>(expression: &'a SExpr, names: &mut BTreeSet<&'a str>) {
@@ -1156,14 +1466,15 @@ fn smt_variables(expression: &SExpr) -> BTreeSet<&str> {
     names
 }
 
-/// The expressions that share an SMT constant with `interesting`, transitively, each once and in
+/// The expressions that share a generated SMT identifier with `interesting`, transitively, each once and in
 /// `SExpr` order. Dropping a conjunct weakens the query, so its `Sat` need not hold for the whole
 /// conjunction: the selection is `Exact` only when nothing was dropped.
 ///
 /// The selection is the set of expressions reachable from `interesting` in the graph that links
-/// each distinct expression to the constants it mentions. Each expression's constants are read
-/// once and indexed by constant, and a breadth-first search follows each constant once, however
-/// long the chains of shared constants are.
+/// each distinct expression to the identifiers it mentions. Each expression's identifiers are read
+/// once and indexed, and a breadth-first search follows each identifier once, however
+/// long the chains of shared identifiers are. Function names retain ground and quantified facts
+/// about the same generated head even when no free constant connects them.
 #[cfg(feature = "z3")]
 fn closure_over(interesting: &BTreeSet<&str>, expressions: Vec<SExpr>) -> (Vec<SExpr>, Exactness) {
     let distinct = expressions

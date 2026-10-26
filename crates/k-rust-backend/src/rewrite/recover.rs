@@ -583,21 +583,35 @@ fn is_collection_term(term: &Term) -> bool {
     )
 }
 
+/// The local part of functional-pattern checking, shared with memoized query walks.
+/// The caller must also establish this property for every immediate subterm.
+pub(crate) fn functional_pattern_node(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::Application { symbol, .. } => matches!(
+            symbol.attributes.symbol_type,
+            SymbolType::Constructor | SymbolType::Function(_)
+        ),
+        TermKind::Variable(variable) => variable.kind == VariableKind::Element,
+        TermKind::And(..) => false,
+        TermKind::DomainValue { .. }
+        | TermKind::Injection { .. }
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. } => true,
+    }
+}
+
 /// Whether `term` denotes at most one element: every symbol is interpreted as a partial function
 /// (a constructor as a total one), a collection literal is an application of its partial
 /// concatenation and element symbols, and an element variable denotes one element. It answers
 /// no at an `\and`, which also denotes at most one element when an operand does, because a
 /// conjunction is no term a caller can state in place of a variable or bind a variable to.
 pub(crate) fn is_functional_pattern(term: &Term) -> bool {
+    if !functional_pattern_node(term) {
+        return false;
+    }
     match term.kind() {
-        TermKind::Application {
-            symbol, arguments, ..
-        } => {
-            matches!(
-                symbol.attributes.symbol_type,
-                SymbolType::Constructor | SymbolType::Function(_)
-            ) && arguments.iter().all(is_functional_pattern)
-        }
+        TermKind::Application { arguments, .. } => arguments.iter().all(is_functional_pattern),
         TermKind::Map { entries, rest, .. } => {
             entries
                 .iter()
@@ -616,9 +630,9 @@ pub(crate) fn is_functional_pattern(term: &Term) -> bool {
         }
         TermKind::DomainValue { .. } => true,
         // An element variable denotes one element; a set variable denotes an arbitrary pattern.
-        TermKind::Variable(variable) => variable.kind == VariableKind::Element,
+        TermKind::Variable(_) => true,
         TermKind::Injection { term, .. } => is_functional_pattern(term),
-        TermKind::And(..) => false,
+        TermKind::And(..) => unreachable!("rejected by functional_pattern_node"),
     }
 }
 
