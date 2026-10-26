@@ -16433,16 +16433,22 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
     let specification = root.join("andint-spec.k");
     fs::write(
         &specification,
-        include_str!("fixtures/kink/andint/andint-spec.k"),
+        include_str!("fixtures/kink/andint/andint-spec.k").replace(
+            "endmodule",
+            "claim [opaque]: <k> stay(X:Int) => done </k> requires X &Int Y:Int ==Int 1\nendmodule",
+        ),
     )
     .unwrap();
 
-    // Both claims are proven by their own process on one compiled specification.
+    // Fixed masks now have exact meanings. Keep an actually opaque two-symbolic
+    // operand control beside the newly provable empty fixed-mask antecedent.
     let compiled = root.join("compiled");
     kcompile_for_proving(&specification, "ANDINT-SPEC", "ANDINT", &compiled);
-    for (claim, verdict, certified) in
-        [("vacuous", "failed", false), ("control", "disproved", true)]
-    {
+    for (claim, verdict, certified) in [
+        ("vacuous", "proven", false),
+        ("opaque", "failed", false),
+        ("control", "disproved", true),
+    ] {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
             .args(["kprove", "--compiled-definition"])
             .arg(&compiled)
@@ -16457,7 +16463,7 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
             .output()
             .unwrap();
         let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(!output.status.success(), "{stdout}");
+        assert_eq!(output.status.success(), verdict == "proven", "{stdout}");
         assert!(
             stdout.contains(&format!("claim ANDINT-SPEC.{claim}: {verdict}")),
             "{stdout}"
@@ -16467,9 +16473,9 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `stay(X)` under `X &Int 6 ==Int 1` is empty (`X &Int 6` is even), so it implies anything; `andInt` is an
-/// uninterpreted `smtlib` function, so the solver's `Sat` for it is no instance and the answer is
-/// `unknown`, never `invalid`. Under `X +Int 1 ==Int 2` the antecedent has the instance `X = 1`,
+/// `stay(X)` under `X &Int 6 ==Int 1` is empty, now recognized by the exact fixed-mask reading.
+/// Two unbounded symbolic operands remain opaque, so their solver `Sat` is no instance and
+/// the answer is `unknown`, never `invalid`. Under `X +Int 1 ==Int 2` the antecedent has `X = 1`,
 /// so the refutations stay `invalid`.
 #[cfg(feature = "z3-inference")]
 #[test]
@@ -16488,12 +16494,18 @@ fn kore_implies_reports_invalid_only_for_an_antecedent_shown_nonempty() {
         "{}",
         String::from_utf8_lossy(&compile.stderr)
     );
+    let opaque = include_str!("fixtures/kink/andint/ant.kore")
+        .replace(r#"\dv{SortInt{}}("6")"#, "VarY:SortInt{}");
+    let opaque_con = include_str!("fixtures/kink/andint/con.kore")
+        .replace(r#"\dv{SortInt{}}("6")"#, "VarY:SortInt{}");
     let patterns = [
         ("ant", include_str!("fixtures/kink/andint/ant.kore")),
         ("con", include_str!("fixtures/kink/andint/con.kore")),
         ("ant0", include_str!("fixtures/kink/andint/ant0.kore")),
         ("con0", include_str!("fixtures/kink/andint/con0.kore")),
         ("bottom", r#"\bottom{SortKItem{}}()"#),
+        ("opaque", opaque.as_str()),
+        ("opaque-con", opaque_con.as_str()),
     ];
     for (name, pattern) in patterns {
         fs::write(root.join(format!("{name}.kore")), pattern).unwrap();
@@ -16505,16 +16517,20 @@ fn kore_implies_reports_invalid_only_for_an_antecedent_shown_nonempty() {
     }
 
     for (antecedent, consequent, status, predicate) in [
-        ("ant", "con", "unknown", Some("Bottom")),
+        ("ant", "con", "valid", Some("Bottom")),
         ("ant0", "con0", "invalid", Some("Bottom")),
-        ("ant", "bottom", "unknown", Some("Bottom")),
+        ("ant", "bottom", "valid", Some("Bottom")),
         ("ant0", "bottom", "invalid", Some("Bottom")),
         // `A -> \not C` is invalid exactly when `A /\ C` is nonempty: `stay(1)` is common to
-        // `ant0` and itself, `X +Int 1` is 2 and 3 on no shared `X`, and the solver's `Sat` for
-        // the uninterpreted `X &Int 6 ==Int 1` shows no common value.
+        // `ant0` and itself, and `X +Int 1` is 2 and 3 on no shared `X`.
+        // `X &Int 6 ==Int 1` is empty. An opaque model of `X &Int Y ==Int 1`
+        // still shows no certified common value.
         ("ant0", "not-ant0", "invalid", None),
         ("ant0", "not-con0", "valid", Some("Top")),
-        ("ant", "not-ant", "unknown", None),
+        ("ant", "not-ant", "valid", Some("Top")),
+        ("opaque", "opaque-con", "unknown", Some("Bottom")),
+        ("opaque", "bottom", "unknown", Some("Bottom")),
+        ("opaque", "not-opaque", "unknown", None),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
             .args(["kore-implies"])
