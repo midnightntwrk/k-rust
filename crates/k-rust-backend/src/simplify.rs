@@ -322,6 +322,10 @@ pub(crate) struct PatternSimplification {
 /// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SimplificationError {
+    /// The condition cannot be stated faithfully for simplification or solver decisions.
+    UnstatedDefinedness {
+        reason: String,
+    },
     Builtin(BuiltinError),
     DisjunctiveResult {
         rule_id: String,
@@ -1705,6 +1709,7 @@ fn record_rule_condition_failure(rule: &RuleAttributes, failure: SimplificationE
         failure @ (SimplificationError::Smt { .. }
         | SimplificationError::SmtPredicate { .. }
         | SimplificationError::Builtin(..)
+        | SimplificationError::UnstatedDefinedness { .. }
         | SimplificationError::DisjunctiveResult { .. }
         | SimplificationError::InvalidBuiltinResultSymbol { .. }) => {
             diagnostic::emit(BackendDiagnostic::RuleConditionFailed {

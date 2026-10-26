@@ -1108,12 +1108,12 @@ impl SmtPrelude {
 /// operation, including on instances where the partial function has no value. It is sound for a
 /// predicate only when the predicate is definedness-faithful (see [`Exactness`]). The rewrite and
 /// equation condition callers make it so before deciding (`definedness::condition_definedness`
-/// on every `requires` and `ensures`), and so do the admission of a request's predicates
+/// and `definedness::faithful_conditions` on every `requires` and `ensures`), and so do the admission of a request's predicates
 /// (`definition::Admitted`, `definedness::request_definedness`) and the internalization of a
 /// claim's constraints (`claim::with_explicit_definedness`); docs/compatibility.md, "Solver
-/// decisions over partial operations", lists every source and the remaining gaps: an `\equals` of
-/// two possibly undefined terms in a rule or equation condition, and an `\equals` in a
-/// definition's axioms that reads a term as a predicate.
+/// decisions over partial operations", lists the source and predicate-reading boundaries.
+/// An instantiated condition with an atom over a term-level conjunction is refused rather
+/// than decided with a totalized value.
 #[must_use]
 pub fn translation_exactness(predicates: &[Predicate]) -> Exactness {
     translate_query(predicates, &Substitution::new(), &[])

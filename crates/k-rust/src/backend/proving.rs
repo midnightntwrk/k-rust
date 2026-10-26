@@ -133,13 +133,18 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 ///   refused before any saved proof is looked up, but a proof saved under the previous reading
 ///   may prove another claim that used a now-refused claim as a circularity, and would be
 ///   reused as proven on a false assumption; no saved proof records the circularities it used,
-///   so every proof saved under the previous reading is set aside.
+///   so every proof saved under the previous reading is set aside;
+/// - `definition-condition-equalities-with-definedness-3`: definition conditions use the same
+///   faithful reading of partial equalities before simplification or SMT, including equality
+///   of two empty terms. Previously the negation of such an equality could enable a rule
+///   incorrectly and prove a false claim; proofs of unchanged claims are therefore invalidated.
 ///
 /// The backend gives a claim its reading when it internalizes it
 /// (`k_rust_backend::claim::internalize_reachability_claim` and
 /// `k_rust_backend::claim::with_explicit_definedness`); a change there that changes what a
-/// claim's KORE means must name a new reading here.
-const CLAIM_READING: &str = "claim-predicates-as-written-2";
+/// claim's KORE means must name a new reading here. A correction to the reading of definition
+/// conditions also changes what these proofs certify and must name a new reading.
+const CLAIM_READING: &str = "definition-condition-equalities-with-definedness-3";
 
 /// The assumptions of a proof run that change what a `proven` claim certifies, beside the
 /// compiled definition ([`saved_proofs_digest`]).

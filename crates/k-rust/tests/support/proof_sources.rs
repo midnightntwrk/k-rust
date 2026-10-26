@@ -281,3 +281,47 @@ pub const TERM_READ_AS_PREDICATE_CLAIMS: &str = r#"
       weakAlwaysFinally{SortGeneratedTopCell{}}(\exists{SortGeneratedTopCell{}}(Var'QuesUnds'Gen1:SortInt{}, \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortRes{}, SortKItem{}}(Lblw3{}(VarX:SortInt{}, VarY:SortInt{}, VarZ:SortInt{})), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{})), \bottom{SortGeneratedTopCell{}}()))))
     [UNIQUE'Unds'ID{}("hand-lhseqtop"), label{}("HAND.lhseqtop")]
 "#;
+
+/// Definition conditions compare partial terms by their matching-logic denotations.
+/// The positive equality below holds exactly at a zero divisor; its negation holds exactly
+/// at a nonzero divisor. The initial commands themselves are defined in either region.
+pub const PARTIAL_EQUALITY_CONDITIONS: &str = r#"
+module PARTIAL-CONDITIONS
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Cmd ::= positive(Int, Int) | negative(Int, Int) | objectBool(Int, Int)
+               | ensured(Int, Int) | negativeEnsured(Int, Int) | "hit"
+  syntax Int ::= selected(Int, Int) [function, total]
+  rule selected(X:Int, D:Int) => 7 requires {X /Int D #Equals (X /Int D) +Int 1}
+  rule selected(X:Int, D:Int) => 9 requires #Not({X /Int D #Equals (X /Int D) +Int 1})
+  rule <k> positive(X:Int, D:Int) => hit </k>
+    requires {X /Int D #Equals (X /Int D) +Int 1}
+  rule <k> negative(X:Int, D:Int) => hit </k>
+    requires #Not({X /Int D #Equals (X /Int D) +Int 1})
+  rule <k> objectBool(X:Int, D:Int) => hit </k>
+    requires X /Int D ==Int (X /Int D) +Int 1
+  rule <k> ensured(X:Int, D:Int) => hit </k>
+    ensures {X /Int D #Equals (X /Int D) +Int 1}
+  rule <k> negativeEnsured(X:Int, D:Int) => hit </k>
+    ensures #Not({X /Int D #Equals (X /Int D) +Int 1})
+  configuration <T> <k> $PGM:K </k> <v> .K </v> </T>
+endmodule
+module PARTIAL-CONDITIONS-SPEC
+  imports PARTIAL-CONDITIONS
+  claim [positive-zero]: <k> positive(1, 0) => hit </k>
+  claim [negative-zero]: <k> negative(1, 0) => hit </k>
+  claim [positive-nonzero]: <k> positive(1, 1) => hit </k>
+  claim [negative-nonzero]: <k> negative(1, 1) => hit </k>
+  claim [symbolic-zero]: <k> positive(X:Int, D:Int) => hit </k> requires D ==Int 0
+  claim [symbolic-negative-zero]: <k> negative(X:Int, D:Int) => hit </k> requires D ==Int 0
+  claim [symbolic-negative-nonzero]: <k> negative(X:Int, D:Int) => hit </k> requires D =/=Int 0
+  claim [object-bool-zero]: <k> objectBool(1, 0) => hit </k>
+  claim [ensured-zero]: <k> ensured(1, 0) => hit </k>
+  claim [negative-ensured-zero]: <k> negativeEnsured(1, 0) => hit </k>
+  claim [ensured-nonzero]: <k> ensured(1, 1) => hit </k>
+  claim [negative-ensured-nonzero]: <k> negativeEnsured(1, 1) => hit </k>
+  claim [equation-zero]: <k> .K </k> <v> selected(X:Int, D:Int) => 7 </v> requires D ==Int 0
+  claim [equation-nonzero]: <k> .K </k> <v> selected(X:Int, D:Int) => 9 </v> requires D =/=Int 0
+endmodule
+"#;

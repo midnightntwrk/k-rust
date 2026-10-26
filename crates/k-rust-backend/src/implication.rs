@@ -394,7 +394,7 @@ pub fn check_negated_consequent(
                 .with_definedness(definition, &conjunction.constraints)?,
         );
         stated.extend(definedness);
-        Ok::<_, crate::deferred::DeferredOutcome>(stated)
+        Ok::<_, crate::definedness::PredicateDefinednessFailure>(stated)
     })();
     let Ok(stated) = stated else {
         return Ok(Ok(ImplicationVerdict::Indeterminate { outside: None }));
@@ -2096,7 +2096,7 @@ fn consequent_obligations(
     knowledge: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Stoppable<Result<PreparedConsequent, crate::deferred::DeferredOutcome>> {
+) -> Stoppable<Result<PreparedConsequent, SimplificationError>> {
     let (substitution, remainder, solved_constraints) = solve_collection_remainder_pairs(
         definition,
         substitution,

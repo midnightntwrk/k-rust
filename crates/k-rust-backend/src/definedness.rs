@@ -1623,9 +1623,9 @@ fn under_binder(
     nested_condition_definedness(definition, inner, &unshadowed_known, Some(&link))
 }
 
-/// Why a request's predicates have no definedness-explicit form ([`request_definedness`]).
+/// Why predicates have no definedness-explicit form ([`request_definedness`]).
 #[derive(Debug)]
-pub(crate) enum RequestDefinednessFailure {
+pub(crate) enum PredicateDefinednessFailure {
     /// The definedness of an operand that `#if`, `andThenBool` or `orElseBool` does not
     /// evaluate depends on an impure application (`crate::deferred`).
     Deferred(DeferredOutcome),
@@ -1633,6 +1633,23 @@ pub(crate) enum RequestDefinednessFailure {
     /// conjunction of its `ceil_term` obligations (`Y /\ Z` of two variables is empty unless
     /// `Y = Z`).
     TermConjunction,
+}
+
+impl From<DeferredOutcome> for PredicateDefinednessFailure {
+    fn from(outcome: DeferredOutcome) -> Self {
+        Self::Deferred(outcome)
+    }
+}
+
+impl From<PredicateDefinednessFailure> for crate::simplify::SimplificationError {
+    fn from(failure: PredicateDefinednessFailure) -> Self {
+        match failure {
+            PredicateDefinednessFailure::Deferred(outcome) => outcome.into(),
+            PredicateDefinednessFailure::TermConjunction => Self::UnstatedDefinedness {
+                reason: crate::definition::UnstatedDefinedness::TermConjunction.to_string(),
+            },
+        }
+    }
 }
 
 /// A request's predicates (the constraints of a pattern a client sends, or a predicate it sends
@@ -1649,15 +1666,27 @@ pub(crate) enum RequestDefinednessFailure {
 /// which a term of the predicates is undefined: under a negation such an atom keeps holding
 /// there. A definedness-explicit list is a fixed point.
 ///
-/// A rule's condition is not read this way: [`condition_definedness`] alone leaves an equality
-/// with no side shown defined as written. The predicates are returned as they are, after one
-/// read of the stored attribute per term, when every term is `ceil_free`.
+/// Instantiated definition conditions use the same equality conversion before they are
+/// simplified or decided. The predicates are returned as they are, after one read of the
+/// stored attribute per term, when every term is `ceil_free`.
 pub(crate) fn request_definedness(
     definition: &BackendDefinition,
     predicates: Vec<Predicate>,
-) -> Result<Vec<Predicate>, RequestDefinednessFailure> {
+) -> Result<Vec<Predicate>, PredicateDefinednessFailure> {
+    let faithful = faithful_conditions(definition, predicates)?;
+    condition_definedness(definition, faithful, &[]).map_err(PredicateDefinednessFailure::Deferred)
+}
+
+/// State the both-empty case of equalities before any simplification may totalize a partial
+/// operand. Boolean-atom obligations are left to `condition_definedness`, so the existing
+/// exact ground-evaluation path need not compute them before it evaluates a Boolean term.
+/// This conversion is shared by request/claim admission and instantiated axiom conditions.
+pub(crate) fn faithful_conditions(
+    definition: &BackendDefinition,
+    predicates: Vec<Predicate>,
+) -> Result<Vec<Predicate>, PredicateDefinednessFailure> {
     if predicates.iter().any(atom_over_term_conjunction) {
-        return Err(RequestDefinednessFailure::TermConjunction);
+        return Err(PredicateDefinednessFailure::TermConjunction);
     }
     if predicates_are_ceil_free(&predicates) {
         return Ok(predicates);
@@ -1674,7 +1703,7 @@ pub(crate) fn request_definedness(
             faithful_equalities(definition, predicate, Some(&link))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    condition_definedness(definition, faithful, &[]).map_err(RequestDefinednessFailure::Deferred)
+    Ok(faithful)
 }
 
 /// Whether an atom of `predicate` (a Boolean term, or a side of an equality) holds a term-level
@@ -1716,7 +1745,7 @@ fn faithful_equalities(
     definition: &BackendDefinition,
     predicate: &Predicate,
     beside: Beside<'_>,
-) -> Result<Predicate, RequestDefinednessFailure> {
+) -> Result<Predicate, PredicateDefinednessFailure> {
     let nested = |inner: &Predicate| faithful_equalities(definition, inner, beside).map(Arc::new);
     Ok(match predicate {
         Predicate::True
@@ -1745,7 +1774,7 @@ fn faithful_equalities(
                 return Ok(predicate.clone());
             }
             let obligations = |term: &Term| {
-                ceil_term(definition, term).map_err(RequestDefinednessFailure::Deferred)
+                ceil_term(definition, term).map_err(PredicateDefinednessFailure::Deferred)
             };
             let (left_defined, right_defined) = (obligations(left)?, obligations(right)?);
             let conjunction = |mut members: Vec<Predicate>| {
@@ -3010,6 +3039,81 @@ mod tests {
         );
     }
 
+    /// A condition's equality has its both-empty case before either the general path or the
+    /// ground-evaluation shortcut can simplify it. Request admission and axiom conditions
+    /// therefore agree, including under negation and after literal instantiation.
+    #[test]
+    fn instantiated_conditions_state_partial_equalities_before_any_decision() {
+        use crate::{condition::Condition, substitution::Substitution};
+        let definition = division_definition();
+        let equality = undefined_equality();
+        let ground = equality
+            .replace("X:SortInt{}", r#"\dv{SortInt{}}("1")"#)
+            .replace("Y:SortInt{}", r#"\dv{SortInt{}}("0")"#);
+        for source in [
+            equality.clone(),
+            format!(r"\not{{SortInt{{}}}}({equality})"),
+            ground.clone(),
+            format!(r"\not{{SortInt{{}}}}({ground})"),
+        ] {
+            let raw = division_predicate(&definition, &source);
+            let expected = request_definedness(&definition, vec![raw.clone()]).unwrap();
+            assert_ne!(expected, vec![raw.clone()]);
+            let condition = Condition::new(vec![raw]);
+            assert_eq!(
+                condition
+                    .instantiate(&Substitution::new())
+                    .with_definedness(&definition, &[])
+                    .unwrap(),
+                expected
+            );
+            let mut called = false;
+            let actual = condition
+                .instantiate(&Substitution::new())
+                .simplify(&definition, &[], &[], |conditions, _, _| {
+                    called = true;
+                    assert_eq!(conditions, expected, "{source}");
+                    Ok(Ok(conditions))
+                })
+                .unwrap()
+                .unwrap();
+            assert!(called);
+            assert_eq!(actual, expected);
+        }
+    }
+
+    /// An unsupported definition condition must fail before a callback can decide it, rather
+    /// than refuting the guard and excluding a transition.
+    #[test]
+    fn instantiated_condition_refuses_term_conjunction_before_simplification() {
+        use crate::{
+            condition::Condition, simplify::SimplificationError, substitution::Substitution,
+        };
+        let definition = division_definition();
+        let raw = division_predicate(
+            &definition,
+            r#"\equals{SortInt{}, SortInt{}}(
+            plusInt{}(\and{SortInt{}}(X:SortInt{}, Y:SortInt{}), \dv{SortInt{}}("0")), \dv{SortInt{}}("1"))"#,
+        );
+        let condition = Condition::new(vec![raw]);
+        assert!(matches!(
+            condition
+                .instantiate(&Substitution::new())
+                .with_definedness(&definition, &[]),
+            Err(PredicateDefinednessFailure::TermConjunction)
+        ));
+        let result = condition.instantiate(&Substitution::new()).simplify(
+            &definition,
+            &[],
+            &[],
+            |_, _, _| panic!("unsupported condition reached simplification"),
+        );
+        assert!(matches!(
+            result,
+            Ok(Err(SimplificationError::UnstatedDefinedness { .. }))
+        ));
+    }
+
     /// `request_definedness` applied to its own output returns it unchanged, as a list or as
     /// the conjunction of that list, for the atoms of `division_cases` and for an equality of
     /// two undefined terms, plain and negated.
@@ -3054,7 +3158,7 @@ mod tests {
             let predicate = division_predicate(&definition, &source);
             let result = request_definedness(&definition, vec![predicate.clone()]);
             assert!(
-                matches!(result, Err(RequestDefinednessFailure::TermConjunction)),
+                matches!(result, Err(PredicateDefinednessFailure::TermConjunction)),
                 "{predicate:?} {result:?}"
             );
         }

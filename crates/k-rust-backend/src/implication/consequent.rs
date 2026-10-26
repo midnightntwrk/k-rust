@@ -20,12 +20,12 @@ use std::collections::BTreeSet;
 
 use crate::{
     condition::instantiate_constraints,
-    deferred::DeferredOutcome,
     definedness::ceil_term,
     definition::BackendDefinition,
     matching::expand_implication_remainders,
     rewrite::Pattern,
     rule::Predicate,
+    simplify::SimplificationError,
     stop::Stoppable,
     substitution::{Substitution, substitute},
     term::{Term, Variable},
@@ -76,7 +76,7 @@ impl ConsequentMatch {
         remainder: Vec<(Term, Term)>,
         known: &[Predicate],
         refuted: &mut ConditionRefuter<'_>,
-    ) -> Stoppable<Result<Vec<ConsequentObligations>, DeferredOutcome>> {
+    ) -> Stoppable<Result<Vec<ConsequentObligations>, SimplificationError>> {
         let (universal, equations) = self.universal.with_equations();
         // The whole match, applied to the remainder and to the destination's constraints: the
         // witnesses and the universal bindings, whose equations lead every branch. The two
@@ -126,7 +126,7 @@ fn branch_obligations(
     remainder: Vec<(Term, Term)>,
     known: &[Predicate],
     refuted: &mut ConditionRefuter<'_>,
-) -> Stoppable<Result<ConsequentObligations, DeferredOutcome>> {
+) -> Stoppable<Result<ConsequentObligations, SimplificationError>> {
     let mut obligations = Vec::new();
     for equation in equations {
         if !obligations.contains(equation) {
@@ -143,7 +143,7 @@ fn branch_obligations(
         let left = substitute(&left, substitution);
         let definedness = match ceil_term(definition, &left) {
             Ok(definedness) => definedness,
-            Err(outcome) => return Ok(Err(outcome)),
+            Err(outcome) => return Ok(Err(outcome.into())),
         };
         for predicate in definedness {
             if !obligations.contains(&predicate) {
@@ -162,7 +162,7 @@ fn branch_obligations(
         .with_definedness(definition, known)
     {
         Ok(constraints) => constraints,
-        Err(outcome) => return Ok(Err(outcome)),
+        Err(outcome) => return Ok(Err(outcome.into())),
     };
     for predicate in constraints {
         if !obligations.contains(&predicate) {

@@ -3181,3 +3181,71 @@ fn a_claim_with_an_equality_reading_a_term_as_a_predicate_is_refused() {
         );
     }
 }
+
+/// Both-empty matching-logic equality enables the rule; its negation must not enable it.
+/// In particular `negative-zero` used to be falsely proven by totalizing division in the guard.
+/// The same condition meaning is required for rewrite ensures and equation applicability.
+#[test]
+fn partial_equalities_in_definition_conditions_preserve_both_empty_instances() {
+    let kore = compile(
+        proof_sources::PARTIAL_EQUALITY_CONDITIONS,
+        "PARTIAL-CONDITIONS-SPEC",
+        "PARTIAL-CONDITIONS",
+    );
+    for (label, expected) in [
+        ("positive-zero", "proven"),
+        ("negative-zero", "disproved"),
+        ("positive-nonzero", "disproved"),
+        ("negative-nonzero", "proven"),
+        ("symbolic-zero", "proven"),
+        ("symbolic-negative-zero", "disproved"),
+        ("symbolic-negative-nonzero", "proven"),
+        ("object-bool-zero", "disproved"),
+        ("ensured-zero", "proven"),
+        ("negative-ensured-zero", "failed"),
+        ("ensured-nonzero", "failed"),
+        ("negative-ensured-nonzero", "proven"),
+        ("equation-zero", "proven"),
+        ("equation-nonzero", "proven"),
+    ] {
+        let result = prove(
+            &kore,
+            "PARTIAL-CONDITIONS-SPEC",
+            &format!("PARTIAL-CONDITIONS-SPEC.{label}"),
+            ProveRequest {
+                max_depth: Some(4),
+                ..ProveRequest::default()
+            },
+        );
+        assert_eq!(result.status, expected, "{label}: {:?}", result.leaves);
+    }
+}
+
+/// Claims proven under the old definition-condition reading can be false even when their
+/// own constraints are unchanged, so the correction must also invalidate saved proofs.
+#[test]
+fn partial_condition_correction_invalidates_saved_proofs_from_the_previous_reading() {
+    use k_rust::backend::proving::{
+        ProofAssumptions, saved_proofs_digest, saved_proofs_digest_under_reading,
+    };
+    let kore = compile(
+        proof_sources::PARTIAL_EQUALITY_CONDITIONS,
+        "PARTIAL-CONDITIONS-SPEC",
+        "PARTIAL-CONDITIONS",
+    );
+    let definition = k_rust::kore::parser::parse_definition(&kore).unwrap();
+    let trusted = std::collections::BTreeSet::new();
+    let assumptions = ProofAssumptions {
+        trusted: &trusted,
+        smt_prelude: None,
+        allow_vacuous: false,
+    };
+    let previous = saved_proofs_digest_under_reading(
+        &definition,
+        "PARTIAL-CONDITIONS-SPEC",
+        &assumptions,
+        Some("claim-predicates-as-written-2"),
+    );
+    let current = saved_proofs_digest(&definition, "PARTIAL-CONDITIONS-SPEC", &assumptions);
+    assert_ne!(current, previous);
+}

@@ -1511,14 +1511,16 @@ pub enum UnstatedDefinedness {
     RefusedReading(Box<RulePatternError>),
 }
 
-impl From<crate::definedness::RequestDefinednessFailure> for UnstatedDefinedness {
-    fn from(failure: crate::definedness::RequestDefinednessFailure) -> Self {
+impl From<crate::definedness::PredicateDefinednessFailure> for UnstatedDefinedness {
+    fn from(failure: crate::definedness::PredicateDefinednessFailure) -> Self {
         match failure {
-            crate::definedness::RequestDefinednessFailure::Deferred(outcome) => Self::Impure {
+            crate::definedness::PredicateDefinednessFailure::Deferred(outcome) => Self::Impure {
                 hook: outcome.hook().to_owned(),
                 detail: outcome.reason().to_string(),
             },
-            crate::definedness::RequestDefinednessFailure::TermConjunction => Self::TermConjunction,
+            crate::definedness::PredicateDefinednessFailure::TermConjunction => {
+                Self::TermConjunction
+            }
         }
     }
 }
