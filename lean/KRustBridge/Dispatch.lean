@@ -1,5 +1,6 @@
 import KRustBridge.Json
 import KRustBridge.SubsortJson
+import KRustBridge.SubstitutionJson
 import KRust.TermAttributes
 import KRust.SubsortEncoding
 
@@ -40,7 +41,9 @@ open Lean (Json)
 
 /-- The models by name: input JSON to output JSON. -/
 def models : List (String × (Json → Except String Json)) :=
-  [("firstMacro", fun input => do
+  [("substitutionSaturation", saturationRequest true),
+   ("substitutionSaturationOld", saturationRequest false),
+   ("firstMacro", fun input => do
       let t ← termFromJson input
       return match KRust.TermAttributes.firstMacro t with
         | some name => Json.str name

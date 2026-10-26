@@ -4339,10 +4339,16 @@ provenance = "declared"
 area = "backend"
 name = "substitution extraction with strongly connected component cycle breaking"
 variable = "c = input constraints; r = graph-build/SCC rounds, including the final acyclic round; V = candidate bindings before cycle removal; A = variable references in candidate values, including references to unbound variables; E = dependency edges, at most A; s = surviving bindings; t = largest intermediate term size; v = largest visited subterm variable count"
+invariant = "During saturation, the round snapshot is restored before each binding; the callback sees exactly the previous round with its own key removed. SCC acyclicity is needed for convergence, not for remove/restore equivalence."
 no_counter = "substitution extraction has no dedicated counter"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendSubstitutionExtract"
+lean = [
+    "KRust.SubstitutionSaturation.sweep_eq",
+    "KRust.SubstitutionSaturation.saturation_eq",
+    "KRust.SubstitutionSaturation.replay_eq",
+]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -4364,13 +4370,18 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/substitution.rs"
 symbol = "extract_substitution_for"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "saturate_with"
+
 [[node.cost]]
 mode = "cycle breaking"
 bound = "empty constraints return in O(1); otherwise classify c constraints into ordered binding buckets, charging the binding extractor's term/injection/sort work; then r graph rounds, at most V + 1. Each round builds ordered candidate indexes and checks A value-variable references, O((V + A) log(V + 1)) key comparisons, runs Kosaraju in O(V + E), and removes the least variable of each cyclic SCC with ordered-set operations. r includes a graph build even when no cycle is broken."
 
 [[node.cost]]
 mode = "saturation"
-bound = "at most s rounds of s substitutions at the current intermediate size, each charged backend.substitution.apply, plus O(s^3) binding/term-handle copies from cloning the whole map inside the inner loop, ordered removals/insertions and structural equality when checking convergence; filter c remaining constraints through the selected-index set afterwards. t can exceed input term size."
+bound = "at most s rounds of s substitutions at the current intermediate size, each charged backend.substitution.apply, plus O(s^2) binding/term-handle copies from one snapshot clone per round and restoring each removed key, O(s^2 log(s + 1)) key comparisons for removals/restorations, and structural equality when checking convergence; filter c remaining constraints through the selected-index set afterwards. t can exceed input term size."
 
 [[node]]
 kind = "algorithm"
@@ -4986,6 +4997,18 @@ symbol = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
 
 [[node]]
 kind = "observation"
+id = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+symbol = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+
+[[node]]
+kind = "observation"
 id = "crates/k-rust-backend/src/term/chunked/tests.rs"
 provenance = "declared"
 area = "backend"
@@ -5019,6 +5042,18 @@ name = "crates/k-rust-backend/src/tests/definedness.rs"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/tests/definedness.rs"
 symbol = "crates/k-rust-backend/src/tests/definedness.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
+symbol = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
 
 [[node]]
 kind = "observation"
@@ -11722,6 +11757,18 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.smt.check"
 to = "SmtSolverRuns"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.substitution.extract"
+to = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.substitution.extract"
+to = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
 provenance = "declared"
 
 [[edge]]

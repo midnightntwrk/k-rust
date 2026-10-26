@@ -5,7 +5,7 @@ It is the starting point for work that spans algorithms.
 Source discovery covers root `crates/*/src`; KRS, KINK and k2lean workspace members are outside this graph.
 It holds only what the algorithm graph declares on cards (`docs/algorithm-cards.md`), reads from tables (the kompile stage tables, `Counter::ALL`), or derives from both.
 An absent edge proves nothing: there is no call graph, and code that no card names belongs to no algorithm.
-Graph: nodes 132 algorithm, 3 contract, 3 invariant, 114 observation, 67 phase, 1 registry, 37 representation; edges 9 constrains, 70 consumes, 23 contains, 1 falls-back-to, 40 follows, 136 measured-by, 36 produces, 1 variant-of.
+Graph: nodes 132 algorithm, 3 contract, 3 invariant, 116 observation, 67 phase, 1 registry, 37 representation; edges 9 constrains, 70 consumes, 23 contains, 1 falls-back-to, 40 follows, 138 measured-by, 36 produces, 1 variant-of.
 
 - `algo-graph query show <id>` prints a whole card (every cost mode, variables, counters, tests); `query impact <id>` prints what a change reaches.
 - `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload, and the algorithm nesting observed on each run, which orders the kprove and krun algorithms this map cannot place. This map has no measured cost.
@@ -301,6 +301,7 @@ Each card with a `lean` key names theorems of `lean/theorems.txt` whose models m
 
 - backend.definedness.discharge: KRust.TermAttributes.ceilFree_sound, KRust.TermAttributes.walk_eq_ceilTerm, KRust.TermAttributes.apart_of_sameSkeleton, KRust.TermAttributes.normDistinct_of_sameSkeleton
 - backend.rule.select: KRust.TermAttributes.rule_index_same
+- backend.substitution.extract: KRust.SubstitutionSaturation.sweep_eq, KRust.SubstitutionSaturation.saturation_eq, KRust.SubstitutionSaturation.replay_eq
 - backend.term.macro_or_alias: KRust.TermAttributes.hasMacro_iff, KRust.TermAttributes.macro_shortcut_eq
 - parser.inference.z3: KRust.SubsortEncoding.new_equiv, KRust.MaximalModels.maximal_models_spec, KRust.MaximalModels.runs_agree_up_to_pref, KRust.MaximalModels.runs_agree_candidates
 - representation.backend.term: KRust.TermAttributes.ceilFree_sound, KRust.TermAttributes.map_keys_pairwise_distinct, KRust.TermAttributes.set_pairwise_distinct

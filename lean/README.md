@@ -14,11 +14,13 @@ The method, its limits and the case studies are in `draft/lean-verification/READ
 | `KRust/SubsortEncoding.lean` | the Z3 ground-side subsort encoding (`new_equiv`) |
 | `KRust/TermAttributes.lean` | the backend `Term` model; `ceilFree_sound` (OT-01), `walk_eq_ceilTerm` (the definedness walk as a work-list loop with one deduplication), `apart_of_sameSkeleton` and `normDistinct_of_sameSkeleton` (distinct map keys of one rigid skeleton are apart), `hasMacro_iff`, `macro_shortcut_eq` and `rule_index_same` (OT-02) |
 | `KRust/SynthAttr.lean` | the generic synthesized-attribute lemma `fold_rel`, with case 3 restated through it |
+| `KRust/SubstitutionSaturation.lean` | exact callback-trace and result equality of clone/remove and remove/apply/restore saturation (`sweep_eq`, `saturation_eq`, `replay_eq`) |
 | `KRust/Examples.lean` | `#guard` checks that run the term model at build time |
 | `KRust/MaximalModels.lean` | the maximal-model enumeration of the Z3 sort inference (`maximal_models_spec`, `runs_agree_up_to_pref`, `runs_agree_candidates`) |
 | `Audit.lean` | `krust-audit`: the `sorry` and axiom audit that `scripts/lean-check.sh` runs, and the theorem list |
 | `KRustBridge/Json.lean` | the JSON form of the term model, shared with the Rust encoder of the bridge tests |
 | `KRustBridge/SubsortJson.lean` | the JSON form of the order-constraint model of `KRust/SubsortEncoding.lean`, shared with the Rust encoder of its bridge tests |
+| `KRustBridge/SubstitutionJson.lean` | finite key/value IDs and arbitrary callback-answer streams for saturation-schedule conformance |
 | `KRustBridge/Dispatch.lean` | the bridged models by name; each applies a `KRust` definition, never a copy |
 | `Bridge.lean` | `krust-bridge`: answers JSON-line requests with `KRust.Bridge.answer` |
 
@@ -71,6 +73,14 @@ Without `K_RUST_LEAN_BRIDGE=1` those tests are skipped with a message; with it, 
 | `kCells` | `TermAttributes.kCells` | the stored `TermAttributes::k_cells` | `k-rust-backend` `tests::lean_bridge::attributes` |
 | `lessThanEq` | `SubsortEncoding.new` | `Encoding::less_than_eq` | `k-rust` `inner::parser::z3_inference::tests::lean_bridge` |
 | `fullDisjunction` | `SubsortEncoding.old` | `OrderRelation::full_disjunction` | `k-rust` `inner::parser::z3_inference::tests::lean_bridge` |
+| `substitutionSaturation` | `SubstitutionSaturation.replay true` | `substitution::saturate_with` | `k-rust-backend` `tests::lean_bridge::substitution` |
+| `substitutionSaturationOld` | `SubstitutionSaturation.replay false` | test-only frozen clone/remove loop | `k-rust-backend` `tests::lean_bridge::substitution` |
+
+The saturation model covers the computation changed by the optimization: snapshot/map operations, callback input values and order, output placement, the round bound and the convergence decision.
+Its callback is arbitrary, indexed by call number, and its theorems assume no property of substitution or of the dependency graph.
+The bridge supplies arbitrary callback answers over equality-class IDs of actual Rust `Term` values and ordinals of actual ordered `Variable` keys; it compares every callback input map, final bindings and call count.
+Repeated equal terms share an ID, so the model's convergence equality is Rust's equality; the encoding preserves every key in the fixed domain.
+It deliberately does not model unchanged term reconstruction inside `substitute`: the theorem gives that function exactly the old input values and bindings at every call, and `saturation_tests` additionally compares complete extraction using the actual callback, including cycles, collections, duplicates and restricted binders.
 
 `KRust/MaximalModels.lean` has no bridged model: `Run`, `Climb` and `Problem.candidates` are relations over every sequence of Z3 answers, not functions of an input, so there is nothing to evaluate against `Encoding::maximal_models`.
 Its conformance is the hypotheses in the table below, each checked by a Rust property test.
