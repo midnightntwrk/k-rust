@@ -342,12 +342,39 @@ impl<'a> Adapter<'a> {
             None => BTreeSet::new(),
             Some(name) => spec_closure(ir, name)?,
         };
-        let modules = ir
+        // Standard builtin theories used by the selected specification are dependencies
+        // of its proof context. Keeping them only below the spec import makes the native
+        // proof-module check mistake their canonical syntax/equations for authored additions.
+        // Only catalog-derived builtin imports are included; user imports and sentences stay
+        // in their original modules and remain subject to the ordinary proof-module checks.
+        let proof_builtins = ir
+            .modules()
+            .iter()
+            .filter(|module| spec_closure.contains(module.id().as_str()))
+            .flat_map(|module| builtin_imports(module, ImportPolicy::NativeFrontend))
+            .collect::<BTreeSet<_>>();
+        let mut modules = ir
             .modules()
             .iter()
             .filter(|module| !module.is_spec() || spec_closure.contains(module.id().as_str()))
             .map(|module| self.module(module))
             .collect::<Result<Vec<_>, _>>()?;
+        if !proof_builtins.is_empty() {
+            let main = modules
+                .iter_mut()
+                .find(|module| module.name == ir.main_module().as_str())
+                .expect("validated Definition IR contains its main module");
+            let mut imports = main
+                .imports
+                .iter()
+                .map(|import| import.name.clone())
+                .collect::<BTreeSet<_>>();
+            imports.extend(proof_builtins.into_iter().map(str::to_owned));
+            main.imports = imports
+                .into_iter()
+                .map(|name| FlatImport { name, public: true })
+                .collect();
+        }
         Ok(AdaptedDefinition {
             definition: NativeDefinition {
                 main_module: self

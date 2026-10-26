@@ -322,3 +322,140 @@ fn the_registry_plugin_hooks_are_the_namespaces_each_backend_admits() {
         "the raw-hook note says `--backend llvm` admits no plugin hook namespace"
     );
 }
+
+mod proof_builtin_context {
+    use super::*;
+    use krs_ir::{ApplicationRef, BuiltinOperation, BuiltinSort, ModuleId, testing::origin};
+    use krs_ir_levels::{
+        DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+        LabelId, LabelIdentity, RuleSentence,
+    };
+
+    fn spec(name: &str, main: &ModuleId, string_theory: bool) -> DefinitionModule {
+        let key = |part: &str| origin(&format!("{name}-{part}"));
+        let token = |part: &str, sort, text| {
+            DefinitionTerm::token(key(part), DefinitionSortRef::Builtin(sort), text).unwrap()
+        };
+        let (sort, expression) = if string_theory {
+            (
+                BuiltinSort::Int,
+                DefinitionTerm::application(
+                    key("operation"),
+                    DefinitionSortRef::Builtin(BuiltinSort::Int),
+                    ApplicationRef::Builtin(BuiltinOperation::StringLength),
+                    vec![token("string", BuiltinSort::String, "text")],
+                ),
+            )
+        } else {
+            (
+                BuiltinSort::Bool,
+                DefinitionTerm::application(
+                    key("operation"),
+                    DefinitionSortRef::Builtin(BuiltinSort::Bool),
+                    ApplicationRef::Builtin(BuiltinOperation::IntGreaterEqual),
+                    vec![
+                        token("left", BuiltinSort::Int, "0"),
+                        token("right", BuiltinSort::Int, "0"),
+                    ],
+                ),
+            )
+        };
+        let rhs = token("result", sort, if string_theory { "0" } else { "true" });
+        let body = DefinitionTerm::rewrite(
+            key("rewrite"),
+            DefinitionSortRef::Builtin(sort),
+            expression,
+            rhs,
+        )
+        .unwrap();
+        // Deliberately an authored transition: adaptation must keep it in the specification,
+        // where the native proof-module check must still reject it.
+        let rule = RuleSentence::new(
+            key("rule"),
+            LabelIdentity::new(
+                LabelId::new(format!("{name}-rule")).unwrap(),
+                format!("{name}.test"),
+            )
+            .unwrap(),
+            SentenceKind::Transition,
+            vec![],
+            body,
+        )
+        .unwrap();
+        DefinitionModule::new(
+            key("module"),
+            ModuleId::new(name).unwrap(),
+            vec![main.clone()],
+            vec![],
+            vec![DefinitionSentence::Rule(rule)],
+        )
+        .into_spec()
+    }
+
+    fn definition() -> DefinitionIr {
+        let base = smoke_definition();
+        let mut modules = base.modules().to_vec();
+        modules.push(spec("PROOF", base.main_module(), false));
+        modules.push(spec("UNSELECTED", base.main_module(), true));
+        DefinitionIr::new(base.main_module().clone(), modules).unwrap()
+    }
+
+    #[test]
+    fn only_selected_spec_builtin_dependencies_enter_the_proof_definition_context() {
+        let ir = definition();
+        let ordinary = adapt_definition(&ir).unwrap();
+        let main_imports = |definition: &crate::NativeDefinition| {
+            definition
+                .modules
+                .iter()
+                .find(|module| module.name == "SMOKE")
+                .unwrap()
+                .imports
+                .iter()
+                .map(|import| import.name.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        assert!(!main_imports(&ordinary.definition).contains("INT"));
+        let proof = crate::adapt_spec_definition(&ir, "PROOF").unwrap();
+        let imports = main_imports(&proof.definition);
+        assert!(imports.contains("INT"));
+        assert!(!imports.contains("STRING"));
+        assert!(
+            !proof
+                .definition
+                .modules
+                .iter()
+                .any(|module| module.name == "UNSELECTED")
+        );
+        assert!(
+            proof
+                .definition
+                .modules
+                .iter()
+                .find(|module| module.name == "PROOF")
+                .unwrap()
+                .local_sentences
+                .iter()
+                .all(|sentence| matches!(sentence.as_ref(), Sentence::Rule { .. }))
+        );
+    }
+
+    #[test]
+    fn authored_rules_in_the_specification_are_still_rejected() {
+        let ir = definition();
+        let error = crate::compile_spec_definition_with_context_timed(
+            &ir,
+            "PROOF",
+            CompileOptions {
+                backend: Backend::Haskell,
+                ..CompileOptions::default()
+            },
+            &mut krs_ir::measure::Timings::default(),
+        )
+        .unwrap_err();
+        assert!(
+            format!("{error:?}").contains("ProofModuleRule"),
+            "{error:?}"
+        );
+    }
+}
