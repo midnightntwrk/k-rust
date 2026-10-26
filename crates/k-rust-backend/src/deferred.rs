@@ -331,6 +331,48 @@ pub(crate) fn pure_functional_term(definition: &BackendDefinition, term: &Term) 
     true
 }
 
+/// Whether every root is a functional pattern without console effects, with the same
+/// eligibility as `is_functional_pattern(root) && !holds_console_effect(definition, root)`.
+/// Literal candidates use this at application time, where stops can propagate. The visited
+/// set spans all roots, so shared subterms and shared remainder subjects are scanned once.
+/// Unlike `pure_functional_term`, this does not add binder or macro/alias exclusions.
+///
+/// ```toml algorithm-site
+/// id = "backend.simplify.term"
+/// role = "part"
+/// sites = ["functional_without_console_effects"]
+/// ```
+pub(crate) fn functional_without_console_effects<'a>(
+    definition: &BackendDefinition,
+    roots: impl IntoIterator<Item = &'a Term>,
+) -> Stoppable<bool> {
+    let reach = definition.console_reach();
+    if reach.unindexed {
+        return Ok(false);
+    }
+    let mut seen = rustc_hash::FxHashSet::default();
+    let mut pending: Vec<_> = roots.into_iter().collect();
+    while let Some(term) = pending.pop() {
+        if !seen.insert(term) {
+            continue;
+        }
+        crate::stop::check()?;
+        if !crate::rewrite::functional_pattern_node(term) {
+            return Ok(false);
+        }
+        // Constructor-likeness is hereditary; the old effect scan skips these subtrees.
+        // Functionality still has to be checked, including element versus set variables.
+        if !term.attributes().constructor_like
+            && let TermKind::Application { symbol, .. } = term.kind()
+            && reach.may_reach(symbol)
+        {
+            return Ok(false);
+        }
+        pending.extend(children(term));
+    }
+    Ok(true)
+}
+
 /// Whether `term` holds an application that may perform a console effect when it is
 /// evaluated: of a symbol [`ConsoleReach`] holds, which over-approximates the console effects
 /// (every `IO.` hook is `impure`, and so is a symbol only declared so), as is sound for the marks
@@ -1256,7 +1298,7 @@ fn ceil_equation_decision(
     let (rule, instances) = equation_instances(definition, rule, term, &[]);
     let instances = match instances {
         EquationInstances::NotMatched(_) => return Ok(None),
-        EquationInstances::Undecided | EquationInstances::RecoveredLiteral(_) => {
+        EquationInstances::Undecided | EquationInstances::LiteralCandidate(_) => {
             // The matching is undecided: the equation competed here (`crate::coverage`).
             crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(None);
@@ -1480,7 +1522,7 @@ fn select_single_step(
             let (renamed, instances) = equation_instances(definition, rule, term, &[]);
             match instances {
                 EquationInstances::NotMatched(_) => {}
-                EquationInstances::Undecided | EquationInstances::RecoveredLiteral(_) => {
+                EquationInstances::Undecided | EquationInstances::LiteralCandidate(_) => {
                     // An undecided matching counts as a match of its left-hand side.
                     crate::coverage::note_offered(&rule.attributes.unique_id);
                     return Ok(None);

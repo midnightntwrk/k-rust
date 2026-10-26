@@ -4119,6 +4119,11 @@ symbol = "pure_functional_term"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/deferred.rs"
+symbol = "functional_without_console_effects"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/diagnostic.rs"
 symbol = "retract_dropped"
 
@@ -4205,7 +4210,7 @@ symbol = "apply_theory_noting_cuts"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
-symbol = "literal_instance"
+symbol = "literal_candidate"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -4248,6 +4253,10 @@ bound = "O(u log n) nodes for the u items that are not evaluated or mention a va
 [[node.cost]]
 mode = "selected symbolic primitive identity after concrete evaluation declines"
 bound = "constant root/rank checks and at most two scans of the k explicit key facts for a map law, then one memoized iterative walk of the distinct operand DAG nodes for functional purity; no solver calls. Every reduction removes an operation. Reducing a chain of n writes can scan O(n squared) nodes across its reductions; strict argument obligations use the existing hook_argument_definedness path."
+
+[[node.cost]]
+mode = "literal equation candidate"
+bound = "matching records forced literal equalities without scanning their subjects; only term-equation application checks functionality and effects, in one iterative memoized walk of the distinct nodes and edges across all candidate subjects, polling cancellation/deadlines once per distinct node. No solver call is needed for eligibility; deciding the equalities uses the ordinary condition path."
 
 [[node.cost]]
 mode = "rule condition"
