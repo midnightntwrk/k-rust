@@ -75,6 +75,10 @@ fn claim_metadata_rejects_missing_and_nonportable_labels() {
             "invalid portable K claim label",
         ),
         (
+            r#"all_paths, label = "contains_underscore""#,
+            "invalid portable K claim label",
+        ),
+        (
             r#"all_paths, label = "contains[bracket]""#,
             "invalid portable K claim label",
         ),

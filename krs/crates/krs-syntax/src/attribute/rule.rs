@@ -742,7 +742,9 @@ impl ClaimAttribute {
 fn valid_claim_label(value: &str) -> bool {
     !value.trim().is_empty()
         && !value.chars().any(char::is_whitespace)
-        && !value.contains(['[', ']', ':'])
+        // K's outer `[label]:` syntax excludes `_`; otherwise native structured
+        // proving accepts a label whose emitted K cannot be parsed back.
+        && !value.contains(['[', ']', ':', '_'])
 }
 
 impl KrsSyntax for ExistsAttribute {
