@@ -296,10 +296,18 @@ fn a_claim_fails_on_the_instances_a_rule_leaves_undefined() {
                 .any(|leaf| leaf.outcome == ProofLeafOutcomeOutput::Trivial),
             "{claim}: {result:?}"
         );
-        assert_eq!(
-            status(claim, true).status,
-            "proven",
-            "{claim} allowing vacuous results"
+        let allowed = status(claim, true);
+        assert_eq!(allowed.status, "proven", "{claim} allowing vacuous results");
+        assert!(
+            allowed.leaves.iter().any(|leaf| leaf.vacuous),
+            "{claim}: {allowed:?}"
+        );
+        assert!(
+            allowed
+                .leaves
+                .iter()
+                .filter(|leaf| leaf.vacuous)
+                .all(|leaf| leaf.outcome == ProofLeafOutcomeOutput::Proven && !leaf.certified)
         );
     }
     for claim in [
@@ -3382,6 +3390,89 @@ fn weak_claims_continue_after_a_false_current_target_without_asserting_terminati
         );
         if label == "cycle" && expected == "proven" {
             assert!(result.leaves.iter().all(|leaf| leaf.depth >= 1));
+            assert!(
+                result
+                    .leaves
+                    .iter()
+                    .any(|leaf| leaf.claim_steps.iter().any(|step| {
+                        step.kind == "claim"
+                            && step.depth >= 1
+                            && step.label.as_deref() == Some("WEAK-CONTINUATION-SPEC.cycle")
+                    }))
+            );
+            assert!(result.trusted_claims.is_empty());
+        }
+        if expected == "disproved" {
+            assert!(result.leaves.iter().any(|leaf| leaf.certified));
+        }
+        if expected == "depth-bound" {
+            assert!(result.leaves.iter().all(|leaf| !leaf.certified));
         }
     }
+}
+
+#[test]
+fn proof_results_keep_the_assumptions_and_contradiction_behind_an_empty_leaf() {
+    let source = r#"
+module PROOF-EVIDENCE
+  imports INT
+  syntax Int ::= bad(Int) [function, total]
+  syntax KItem ::= go() | done()
+  configuration <k> $PGM:K </k> <n> 0 </n>
+  rule [bad-equation]: bad(X:Int) => X /Int 0
+endmodule
+module PROOF-EVIDENCE-SPEC
+  imports PROOF-EVIDENCE
+  claim [empty]: <k> .K </k> <n> bad(0) => 0 </n>
+  claim [assumed]: <k> go() => done() </k> [trusted]
+endmodule
+"#;
+    let kore = compile(source, "PROOF-EVIDENCE-SPEC", "PROOF-EVIDENCE");
+    let mut backend =
+        Backend::new(&kore, "PROOF-EVIDENCE-SPEC", BackendOptions::default()).unwrap();
+    let request = ProveRequest {
+        claim: Some("PROOF-EVIDENCE-SPEC.empty".into()),
+        allow_vacuous: true,
+        ..ProveRequest::default()
+    };
+    let result = backend.prove(request.clone()).unwrap();
+    assert_eq!(result.status, "proven");
+    assert_eq!(result.trusted_claims, ["PROOF-EVIDENCE-SPEC.assumed"]);
+    let leaf = result
+        .leaves
+        .iter()
+        .find(|leaf| leaf.contradicted_total.is_some())
+        .unwrap_or_else(|| {
+            panic!("the empty leaf must retain its declaration contradiction: {result:?}")
+        });
+    assert_eq!(leaf.outcome, ProofLeafOutcomeOutput::Proven);
+    assert!(leaf.vacuous);
+    assert!(!leaf.certified);
+    assert!(leaf.claim_steps.is_empty());
+    let record = leaf.contradicted_total.as_ref().unwrap();
+    assert!(
+        record
+            .rule_label
+            .as_deref()
+            .unwrap()
+            .contains("bad-equation")
+    );
+    assert!(record.k_label.as_deref().unwrap().contains("bad"));
+    let raw: serde_json::Value =
+        serde_json::from_str(&backend.prove_json(request).unwrap()).unwrap();
+    assert!(
+        raw["leaves"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|leaf| leaf.get("contradictedTotal").is_some())
+    );
+    let assumed = backend
+        .prove(ProveRequest {
+            claim: Some("PROOF-EVIDENCE-SPEC.assumed".into()),
+            ..ProveRequest::default()
+        })
+        .unwrap();
+    assert_eq!(assumed.leaves[0].outcome, ProofLeafOutcomeOutput::Trusted);
+    assert_eq!(assumed.trusted_claims, ["PROOF-EVIDENCE-SPEC.assumed"]);
 }

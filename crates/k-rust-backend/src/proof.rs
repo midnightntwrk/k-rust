@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.proof.search"
 //! name = "reachability-logic proof search"
-//! sites = ["prove_claim", "extend_frontier", "finish_at_breadth_limit", "apply_claim", "stuck_leaf"]
+//! sites = ["prove_claim", "extend_frontier", "finish_at_breadth_limit", "apply_claim", "stuck_leaf", "ProofLeaf::proven_vacuously", "ProofLeaf::with_contradicted_total"]
 //! variable = "s = explored states; c = circularities; u = states still pending when the breadth limit is reached"
 //! counters = ["ProofStatesExplored", "ProofImplicationChecks"]
 //! span = "per problem"
@@ -17,6 +17,10 @@
 //! [[cost]]
 //! mode = "one proof"
 //! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus one terminal-instance certification attempt at each refuted current target on a certifiable trace and for each Stuck leaf (stuck_leaf), each up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
+//!
+//! [[cost]]
+//! mode = "facade evidence projection"
+//! bound = "one scan of each retained leaf trace to select actual claim applications, one sorted set of the available trusted reachability labels, and encoding of a contradicted-total record only where the core retained one; no solver query or rerun"
 //! ```
 //!
 //! Reachability-logic proof search: per explored state one
@@ -186,17 +190,26 @@ pub struct ProofLeaf {
     /// the search followed, never passes through the destination, and has no successor there.
     /// The conditions are listed at `stuck_leaf` in this module.
     pub certified: bool,
-    /// Set on a `Vacuous` or `Trivial` leaf whose emptiness comes from an equation of a symbol
-    /// declared `total` (or `functional`) that reduced an application of it to bottom: the
+    /// Set when emptiness or an undefined step comes from an equation of a symbol declared
+    /// `total` (or `functional`), including accepted vacuous success: the equation reduced an application to bottom and the
     /// definition contradicts the attribute there. A diagnostic only; the leaf and the verdict
     /// are the same with or without it ([`ContradictedTotal`]).
     pub contradicted_total: Option<Box<ContradictedTotal>>,
 }
 
 impl ProofLeaf {
-    /// This leaf with `contradicted_total` recorded, only when the leaf is an empty one
-    /// (`Vacuous` or `Trivial`): the vacuity policy may have turned it into another outcome, and
-    /// the diagnostic explains only an empty leaf.
+    /// Whether this leaf was accepted as Proven(False) by the vacuity policy. An undefined
+    /// step may retain its nonempty predecessor as the displayed pattern; this flag does not
+    /// assert that the displayed pattern itself is empty.
+    #[must_use]
+    pub fn proven_vacuously(&self) -> bool {
+        matches!(&self.outcome, ProofLeafOutcome::Proven(condition)
+            if condition.predicates == [crate::rule::Predicate::False])
+    }
+
+    /// Retain the contradiction on an empty/undefined branch, including accepted
+    /// Proven(False). The displayed pattern can be its predecessor; the record explains
+    /// the branch's undefinedness and does not change the verdict.
     fn with_contradicted_total(
         mut self,
         contradicted_total: Option<Box<ContradictedTotal>>,
@@ -204,7 +217,8 @@ impl ProofLeaf {
         if matches!(
             self.outcome,
             ProofLeafOutcome::Vacuous | ProofLeafOutcome::Trivial
-        ) {
+        ) || self.proven_vacuously()
+        {
             self.contradicted_total = contradicted_total;
         }
         self

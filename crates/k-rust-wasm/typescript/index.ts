@@ -1178,6 +1178,14 @@ export interface ProveOptions {
 export interface ProofLeaf {
   state: Kore
   depth: number
+  /** True only when this stuck leaf certifies a counterexample. */
+  certified?: boolean
+  /** Proven by vacuity; the displayed predecessor is not necessarily empty. */
+  vacuous?: boolean
+  /** Actual claim applications on this path; not a termination certificate. */
+  claimSteps?: BackendTraceEntry[]
+  /** A total declaration contradicted on an empty leaf. */
+  contradictedTotal?: ContradictedTotal
   /**
    * 'proven': the state implies the claim's right-hand side. 'trusted': the claim is trusted and
    * this is its left-hand side, unexplored. 'stuck': outside the right-hand side with no
@@ -1207,6 +1215,8 @@ export interface ProofResult {
   status: 'proven' | 'disproved' | 'failed' | 'indeterminate' | 'depth-bound' | 'breadth-bound'
   exploredStates: number
   unexploredStates: number
+  /** Trusted reachability claims available to the request, not all definition axioms. */
+  trustedClaims?: string[]
   leaves: ProofLeaf[]
 }
 

@@ -80,6 +80,10 @@ pub mod continuation {
         countdown: { k: [Op::Count { n }] } => { k: [Op::Done { n: 0 }] };
 
         #[k::claim(all_paths)]
+        #[k::requires(n < 0 && n >= 0)]
+        empty_antecedent: { k: [Op::Tick], n } => { n: n + 1 };
+
+        #[k::claim(all_paths)]
         cycle: { k: [Op::Spin] } => { k: [Op::Done { n: 0 }] };
     }
 }

@@ -320,7 +320,7 @@ pub enum Modality {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Verdict {
-    /// Every path reaches the right-hand side.
+    /// The weak reachability claim is proven; this does not certify termination.
     Proven,
     /// A path reaches a state that refutes the claim.
     Disproved,
@@ -389,10 +389,23 @@ impl Verdict {
 pub struct ProofLeaf {
     /// The leaf state, with its constraint.
     pub state: Term,
-    /// Rewrite steps from the claim's left-hand side.
+    /// Semantic and claim transitions from the left-hand side; normalization is not a step.
     pub depth: u64,
     /// The backend's leaf outcome, as the k-rust host wire names it (`stuck`, `indeterminate`, ...).
     pub outcome: String,
+    /// Whether this stuck leaf is a certified counterexample rather than an unresolved leaf.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub certified: bool,
+    /// This leaf was proven by vacuity; its displayed predecessor is not necessarily empty.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub vacuous: bool,
+    /// Actual claim applications, using the backend's labels, ids and proof depths.
+    /// These may be guarded circularities; they do not certify a finite execution.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub claim_steps: Vec<k_rust::backend::TraceEntry>,
+    /// A contradicted total declaration behind emptiness or an undefined step; terms are KAST envelopes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contradicted_total: Option<k_rust::backend::ContradictedTotalOutput<Term>>,
     /// Why a `timeout`, `stack-exhausted` or `indeterminate` leaf ended there, in the backend's
     /// words; absent for every other outcome.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -410,6 +423,9 @@ pub struct ProofReport {
     pub origin: Option<SourceSpan>,
     /// The verdict.
     pub verdict: Verdict,
+    /// Trusted reachability claims available to these proof requests, not every definition axiom.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub trusted_claims: Vec<String>,
     /// Residual leaves.
     pub leaves: Vec<ProofLeaf>,
 }

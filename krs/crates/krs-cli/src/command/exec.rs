@@ -565,6 +565,31 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
                 report.claim,
                 status_word(report.verdict.as_str(), smt)
             );
+            for leaf in &report.leaves {
+                if leaf.vacuous {
+                    let _ = writeln!(
+                        stdout,
+                        "  vacuously proven leaf at proof depth {}",
+                        leaf.depth
+                    );
+                }
+                if let Some(record) = &leaf.contradicted_total {
+                    let _ = writeln!(
+                        stdout,
+                        "  total declaration {} contradicted by equation {}",
+                        record.k_label.as_deref().unwrap_or(&record.symbol),
+                        record.rule_label.as_deref().unwrap_or(&record.rule_id)
+                    );
+                }
+                for step in &leaf.claim_steps {
+                    let _ = writeln!(
+                        stdout,
+                        "  applied claim {} at proof depth {}",
+                        step.label.as_deref().unwrap_or(&step.unique_id),
+                        step.depth
+                    );
+                }
+            }
             if matches!(report.verdict, Verdict::Proven | Verdict::Trusted) {
                 continue;
             }

@@ -127,7 +127,7 @@ pub struct ContradictedTotalOutput<K = Value> {
     pub undefined: K,
 }
 
-fn contradicted_total_output<K: WireKore>(
+pub(super) fn contradicted_total_output<K: WireKore>(
     contradicted: &ContradictedTotal,
 ) -> Result<ContradictedTotalOutput<K>, BackendError> {
     Ok(ContradictedTotalOutput {

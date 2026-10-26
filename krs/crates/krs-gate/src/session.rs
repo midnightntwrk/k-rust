@@ -123,6 +123,9 @@ fn prove(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Error>
                 combined.explored_states += result.explored_states;
                 combined.unexplored_states += result.unexplored_states;
                 combined.leaves.extend(result.leaves);
+                combined.trusted_claims.extend(result.trusted_claims);
+                combined.trusted_claims.sort();
+                combined.trusted_claims.dedup();
                 combined
             }
         });

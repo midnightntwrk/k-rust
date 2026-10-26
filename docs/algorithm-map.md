@@ -117,7 +117,7 @@ Representation flow into [proof result]:
 - [1] ⟲ backend.normality.scan — O(D + E + Q + P + B + V) expected hash-table… +1 mode — in: [checked value claims], [match result] → out: [instance-normal evidence] — at backend/instance_normal.rs `BackendDefinition::instance_normal`
 - [1] ⟲ backend.unification.syntactic — n pair pops, each substituting both sides with… — in: [instance-normal evidence] → out: [unification result] — at backend/unification.rs `unify_term_pairs`
 - [2] backend.rewrite.step — O(c) rule attempts plus one SAT check per… +3 modes — in: [internalized theory], [internalized pattern] → out: [rewrite result] — at backend/rewrite/step.rs `rewrite_step_all`
-- [3] backend.proof.search — O(s) x (simplification + one is_sat + implication… — in: [claim], [match result], [rewrite result], [extracted substitution], [unification result] → out: [proof result] — at backend/proof.rs `prove_claim`
+- [3] backend.proof.search — O(s) x (simplification + one is_sat + implication… +1 mode — in: [claim], [match result], [rewrite result], [extracted substitution], [unification result] → out: [proof result] — at backend/proof.rs `prove_claim`
 
 ### krun
 

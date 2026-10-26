@@ -33,3 +33,12 @@ target/debug/krs prove --manifest-path krs/tests/native-claims/Cargo.toml \
 Each selected claim must report `proven`.
 `--claim wrong-value` must not prove.
 The backend tests separately check partial discarded values, typed injections, unknown aliases, scoped facts and nonfunctional/effectful operands.
+
+The JSON leaf of `cycle` must retain its `claim_steps`, showing the applied guarded circularity.
+The concrete wrong-value leaf has `certified: true`; the unresolved symbolic wrong-value leaf has no certified marker.
+`trusted_claims` lists available trusted reachability assumptions when any exist, separately from the actual claim steps.
+No portfolio claim in these two native qualification packages relies on a trusted claim.
+
+`empty-antecedent` is a separate vacuity control with contradictory preconditions.
+It must report `proven` with `vacuous: true`; it is not counted as a productive portfolio proof.
+A vacuity marker describes the proof's basis and does not assert that every displayed predecessor state is empty.

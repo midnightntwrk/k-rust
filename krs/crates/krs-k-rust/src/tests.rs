@@ -441,6 +441,28 @@ mod proof_builtin_context {
     }
 
     #[test]
+    fn a_specification_cannot_shadow_a_catalog_builtin_module() {
+        let base = smoke_definition();
+        let mut modules = base.modules().to_vec();
+        modules.push(spec("INT", base.main_module(), false));
+        let ir = DefinitionIr::new(base.main_module().clone(), modules).unwrap();
+        let error = crate::compile_spec_definition_with_context_timed(
+            &ir,
+            "INT",
+            CompileOptions {
+                backend: Backend::Haskell,
+                ..CompileOptions::default()
+            },
+            &mut krs_ir::measure::Timings::default(),
+        )
+        .unwrap_err();
+        assert!(
+            format!("{error:?}").contains("DuplicateModule"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
     fn authored_rules_in_the_specification_are_still_rejected() {
         let ir = definition();
         let error = crate::compile_spec_definition_with_context_timed(

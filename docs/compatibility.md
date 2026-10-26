@@ -2991,6 +2991,24 @@ This diverges from the pinned Haskell prover on some of these claims.
 It proves `<k> a(B) => #if B #then undef() #else 1 #fi </k> requires notBool B`, and a claim whose state reaches `#if B #then 1 #else undef() #fi` under `B`, both of which k-rust reports `failed`; it refuses the `#if` destinations whose condition is partial and `0 *Int undefi()`, as k-rust does; and it stops with an internal error on the `andThenBool`, `orElseBool` and `andBool` destinations.
 On a claim's own constraints it reads a partial operation such as `/Int` as its solver's total operation: it proves `requires #Not({ X /Int Y *Int 0 #Equals 0 })`, `requires #Not({ true #Equals X /Int Y >Int 5 }) #And #Not({ true #Equals X /Int Y <=Int 5 })` and `requires { X /Int Y #Equals X /Int Y +Int 1 }` toward `done()` from `pos(X, Y)` ("Claim proven during initialization ... The left-hand side of the claim may be undefined"), and `ensures { X /Int Y *Int 0 #Equals X /Int Z *Int 0 }` ("Claim proven without rewriting"), all of which k-rust reports `failed` because their stuck instances at `Y = 0` (for the last, `Y = 0` and `Z = 1`) are configurations of the claim.
 
+### Evidence retained by native proof reports
+
+The public backend result retains `certified` on a stuck leaf that certifies a counterexample.
+An absent or false marker leaves that leaf unresolved; `stuck` alone does not establish a false claim.
+`claimSteps` records actual claim applications from the existing proof trace, with their labels, ids and proof depths.
+A guarded self-circularity is a proof step and may close an infinite computation under weak partial correctness; it does not certify termination or finite reachability.
+`trustedClaims` lists the trusted reachability claims available to that request, including an assumed selected claim, separately from actual applications.
+It does not enumerate every axiom of the definition or an external SMT prelude.
+`vacuous` marks a leaf accepted as `proven` by the prover's vacuity policy, either for an empty initial region or an allowed undefined/empty successor.
+An undefined-step leaf may display its nonempty predecessor, so the marker does not assert that this displayed pattern is empty or that every leaf of the claim is vacuous.
+`contradictedTotal` preserves the existing equation/application/undefined-result record when it explains an empty proof leaf, including accepted vacuous success.
+
+KRS JSON reports preserve the same evidence as `certified`, `vacuous`, `claim_steps`, `trusted_claims` and `contradicted_total`, using KAST for the latter's terms.
+KRS continues to label an assumed claim `trusted`, and its text output names actual claim applications even on successful proofs.
+Proof depth counts semantic and claim transitions, while builtin and equation normalization does not increment it.
+Empty metadata fields are omitted, and these additions do not change the verdicts, proof policy, saved-proof reading or compiled-stage formats.
+They project evidence already retained by the core; they do not rerun the proof or make the result a complete proof certificate.
+
 ## Undefined steps in proofs
 
 A step is undefined on a configuration when a rule applies to it but has an empty result there, and no rule of the same priority gives it a defined result.

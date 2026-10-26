@@ -1526,6 +1526,10 @@ pub struct ProofResultOutput<K = Value> {
     pub status: String,
     pub explored_states: u64,
     pub unexplored_states: u64,
+    /// Trusted reachability claims available to this request, including the selected claim
+    /// when trusted. This does not enumerate every axiom of the definition or SMT prelude.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub trusted_claims: Vec<String>,
     pub leaves: Vec<ProofLeafOutput<K>>,
 }
 
@@ -1533,8 +1537,24 @@ pub struct ProofResultOutput<K = Value> {
 #[serde(rename_all = "camelCase")]
 pub struct ProofLeafOutput<K = Value> {
     pub state: K,
+    /// Semantic and claim transitions; equation normalization does not increment it.
     pub depth: u64,
     pub outcome: ProofLeafOutcomeOutput,
+    /// This stuck leaf certifies a counterexample under the core's exactness conditions.
+    /// An uncertified stuck leaf is unresolved, not a counterexample.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub certified: bool,
+    /// This leaf was accepted as proven by vacuity. Its displayed pattern can be the
+    /// predecessor of an undefined step and is not necessarily empty.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub vacuous: bool,
+    /// Actual claim applications on this path (guarded circularities or trusted claims),
+    /// in trace order. This is not a finite execution or termination certificate.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub claim_steps: Vec<TraceEntry>,
+    /// The declaration contradiction behind emptiness or an undefined step on this branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contradicted_total: Option<ContradictedTotalOutput<K>>,
     /// Why a `timeout`, `stack-exhausted` or `indeterminate` leaf ended there, in words for a
     /// reader. Absent on every other outcome. Its text is not part of the result: the outcome
     /// is.
@@ -2667,6 +2687,11 @@ impl Backend {
         serialize_wire(&self.prove_using::<Box<RawValue>>(request)?)
     }
 
+    /// ```toml algorithm-site
+    /// id = "backend.proof.search"
+    /// role = "part"
+    /// sites = ["Backend::prove_using"]
+    /// ```
     fn prove_using<K: wire::WireKore>(
         &mut self,
         request: ProveRequest,
@@ -2776,6 +2801,21 @@ impl Backend {
                 status: proof_status(result.status).into(),
                 explored_states: result.explored_states,
                 unexplored_states: result.unexplored_states,
+                trusted_claims: circularities
+                    .iter()
+                    .copied()
+                    .chain(std::iter::once(claim))
+                    .filter(|claim| claim.attributes.trusted && claim.unstated.is_none())
+                    .map(|claim| {
+                        claim
+                            .attributes
+                            .label
+                            .clone()
+                            .unwrap_or_else(|| claim.attributes.unique_id.clone())
+                    })
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
                 leaves: result
                     .leaves
                     .into_iter()
@@ -2789,6 +2829,19 @@ impl Backend {
                             depth: leaf.depth,
                             outcome,
                             detail,
+                            certified: leaf.certified,
+                            vacuous: leaf.proven_vacuously(),
+                            claim_steps: leaf
+                                .trace
+                                .into_iter()
+                                .filter(|entry| entry.kind == TraceKind::Claim)
+                                .map(trace_entry)
+                                .collect(),
+                            contradicted_total: leaf
+                                .contradicted_total
+                                .as_deref()
+                                .map(wire::contradicted_total_output)
+                                .transpose()?,
                         })
                     })
                     .collect::<Result<_, BackendError>>()?,
