@@ -3541,3 +3541,78 @@ endmodule
     assert_eq!(assumed.leaves[0].outcome, ProofLeafOutcomeOutput::Trusted);
     assert_eq!(assumed.trusted_claims, ["PROOF-EVIDENCE-SPEC.assumed"]);
 }
+
+/// These independent arithmetic targets exercise word planning after real K compilation,
+/// definedness simplification, implication checking and the public proof facade.
+#[test]
+fn bounded_word_values_compose_with_independent_arithmetic_claims() {
+    let mut source = String::from(
+        r#"
+module WORD-EXPRESSIONS
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:K </k> <v> 0 </v>
+endmodule
+module WORD-EXPRESSIONS-SPEC
+  imports WORD-EXPRESSIONS
+"#,
+    );
+    let mut labels = Vec::new();
+    for width in [8, 16] {
+        let bound = 1_i64 << width;
+        let mut digits = "0".to_owned();
+        for bit in 0..width {
+            let p = 1_i64 << bit;
+            digits = format!(
+                "({digits} +Int (#if ((X divInt {p}) modInt 2) >Int 0 orBool ((Y divInt {p}) modInt 2) >Int 0 #then {p} #else 0 #fi))"
+            );
+        }
+        for (name, left, right) in [
+            (
+                "zero",
+                "(#if (X |Int Y) ==Int 0 #then 1 #else 0 #fi)".to_owned(),
+                "(#if X ==Int 0 andBool Y ==Int 0 #then 1 #else 0 #fi)".to_owned(),
+            ),
+            (
+                "sum",
+                "X +Int Y".to_owned(),
+                "(X |Int Y) +Int (X &Int Y)".to_owned(),
+            ),
+            (
+                "xor",
+                "X xorInt Y".to_owned(),
+                "(X +Int Y) -Int (2 *Int (X &Int Y))".to_owned(),
+            ),
+            (
+                "rotate",
+                format!(
+                    "(((X <<Int 1) modInt {bound}) |Int (X divInt {}))",
+                    bound / 2
+                ),
+                format!(
+                    "(2 *Int (X modInt {})) +Int (X divInt {})",
+                    bound / 2,
+                    bound / 2
+                ),
+            ),
+            ("digits", "X |Int Y".to_owned(), digits),
+        ] {
+            let label = format!("{name}-{width}");
+            source.push_str(&format!("claim [{label}]: <k> .K </k> <v> {left} => {right} </v> requires X:Int >=Int 0 andBool X <Int {bound} andBool Y:Int >=Int 0 andBool Y <Int {bound}\n"));
+            labels.push(label);
+        }
+    }
+    source.push_str("endmodule\n");
+    let kore = compile(&source, "WORD-EXPRESSIONS-SPEC", "WORD-EXPRESSIONS");
+    for label in labels {
+        let result = prove(
+            &kore,
+            "WORD-EXPRESSIONS-SPEC",
+            &format!("WORD-EXPRESSIONS-SPEC.{label}"),
+            ProveRequest::default(),
+        );
+        assert_eq!(result.status, "proven", "{label}: {:?}", leaf_text(&result));
+        assert!(result.leaves.iter().all(|leaf| !leaf.vacuous), "{label}");
+    }
+}

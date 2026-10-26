@@ -872,7 +872,7 @@ impl SmtSolver for Z3Solver {
         if let Some(failure) = self.prelude_failure() {
             return Err(self.prelude_stop(failure));
         }
-        let query = match self.prelude.query(predicates, substitution, &[], false) {
+        let query = match self.prelude.query(predicates, substitution, &[], false)? {
             Ok(query) => query,
             Err(error) => return Ok(Err(error.into())),
         };
@@ -891,7 +891,7 @@ impl SmtSolver for Z3Solver {
         if checked.is_empty() {
             return Ok(Ok(Validity::Valid));
         }
-        let query = match self.prelude.query(known, substitution, checked, true) {
+        let query = match self.prelude.query(known, substitution, checked, true)? {
             Ok(query) => query,
             Err(error) => return Ok(Err(error.into())),
         };
@@ -918,7 +918,7 @@ impl SmtSolver for Z3Solver {
             .cloned()
             .chain(predicates.iter().flat_map(Predicate::free_variables))
             .collect::<BTreeSet<_>>();
-        let query = match self.prelude.query(predicates, substitution, &[], false) {
+        let query = match self.prelude.query(predicates, substitution, &[], false)? {
             Ok(query) => query,
             Err(error) => return Ok(Err(error.into())),
         };
@@ -2322,6 +2322,7 @@ mod tests {
         let query = solver
             .prelude
             .query(&[], &Substitution::new(), &checked, true)
+            .unwrap()
             .unwrap();
         let checked_smt = query.checked().to_string();
         let positive_script = format!("{}\n(assert {checked_smt})", query.base());

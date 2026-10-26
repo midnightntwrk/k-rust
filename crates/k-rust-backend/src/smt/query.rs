@@ -117,6 +117,7 @@ mod tests {
     fn query(known: &[Predicate]) -> TranslatedQuery {
         prelude()
             .query(known, &Substitution::new(), &[], false)
+            .unwrap()
             .expect("the query should translate")
     }
 
@@ -163,6 +164,7 @@ mod tests {
 
         let filtered = prelude()
             .query(&unrelated, &Substitution::new(), &checked, true)
+            .unwrap()
             .expect("the query should translate");
         assert_eq!(filtered.exactness(), Exactness::Approximate);
         assert!(!filtered.base().contains("(assert"));
@@ -170,6 +172,7 @@ mod tests {
         let related = [Predicate::Equals(x, integer("2"))];
         let kept = prelude()
             .query(&related, &Substitution::new(), &checked, true)
+            .unwrap()
             .expect("the query should translate");
         assert_eq!(kept.exactness(), Exactness::Exact);
         assert_eq!(kept.checked().to_string(), "(and (= SMT-1 1))");
@@ -227,6 +230,7 @@ mod tests {
         let query = SmtPrelude::from_definition(&definition)
             .unwrap()
             .query(&known, &Substitution::new(), &checked, true)
+            .unwrap()
             .unwrap();
         assert!(
             query.base().contains("(assert"),
@@ -266,6 +270,7 @@ mod tests {
             )];
             let query = prelude
                 .query(&predicates, &Substitution::new(), &[], false)
+                .unwrap()
                 .unwrap();
             assert!(!query.base().contains("(declare-fun SMT-"), "{head}");
             assert!(query.model_mappings().is_none());
@@ -292,6 +297,7 @@ mod tests {
         let query = SmtPrelude::from_definition(&definition)
             .unwrap()
             .query(&known, &Substitution::new(), &[], false)
+            .unwrap()
             .unwrap();
         assert_eq!(query.base().matches("(declare-fun SMT-").count(), 2);
         assert!(query.base().contains("(Int) Int)"));
@@ -361,6 +367,7 @@ mod tests {
             )))];
             let query = prelude
                 .query(&predicates, &Substitution::new(), &[], false)
+                .unwrap()
                 .unwrap();
             let bytes = query.base().len();
             if let Some(previous) = sizes.last() {
@@ -397,6 +404,7 @@ mod tests {
         let query = SmtPrelude::from_definition(&definition)
             .unwrap()
             .query(&known, &Substitution::new(), &[], false)
+            .unwrap()
             .unwrap();
         assert_eq!(query.exactness(), Exactness::Exact);
         assert!(query.model_mappings().is_some());

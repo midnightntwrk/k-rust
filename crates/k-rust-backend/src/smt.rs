@@ -35,6 +35,8 @@ mod query;
 mod z3;
 
 mod literal;
+#[cfg(any(feature = "z3", test))]
+mod word;
 
 // Admission is exercised independently before the query emitter consumes its metadata.
 #[cfg(test)]
@@ -319,6 +321,7 @@ pub struct TranslationState {
     opaque_functions: BTreeMap<CongruenceHead, String>,
     eligible_operands: FxHashMap<Term, bool>,
     shared_terms: Option<SharedTerms>,
+    word_predicates: BTreeMap<Predicate, SExpr>,
     predicate_mappings: Vec<(Predicate, String)>,
     dependent_mappings: BTreeMap<(Predicate, Vec<Sort>), String>,
     bound_variables: Vec<(Variable, String)>,
@@ -343,6 +346,7 @@ impl TranslationState {
             opaque_functions: BTreeMap::new(),
             eligible_operands: FxHashMap::default(),
             shared_terms: None,
+            word_predicates: BTreeMap::new(),
             predicate_mappings: Vec::new(),
             dependent_mappings: BTreeMap::new(),
             bound_variables: Vec::new(),
@@ -673,6 +677,11 @@ impl TranslationState {
         &mut self,
         predicate: &Predicate,
     ) -> Result<SExpr, TranslationError> {
+        if self.bound_variables.is_empty()
+            && let Some(value) = self.word_predicates.get(predicate)
+        {
+            return Ok(value.clone());
+        }
         match predicate {
             Predicate::True => Ok(SExpr::atom("true")),
             Predicate::False => Ok(SExpr::atom("false")),
@@ -1134,6 +1143,15 @@ fn translate_query_with_policy(
 ) -> Result<QueryTranslation, TranslationError> {
     let mut translation = TranslationState::new();
     translation.congruence = congruence;
+    translate_query_in_state(known, substitution, checked, translation)
+}
+
+fn translate_query_in_state(
+    known: &[Predicate],
+    substitution: &Substitution,
+    checked: &[Predicate],
+    mut translation: TranslationState,
+) -> Result<QueryTranslation, TranslationError> {
     let substitution = substitution
         .iter()
         .map(|(variable, term)| {
@@ -1279,27 +1297,35 @@ impl SmtPrelude {
         substitution: &Substitution,
         checked: &[Predicate],
         filter_for_checked: bool,
-    ) -> Result<TranslatedQuery, TranslationError> {
-        let (mut translation, declarations, substitution, known, checked) =
-            translate_query_with_policy(known, substitution, checked, self.congruence.clone())?;
-        let (substitution, known) = if filter_for_checked {
-            let interesting = smt_variables(&checked);
-            let (substitution, substitution_exactness) = closure_over(&interesting, substitution);
-            let (known, known_exactness) = closure_over(&interesting, known);
-            translation.approximate(substitution_exactness.and(known_exactness));
-            (substitution, known)
-        } else {
-            (substitution, known)
-        };
-        let mut base = self.declarations.clone();
-        base.extend(declarations);
-        base.extend(
-            substitution
-                .into_iter()
-                .chain(known)
-                .map(|expression| format!("(assert {expression})")),
-        );
-        Ok(TranslatedQuery::new(base.join("\n"), checked, translation))
+    ) -> Stoppable<Result<TranslatedQuery, TranslationError>> {
+        let mut translation = TranslationState::new();
+        translation.congruence = self.congruence.clone();
+        if let Err(error) = word::prepare(&mut translation, known, checked)? {
+            return Ok(Err(error));
+        }
+        Ok((|| {
+            let (mut translation, declarations, substitution, known, checked) =
+                translate_query_in_state(known, substitution, checked, translation)?;
+            let (substitution, known) = if filter_for_checked {
+                let interesting = smt_variables(&checked);
+                let (substitution, substitution_exactness) =
+                    closure_over(&interesting, substitution);
+                let (known, known_exactness) = closure_over(&interesting, known);
+                translation.approximate(substitution_exactness.and(known_exactness));
+                (substitution, known)
+            } else {
+                (substitution, known)
+            };
+            let mut base = self.declarations.clone();
+            base.extend(declarations);
+            base.extend(
+                substitution
+                    .into_iter()
+                    .chain(known)
+                    .map(|expression| format!("(assert {expression})")),
+            );
+            Ok(TranslatedQuery::new(base.join("\n"), checked, translation))
+        })())
     }
 
     /// Whether the solver's rejection of `script`, which poses `query` under this prelude, is a
