@@ -96,7 +96,7 @@ use crate::{
     },
     condition::{
         Condition, Conjunct, ConsumedDefinedness, DecidedEquation, DeferredVariables,
-        EquationInstance, InstantiatedCondition, MatchedEquation,
+        EquationInstance, InstantiatedCondition, MatchSolution, MatchedEquation,
     },
     deferred::{
         DeferredDecision, DeferredOutcome, Folded, ShortCircuit, bool_literal,
@@ -3096,7 +3096,7 @@ fn apply_ceil_equation(
     let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
     let instances = match instances {
         EquationInstances::NotMatched(_) => return Ok(EquationAttempt::NotApplicable(())),
-        EquationInstances::Undecided => {
+        EquationInstances::Undecided | EquationInstances::RecoveredLiteral(_) => {
             // The matching is undecided: the equation competed here (`crate::coverage`).
             crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(EquationAttempt::Indeterminate(
@@ -5594,7 +5594,7 @@ fn matches_top_equation(
             let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
             let instances = match instances {
                 EquationInstances::NotMatched(_) => continue,
-                EquationInstances::Undecided => {
+                EquationInstances::Undecided | EquationInstances::RecoveredLiteral(_) => {
                     // The matching is undecided: the lemma competed here (`crate::coverage`).
                     crate::coverage::note_offered(&rule.attributes.unique_id);
                     continue;
@@ -8011,29 +8011,20 @@ fn apply_equation(
     }
     let instances = match instances {
         EquationInstances::NotMatched(failed) => return Ok(EquationAttempt::NotApplicable(failed)),
+        EquationInstances::RecoveredLiteral(literal) => {
+            return apply_literal_equation_instance(
+                definition,
+                &rule,
+                term,
+                literal,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+                set_aside,
+            );
+        }
         EquationInstances::Undecided => {
-            // Where a lower function group follows, an equation whose matching is undecided
-            // only at literals facing subject terms is refuted when the path condition refutes
-            // those equalities with its `requires` (`literal_instance`). Otherwise it is
-            // undecided as before, the held and the undecided case alike: neither may let a
-            // lower group apply.
-            if set_aside == SetAsideRequires::Decide
-                && let Some((substitution, equalities)) = literal_instance(definition, &rule, term)
-                && let EquationAttempt::ContextDependent =
-                    decide_unused_instance::<Simplification, MatchFailed>(
-                        definition,
-                        &rule,
-                        term,
-                        substitution,
-                        equalities,
-                        known_predicates,
-                        options,
-                        active_conditions,
-                        solver,
-                    )?
-            {
-                return Ok(EquationAttempt::ContextDependent);
-            }
             return Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate,
             ));
@@ -8103,48 +8094,90 @@ fn apply_equation(
 fn literal_instance(
     definition: &BackendDefinition,
     rule: &RewriteRule,
-    term: &Term,
-) -> Option<(Substitution, Vec<Predicate>)> {
-    let (matched, bindings) = match_equation_in_definition(
-        definition,
-        &rule.lhs,
-        term,
-        &rule.computed_attributes.unread_map_frames,
-    );
-    let MatchResult::Indeterminate {
-        substitution,
-        remainder,
-    } = matched
-    else {
-        return None;
-    };
+    bindings: Bindings,
+    substitution: &Substitution,
+    remainder: &[(Term, Term)],
+) -> Option<MatchSolution> {
     let lhs_variables = &rule.lhs.attributes().variables;
     if bindings != Bindings::Forced
         || substitution
             .keys()
             .any(|variable| !lhs_variables.contains(variable))
-        || binds_element_variable_to_set_pattern(&substitution)
+        || binds_element_variable_to_set_pattern(substitution)
     {
         return None;
     }
     let equalities = remainder
-        .into_iter()
+        .iter()
         .map(|(pattern, subject)| {
             let TermKind::DomainValue { sort, .. } = pattern.kind() else {
                 return None;
             };
-            // A constraint never holds an impure application (`crate::deferred`).
-            let comparable = match subject.kind() {
-                TermKind::Variable(variable) => variable.kind == VariableKind::Element,
-                TermKind::Application { .. } => {
-                    crate::deferred::impure_outcome(definition, &subject).is_none()
-                }
-                _ => false,
-            };
-            (comparable && subject.sort() == *sort).then(|| Predicate::Equals(subject, pattern))
+            let comparable = matches!(
+                subject.kind(),
+                TermKind::Variable(_) | TermKind::Application { .. }
+            ) && crate::rewrite::is_functional_pattern(subject)
+                && !crate::deferred::holds_console_effect(definition, subject);
+            (comparable && subject.sort() == *sort)
+                .then(|| Predicate::Equals(subject.clone(), pattern.clone()))
         })
         .collect::<Option<Vec<_>>>()?;
-    (!equalities.is_empty()).then_some((substitution, equalities))
+    (!equalities.is_empty()).then(|| MatchSolution::from_parts(substitution.clone(), equalities))
+}
+
+/// A forced literal remainder is an applicability condition, never a fact to assume or an
+/// open result constraint. Only a fully established augmented condition admits the equation.
+#[allow(clippy::too_many_arguments)]
+fn apply_literal_equation_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    literal: MatchSolution,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    set_aside: SetAsideRequires,
+) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
+    let (substitution, equalities) = literal.into_parts();
+    match classify_equation_instance(rule, term, substitution, Bindings::Forced) {
+        Instance::Usable(substitution) => {
+            let condition = Condition::new(
+                equalities
+                    .into_iter()
+                    .chain(rule.requires.iter().cloned())
+                    .collect(),
+            );
+            let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
+                .map_err(SimplificationError::from)?;
+            let instance = EquationInstance::new(definition, &condition, substitution, consumed)
+                .map_err(SimplificationError::from)?;
+            apply_prepared_equation_instance(
+                definition,
+                rule,
+                term,
+                instance,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )
+        }
+        Instance::SetAside(substitution) if set_aside == SetAsideRequires::Decide => {
+            decide_unused_instance(
+                definition,
+                rule,
+                term,
+                substitution,
+                equalities,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )
+        }
+        instance => instance.attempt(|_| unreachable!("usable literal instance handled above")),
+    }
 }
 
 /// The instance of `rule` under the bindings of `substitution` to its left-hand side's
@@ -8246,6 +8279,9 @@ pub(crate) enum EquationInstances {
     /// only suffices ([`Bindings::Sufficient`]), the decided instances come first and the last
     /// one is [`Instance::Undecided`].
     Matched(Vec<Instance>),
+    /// Matching is undecided only at forced literal pairs. Only term-equation evaluation
+    /// may establish these conditions; ceil/top/deferred uses retain undecided behavior.
+    RecoveredLiteral(MatchSolution),
 }
 
 /// One matching of an equation's left-hand side against a subject, as the checks every use of
@@ -8354,26 +8390,35 @@ pub(crate) fn equation_instances<'r>(
         MatchResult::Indeterminate {
             substitution,
             remainder,
-        } => match match_collection_remainders_all_in_definition(
-            MatchMode::Evaluate,
-            definition,
-            substitution,
-            &remainder,
-            // Each decided matching is an instance of the equation by itself.
-            DecidedSolutions::Keep,
-        ) {
-            CollectionMatches::Solutions(solutions) => solutions,
-            CollectionMatches::NoSolution(failed) => {
-                return (rule, EquationInstances::NotMatched(failed));
+        } => {
+            let literal = literal_instance(definition, &rule, bindings, &substitution, &remainder);
+            match match_collection_remainders_all_in_definition(
+                MatchMode::Evaluate,
+                definition,
+                substitution,
+                &remainder,
+                // Each decided matching is an instance of the equation by itself.
+                DecidedSolutions::Keep,
+            ) {
+                CollectionMatches::Solutions(solutions) => solutions,
+                CollectionMatches::NoSolution(failed) => {
+                    return (rule, EquationInstances::NotMatched(failed));
+                }
+                CollectionMatches::Undecided(solutions) if solutions.is_empty() => {
+                    return (
+                        rule,
+                        literal.map_or(
+                            EquationInstances::Undecided,
+                            EquationInstances::RecoveredLiteral,
+                        ),
+                    );
+                }
+                CollectionMatches::Undecided(solutions) => {
+                    undecided = true;
+                    solutions
+                }
             }
-            CollectionMatches::Undecided(solutions) if solutions.is_empty() => {
-                return (rule, EquationInstances::Undecided);
-            }
-            CollectionMatches::Undecided(solutions) => {
-                undecided = true;
-                solutions
-            }
-        },
+        }
         MatchResult::Success(substitution) => vec![(substitution, bindings)],
     };
     let undecided = undecided
@@ -8383,39 +8428,47 @@ pub(crate) fn equation_instances<'r>(
     let instances = substitutions
         .into_iter()
         .map(|(substitution, collection_bindings)| {
-            if substitution
-                .keys()
-                .any(|variable| !rule.lhs.attributes().variables.contains(variable))
-            {
-                // The equalities are exact only if every binding of the match is forced, the
-                // top-level match's as well as the collection solver's: a binding that only
-                // suffices may have fixed the term a later key was compared under. A binding of
-                // an element variable to a set pattern does not justify the instance either.
-                if bindings.max(collection_bindings) == Bindings::Forced
-                    && !binds_element_variable_to_set_pattern(&substitution)
-                {
-                    Instance::Conditional(substitution)
-                } else {
-                    Instance::Unused
-                }
-            } else if matches!(rule.rhs, RuleRhs::Predicates(_))
-                && binds_element_variable_to_its_subject(&substitution, term)
-            {
-                Instance::Unused
-            } else if binds_element_variable_to_set_pattern(&substitution) {
-                // Before the attributes: the binding does not justify the instance, so its
-                // `requires` decides nothing about the subject, whether or not an attribute would
-                // set it aside.
-                Instance::NonFunctionalBinding
-            } else if check_concreteness(&rule, &substitution).is_some() {
-                Instance::SetAside(substitution)
-            } else {
-                Instance::Usable(substitution)
-            }
+            classify_equation_instance(&rule, term, substitution, bindings.max(collection_bindings))
         })
         .chain(undecided.then_some(Instance::Undecided))
         .collect();
     (rule, EquationInstances::Matched(instances))
+}
+
+/// Classify ordinary and literal-recovered bindings under the same restrictions.
+fn classify_equation_instance(
+    rule: &RewriteRule,
+    term: &Term,
+    substitution: Substitution,
+    bindings: Bindings,
+) -> Instance {
+    if substitution
+        .keys()
+        .any(|variable| !rule.lhs.attributes().variables.contains(variable))
+    {
+        // The equalities are exact only if every binding of the match is forced, the
+        // top-level match's as well as the collection solver's: a binding that only
+        // suffices may have fixed the term a later key was compared under. A binding of
+        // an element variable to a set pattern does not justify the instance either.
+        if bindings == Bindings::Forced && !binds_element_variable_to_set_pattern(&substitution) {
+            Instance::Conditional(substitution)
+        } else {
+            Instance::Unused
+        }
+    } else if matches!(rule.rhs, RuleRhs::Predicates(_))
+        && binds_element_variable_to_its_subject(&substitution, term)
+    {
+        Instance::Unused
+    } else if binds_element_variable_to_set_pattern(&substitution) {
+        // Before the attributes: the binding does not justify the instance, so its
+        // `requires` decides nothing about the subject, whether or not an attribute would
+        // set it aside.
+        Instance::NonFunctionalBinding
+    } else if check_concreteness(&rule, &substitution).is_some() {
+        Instance::SetAside(substitution)
+    } else {
+        Instance::Usable(substitution)
+    }
 }
 
 /// Apply the instance of `rule` under `substitution`, one matching of its left-hand side against
@@ -8435,6 +8488,29 @@ fn apply_equation_instance(
         .map_err(SimplificationError::from)?;
     let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed)
         .map_err(SimplificationError::from)?;
+    apply_prepared_equation_instance(
+        definition,
+        rule,
+        term,
+        instance,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_prepared_equation_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    instance: EquationInstance,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
     // `R[t]` holds on that element: both sides are empty when `t` is, and equal to `rhs[t]`

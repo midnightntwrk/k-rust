@@ -1221,7 +1221,7 @@ fn ceil_equation_decision(
     let (rule, instances) = equation_instances(definition, rule, term, &[]);
     let instances = match instances {
         EquationInstances::NotMatched(_) => return Ok(None),
-        EquationInstances::Undecided => {
+        EquationInstances::Undecided | EquationInstances::RecoveredLiteral(_) => {
             // The matching is undecided: the equation competed here (`crate::coverage`).
             crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(None);
@@ -1445,7 +1445,7 @@ fn select_single_step(
             let (renamed, instances) = equation_instances(definition, rule, term, &[]);
             match instances {
                 EquationInstances::NotMatched(_) => {}
-                EquationInstances::Undecided => {
+                EquationInstances::Undecided | EquationInstances::RecoveredLiteral(_) => {
                     // An undecided matching counts as a match of its left-hand side.
                     crate::coverage::note_offered(&rule.attributes.unique_id);
                     return Ok(None);

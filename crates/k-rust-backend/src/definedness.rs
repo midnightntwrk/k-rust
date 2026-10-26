@@ -1066,7 +1066,7 @@ fn value_production_ceil_equations(
         let (rule, instances) = equation_instances(definition, rule, term, &[]);
         let instances = match instances {
             EquationInstances::NotMatched(_) => continue,
-            EquationInstances::Undecided => {
+            EquationInstances::Undecided | EquationInstances::RecoveredLiteral(_) => {
                 crate::coverage::note_offered(&rule.attributes.unique_id);
                 return None;
             }
@@ -1165,7 +1165,7 @@ fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<
             let (rule, instances) = equation_instances(definition, rule, term, &[]);
             let instances = match instances {
                 EquationInstances::NotMatched(_) => continue,
-                EquationInstances::Undecided => {
+                EquationInstances::Undecided | EquationInstances::RecoveredLiteral(_) => {
                     // The matching is undecided: the equation competed here (`crate::coverage`).
                     crate::coverage::note_offered(&rule.attributes.unique_id);
                     continue;

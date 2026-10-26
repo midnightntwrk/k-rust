@@ -3249,3 +3249,51 @@ fn partial_condition_correction_invalidates_saved_proofs_from_the_previous_readi
     let current = saved_proofs_digest(&definition, "PARTIAL-CONDITIONS-SPEC", &assumptions);
     assert_ne!(current, previous);
 }
+
+/// Literal applicability is established as a complete condition, with no input narrowing.
+/// Reusing the backend across differently constrained claims also checks contextual cache use.
+#[test]
+fn literal_equation_rows_apply_only_when_the_complete_condition_is_established() {
+    let kore = compile(
+        proof_sources::LITERAL_EQUATION_CONDITIONS,
+        "LITERAL-CONDITIONS-SPEC",
+        "LITERAL-CONDITIONS",
+    );
+    let mut backend =
+        Backend::new(&kore, "LITERAL-CONDITIONS-SPEC", BackendOptions::default()).unwrap();
+    for (label, proven) in [
+        ("true-row", true),
+        ("false-row", true),
+        ("unknown-row", false),
+        ("wrong-row", false),
+        ("arithmetic-row", true),
+        ("guarded-control", true),
+        ("several-literals", true),
+        ("unknown-guard", false),
+        ("refuted-literal", false),
+        ("preferred-held", true),
+        ("preferred-refuted", true),
+        ("preferred-unknown", false),
+        ("concrete-rejected", false),
+        ("symbolic-rejected", false),
+        ("recursive-guard", false),
+        ("partial-operand", true),
+        ("false-row", true),
+        ("true-row", true),
+    ] {
+        let result = backend
+            .prove(ProveRequest {
+                claim: Some(format!("LITERAL-CONDITIONS-SPEC.{label}")),
+                max_depth: Some(4),
+                ..ProveRequest::default()
+            })
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
+        assert_eq!(
+            result.status == "proven",
+            proven,
+            "{label}: {} {:?}",
+            result.status,
+            result.leaves
+        );
+    }
+}

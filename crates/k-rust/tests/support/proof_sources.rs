@@ -325,3 +325,54 @@ module PARTIAL-CONDITIONS-SPEC
   claim [equation-nonzero]: <k> .K </k> <v> selected(X:Int, D:Int) => 9 </v> requires D =/=Int 0
 endmodule
 "#;
+
+/// Literal rows and guarded rows describe the same value on established input regions.
+/// Unknown matches, rejected attributes and recursive guards must not select a value.
+pub const LITERAL_EQUATION_CONDITIONS: &str = r#"
+module LITERAL-CONDITIONS
+  imports INT
+  imports BOOL
+  syntax Int ::= bitValue(Bool) [function, total]
+               | guardedBit(Bool) [function, total]
+               | code(Int, Bool, Int) [function, total]
+               | preferred(Bool) [function, total]
+               | concreteRow(Int, Bool) [function, total]
+               | symbolicRow(Int, Bool) [function, total]
+               | circularRow(Int, Bool) [function, total]
+  rule bitValue(true) => 1
+  rule bitValue(false) => 0
+  rule guardedBit(B:Bool) => 1 requires B
+  rule guardedBit(B:Bool) => 0 requires notBool B
+  rule code(7, true, X:Int) => X +Int 1 requires X >Int 0
+  rule preferred(true) => 1 [priority(40)]
+  rule preferred(B:Bool) => 2 [owise]
+  rule concreteRow(X:Int, true) => X +Int 1 [concrete]
+  rule symbolicRow(X:Int, true) => X +Int 1 [symbolic]
+  rule circularRow(X:Int, true) => 1 requires circularRow(X, true) ==Int 1
+  configuration <T> <k> $PGM:K </k> <v> .K </v> </T>
+endmodule
+module LITERAL-CONDITIONS-SPEC
+  imports LITERAL-CONDITIONS
+  claim [true-row]: <k> .K </k> <v> bitValue(B:Bool) => 1 </v> requires B
+  claim [false-row]: <k> .K </k> <v> bitValue(B:Bool) => 0 </v> requires notBool B
+  claim [wrong-row]: <k> .K </k> <v> bitValue(B:Bool) => 1 </v> requires notBool B
+  claim [unknown-row]: <k> .K </k> <v> bitValue(B:Bool) => 1 </v>
+  claim [arithmetic-row]: <k> .K </k> <v> bitValue(X:Int <Int 256) => 1 </v>
+    requires 0 <=Int X andBool X <Int 256
+  claim [guarded-control]: <k> .K </k> <v> guardedBit(X:Int <Int 256) => 1 </v>
+    requires 0 <=Int X andBool X <Int 256
+  claim [several-literals]: <k> .K </k> <v> code(N:Int, B:Bool, X:Int) => X +Int 1 </v>
+    requires N ==Int 7 andBool B andBool X >Int 0
+  claim [unknown-guard]: <k> .K </k> <v> code(N:Int, B:Bool, X:Int) => X +Int 1 </v>
+    requires N ==Int 7 andBool B
+  claim [refuted-literal]: <k> .K </k> <v> code(N:Int, B:Bool, X:Int) => X +Int 1 </v>
+    requires N ==Int 8 andBool B andBool X >Int 0
+  claim [preferred-held]: <k> .K </k> <v> preferred(B:Bool) => 1 </v> requires B
+  claim [preferred-refuted]: <k> .K </k> <v> preferred(B:Bool) => 2 </v> requires notBool B
+  claim [preferred-unknown]: <k> .K </k> <v> preferred(B:Bool) => 2 </v>
+  claim [concrete-rejected]: <k> .K </k> <v> concreteRow(X:Int, B:Bool) => X +Int 1 </v> requires B
+  claim [symbolic-rejected]: <k> .K </k> <v> symbolicRow(3, B:Bool) => 4 </v> requires B
+  claim [recursive-guard]: <k> .K </k> <v> circularRow(X:Int, B:Bool) => 1 </v> requires B
+  claim [partial-operand]: <k> .K </k> <v> bitValue((1 /Int X:Int) <Int 256) => 1 </v> requires X >Int 1
+endmodule
+"#;
