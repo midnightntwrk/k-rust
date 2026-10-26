@@ -2248,7 +2248,7 @@ fn k_sequence_injection(term: &Term) -> Option<&Term> {
     .then_some(first)
 }
 
-fn read_bool(term: &Term) -> Option<bool> {
+pub(super) fn read_bool(term: &Term) -> Option<bool> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };

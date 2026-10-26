@@ -36,6 +36,10 @@ mod z3;
 
 mod literal;
 
+// Admission is exercised independently before the query emitter consumes its metadata.
+#[cfg(test)]
+mod summary;
+
 #[cfg(feature = "z3")]
 use query::TranslatedQuery;
 
