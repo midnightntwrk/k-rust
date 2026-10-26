@@ -5949,7 +5949,20 @@ fn simplify_other_children(
                     accumulated.top_equation(rule_id, obligations);
                     retained
                 }
-                None => Term::and(child(left)?, child(right)?),
+                None => {
+                    // Matching-logic intersection is idempotent. Normalize both operands
+                    // first: their evaluation and accumulated definedness obligations must
+                    // survive even when the resulting patterns coincide (as for an alias
+                    // substituted with the very literal it matches).
+                    let left = child(left)?;
+                    let right = child(right)?;
+                    if left == right {
+                        children_unchanged.set(false);
+                        left
+                    } else {
+                        Term::and(left, right)
+                    }
+                }
             }
         }
         // `KEQUAL.ite`, `BOOL.andThen` and `BOOL.orElse`: the deciding operand first, then only
@@ -8994,6 +9007,51 @@ mod tests {
         .expect("definedness definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN")
             .expect("definedness definition should internalize")
+    }
+
+    #[test]
+    fn intersection_idempotence_normalizes_aliases_without_losing_obligations() {
+        let definition = definedness_definition();
+        for source in [r#"\dv{SortS{}}("expected")"#, "partial{}(Y:SortS{})"] {
+            let operand = term(&definition, source);
+            let result = unstopped(simplify(
+                &definition,
+                &Term::and(operand.clone(), operand.clone()),
+                SimplificationOptions::default(),
+            ))
+            .unwrap();
+            assert_eq!(result.term, operand);
+        }
+
+        // Both sides become the same literal, but evaluating the left side has an
+        // open obligation. Intersection idempotence must not erase it.
+        let result = unstopped(simplify(
+            &definition,
+            &Term::and(
+                term(&definition, "discard{}(partial{}(Y:SortS{}))"),
+                term(&definition, r#"\dv{SortS{}}("done")"#),
+            ),
+            SimplificationOptions::default(),
+        ))
+        .unwrap();
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
+        assert_eq!(
+            result.constraints(),
+            vec![Predicate::Ceil(term(&definition, "partial{}(Y:SortS{})"))]
+        );
+
+        // An alias under a function must expose the constructor needed by its rule.
+        let result = unstopped(simplify(
+            &definition,
+            &term(
+                &definition,
+                r#"guarded{}(\and{SortS{}}(\dv{SortS{}}("expected"), \dv{SortS{}}("expected")))"#,
+            ),
+            SimplificationOptions::default(),
+        ))
+        .unwrap();
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
+        assert!(result.constraints().is_empty());
     }
 
     #[test]

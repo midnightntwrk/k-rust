@@ -1156,6 +1156,12 @@ fn order_collection<T: Ord>(items: &mut [T]) {
 
 impl Term {
     pub fn and(left: Self, right: Self) -> Self {
+        // Evaluated operands have no remaining evaluation to perform. Canonicalize
+        // their idempotent intersection here, since the simplifier skips evaluated
+        // nodes. Unevaluated operands are both visited by the simplifier first.
+        if left.attributes().evaluated && right.attributes().evaluated && left == right {
+            return left;
+        }
         Self::new(TermKind::And(left, right))
     }
 
