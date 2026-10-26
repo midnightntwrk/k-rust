@@ -8,17 +8,17 @@
 //! id = "kore.json.encode_source"
 //! name = "encode KORE JSON from a pattern source"
 //! sites = ["to_value_source", "source_to_string", "pattern_fields"]
-//! variable = "p = expanded KORE pattern nodes"
+//! variable = "p = expanded KORE pattern nodes; s = expanded sort nodes in emitted fields; B = string/name payload bytes processed; O = output bytes; h = traversal depth. Source-node acquisition is charged separately when PatternSource::node is not constant-time."
 //! counters = []
 //! no_counter = "observation JSON counts are recorded by its backend caller"
 //!
 //! [[cost]]
 //! mode = "one JSON value"
-//! bound = "O(p) source reads and JSON nodes; the returned JSON value has O(p) space"
+//! bound = "O(p + s + B) codec work and returned JSON-value space, plus the cost of acquiring p PatternSource nodes; sorts and string/name payloads are copied into the owned JSON tree. Pending tasks retain siblings and fields along depth h; expanded output counts shared occurrences separately."
 //!
 //! [[cost]]
 //! mode = "one compact JSON string"
-//! bound = "O(p) source reads and output bytes; the stack follows source depth and the returned string holds output bytes"
+//! bound = "O(p + s + B + O) codec work plus the cost of acquiring p PatternSource nodes; O(O) returned-string space plus pending task/source storage along the traversal frontier (including child/sort vectors), not the complete JSON value. A one-node string can have arbitrarily many payload/output bytes."
 //! ```
 
 use crate::json_tree::{self, Node};

@@ -28,6 +28,9 @@
 //! bound = "the Any cost plus up to c rule attempts on the whole subject (one per candidate of a priority that already applied, including candidates after the remaining subject is refuted) and O(k^2) is_sat overlap queries, until the tracker first reports a possible drop"
 //! ```
 //!
+//! RefutationMemo may skip an eligible failed attempt after checking agreement on the regions it
+//! read; backend.rewrite.refutation_memo states the lookup, read-plan and retention costs.
+//!
 //! Priority-grouped rewrite step with remainder: `All` mode folds the remainder through every
 //! priority group, so a configuration's successors are those of every rule of the first priority
 //! that applies to it, while `Any` mode threads it through the rules sequentially, so each instance

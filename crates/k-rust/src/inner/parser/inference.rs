@@ -5,7 +5,7 @@
 //! variable = "V = sort-bound vertices (of a forest: variables); E = bound edges; S = concrete sorts among the bounds (of a forest: sorts of the subsort order); I = instances of an ambiguous forest, a node with one context its ancestors give it; a = largest arity; W = distinct typings of the trees of one instance; M = maximal typings; N = nodes of the forest of a typing group; P = nodes of the forest of a typing group two of whose trees are one reading and instantiate formal parameters differently"
 //! counters = ["ParserPortableInferences"]
 //! falls_back_to = ["parser.inference.z3"]
-//! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
+//! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }, { type = "k_rust::inner::parser::forest::PackedTerm", role = "scoped packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //! span = "per problem"
 //!

@@ -196,6 +196,11 @@ pub(super) struct StateMatcher<'a> {
     found: StateMatches,
 }
 
+/// ```toml algorithm-site
+/// id = "backend.rewrite.execute"
+/// role = "part"
+/// sites = ["StateMatcher", "StateMatchOptions", "impl StateMatcher"]
+/// ```
 impl<'a> StateMatcher<'a> {
     pub(super) fn new(
         options: StateMatchOptions,

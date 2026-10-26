@@ -446,7 +446,13 @@ stage_adapter!(
 /// target;
 /// and, for every target, a claim's right-side alias that `lower term conjunctions` will not
 /// lower, whose pattern no compiled form of the claim would keep.
-fn check_ml_positions_stage(
+///
+/// ```toml algorithm-site
+/// id = "definition.checks.ml_positions"
+/// role = "part"
+/// sites = ["check_ml_positions"]
+/// ```
+fn check_ml_positions(
     input: &PassInput<'_>,
     state: &mut PipelineState,
 ) -> Result<PassOutcome, PassError> {
@@ -745,7 +751,7 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
     stage!(
         "check matching-logic positions",
         "check_ml_positions",
-        check_ml_positions_stage,
+        check_ml_positions,
         Provenance::None,
         "validation"
     ),

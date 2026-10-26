@@ -12,7 +12,7 @@
 //!
 //! [[cost]]
 //! mode = "one parse attempt (parse_attempt)"
-//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, inference, then one lowering session over the inferred forest or tree, lower_inferred_session: resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor_packed, resolve_ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
+//! bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, parser.inference.scope_binders before inference and restoration of retained terms/rejections afterwards, inference, then one lowering session over the inferred forest or tree, lower_inferred_session: resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor_packed, resolve_ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
 //!
 //! [[cost]]
 //! mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"

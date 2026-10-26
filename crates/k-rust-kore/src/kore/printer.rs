@@ -17,7 +17,7 @@
 //! `SyntaxOps` reads a pattern only through `PatternSource::node`, so `Printer::write_source` prints any pattern source, such as backend terms externalized node by node, with the same ops as the materialized pattern, and without the pattern itself being held whole either.
 //! Static syntax tokens borrow their text while generated names and quoted values own theirs; both yield the same text bytes to the renderer.
 //! Definitions and modules are op iterators (`definition_ops`, `module_ops`) that build each sentence's `Doc` only when the renderer reaches it, so a whole definition's document is never held; a sentence is built as a `Doc` first and then rendered by the same function.
-//! Rendering decides each group's layout with a look-ahead bounded by the line width and writes every op once; no dedicated counter.
+//! Rendering decides each group's layout with a look-ahead bounded by the line width and writes every op once; KoreText counters record source nodes, distinct source nodes and output bytes.
 //!
 //! Compact and width-aware textual KORE printing.
 

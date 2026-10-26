@@ -1,3 +1,23 @@
+//! ```toml algorithm
+//! id = "backend.rewrite.refutation_memo"
+//! name = "rule-refutation memoization by agreement on the subject regions read"
+//! sites = ["RefutationMemo::apply_rule", "RefutationMemo::eligible", "RefutationMemo::refutes", "RefutationMemo::record", "RefutationMemo", "ReadPlan", "ReadPlan::of", "count_variables", "same_reads"]
+//! variable = "R = rules with a slot; L = left-hand-side and requires nodes examined when constructing a rule's read plan; V = distinct variables of that plan; K = constructor-skeleton pairs read when comparing two eligible subjects"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+//! span = "none"
+//! invariant = "Only eligible ground, ceil_free, unconstrained subjects and direct initial-match or requires refutations without diagnostics, path facts, recovery or re-entry are remembered. Agreement on the recorded read regions preserves that refutation; the request fixes the definition, solver and options."
+//! tests = ["crates/k-rust-backend/src/rewrite/refutation_memo.rs"]
+//!
+//! [[cost]]
+//! mode = "eligible attempt"
+//! bound = "one expected O(1) rule-address lookup, then O(K) skeleton pairs and ordered membership tests in the V read variables, stopping at the first differing read; all other subject regions are compared by allocation identity. A miss pays the ordinary backend.rewrite.apply cost."
+//!
+//! [[cost]]
+//! mode = "first recorded refutation and storage"
+//! bound = "one read-plan construction per rule slot: walks of the left-hand side and requires, ordered variable counting and read-set operations, plus impure-symbol checks; one term handle stored per eligible rule, O(R) slots and the plans' variable sets, retaining the shared term nodes those handles reach"
+//! ```
+//!
 //! The refutations a sequential execution reuses: a rule attempt that a configuration refuted is
 //! not made again on a later configuration that agrees with it on everything the attempt read.
 //!

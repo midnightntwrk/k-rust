@@ -5,6 +5,7 @@
 //! variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family (outside stage 1, under the load's scope, only those with a relevant equation or at an argument whose second equation is rooted at an equation head or overloaded symbol), and each equation at a hook the evaluator applies times the equations of the hook's written meaning (at most four per hook); b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
 //! counters = ["ConfluencePairs", "ConfluenceUnifierBranches", "ConfluenceJoinSteps", "ConfluenceSimplifierCalls"]
 //! span = "per call"
+//! produces = [{ type = "k_rust_backend::confluence::ValueClaims", role = "checked value claims" }]
 //!
 //! [[cost]]
 //! mode = "one definition (check)"

@@ -1,3 +1,22 @@
+//! ```toml algorithm
+//! id = "backend.float.root"
+//! name = "correctly rounded IEEE rootn by binary search and adaptive logarithms"
+//! sites = ["positive_root_bits", "special_root", "native_degree", "Comparison::new", "Comparison::root_exceeds", "log2_fixed", "ln_ratio"]
+//! variable = "f = bit width of the IEEE format, at most 64; w = an attempted fixed-point precision; W = largest precision reached; A(w) = upper bound on one bigint arithmetic operation on O(w + f + 66)-bit operands"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+//! span = "none"
+//! tests = ["crates/k-rust-backend/src/builtin/float/root.rs"]
+//!
+//! [[cost]]
+//! mode = "positive finite root, non-native degree"
+//! bound = "at most f binary-search comparisons; each comparison at precision w uses O(w) bigint operations in the logarithm series, each charged A(w). Precision doubles on inconclusive comparisons and is retained for later ones; a conservative bound is O(f x sum over attempted precision levels w of w x A(w)), with O(W + f) live bigint bits. No precision-independent running-time bound is asserted."
+//!
+//! [[cost]]
+//! mode = "special or very large degree"
+//! bound = "fixed-format special-case handling; positive_root_bits returns the bit pattern for 1 before logarithms when the degree magnitude exceeds DEGREE_ROUNDING_TO_ONE_BITS (66). Input degree parsing and the caller's IEEE native operations are outside this procedure"
+//! ```
+//!
 //! `rootFloat(x, n)` as IEEE 754 `rootn(x, n)`, rounded to nearest in the format of `x`.
 //!
 //! IEEE 754 gives `rootn` its special cases (a zero, an infinity, a NaN, `n = 0`, a negative `x`)

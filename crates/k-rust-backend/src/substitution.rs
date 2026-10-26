@@ -9,7 +9,7 @@
 //!
 //! [[cost]]
 //! mode = "one term"
-//! bound = "O(t x v log s), with O(1) skipping of variable-free subterms"
+//! bound = "per entered subterm, the variable-set meet test probes the smaller of its variables and the s substitution keys in the larger ordered set, at most O(min(v, s) x log(v + s + 1)) variable comparisons; plus variable binding lookups, the visited term nodes and reconstruction/attribute costs. Variable-free subtrees skip in O(1); collection traversal/rebuild work is stated separately below. This is not a bound linear in written term size alone."
 //!
 //! [[cost]]
 //! mode = "the items of a map, set or list of n items (rebuild_where, map_where)"
@@ -24,7 +24,7 @@
 //! id = "backend.substitution.extract"
 //! name = "substitution extraction with strongly connected component cycle breaking"
 //! sites = ["extract_substitution_with", "extract_substitution", "extract_substitution_for"]
-//! variable = "r = cycles broken; V and E = dependency-graph vertices and edges; s = binding count; t = term size"
+//! variable = "c = input constraints; r = graph-build/SCC rounds, including the final acyclic round; V = candidate bindings before cycle removal; A = variable references in candidate values, including references to unbound variables; E = dependency edges, at most A; s = surviving bindings; t = largest intermediate term size; v = largest visited subterm variable count"
 //! counters = []
 //! no_counter = "substitution extraction has no dedicated counter"
 //! span = "per call"
@@ -32,17 +32,18 @@
 //!
 //! [[cost]]
 //! mode = "cycle breaking"
-//! bound = "O(r x (V + E))"
+//! bound = "empty constraints return in O(1); otherwise classify c constraints into ordered binding buckets, charging the binding extractor's term/injection/sort work; then r graph rounds, at most V + 1. Each round builds ordered candidate indexes and checks A value-variable references, O((V + A) log(V + 1)) key comparisons, runs Kosaraju in O(V + E), and removes the least variable of each cyclic SCC with ordered-set operations. r includes a graph build even when no cycle is broken."
 //!
 //! [[cost]]
 //! mode = "saturation"
-//! bound = "O(s^2 x (s + t))"
+//! bound = "at most s rounds of s substitutions at the current intermediate size, each charged backend.substitution.apply, plus O(s^3) binding/term-handle copies from cloning the whole map inside the inner loop, ordered removals/insertions and structural equality when checking convergence; filter c remaining constraints through the selected-index set afterwards. t can exceed input term size."
 //! ```
 //!
-//! Simultaneous substitution with attribute-guided skipping, O(t) per term with O(1) skip of
-//! variable-free subterms, and substitution extraction by Kosaraju SCC cycle breaking (petgraph,
-//! the least variable of each cycle kept as an equality), O(r x (V + E)) for r cycles broken,
-//! then saturation bounded by the binding count, O(s^2 x (s + t)); no counter of its own,
+//! Simultaneous substitution with attribute-guided skipping and ordered variable lookups, with
+//! O(1) skipping of variable-free subterms. Extraction rebuilds the dependency graph and uses
+//! Kosaraju SCC cycle breaking (petgraph), retaining the least variable of each cycle as an
+//! equality, then saturates within the binding count; the cards charge graph construction,
+//! repeated map copies and substitutions at intermediate sizes. No counter of its own,
 //! `Counter::TermConstructed` indirectly.
 
 use std::collections::{BTreeMap, BTreeSet};

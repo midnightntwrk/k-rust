@@ -1,3 +1,24 @@
+//! ```toml algorithm
+//! id = "backend.data.ground_instance"
+//! name = "bounded ground critical-pair witness search"
+//! sites = ["Search::new", "Search::ground_instance", "Search::try_assignment", "Search::candidates", "Search::compute_candidates", "Search::applies", "Search::matches", "Search::value", "Search::reading", "Search::stuck", "budgeted"]
+//! variable = "V = variables of the overlap, sides and conditions; C = at most CANDIDATES terms per sort/depth; A = assignments tried, at most min(INSTANCES, C^V); S = distinct sort/depth candidate requests; R = equations selected by an application/priority check"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+//! span = "none"
+//! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
+//! produces = [{ type = "k_rust_backend::data_term::instance::GroundInstance", role = "ground critical-pair witness" }]
+//! tests = ["crates/k-rust-backend/src/data_term/instance/tests.rs"]
+//!
+//! [[cost]]
+//! mode = "one Search"
+//! bound = "one scan of the definition's classified axioms to collect non-executable heads; candidate vectors are memoized by (sort, depth), depth at most DEPTH, with at most CANDIDATES results each; each new request scans definition symbols, sorts matching constructor candidates, and visits their argument/subsort dependencies, including failed candidates"
+//!
+//! [[cost]]
+//! mode = "one pair"
+//! bound = "collect V variables and their candidate vectors, then at most A assignments; per assignment substitute overlap, sides and conditions, check collection shape and both equations' applicability including higher priorities, and evaluate conditions/reducts and stuckness as needed, scanning R selected equations per such check. Each budgeted evaluation has EVALUATION_POLLS and EVALUATION_ITERATIONS limits; these bound polls/iterations, not the byte cost of a poll, substitution, builtin, comparison or intermediate term. Failure to find a witness leaves the finding undecided"
+//! ```
+//!
 //! The bounded search for a ground input with two results: an instance of an unjoined pair's
 //! overlap at which both equations apply and whose two reducts evaluate to two different normal
 //! forms, or to a normal form and an undefined value (the parent module's "Findings: genuine or

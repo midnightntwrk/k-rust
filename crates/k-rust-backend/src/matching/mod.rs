@@ -1,16 +1,16 @@
 //! ```toml algorithm
 //! id = "backend.matching.syntactic"
 //! name = "sort-aware one-way first-order matching by pair decomposition"
-//! sites = ["match_terms_with_context", "match_terms", "match_terms_in_definition", "match_term_pairs_in_definition", "Matcher::run", "Matcher::match_one", "Matcher::match_maps", "Matcher::match_sets", "Matcher::match_lists"]
+//! sites = ["match_terms_with_context", "match_terms", "match_terms_in_definition", "match_term_pairs_in_definition", "Matcher::run", "Matcher::match_one", "Matcher::match_maps", "Matcher::match_sets", "Matcher::match_lists", "SubjectNormalForms"]
 //! variable = "p = pairs popped, bounded by |pattern| plus subject-side And duplications and one map_queue postponement per map pair; a = pair arity; s = bindings in the substitution; t = size of a bound term; k = items a collection pattern names; n = items of the subject collection"
 //! counters = ["MatchingProblems", "MatchingPairs"]
 //! span = "per problem"
-//! consumes = [{ type = "k_rust_backend::matching::collections::CollectionSolution", role = "collection solution" }]
+//! consumes = [{ type = "k_rust_backend::matching::collections::CollectionSolution", role = "collection solution" }, { type = "k_rust_backend::instance_normal::token::InstanceNormal", role = "instance-normal evidence" }]
 //! produces = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
 //!
 //! [[cost]]
 //! mode = "one matching problem"
-//! bound = "O(p x (a + s x t))"
+//! bound = "O(p x a) decomposition work plus the substitution operations at bindings (backend.substitution.apply), structural/sort comparisons and backend.normality.scan for equation-head evidence; SubjectNormalForms remembers each term's normality answer within this matching problem, while the scan's own memo lasts for its outer scope. Collection modes below count item searches/cuts separately."
 //!
 //! [[cost]]
 //! mode = "a map or set pattern against a subject without rest (match_maps, match_sets): its items found and its rest bound"
@@ -47,7 +47,8 @@
 //! queue without unification: pattern variables bind, subject variables defer), O(p) pair pops per
 //! problem for p bounded by |pattern| plus subject-side `And` duplications and one `map_queue`
 //! postponement per map pair, each pop O(arity) plus an eager composition of the substitution per
-//! binding; `Counter::MatchingProblems`, `Counter::MatchingPairs`. Subsort and overload membership
+//! binding and the card's structural and instance-normality scan costs;
+//! `Counter::MatchingProblems`, `Counter::MatchingPairs`. Subsort and overload membership
 //! queries over the closures `definition.rs` builds, O(log |S|) sort comparisons per query, each
 //! linear in the compared sorts, and a linear scan of the overload closure for `common_overloads`.
 //! AC and A collection matching is `collections`, re-exported here so every entry

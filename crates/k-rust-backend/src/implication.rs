@@ -4,13 +4,14 @@
 //! sites = ["check_established", "check_implication", "check_implication_with_existentials",
 //!     "check_implication_with_existentials_and_options",
 //!     "check_implication_with_existentials_complete",
-//!     "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses"]
+//!     "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses", "check_negated_consequent"]
 //! variable = "r = antecedent simplification rounds; c = consequents"
 //! counters = ["SmtQueries"]
 //! span = "per problem"
 //! consumes = [
 //!   { type = "k_rust_backend::matching::MatchResult", role = "match result" },
 //!   { type = "k_rust_backend::substitution::Substitution", role = "extracted substitution" },
+//!   { type = "k_rust_backend::unification::UnificationResult", role = "unification result" },
 //! ]
 //!
 //! [[cost]]
@@ -23,6 +24,10 @@
 //! policy grades a failing part, grade_outside), and, when the complete policy grades a term \
 //! mismatch it shows no instance outside of, one more simplification of the antecedent's \
 //! knowledge and up to two more is_sat queries (antecedent_is_empty)"""
+//!
+//! [[cost]]
+//! mode = "negated consequent (check_negated_consequent)"
+//! bound = "internalize the admitted negated argument and rename the two sides apart, then one backend.unification.syntactic problem. Bottom or Unsupported returns immediately. Otherwise substitute the common-instance constraints and state definedness of both sides, unifier constraints, binding values and the common term, with Vec::contains deduplication; ask Counterexample::common, then, if it gives none, at most one direct is_sat and one knowledge_is_contradictory simplification/check. Callee work and intermediate/output sizes are charged, not unit-cost solver queries."
 //!
 //! [[cost]]
 //! mode = "several consequents (check_disjunctive_implication_with_existentials)"

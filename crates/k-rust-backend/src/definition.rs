@@ -2,13 +2,14 @@
 //! id = "backend.definition.internalize"
 //! name = "KORE definition validation and internalization"
 //! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_with_added", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module"]
-//! variable = "d = definition sentences and pattern nodes; a = axioms and claims of the modules the main module reaches, each module counted once"
+//! variable = "d = definition sentences and pattern nodes; a = axioms and claims of the modules the main module reaches, each module counted once; r = ground terms recorded by record_pattern_tokens"
 //! counters = []
 //! no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed, and through definedness discharge MatchingProblems, MatchingPairs and SimplifyInvocations, are bumped by callees"
 //! span = "per problem"
 //! consumes = [
 //!   { type = "k_rust_kore::kore::ast::Definition", role = "compiled definition" },
 //!   { type = "k_rust_kore::kore::ast::Pattern", role = "converted term" },
+//!   { type = "k_rust_backend::confluence::ValueClaims", role = "checked value claims" },
 //! ]
 //! produces = [
 //!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
@@ -19,7 +20,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus one walk of each predicate simplification lemma's left-hand side bringing it to its written form (simplify::written_lemma_left_side, one ceil_term call per atom of each conjunction that holds a \\ceil, deferred, membership, absence or negation conjunct), plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus one walk of each predicate simplification lemma's left-hand side bringing it to its written form (simplify::written_lemma_left_side, one ceil_term call per atom of each conjunction that holds a \\ceil, deferred, membership, absence or negation conjunct), plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure, one backend.confluence.critical_pairs check in Gate scope (including its witness rechecks), and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)"
 //!
 //! [[cost]]
 //! mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -2966,6 +2967,12 @@ impl BackendDefinition {
     /// off ([`crate::confluence::ConditionMemo`]; every load runs it on), for the tests that show
     /// the memo changes no verdict and no count but the simplifier's calls.
     #[must_use]
+    ///
+    /// ```toml algorithm-site
+    /// id = "backend.confluence.critical_pairs"
+    /// role = "part"
+    /// sites = ["BackendDefinition::value_claims_in_scope", "BackendDefinition::value_claims_checked"]
+    /// ```
     pub fn value_claims_checked(
         &self,
         scope: crate::confluence::CheckScope,
