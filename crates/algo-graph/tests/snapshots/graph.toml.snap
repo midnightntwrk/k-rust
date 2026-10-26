@@ -2104,6 +2104,11 @@ symbol = "request_definedness"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "faithful_conditions"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
 symbol = "faithful_equalities"
 
 [[node.sites]]
@@ -4152,6 +4157,26 @@ symbol = "apply_theory"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "apply_theory_noting_cuts"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "literal_instance"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "apply_literal_equation_instance"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "classify_equation_instance"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "apply_prepared_equation_instance"
 
 [[node.sites]]
 crate = "k-rust-backend"

@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts"]
+//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts", "literal_instance", "apply_literal_equation_instance", "classify_equation_instance", "apply_prepared_equation_instance"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node; n = items of a collection; u = items of a collection the summaries admit"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
@@ -8140,6 +8140,33 @@ fn apply_literal_equation_instance(
     set_aside: SetAsideRequires,
 ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
     let (substitution, equalities) = literal.into_parts();
+    // SMT-hook heads already have a solver reading. Contextual equation rewrites of
+    // those heads can erase Boolean guard terms still needed by surrounding
+    // definedness checks. Preserve their previous refutation-only path; this recovery
+    // adds the missing table behavior of heads without a theory-operation mapping.
+    if matches!(term.kind(), TermKind::Application { symbol, .. }
+        if matches!(symbol.attributes.smt, Some(crate::smt::SmtType::Hook(_))))
+    {
+        if set_aside == SetAsideRequires::Decide
+            && let EquationAttempt::ContextDependent =
+                decide_unused_instance::<Simplification, MatchFailed>(
+                    definition,
+                    rule,
+                    term,
+                    substitution,
+                    equalities,
+                    known_predicates,
+                    options,
+                    active_conditions,
+                    solver,
+                )?
+        {
+            return Ok(EquationAttempt::ContextDependent);
+        }
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::ImplicationIndeterminate,
+        ));
+    }
     match classify_equation_instance(rule, term, substitution, Bindings::Forced) {
         Instance::Usable(substitution) => {
             let condition = Condition::new(
@@ -8464,7 +8491,7 @@ fn classify_equation_instance(
         // `requires` decides nothing about the subject, whether or not an attribute would
         // set it aside.
         Instance::NonFunctionalBinding
-    } else if check_concreteness(&rule, &substitution).is_some() {
+    } else if check_concreteness(rule, &substitution).is_some() {
         Instance::SetAside(substitution)
     } else {
         Instance::Usable(substitution)

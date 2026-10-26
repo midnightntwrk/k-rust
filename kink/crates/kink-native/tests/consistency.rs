@@ -269,6 +269,10 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// it) above the passage, which moves down 6 to 2932-2962, byte-identical (`3b520509`): only its
 /// lines are re-pinned.
 ///
+/// Definition-condition equality repair: the internal definedness-error conversion above
+/// the source passage moves its lines. The passage is now 2935-2965 byte-identically;
+/// its digest and kink's conservative condition-equality exclusion stay unchanged.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -293,8 +297,8 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
-        2932,
-        2962,
+        2935,
+        2965,
         "3b5205091a3683ba0d694b1a136cef303abb250984fce1be15d3710769e4ffbe",
     ),
 ];
@@ -414,7 +418,9 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// condition 4), and the contract's `refuted` and `joined` points stated together (models of the
 /// axioms read as true; steps of `R ∪ W` in `M+`); re-pinned by digest of the merged file: ->
 /// `60e618a0`.
-const CONFLUENCE_RS: &str = "60e618a0aa3039ce0c85d09441acb6595c5d4a2d7d1b1bb2efa8208f2257da9d";
+/// Algorithm-card refresh 8ff88a783 adds only the `produces` metadata line naming
+/// `ValueClaims`; removing that line recovers the previous pinned bytes exactly.
+const CONFLUENCE_RS: &str = "7fb6bdb457e5204a9042564844e68384c337f5b8f799e88e4dbc1ee94bb580d5";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

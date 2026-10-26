@@ -713,9 +713,11 @@ pub fn halt_cause(
                 F::IterationLimit { .. } | F::PredicateIterationLimit { .. } => {
                     Some(HaltCause::Unjudged(UnjudgedReason::HaltIterationLimit))
                 }
-                F::ConflictingResults { .. } | F::UnsupportedHook { .. } => Some(
-                    HaltCause::Unjudged(UnjudgedReason::HaltUnsupportedConstruct),
-                ),
+                F::ConflictingResults { .. }
+                | F::UnsupportedHook { .. }
+                | F::UnstatedDefinedness { .. } => Some(HaltCause::Unjudged(
+                    UnjudgedReason::HaltUnsupportedConstruct,
+                )),
                 F::Smt { error, .. } | F::SmtPredicate { error, .. } => {
                     Some(smt_cause(error, detail))
                 }
@@ -754,6 +756,7 @@ pub fn halt_cause(
             | F::PredicateIterationLimit { .. }
             | F::InvalidBuiltinResultSymbol { .. }
             | F::UnsupportedHook { .. }
+            | F::UnstatedDefinedness { .. }
             | F::Match { .. }
             | F::Instantiation { .. }
             | F::Requires { .. }
@@ -839,6 +842,19 @@ fn cause_kind(cause: &SearchFailureOutput) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unadmitted_definition_condition_leaves_the_fuzz_case_unjudged() {
+        let cause = SearchFailureOutput::UnstatedDefinedness {
+            reason: "term-level conjunction in a definition condition".into(),
+        };
+        assert!(matches!(
+            halt_cause(HaltReasonOutput::SimplificationError, Some(&cause), None),
+            Some(HaltCause::Unjudged(
+                UnjudgedReason::HaltUnsupportedConstruct
+            ))
+        ));
+    }
 
     #[test]
     fn every_reason_is_listed_once_in_order_and_no_remedy_suggests_a_claim() {
