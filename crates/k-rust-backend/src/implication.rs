@@ -5555,8 +5555,8 @@ mod tests {
     }
 
     /// `pair(X, 1) ∧ h(X) <=Int 0 ∧ 1 <=Int X`, where the equation `h(X) = X` makes the
-    /// constraints contradictory, has no instance; the solver, reading `h` as an uninterpreted
-    /// function, answers its consequent condition `X <=Int 5` contingent on the knowledge as
+    /// constraints contradictory, has no instance; `h` is not declared total, so source-summary
+    /// admission refuses it. The solver answers `X <=Int 5` contingent on the knowledge as
     /// written. The check's refutation by simplification decides `knowledge ∧ ¬(X <=Int 5)`
     /// after evaluating `h`, finds it contradictory and so shows the consequent to hold: a
     /// contradiction of the knowledge that only the simplifier exposes is found before a
@@ -5566,7 +5566,7 @@ mod tests {
     #[test]
     fn an_antecedent_contradictory_only_once_simplified_is_covered_before_it_is_contingent() {
         let definition = partial_definition_with(
-            r#"symbol h{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            r#"symbol h{}(SortInt{}) : SortInt{} [function{}()]
                 axiom{R} \implies{R}(
                     \top{R}(),
                     \equals{SortInt{}, R}(

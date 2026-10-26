@@ -39,6 +39,126 @@ fn facts(side: &ValidatedDefinition) -> DataFacts {
     DataFacts::of(&loaded_definition(side).unwrap(), &[])
 }
 
+#[cfg(feature = "z3")]
+#[test]
+fn an_admitted_mutant_never_reuses_the_baselines_source_summary() {
+    use k_rust::{
+        backend::{Backend, BackendOptions},
+        builtin,
+        outer::ResolvedSource,
+    };
+    use k_rust_backend::{rule::Predicate, smt::Validity, substitution::Substitution};
+    use kink_patch::Baseline;
+
+    on_a_big_stack(|| {
+        let source = r#"
+            module SUMMARY-MUTANT-SYNTAX
+              imports BOOL-SYNTAX
+              syntax Prog ::= "go"
+              syntax Int ::= bit(Bool) [function, total, symbol(bit)]
+            endmodule
+            module SUMMARY-MUTANT
+              imports SUMMARY-MUTANT-SYNTAX
+              imports INT
+              imports BOOL
+              configuration <k> $PGM:Prog </k>
+              rule [off]: bit(false) => 0
+              rule [on]: bit(true) => 1
+            endmodule
+        "#;
+        let baseline = Baseline::load(
+            ResolvedSource::new("summary-mutant.k", source),
+            "SUMMARY-MUTANT",
+            None,
+            &mut |_: &str, required: &str| {
+                builtin::embedded(required).ok_or_else(|| format!("not embedded: {required}"))
+            },
+            &support::options(),
+        )
+        .unwrap();
+        let validator = NativeValidator::bind(baseline, CompileOptions::default());
+        let compiled = validator.compile_baseline().unwrap();
+        let baseline = validator.baseline();
+        let at = TermRef::new(support::rule(baseline, "SUMMARY-MUTANT.off"), [0, 1]);
+        let expected = baseline.term(&at).unwrap().clone();
+        assert!(matches!(expected.unannotated(), Term::Token { token, .. } if token == "0"));
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            at,
+            expected,
+            replacement: Term::Token {
+                token: "2".into(),
+                sort: Sort::new("Int"),
+            },
+        }])
+        .unwrap();
+        let support = ClaimSupport::new(baseline);
+        let withdrawal = support.withdraw(baseline, &patch).unwrap();
+        let mutant = validator
+            .validate(withdrawal.patch().expect("withdraw edited total"))
+            .unwrap();
+        let effect = support.effect(baseline, &patch).unwrap();
+        admit_mutant(
+            &CompiledEquations::of(&compiled).unwrap(),
+            &facts(&compiled),
+            &mutant,
+            &effect,
+        )
+        .unwrap();
+        assert_ne!(compiled.kore_sha256(), mutant.kore_sha256());
+
+        let query = |side: &ValidatedDefinition| {
+            let mut backend = Backend::new(
+                &side.artifacts().definition_kore,
+                "SUMMARY-MUTANT",
+                BackendOptions::default(),
+            )
+            .unwrap();
+            backend
+                .with_solver(None, |definition, solver| {
+                    let internal = |text| {
+                        definition
+                            .admit_unverified(
+                                &k_rust::kore::parser::parse_pattern(text).unwrap(),
+                                &[],
+                            )
+                            .internalize_term()
+                            .unwrap()
+                    };
+                    let application = internal("Lblbit{}(\\dv{SortBool{}}(\"false\"))");
+                    let zero = internal("\\dv{SortInt{}}(\"0\")");
+                    let answer = solver
+                        .check_predicates(
+                            &[],
+                            &Substitution::new(),
+                            &[Predicate::Equals(application.clone(), zero)],
+                        )
+                        .unwrap()
+                        .unwrap();
+                    let simplified = k_rust_backend::simplify::simplify(
+                        definition,
+                        &application,
+                        k_rust_backend::simplify::SimplificationOptions::default(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                    Ok::<_, k_rust::backend::BackendError>((answer, simplified.term))
+                })
+                .unwrap()
+        };
+        let (original, original_value) = query(&compiled);
+        assert_eq!(original, Validity::Valid);
+        let (changed, changed_value) = query(&mutant);
+        assert_ne!(
+            changed,
+            Validity::Valid,
+            "withdrawn total must reject source-summary admission"
+        );
+        assert_ne!(original_value, changed_value);
+        // Query the baseline again after the mutant, exercising both ownership directions.
+        assert_eq!(query(&compiled).0, Validity::Valid);
+    });
+}
+
 fn nomatch() -> NativeValidator {
     r0c("nomatch")
 }

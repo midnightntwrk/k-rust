@@ -1460,8 +1460,14 @@ mod tests {
                 };
                 let x_ge = at_least_zero(&x);
                 let y_ge = at_least_zero(&y);
-                // `X &Int 6 ==Int 1`: no instance, but `&Int` is uninterpreted in SMT (R19).
+                // Two symbolic operands retain the opaque integer-bit reading. Fixed
+                // literal masks now have an exact signed-Int reading (WORD-01).
                 let uninterpreted = equals(
+                    "SortInt",
+                    support::app(&hooked(definition, "INT.and"), vec![x.clone(), v.clone()]),
+                    support::int(1),
+                );
+                let fixed_mask = equals(
                     "SortInt",
                     support::app(
                         &hooked(definition, "INT.and"),
@@ -1545,6 +1551,13 @@ mod tests {
                         vec![x_is_y.clone()],
                         inexact,
                         Some(vec![predicate(&uninterpreted), binds(&x, &y)]),
+                    ),
+                    (
+                        "exact-fixed-mask",
+                        path(PathStop::Terminal, fixed_mask.clone()),
+                        vec![x_is_y.clone()],
+                        exact,
+                        Some(vec![predicate(&fixed_mask), binds(&x, &y)]),
                     ),
                     (
                         "foreign-predicate-variable",
@@ -1735,9 +1748,16 @@ mod tests {
                     addr(x.clone()),
                     addr(support::var("Y", "SortInt")),
                 );
-                // `X &Int 6 ==Int 1`: `&Int` is `smtlib(andInt)`, an uninterpreted SMT function
-                // (SYM-3B-05, README R19).
+                // An unbounded two-symbolic-operand bit operation still has an opaque fallback.
                 let uninterpreted = equals(
+                    "SortInt",
+                    support::app(
+                        &hooked(definition, "INT.and"),
+                        vec![x.clone(), support::var("V", "SortInt")],
+                    ),
+                    support::int(1),
+                );
+                let fixed_mask = equals(
                     "SortInt",
                     support::app(
                         &hooked(definition, "INT.and"),
@@ -1753,6 +1773,10 @@ mod tests {
                     (
                         "uninterpreted",
                         constrained(guarded_state(x.clone()), uninterpreted),
+                    ),
+                    (
+                        "exact-fixed-mask",
+                        constrained(guarded_state(x.clone()), fixed_mask),
                     ),
                     (
                         "abstracted",
@@ -1792,18 +1816,55 @@ mod tests {
         use LeafFeasibility::{Solver, Syntactic, Unknown as U, Unsat as N};
         let expected = [
             // Sat
-            Solver, U, U, U, Syntactic, //
+            Solver, U, Solver, U, U, Syntactic, //
             // Unsat
-            N, N, N, N, Syntactic, //
+            N, N, N, N, N, Syntactic, //
             // Unknown
-            U, U, U, U, Syntactic, //
+            U, U, U, U, U, Syntactic, //
             // NoSolver
-            U, U, U, U, Syntactic,
+            U, U, U, U, U, Syntactic,
         ];
         assert_eq!(answers.len(), expected.len());
         for ((id, answer), expected) in answers.into_iter().zip(expected) {
             assert_eq!(answer, expected, "{id}");
         }
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn native_fixed_masks_refute_and_witness_without_certifying_opaque_words() {
+        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+        guarded
+            .with_solver(None, |definition, solver| {
+                let inhabitation = Inhabitation::of(definition);
+                let x = support::var("X", "SortInt");
+                let v = support::var("V", "SortInt");
+                let mask = |right, value| {
+                    equals(
+                        "SortInt",
+                        support::app(&hooked(definition, "INT.and"), vec![x.clone(), right]),
+                        support::int(value),
+                    )
+                };
+                for (constraint, expected) in [
+                    (mask(support::int(6), 1), LeafFeasibility::Unsat),
+                    (mask(support::int(6), 2), LeafFeasibility::Solver),
+                    (mask(v, 2), LeafFeasibility::Unknown),
+                ] {
+                    let state = constrained(guarded_state(x.clone()), constraint);
+                    assert_eq!(
+                        leaf_feasibility(
+                            definition,
+                            solver,
+                            &inhabitation,
+                            &codec::to_value(&state).unwrap()
+                        ),
+                        expected
+                    );
+                }
+                Ok::<_, BackendError>(())
+            })
+            .unwrap();
     }
 
     const WRAP: &str = r#"[]

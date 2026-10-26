@@ -1156,12 +1156,6 @@ fn order_collection<T: Ord>(items: &mut [T]) {
 
 impl Term {
     pub fn and(left: Self, right: Self) -> Self {
-        // Evaluated operands have no remaining evaluation to perform. Canonicalize
-        // their idempotent intersection here, since the simplifier skips evaluated
-        // nodes. Unevaluated operands are both visited by the simplifier first.
-        if left.attributes().evaluated && right.attributes().evaluated && left == right {
-            return left;
-        }
         Self::new(TermKind::And(left, right))
     }
 
@@ -3650,6 +3644,10 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
     let mut attributes = match kind {
         TermKind::And(left, right) => {
             let mut attributes = combine_attributes([left, right]);
+            // Preserve the authored syntax, but leave idempotent intersections for
+            // the simplifier even when both operands are already evaluated.
+            attributes.evaluated &= left != right;
+            attributes.value_claimed &= attributes.evaluated;
             attributes.constructor_like = false;
             attributes.concrete_after_normalization = false;
             attributes
@@ -3777,7 +3775,7 @@ fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: Eval
             check_child(left);
             check_child(right);
             assert!(!attributes.constructor_like && !attributes.concrete_after_normalization);
-            (true, false)
+            (left != right, false)
         }
         TermKind::Application {
             symbol, arguments, ..

@@ -3072,3 +3072,34 @@ Repeated projections share a composite operand rather than duplicate its transla
 Value readings retain the original definedness obligations, including the operands of an untaken strict conditional or of a zero-length bit range.
 The standard symbolic integer domain rules state that `divInt` requires a nonzero divisor and `bitRangeInt` requires a nonnegative offset and length, together with all operand ceils.
 No application-specific axiom or execution step is added by a solver reading.
+
+## Source-derived scalar functions and bounded word queries
+
+Native definition-aware queries may derive an `Int` or `Bool` function reading from the actual loaded source equations.
+Admission considers every offered function and simplification row, including wildcard rows, and refuses an obstructing predicate equation or undecided static case.
+The admitted cases are an unrestricted variable equation, exhaustive Boolean literal cases, or supported complementary pure total guards, specialized at known constructor arguments.
+Every guard and branch must be defined for all defined scalar formals; a branch-local precondition does not justify a partial operation in its body.
+Admission refuses effects, binders, unbound results, unsupported priorities and restrictions, conflicting or incomplete cases, and recursive specialization graphs.
+A `total` declaration alone does not supply a function body or establish coverage.
+
+Admitted functions share query-local scalar definitions and bounded word variants over one immutable snapshot of the loaded definition.
+A changed definition, including an admitted kink mutant, supplies its own source snapshot.
+These are derived readings of source equations, not trusted application lemmas, semantic execution steps, or fabricated coverage events.
+The SMT emitter uses `define-fun-rec` to keep acyclic helper applications shared during solver loading; this declaration does not admit recursive K functions.
+
+The word planner may read a complete bounded `Int` expression as bit-vector arithmetic with an explicit full-value or projection contract.
+It derives operand intervals, widens arithmetic intermediates and reconciles signs rather than assigning a global machine width to `Int`.
+The resulting predicate retains interval guards and its scalar reading outside those guards, together with the original definedness obligations.
+For example, bounded unsigned byte `X` and `Y` support `(X |Int Y) +Int (X &Int Y) = X +Int Y` without wrapping the sum to eight bits.
+Neither a bound on the input nor a word variant makes an opaque scalar fallback exact for model purposes.
+Only the actual complete query's exactness can certify a model; definition-free `translation_exactness` remains a conservative diagnostic and consumer check.
+
+Planning is bounded: word width 256, combined traversal depth 128, work 32768, emitted nodes 4096 and text 1 MiB; source admission additionally bounds specialization count, row count, depth and work.
+Unsupported shapes and exhausted local planning budgets retain conservative scalar or opaque readings.
+Cancellation, deadlines and solver-prelude failures propagate through the existing typed stop boundary; solver defaults are unchanged.
+Sharing bounds emitted construction, not the difficulty or run time of every theorem over the admitted operations.
+
+Genuine finite input fields may use checked alternatives, for example KRS `b @ (0 | 1 | 2 | 3 | 4 | 5 | 6 | 7)` for a byte's bit index.
+Every alternative must prove; success for one alternative cannot prove the authored claim.
+Use the existing function-style `#[k::claim]` with `cells!` and `map!` when a claim must name a known-key map frame and write that cell: the readable machine shorthand's map-item pattern preserves its map cell.
+Such a frame expresses known bindings and a disjoint remainder; this does not supply arbitrary map decomposition, alias branching, induction or termination proofs.
