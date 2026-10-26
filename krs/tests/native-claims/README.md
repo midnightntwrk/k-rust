@@ -18,3 +18,18 @@ The cycle proof uses guarded self-circularity after semantic progress; the cycle
 The result establishes weak partial correctness and does not certify termination or finite reachability.
 The same command with only `--claim terminal-false` must report `disproved` and exit 1.
 The backend/API tests additionally check a concrete countdown without circularities, a cycle without circularities, and depth-zero rejection of an unguarded self-circularity.
+
+The primitive portfolio uses mathematical results for repeated bit operands and separate write/read machine transitions over a symbolic map.
+`store-load`, `distinct-store-load` and `overwrite` preserve the map frame; the distinct-key claim explicitly requires an existing read at the other key and key inequality.
+
+```console
+target/debug/krs prove --manifest-path krs/tests/native-claims/Cargo.toml \
+  --package krs-native-claims --definition main \
+  --spec-module NATIVE-PRIMITIVE-SPEC \
+  --claim and-self --claim xor-self --claim store-load \
+  --claim distinct-store-load --claim overwrite --depth 5 --output json
+```
+
+Each selected claim must report `proven`.
+`--claim wrong-value` must not prove.
+The backend tests separately check partial discarded values, typed injections, unknown aliases, scoped facts and nonfunctional/effectful operands.

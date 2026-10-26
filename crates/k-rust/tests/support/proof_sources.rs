@@ -410,6 +410,12 @@ module CONTEXTUAL-EQUALITY-SPEC
     requires 0 <=Int X andBool X <Int 65536
   claim [overwritten-not-injective]: <k> .K </k>
     <m> M:Map [0 <- X:Int] [0 <- 7] => M [0 <- X +Int 1] [0 <- 7] </m>
+  claim [overwrite-does-not-equate-values]: <k> .K </k> <v> X:Int ~> Y:Int </v>
+    <m> M:Map [0 <- X] [0 <- 7] => M [0 <- Y] [0 <- 7] </m>
+    ensures X ==Int Y
+  claim [overwrite-retains-definedness]: <k> .K </k> <v> X:Int </v>
+    <m> M:Map [0 <- 7] => M [0 <- opaquePartial(X)] [0 <- 7] </m>
+  claim [xor-retains-definedness]: <k> .K </k> <v> X:Int ~> 0 => X ~> (opaquePartial(X) xorInt opaquePartial(X)) </v>
   claim [negative-truncation]: <k> .K </k> <v> opaque(X:Int >>Int 8) => opaque(X /Int 256) </v>
     requires -256 <Int X andBool X <Int 0
 endmodule

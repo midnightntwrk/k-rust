@@ -1579,6 +1579,23 @@ Simplification lemmas over such terms are trusted as any lemma is, under the con
 Every answer above holds in every model of the emitted KORE, so the behaviour is incomplete, not unsound.
 The builtin `List`, `Set` and `Map` sorts implement their algebra in their representation and are the supported way to compute modulo these axioms.
 
+### Selected symbolic primitive identities
+
+After concrete hook evaluation declines, term simplification reduces these identities on pure functional operands:
+
+- For unbounded signed `Int`, `X &Int X = X`, `X |Int X = X`, `X xorInt X = 0`, and the zero identities in either operand order (`X &Int 0 = 0`, `X |Int 0 = X`, `X xorInt 0 = X`).
+- `X <<Int 0 = X` and `X >>Int 0 = X`; an unknown or negative shift amount has no new reduction.
+- `lookup(update(M, K, V), K) = V`, and `update(update(M, K, V1), K, V2) = update(M, K, V2)`.
+- `lookup(update(M, K, V), J) = lookup(M, J)` when structural apartness or an explicit scoped disequality establishes that the stored keys differ.
+
+Every reduction retains the definedness of the original strict arguments, including a value an overwrite discards or an operand absorbed by zero.
+The map laws do not require an existing binding at the written key and do not identify overwrite with disjoint concatenation.
+Keys and results use the declared collection sorts and sort injections; incompatible sorts leave the application unevaluated.
+Unknown aliases, set-valued operands, binders, surviving macros/aliases and applications that may perform effects have no new reduction.
+These are builtin normalizations, recorded as `builtin:<hook>` like concrete hook evaluation; they add no source equation or semantic transition.
+The admission walk visits each distinct operand DAG node once per attempted reduction, and key facts require at most two scans of the current fact list.
+Repeated reductions of a write chain can therefore take quadratic admission work in its length; the existing simplification budget still applies.
+
 ## Map concatenation binds each key once
 
 A map binds each key once, so `_Map_` is defined only on maps whose keys are disjoint: `(K |-> V1) (K |-> V2)` is `\bottom`, whether `V1` and `V2` are equal or not.

@@ -16,6 +16,10 @@
 //! bound = "O(u log n) nodes for the u items that are not evaluated or mention a variable the path condition binds, found by the items' summaries; every item when the path condition replaces terms, which no summary locates"
 //!
 //! [[cost]]
+//! mode = "selected symbolic primitive identity after concrete evaluation declines"
+//! bound = "constant root/rank checks and at most two scans of the k explicit key facts for a map law, then one memoized iterative walk of the distinct operand DAG nodes for functional purity; no solver calls. Every reduction removes an operation. Reducing a chain of n writes can scan O(n squared) nodes across its reductions; strict argument obligations use the existing hook_argument_definedness path."
+//!
+//! [[cost]]
 //! mode = "rule condition"
 //! bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active; an equation whose map or set pattern matches the term in several ways has one condition per matching, evaluated in the matcher's order until one holds"
 //!
@@ -6321,6 +6325,13 @@ fn simplify_root(
         None => evaluate_builtin(term, definition),
     }?
     .map_err(SimplificationError::Builtin)?;
+    // Concrete domain/resource decisions take precedence. These symbolic identities use the
+    // same hook result path, including the definedness of every original strict argument.
+    let builtin = if builtin == BuiltinResult::NotApplicable {
+        crate::builtin::reduce_symbolic(definition, term, known_predicates)
+    } else {
+        builtin
+    };
     // Outside an execution the entry leaves a value the definition leaves to the
     // implementation unevaluated, as `Unsupported`, so that no normal-form certificate is
     // recorded for it below (`builtin::evaluate_declared`).

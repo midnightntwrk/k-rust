@@ -3318,7 +3318,10 @@ fn scalar_equalities_compose_through_total_functions_injections_and_symbolic_wri
         ("wrong-frame", false),
         ("different-heads", false),
         ("opaque-partial", false),
-        ("overwritten-not-injective", false),
+        ("overwritten-not-injective", true),
+        ("overwrite-does-not-equate-values", false),
+        ("overwrite-retains-definedness", false),
+        ("xor-retains-definedness", false),
         ("negative-truncation", false),
     ] {
         let result = backend

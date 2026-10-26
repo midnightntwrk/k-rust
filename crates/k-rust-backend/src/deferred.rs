@@ -296,6 +296,41 @@ impl ConsoleReach {
     }
 }
 
+/// Whether every distinct node denotes at most one value and cannot perform an effect.
+/// Unlike a tree walk, this visits a shared operand DAG once. Partial functions are admitted:
+/// the consuming hook retains their definedness through its original strict arguments.
+///
+/// ```toml algorithm-site
+/// id = "backend.simplify.term"
+/// role = "part"
+/// sites = ["pure_functional_term"]
+/// ```
+pub(crate) fn pure_functional_term(definition: &BackendDefinition, term: &Term) -> bool {
+    let reach = definition.console_reach();
+    if reach.unindexed {
+        return false;
+    }
+    let mut seen = rustc_hash::FxHashSet::default();
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if !seen.insert(term.clone()) {
+            continue;
+        }
+        if !crate::rewrite::functional_pattern_node(term) {
+            return false;
+        }
+        if let TermKind::Application { symbol, .. } = term.kind()
+            && (symbol.attributes.binder
+                || symbol.attributes.macro_or_alias
+                || reach.may_reach(symbol))
+        {
+            return false;
+        }
+        pending.extend(children(term));
+    }
+    true
+}
+
 /// Whether `term` holds an application that may perform a console effect when it is
 /// evaluated: of a symbol [`ConsoleReach`] holds, which over-approximates the console effects
 /// (every `IO.` hook is `impure`, and so is a symbol only declared so), as is sound for the marks

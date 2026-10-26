@@ -4075,6 +4075,31 @@ symbol = "simplify_with_optional_execution"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/symbolic.rs"
+symbol = "reduce"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/symbolic.rs"
+symbol = "scalar"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/symbolic.rs"
+symbol = "map"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/symbolic.rs"
+symbol = "key_fact"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/deferred.rs"
+symbol = "pure_functional_term"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/diagnostic.rs"
 symbol = "retract_dropped"
 
@@ -4200,6 +4225,10 @@ bound = "O(r x |t| x c), with the rounds that are not determined ground function
 [[node.cost]]
 mode = "the items of a map, set or list of n items (simplify_children)"
 bound = "O(u log n) nodes for the u items that are not evaluated or mention a variable the path condition binds, found by the items' summaries; every item when the path condition replaces terms, which no summary locates"
+
+[[node.cost]]
+mode = "selected symbolic primitive identity after concrete evaluation declines"
+bound = "constant root/rank checks and at most two scans of the k explicit key facts for a map law, then one memoized iterative walk of the distinct operand DAG nodes for functional purity; no solver calls. Every reduction removes an operation. Reducing a chain of n writes can scan O(n squared) nodes across its reductions; strict argument obligations use the existing hook_argument_definedness path."
 
 [[node.cost]]
 mode = "rule condition"
