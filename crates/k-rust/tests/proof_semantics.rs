@@ -3343,3 +3343,42 @@ fn scalar_equalities_compose_through_total_functions_injections_and_symbolic_wri
         }
     }
 }
+
+#[test]
+fn weak_claims_continue_after_a_false_current_target_without_asserting_termination() {
+    let kore = compile(
+        proof_sources::WEAK_CLAIM_CONTINUATION,
+        "WEAK-CONTINUATION-SPEC",
+        "WEAK-CONTINUATION",
+    );
+    for (label, depth, circularities, expected) in [
+        ("later-target", 2, None, "proven"),
+        ("partially-covered", 2, None, "proven"),
+        ("terminal-false", 2, None, "disproved"),
+        ("countdown", 4, None, "proven"),
+        ("finite-countdown", 4, Some(Vec::new()), "proven"),
+        ("finite-countdown", 3, Some(Vec::new()), "depth-bound"),
+        ("cycle", 2, None, "proven"),
+        ("cycle", 2, Some(Vec::new()), "depth-bound"),
+        ("cycle", 0, None, "depth-bound"),
+        ("false-at-terminal", 2, None, "disproved"),
+    ] {
+        let result = prove(
+            &kore,
+            "WEAK-CONTINUATION-SPEC",
+            &format!("WEAK-CONTINUATION-SPEC.{label}"),
+            ProveRequest {
+                max_depth: Some(depth),
+                circularities,
+                ..ProveRequest::default()
+            },
+        );
+        assert_eq!(
+            result.status, expected,
+            "{label}, depth {depth}: {result:?}"
+        );
+        if label == "cycle" && expected == "proven" {
+            assert!(result.leaves.iter().all(|leaf| leaf.depth >= 1));
+        }
+    }
+}

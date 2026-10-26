@@ -1108,10 +1108,6 @@ struct KproveArgs {
     #[arg(long, value_enum, default_value_t = GraphSearchArg::BreadthFirst)]
     graph_search: GraphSearchArg,
 
-    /// Continue rewriting when destination terms match but their side conditions do not.
-    #[arg(long)]
-    disable_stuck_check: bool,
-
     /// Cancel a proof step after this many seconds.
     #[arg(long = "set-step-timeout", value_name = "SECONDS")]
     step_timeout: Option<NonZeroUsize>,
@@ -1359,7 +1355,6 @@ struct KproveOptions {
     min_depth: u64,
     allow_vacuous: bool,
     graph_search: ProofSearchOrder,
-    stuck_check: bool,
     step_timeout: Option<Duration>,
     moving_average_timeout: bool,
     smt: Z3Options,
@@ -1864,7 +1859,6 @@ impl From<KproveArgs> for KproveOptions {
             min_depth: arguments.min_depth,
             allow_vacuous: arguments.allow_vacuous,
             graph_search: arguments.graph_search.into(),
-            stuck_check: !arguments.disable_stuck_check,
             step_timeout: arguments
                 .step_timeout
                 .map(|seconds| Duration::from_secs(seconds.get() as u64)),
@@ -3813,7 +3807,6 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             max_simplification_iterations: options.max_simplification_iterations,
             allow_vacuous: options.allow_vacuous,
             search_order: options.graph_search,
-            stuck_check: options.stuck_check,
             step_timeout: options.step_timeout,
             moving_average_timeout: options.moving_average_timeout,
         };
@@ -6177,7 +6170,6 @@ mod tests {
             "--allow-vacuous",
             "--graph-search",
             "depth-first",
-            "--disable-stuck-check",
             "--set-step-timeout",
             "9",
             "--moving-average",
@@ -6212,7 +6204,6 @@ mod tests {
         assert_eq!(options.min_depth, 2);
         assert!(options.allow_vacuous);
         assert_eq!(options.graph_search, ProofSearchOrder::DepthFirst);
-        assert!(!options.stuck_check);
         assert_eq!(options.step_timeout, Some(Duration::from_secs(9)));
         assert!(options.moving_average_timeout);
         assert_eq!(options.smt, Z3Options::default());

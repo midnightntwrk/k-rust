@@ -168,7 +168,7 @@ pub struct ProofAssumptions<'a> {
 /// claim with neither a unique id nor a label is named by no id (`UNKNOWN_UNIQUE_ID`), so every
 /// claim sentence without one then counts as trusted, which can only make the digest differ more
 /// often. The run's bounds (depth, breadth, timeouts, search order, counterexample count,
-/// simplification iterations, minimum depth) and its stuck check decide only whether a proof is
+/// simplification iterations, minimum depth) decide only whether a proof is
 /// found, not what a found one certifies, and are not bound.
 pub fn saved_proofs_digest(
     definition: &Definition,

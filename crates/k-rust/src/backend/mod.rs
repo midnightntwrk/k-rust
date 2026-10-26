@@ -1494,7 +1494,6 @@ pub struct ProveRequest {
     pub max_simplification_iterations: usize,
     pub allow_vacuous: bool,
     pub depth_first: bool,
-    pub stuck_check: bool,
     pub step_timeout_ms: Option<u64>,
     pub moving_average_timeout: bool,
     pub schema_version: u32,
@@ -1513,7 +1512,6 @@ impl Default for ProveRequest {
             max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
             allow_vacuous: false,
             depth_first: false,
-            stuck_check: true,
             step_timeout_ms: None,
             moving_average_timeout: false,
             schema_version: BACKEND_SCHEMA_VERSION,
@@ -2726,7 +2724,6 @@ impl Backend {
                     } else {
                         ProofSearchOrder::BreadthFirst
                     },
-                    stuck_check: request.stuck_check,
                     step_timeout: request.step_timeout_ms.map(Duration::from_millis),
                     moving_average_timeout: request.moving_average_timeout,
                 },

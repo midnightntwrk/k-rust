@@ -1161,6 +1161,8 @@ export interface ModelResult {
 export interface ProveOptions {
   moduleName?: string
   claim?: string
+  /** Guarded circularities; default: selected claim and trusted claims. An empty list disables them. */
+  circularities?: string[]
   maxDepth?: number
   minDepth?: number
   breadthLimit?: number
@@ -1168,7 +1170,6 @@ export interface ProveOptions {
   maxSimplificationIterations?: number
   allowVacuous?: boolean
   depthFirst?: boolean
-  stuckCheck?: boolean
   stepTimeoutMs?: number
   movingAverageTimeout?: boolean
   schemaVersion?: number

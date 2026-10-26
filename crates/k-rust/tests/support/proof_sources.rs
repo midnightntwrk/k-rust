@@ -414,3 +414,29 @@ module CONTEXTUAL-EQUALITY-SPEC
     requires -256 <Int X andBool X <Int 0
 endmodule
 "#;
+
+/// The current target is a proof obligation, not an execution cutpoint. Weak circular
+/// proofs can close an infinite cycle, while finite terminal violations remain false.
+pub const WEAK_CLAIM_CONTINUATION: &str = r#"
+module WEAK-CONTINUATION
+  imports INT
+  imports BOOL
+  syntax KItem ::= tick() | count(Int) | spin() | done(Int)
+  configuration <k> $PGM:K </k> <n> 0 </n>
+  rule <k> tick() </k> <n> 0 => 1 </n>
+  rule <k> count(0) => done(0) ... </k>
+  rule <k> count(N:Int) => count(N -Int 1) ... </k> requires N >Int 0
+  rule <k> spin() => spin() ... </k>
+endmodule
+module WEAK-CONTINUATION-SPEC
+  imports WEAK-CONTINUATION
+  claim [later-target]: <k> tick() </k> <n> 0 => ?M:Int </n> ensures ?M ==Int 1
+  claim [partially-covered]: <k> tick() </k> <n> N:Int => ?M:Int </n>
+    requires 0 <=Int N andBool N <=Int 1 ensures ?M ==Int 1
+  claim [terminal-false]: <k> tick() </k> <n> 0 => ?M:Int </n> ensures ?M ==Int 2
+  claim [countdown]: <k> count(N:Int) => done(0) </k> requires N >=Int 0
+  claim [finite-countdown]: <k> count(3) => done(0) </k>
+  claim [cycle]: <k> spin() => done(0) </k>
+  claim [false-at-terminal]: <k> done(0) => done(1) </k>
+endmodule
+"#;

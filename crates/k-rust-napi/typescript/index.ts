@@ -1154,6 +1154,8 @@ export interface ProveOptions {
   moduleName?: string
   /** Claim label, unique id, or zero-based `#index`. Optional when there is exactly one claim. */
   claim?: string
+  /** Guarded circularities; default: selected claim and trusted claims. An empty list disables them. */
+  circularities?: string[]
   maxDepth?: number
   minDepth?: number
   breadthLimit?: number
@@ -1161,7 +1163,6 @@ export interface ProveOptions {
   maxSimplificationIterations?: number
   allowVacuous?: boolean
   depthFirst?: boolean
-  stuckCheck?: boolean
   stepTimeoutMs?: number
   movingAverageTimeout?: boolean
   schemaVersion?: number

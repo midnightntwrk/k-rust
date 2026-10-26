@@ -137,7 +137,7 @@ pub struct ProveOptions {
     pub module: Option<String>,
     /// Claim labels, resolved by exact match or unique `.`-suffix; empty selects every claim.
     pub claims: Vec<String>,
-    /// At most this many rewrite steps on any proof path.
+    /// At most this many proof transitions, counting semantic rewrites and applied claims.
     pub depth: Option<u64>,
 }
 

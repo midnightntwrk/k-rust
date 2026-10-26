@@ -16686,7 +16686,7 @@ endmodule
         ),
     ];
     for (specification, module, definition_module, claim, leaf_term, (verdict, leaf)) in cases {
-        // The four flag sets are proof options: one compilation serves them all.
+        // Both vacuity policies share one compilation.
         let compiled = root.join(format!("{module}-compiled"));
         kcompile_for_proving(
             &root.join(specification),
@@ -16694,12 +16694,7 @@ endmodule
             definition_module,
             &compiled,
         );
-        for flags in [
-            &[][..],
-            &["--allow-vacuous"][..],
-            &["--disable-stuck-check"][..],
-            &["--allow-vacuous", "--disable-stuck-check"][..],
-        ] {
+        for flags in [&[][..], &["--allow-vacuous"][..]] {
             let output = Command::new(env!("CARGO_BIN_EXE_krust"))
                 .args(["kprove", "--compiled-definition"])
                 .arg(&compiled)
@@ -22724,7 +22719,8 @@ endmodule
         "SPLIT-PROBE",
     )
     .compiled();
-    for extra in [&[][..], &["--disable-stuck-check"][..]] {
+    {
+        let extra: &[&str] = &[];
         let leaves = fixture.claim_leaves(&["covered-then-stuck", "contingent-false"], extra);
         assert_eq!(
             verdicts_of(&leaves),
@@ -22739,7 +22735,7 @@ endmodule
 
 /// A destination reached through a match remainder (`st(X)` against `st(0)`) is classified like
 /// any other obligation: the part where `X = 0` is at the destination and closes, and the rest
-/// can still rewrite, so it continues whatever the stuck check says. `remainder-rewritable` is
+/// can still rewrite, so it continues. `remainder-rewritable` is
 /// true (the rest takes the rule to `st(0)`). In `remainder-false` the rest reaches `st(0)`,
 /// which is outside the destination `st(1)` and has no successor: a certified stuck leaf
 /// (disproved).
@@ -22771,7 +22767,8 @@ endmodule
         "REMAINDER-PROBE",
     )
     .compiled();
-    for extra in [&[][..], &["--disable-stuck-check"][..]] {
+    {
+        let extra: &[&str] = &[];
         let leaves = fixture.claim_leaves(&["remainder-rewritable", "remainder-false"], extra);
         assert_eq!(
             leaves[0],
@@ -22800,11 +22797,10 @@ endmodule
 
 /// A remainder obligation (`0 = X` from `st(X)` against `st(0)`) that the simplifier refutes,
 /// because together with the destination constraint it is false (`0 = X` with `X >Int 5`, or
-/// `false`), is graded exactly as one the solver refutes: the stuck check stops the state at
-/// depth 0, and without it the rule rewrites the state onward. `solver-refuted` and `simplifier-refuted` are
+/// `false`), is graded exactly as one the solver refutes: semantic execution continues. `solver-refuted` and `simplifier-refuted` are
 /// true; `solver-refuted-false` and `simplifier-refuted-false` are false (their destination
 /// constraint fails on every state). Their reached `st(0)` refutes the obligation and has no
-/// successor, so it is a stuck leaf in both modes.
+/// successor, so it is a certified terminal leaf.
 #[test]
 fn kprove_a_refuted_remainder_is_graded_alike_by_simplifier_and_solver() {
     let definition = r#"
@@ -22834,9 +22830,8 @@ endmodule
         "solver-refuted-false",
         "simplifier-refuted-false",
     ];
-    // The stuck check stops `st(X)` with `X >Int 5`, which still rewrites: a failed claim, not a
-    // refutation. The reached `st(0)` of the false claims has no successor: a certified one.
-    let stopped = || ("failed".to_owned(), vec!["stuck".to_owned()]);
+    // The reached st(0) proves the first two targets. The false targets have a certified
+    // terminal refutation after the same semantic step.
     let refuted = || ("disproved".to_owned(), vec!["stuck (certified)".to_owned()]);
     let fixture = ProofFixture::new(
         ("remainder-probe.k", definition),
@@ -22845,18 +22840,14 @@ endmodule
         "REMAINDER-PROBE",
     )
     .compiled();
-    for (extra, expected) in [
-        (&[][..], [stopped(), stopped(), stopped(), stopped()]),
-        (
-            &["--disable-stuck-check"][..],
-            [
-                ("proven".to_owned(), Vec::new()),
-                ("proven".to_owned(), Vec::new()),
-                refuted(),
-                refuted(),
-            ],
-        ),
-    ] {
+    {
+        let extra: &[&str] = &[];
+        let expected = [
+            ("proven".to_owned(), Vec::new()),
+            ("proven".to_owned(), Vec::new()),
+            refuted(),
+            refuted(),
+        ];
         let leaves = fixture.claim_leaves(&claims, extra);
         let expected = claims
             .iter()
@@ -23301,7 +23292,8 @@ endmodule
         &["frame-restarts"],
         &[],
     );
-    assert_eq!(leaves, [failed_stuck_leaf("frame-restarts")]);
+    // .K can still move, so execution continues to halt, which is terminal outside the target.
+    assert_eq!(leaves, [refuted_leaf("frame-restarts")]);
 }
 
 /// The `[[proof]]` cases of `scripts/reference-differential.toml` whose sources are committed
@@ -24383,4 +24375,77 @@ endmodule
     let context = format!("{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success(), "{context}");
     assert!(stdout.contains("claim #1: proven"), "{context}");
+}
+
+#[test]
+fn kprove_continues_under_defaults_and_reports_weak_cycle_success() {
+    let (definition, spec) = proof_sources::WEAK_CLAIM_CONTINUATION
+        .split_once("module WEAK-CONTINUATION-SPEC")
+        .unwrap();
+    let specification =
+        format!("requires \"weak-continuation.k\"\nmodule WEAK-CONTINUATION-SPEC{spec}");
+    let fixture = ProofFixture::new(
+        ("weak-continuation.k", definition),
+        ("weak-spec.k", &specification),
+        "WEAK-CONTINUATION-SPEC",
+        "WEAK-CONTINUATION",
+    )
+    .compiled();
+    for (claim, expected) in [
+        ("later-target", "proven"),
+        ("partially-covered", "proven"),
+        ("terminal-false", "disproved"),
+        ("countdown", "proven"),
+        ("cycle", "proven"),
+        ("false-at-terminal", "disproved"),
+    ] {
+        let selector = format!("WEAK-CONTINUATION-SPEC.{claim}");
+        let leaves = fixture.claim_leaves(&[&selector], &[]);
+        assert_eq!(
+            verdicts_of(&leaves),
+            expected_verdicts(&[(&selector, expected)])
+        );
+    }
+}
+
+#[test]
+fn kprove_core_reasoning_matches_the_public_facade_under_normal_defaults() {
+    for (source, main, spec, cases) in [
+        (
+            proof_sources::PARTIAL_EQUALITY_CONDITIONS,
+            "PARTIAL-CONDITIONS",
+            "PARTIAL-CONDITIONS-SPEC",
+            [("positive-zero", "proven"), ("negative-zero", "disproved")],
+        ),
+        (
+            proof_sources::LITERAL_EQUATION_CONDITIONS,
+            "LITERAL-CONDITIONS",
+            "LITERAL-CONDITIONS-SPEC",
+            [("true-row", "proven"), ("unknown-row", "failed")],
+        ),
+        (
+            proof_sources::CONTEXTUAL_SCALAR_EQUALITIES,
+            "CONTEXTUAL-EQUALITY",
+            "CONTEXTUAL-EQUALITY-SPEC",
+            [("opaque", "proven"), ("wrong-frame", "failed")],
+        ),
+    ] {
+        let (definition, specification) = source.split_once(&format!("module {spec}")).unwrap();
+        let specification = format!("requires \"core.k\"\nmodule {spec}{specification}");
+        let fixture = ProofFixture::new(
+            ("core.k", definition),
+            ("spec.k", &specification),
+            spec,
+            main,
+        )
+        .compiled();
+        for (claim, expected) in cases {
+            let selector = format!("{spec}.{claim}");
+            let leaves = fixture.claim_leaves(&[&selector], &[]);
+            assert_eq!(
+                verdicts_of(&leaves),
+                expected_verdicts(&[(&selector, expected)])
+            );
+        }
+    }
 }

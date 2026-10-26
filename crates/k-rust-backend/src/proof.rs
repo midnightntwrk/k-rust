@@ -16,7 +16,7 @@
 //!
 //! [[cost]]
 //! mode = "one proof"
-//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
+//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus one terminal-instance certification attempt at each refuted current target on a certifiable trace and for each Stuck leaf (stuck_leaf), each up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
 //! ```
 //!
 //! Reachability-logic proof search: per explored state one
@@ -26,7 +26,8 @@
 //! deduplication; O(explored states) x (simplification + implication + |circularities| x
 //! claim application + one step), `Counter::ProofStatesExplored`. A `Stuck` leaf is certified
 //! as a refutation by at most two more satisfiability queries and two more rewrite steps
-//! (`stuck_leaf`).
+//! (`stuck_leaf`); the same refinement can find a terminal counterexample at a refuted
+//! current target before branching on a symbolic continuation.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -88,7 +89,6 @@ pub struct ProofOptions {
     pub max_simplification_iterations: usize,
     pub allow_vacuous: bool,
     pub search_order: ProofSearchOrder,
-    pub stuck_check: bool,
     pub step_timeout: Option<Duration>,
     pub moving_average_timeout: bool,
 }
@@ -110,7 +110,6 @@ impl Default for ProofOptions {
             max_simplification_iterations: DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
             allow_vacuous: false,
             search_order: ProofSearchOrder::BreadthFirst,
-            stuck_check: true,
             step_timeout: None,
             moving_average_timeout: false,
         }
@@ -554,6 +553,7 @@ pub fn prove_claim(
         }
 
         let mut implication_indeterminate = false;
+        let mut current_target_refuted = false;
         let mut implication_remainder = None;
         if state.depth >= options.min_depth {
             measure::bump(Counter::ProofImplicationChecks);
@@ -575,7 +575,10 @@ pub fn prove_claim(
             };
             finish_if_interrupted!();
             let implication = implication.map_err(ProofError::Implication)?;
-            let partial_coverage = matches!(implication, Coverage::PartialCoverage { .. });
+            current_target_refuted = matches!(
+                implication,
+                Coverage::PartialCoverage { .. } | Coverage::ConditionRefuted { .. }
+            );
             match implication {
                 Coverage::Covered(bindings) => {
                     record_leaf!(state.leaf(ProofLeafOutcome::Proven(bindings.into())));
@@ -609,19 +612,7 @@ pub fn prove_claim(
                         record_leaf!(state.leaf(ProofLeafOutcome::Proven(coverage.to_condition())));
                         continue;
                     };
-                    // A partial coverage refutes the uncovered part's destination obligation, so
-                    // the stuck check stops it. A contingent destination's uncovered part may
-                    // still rewrite into the destination, so it continues whatever the stuck
-                    // check says.
-                    if partial_coverage && options.stuck_check {
-                        record_stuck_leaf!(state.remaining(remainder), StuckEvidence::StepNotRun);
-                        continue;
-                    }
                     implication_remainder = Some(remainder);
-                }
-                Coverage::ConditionRefuted { .. } if options.stuck_check => {
-                    record_stuck_leaf!(state, StuckEvidence::StepNotRun);
-                    continue;
                 }
                 Coverage::ConditionRefuted { .. } | Coverage::TermMismatch => {}
                 Coverage::Undecided => implication_indeterminate = true,
@@ -638,6 +629,35 @@ pub fn prove_claim(
             // attached so that rewriting gets a chance to make progress. Re-enqueuing
             // it would immediately repeat the same implication check forever.
             state = state.remaining(remainder);
+        }
+
+        // A symbolic continuation can include a terminal instance (its K tail is empty)
+        // beside instances that can still move. Preserve the existing exact terminal-instance
+        // refutation before branching on that continuation. A failed certification says
+        // nothing about future reachability: discard its refinement and continue this state.
+        if current_target_refuted && state.path_certifiable() {
+            let candidate = crate::diagnostic::attempt(
+                || {
+                    stuck_leaf(
+                        definition,
+                        state.clone(),
+                        StuckEvidence::StepNotRun,
+                        claim.mode,
+                        &fresh_counter,
+                        options,
+                        solver,
+                    )
+                },
+                |result| matches!(result, Ok(Some(leaf)) if leaf.certified),
+            );
+            match candidate {
+                Ok(Some(leaf)) if leaf.certified => {
+                    record_leaf!(leaf);
+                    continue;
+                }
+                Ok(_) => {}
+                Err(stop) => publish_stop!(stop.into_cause()),
+            }
         }
 
         if let ProofStateKind::Remaining(undecided) = state.kind.clone() {
@@ -1138,7 +1158,7 @@ fn externalise_leaf(
 enum StuckEvidence {
     /// The rewrite step on this state returned `RewriteResult::Stuck`.
     StepStuck,
-    /// The search stopped the state without rewriting it: a stuck-check stop, or a rewrite
+    /// The search stopped the state without rewriting it: a rewrite
     /// remainder on which no rule applied.
     StepNotRun,
 }
@@ -3605,36 +3625,33 @@ mod tests {
             ("at-the-start", 0, &held_state),
         ] {
             for allow_vacuous in [false, true] {
-                for stuck_check in [true, false] {
-                    let options = ProofOptions {
-                        allow_vacuous,
-                        stuck_check,
-                        ..ProofOptions::default()
-                    };
-                    let result = prove_claim(
-                        &definition,
-                        claim_with_label(&definition, label),
-                        options,
-                        &NoSolver,
-                    )
-                    .expect("claim should execute");
+                let options = ProofOptions {
+                    allow_vacuous,
+                    ..ProofOptions::default()
+                };
+                let result = prove_claim(
+                    &definition,
+                    claim_with_label(&definition, label),
+                    options,
+                    &NoSolver,
+                )
+                .expect("claim should execute");
 
-                    assert_eq!(
-                        result.status,
-                        ProofStatus::Disproved,
-                        "{label}: {result:#?}"
-                    );
-                    let [leaf] = result.leaves.as_slice() else {
-                        panic!("{label}: expected one leaf, found {result:#?}");
-                    };
-                    assert_eq!(
-                        leaf.outcome,
-                        ProofLeafOutcome::Stuck,
-                        "{label}: {result:#?}"
-                    );
-                    assert_eq!(leaf.depth, depth, "{label}: {result:#?}");
-                    assert_eq!(&leaf.pattern, stuck_state, "{label}: {result:#?}");
-                }
+                assert_eq!(
+                    result.status,
+                    ProofStatus::Disproved,
+                    "{label}: {result:#?}"
+                );
+                let [leaf] = result.leaves.as_slice() else {
+                    panic!("{label}: expected one leaf, found {result:#?}");
+                };
+                assert_eq!(
+                    leaf.outcome,
+                    ProofLeafOutcome::Stuck,
+                    "{label}: {result:#?}"
+                );
+                assert_eq!(leaf.depth, depth, "{label}: {result:#?}");
+                assert_eq!(&leaf.pattern, stuck_state, "{label}: {result:#?}");
             }
         }
     }
@@ -3707,43 +3724,38 @@ mod tests {
         let claim = claim_with_label(&definition, "positive-reaches-zero");
         let variable = term(&definition, "X:SortInt{}");
         for allow_vacuous in [true, false] {
-            for stuck_check in [true, false] {
-                let options = ProofOptions {
-                    allow_vacuous,
-                    stuck_check,
-                    ..ProofOptions::default()
-                };
-                let result =
-                    prove_claim(&definition, claim, options, solver).expect("claim should execute");
-                let label = format!("allow_vacuous {allow_vacuous}, stuck_check {stuck_check}");
+            let options = ProofOptions {
+                allow_vacuous,
+                ..ProofOptions::default()
+            };
+            let result =
+                prove_claim(&definition, claim, options, solver).expect("claim should execute");
+            let label = format!("allow_vacuous {allow_vacuous}");
 
-                assert_ne!(result.status, ProofStatus::Proven, "{label}: {result:#?}");
-                assert!(
-                    !result.leaves.iter().any(|leaf| matches!(
-                        leaf.outcome,
-                        ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Vacuous
-                    )),
-                    "{label}: {result:#?}"
-                );
-                if stuck_check {
-                    let [leaf] = result.leaves.as_slice() else {
-                        panic!("{label}: expected one leaf, found {result:#?}");
-                    };
-                    assert_eq!(
-                        leaf.outcome,
-                        ProofLeafOutcome::Stuck,
-                        "{label}: {result:#?}"
-                    );
-                    assert_eq!(leaf.pattern.term, variable, "{label}: {result:#?}");
-                    assert!(
-                        !leaf
-                            .pattern
-                            .constraints
-                            .contains(&crate::rule::Predicate::False),
-                        "{label}: {result:#?}"
-                    );
-                }
-            }
+            assert_ne!(result.status, ProofStatus::Proven, "{label}: {result:#?}");
+            assert!(
+                !result.leaves.iter().any(|leaf| matches!(
+                    leaf.outcome,
+                    ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Vacuous
+                )),
+                "{label}: {result:#?}"
+            );
+            let [leaf] = result.leaves.as_slice() else {
+                panic!("{label}: expected one leaf, found {result:#?}");
+            };
+            assert_eq!(
+                leaf.outcome,
+                ProofLeafOutcome::Stuck,
+                "{label}: {result:#?}"
+            );
+            assert_eq!(leaf.pattern.term, variable, "{label}: {result:#?}");
+            assert!(
+                !leaf
+                    .pattern
+                    .constraints
+                    .contains(&crate::rule::Predicate::False),
+                "{label}: {result:#?}"
+            );
         }
     }
 
@@ -3903,7 +3915,7 @@ mod tests {
     /// A destination reached through a match remainder (`start(X)` against `start(0)`) is
     /// classified like any other obligation. A contingent one closes the covered part and hands
     /// the rest to the rewrite step, whatever the stuck check says: here the rest takes the rule
-    /// to `b()` and the stuck leaf (disproved) is at depth 1, not the stuck-check stop at depth 0.
+    /// to b(), and its certified terminal leaf is at depth 1.
     /// An undecided one leaves the state indeterminate instead of a stuck complement that is not
     /// shown non-empty.
     #[test]
@@ -3945,31 +3957,28 @@ mod tests {
             satisfiability: Ok(Satisfiability::Sat),
             validity: Ok(Validity::Contingent),
         };
-        for stuck_check in [true, false] {
-            let result = prove_claim(
-                &definition,
-                claim_with_label(&definition, "rewritable"),
-                ProofOptions {
-                    stuck_check,
-                    ..ProofOptions::default()
-                },
-                &contingent,
-            )
-            .expect("claim should execute");
-            assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
-            let [leaf] = result.leaves.as_slice() else {
-                panic!("expected one leaf, found {result:#?}");
-            };
-            assert_eq!(leaf.outcome, ProofLeafOutcome::Stuck, "{result:#?}");
-            assert_eq!(leaf.depth, 1, "{result:#?}");
-            assert_eq!(leaf.pattern.term, term(&definition, "b{}()"), "{result:#?}");
-            assert!(
-                leaf.pattern
-                    .constraints
-                    .contains(&crate::rule::Predicate::Not(Arc::new(covered.clone()))),
-                "{result:#?}"
-            );
-        }
+        let result = prove_claim(
+            &definition,
+            claim_with_label(&definition, "rewritable"),
+            ProofOptions {
+                ..ProofOptions::default()
+            },
+            &contingent,
+        )
+        .expect("claim should execute");
+        assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one leaf, found {result:#?}");
+        };
+        assert_eq!(leaf.outcome, ProofLeafOutcome::Stuck, "{result:#?}");
+        assert_eq!(leaf.depth, 1, "{result:#?}");
+        assert_eq!(leaf.pattern.term, term(&definition, "b{}()"), "{result:#?}");
+        assert!(
+            leaf.pattern
+                .constraints
+                .contains(&crate::rule::Predicate::Not(Arc::new(covered.clone()))),
+            "{result:#?}"
+        );
 
         let unknown = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
@@ -5124,29 +5133,26 @@ mod tests {
         );
         let claim = claim_with_label(&definition, "contingent-destination");
         for allow_vacuous in [false, true] {
-            for stuck_check in [true, false] {
-                let result = prove_claim(
-                    &definition,
-                    claim,
-                    ProofOptions {
-                        allow_vacuous,
-                        stuck_check,
-                        ..ProofOptions::default()
-                    },
-                    &ComplementUnsatSolver,
-                )
-                .unwrap();
-                let label = format!("allow_vacuous {allow_vacuous}, stuck_check {stuck_check}");
-                assert_eq!(result.status, ProofStatus::Proven, "{label}: {result:#?}");
-                assert!(
-                    result
-                        .leaves
-                        .iter()
-                        .all(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Proven(_))
-                            && !is_vacuous_proof(&leaf.outcome)),
-                    "{label}: {result:#?}"
-                );
-            }
+            let result = prove_claim(
+                &definition,
+                claim,
+                ProofOptions {
+                    allow_vacuous,
+                    ..ProofOptions::default()
+                },
+                &ComplementUnsatSolver,
+            )
+            .unwrap();
+            let label = format!("allow_vacuous {allow_vacuous}");
+            assert_eq!(result.status, ProofStatus::Proven, "{label}: {result:#?}");
+            assert!(
+                result
+                    .leaves
+                    .iter()
+                    .all(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Proven(_))
+                        && !is_vacuous_proof(&leaf.outcome)),
+                "{label}: {result:#?}"
+            );
         }
     }
 
@@ -6438,7 +6444,7 @@ mod tests {
     }
 
     #[test]
-    fn condition_stuck_check_can_be_disabled() {
+    fn a_refuted_current_target_continues_to_a_semantic_terminal() {
         let claims = r#"claim{} \implies{SortS{}}(
             \and{SortS{}}(\top{SortS{}}(), a{}()),
             weakExistsFinally{SortS{}}(
@@ -6447,34 +6453,20 @@ mod tests {
         ) [label{}("one-a-a")]"#;
         let definition = definition(A_TO_B, claims);
 
-        let checked = prove_claim(
+        let result = prove_claim(
             &definition,
             claim_with_label(&definition, "one-a-a"),
             ProofOptions::default(),
             &NoSolver,
         )
         .unwrap();
-        let unchecked = prove_claim(
-            &definition,
-            claim_with_label(&definition, "one-a-a"),
-            ProofOptions {
-                stuck_check: false,
-                ..ProofOptions::default()
-            },
-            &NoSolver,
-        )
-        .unwrap();
 
-        // The stuck check stops `a`, which still rewrites to `b`: not a refutation.
-        assert_eq!(checked.status, ProofStatus::Failed);
-        assert_eq!(checked.explored_states, 1);
-        assert_eq!(checked.leaves[0].depth, 0);
         // `a` has the one successor `b`, which has none and is outside the empty destination:
         // the only path from `a` never reaches it, so the one-path claim is refuted.
-        assert_eq!(unchecked.status, ProofStatus::Disproved);
-        assert_eq!(unchecked.explored_states, 2);
-        assert_eq!(unchecked.leaves[0].depth, 1);
-        assert!(unchecked.leaves[0].certified);
+        assert_eq!(result.status, ProofStatus::Disproved);
+        assert_eq!(result.explored_states, 2);
+        assert_eq!(result.leaves[0].depth, 1);
+        assert!(result.leaves[0].certified);
     }
 
     #[test]
@@ -6920,10 +6912,10 @@ mod tests {
         }
     }
 
-    /// A remainder obligation that the solver refutes is partial coverage: the stuck check
-    /// stops the uncovered part, and without it the part continues to rewriting.
+    /// A refuted remainder obligation covers none of that input region. Its complement
+    /// continues to rewriting under the ordinary proof policy.
     #[test]
-    fn partial_destination_remainders_respect_the_stuck_check() {
+    fn partial_destination_remainders_continue_to_semantic_steps() {
         let definition = definition(
             r#"
             symbol start{}(SortS{}) : SortS{} [constructor{}()]
@@ -6966,34 +6958,17 @@ mod tests {
             }
         }
         let refuted = RefutesTheObligation;
-        let checked = prove_claim(
+        let result = prove_claim(
             &definition,
             &definition.reachability_claims()[0],
             ProofOptions::default(),
             &refuted,
         )
         .expect("claim should execute");
-        let unchecked = prove_claim(
-            &definition,
-            &definition.reachability_claims()[0],
-            ProofOptions {
-                stuck_check: false,
-                ..ProofOptions::default()
-            },
-            &refuted,
-        )
-        .expect("claim should execute without the stuck heuristic");
 
-        // Neither leaf certifies a refutation: `X` has a sort without an SMT translation, and
-        // the stuck check stops a state that still rewrites.
-        assert_eq!(checked.status, ProofStatus::Failed);
-        assert_eq!(checked.leaves[0].depth, 1);
-        assert!(
-            matches!(checked.leaves[0].outcome, ProofLeafOutcome::Stuck),
-            "{checked:#?}"
-        );
-        assert_eq!(unchecked.status, ProofStatus::Failed);
-        assert!(unchecked.leaves.iter().any(|leaf| {
+        // The terminal leaf is not a certified refutation: X has an untranslated sort.
+        assert_eq!(result.status, ProofStatus::Failed);
+        assert!(result.leaves.iter().any(|leaf| {
             leaf.trace
                 .iter()
                 .any(|entry| entry.kind == TraceKind::Remainder)
