@@ -37,8 +37,53 @@ use crate::{
     },
 };
 
+mod emission;
 #[cfg(test)]
 mod tests;
+pub(super) use emission::{Source, prepare};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct Reading {
+    pub summary: Arc<Summary>,
+    pub name: String,
+    pub exactness: super::Exactness,
+}
+
+/// Metadata lookup is not admission of the actual operands. Every consumer must retain its
+/// application-use purity and definedness checks, even after a signature has been admitted.
+pub(super) fn reading<'a>(
+    readings: &'a BTreeMap<Key, Reading>,
+    call: &Term,
+) -> Option<&'a Reading> {
+    if readings.is_empty() {
+        return None;
+    }
+    let TermKind::Application {
+        symbol,
+        sort_arguments,
+        arguments,
+    } = call.kind()
+    else {
+        return None;
+    };
+    if symbol.attributes.hook.is_some()
+        || symbol.attributes.smt.is_some()
+        || symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Total)
+    {
+        return None;
+    }
+    let key = Key {
+        name: symbol.name.clone(),
+        sort_arguments: sort_arguments.to_vec(),
+        argument_sorts: arguments.iter().map(Term::sort).collect(),
+        result: call.sort(),
+        static_arguments: arguments
+            .iter()
+            .map(|a| (!scalar(a.sort())).then(|| a.clone()))
+            .collect(),
+    };
+    readings.get(&key)
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(super) struct Key {

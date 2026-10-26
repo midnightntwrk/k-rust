@@ -13,6 +13,7 @@ use num_bigint::{BigInt, Sign};
 use num_traits::{One, Zero};
 use rustc_hash::FxHashMap;
 
+use super::summary::{self, Atom, Decision, Key, Reading, Summary};
 use super::{SExpr, TranslationError, TranslationState};
 use crate::{
     builtin::{read_bool, read_int},
@@ -30,7 +31,7 @@ const WORK_LIMIT: usize = 32_768;
 const NODE_LIMIT: usize = 4096;
 const TEXT_LIMIT: usize = 1_048_576;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Interval {
     lo: BigInt,
     hi: BigInt,
@@ -103,6 +104,7 @@ fn literal(value: &BigInt, width: u32) -> SExpr {
 
 enum Value {
     Input(Term),
+    Parameter(String),
     Expression(SExpr),
 }
 
@@ -124,10 +126,274 @@ struct Planner<'a> {
     bounds: &'a BTreeMap<Term, Interval>,
     remaining: &'a mut usize,
     memo: FxHashMap<Term, usize>,
+    decisions: FxHashMap<*const Decision, usize>,
+    plan: Plan,
+    registry: Option<&'a mut Registry>,
+}
+
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+struct Profile {
+    key: Key,
+    arguments: Vec<Option<Interval>>,
+}
+
+#[derive(Clone)]
+struct Variant {
+    name: String,
+    interval: Option<Interval>,
+}
+
+struct Definition {
+    name: String,
+    parameters: Vec<(String, Option<Interval>)>,
     plan: Plan,
 }
 
+struct Registry {
+    source: BTreeMap<Key, Reading>,
+    variants: BTreeMap<Profile, Option<Variant>>,
+    definitions: Vec<Definition>,
+    active: usize,
+    counter: usize,
+}
+
+impl Registry {
+    fn new(source: BTreeMap<Key, Reading>) -> Self {
+        Self {
+            source,
+            variants: BTreeMap::new(),
+            definitions: Vec::new(),
+            active: 0,
+            counter: 0,
+        }
+    }
+
+    fn variant(
+        &mut self,
+        source: &Summary,
+        arguments: Vec<Option<Interval>>,
+        remaining: &mut usize,
+        depth: usize,
+    ) -> Stoppable<Option<Variant>> {
+        stop::check()?;
+        let profile = Profile {
+            key: source.key.clone(),
+            arguments,
+        };
+        if let Some(found) = self.variants.get(&profile) {
+            return Ok(found.clone());
+        }
+        if self.counter >= 128 || self.active >= 64 || *remaining == 0 || depth >= DEPTH_LIMIT {
+            return Ok(None);
+        }
+        let name = format!("SMT-WORD-{}", self.counter);
+        self.counter += 1;
+        self.active += 1;
+        let bounds = BTreeMap::new();
+        let mut planner = Planner {
+            bounds: &bounds,
+            remaining,
+            memo: FxHashMap::default(),
+            decisions: FxHashMap::default(),
+            plan: Plan {
+                nodes: Vec::new(),
+                used: BTreeMap::new(),
+                root: 0,
+                interesting: false,
+            },
+            registry: Some(self),
+        };
+        let mut parameters = Vec::new();
+        let mut complete = true;
+        for (index, (formal, range)) in source.parameters.iter().zip(&profile.arguments).enumerate()
+        {
+            stop::check()?;
+            let name = format!("KRUST-WORD-PARAM-{index}");
+            let Some(id) = planner.push(Value::Parameter(name.clone()), range.clone()) else {
+                complete = false;
+                break;
+            };
+            planner.memo.insert(Term::variable(formal.clone()), id);
+            parameters.push((name, range.clone()));
+        }
+        let result = if complete {
+            planner.decision(&source.body, depth + 1)?
+        } else {
+            None
+        };
+        let plan = planner.plan;
+        self.active -= 1;
+        let Some(root) = result else {
+            self.variants.insert(profile, None);
+            return Ok(None);
+        };
+        let interval = plan.nodes[root].interval.clone();
+        let mut plan = plan;
+        plan.root = root;
+        let variant = Variant {
+            name: name.clone(),
+            interval,
+        };
+        self.definitions.push(Definition {
+            name,
+            parameters,
+            plan,
+        });
+        self.variants.insert(profile, Some(variant.clone()));
+        Ok(Some(variant))
+    }
+
+    fn emit(
+        self,
+        state: &mut TranslationState,
+        text: &mut usize,
+    ) -> Stoppable<Result<bool, TranslationError>> {
+        for definition in self.definitions {
+            stop::check()?;
+            let result = definition.plan.nodes[definition.plan.root].interval.clone();
+            let sort = |range: Option<Interval>| {
+                range.map_or_else(
+                    || "Bool".to_owned(),
+                    |r| format!("(_ BitVec {})", r.width().expect("checked profile width")),
+                )
+            };
+            let parameters = definition
+                .parameters
+                .into_iter()
+                .map(|(name, range)| SExpr::List(vec![atom(name), atom(sort(range))]))
+                .collect();
+            let body = match emit_nodes(definition.plan.nodes, definition.plan.root, state)? {
+                Ok(body) => body,
+                Err(error) => return Ok(Err(error)),
+            };
+            // As for scalar definitions, retain applications during parsing instead of
+            // eagerly macro-expanding distinct-argument dependency diamonds.
+            let expression = app(
+                "define-fun-rec",
+                vec![
+                    atom(definition.name),
+                    SExpr::List(parameters),
+                    atom(sort(result)),
+                    body,
+                ],
+            );
+            if !fits_text(&expression, text)? {
+                return Ok(Ok(false));
+            }
+            state.derived_definitions.push(expression.to_string());
+        }
+        Ok(Ok(true))
+    }
+}
+
 impl Planner<'_> {
+    fn decision(&mut self, decision: &Decision, depth: usize) -> Stoppable<Option<usize>> {
+        stop::check()?;
+        if depth >= DEPTH_LIMIT || *self.remaining == 0 {
+            return Ok(None);
+        }
+        *self.remaining -= 1;
+        if let Some(id) = self.decisions.get(&std::ptr::from_ref(decision)) {
+            return Ok(Some(*id));
+        }
+        let result = match decision {
+            Decision::Value(term) => self.term(term, depth + 1),
+            Decision::If { test, yes, no } => {
+                let test = match test {
+                    Atom::Bool(term) => self.term(term, depth + 1)?,
+                    Atom::Less(a, b) | Atom::Equal(a, b) => {
+                        match (self.term(a, depth + 1)?, self.term(b, depth + 1)?) {
+                            (Some(a), Some(b)) => self.comparison(
+                                if matches!(test, Atom::Less(..)) {
+                                    "lt"
+                                } else {
+                                    "eq"
+                                },
+                                a,
+                                b,
+                            ),
+                            _ => None,
+                        }
+                    }
+                };
+                let Some(test) = test else {
+                    return Ok(None);
+                };
+                let Some(yes) = self.decision(yes, depth + 1)? else {
+                    return Ok(None);
+                };
+                let Some(no) = self.decision(no, depth + 1)? else {
+                    return Ok(None);
+                };
+                Ok(self.conditional(test, yes, no))
+            }
+        }?;
+        if let Some(id) = result {
+            self.decisions.insert(std::ptr::from_ref(decision), id);
+        }
+        Ok(result)
+    }
+
+    fn conditional(&mut self, a: usize, b: usize, c: usize) -> Option<usize> {
+        let interval = match (self.range(b), self.range(c)) {
+            (Some(b), Some(c)) => Some(b.union(c)),
+            (None, None) => None,
+            _ => return None,
+        };
+        let (yes, no) = if let Some(interval) = &interval {
+            let width = interval.width()?;
+            (self.resize(b, width)?, self.resize(c, width)?)
+        } else {
+            (reference(b), reference(c))
+        };
+        self.expression(
+            app("ite", vec![reference(a), yes, no]),
+            interval,
+            &[a, b, c],
+        )
+    }
+
+    fn helper(&mut self, call: &Term, depth: usize) -> Stoppable<Option<usize>> {
+        let Some(source) = self
+            .registry
+            .as_ref()
+            .and_then(|r| summary::reading(&r.source, call))
+            .map(|r| r.summary.clone())
+        else {
+            return Ok(None);
+        };
+        let TermKind::Application { arguments, .. } = call.kind() else {
+            unreachable!()
+        };
+        let mut ids = Vec::new();
+        for (argument, static_argument) in arguments.iter().zip(&source.key.static_arguments) {
+            if static_argument.is_none() {
+                let Some(id) = self.term(argument, depth + 1)? else {
+                    return Ok(None);
+                };
+                ids.push(id);
+            }
+        }
+        let ranges = ids
+            .iter()
+            .map(|id| self.plan.nodes[*id].interval.clone())
+            .collect();
+        let Some(variant) = self
+            .registry
+            .as_deref_mut()
+            .expect("helper registry")
+            .variant(&source, ranges, self.remaining, depth + 1)?
+        else {
+            return Ok(None);
+        };
+        self.plan.interesting = true;
+        let value = if ids.is_empty() {
+            atom(variant.name)
+        } else {
+            app(variant.name, ids.iter().map(|id| reference(*id)).collect())
+        };
+        Ok(self.expression(value, variant.interval, &ids))
+    }
     fn push(&mut self, value: Value, interval: Option<Interval>) -> Option<usize> {
         if self.plan.nodes.len() >= NODE_LIMIT {
             return None;
@@ -295,7 +561,7 @@ impl Planner<'_> {
                 symbol, arguments, ..
             } => {
                 let Some(hook) = symbol.attributes.hook.as_deref() else {
-                    return Ok(None);
+                    return self.helper(term, depth);
                 };
                 // Arity and carrier checks precede interpreting any hook.
                 let int_result = term.sort().is_builtin(BuiltinSort::Int);
@@ -315,8 +581,8 @@ impl Planner<'_> {
                     }
                     ("BOOL.not", [_]) => bool_result && all_bool,
                     (
-                        "BOOL.and" | "BOOL.or" | "BOOL.xor" | "BOOL.eq" | "BOOL.ne"
-                        | "BOOL.implies",
+                        "BOOL.and" | "BOOL.or" | "BOOL.andThen" | "BOOL.orElse" | "BOOL.xor"
+                        | "BOOL.eq" | "BOOL.ne" | "BOOL.implies",
                         [_, _],
                     ) => bool_result && all_bool,
                     ("INT.eq" | "INT.ne" | "INT.lt" | "INT.le" | "INT.gt" | "INT.ge", [_, _]) => {
@@ -376,30 +642,14 @@ impl Planner<'_> {
                 "eq" => "=",
                 "ne" | "xor" => "xor",
                 "implies" => "=>",
-                "and" => "and",
-                "or" => "or",
+                "and" | "andThen" => "and",
+                "or" | "orElse" => "or",
                 _ => return None,
             };
             return self.expression(app(op, vec![reference(a), reference(b)]), None, &[a, b]);
         }
         if hook == "KEQUAL.ite" {
-            let c = ids[2];
-            let interval = match (self.range(b), self.range(c)) {
-                (Some(b), Some(c)) => Some(b.union(c)),
-                (None, None) => None,
-                _ => return None,
-            };
-            let (yes, no) = if let Some(interval) = &interval {
-                let width = interval.width()?;
-                (self.resize(b, width)?, self.resize(c, width)?)
-            } else {
-                (reference(b), reference(c))
-            };
-            return self.expression(
-                app("ite", vec![reference(a), yes, no]),
-                interval,
-                &[a, b, c],
-            );
+            return self.conditional(a, b, ids[2]);
         }
         let op = hook.strip_prefix("INT.")?;
         if matches!(op, "eq" | "ne" | "lt" | "le" | "gt" | "ge") {
@@ -436,7 +686,21 @@ impl Planner<'_> {
                 self.plan.interesting |= integer(&args[0]).is_none() && integer(&args[1]).is_none();
                 let domain = x.union(&y);
                 let width = domain.width()?;
-                let interval = if domain.signed() {
+                let nonnegative_mask = if op == "and" {
+                    [x.clone(), y.clone()]
+                        .into_iter()
+                        .filter(|r| !r.signed())
+                        .map(|r| r.hi)
+                        .min()
+                } else {
+                    None
+                };
+                let interval = if let Some(hi) = nonnegative_mask {
+                    Interval {
+                        lo: BigInt::zero(),
+                        hi,
+                    }
+                } else if domain.signed() {
                     let half = BigInt::one() << (width - 1);
                     Interval {
                         lo: -&half,
@@ -601,43 +865,61 @@ impl Plan {
             guard.push(app("<=", vec![atom(&range.lo), input.clone()]));
             guard.push(app("<=", vec![input, atom(&range.hi)]));
         }
-        let mut body = reference(self.root);
-        let mut bindings: BTreeMap<usize, Vec<SExpr>> = BTreeMap::new();
-        for (id, node) in self.nodes.into_iter().enumerate() {
-            stop::check()?;
-            let value = match node.value {
-                Value::Expression(value) => value,
-                Value::Input(term) => {
-                    let input = match state.translate_term(&term) {
-                        Ok(input) => input,
-                        Err(error) => return Ok(Err(error)),
-                    };
-                    match node.interval {
-                        Some(range) => app(
-                            format!("(_ int2bv {})", range.width().expect("checked plan width")),
-                            vec![input],
-                        ),
-                        None => input,
-                    }
-                }
-            };
-            bindings
-                .entry(node.level)
-                .or_default()
-                .push(SExpr::List(vec![reference(id), value]));
-        }
-        for (_, bindings) in bindings.into_iter().rev() {
-            stop::check()?;
-            body = app("let", vec![SExpr::List(bindings), body]);
-        }
-        Ok(Ok(app("ite", vec![app("and", guard), body, fallback])))
+        let body = match emit_nodes(self.nodes, self.root, state)? {
+            Ok(body) => body,
+            Err(error) => return Ok(Err(error)),
+        };
+        let guard = if guard.is_empty() {
+            atom(true)
+        } else {
+            app("and", guard)
+        };
+        Ok(Ok(app("ite", vec![guard, body, fallback])))
     }
+}
+
+fn emit_nodes(
+    nodes: Vec<Node>,
+    root: usize,
+    state: &mut TranslationState,
+) -> Stoppable<Result<SExpr, TranslationError>> {
+    let mut body = reference(root);
+    let mut bindings: BTreeMap<usize, Vec<SExpr>> = BTreeMap::new();
+    for (id, node) in nodes.into_iter().enumerate() {
+        stop::check()?;
+        let value = match node.value {
+            Value::Expression(value) => value,
+            Value::Parameter(name) => atom(name),
+            Value::Input(term) => {
+                let input = match state.translate_term(&term) {
+                    Ok(input) => input,
+                    Err(error) => return Ok(Err(error)),
+                };
+                match node.interval {
+                    Some(range) => app(
+                        format!("(_ int2bv {})", range.width().expect("checked plan width")),
+                        vec![input],
+                    ),
+                    None => input,
+                }
+            }
+        };
+        bindings
+            .entry(node.level)
+            .or_default()
+            .push(SExpr::List(vec![reference(id), value]));
+    }
+    for (_, bindings) in bindings.into_iter().rev() {
+        stop::check()?;
+        body = app("let", vec![SExpr::List(bindings), body]);
+    }
+    Ok(Ok(body))
 }
 
 /// Group independent scalar bindings too, keeping let depth proportional to source depth.
 /// Values mention preceding fresh bindings; scanning each value accounts for literal-reader
 /// templates without expanding any referenced value.
-fn scalar_bindings(bindings: Vec<(String, SExpr)>, mut body: SExpr) -> Stoppable<SExpr> {
+pub(super) fn scalar_bindings(bindings: Vec<(String, SExpr)>, mut body: SExpr) -> Stoppable<SExpr> {
     let mut levels = FxHashMap::default();
     let mut groups: BTreeMap<usize, Vec<SExpr>> = BTreeMap::new();
     for (name, value) in bindings {
@@ -668,7 +950,7 @@ fn scalar_bindings(bindings: Vec<(String, SExpr)>, mut body: SExpr) -> Stoppable
 }
 
 /// Count the exact Display byte length before allocating/expanding the script text.
-fn fits_text(expression: &SExpr, remaining: &mut usize) -> Stoppable<bool> {
+pub(super) fn fits_text(expression: &SExpr, remaining: &mut usize) -> Stoppable<bool> {
     let mut pending = vec![expression];
     while let Some(expression) = pending.pop() {
         stop::check()?;
@@ -793,6 +1075,7 @@ pub(super) fn prepare(
     }
     let mut remaining = WORK_LIMIT;
     let mut text_remaining = TEXT_LIMIT;
+    let mut registry = Registry::new(state.summaries.clone());
     let bounds = bounds(known, &mut remaining)?;
     if known.len().saturating_add(checked.len()) > remaining {
         return Ok(Ok(()));
@@ -878,8 +1161,10 @@ pub(super) fn prepare(
         };
         let mut planner = Planner {
             bounds: &bounds,
+            registry: Some(&mut registry),
             remaining: &mut remaining,
             memo: FxHashMap::default(),
+            decisions: FxHashMap::default(),
             plan: Plan {
                 nodes: Vec::new(),
                 used: BTreeMap::new(),
@@ -937,6 +1222,11 @@ pub(super) fn prepare(
             }
             Err(error) => return Ok(Err(error)),
         }
+    }
+    match registry.emit(state, &mut text_remaining)? {
+        Ok(true) => {}
+        Ok(false) => state.word_predicates.clear(),
+        Err(error) => return Ok(Err(error)),
     }
     Ok(Ok(()))
 }

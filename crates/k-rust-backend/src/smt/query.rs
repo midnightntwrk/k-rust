@@ -80,6 +80,7 @@ mod tests {
             smtlib_names: std::collections::BTreeSet::new(),
             user_script: false,
             congruence: None,
+            source: None,
         }
     }
 

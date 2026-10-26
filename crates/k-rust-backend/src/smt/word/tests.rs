@@ -126,8 +126,10 @@ fn plan(term: &Term, known: &[Predicate]) -> Option<Plan> {
     let bounds = bounds(known, &mut remaining).unwrap();
     let mut planner = Planner {
         bounds: &bounds,
+        registry: None,
         remaining: &mut remaining,
         memo: FxHashMap::default(),
+        decisions: FxHashMap::default(),
         plan: Plan {
             nodes: Vec::new(),
             used: BTreeMap::new(),
@@ -183,6 +185,15 @@ fn signed_and_projected_values_agree_with_actual_native_hooks() {
             hook,
             vec![None, None],
         ));
+    }
+    for mask in [0, 1, 15, 255, 256] {
+        for (name, hook) in [("and", "INT.and"), ("or", "INT.or"), ("xor", "INT.xor")] {
+            cases.push((
+                binary(&d, name, x.clone(), int(mask)),
+                hook,
+                vec![None, Some(mask)],
+            ));
+        }
     }
     for amount in [0, 1, 8, 32, 256] {
         for (name, hook) in [("shl", "INT.shl"), ("shr", "INT.shr")] {
@@ -245,8 +256,10 @@ fn signed_and_projected_values_agree_with_actual_native_hooks() {
             let ranges = bounds(&known, &mut remaining).unwrap();
             let mut planner = Planner {
                 bounds: &ranges,
+                registry: None,
                 remaining: &mut remaining,
                 memo: FxHashMap::default(),
+                decisions: FxHashMap::default(),
                 plan: Plan {
                     nodes: Vec::new(),
                     used: BTreeMap::new(),

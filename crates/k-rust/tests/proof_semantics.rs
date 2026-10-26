@@ -3616,3 +3616,78 @@ module WORD-EXPRESSIONS-SPEC
         assert!(result.leaves.iter().all(|leaf| !leaf.vacuous), "{label}");
     }
 }
+
+/// Finite helper meanings must compose with computed Boolean inputs and word arithmetic,
+/// while strict domains of unused actual operands remain part of the original K claim.
+#[test]
+fn source_derived_scalar_helpers_compose_without_rewriting_authored_claims() {
+    let kore = compile(
+        r#"
+module SCALAR-HELPERS
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:K </k> <v> 0 </v> <arg> 0 </arg> <b> false </b>
+  syntax Int ::= flag(Bool) [function,total]
+  rule flag(true) => 1
+  rule flag(false) => 0
+  syntax Bool ::= atLeast(Int,Int) [function,total]
+  rule atLeast(X,Y) => X >Int Y orElseBool X ==Int Y
+  syntax Int ::= packed(Bool,Bool,Bool,Bool) [function,total]
+  rule packed(Z,N,H,C) => 128 *Int flag(Z) +Int 64 *Int flag(N) +Int 32 *Int flag(H) +Int 16 *Int flag(C)
+  syntax Int ::= signedByte(Int) [function,total]
+  rule signedByte(X) => X requires X <Int 128
+  rule signedByte(X) => X -Int 256 requires X >=Int 128
+  syntax Int ::= erase(Int,Bool) [function,total]
+  rule erase(_,true) => 0
+  rule erase(_,false) => 0
+endmodule
+module SCALAR-HELPERS-SPEC
+  imports SCALAR-HELPERS
+  claim [computed-flag]: <k> .K </k> <v> flag((X:Int |Int Y:Int) ==Int 0) => (#if X ==Int 0 andBool Y ==Int 0 #then 1 #else 0 #fi) </v>
+    requires (X >=Int 0 andThenBool X <Int 256) andThenBool (Y >=Int 0 andThenBool Y <Int 256)
+  claim [packed-add]: <k> .K </k>
+    <v> packed(((X:Int +Int Y:Int) modInt 256) ==Int 0,false,((X &Int 15) +Int (Y &Int 15)) >Int 15,atLeast(X +Int Y,256))
+      => (#if ((X +Int Y) modInt 256) ==Int 0 #then 128 #else 0 #fi)
+         +Int (#if ((X modInt 16) +Int (Y modInt 16)) >=Int 16 #then 32 #else 0 #fi)
+         +Int (#if (X +Int Y) >=Int 256 #then 16 #else 0 #fi) </v>
+    requires X >=Int 0 andBool X <Int 256 andBool Y >=Int 0 andBool Y <Int 256
+  claim [signed-branch]: <k> .K </k> <v> signedByte(X:Int) => (#if X <Int 128 #then X #else X -Int 256 #fi) </v>
+    requires X >=Int 0 andBool X <Int 256
+  claim [safe-unused]: <k> .K </k> <v> 0 => erase(X:Int,B:Bool) </v> <arg> X </arg> <b> B </b>
+  claim [undefined-unused]: <k> .K </k> <v> 0 => erase(1 divInt 0,B:Bool) </v> <b> B </b>
+  claim [wrong-packed]: <k> .K </k> <v> packed(false,false,false,true) => 0 </v>
+  claim [discarded-short-or]: <k> .K </k> <v> 1 => flag(true orElseBool ((X:Int divInt 0) ==Int 1)) </v> <arg> X </arg>
+  claim [undefined-short-or]: <k> .K </k> <v> 1 => flag(false orElseBool ((X:Int divInt 0) ==Int 1)) </v> <arg> X </arg>
+  claim [discarded-short-and]: <k> .K </k> <v> 0 => flag(false andThenBool ((X:Int divInt 0) ==Int 1)) </v> <arg> X </arg>
+  claim [undefined-short-and]: <k> .K </k> <v> 0 => flag(true andThenBool ((X:Int divInt 0) ==Int 1)) </v> <arg> X </arg>
+endmodule
+"#,
+        "SCALAR-HELPERS-SPEC",
+        "SCALAR-HELPERS",
+    );
+    for (label, expected) in [
+        ("computed-flag", "proven"),
+        ("packed-add", "proven"),
+        ("signed-branch", "proven"),
+        ("safe-unused", "proven"),
+        ("undefined-unused", "disproved"),
+        ("wrong-packed", "disproved"),
+        ("discarded-short-or", "disproved"),
+        ("undefined-short-or", "disproved"),
+        ("discarded-short-and", "disproved"),
+        ("undefined-short-and", "disproved"),
+    ] {
+        let result = prove(
+            &kore,
+            "SCALAR-HELPERS-SPEC",
+            &format!("SCALAR-HELPERS-SPEC.{label}"),
+            ProveRequest::default(),
+        );
+        assert_eq!(result.status, expected, "{label}: {:?}", leaf_text(&result));
+        assert!(result.leaves.iter().all(|leaf| !leaf.vacuous), "{label}");
+        if expected == "disproved" {
+            assert!(result.leaves.iter().any(|leaf| leaf.certified), "{label}");
+        }
+    }
+}

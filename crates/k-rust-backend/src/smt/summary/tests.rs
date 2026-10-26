@@ -626,3 +626,494 @@ fn compiled_foldiboy_equations_are_admitted_without_source_rewrites() {
         catalog.remaining
     );
 }
+
+fn emission_state(
+    d: &BackendDefinition,
+    known: &[Predicate],
+    checked: &[Predicate],
+) -> super::super::TranslationState {
+    let mut state = super::super::TranslationState::new();
+    state.congruence = super::super::CongruencePolicy::from_definition(d).map(Arc::new);
+    super::prepare(
+        &super::Source::new(d),
+        &mut state,
+        known,
+        &crate::substitution::Substitution::new(),
+        checked,
+    )
+    .unwrap()
+    .unwrap();
+    state
+}
+
+#[test]
+fn actual_scalar_emission_shares_dependencies_and_keeps_actual_operand_admission() {
+    let outer = equation(
+        "outer{}(X:SortInt{})",
+        "plus{}(bit{}(\\dv{SortBool{}}(\"true\")),X:SortInt{})",
+        None,
+        "",
+    );
+    let d = definition(&(bit_rows() + &outer));
+    let call = term(&d, "outer{}(X:SortInt{})");
+    let checked = Predicate::Equals(
+        call.clone(),
+        term(&d, r#"plus{}(X:SortInt{},\dv{SortInt{}}("1"))"#),
+    );
+    let mut state = emission_state(&d, &[], &[checked]);
+    assert_eq!(state.summaries.len(), 2);
+    assert_eq!(state.derived_definitions.len(), 2);
+    let emitted = state.translate_term(&call).unwrap().to_string();
+    assert!(emitted.contains("SMT-"));
+    assert_eq!(state.exactness(), super::super::Exactness::Exact);
+    // Reusing the exact same signature cannot admit a set-valued actual argument.
+    let set = Term::variable(Variable::set("Set", Sort::simple("SortInt")));
+    let TermKind::Application { symbol, .. } = call.kind() else {
+        unreachable!()
+    };
+    let set_call = Term::application(symbol.clone(), vec![], vec![set]);
+    let reading = super::reading(&state.summaries, &set_call)
+        .unwrap()
+        .name
+        .clone();
+    let refused = state.translate_term(&set_call).unwrap().to_string();
+    assert!(!refused.contains(&format!("({reading} ")));
+    assert_eq!(state.exactness(), super::super::Exactness::Approximate);
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn scalar_function_parameters_are_local_under_nested_quantifiers() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    let d = definition(&bit_rows());
+    let b = Variable::new("B", Sort::simple("SortBool"));
+    let p = Predicate::Forall(
+        b,
+        Arc::new(Predicate::Term(term(
+            &d,
+            r#"ge{}(bit{}(B:SortBool{}),\dv{SortInt{}}("0"))"#,
+        ))),
+    );
+    let q = super::super::SmtPrelude::from_definition(&d)
+        .unwrap()
+        .query(
+            &[],
+            &crate::substitution::Substitution::new(),
+            std::slice::from_ref(&p),
+            false,
+        )
+        .unwrap()
+        .unwrap();
+    assert!(!q.base().contains("declare-const"), "{}", q.base());
+    assert!(q.base().contains("define-fun"));
+    assert_eq!(
+        Z3Solver::new(&d).unwrap().check_predicates(
+            &[],
+            &crate::substitution::Substitution::new(),
+            &[p]
+        ),
+        Ok(Ok(Validity::Valid))
+    );
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn native_models_and_mutants_read_the_actual_finite_source() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    let baseline = definition(&bit_rows());
+    let changed = definition(&bit_rows().replace(&int(0), &int(2)));
+    let claim = |d: &BackendDefinition| {
+        Predicate::Equals(
+            term(d, &format!("bit{{}}({})", boolv(false))),
+            term(d, &int(0)),
+        )
+    };
+    assert_eq!(
+        Z3Solver::new(&baseline).unwrap().check_predicates(
+            &[],
+            &crate::substitution::Substitution::new(),
+            &[claim(&baseline)]
+        ),
+        Ok(Ok(Validity::Valid))
+    );
+    assert_eq!(
+        Z3Solver::new(&changed).unwrap().check_predicates(
+            &[],
+            &crate::substitution::Substitution::new(),
+            &[claim(&changed)]
+        ),
+        Ok(Ok(Validity::Refuted))
+    );
+}
+
+#[cfg(feature = "z3")]
+fn mixed_source() -> String {
+    let extra = r#"
+      hooked-symbol bor{}(SortInt{},SortInt{}):SortInt{} [function{}(),total{}(),hook{}("INT.or"),smtlib{}("orInt")]
+      hooked-symbol band{}(SortInt{},SortInt{}):SortInt{} [function{}(),total{}(),hook{}("INT.and"),smtlib{}("andInt")]
+      symbol mix{}(SortInt{},SortInt{}):SortInt{} [function{}(),total{}()]
+    "#;
+    format!(
+        "{extra}{}",
+        equation(
+            "mix{}(X:SortInt{},Y:SortInt{})",
+            "plus{}(bor{}(X:SortInt{},Y:SortInt{}),band{}(X:SortInt{},Y:SortInt{}))",
+            None,
+            "simplification{}()"
+        )
+    )
+}
+
+#[cfg(feature = "z3")]
+fn range(d: &BackendDefinition, name: &str, upper: i64) -> Vec<Predicate> {
+    vec![
+        Predicate::Term(term(d, &format!("ge{{}}({name}:SortInt{{}},{})", int(0)))),
+        Predicate::Term(term(
+            d,
+            &format!("lt{{}}({name}:SortInt{{}},{})", int(upper)),
+        )),
+    ]
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn shared_word_variants_compose_with_independent_arithmetic_under_native_defaults() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    let d = definition(&mixed_source());
+    for width in [8, 16] {
+        let known = range(&d, "X", 1 << width)
+            .into_iter()
+            .chain(range(&d, "Y", 1 << width))
+            .collect::<Vec<_>>();
+        let claim = Predicate::Equals(
+            term(&d, "mix{}(X:SortInt{},Y:SortInt{})"),
+            term(&d, "plus{}(X:SortInt{},Y:SortInt{})"),
+        );
+        let q = super::super::SmtPrelude::from_definition(&d)
+            .unwrap()
+            .query(
+                &known,
+                &crate::substitution::Substitution::new(),
+                std::slice::from_ref(&claim),
+                false,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(q.base().contains("define-fun-rec SMT-WORD"), "{}", q.base());
+        assert!(q.checked().to_string().contains("SMT-WORD-"));
+        assert!(q.model_mappings().is_none());
+        let counters = k_rust_kore::measure::snapshot();
+        let started = std::time::Instant::now();
+        let result = Z3Solver::new(&d).unwrap().check_predicates(
+            &known,
+            &crate::substitution::Substitution::new(),
+            &[claim],
+        );
+        let costs = k_rust_kore::measure::snapshot().delta(&counters);
+        eprintln!(
+            "summary-word-{width}: {result:?}; elapsed={:?}; script_bytes={}; runs={}; resource_units={}",
+            started.elapsed(),
+            q.base().len() + q.checked().to_string().len(),
+            costs.get(k_rust_kore::measure::Counter::SmtSolverRuns),
+            costs.get(k_rust_kore::measure::Counter::SmtRlimitCount)
+        );
+        assert_eq!(result, Ok(Ok(Validity::Valid)));
+    }
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn distinct_argument_dependency_diamonds_share_integer_and_word_definitions() {
+    let mut extra = String::from(
+        r#"hooked-symbol band{}(SortInt{},SortInt{}):SortInt{} [function{}(),total{}(),hook{}("INT.and")]
+    "#,
+    );
+    for level in 0..=30 {
+        extra.push_str(&format!(
+            "symbol stage{level}{{}}(SortInt{{}}):SortInt{{}} [function{{}}(),total{{}}()]\n"
+        ));
+        let rhs = if level == 0 {
+            "X:SortInt{}".to_owned()
+        } else {
+            format!(
+                "plus{{}}(stage{}{{}}(band{{}}(plus{{}}(X:SortInt{{}},{}),{})),stage{}{{}}(band{{}}(plus{{}}(X:SortInt{{}},{}),{})))",
+                level - 1,
+                int(1),
+                int(255),
+                level - 1,
+                int(2),
+                int(255)
+            )
+        };
+        extra.push_str(&equation(
+            &format!("stage{level}{{}}(X:SortInt{{}})"),
+            &rhs,
+            None,
+            "simplification{}()",
+        ));
+    }
+    let d = definition(&extra);
+    let call = term(&d, "stage30{}(X:SortInt{})");
+    let claim = Predicate::Equals(call.clone(), call);
+    let started = std::time::Instant::now();
+    let q = super::super::SmtPrelude::from_definition(&d)
+        .unwrap()
+        .query(
+            &range(&d, "X", 256),
+            &crate::substitution::Substitution::new(),
+            std::slice::from_ref(&claim),
+            false,
+        )
+        .unwrap()
+        .unwrap();
+    let script = format!("{}\n(assert {})", q.base(), q.checked());
+    assert_eq!(script.matches("define-fun").count(), 62);
+    assert!(script.len() < 64_000, "{}", script.len());
+    use crate::smt::{Satisfiability, SmtSolver, Z3Solver};
+    let mut known = range(&d, "X", 256);
+    known.push(claim);
+    assert_eq!(
+        Z3Solver::new(&d)
+            .unwrap()
+            .is_sat(&known, &crate::substitution::Substitution::new()),
+        Ok(Ok(Satisfiability::Sat))
+    );
+    eprintln!(
+        "summary distinct-argument diamond: {} bytes, {:?}",
+        script.len(),
+        started.elapsed()
+    );
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn actual_model_queries_preserve_exact_helper_and_opaque_fallback_boundaries() {
+    use crate::{
+        model::model_of,
+        smt::{ModelResult, Z3Solver},
+    };
+    let d = definition(&bit_rows());
+    let predicate = Predicate::Equals(term(&d, "bit{}(B:SortBool{})"), term(&d, &int(1)));
+    let result = model_of(&d, &predicate, &Z3Solver::new(&d).unwrap())
+        .unwrap()
+        .unwrap();
+    let ModelResult::Sat(values) = result else {
+        panic!("{result:?}")
+    };
+    let b = Variable::new("B", Sort::simple("SortBool"));
+    assert!(values.contains_key(&b));
+    let summary = Catalog::new(&d)
+        .admit(&term(&d, "bit{}(B:SortBool{})"))
+        .unwrap()
+        .unwrap();
+    let value = evaluate(&d, &summary, vec![values[&b].clone()]);
+    assert_eq!(crate::builtin::read_int(&value).unwrap(), 1.into());
+    let d = definition(&mixed_source());
+    let predicates = range(&d, "X", 256)
+        .into_iter()
+        .chain(range(&d, "Y", 256))
+        .chain([Predicate::Equals(
+            term(&d, "mix{}(X:SortInt{},Y:SortInt{})"),
+            term(&d, &int(17)),
+        )])
+        .collect::<Vec<_>>();
+    let result = model_of(
+        &d,
+        &Predicate::And(predicates.into()),
+        &Z3Solver::new(&d).unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        result,
+        ModelResult::Unknown(super::super::APPROXIMATE_MODEL_REASON.to_owned())
+    );
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn exact_range_profiles_are_query_local_and_source_ownership_outlives_the_loader() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    let d = definition(&mixed_source());
+    let a = Predicate::Equals(
+        term(&d, "mix{}(X:SortInt{},X:SortInt{})"),
+        term(&d, "mix{}(Y:SortInt{},Y:SortInt{})"),
+    );
+    let known = range(&d, "X", 255)
+        .into_iter()
+        .chain(range(&d, "Y", 256))
+        .collect::<Vec<_>>();
+    let q = super::super::SmtPrelude::from_definition(&d)
+        .unwrap()
+        .query(
+            &known,
+            &crate::substitution::Substitution::new(),
+            &[a],
+            false,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(q.base().matches("define-fun-rec SMT-WORD-").count(), 2);
+    let solver = {
+        let d = definition(&bit_rows());
+        Z3Solver::new(&d).unwrap()
+    };
+    let claim = Predicate::Equals(
+        term(
+            &definition(&bit_rows()),
+            &format!("bit{{}}({})", boolv(true)),
+        ),
+        Term::raw_domain_value(Sort::simple("SortInt"), "1"),
+    );
+    assert_eq!(
+        solver.check_predicates(&[], &crate::substitution::Substitution::new(), &[claim]),
+        Ok(Ok(Validity::Valid))
+    );
+}
+
+#[cfg(feature = "z3")]
+#[test]
+#[ignore = "set SUMMARY_AUDIT_KORE to the compiled Foldiboy operation audit"]
+fn compiled_foldiboy_shared_emission_uses_original_helper_bodies() {
+    use crate::smt::{Satisfiability, SmtSolver, Z3Solver};
+    let path = std::env::var("SUMMARY_AUDIT_KORE").unwrap();
+    let source = std::fs::read_to_string(path).unwrap();
+    let d =
+        BackendDefinition::internalize(&parse_definition(&source).unwrap(), "OPERATION-AUDIT-SPEC")
+            .unwrap();
+    let started = std::time::Instant::now();
+    let snapshot = super::Source::new(&d);
+    let snapshot_cost = started.elapsed();
+    let scalar = |name: &str| term(&d, &format!("{name}:SortInt{{}}"));
+    let mut known = Vec::new();
+    for name in ["A", "B", "V", "F"] {
+        for (hook, n) in [("INT.ge", 0), ("INT.lt", 256)] {
+            let symbol = d
+                .symbols()
+                .values()
+                .find(|s| {
+                    s.attributes.hook.as_deref() == Some(hook)
+                        && s.argument_sorts
+                            .iter()
+                            .all(|s| s.is_builtin(BuiltinSort::Int))
+                })
+                .unwrap();
+            known.push(Predicate::Term(Term::application(
+                symbol.clone(),
+                vec![],
+                vec![scalar(name), term(&d, &int(n))],
+            )));
+        }
+    }
+    let mut checked = Vec::new();
+    for source in [
+        "LblflagBit{}(P:SortBool{})",
+        "Lblflags{}(Z:SortBool{},N:SortBool{},H:SortBool{},C:SortBool{})",
+        "LblcarryIn{}(F:SortInt{})",
+        "Lblsigned{}(V:SortInt{})",
+        "LblunaryResult{}(LblunaryDaa{}(),V:SortInt{},F:SortInt{})",
+        "LblunaryResult{}(LblunaryRlca{}(),V:SortInt{},F:SortInt{})",
+        "LblunaryResult{}(LblunarySra{}(),V:SortInt{},F:SortInt{})",
+        "LblunaryFlags{}(LblunaryDaa{}(),V:SortInt{},F:SortInt{})",
+        "LblaluFlags{}(LblaluAdc{}(),A:SortInt{},B:SortInt{},F:SortInt{})",
+        "LblaluResult{}(LblaluOr{}(),A:SortInt{},B:SortInt{},F:SortInt{})",
+        r#"LblunaryResult{}(LblunarySetBit{}(\dv{SortInt{}}("0")),V:SortInt{},F:SortInt{})"#,
+    ] {
+        let call = term(&d, source);
+        checked.push(Predicate::Equals(call.clone(), call));
+    }
+    let mut state = super::super::TranslationState::new();
+    state.congruence = super::super::CongruencePolicy::from_definition(&d).map(Arc::new);
+    let started = std::time::Instant::now();
+    super::prepare(
+        &snapshot,
+        &mut state,
+        &known,
+        &crate::substitution::Substitution::new(),
+        &checked,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(state.summaries.len(), 19);
+    let scalar_cost = started.elapsed();
+    let started = std::time::Instant::now();
+    let prelude = super::super::SmtPrelude::from_definition(&d).unwrap();
+    assert_eq!(prelude, prelude.clone());
+    let query = prelude
+        .query(
+            &known,
+            &crate::substitution::Substitution::new(),
+            &checked,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+    let cost = started.elapsed();
+    let super::super::SExpr::List(expressions) = query.checked() else {
+        panic!("checked conjunction")
+    };
+    for (index, expression) in expressions.iter().skip(1).enumerate() {
+        let super::super::SExpr::List(parts) = expression else {
+            panic!("scalar atom")
+        };
+        assert_eq!(
+            parts.first(),
+            Some(&super::super::SExpr::atom("ite")),
+            "actual helper {index}: {expression}"
+        );
+    }
+    let bytes = query.base().len() + query.checked().to_string().len();
+    let mut predicates = known;
+    predicates.extend(checked);
+    let started = std::time::Instant::now();
+    assert_eq!(
+        Z3Solver::new(&d)
+            .unwrap()
+            .is_sat(&predicates, &crate::substitution::Substitution::new()),
+        Ok(Ok(Satisfiability::Sat))
+    );
+    eprintln!(
+        "actual Foldiboy emission: snapshot={snapshot_cost:?} scalar={scalar_cost:?} complete={cost:?} native={:?} scalar_variants={} word_variants={} bytes={bytes}",
+        started.elapsed(),
+        state.summaries.len(),
+        query.base().matches("define-fun-rec SMT-WORD-").count()
+    );
+}
+
+#[test]
+fn query_emission_cancellation_propagates_and_does_not_poison_source_ownership() {
+    let d = definition(&bit_rows());
+    let source = super::Source::new(&d);
+    let checked = [Predicate::Equals(
+        term(&d, "bit{}(B:SortBool{})"),
+        term(&d, &int(1)),
+    )];
+    let token = crate::stop::CancellationToken::new();
+    token.cancel();
+    let mut state = super::super::TranslationState::new();
+    state.congruence = super::super::CongruencePolicy::from_definition(&d).map(Arc::new);
+    let result = token.scope(|| {
+        super::prepare(
+            &source,
+            &mut state,
+            &[],
+            &crate::substitution::Substitution::new(),
+            &checked,
+        )
+    });
+    assert_eq!(
+        result.unwrap_err().into_cause(),
+        crate::stop::StopCause::Cancelled
+    );
+    assert!(state.summaries.is_empty());
+    super::prepare(
+        &source,
+        &mut state,
+        &[],
+        &crate::substitution::Substitution::new(),
+        &checked,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(state.summaries.len(), 1);
+}

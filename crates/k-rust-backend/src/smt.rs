@@ -38,8 +38,7 @@ mod literal;
 #[cfg(any(feature = "z3", test))]
 mod word;
 
-// Admission is exercised independently before the query emitter consumes its metadata.
-#[cfg(test)]
+#[cfg(any(feature = "z3", test))]
 mod summary;
 
 #[cfg(feature = "z3")]
@@ -322,6 +321,9 @@ pub struct TranslationState {
     eligible_operands: FxHashMap<Term, bool>,
     shared_terms: Option<SharedTerms>,
     word_predicates: BTreeMap<Predicate, SExpr>,
+    #[cfg(any(feature = "z3", test))]
+    summaries: BTreeMap<summary::Key, summary::Reading>,
+    derived_definitions: Vec<String>,
     predicate_mappings: Vec<(Predicate, String)>,
     dependent_mappings: BTreeMap<(Predicate, Vec<Sort>), String>,
     bound_variables: Vec<(Variable, String)>,
@@ -347,6 +349,9 @@ impl TranslationState {
             eligible_operands: FxHashMap::default(),
             shared_terms: None,
             word_predicates: BTreeMap::new(),
+            #[cfg(any(feature = "z3", test))]
+            summaries: BTreeMap::new(),
+            derived_definitions: Vec::new(),
             predicate_mappings: Vec::new(),
             dependent_mappings: BTreeMap::new(),
             bound_variables: Vec::new(),
@@ -424,6 +429,26 @@ impl TranslationState {
     }
 
     fn translate_term_node(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
+        #[cfg(any(feature = "z3", test))]
+        if let Some(reading) = summary::reading(&self.summaries, term).cloned()
+            && self.eligible_operand(term)
+        {
+            let TermKind::Application { arguments, .. } = term.kind() else {
+                unreachable!()
+            };
+            let arguments = arguments
+                .iter()
+                .zip(&reading.summary.key.static_arguments)
+                .filter(|(_, static_argument)| static_argument.is_none())
+                .map(|(argument, _)| self.translate_term(argument))
+                .collect::<Result<Vec<_>, _>>()?;
+            self.approximate(reading.exactness);
+            return Ok(if arguments.is_empty() {
+                SExpr::atom(reading.name)
+            } else {
+                SExpr::application(reading.name, arguments)
+            });
+        }
         match term.kind() {
             // A term-level `\and` denotes the intersection of its operands' values, `\bottom` where
             // they differ, not their Boolean conjunction: `true /\ false` is `\bottom`, not
@@ -1173,7 +1198,8 @@ fn translate_query_in_state(
         .map(|predicate| translation.translate_predicate(predicate))
         .collect::<Result<Vec<_>, _>>()?;
     let checked = SExpr::application("and", checked);
-    let declarations = translation.mapping_declarations()?;
+    let mut declarations = translation.mapping_declarations()?;
+    declarations.extend(translation.derived_definitions.clone());
     Ok((translation, declarations, substitution, known, checked))
 }
 
@@ -1209,6 +1235,8 @@ pub struct SmtPrelude {
     /// Whether the prelude ends with a user prelude, a script k-rust did not write.
     user_script: bool,
     congruence: Option<Arc<CongruencePolicy>>,
+    #[cfg(any(feature = "z3", test))]
+    source: Option<summary::Source>,
 }
 
 impl SmtPrelude {
@@ -1271,6 +1299,8 @@ impl SmtPrelude {
             smtlib_names,
             user_script: false,
             congruence: CongruencePolicy::from_definition(definition).map(Arc::new),
+            #[cfg(any(feature = "z3", test))]
+            source: Some(summary::Source::new(definition)),
         })
     }
 
@@ -1300,6 +1330,12 @@ impl SmtPrelude {
     ) -> Stoppable<Result<TranslatedQuery, TranslationError>> {
         let mut translation = TranslationState::new();
         translation.congruence = self.congruence.clone();
+        if let Some(source) = &self.source
+            && let Err(error) =
+                summary::prepare(source, &mut translation, known, substitution, checked)?
+        {
+            return Ok(Err(error));
+        }
         if let Err(error) = word::prepare(&mut translation, known, checked)? {
             return Ok(Err(error));
         }
