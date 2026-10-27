@@ -583,6 +583,13 @@ fn trusted_claims_are_pinned() {
 /// "Run coverage" and the "State matches" section after "Work budget" add 42 lines between 2279
 /// and 2833, which move the definedness-faithful passage down 42 to 2875-2876, byte-identical:
 /// only its lines, and `TRUSTED_CLAIMS`' citations of them, are re-pinned.
+///
+/// Re-pin fz26 FZ-FRESH: the fresh-constants section (8 lines) and the implementation-chosen
+/// section (4 lines) grow above the eleven compatibility.md passages, which move down 8 to 12
+/// lines with the lines they name; no pinned line changes and no digest is touched, and
+/// `TRUSTED_CLAIMS`' citations move alike. At the branch base `16014aab4` the ranges already did
+/// not hold their pinned text, the test being red there (moved by later k-rust documentation),
+/// so this moves no verdict.
 // WORD-03 also reviews the SMT-03 congruence paragraph: a K valuation extends to the
 // query-local UF interpretation of a pure total context. No constructor injectivity or
 // model exactness follows. The trusted hook/lemma/prelude sentence is unchanged; the old
@@ -594,68 +601,68 @@ fn trusted_claims_are_pinned() {
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     (
         "docs/compatibility.md",
-        1065,
-        1065,
+        1073,
+        1073,
         "bcee9ac9986b1b5c90868e046c36afc8da3dc45638790a4926d7ef624b18e8b7",
     ),
     (
         "docs/compatibility.md",
-        1143,
-        1143,
+        1151,
+        1151,
         "9fa7fb1ee4fde986bdc71fd04e907f47fe0d37e800774563526ce8a8bfaaeef3",
     ),
     (
         "docs/compatibility.md",
-        1145,
-        1145,
+        1153,
+        1153,
         "6ac61e27f16d7f63164621e446aa193f3d769bd4ce09ba332bf23b95c7c6fd13",
     ),
     (
         "docs/compatibility.md",
-        1175,
-        1180,
+        1183,
+        1188,
         "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
     ),
     (
         "docs/compatibility.md",
-        1193,
-        1193,
+        1201,
+        1201,
         "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
     ),
     (
         "docs/compatibility.md",
-        1399,
-        1399,
+        1407,
+        1407,
         "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
     ),
     (
         "docs/compatibility.md",
-        1553,
-        1553,
+        1561,
+        1561,
         "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
     ),
     (
         "docs/compatibility.md",
-        1578,
-        1578,
+        1586,
+        1586,
         "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
     ),
     (
         "docs/compatibility.md",
-        1658,
-        1668,
+        1666,
+        1676,
         "1c61218ca52c52d4e182fd7c3b475ebd3129ff57d44c41bb280f022eff21fb32",
     ),
     (
         "docs/compatibility.md",
-        2296,
-        2296,
+        2308,
+        2308,
         "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
     ),
     (
         "docs/compatibility.md",
-        2942,
-        2944,
+        2954,
+        2956,
         "f6903f637e690922ed6a2cd8af2171ab7a1b0c9dfe9315004e6a1fc7955cac9f",
     ),
     (

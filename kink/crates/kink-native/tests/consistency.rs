@@ -397,26 +397,31 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// down four lines, and definition-local observation catalogs move the source passage down
 /// twelve. All four passages are byte-identical; only their line positions are re-pinned.
 ///
+/// fz26 FZ-FRESH: the fresh-constants section, above all three compatibility passages, grows by 8
+/// lines, which move the three ranges down 8 with the lines they name; no pinned line changes and
+/// no digest is touched. At the branch base `16014aab4` the ranges already did not hold their
+/// pinned text, the test being red there (MAIN-KINK-GATE-RED), so this moves no verdict.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
 const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     (
         "docs/compatibility.md",
-        1073,
-        1075,
+        1081,
+        1083,
         "a350602f04b9a4d28ae88fa10bfe57340bcfe3f0f19a9260c9e926ac80f00e25",
     ),
     (
         "docs/compatibility.md",
-        1104,
-        1111,
+        1112,
+        1119,
         "16798fc021e1c3b22eee935971f2c7fcbfdddb5af1771ee22bdd0929d7d58bf1",
     ),
     (
         "docs/compatibility.md",
-        1127,
-        1140,
+        1135,
+        1148,
         "64b22da342b8e31eb42497885315d42af3fba138e6315797d46870ab2a47d202",
     ),
     (

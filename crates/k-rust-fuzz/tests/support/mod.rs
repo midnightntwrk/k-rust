@@ -692,6 +692,30 @@ fixture!(
 );
 fixture!(UNDECLARED_Q, "undeclared/q.k", "Q", UNDECLARED_PROGRAMS);
 
+/// Fresh values (FZ-FRESH): rules with two `!` names whose association of names to counter
+/// offsets the definition leaves open (`base`, `cmpb`, `rb1` and their reorderings), a mint
+/// whose only trace is the counter (`disc1` beside `disc0`), and one-name mints and constants
+/// whose kills stay (`mint`, `mint2`, `shift`, `const5`, `const0`). Every definition is
+/// `FRESH` over the one program `mk(3)`.
+pub const FRESH_PROGRAMS: &[Program] = &[program!("fresh/mk.pgm")];
+fixture!(FRESH_BASE, "fresh/base.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_MUT, "fresh/mut.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_CMPB, "fresh/cmpb.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_CMPM, "fresh/cmpm.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_RB1, "fresh/rb1.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_RB2, "fresh/rb2.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_DISC0, "fresh/disc0.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_DISC1, "fresh/disc1.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_MINT, "fresh/mint.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_MINT2, "fresh/mint2.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_SHIFT, "fresh/shift.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_CONST5, "fresh/const5.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_CONST0, "fresh/const0.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_LIT, "fresh/lit.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_LIT_M, "fresh/litm.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_SWAP, "fresh/swap.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_RB0, "fresh/rb0.k", "FRESH", FRESH_PROGRAMS);
+
 /// Branches that meet in one configuration at one depth (FZ-STATESET): a state set keeps the
 /// arrival it meets first, so a rule fired on the other is on no leaf's trace (B1), and the leaf
 /// carries the first arrival's facts (V1); `pick(0)` rolls back a candidate whose successor is
@@ -1328,7 +1352,7 @@ fixture!(HALTCAUSE, "haltcause/haltcause.k", "HC", HALTCAUSE_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 105] = [
+pub static ALL: [&Fixture; 122] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1434,4 +1458,21 @@ pub static ALL: [&Fixture; 105] = [
     &UNDECLARED,
     &UNDECLARED_MOVED,
     &UNDECLARED_Q,
+    &FRESH_BASE,
+    &FRESH_MUT,
+    &FRESH_CMPB,
+    &FRESH_CMPM,
+    &FRESH_RB1,
+    &FRESH_RB2,
+    &FRESH_DISC0,
+    &FRESH_DISC1,
+    &FRESH_MINT,
+    &FRESH_MINT2,
+    &FRESH_SHIFT,
+    &FRESH_CONST5,
+    &FRESH_CONST0,
+    &FRESH_LIT,
+    &FRESH_LIT_M,
+    &FRESH_SWAP,
+    &FRESH_RB0,
 ];

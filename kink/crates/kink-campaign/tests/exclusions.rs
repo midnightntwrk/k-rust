@@ -793,6 +793,237 @@ mod kink_tier {
             ));
         });
     }
+
+    /// A campaign over k-rust's fixtures `crates/k-rust-fuzz/tests/data/fresh/`: the baseline
+    /// `<baseline>.k` (module `FRESH`), the one mutant that replaces its rule `FRESH.mk` by
+    /// `<mutant>.k`'s, and the test `mk(3)`, whose configuration holds the `Int` cells `cells`
+    /// after `<k>` and the counter 0. `check` gets the run of each schedule.
+    fn fresh_campaign(
+        baseline: &'static str,
+        mutant: &'static str,
+        cells: &'static [(&'static str, i64)],
+        check: impl Fn(ScheduleMode, Result<kink_campaign::CampaignRun, kink_campaign::CampaignFailure>)
+        + Send
+        + 'static,
+    ) {
+        use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
+        on_a_big_stack(move || {
+            let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../crates/k-rust-fuzz/tests/data/fresh");
+            let validator = NativeValidator::bind(
+                support::load_path(&fixture.join(format!("{baseline}.k")), "FRESH"),
+                CompileOptions::default(),
+            );
+            let baseline = validator.baseline();
+            let replacing = support::load_path(&fixture.join(format!("{mutant}.k")), "FRESH");
+            let at = support::rule(baseline, "FRESH.mk");
+            let mut replacement = replacing
+                .sentence(&support::rule(&replacing, "FRESH.mk"))
+                .expect("the replacing rule")
+                .clone();
+            *replacement.attributes_mut() = baseline.sentence(&at).unwrap().attributes().clone();
+            let discovery = derive_sites(
+                baseline,
+                "FRESH.mk",
+                &[
+                    SiteSelector::RuleLabel("FRESH.mk".into()),
+                    SiteSelector::Path(vec![0]),
+                ],
+            )
+            .unwrap();
+            let generation = select(&discovery, SelectionPolicy::Each, 1)
+                .unwrap()
+                .fold("replace", |_| {
+                    Patch::new(vec![Edit::ReplaceSentence {
+                        at: at.clone(),
+                        replacement: replacement.clone(),
+                    }])
+                    .unwrap()
+                })
+                .unwrap();
+            assert_eq!(generation.candidates().len(), 1);
+            let cell = |name: &str, child: Pattern| {
+                support::app(&format!("Lbl'-LT-'{name}'-GT-'"), vec![child])
+            };
+            let program = support::app(
+                "Lblmk'LParUndsRParUnds'FRESH-SYNTAX'Unds'Pgm'Unds'Int",
+                vec![support::int(3)],
+            );
+            let k = support::app(
+                "kseq",
+                vec![
+                    kore_application(
+                        "inj",
+                        vec![kore_sort("SortPgm"), kore_sort("SortKItem")],
+                        vec![program],
+                    ),
+                    support::app("dotk", Vec::new()),
+                ],
+            );
+            let top = std::iter::once(cell("k", k))
+                .chain(
+                    cells
+                        .iter()
+                        .map(|&(name, value)| cell(name, support::int(value))),
+                )
+                .collect();
+            let tests = [TestCase {
+                id: "mk(3)".into(),
+                initial_state: support::app(
+                    "Lbl'-LT-'generatedTop'-GT-'",
+                    vec![
+                        support::app("Lbl'-LT-'T'-GT-'", top),
+                        cell("generatedCounter", support::int(0)),
+                    ],
+                ),
+                oracles: oracles(),
+            }];
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                check(
+                    schedule,
+                    run_campaign(
+                        &campaign(&validator, "FRESH", &tests),
+                        &generation,
+                        schedule,
+                    ),
+                );
+            }
+        });
+    }
+
+    /// The baseline run is no evidence: the campaign is refused before the mutant runs
+    /// (`BaselineOracleFailed`, `implementation-chosen-value`).
+    fn assert_baseline_refused(
+        schedule: ScheduleMode,
+        run: Result<kink_campaign::CampaignRun, kink_campaign::CampaignFailure>,
+    ) {
+        let failure = run.expect_err("the baseline run is no evidence");
+        assert_eq!(
+            failure.kind(),
+            CampaignFailureKind::BaselineOracleFailed,
+            "{schedule:?}"
+        );
+        assert!(
+            failure.to_string().contains("implementation-chosen-value"),
+            "{schedule:?}: {failure}"
+        );
+    }
+
+    /// fz26 FZ-FRESH, K-REORDER: k-rust's fixture pair `crates/k-rust-fuzz/tests/data/fresh/`
+    /// `base.k` and `mut.k` is one K rule, `<a> _ => !_A </a> <b> _ => !_B </b>`, written with its
+    /// cells in the two orders. k-rust numbers the `!` names by first occurrence, so its baseline
+    /// ends in `<a> 0 <b> 1` and the mutant in `<a> 1 <b> 0`; the definition leaves the association
+    /// open, so no kill can rest on it. k-rust notes the step on the run's list (class
+    /// `fresh-association`), which excludes the baseline run, so the campaign is refused before
+    /// the mutant runs (`BaselineOracleFailed`, `implementation-chosen-value`), with no kink code.
+    /// Before the mark the whole-term slot distinguished and the mutant was killed.
+    #[test]
+    #[ignore = "kink"]
+    fn a_rule_reordered_with_two_fresh_names_is_never_killed() {
+        fresh_campaign(
+            "base",
+            "mut",
+            &[("a", 7), ("b", 7)],
+            assert_baseline_refused,
+        );
+    }
+
+    /// fz26 FZ-FRESH fix round (review B1): as K-REORDER, with a cell `<c> 2 </c>` that the rule
+    /// matches as the literal 2 (`lit.k`, `litm.k`). Compilation then advances the counter by a
+    /// variable bound to that 2 on the left-hand side, which k-rust reads through the binding: the
+    /// step is marked all the same and the campaign is refused. Before the fix round the baseline
+    /// was unmarked and the mutant killed.
+    #[test]
+    #[ignore = "kink"]
+    fn a_reordered_rule_whose_left_hand_side_holds_its_advance_is_never_killed() {
+        fresh_campaign(
+            "lit",
+            "litm",
+            &[("c", 2), ("a", 7), ("b", 7)],
+            assert_baseline_refused,
+        );
+    }
+
+    /// fz26 FZ-FRESH fix round (review S1): the baseline `swap.k` writes the constants `<a> 1 <b> 0`
+    /// and is unmarked; the mutant is `base.k`'s two-name rule, which k-rust's numbering ends in
+    /// `<a> 0 <b> 1` and the other numbering in the baseline's end. The mutant's run is marked, so
+    /// it is excluded: the test fails with `implementation-chosen-value` and the mutant is
+    /// `Unknown`, never killed, in both schedules.
+    #[test]
+    #[ignore = "kink"]
+    fn a_mutant_through_a_rule_with_two_fresh_names_is_never_killed() {
+        fresh_campaign("swap", "base", &[("a", 7), ("b", 7)], |schedule, run| {
+            let run = run.expect("the baseline is evidence");
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("one mutant")
+            };
+            assert_eq!(
+                mutant.plan.tests[0].run,
+                TestRun::Failed(ExecutionFailureKind::ImplementationChosenValue),
+                "{schedule:?}"
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Unknown, "{schedule:?}");
+            assert!(mutant.report.killing_test_ids.is_empty(), "{schedule:?}");
+        });
+    }
+
+    /// fz26 FZ-FRESH, K-COUNTER: `fresh/counter.k`'s `go(N)` mints one value and discards it, and
+    /// its mutant `mint(0)` mints none, so the ends differ only in the content of
+    /// `<generatedCounter>` (1 against 0). Neither run uses a rule with two `!` names, so both are
+    /// evidence. A whole-term slot compares terminals without the counter's content
+    /// (`StateProjection::WholeTerm`): the mutant survives. A term-path slot that names the counter
+    /// cell (`<generatedTop>`'s child 1) still reads it and kills, as documented. Before the
+    /// erasure the whole-term slot killed.
+    #[test]
+    #[ignore = "kink"]
+    fn a_difference_only_in_the_generated_counter_is_no_kill() {
+        on_a_big_stack(|| {
+            let validator = NativeValidator::bind(
+                support::load_path(&Path::new(support::DIR).join("fresh/counter.k"), "COUNTER"),
+                CompileOptions::default(),
+            );
+            let generation = one_to_zero(validator.baseline(), "COUNTER.go");
+            let tests = [test("go(5)", support::app("Lblgo", vec![support::int(5)]))];
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(
+                    &campaign(&validator, "COUNTER", &tests),
+                    &generation,
+                    schedule,
+                )
+                .unwrap();
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                assert_clean(&run, mutant, "go(5)");
+                assert_eq!(
+                    mutant.plan.tests[0].run,
+                    TestRun::Compared(vec![
+                        kink_campaign::OracleOutcome::Agree,
+                        kink_campaign::OracleOutcome::Agree
+                    ]),
+                    "{schedule:?}"
+                );
+                assert_eq!(mutant.report.status, MutantStatus::Survived, "{schedule:?}");
+            }
+            let counter = [TestCase {
+                oracles: vec![
+                    OracleDeclaration::new(
+                        CrashPolicy::Reject,
+                        Projection::State(StateProjection::TermPaths(vec![vec![1]])),
+                    )
+                    .unwrap(),
+                ],
+                ..test("go(5)", support::app("Lblgo", vec![support::int(5)]))
+            }];
+            let run = run_campaign(
+                &campaign(&validator, "COUNTER", &counter),
+                &generation,
+                ScheduleMode::Full,
+            )
+            .unwrap();
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+        });
+    }
 }
 
 mod heavy {

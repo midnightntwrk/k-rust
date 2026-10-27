@@ -413,6 +413,7 @@ The exit status is 0 when the job reached a verdict (a witness, none within the 
 - `baseline-incomplete` with `work-bound`: the definition itself did not finish. Raise `--max-work` only if the program terminates for those values.
 - `not-ceil-free` naming a function: an end holds an application of that partial function that is not shown to be defined; avoid the construct.
 - `implementation-chosen-value (hook MAP.keys_list [order] …)`: the run read a value k-rust chose where the definition leaves it open (map order, here); the hook is named. Choose values or a program whose run does not read it.
+- `implementation-chosen-value (hook <64 hex digits> [fresh-association] …)`: the run applied a rule with two or more `!` variables, and which of them gets which fresh value is the compiler's choice (or a rule that sets `<generatedCounter>` in a form k-rust cannot read as an advance by zero or one, which it marks too); the hook is the rule's `UNIQUE_ID`. Choose values or a program whose run does not apply that rule.
 - `client-refused`: kink's rules refused the hit; see `client-refusals`.
 
 The reasons are counted in the fuzz report's `totals.unsupported-reasons` and `totals.baseline-incomplete-reasons`, and the hooks behind them in `totals.unsupported-hooks` and `totals.baseline-incomplete-hooks` ([Why a case is unsupported](../crates/k-rust-fuzz/README.md#why-a-case-is-unsupported)).
@@ -430,6 +431,8 @@ The reasons are counted in the fuzz report's `totals.unsupported-reasons` and `t
 ## What kink refuses, and why
 
 kink kills a mutation only by comparing final configurations as values that mean the same thing in every model of the definition. The fuzz refuses a candidate that `run` could not use, at three points.
+
+Final configurations are compared without the content of the `<generatedCounter>` cell, which only counts the fresh values (`!X`) minted so far: a mutant that only mints more values is not killed, while one whose fresh values reach a cell of the configuration is. A run through a rule with two or more `!` variables rests on how the compiler numbered them, so it is no evidence (`implementation-chosen-value`, class `fresh-association`).
 
 **Before any case** (exit 1; `stopped` is `refused` or `not-comparable`):
 

@@ -584,7 +584,11 @@ export interface ContradictedClaimFields {
   observedIn: ObservedIn
 }
 
-/** A value the definition leaves open that a run read: the hook that computed it and what is open about it. */
+/**
+ * A value the definition leaves open that a run read: the hook that computed it and what is open
+ * about it. For `fresh-association`, a choice of the compiler, `hook` is the `UNIQUE_ID` of the
+ * rule with two or more `!` names whose candidate a step built.
+ */
 export interface ChosenValue {
   hook: string
   class: ChosenClass
@@ -600,6 +604,7 @@ export type ChosenClass =
   | 'fresh-name'
   | 'read-count'
   | 'effect-order'
+  | 'fresh-association'
 
 /**
  * The `UNIQUE_ID`s of the rules and equations a run used, each list sorted: `applied` those it

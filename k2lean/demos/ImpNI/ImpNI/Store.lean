@@ -22,7 +22,7 @@ def levId (G : Lab) (X : KImp.SortId) : Option Lvl :=
   else none
 
 theorem lev_id (G : Lab) (X : KImp.SortId) : lev G (.inj_Id X) = levId G X := by
-  simp only [lev, levId, tr_SortExpr]
+  simp only [lev, levId, k2l_tr]
   rw [KImpSec.K.«lev(_,_)_IMP-SEC_Level_Expr_Map».eq_def]
   simp only []
   by_cases hw : MapHook.wfb G = true
@@ -46,13 +46,13 @@ theorem not_low_of_lev {G : Lab} {X : KImp.SortId} (h : lev G (.inj_Id X) = some
   · simp at h
 
 theorem isVal_inj_Value (V : KImp.SortValue) : isVal (KImp.inj_Value_KItem V) = true := by
-  cases V <;> rfl
+  k2l_cases V <;> rfl
 
 theorem citem0_of_isVal (G : Lab) {v : KImp.SortKItem} (h : isVal v = true) : citem0 G v = some true := by
-  cases v <;> simp_all [isVal]
+  k2l_cases v <;> simp_all [isVal]
 
 theorem litem0_of_isVal (G : Lab) {v : KImp.SortKItem} (h : isVal v = true) : litem0 G v = some true := by
-  cases v <;> simp_all [isVal, lev.inj_Int, lev.inj_Bool]
+  k2l_cases v <;> simp_all [isVal, lev.inj_Int, lev.inj_Bool]
 
 theorem Good.lookup {E : KImp.SortMap} (hE : Good E) {X : KImp.SortId} {v : KImp.SortKItem}
     (h : MapHook.lookup E (KImp.SortKItem.inj_Id X) = some v) : isVal v = true := hE.2 X v h
@@ -81,7 +81,7 @@ theorem lev_hi_of_conf_assign {G : Lab} {X : KImp.SortId} {y : KImp.SortExpr}
   rw [conf.«_=_;»] at h
   split at h
   · rename_i l hl
-    cases l <;> simp_all
+    k2l_cases l <;> simp_all
   · simp at h
 
 theorem lowEq_update {G : Lab} {E₁ E₂ : KImp.SortMap} (h : lowEq G E₁ E₂) (X : KImp.SortId) (V : KImp.SortValue) :
@@ -145,7 +145,7 @@ theorem sq.«CALC.var» (G : Lab) : KImp.Step.Rel.«CALC.var» (SQ G) := by
 theorem same.«CALC.var» (G : Lab) : KImp.Step.Rel.«CALC.var» (SameQ G) := by
   intro X D g m v D2 hm c₂ c₂' hS h₂
   obtain ⟨hk, hlk, hlow⟩ := hS
-  rcases c₂ with ⟨⟨k₂⟩, ⟨E₂⟩, g₂⟩
+  k2l_cases c₂ with ⟨⟨k₂⟩, ⟨E₂⟩, g₂⟩
   simp only [kOf, storeOf] at hk hlow hlk ⊢
   subst hk
   simp only [lk_kseq, litem_false, litem0_inj_Id] at hlk
@@ -161,7 +161,7 @@ theorem same.«CALC.var» (G : Lab) : KImp.Step.Rel.«CALC.var» (SameQ G) := by
 theorem same.«CALC.assign» (G : Lab) : KImp.Step.Rel.«CALC.assign» (SameQ G) := by
   intro X y D E g V hp c₂ c₂' hS h₂
   obtain ⟨hk, hlk, hlow⟩ := hS
-  rcases c₂ with ⟨⟨k₂⟩, ⟨E₂⟩, g₂⟩
+  k2l_cases c₂ with ⟨⟨k₂⟩, ⟨E₂⟩, g₂⟩
   simp only [kOf, storeOf] at hk hlow ⊢
   subst hk
   have hd := KImp.Step.deterministic h₂ (KImp.Step.«CALC.assign» X y D E₂ g₂ V hp)

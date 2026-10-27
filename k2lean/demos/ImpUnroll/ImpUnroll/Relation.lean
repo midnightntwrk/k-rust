@@ -79,8 +79,7 @@ theorem hand.bwd_x.«IMP.if-true» :
     KUnroll.Step.Rel.«IMP.if-true» (Stutter.BwdX tr_SortGeneratedTopCell KImp.Step X ν) := by
   intro S1 S2 K E g c hX
   obtain ⟨C, S, K', E', g', rfl, hd⟩ := X_inv hX
-  simp only [KUnroll.SortGeneratedTopCell.«<generatedTop>».injEq, KUnroll.SortKCell.«<k>».injEq,
-    KUnroll.SortK.kseq.injEq, KUnroll.SortKItem.inj_Stmt.injEq, KUnroll.SortStmt.«if(_)_else_».injEq] at hd
+  k2l_injections
   k2l_inv
   exact Or.inl ⟨_, .tail (.single (KImp.Step.«IMP.if-else» _ _ _ _ _)) (KImp.Step.«IMP.if-true» _ _ _ _ _),
     Or.inl rfl⟩
@@ -89,8 +88,7 @@ theorem hand.bwd_x.«IMP.if-false» :
     KUnroll.Step.Rel.«IMP.if-false» (Stutter.BwdX tr_SortGeneratedTopCell KImp.Step X ν) := by
   intro S1 S2 K E g c hX
   obtain ⟨C, S, K', E', g', rfl, hd⟩ := X_inv hX
-  simp only [KUnroll.SortGeneratedTopCell.«<generatedTop>».injEq, KUnroll.SortKCell.«<k>».injEq,
-    KUnroll.SortK.kseq.injEq, KUnroll.SortKItem.inj_Stmt.injEq, KUnroll.SortStmt.«if(_)_else_».injEq] at hd
+  k2l_injections
   k2l_inv
   exact Or.inl ⟨_, .tail (.single (KImp.Step.«IMP.if-else» _ _ _ _ _)) (KImp.Step.«IMP.if-false» _ _ _ _ _),
     Or.inl rfl⟩
@@ -101,9 +99,8 @@ theorem hand.bwd_x.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat
       (Stutter.BwdX tr_SortGeneratedTopCell KImp.Step X ν) := by
   intro H S1 S2 K E g hreq c hX
   obtain ⟨C, S, K', E', g', rfl, hd⟩ := X_inv hX
-  simp only [KUnroll.SortGeneratedTopCell.«<generatedTop>».injEq, KUnroll.SortKCell.«<k>».injEq,
-    KUnroll.SortK.kseq.injEq, KUnroll.SortKItem.inj_Stmt.injEq, KUnroll.SortStmt.«if(_)_else_».injEq] at hd
-  obtain ⟨⟨⟨rfl, rfl, rfl⟩, rfl⟩, rfl, rfl⟩ := hd
+  k2l_injections
+  k2l_inv
   refine Or.inl ⟨_, .tail (.single (KImp.Step.«IMP.if-else» _ _ _ _ _))
     (KImp.Step.«IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat» _ _ _ _ _ _ ?_), Or.inl ?_⟩
   · simpa only [k2l_rel] using hreq

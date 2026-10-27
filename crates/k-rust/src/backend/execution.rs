@@ -888,32 +888,69 @@ fn undefined_initial_instances_message(definedness: &[Predicate], result_sort: &
     )
 }
 
-/// What a path met for a mark of `hook` and `class`: a value the definition leaves open, or, for
-/// `effect-order`, which is not a value, an effect order it leaves open.
-fn chosen_value_met(hook: &str, class: k_rust_backend::builtin::ChosenClass) -> String {
-    if class == k_rust_backend::builtin::ChosenClass::EffectOrder {
-        format!(
+/// What a path met for a mark of `hook` and `class`: a value the definition leaves open; for
+/// `effect-order`, which is not a value, an effect order it leaves open; for
+/// `fresh-association`, an instance of the rule whose `UNIQUE_ID` is `hook` (a candidate: its
+/// left-hand side matched and its `requires` held, whether its result was defined, undefined or
+/// vanished), named as [`rule_named_by_id`] does, whose association of its `!` names with counter
+/// offsets the definition leaves open.
+fn chosen_value_met(
+    definition: &BackendDefinition,
+    hook: &str,
+    class: k_rust_backend::builtin::ChosenClass,
+) -> String {
+    match class {
+        k_rust_backend::builtin::ChosenClass::EffectOrder => format!(
             "met an effect order of {hook} the definition leaves open ({})",
             class.name()
-        )
-    } else {
-        format!(
+        ),
+        k_rust_backend::builtin::ChosenClass::FreshAssociation => format!(
+            "built an instance of rule {}, defined or not, whose association of its fresh variables with counter offsets the definition leaves open ({})",
+            rule_named_by_id(definition, hook),
+            class.name()
+        ),
+        k_rust_backend::builtin::ChosenClass::Order
+        | k_rust_backend::builtin::ChosenClass::Item
+        | k_rust_backend::builtin::ChosenClass::FloatDestination
+        | k_rust_backend::builtin::ChosenClass::NanSign
+        | k_rust_backend::builtin::ChosenClass::LetterCase
+        | k_rust_backend::builtin::ChosenClass::SignedZero
+        | k_rust_backend::builtin::ChosenClass::FreshName
+        | k_rust_backend::builtin::ChosenClass::ReadCount
+        | _ => format!(
             "read a value of {hook} the definition leaves open ({})",
             class.name()
-        )
+        ),
     }
 }
 
+/// How a warning names the rewrite rule `rule_id`: as every diagnostic names an axiom
+/// ([`diagnostic_name`](k_rust_backend::rule::RuleAttributes::diagnostic_name)), or by the id
+/// when no axiom of the definition has it. Every axiom of a compiled definition has an id of its
+/// own, so the id alone names the rule.
+fn rule_named_by_id(definition: &BackendDefinition, rule_id: &str) -> String {
+    definition
+        .classified_axioms()
+        .iter()
+        .map(ClassifiedAxiom::attributes)
+        .find(|attributes| attributes.unique_id == rule_id)
+        .map_or_else(
+            || rule_id.to_owned(),
+            |attributes| attributes.diagnostic_name(k_label),
+        )
+}
+
 /// The warning for an `ImplementationChosenValue` diagnostic, printed once per run: a path to a
-/// result read a value the definition leaves open, or met an effect order it leaves open, so
-/// that result is one model's.
+/// result read a value the definition leaves open, or met an effect order or a fresh-value
+/// association it leaves open, so that result is one model's.
 fn implementation_chosen_value_message(
+    definition: &BackendDefinition,
     hook: &str,
     class: k_rust_backend::builtin::ChosenClass,
 ) -> String {
     format!(
         "a path to a result {}; in another model of the definition such a result may differ or be absent",
-        chosen_value_met(hook, class)
+        chosen_value_met(definition, hook, class)
     )
 }
 
@@ -921,6 +958,7 @@ fn implementation_chosen_value_message(
 /// (`run_wide`): work on no reported path read them, a vanished candidate or an absorbed
 /// arrival, and in another model of the definition that work may give other results.
 fn report_unprinted_marks(
+    definition: &BackendDefinition,
     listed: &[k_rust_backend::builtin::ChosenValue],
     run_wide: &HashSet<&BackendDiagnostic>,
 ) {
@@ -938,7 +976,7 @@ fn report_unprinted_marks(
         if !printed.contains(&(&*chosen.hook, chosen.class)) {
             eprintln!(
                 "warning: the run {} on no path to a result; another model of the definition may give other results",
-                chosen_value_met(&chosen.hook, chosen.class)
+                chosen_value_met(definition, &chosen.hook, chosen.class)
             );
         }
     }
@@ -981,7 +1019,7 @@ fn report_diagnostics<'a>(
                 if run_wide.insert(diagnostic) {
                     eprintln!(
                         "warning: {}",
-                        implementation_chosen_value_message(hook, *class)
+                        implementation_chosen_value_message(definition, hook, *class)
                     );
                 }
             }
@@ -1481,7 +1519,7 @@ fn run_backend_in_execution(
                 &mut run_wide,
             );
         }
-        report_unprinted_marks(&result.implementation_chosen_values, &run_wide);
+        report_unprinted_marks(backend, &result.implementation_chosen_values, &run_wide);
         report_unprinted_claims(&result.contradicted_claims, &run_wide);
         return Ok(BackendRunOutput {
             pattern: RunPattern::Matches(search_output(
@@ -1582,7 +1620,7 @@ fn run_backend_in_execution(
             &mut run_wide,
         );
     }
-    report_unprinted_marks(&execution.implementation_chosen_values, &run_wide);
+    report_unprinted_marks(backend, &execution.implementation_chosen_values, &run_wide);
     report_unprinted_claims(&execution.contradicted_claims, &run_wide);
     if let Some(path) = options.stop_leaves {
         let depth_bounded = execution

@@ -130,6 +130,30 @@ module TERM
   rule ends(ListItem(X:Int) L ListItem(Y:Int)) => X +Int Y +Int ends(L)
   rule ends(ListItem(X:Int)) => X
   rule ends(.List) => 0
+  // `owise` rules after list patterns: the left-hand side is a variable, and the statement has a
+  // no-match premise per other rule; the definition takes the variable apart (`k2l_case_lvar`),
+  // and each other rule's arm is refuted by its premise (`k2l_owise_arm`), once both sides'
+  // concatenations are normalized: `ListItem(X) ListItem(Y) L` is written left-nested, the arm
+  // builds it right-nested. Front, back and both ends, and a function that is not recursive with
+  // a second argument in its pattern.
+  syntax Int ::= sumPairs(List) [function, total, symbol(sumPairs)]
+  rule sumPairs(ListItem(X:Int) ListItem(Y:Int) L) => X +Int Y +Int sumPairs(L)
+  rule sumPairs(_) => 0 [owise]
+  syntax Int ::= lastSum(List) [function, total, symbol(lastSum)]
+  rule lastSum(L ListItem(X:Int)) => X +Int lastSum(L)
+  rule lastSum(_) => 0 [owise]
+  syntax Int ::= edgeSum(List) [function, total, symbol(edgeSum)]
+  rule edgeSum(ListItem(X:Int) L ListItem(Y:Int)) => X +Int Y +Int edgeSum(L)
+  rule edgeSum(ListItem(X:Int)) => X
+  rule edgeSum(_) => 0 [owise]
+  syntax Int ::= headOr(List, Int) [function, total, symbol(headOr)]
+  rule headOr(ListItem(X:Int) _, _) => X
+  rule headOr(_, D) => D [owise]
+  // An `owise` rule after a sort cast `I:Int` of a `KItem` argument: the other rule's pattern is
+  // an alias (the injection of `I`, named), stated in the no-match premise as the injection.
+  syntax Int ::= itemOr(KItem, Int) [function, total, symbol(itemOr)]
+  rule itemOr(I:Int, _) => I
+  rule itemOr(_, D) => D [owise]
 
   // Types read from a table: an array's alignment is its element's, its size the element's size
   // times its length, and the element's description is read from the table. The table is an
@@ -154,5 +178,5 @@ module TERM
   rule <k> run(B, L, Xs, N) => scan(B, 0, 0) ~> isort(L) ~> total(Xs, 0) ~> series(1, 0, N, N) ~> dec(B) </k>
   rule <k> runN(N) => popcount(N) ~> popcounts(N, 0 -Int N) </k>
   rule <k> runT(M, T) => sizeTy(M, T) ~> align(M, info(M, T)) </k>
-  rule <k> runL(L) => allPos(L) ~> ends(L) </k>
+  rule <k> runL(L) => allPos(L) ~> ends(L) ~> sumPairs(L) ~> lastSum(L) ~> edgeSum(L) ~> headOr(L, 0) ~> itemOr(grpOf(L), 0) </k>
 endmodule

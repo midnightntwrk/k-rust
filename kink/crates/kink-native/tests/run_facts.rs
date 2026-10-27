@@ -147,7 +147,7 @@ fn td_record(module: &str, observing: Option<&str>, observed_in: ObservedInOutpu
 /// The facts reach every run kink judges (ADOPTION.md A-1 deliverable 1): a result run (a state
 /// set), a path-set result run, a stepped run (an observed path set) and the unobserved run of the
 /// stepped request all list `sibtd`'s record on `sib(0)`, whose one leaf `done` carries none
-/// (k-rust's own example, compat 1536: `sibok` covers every instance). A timed-out run has no
+/// (k-rust's own example, compat 1544: `sibok` covers every instance). A timed-out run has no
 /// facts.
 #[test]
 fn every_adapted_run_carries_the_run_level_facts() {
@@ -221,22 +221,34 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// rules", which moved the same five down 1, byte-identical, re-pinned by their text; round 3's
 /// FZ-STATESET and FZ-STATESET-MATCH grew "Work budget" and the sections above the allowance
 /// passage, which moved 2396-2399 down 12 and 2509 down 42, byte-identical, re-pinned by digest at
-/// fz26 FZ-COMPARABLE-B's fix round, where the test was found red at main `d24fb2857`):
+/// fz26 FZ-COMPARABLE-B's fix round, where the test was found red at main `d24fb2857`; fz26
+/// FZ-FRESH added 12 lines after 1029, of which one, inside the mark passage, states where a
+/// `fresh-association` mark is noted, so that passage alone is re-pinned by digest, at its own
+/// lines; every other range after 1029 moved down 8 to 12 lines with the lines it named, which at
+/// the branch base `16014aab4` already did not hold its pinned text, the test being red there
+/// (MAIN-KINK-GATE-RED: those passages moved, byte-identical, and are not re-pinned here); its
+/// fix round restated, in place, that sentence for the classification as built (an
+/// association-open rule, every rule with two or more names among them, failing closed), so the
+/// mark passage is re-pinned by digest again at the same lines):
 /// - 92: the run-level record keeps what the diagnostic channel drops (`allowanceRefusals`,
 ///   `unsupportedHooks`, of the run and of the load);
 /// - 859: a result whose `allowanceRefusals` is empty is the result under every allowance of at
 ///   least as many bytes, so a refusal-free record may be reused on any host (decision 5 stands);
-/// - 1665-1673: a record is a path fact; the load's records are on every run's list and on no
+/// - 1673-1681: a record is a path fact; the load's records are on every run's list and on no
 ///   leaf; the list holds those of work that ended on no reported leaf; it is complete for ground
 ///   contradictions and says nothing about a symbolic run;
-/// - 1913-1936: a mark is noted where the evaluator takes the value, kept through undone work and
-///   memos; the run's list holds every mark, absorbed and vanished work included; the guarantee
-///   for a run whose list is empty;
-/// - 2551: a run under another allowance is outside the determinism contract when a bounded
+/// - 1946-1970: a mark is noted where the evaluator takes the value, and a `fresh-association`
+///   mark where a rewrite step builds a candidate of an association-open rule (every rule with two
+///   or more `!` names, and any whose compiled counter k-rust cannot read as an advance by 0 or 1:
+///   fail closed, so the list only grows), kept through undone work and memos; the run's list holds every mark, absorbed and vanished work
+///   included; the guarantee for a run whose list is empty (FZ-FRESH: the association of such a
+///   rule's names with counter offsets is open, so a run on whose list it is not noted is the
+///   same under every association, which A-1's exclusion of a non-empty list relies on);
+/// - 2563: a run under another allowance is outside the determinism contract when a bounded
 ///   `Bytes` hook may refuse;
-/// - 2408-2411 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
+/// - 2420-2423 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
 ///   of every run with a larger budget, at the same position, which the one-sided kill rests on;
-/// - 2141-2146 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
+/// - 2153-2158 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
 ///   leaves were all merged into an earlier stuck leaf of their configuration is complete, which
 ///   README route 3 rests on.
 const A1_PASSAGES: [(usize, usize, &str); 7] = [
@@ -251,28 +263,28 @@ const A1_PASSAGES: [(usize, usize, &str); 7] = [
         "8398220da3f64af5a820407732a493f31703b3c5821d1323aa8101011a864c52",
     ),
     (
-        1665,
         1673,
+        1681,
         "61a132b02858ecd84dba10c1341bd64effab638b78bc5857102340a016d2edc0",
     ),
     (
-        1913,
-        1936,
-        "309b843d88518f4bdec637057d724ba4726130237eedd1e63d228bba075c800c",
+        1946,
+        1970,
+        "95a011afcd589c8552438021f5104e582e9997f1e66d5d714af6aee6a6a67c28",
     ),
     (
-        2551,
-        2551,
+        2563,
+        2563,
         "7447a2082d4fdcd5cdfac1143465021b97160d5520cd5c10c84272a371253bc4",
     ),
     (
-        2408,
-        2411,
+        2420,
+        2423,
         "cdafee84ebdbccd1180f763b8b672650f6c6fa1319981c9b47b38cfcc3bdbf66",
     ),
     (
-        2141,
-        2146,
+        2153,
+        2158,
         "b7ea1c2b5ca5d494cd4245286fafe9a068b0ad4f9f6f18cef4a5a505cb73795e",
     ),
 ];
@@ -306,7 +318,7 @@ mod kink_tier {
 
     /// ADOPTION.md section 2.2: a record on the run's list excludes the run (`contradicted-claim`)
     /// where no leaf shows it (before A-1 each of these runs was complete and compared):
-    /// - `sib(0)`: a candidate a defined sibling covered (compat 1536);
+    /// - `sib(0)`: a candidate a defined sibling covered (compat 1544);
     /// - `m(0)`: a state-set arrival absorbed during exploration, which rests on the record (`nfin`,
     ///   the `owise` rule `nother`'s undefined condition leaves applicable): the `fin` leaf comes from
     ///   the clean path through `p`.

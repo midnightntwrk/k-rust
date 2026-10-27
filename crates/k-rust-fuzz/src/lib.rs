@@ -178,6 +178,14 @@ pub fn build_identity() -> String {
 /// `rejected` to a removed end, `undefined` or `unsupported`; and an end naming a symbol or sort
 /// the other definition does not declare is `unsupported` with its own reason. Every golden
 /// campaign keeps its case sequence, so the fingerprints are re-pinned with the same digests.
+///
+/// Within version 8 (FZ-FRESH, the same wave): ends are compared without the content of their
+/// `<generatedCounter>` cell (`k_rust::backend::counter_erased`), so a case whose ends differ
+/// only there moves from a hit to `miss` (or another judged class); and a run through a rule
+/// with two or more `!` variables carries k-rust's `fresh-association` mark, so its cases move
+/// from judged classes to `baseline-incomplete` or `unsupported` as for any
+/// implementation-chosen value. No golden campaign mints with such a rule or kills on the counter
+/// alone, so the goldens keep their case sequences and digests.
 pub const ENGINE_VERSION: u32 = 8;
 
 #[cfg(test)]

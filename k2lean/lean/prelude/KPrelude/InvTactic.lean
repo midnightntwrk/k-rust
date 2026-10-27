@@ -237,30 +237,97 @@ def familyEnumCases (g : MVarId) (x : FVarId) : MetaM (Option (Array MVarId)) :=
     if cs.all (·.2.isEmpty) then return some (cs.map (·.1)) else s.restore; return none
   catch _ => s.restore; return none
 
+/-- On the arity-indexed family `fam` (design.md §2.1): whether the sort whose tag is `t` (a tag
+constructor) has exactly one value form, as a K sort with one constructor does: one value of one
+enumeration `Ck t`, no leaf injection (`hasLeaves t` is `false`), and no builtin carrier or
+collection constructor at `t`. -/
+def familyOneForm (fam : Name) (t : Expr) : MetaM Bool := do
+  let some (.inductInfo iv) := (← getEnv).find? fam | return false
+  let mut n := 0
+  for c in iv.ctors do
+    let some (.ctorInfo ci) := (← getEnv).find? c | return false
+    let .str _ cs := c | return false
+    if cs.startsWith "c" && (cs.drop 1).toNat?.isSome then
+      -- `ck {s} (c : Ck s) …`: the values of `Ck t`
+      let k ← forallTelescope ci.type fun as _ => do
+        if as.size < 2 then return none
+        let e ← whnfD ((← inferType as[1]!).replaceFVar as[0]! t)
+        let .const en _ := e.getAppFn | return none
+        let some (.inductInfo ev) := (← getEnv).find? en | return none
+        return if ev.numIndices == 0 then some ev.ctors.length else none
+      let some k := k | return false
+      n := n + k
+    else if cs == "inj" then
+      -- `inj {s} (hs : hasLeaves s = true) …`: a form when `hasLeaves t` is not `false`
+      let leaves ← forallTelescope ci.type fun as _ => do
+        if as.size < 2 then return true
+        let some (_, lhs, _) := ((← inferType as[1]!).replaceFVar as[0]! t).eq? | return true
+        return !(← whnfD lhs).isConstOf ``Bool.false
+      if leaves then return false
+    else
+      -- a builtin carrier's or a collection's constructor, at its own tag
+      let r ← forallTelescope ci.type fun _ r => do
+        if r.isApp then return some (← whnfD r.appArg!) else return none
+      if r == some t then return false
+  return n == 1
+
 /-- Case each variable whose type has one constructor and no indices (a K cell sort, on the
-per-sort encoding): the variable is that constructor applied to fresh variables, so the split is
-complete, and the rule's terms then show the cell's content, which equations matching inside the
-cell need (SIMPLE's frames save a `<control>` fragment whose `<xstack>` is a rule variable). -/
+per-sort encoding), or that is a term of the arity-indexed family at a sort with one value form
+(`familyOneForm`, split by `familyCases`): the variable is that constructor applied to fresh
+variables, so the split is complete, and the rule's terms then show the cell's content, which
+equations matching inside the cell need (SIMPLE's frames save a `<control>` fragment whose
+`<xstack>` is a rule variable). A constructor with an argument of its own sort is not split (the
+splits would not end). -/
 def casesCells : TacticM Unit := do
+  let mut oneForm : Std.HashMap Name Bool := {}
   for _ in [0:64] do
     let g ← getMainGoal
-    let x? ← g.withContext do
-      for d in (← getLCtx) do
-        if d.isImplementationDetail then continue
-        let ty ← whnfR (← instantiateMVars d.type)
-        let .const n _ := ty.getAppFn | continue
-        let some (.inductInfo info) := (← getEnv).find? n | continue
-        if info.numIndices != 0 || info.ctors.length != 1 then continue
-        -- not a type whose constructor holds a value of the type itself (the split would not end)
-        let some (.ctorInfo ci) := (← getEnv).find? info.ctors[0]! | continue
-        if ← forallTelescope ci.type fun as _ => as.anyM fun a => do
-            return (← inferType a).getAppFn.isConstOf n then continue
-        if ← isProp ty then continue
-        return some d.fvarId
-      return none
-    let some x := x? | return
-    let gs ← g.cases x
-    setGoals (gs.map (·.mvarId)).toList
+    let mut pick : Option (FVarId × Option Expr) := none
+    for d in (← g.getDecl).lctx do
+      if d.isImplementationDetail then continue
+      let ty ← g.withContext do whnfR (← instantiateMVars d.type)
+      let .const n _ := ty.getAppFn | continue
+      if isFamilyName (← getEnv) n then
+        -- the family: a sort index that computes to a tag with one value form
+        unless ty.getAppNumArgs == 1 do continue
+        let t ← g.withContext do whnfD ty.appArg!
+        let .const tn _ := t.getAppFn | continue
+        let ok ← match oneForm[tn]? with
+          | some b => pure b
+          | none => do
+            let b ← g.withContext (familyOneForm n t)
+            oneForm := oneForm.insert tn b
+            pure b
+        if ok then pick := some (d.fvarId, some t); break
+        continue
+      let some (.inductInfo info) := (← getEnv).find? n | continue
+      if info.numIndices != 0 || info.ctors.length != 1 then continue
+      -- not a type whose constructor holds a value of the type itself (the split would not end)
+      let some (.ctorInfo ci) := (← getEnv).find? info.ctors[0]! | continue
+      if ← g.withContext do forallTelescope ci.type fun as _ => as.anyM fun a => do
+          return (← inferType a).getAppFn.isConstOf n then continue
+      if ← g.withContext (isProp ty) then continue
+      pick := some (d.fvarId, none); break
+    let some (x, t?) := pick | return
+    match t? with
+    | none =>
+      let gs ← g.cases x
+      setGoals (gs.map (·.mvarId)).toList
+    | some t =>
+      let s ← saveState
+      let gs ← try familyCases g x catch _ => pure #[]
+      let selfArg ← match gs with
+        | #[(sg, args)] => sg.withContext do
+          args.anyM fun a => do
+            let aty ← whnfR (← inferType a)
+            if aty.getAppNumArgs == 0 then return false
+            return (← whnfD aty.appArg!) == t
+        | _ => pure true
+      if selfArg then
+        s.restore
+        if let .const tn _ := t.getAppFn then oneForm := oneForm.insert tn false
+      else
+        setGoals (gs.map (·.1)).toList
 
 /-- Split conjunctions among the hypotheses. -/
 def splitAnds : TacticM Unit := do

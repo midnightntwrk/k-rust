@@ -17,6 +17,7 @@ another `B` (`tr`, a symbol renaming) and states that the two `Step` relations a
   sorted by each library's own order on keys, and two independently generated libraries order
   constructors differently, so order preservation is a real hypothesis (`PresOn`).
 - `k2l_inv`: inverts hypotheses `tr x = e` by case analysis on `x`.
+- `k2l_injections`: inverts equations of two applications of one constructor, on both encodings.
 -/
 
 namespace KPrelude
@@ -802,6 +803,18 @@ elab "k2l_assumption" : tactic => liftMetaTactic fun g => g.withContext do
       return []
     s.restore
   throwError "k2l_assumption: no hypothesis matches the goal"
+
+open Lean Meta Elab Tactic in
+/-- `k2l_injections`: invert every hypothesis that equates two applications of one constructor,
+and the equations that gives, until none is left (`injections` until the goals no longer change).
+On the arity-indexed family each K constructor is a reducible definition over the family's
+constructors, and one round of `injections` stops after a few of them; the hypotheses left at the
+end are those that the `injEq` lemmas of the one type per sort encoding give. -/
+elab "k2l_injections" : tactic => do
+  for _ in [0:64] do
+    let gs ← getGoals
+    try evalTactic (← `(tactic| injections)) catch _ => return
+    if (← getGoals) == gs then return
 
 
 

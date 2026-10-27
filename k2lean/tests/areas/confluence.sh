@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The confluence area: `confluence` (RaceConf: every schedule of the fixture race, library race;
-# SimpleConf: SIMPLE's steps of two threads joined generically, library simple-ps, with SIMPLE's
+# SimpleConf: SIMPLE's steps of two threads joined generically, library simple, with SIMPLE's
 # pairs of rules classified). Registry: confluence.py.
 
 name_confluence() {
@@ -53,7 +53,7 @@ gate_confluence() {
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with what the views by thread
   # leave open (`k2lean confluence --threads`): a recorded output; the views built against the
-  # library simple-ps (core)
+  # library simple (core)
   if runs output simple-confluence.toml; then
     phase "confluence SimpleConf"
     kc simple && scaffold "confluence SimpleConf" libs_confluence SimpleConf "$MEAS/simple-confluence.toml" &&

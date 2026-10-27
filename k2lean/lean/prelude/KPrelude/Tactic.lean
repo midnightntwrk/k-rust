@@ -221,6 +221,62 @@ elab "k2l_case_list" : tactic => do
     KPrelude.ListHook.element_ne_unit, false_and, and_false, eq_self_iff_true, dite_true,
     dite_false]))
 
+/-- `k2l_case_lvar`: split a list variable that the generated definition takes apart (a
+discriminant `uncons l` or `unsnoc l` of a variable `l`, as in the equation of an `owise` rule,
+whose left-hand side is a variable) into `.List` and a list with a first (`uncons`) or last
+(`unsnoc`) element (`ListHook.cases_front`, `cases_back`), substituted for the variable, so that
+`k2l_case_list` decides the matches on it. Fails when there is no such discriminant. -/
+elab "k2l_case_lvar" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let some d := tgt.find? fun e =>
+      (e.isAppOfArity ``ListHook.uncons 4 || e.isAppOfArity ``ListHook.unsnoc 4) && e.appArg!.isFVar
+    | throwError "k2l_case_lvar: no match on a list variable"
+  let v ← Term.exprToSyntax d.appArg!
+  if d.isAppOf ``ListHook.uncons then
+    evalTactic (← `(tactic| rcases KPrelude.ListHook.cases_front $v with h | ⟨_, _, h⟩ <;> subst h))
+  else
+    evalTactic (← `(tactic| rcases KPrelude.ListHook.cases_back $v with h | ⟨_, _, h⟩ <;> subst h))
+
+/-- `k2l_owise_arm`: close a case of an `owise` equation that another rule's arm reaches. The
+statement's no-match premises (`∀ …, x = p → … → False`, one per rule tried before) see the
+argument as the arm built it (`k2l_case_lvar`), and the pattern as the rule writes it; with the
+list constructions of both normalized (`concat_assoc` and the unit laws: equal sequences of
+elements and variables give the same term), the premise of the arm's rule refutes the case
+(`k2l_no_arm`). -/
+elab "k2l_owise_arm" : tactic => withMainContext do
+  let mut hs := #[]
+  for d in (← getLCtx) do
+    if d.isImplementationDetail then continue
+    let ty ← instantiateMVars d.type
+    if ty.isForall && ty.getForallBody.isConstOf ``False then hs := hs.push d.fvarId
+  if hs.isEmpty then throwError "k2l_owise_arm: no no-match premise"
+  let mut s : SimpTheorems := {}
+  for n in [``ListHook.concat_assoc, ``ListHook.concat_unit_left, ``ListHook.concat_unit_right] do
+    s ← s.addConst n
+  let ctx ← Simp.mkContext (simpTheorems := #[s]) (congrTheorems := ← getSimpCongrTheorems)
+  -- `simpGoal` fails when the constructions are already normal
+  let g ← getMainGoal
+  match ← (try (·.1) <$> simpGoal g ctx (simplifyTarget := false) (fvarIdsToSimp := hs)
+      catch _ => pure (some (#[], g))) with
+  | none => replaceMainGoal []
+  | some (_, g) =>
+    replaceMainGoal [g]
+    evalTactic (← `(tactic| k2l_no_arm))
+
+/-- `k2l_case_choose`: from `h : MapHook.chooseFirst m hw f = some b` (the matcher of a
+free-key map pattern found a binding), a binding `k |-> v` of `m`, its decomposition
+`hc : (k |-> v) (remove m k) = some m`, and `f k v hc = some b` in place of `h`; an `owise`
+equation's no-match premise refutes it with `hc` (`k2l_no_arm`). -/
+elab "k2l_case_choose" : tactic => withMainContext do
+  let some d ← (← getLCtx).findDeclM? fun d => do
+      if d.isImplementationDetail then return none
+      let some (_, lhs, rhs) := (← instantiateMVars d.type).eq? | return none
+      return if lhs.isAppOf ``MapHook.chooseFirst && rhs.isAppOf ``Option.some then some d else none
+    | throwError "k2l_case_choose: no chosen binding"
+  let t ← Term.exprToSyntax (← mkAppM ``MapHook.chooseFirst_eq_some #[d.toExpr])
+  evalTactic (← `(tactic| obtain ⟨_, _, _, h⟩ := $t; try dsimp only at h))
+  replaceMainGoal [← (← getMainGoal).tryClear d.fvarId]
+
 /-- `k2l_case_discr`: case on a variable of a generated sort (an inductive type `Sort…`, or a
 term of the arity-indexed family, split by `familyCases`) that a `match` in the goal inspects, so
 that the cascade of a function's equations reduces. -/
