@@ -1457,8 +1457,9 @@ pub fn fuzz_job(
                     document,
                     refusal,
                     "name one authored rewrite rule of the specification: FILE:LINE (a line of the \
-                     rule), its label (MODULE.x when the bare label is ambiguous), or one of the \
-                     listed 64-hex ids",
+                     rule), its label (MODULE.x when the bare label is ambiguous), or its 64-hex \
+                     id (the refusal's detail lists the rules nearest the reference, with their \
+                     ids, when it finds any)",
                 );
             }
         },
@@ -2293,6 +2294,9 @@ impl ReachRule {
     }
 }
 
+/// The most rules a reach refusal lists as the ones the reference may have meant.
+const NEAREST_RULES: usize = 5;
+
 /// Whether `text` is a compiled rule id (64 lowercase hex digits).
 fn is_rule_id(text: &str) -> bool {
     text.len() == 64
@@ -2401,24 +2405,100 @@ fn resolve_reach(
                 })
                 .collect(),
         };
+        // A rule as a refusal lists it: its position, its label, and the ids a reach of it can
+        // target (its rewrite ids with a coverage signal), so the author can name it by any of
+        // them (final review ux S9: the refusal said "listed" ids and listed none).
         let describe = |text: &RuleText| {
+            let ids = authors
+                .ids_of(&text.at)
+                .filter(|id| rewrites.contains(*id) && domain.contains(*id))
+                .collect::<Vec<_>>();
             format!(
-                "{}:{} ({}#{})",
+                "{}:{} ({}#{}{}) {}",
                 text.file.as_deref().unwrap_or("?"),
                 text.start_line
                     .map_or_else(|| "?".to_owned(), |l| l.to_string()),
                 text.at.module,
-                text.at.index
+                text.at.index,
+                text.label
+                    .as_deref()
+                    .map_or_else(String::new, |label| format!(", label {label}")),
+                if ids.is_empty() {
+                    "no rewrite id a reach can target".to_owned()
+                } else {
+                    format!("id {}", ids.join(", "))
+                }
             )
+        };
+        let listing = |texts: &[&RuleText]| {
+            texts
+                .iter()
+                .map(|text| format!("\n  {}", describe(text)))
+                .collect::<String>()
         };
         let one = match matches.as_slice() {
             [] => {
                 return Err(match by_line {
-                    Some(_) => refused(
-                        "no-rule-at-line",
-                        format!("no authored rule of the specification spans {rule}"),
-                    ),
-                    None => refused("unknown-label", format!("no rule is labelled {rule:?}")),
+                    Some((file, line)) => {
+                        let in_file = |text: &&RuleText| {
+                            text.file.as_deref().is_some_and(|name| {
+                                name == file || name.ends_with(&format!("/{file}"))
+                            })
+                        };
+                        let mut nearest = texts.iter().filter(in_file).collect::<Vec<_>>();
+                        let detail = if nearest.is_empty() {
+                            let files = texts
+                                .iter()
+                                .filter_map(|text| text.file.as_deref())
+                                .collect::<BTreeSet<_>>();
+                            format!(
+                                "no authored rule of the specification is written in {file:?}; \
+                                 the rules are written in: {}",
+                                files.into_iter().collect::<Vec<_>>().join(", ")
+                            )
+                        } else {
+                            nearest.sort_by_key(|text| {
+                                let start = text.start_line.unwrap_or(u32::MAX);
+                                let end = text.end_line.unwrap_or(start);
+                                (start.abs_diff(line).min(end.abs_diff(line)), start)
+                            });
+                            nearest.truncate(NEAREST_RULES);
+                            format!(
+                                "no authored rule of the specification spans {rule}; the \
+                                 nearest are:{}",
+                                listing(&nearest)
+                            )
+                        };
+                        refused("no-rule-at-line", detail)
+                    }
+                    None => {
+                        let wanted = rule.to_lowercase();
+                        let near = texts
+                            .iter()
+                            .filter(|text| {
+                                text.label.as_deref().is_some_and(|label| {
+                                    let label = label.to_lowercase();
+                                    label.contains(&wanted) || wanted.contains(&label)
+                                })
+                            })
+                            .take(NEAREST_RULES)
+                            .collect::<Vec<_>>();
+                        refused(
+                            "unknown-label",
+                            if near.is_empty() {
+                                format!(
+                                    "no rule is labelled {rule:?}, and no label contains it; \
+                                     name the rule by FILE:LINE instead"
+                                )
+                            } else {
+                                format!(
+                                    "no rule is labelled {rule:?}; the labels that contain it, or \
+                                     that it contains, are:{}",
+                                    listing(&near)
+                                )
+                            },
+                        )
+                    }
                 });
             }
             [one] => (*one).clone(),
@@ -2430,12 +2510,8 @@ fn resolve_reach(
                         "ambiguous-label"
                     },
                     format!(
-                        "{rule:?} names {}; {}",
-                        several
-                            .iter()
-                            .map(|text| describe(text))
-                            .collect::<Vec<_>>()
-                            .join(", "),
+                        "{rule:?} names several rules:{}\n{}",
+                        listing(several),
                         if by_line.is_some() {
                             "give a longer path"
                         } else {

@@ -1601,6 +1601,40 @@ endmodule
                 "{rule}: no campaign ran"
             );
         }
+        // Final review ux S9: a refusal lists the rules nearest the reference with the ids a
+        // reach can target, so the action's "its 64-hex id" can be followed; before, it pointed
+        // at "listed" ids and listed none.
+        let (found, _) = run_job(
+            &dir,
+            STEPS_TEMPLATES,
+            "run-holes",
+            Job::Reach("big".into(), false),
+            imp_options(1),
+        );
+        let big = found["job"]["rule"]["id"].as_str().unwrap().to_owned();
+        for (rule, listed) in [
+            (
+                format!("steps.k:{}", steps_line("rule [go]") + 1),
+                "nearest are",
+            ),
+            ("bi".to_owned(), "the labels that contain it"),
+        ] {
+            let (document, _) = run_job(
+                &dir,
+                STEPS_TEMPLATES,
+                "run-holes",
+                Job::Reach(rule.clone(), false),
+                imp_options(1),
+            );
+            let detail = document["job"]["refusal"]["detail"].as_str().unwrap();
+            assert!(detail.contains(listed), "{rule}: {detail}");
+            assert!(
+                detail.contains(&format!("label STEPS.big) id {big}")),
+                "{rule}: {detail}"
+            );
+            let action = document["action"].as_str().unwrap();
+            assert!(!action.contains("listed 64-hex"), "{action}");
+        }
     }
 
     /// A reach job on a definition with an unnamed finding is not comparable, as a kill is
