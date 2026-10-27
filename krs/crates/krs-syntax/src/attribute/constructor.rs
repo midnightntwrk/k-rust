@@ -7,6 +7,7 @@ use syn::{Expr, Ident, LitBool, LitStr, Path, Token};
 
 use crate::grammar::{StructuredFormat, SyntaxTemplate};
 use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
+use crate::provenance::denoted_anchors;
 use crate::{
     ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SortArgument, SyntaxError,
     SyntaxErrorKind, TokenRange,
@@ -1151,12 +1152,7 @@ impl ConstructorAttribute {
     ///
     /// None: the attribute was keyed when it was parsed.
     pub fn constructor_sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(self
-            .anchors
-            .iter()
-            .filter(|anchor| self.sort_key.as_ref() == Some(&anchor.key()))
-            .cloned()
-            .collect())
+        Ok(denoted_anchors(&self.anchors, &[self.sort_key.as_ref()]))
     }
 
     /// The key of the sort path.

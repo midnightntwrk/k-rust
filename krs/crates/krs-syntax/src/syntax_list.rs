@@ -25,6 +25,7 @@ use crate::item::{ConstructorField, ProductionDocumentation, production_document
 use crate::parse::{
     KeyAllocator, KrsSyntax, ParseError, duplicate, first_non_doc_attribute, structured, unknown,
 };
+use crate::provenance::denoted_anchors;
 use crate::term_sort::{parse_readable_sort, parse_term_sort};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, SyntaxTemplateItem, TokenRange,
@@ -485,7 +486,7 @@ impl SyntaxListDeclaration {
             self.cons.head.sort_key(),
             self.cons.tail.sort_key(),
         ];
-        Ok(constructor_anchors(&self.cons_anchors, &denoted))
+        Ok(denoted_anchors(&self.cons_anchors, &denoted))
     }
 
     /// Returns the anchors of the terminator variant's constructor
@@ -496,7 +497,7 @@ impl SyntaxListDeclaration {
     ///
     /// None: the list was keyed when it was parsed.
     pub fn terminator_constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(constructor_anchors(
+        Ok(denoted_anchors(
             &self.terminator_anchors,
             &[self.sort_key.as_ref()],
         ))
@@ -554,19 +555,6 @@ impl SyntaxListDeclaration {
         self.terminator_anchors = keys.into_anchors();
         Ok(self)
     }
-}
-
-/// The anchors of a production's nodes that hold one of the keys `denoted`,
-/// in the production's order.
-fn constructor_anchors(
-    anchors: &[ProvenanceAnchor],
-    denoted: &[Option<&ProvenanceKey>],
-) -> Vec<ProvenanceAnchor> {
-    anchors
-        .iter()
-        .filter(|anchor| denoted.contains(&Some(&anchor.key())))
-        .cloned()
-        .collect()
 }
 
 fn is_syntax_list_attribute(attribute: &Attribute) -> bool {
