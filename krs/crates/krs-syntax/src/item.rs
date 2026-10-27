@@ -28,8 +28,8 @@ pub struct ConstructorField {
 }
 
 impl ConstructorField {
-    /// The key of the field's sort path, the same in the constructor's
-    /// compact and full views.
+    /// The key of the field's sort path, the same in the constructor's full
+    /// and sort views.
     #[must_use]
     pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
         self.sort_key.as_ref()

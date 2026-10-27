@@ -748,7 +748,7 @@ impl FunctionAttribute {
     /// Keys the function as a sentence of its own: its production's full
     /// view, then the totality marker, `memo`, `fresh_generator`, `hook`,
     /// the SMT translation and `underspecified`. The production is keyed
-    /// alone, which gives its compact and sort-argument views; its full view
+    /// alone, which gives its full and sort-argument views; its full view
     /// starts the function's sentence, whose keying records the keys the
     /// production's nodes hold and continues after them.
     fn rekey(&mut self) -> Result<(), SyntaxError> {
@@ -1210,7 +1210,8 @@ impl ConstructorAttribute {
         Ok(())
     }
 
-    /// Keys the syntax template and the metadata, after the compact catalog.
+    /// Keys the syntax template and the metadata, after the sort and the
+    /// syntax that [`Self::allocate_keys`] keys.
     fn allocate_metadata_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         self.keys.allocate_metadata(
             keys,
