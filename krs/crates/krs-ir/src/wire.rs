@@ -182,8 +182,8 @@ stage_shape! {
     pub struct StaticConstructorField<S: Stage> {
         /// Authored field name.
         pub name: String => [keep],
-        /// Declared sort reference.
-        pub sort: S::Nominal => [nominal],
+        /// Declared sort reference, keyed `constructor_field_sort`.
+        pub sort: S::Sort => [sort],
         /// Element types of a typed collection field sort.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub arguments: Vec<StaticConstructorSortArgument<S>> => [vec nested],
@@ -373,6 +373,7 @@ mod tests {
         WireTerm::Anonymous {
             key: key(),
             sort: sort(),
+            spelling_key: key(),
             spelling: "_".to_owned(),
         }
     }
@@ -381,9 +382,12 @@ mod tests {
     fn static_constructor_traversal_maps_fields_and_propagates_errors() {
         let field = super::WireConstructorFieldDescriptor {
             name: "value".to_owned(),
-            sort: super::WireTypeReference {
-                slot: super::TypeSlot(1),
-                authored_path: "Int".to_owned(),
+            sort: super::WireSortReference {
+                key: ProvenanceKey::new(ProvenanceRole::ConstructorFieldSort, 0),
+                target: super::WireTypeReference {
+                    slot: super::TypeSlot(1),
+                    authored_path: "Int".to_owned(),
+                },
             },
             arguments: Vec::new(),
         };
@@ -393,7 +397,12 @@ mod tests {
             serde_json::to_value(&mapped).unwrap(),
             serde_json::to_value(&field).unwrap()
         );
-        assert_eq!(map.calls, ["nominal"]);
+        assert_eq!(map.calls, ["sort"]);
+        let mut map = crate::stage::tests::CountingMap {
+            fail: Some("sort"),
+            ..Default::default()
+        };
+        assert_eq!(field.clone().try_map_refs(&mut map).unwrap_err(), "sort");
         let constructor = super::WireConstructorDescriptor {
             parameters: Vec::new(),
             sort: sort(),
@@ -406,17 +415,15 @@ mod tests {
             serde_json::to_value(&mapped).unwrap(),
             serde_json::to_value(&constructor).unwrap()
         );
-        assert_eq!(map.calls, ["sort", "nominal"]);
-        for failure in ["sort", "nominal"] {
-            let mut map = crate::stage::tests::CountingMap {
-                fail: Some(failure),
-                ..Default::default()
-            };
-            assert_eq!(
-                constructor.clone().try_map_refs(&mut map).unwrap_err(),
-                failure
-            );
-        }
+        assert_eq!(map.calls, ["sort", "sort"]);
+        let mut map = crate::stage::tests::CountingMap {
+            fail: Some("sort"),
+            ..Default::default()
+        };
+        assert_eq!(
+            constructor.clone().try_map_refs(&mut map).unwrap_err(),
+            "sort"
+        );
     }
 
     fn assert_traversal<T: Clone + std::fmt::Debug + serde::Serialize>(
@@ -501,7 +508,8 @@ mod tests {
                 result_key: key(),
                 head_sort: Some(sort()),
                 configuration: None,
-                computation_cell_name: None,
+                result_type_key: key(),
+                computation_cell: None,
                 bindings: vec![],
                 head: Some(super::WireHeadRuleHead {
                     items: vec![term()],
@@ -552,7 +560,7 @@ mod tests {
         };
         assert_traversal(
             super::WireSortDescriptor {
-                parents: vec![nominal()],
+                parents: vec![sort()],
             },
             "parent",
             1,

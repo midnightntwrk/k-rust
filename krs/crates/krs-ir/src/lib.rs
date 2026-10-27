@@ -57,8 +57,8 @@ pub use bundle::{
     ConstructorFieldDescriptor, ConstructorSortArgument, ConstructorSortArgumentDescriptor,
     Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorDeclarationError,
     DescriptorError, DescriptorFailure, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, DescriptorProvenanceError, PackageSettings, Payload, SentenceKind,
-    SortDescriptor, SortPayload,
+    DescriptorProvenance, DescriptorProvenanceError, DescriptorSortParent, PackageSettings,
+    Payload, SentenceKind, SortDescriptor, SortPayload,
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
@@ -163,13 +163,14 @@ pub use transport::grammar::{
 };
 pub use transport::grammar::{DescriptorTypedBinding, ProtocolTypedBinding};
 pub use transport::head_rule::{
-    DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
-    DescriptorHeadRuleMapEntry, DescriptorHeadRuleResult, HeadRule, HeadRuleClaim, HostHeadRule,
-    HostHeadRuleBinding, HostHeadRuleBracketAlternative, HostHeadRuleCellReference,
-    HostHeadRuleExtra, HostHeadRuleMapEntry, HostHeadRuleResult, ProtocolHeadRuleBinding,
+    DescriptorComputationCell, DescriptorHeadRule, DescriptorHeadRuleBinding,
+    DescriptorHeadRuleExtra, DescriptorHeadRuleMapEntry, DescriptorHeadRuleResult, HeadRule,
+    HeadRuleClaim, HeadRuleComputationCell, HostHeadRule, HostHeadRuleBinding,
+    HostHeadRuleBracketAlternative, HostHeadRuleCellReference, HostHeadRuleExtra,
+    HostHeadRuleMapEntry, HostHeadRuleResult, ProtocolHeadRuleBinding,
     ProtocolHeadRuleBracketAlternative, ProtocolHeadRuleExtra, ProtocolHeadRuleHead,
     ProtocolHeadRuleList, ProtocolHeadRuleListRest, ProtocolHeadRuleMapEntry,
-    ProtocolHeadRuleResult, ResolvedHeadRule,
+    ProtocolHeadRuleResult, ProtocolHeadRuleSplice, ProtocolHeadRuleSpliceItem, ResolvedHeadRule,
 };
 pub use transport::rule::{
     Claim, ClaimBinder, ClaimModality, ConfigurationRule, ContextAlias, DescriptorClaim,
@@ -208,7 +209,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(68);
+    pub const CURRENT: Self = Self(69);
 }
 
 impl Default for SchemaVersion {

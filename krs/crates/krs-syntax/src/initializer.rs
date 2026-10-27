@@ -410,7 +410,8 @@ impl InitializerFunction {
     /// result type, each configuration variable, the body, then every cell
     /// with its constructor, `k!`/`map!` structure and terms
     /// ([`allocate_initializer_keys`]), and across the terms, in that order,
-    /// their constant islands, their lexemes and their record field names.
+    /// their constant islands, their lexemes, their record field names and
+    /// their literals.
     /// Each role runs across the whole initializer, because a key names one
     /// authored node of the sentence.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
@@ -454,6 +455,16 @@ impl InitializerFunction {
                 tree,
                 term_keys,
                 ProvenanceRole::InitializerRecordFieldName,
+            )?;
+        }
+        // Literals, each its own node, numbered in preorder across the terms.
+        for term in &mut terms {
+            let (nodes, _, term_keys) = term.keying();
+            crate::term::allocate_literal_keys(
+                &mut keys,
+                nodes,
+                term_keys,
+                ProvenanceRole::InitializerTermLiteral,
             )?;
         }
         // The legacy view's term is a copy of the `k` cell's item: it takes

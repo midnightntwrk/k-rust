@@ -49,7 +49,7 @@ fn __krs_constructor_descriptor_08a09e281c6e52ab() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: string :: String\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"k :: builtin :: string :: String\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: string :: String\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"k :: builtin :: string :: String\"}}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_constructor_sort_08a09e281c6e52ab),
@@ -76,28 +76,6 @@ fn __krs_constructor_descriptor_08a09e281c6e52ab() -> ::core::result::Result<
                             false,
                             (2u32, 29u32),
                             (2u32, 55u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorSyntax,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 66u32),
-                            (2u32, 84u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (3u32, 12u32),
-                            (3u32, 21u32),
                             true,
                         ),
                     ),

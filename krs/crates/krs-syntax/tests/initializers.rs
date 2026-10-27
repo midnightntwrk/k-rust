@@ -508,3 +508,45 @@ fn empty_shells_are_keyed_at_their_invocation() {
         [(0, "k::map![]"), (1, "n -> 1")]
     );
 }
+
+/// Each literal of an initializer's terms is a node of its own: it is keyed
+/// `initializer_term_literal`, anchored at its tokens and numbered in
+/// preorder across the terms in expansion order (a term's whole value, an
+/// argument, a `k!` item, a map key and value, an update's key and value,
+/// a nested group's cells), whatever term holds it.
+#[test]
+fn literals_are_keyed_across_the_initializer_terms() {
+    let source = "fn init(pgm: Stmt, m: Map<Int, Int>) -> Self { Self { \
+        acc: 0, sum: int::add(2, -3), k: k::k![pgm, 7, Pair(true, \"s\")], \
+        env: k::map![1 -> int::mul(4, 5.0)], frame: Frame { ret: 9 }, \
+        env2: k::map![m[6 <- 8]] } }";
+    let initializer = krs_syntax::InitializerFunction::parse_source(source).unwrap();
+    let literals = initializer
+        .provenance()
+        .unwrap()
+        .iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::InitializerTermLiteral)
+        .map(|anchor| {
+            let (start, end) = (anchor.range().start(), anchor.range().end());
+            assert_eq!((start.line, end.line), (1, 1));
+            (anchor.ordinal(), &source[start.column..end.column])
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        literals,
+        [
+            (0, "0"),
+            (1, "2"),
+            (2, "-3"),
+            (3, "7"),
+            (4, "true"),
+            (5, "\"s\""),
+            (6, "1"),
+            (7, "4"),
+            (8, "5.0"),
+            (9, "9"),
+            (10, "6"),
+            (11, "8"),
+        ]
+    );
+}

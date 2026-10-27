@@ -65,16 +65,14 @@ pub(crate) fn constant(
     // A constant binds nothing, so every name in its value is a path that
     // rustc resolves: another constant or a constructor.
     let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &[]);
-    // The value's payload key carries no field on the wire: the value term
-    // denotes the whole value expression, and the transport pairs the
-    // constant's one value with it.
-    ledger.define(constant.value().keys().payload())?;
+    let value_key = ledger.define(constant.value().keys().payload())?;
     let value =
         builder.expand_wire(KeyedTerm::of(constant.value()), TermSide::Right, &mut slots)?;
     let key_functions = std::mem::take(&mut builder.key_functions);
     ledger.finish()?;
     let wire = WirePayload::Constant(Box::new(WireConstant {
         sort: sort_reference,
+        value_key,
         value,
     }));
     let wire = serde_json::to_string(&wire).expect("constant wire is serializable");

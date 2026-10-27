@@ -1518,6 +1518,8 @@ stage_shape! {
             key: ProvenanceKey => [keep],
             /// Exact authored sort occurrence.
             sort: S::Sort => [sort],
+            /// Exact display-spelling provenance.
+            spelling_key: ProvenanceKey => [keep],
             /// Display spelling retained for K/native anonymous handling.
             spelling: String => [keep],
         },
@@ -1533,6 +1535,9 @@ stage_shape! {
         Cell {
             /// Complete macro-shell provenance.
             key: ProvenanceKey => [keep],
+            /// Compact named-path provenance of the cell's declaration path;
+            /// a cell value's names its head's node and carries its key.
+            path_key: ProvenanceKey => [keep],
             /// Exact nominal `#[k::cell]` declaration reference.
             declaration: S::Nominal => [nominal],
             /// Authored child values; semantic lowering validates completeness and order.
@@ -2120,56 +2125,6 @@ stage_shape! {
     }
 }
 
-/// The roles of the production's nodes that a constructor's descriptor
-/// repeats from its grammar descriptor, whose wire alone denotes them: the
-/// declaration and its field names and documentation, the syntax with its
-/// template and format, the metadata, the tier membership and the
-/// cons-list marker, the alias or desugar marker and its payload, and the
-/// strictness. The constructor's wire denotes the rest itself: the
-/// constructed sort, its sort parameters and element types, and each
-/// field's sort with its element types.
-///
-/// The expander's ledger accepts these anchors of a constructor's descriptor
-/// when the grammar descriptor's wire defines them; the transport, which
-/// validates each descriptor alone, leaves them to the grammar descriptor's
-/// closure.
-pub const REPEATED_PRODUCTION_ROLES: [ProvenanceRole; 24] = [
-    ProvenanceRole::ConstructorDeclaration,
-    ProvenanceRole::ConstructorFieldDeclaration,
-    ProvenanceRole::ConstructorDocumentation,
-    ProvenanceRole::ConstructorSyntax,
-    ProvenanceRole::ConstructorSyntaxItem,
-    ProvenanceRole::ConstructorSyntaxFieldReference,
-    ProvenanceRole::ConstructorFormat,
-    ProvenanceRole::ConstructorFormatFragment,
-    ProvenanceRole::ConstructorGroup,
-    ProvenanceRole::ConstructorAvoid,
-    ProvenanceRole::ConstructorPrefer,
-    ProvenanceRole::ConstructorInternal,
-    ProvenanceRole::ConstructorProgram,
-    ProvenanceRole::ConstructorOverload,
-    ProvenanceRole::ConstructorColor,
-    ProvenanceRole::ConstructorColorsEntry,
-    ProvenanceRole::ConsListDeclaration,
-    ProvenanceRole::AliasProduction,
-    ProvenanceRole::DesugarProduction,
-    ProvenanceRole::StaticRecursive,
-    ProvenanceRole::StrictnessDeclaration,
-    ProvenanceRole::StrictnessContextAliasReference,
-    ProvenanceRole::StrictnessFieldReference,
-    ProvenanceRole::StrictnessResultSort,
-];
-
-/// The roles of a syntax list's attribute nodes, which a list variant's
-/// constructor descriptor repeats beside [`REPEATED_PRODUCTION_ROLES`]: the
-/// variant's constructor and grammar descriptors share the production's
-/// anchors, and only the grammar descriptor's wire denotes these.
-pub const REPEATED_LIST_ROLES: [ProvenanceRole; 3] = [
-    ProvenanceRole::ListDeclaration,
-    ProvenanceRole::ListSeparator,
-    ProvenanceRole::ListNonEmpty,
-];
-
 /// Descriptor-stage form of [`StructuredRule`].
 pub type StructuredRuleDescriptor = StructuredRule<DescriptorStage>;
 
@@ -2220,9 +2175,6 @@ pub enum GrammarTransportError {
     /// The provenance table contained a parser key not represented by the
     /// complete typed payload.
     ExtraProvenance(ProvenanceKey),
-    /// A `k!` or `map!` shell, in a function context's cells, lacked its
-    /// payload key, which every shell has.
-    MissingShellPayloadProvenance,
     /// A rule binding was blank, repeated, absent from the subject, or used in
     /// the result without being bound by the subject.
     InvalidBinding(String),
@@ -2288,9 +2240,6 @@ impl fmt::Display for GrammarTransportError {
                 key.role(),
                 key.ordinal()
             ),
-            Self::MissingShellPayloadProvenance => {
-                formatter.write_str("a `k!` or `map!` shell lacks its payload provenance")
-            }
             Self::InvalidBinding(binding) => write!(formatter, "invalid rule binding {binding:?}"),
             Self::InvalidLiteral => formatter.write_str("literal is not in canonical form"),
             Self::InvalidProduction(detail) => write!(formatter, "invalid production: {detail}"),
@@ -2316,7 +2265,6 @@ impl From<KeyFailure> for GrammarTransportError {
             KeyFailure::Duplicate(key) => Self::DuplicateProvenance(key),
             KeyFailure::Missing(key) => Self::MissingProvenance(key),
             KeyFailure::Extra(key) => Self::ExtraProvenance(key),
-            KeyFailure::UnkeyedShell => Self::MissingShellPayloadProvenance,
         }
     }
 }
@@ -4244,9 +4192,8 @@ impl DescriptorTerm {
     }
 }
 
-/// Collects a constant's keys: its type, and its value's nodes, which
-/// are keyed as the nodes of a rule result are. The value term denotes the
-/// value expression but carries no key field of its own.
+/// Collects a constant's keys: its type, its value expression, and its
+/// value's nodes, which are keyed as the nodes of a rule result are.
 pub(super) fn collect_constant_keys(
     constant: &super::constant::ConstantDescriptor,
     keys: &mut WireKeys,
@@ -4256,7 +4203,7 @@ pub(super) fn collect_constant_keys(
     if let Some(reason) = configuration_term(&constant.value) {
         return Err(GrammarTransportError::InvalidTerm(reason));
     }
-    keys.implicit(ProvenanceRole::ConstantValue);
+    keys.define(&constant.value_key, ProvenanceRole::ConstantValue)?;
     constant
         .value
         .collect_wire_term_keys(keys, ValidationSide::Right)
@@ -4393,6 +4340,7 @@ mod traversal_tests {
         Term::Anonymous {
             key: key(3),
             sort: sort(),
+            spelling_key: key(13),
             spelling: "_".to_owned(),
         }
     }
@@ -4484,6 +4432,7 @@ mod traversal_tests {
                 },
                 Term::Cell {
                     key: key(8),
+                    path_key: key(14),
                     declaration: nominal(),
                     fields: vec![CellTermField {
                         key: key(9),

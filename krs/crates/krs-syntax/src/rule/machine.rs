@@ -7,9 +7,9 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, ItemFn, Pat, Path, Token, Type, braced, bracketed};
 
 use super::block::{
-    BracketAlternative, ClauseKeys, ReadableSentence, RuleClause, RuleClauseLayout, RuleHead,
-    RuleHeadItem, RuleHeadResult, RuleListPattern, RuleListRest, RuleListResult, RuleNarrowing,
-    take_claim_clause_attribute, take_rule_clause_attribute,
+    BracketAlternative, ClauseKeys, ComputationCell, ReadableSentence, RuleClause,
+    RuleClauseLayout, RuleHead, RuleHeadItem, RuleHeadResult, RuleListPattern, RuleListRest,
+    RuleListResult, RuleNarrowing, take_claim_clause_attribute, take_rule_clause_attribute,
 };
 use super::condition::{RuleExtra, RuleMapEntry, condition_token_range};
 use super::item::RuleItem;
@@ -1643,6 +1643,7 @@ fn assemble_machine_clause(
     {
         let (head_result, placeholder) =
             computation_result(&computation_cell, &pattern, result_cells, name)?;
+        let (result_cell, head_result) = head_result.unzip();
         // The item writes the fields into its own placeholder result.
         let placeholder = if fields.is_some() {
             computation_result(&computation_cell, &pattern, authored_cells, name)?.1
@@ -1691,6 +1692,10 @@ fn assemble_machine_clause(
             subject: has_first,
             following,
             exact: pattern.exact,
+        };
+        let computation_cell = ComputationCell {
+            cell: computation_cell,
+            result_cell,
         };
         (rule, Some(head), head_result, Some(computation_cell))
     } else {
@@ -1861,15 +1866,19 @@ fn framed_rule_item(
     )?)
 }
 
-/// The rewrite of the computation cell and the rule item's placeholder body:
-/// a result the record leaves out only reads the cell, and a written one has
-/// the pattern's openness, since one `..` keeps the rest on both sides.
+/// What [`computation_result`] reads.
+type ComputationResult = (Option<(Ident, RuleHeadResult)>, Option<TokenStream>);
+
+/// The rewrite of the computation cell, with the result record's field that
+/// writes it, and the rule item's placeholder body: a result the record
+/// leaves out only reads the cell, and a written one has the pattern's
+/// openness, since one `..` keeps the rest on both sides.
 fn computation_result(
     cell: &Ident,
     pattern: &KPattern,
     result_cells: &[(Ident, MachineResultCell)],
     name: &Ident,
-) -> Result<(Option<RuleHeadResult>, Option<TokenStream>), ParseError> {
+) -> Result<ComputationResult, ParseError> {
     let Some((result_cell, result)) = result_cells
         .iter()
         .find(|(result_cell, _)| result_cell.unraw() == cell.unraw())
@@ -1922,5 +1931,5 @@ fn computation_result(
         ),
         RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => Some(quote!(true)),
     };
-    Ok((Some(head_result), placeholder))
+    Ok((Some((result_cell.clone(), head_result)), placeholder))
 }

@@ -472,6 +472,36 @@ impl SyntaxListDeclaration {
         Ok(self.terminator_anchors.clone())
     }
 
+    /// Returns the anchors of the cons variant's constructor descriptor, the
+    /// nodes its payload denotes: the list sort and the two field sorts. The
+    /// rest of the production is its grammar descriptor's.
+    ///
+    /// # Errors
+    ///
+    /// None: the list was keyed when it was parsed.
+    pub fn cons_constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let denoted = [
+            self.sort_key.as_ref(),
+            self.cons.head.sort_key(),
+            self.cons.tail.sort_key(),
+        ];
+        Ok(constructor_anchors(&self.cons_anchors, &denoted))
+    }
+
+    /// Returns the anchors of the terminator variant's constructor
+    /// descriptor, the one node its payload denotes: the list sort. The rest
+    /// of the production is its grammar descriptor's.
+    ///
+    /// # Errors
+    ///
+    /// None: the list was keyed when it was parsed.
+    pub fn terminator_constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(constructor_anchors(
+            &self.terminator_anchors,
+            &[self.sort_key.as_ref()],
+        ))
+    }
+
     /// Keys the list sort's declaration and the list's two productions, each
     /// a sentence of its own. The declaration keys the enum name. The
     /// cons production keys the list sort, the variant, each field's sort
@@ -524,6 +554,19 @@ impl SyntaxListDeclaration {
         self.terminator_anchors = keys.into_anchors();
         Ok(self)
     }
+}
+
+/// The anchors of a production's nodes that hold one of the keys `denoted`,
+/// in the production's order.
+fn constructor_anchors(
+    anchors: &[ProvenanceAnchor],
+    denoted: &[Option<&ProvenanceKey>],
+) -> Vec<ProvenanceAnchor> {
+    anchors
+        .iter()
+        .filter(|anchor| denoted.contains(&Some(&anchor.key())))
+        .cloned()
+        .collect()
 }
 
 fn is_syntax_list_attribute(attribute: &Attribute) -> bool {
@@ -801,6 +844,28 @@ mod keyed {
                 strictness.keyed_nodes(nodes)?;
             }
             self.attribute.keyed_nodes(nodes)
+        }
+
+        /// Records the keys of the cons variant's constructor descriptor:
+        /// the list sort and each field's sort.
+        pub(crate) fn keyed_cons_constructor_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.item.ident)?;
+            for field in [&self.cons.head, &self.cons.tail] {
+                nodes.push_tokens(field.sort_key.as_ref(), field.term_sort().sort())?;
+            }
+            Ok(())
+        }
+
+        /// Records the key of the terminator variant's constructor
+        /// descriptor: the list sort.
+        pub(crate) fn keyed_terminator_constructor_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.item.ident)
         }
 
         /// Records the keys of the terminator production: the list sort,

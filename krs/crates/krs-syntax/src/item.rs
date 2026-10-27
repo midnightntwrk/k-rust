@@ -111,10 +111,10 @@ pub struct ConstructorDeclaration {
     documentation: Vec<ProductionDocumentation>,
     name_key: Option<ProvenanceKey>,
     parameter_keys: Vec<ProvenanceKey>,
-    /// The anchors of the full view's keying, whose first `compact` anchors
-    /// are the compact view's.
+    /// The anchors of the full view's keying, whose `sorts` anchors are
+    /// those of the sort parameters and the field sorts.
     anchors: Vec<ProvenanceAnchor>,
-    compact: usize,
+    sorts: std::ops::Range<usize>,
     /// The anchors of the argument view's keying.
     argument_anchors: Vec<ProvenanceAnchor>,
 }
@@ -191,16 +191,16 @@ impl ConstructorDeclaration {
             name_key: None,
             parameter_keys: Vec::new(),
             anchors: Vec::new(),
-            compact: 0,
+            sorts: 0..0,
             argument_anchors: Vec::new(),
         }
         .keyed()
     }
 
-    /// Keys the constructor's two descriptors. The full view starts with
-    /// the compact one, the declaration, each sort parameter and each field
-    /// sort, then keys each field name and each documentation line, so one
-    /// pass keys both and each node holds the same key in both. The argument
+    /// Keys the constructor's views. The full view keys the declaration,
+    /// each sort parameter and each field sort, then each field name and
+    /// each documentation line; the sort view is its sort parameters and
+    /// field sorts, so each node holds the same key in both. The argument
     /// view keys each element type of the field sorts on its own.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
@@ -208,6 +208,7 @@ impl ConstructorDeclaration {
             ProvenanceRole::ConstructorDeclaration,
             TokenRange::for_tokens(&self.item.ident)?,
         )?);
+        let sorts = keys.anchors().len();
         self.parameter_keys = Vec::with_capacity(self.parameters.len());
         for parameter in &self.parameters {
             self.parameter_keys.push(keys.key(
@@ -221,7 +222,7 @@ impl ConstructorDeclaration {
                 TokenRange::for_tokens(field.term_sort.sort())?,
             )?);
         }
-        self.compact = keys.anchors().len();
+        self.sorts = sorts..keys.anchors().len();
         for field in &mut self.fields {
             field.name_key = Some(keys.key(
                 ProvenanceRole::ConstructorFieldDeclaration,
@@ -302,7 +303,10 @@ impl ConstructorDeclaration {
         &self.documentation
     }
 
-    /// Returns the declaration and ordered field-sort anchors.
+    /// Returns the anchors of the sort parameters and of the field sorts in
+    /// order, the nodes of the struct that the constructor descriptor
+    /// denotes: the declaration, the field names and the documentation are
+    /// the grammar descriptor's.
     ///
     /// Field anchors cover the inner rustc-resolvable object-language sort
     /// path, not the surrounding `Term` wrapper.
@@ -310,8 +314,8 @@ impl ConstructorDeclaration {
     /// # Errors
     ///
     /// None: the constructor was keyed when it was parsed.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(self.anchors[..self.compact].to_vec())
+    pub fn sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors[self.sorts.clone()].to_vec())
     }
 
     /// Returns one anchor per element type of a typed collection field sort,
@@ -324,7 +328,8 @@ impl ConstructorDeclaration {
         Ok(self.argument_anchors.clone())
     }
 
-    /// Returns the compact anchors plus each constructor field declaration name.
+    /// Returns the full view's anchors: the declaration, each sort parameter
+    /// and field sort, each field name and each documentation line.
     ///
     /// # Errors
     ///
@@ -692,13 +697,9 @@ mod keyed {
     use crate::{SortArgument, SyntaxError};
 
     impl ConstructorDeclaration {
-        /// Records the keys of the compact view: the declaration, each sort
-        /// parameter and each field sort.
-        pub(crate) fn keyed_compact_nodes(
-            &self,
-            nodes: &mut KeyedNodes,
-        ) -> Result<(), SyntaxError> {
-            nodes.push_tokens(self.name_key.as_ref(), &self.item.ident)?;
+        /// Records the keys of the sort view: each sort parameter and each
+        /// field sort.
+        pub(crate) fn keyed_sort_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
             assert!(self.parameter_keys.len() <= self.parameters.len());
             for (key, parameter) in self.parameter_keys.iter().zip(&self.parameters) {
                 nodes.push_tokens(Some(key), parameter)?;
@@ -709,10 +710,11 @@ mod keyed {
             Ok(())
         }
 
-        /// Records the keys of the full view: the compact view's, then each
-        /// field name and each documentation line.
+        /// Records the keys of the full view: the declaration, the sort
+        /// view's, then each field name and each documentation line.
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
-            self.keyed_compact_nodes(nodes)?;
+            nodes.push_tokens(self.name_key.as_ref(), &self.item.ident)?;
+            self.keyed_sort_nodes(nodes)?;
             for field in &self.fields {
                 nodes.push_tokens(field.name_key.as_ref(), &field.name)?;
             }

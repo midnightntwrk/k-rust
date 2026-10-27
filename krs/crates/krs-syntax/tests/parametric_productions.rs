@@ -42,7 +42,7 @@ fn a_sort_parameter_is_a_question_sized_type_parameter_named_by_fields() {
         declaration.sort_parameter_index(&syn::parse_quote!(crate::S)),
         None
     );
-    let anchors = declaration.provenance().unwrap();
+    let anchors = declaration.sort_provenance().unwrap();
     let parameter = anchors
         .iter()
         .find(|anchor| anchor.role() == ProvenanceRole::SortParameter)

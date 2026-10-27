@@ -154,6 +154,7 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         &mut self,
         key: &ProvenanceKey,
         sort: &S::Sort,
+        spelling_key: &ProvenanceKey,
         spelling: &str,
     ) -> Result<(), Self::Error>;
 
@@ -175,6 +176,7 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     fn cell(
         &mut self,
         key: &ProvenanceKey,
+        path_key: &ProvenanceKey,
         declaration: &S::Nominal,
         fields: &[CellTermField<S>],
         partial: bool,
@@ -343,8 +345,9 @@ fn validate_term_node<S: ValidationStage, C: TermValidation<S>>(
         Term::Anonymous {
             key,
             sort,
+            spelling_key,
             spelling,
-        } => context.anonymous(key, sort, spelling),
+        } => context.anonymous(key, sort, spelling_key, spelling),
         Term::OrBool { key, arguments } => {
             context.or_bool(key, arguments)?;
             for argument in arguments.iter() {
@@ -355,13 +358,20 @@ fn validate_term_node<S: ValidationStage, C: TermValidation<S>>(
         Term::Lexeme { key, sort, text } => context.lexeme(key, sort, text),
         Term::Cell {
             key,
+            path_key,
             declaration,
             fields,
             open,
             update,
         } => {
             // A pattern ending in `..` or an update names some children only.
-            context.cell(key, declaration, fields, *open || update.is_some())?;
+            context.cell(
+                key,
+                path_key,
+                declaration,
+                fields,
+                *open || update.is_some(),
+            )?;
             let mut names = BTreeSet::new();
             for field in fields {
                 context.cell_field(field, &mut names)?;

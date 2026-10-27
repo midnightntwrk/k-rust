@@ -25,7 +25,7 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::grammar::grammar_macro_descriptor;
 use super::ledger::KeyLedger;
 use super::nonce::{expansion_nonce, rule_application_selector};
-use super::productions::{REPEATED_PRODUCTION_ROLES, strictness_key_function};
+use super::productions::strictness_key_function;
 use super::terms::{WireSlots, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
@@ -493,15 +493,14 @@ fn expand_enum_variant(
                 ::core::any::TypeId::of::<#ty>()
             }
         });
-        // The field's sort reference carries no key on the wire: the
-        // collector numbers the fields' sorts in order, as the sentence
-        // keyed them.
-        constructor_ledger.define(field.sort_key())?;
         fields.push(WireConstructorFieldDescriptor {
             name: field_name,
-            sort: WireTypeReference {
-                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
-                authored_path: spelling,
+            sort: WireSortReference {
+                key: constructor_ledger.define(field.sort_key())?,
+                target: WireTypeReference {
+                    slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                    authored_path: spelling,
+                },
             },
             arguments: Vec::new(),
         });
@@ -674,7 +673,7 @@ fn expand_enum_variant(
         fields,
         arguments: Vec::new(),
     });
-    constructor_ledger.finish_beside(&ledger, &REPEATED_PRODUCTION_ROLES)?;
+    constructor_ledger.finish()?;
     let constructor_wire =
         serde_json::to_string(&constructor_wire).expect("enum-constructor wire is serializable");
     let slot_tokens = slots.tokens();

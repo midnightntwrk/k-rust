@@ -6,8 +6,9 @@ use std::process::Output;
 
 use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::DescriptorBundle;
+use krs_ir::OriginFrame;
 use krs_ir::testing::assert_canonical_contract;
-use krs_ir_levels::{DefinitionIr, SemanticTheory};
+use krs_ir_levels::{DefinitionIr, SemanticSortRef, SemanticTheory};
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 use sha2::{Digest, Sha256};
 
@@ -210,6 +211,96 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert!(native.join("macros.kore").is_file());
     assert!(native.join("k2lean-sidecar.json").is_file());
     assert!(native.join(".krs-artifacts").is_file());
+}
+
+/// The subsorts of `Obj` that `source`, the foo-bar fixture with `Obj`'s
+/// parents replaced, emits: each parent's name, with the authored text and
+/// start byte of the origin that locates it.
+fn obj_subsorts(source: &str) -> Vec<(String, String, usize)> {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    assert_ne!(source, FOO_BAR);
+    let manifest = materialize_fixture(temporary.path(), source);
+    let emitted = temporary.path().join("emitted");
+    let emit = command(target.path(), &manifest, "emit-k", Some(&emitted), &[]);
+    assert_success(&emit);
+    let theory: SemanticTheory =
+        serde_json::from_slice(&fs::read(emitted.join("semantic-ir.json")).unwrap()).unwrap();
+    theory
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::SemanticModule::subsorts)
+        .filter_map(|subsort| {
+            let (SemanticSortRef::Declared(below), SemanticSortRef::Declared(above)) =
+                (subsort.subsort(), subsort.supersort())
+            else {
+                return None;
+            };
+            if below.item_name() != "Obj" {
+                return None;
+            }
+            let Some(OriginFrame::Ranged { range, .. }) =
+                subsort.origin().origin().frames().first()
+            else {
+                panic!("subsort {above} has no authored origin");
+            };
+            let (start, end) = (range.start_byte as usize, range.end_byte as usize);
+            Some((
+                above.item_name().to_owned(),
+                source[start..end].to_owned(),
+                start,
+            ))
+        })
+        .collect()
+}
+
+/// The foo-bar fixture with the sorts `Zed` and `Alpha`, and `Obj`'s
+/// parents written `parents` with the supertraits `supertraits`.
+fn obj_with_parents(parents: &str, supertraits: &str) -> String {
+    FOO_BAR.replace(
+        "#[krs::sort(alias = Obj, parents = [krs::KResult])]\npub trait ObjSort: krs::KResultSort {}",
+        &format!(
+            "krs::sorts! {{\n    Zed;\n    Alpha;\n}}\n\n#[krs::sort(alias = Obj, parents = {parents})]\npub trait ObjSort: {supertraits} {{}}"
+        ),
+    )
+}
+
+/// Each subsort is located at the parent path that names it, whatever order
+/// the parents' stable identities sort in: `Zed` is written first and sorts
+/// last.
+#[test]
+fn each_subsort_is_located_at_its_parent_reference() {
+    let located = obj_subsorts(&obj_with_parents("[Zed, Alpha]", "ZedSort + AlphaSort"))
+        .into_iter()
+        .map(|(above, text, _)| (above, text))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        located,
+        [
+            ("Alpha".to_owned(), "Alpha".to_owned()),
+            ("Zed".to_owned(), "Zed".to_owned())
+        ]
+    );
+}
+
+/// A sort a sort's parents name twice, by two paths or by one path written
+/// again, is one supersort: one subsort sentence, located at the first
+/// reference, however the other references fall around the other parents.
+#[test]
+fn a_parent_named_twice_is_one_subsort_at_its_first_reference() {
+    let parents = "[Zed, Alpha, crate::Zed, Zed]";
+    let source = obj_with_parents(parents, "ZedSort + AlphaSort + crate::ZedSort + ZedSort");
+    let first = source.find(parents).unwrap() + 1;
+    assert_eq!(&source[first..first + 3], "Zed");
+    let located = obj_subsorts(&source);
+    let [(alpha, alpha_text, _), (zed, zed_text, zed_start)] = located.as_slice() else {
+        panic!("`Obj` has two supersorts, `Alpha` and `Zed`: {located:?}");
+    };
+    assert_eq!((alpha.as_str(), alpha_text.as_str()), ("Alpha", "Alpha"));
+    assert_eq!(
+        (zed.as_str(), zed_text.as_str(), *zed_start),
+        ("Zed", "Zed", first)
+    );
 }
 
 #[test]

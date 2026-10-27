@@ -54,7 +54,7 @@ fn __krs_constructor_descriptor_313432f32ce50e34() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"S\"}},\"fields\":[{\"name\":\"inner\",\"sort\":{\"slot\":1,\"authored_path\":\"S\"}}],\"parameters\":[{\"key\":{\"role\":\"sort_parameter\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"S\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"S\"}},\"fields\":[{\"name\":\"inner\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"S\"}}}],\"parameters\":[{\"key\":{\"role\":\"sort_parameter\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"S\"}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_constructor_sort_313432f32ce50e34),
@@ -82,28 +82,6 @@ fn __krs_constructor_descriptor_313432f32ce50e34() -> ::core::result::Result<
                             false,
                             (2u32, 25u32),
                             (2u32, 26u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorSyntax,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 37u32),
-                            (2u32, 52u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (3u32, 12u32),
-                            (3u32, 16u32),
                             true,
                         ),
                     ),

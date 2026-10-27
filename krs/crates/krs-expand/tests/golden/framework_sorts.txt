@@ -107,7 +107,7 @@ fn __krs_sort_descriptor_0e2453058f695f49() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"KItem\"}]}}",
+            "{\"sort\":{\"parents\":[{\"key\":{\"role\":\"sort_parent\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"KItem\"}}]}}",
             ::k::__KrsSlots {
                 types: &[::k::HostTypeKey(__krs_sort_parent_0e2453058f695f49_0)],
                 items: &[],

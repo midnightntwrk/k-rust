@@ -83,7 +83,6 @@ details! {
     StateCellContentReason {
         DotKMissingProvenance => ".K is missing exact provenance",
         KCellSortMismatch => "KCell content sort must be builtin KSequence",
-        MissingShellPayloadProvenance => "a `k!` or `map!` shell lacks its payload provenance",
         InvalidKSequenceShell => "invalid K-sequence shell",
         InvalidExactKSequenceShell => "invalid exact K-sequence shell",
         InvalidVariableSort => "invalid variable sort",

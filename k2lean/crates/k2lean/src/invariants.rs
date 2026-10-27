@@ -2640,7 +2640,9 @@ theorem Invariant.{b}_cons (l : {}) ({x} : {}){ps} :\n    {} = ({}).bind fun r =
             at("KPrelude.ListHook.unit"),
             f.list,
             f.elem,
-            at(&format!("KPrelude.ListHook.concat (KPrelude.ListHook.element {x}) l")),
+            at(&format!(
+                "KPrelude.ListHook.concat (KPrelude.ListHook.element {x}) l"
+            )),
             at("l"),
         );
         d.push_str(&eqns);

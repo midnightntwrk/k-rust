@@ -1550,6 +1550,23 @@ mod keyed {
             Ok(())
         }
 
+        /// Records the keys of the constructor descriptor's nodes of the
+        /// production view: the constructed sort, each field's sort, and the
+        /// symbol override.
+        pub(crate) fn keyed_constructor_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.constructor_sort)?;
+            for field in &self.fields {
+                nodes.push_tokens(field.sort_key.as_ref(), field.term_sort().sort())?;
+            }
+            if let Some(symbol) = &self.explicit_symbol {
+                symbol.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+
         /// Records the keys of the element types of the field sorts, the
         /// sentence of [`Self::argument_provenance`].
         pub(crate) fn keyed_argument_nodes(

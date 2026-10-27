@@ -404,7 +404,10 @@ impl RefMap<DescriptorStage, DescriptorStage> for Substitution<'_> {
     fn initializer_owner(&mut self, reference: StableItemId) -> Result<StableItemId, Self::Error> {
         Ok(reference)
     }
-    fn parent(&mut self, reference: StableItemId) -> Result<StableItemId, Self::Error> {
+    fn parent(
+        &mut self,
+        reference: krs_ir::DescriptorSortParent,
+    ) -> Result<krs_ir::DescriptorSortParent, Self::Error> {
         Ok(reference)
     }
     fn constructor_sort(
@@ -415,8 +418,8 @@ impl RefMap<DescriptorStage, DescriptorStage> for Substitution<'_> {
     }
     fn constructor_field_sort(
         &mut self,
-        reference: Option<krs_ir::DescriptorSortRef>,
-    ) -> Result<Option<krs_ir::DescriptorSortRef>, Self::Error> {
+        reference: krs_ir::DescriptorSortReference,
+    ) -> Result<krs_ir::DescriptorSortReference, Self::Error> {
         Ok(reference)
     }
 }

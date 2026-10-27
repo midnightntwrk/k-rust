@@ -9,11 +9,10 @@
 //! - each key a field holds has the role that field requires;
 //! - each key is *defined* by one wire node, the node it names; a field that
 //!   names a node another field defines is a *reference* to it;
-//! - the defined keys, the kind's fixed declaration keys and the keys of
-//!   the wire nodes that carry none ([`WireKeys::implicit`]) are exactly the
+//! - the defined keys and the kind's fixed declaration keys are exactly the
 //!   anchors' keys (closure), and every reference names a defined key.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
 
 use super::grammar::{CellTermField, DescriptorApplicationHeadClass, DescriptorLiteral, Term};
@@ -44,11 +43,6 @@ pub(crate) enum KeyFailure {
     Missing(ProvenanceKey),
     /// An anchor that no wire node consumes.
     Extra(ProvenanceKey),
-    /// A `k!` or `map!` shell without its payload key. Every shell has one,
-    /// anchored at its payload or, when the shell is empty, at its
-    /// invocation; the wire field stays optional until the next schema
-    /// bump.
-    UnkeyedShell,
 }
 
 /// The keys of one payload's wire nodes, gathered by its validator.
@@ -56,7 +50,6 @@ pub(crate) enum KeyFailure {
 pub(crate) struct WireKeys {
     defined: BTreeSet<ProvenanceKey>,
     referred: BTreeSet<ProvenanceKey>,
-    implicit: BTreeMap<ProvenanceRole, usize>,
 }
 
 impl WireKeys {
@@ -93,89 +86,31 @@ impl WireKeys {
         self.define(&ProvenanceKey::new(role, 0), role)
     }
 
-    /// Records one wire node that denotes an anchored node of `role` but has
-    /// no key field to carry its key.
-    ///
-    /// This is the one positional pairing the transport keeps: at
-    /// [`Self::close`], the anchors of `role` that no wire node defines pair,
-    /// in their order, with the nodes recorded here, and the two counts must
-    /// agree. The roles it covers, until the wire gains their key fields:
-    /// a sort's parents ([`ProvenanceRole::SortParent`]) and a constructor's
-    /// field sorts ([`ProvenanceRole::ConstructorFieldSort`]), whose host
-    /// references carry type keys only; a constant's value
-    /// ([`ProvenanceRole::ConstantValue`]); the spelling of a claim's
-    /// anonymous constant ([`ProvenanceRole::ClaimAnonymousSpelling`]); the
-    /// cell path of a `k::fragment!` in a rule term (the `*_path` role of
-    /// its side); and, in a readable clause, the result type its header
-    /// denotes beside the subject's ([`ProvenanceRole::RuleResultType`]),
-    /// the key term and the value binder of a map read's entry
-    /// ([`ProvenanceRole::RuleLeftMapKey`],
-    /// [`ProvenanceRole::RuleLeftMapValue`]), and a spliced head result's
-    /// sequence and items ([`ProvenanceRole::RuleRightKSequencePayload`],
-    /// [`ProvenanceRole::RuleRightKSequenceItem`]).
-    pub(crate) fn implicit(&mut self, role: ProvenanceRole) {
-        *self.implicit.entry(role).or_default() += 1;
-    }
-
-    /// The keys defined so far, fixed ones included, implicit ones aside.
+    /// The keys defined so far, fixed ones included.
     #[cfg(test)]
     pub(crate) const fn defined(&self) -> &BTreeSet<ProvenanceKey> {
         &self.defined
     }
 
-    /// The defined keys, fixed ones included: the anchors a payload needs
-    /// besides those of its implicit nodes, which carry no key to name.
+    /// The defined keys, fixed ones included: the anchors a payload needs.
     pub(crate) fn into_defined(self) -> BTreeSet<ProvenanceKey> {
         self.defined
     }
 
-    /// Checks that the payload's keys are exactly `anchors`: every defined
-    /// key is anchored, every anchor is defined (an implicit node takes the
-    /// next anchor of its role no wire node defines), and every reference
-    /// names a defined key.
-    pub(crate) fn close<'a>(
-        mut self,
-        anchors: impl IntoIterator<Item = &'a ProvenanceKey>,
-    ) -> Result<(), KeyFailure> {
-        let anchors = anchors.into_iter().collect::<BTreeSet<_>>();
-        for (role, count) in std::mem::take(&mut self.implicit) {
-            let paired = anchors
-                .iter()
-                .filter(|key| key.role() == role && !self.defined.contains(**key))
-                .take(count)
-                .map(|key| (*key).clone())
-                .collect::<Vec<_>>();
-            if paired.len() < count {
-                // The key the first node left without an anchor would take.
-                let anchored = anchors.iter().filter(|key| key.role() == role).count();
-                return Err(KeyFailure::Missing(ProvenanceKey::new(
-                    role,
-                    u32::try_from(anchored).unwrap_or(u32::MAX),
-                )));
-            }
-            self.defined.extend(paired);
-        }
-        self.anchored(&anchors)?;
-        if let Some(extra) = anchors.iter().find(|key| !self.defined.contains(**key)) {
-            return Err(KeyFailure::Extra((*extra).clone()));
-        }
-        Ok(())
+    /// The keys the payload's wire nodes carry, defined or referred to.
+    pub(crate) fn into_carried(mut self) -> BTreeSet<ProvenanceKey> {
+        self.defined.append(&mut self.referred);
+        self.defined
     }
 
-    /// Checks the part of closure that holds on a payload that keeps only
-    /// some of its nodes: every defined key is one of `anchors`, and every
-    /// reference names a defined key. Anchors no node consumes and the nodes
-    /// that carry no key are not checked.
-    pub(crate) fn close_within<'a>(
+    /// Checks that the payload's keys are exactly `anchors`: every defined
+    /// key is anchored, every anchor is defined, and every reference names a
+    /// defined key.
+    pub(crate) fn close<'a>(
         self,
         anchors: impl IntoIterator<Item = &'a ProvenanceKey>,
     ) -> Result<(), KeyFailure> {
-        self.anchored(&anchors.into_iter().collect())
-    }
-
-    /// Checks that every defined key is anchored and every reference names
-    /// a defined key.
-    fn anchored(&self, anchors: &BTreeSet<&ProvenanceKey>) -> Result<(), KeyFailure> {
+        let anchors = anchors.into_iter().collect::<BTreeSet<_>>();
         if let Some(missing) = self.defined.iter().find(|key| !anchors.contains(key)) {
             return Err(KeyFailure::Missing(missing.clone()));
         }
@@ -185,6 +120,9 @@ impl WireKeys {
             .find(|key| !self.defined.contains(*key))
         {
             return Err(KeyFailure::Missing(dangling.clone()));
+        }
+        if let Some(extra) = anchors.iter().find(|key| !self.defined.contains(**key)) {
+            return Err(KeyFailure::Extra((*extra).clone()));
         }
         Ok(())
     }
@@ -278,14 +216,6 @@ impl<E: From<KeyFailure> + From<TermRefusal>> TermKeys<'_, E> {
             self.keys.define(key, role)?;
         }
         Ok(())
-    }
-
-    /// Records a node that carries no key of its own; a clone's is another
-    /// term's.
-    fn implicit(&mut self, role: ProvenanceRole) {
-        if self.keying != TermKeying::ReadableClone {
-            self.keys.implicit(role);
-        }
     }
 
     /// Records the path of a variable or an application whose head is keyed
@@ -387,13 +317,16 @@ where
         self.node(key, role)
     }
 
-    fn anonymous(&mut self, key: &ProvenanceKey, sort: &S::Sort, _: &str) -> Result<(), E> {
+    fn anonymous(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &S::Sort,
+        spelling_key: &ProvenanceKey,
+        _: &str,
+    ) -> Result<(), E> {
         self.node(key, ProvenanceRole::ClaimAnonymous)?;
         self.node(S::sort_key(sort), ProvenanceRole::ClaimAnonymousSort)?;
-        // The constant's spelling is a node of its own, which the term
-        // carries as text.
-        self.implicit(ProvenanceRole::ClaimAnonymousSpelling);
-        Ok(())
+        self.node(spelling_key, ProvenanceRole::ClaimAnonymousSpelling)
     }
 
     fn or_bool(&mut self, key: &ProvenanceKey, _: &crate::AtLeastTwo<Term<S>>) -> Result<(), E> {
@@ -408,17 +341,15 @@ where
     fn cell(
         &mut self,
         key: &ProvenanceKey,
+        path_key: &ProvenanceKey,
         _: &S::Nominal,
         _: &[CellTermField<S>],
         _: bool,
     ) -> Result<(), E> {
-        self.node(key, TermRole::ApplicationHead.on_side(self.side))?;
-        // The fragment's cell path is denoted by its declaration reference,
-        // which carries no key; a cell value keys none.
-        if self.keying != TermKeying::CellValue {
-            self.implicit(TermRole::Path.on_side(self.side));
-        }
-        Ok(())
+        // The fragment's path is its declaration's, keyed as an
+        // application's.
+        self.path(path_key, key)?;
+        self.node(key, TermRole::ApplicationHead.on_side(self.side))
     }
 
     fn sort_test(&mut self, key: &ProvenanceKey, _: SortTestKind, sort: &S::Sort) -> Result<(), E> {
@@ -621,38 +552,5 @@ mod tests {
             dangling.close([&declaration, &pattern]),
             Err(KeyFailure::Missing(result))
         );
-    }
-
-    #[test]
-    fn implicit_nodes_pair_with_the_anchors_left_of_their_role() {
-        let parents = [0, 1].map(|ordinal| key(ProvenanceRole::SortParent, ordinal));
-        let declaration = key(ProvenanceRole::SortDeclaration, 0);
-        let keys = |count| {
-            let mut keys = WireKeys::default();
-            keys.fixed(ProvenanceRole::SortDeclaration).unwrap();
-            for _ in 0..count {
-                keys.implicit(ProvenanceRole::SortParent);
-            }
-            keys
-        };
-        keys(2)
-            .close([&declaration, &parents[0], &parents[1]])
-            .unwrap();
-        assert_eq!(
-            keys(1).close([&declaration, &parents[0], &parents[1]]),
-            Err(KeyFailure::Extra(parents[1].clone()))
-        );
-        assert_eq!(
-            keys(3).close([&declaration, &parents[0], &parents[1]]),
-            Err(KeyFailure::Missing(key(ProvenanceRole::SortParent, 2)))
-        );
-        // A node of the role that carries its key is no implicit one's.
-        let mut mixed = keys(1);
-        mixed
-            .define(&parents[0], ProvenanceRole::SortParent)
-            .unwrap();
-        mixed
-            .close([&declaration, &parents[0], &parents[1]])
-            .unwrap();
     }
 }

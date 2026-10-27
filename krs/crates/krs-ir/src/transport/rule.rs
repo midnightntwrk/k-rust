@@ -310,11 +310,10 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolRuleKSequence<T => term_map => T2> {
-        /// Complete payload provenance; every sequence has it. An empty
-        /// sequence's is at its own delimiters: an empty `k![]`'s
-        /// invocation, `KCell()`'s parentheses, or a readable instance
-        /// child's `[]`.
-        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// Complete payload provenance. An empty sequence's is at its own
+        /// delimiters: an empty `k![]`'s invocation, `KCell()`'s
+        /// parentheses, or a readable instance child's `[]`.
+        pub payload_key: ProvenanceKey => [keep],
         /// Exact standalone `.K` provenance.
         pub dot_k_key: Option<ProvenanceKey> => [keep],
         /// Preserved parser notation.
@@ -383,8 +382,8 @@ protocol_shape! {
     #[serde(deny_unknown_fields)]
     pub struct ProtocolRuleMap<T => term_map => T2> {
         /// Complete map payload provenance, at the invocation of an empty
-        /// `map![]`; every map has it.
-        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// `map![]`.
+        pub payload_key: ProvenanceKey => [keep],
         /// Classified map operation.
         pub body: ProtocolRuleMapBody<T> => [nested term_map],
     }
@@ -1142,8 +1141,7 @@ where
 /// role there: a K sequence's payload, `.K`, items and tail, a map's
 /// payload, entries, update and remainder, and instances, their fields and
 /// their rest. Each term the state holds goes to `term`, which collects its
-/// keys as its rule's terms are keyed. A shell without its payload key is
-/// refused here, for every payload whose states this walk keys.
+/// keys as its rule's terms are keyed.
 pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
     state: &ProtocolRuleStateTerm<T>,
     side: RuleSide,
@@ -1172,11 +1170,7 @@ pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
             }
         }
         ProtocolRuleStateTerm::KSequence(sequence) => {
-            let key = sequence
-                .payload_key
-                .as_ref()
-                .ok_or(KeyFailure::UnkeyedShell)?;
-            define(keys, key, RuleRole::KSequencePayload)?;
+            define(keys, &sequence.payload_key, RuleRole::KSequencePayload)?;
             for key in sequence.dot_k_key.iter().chain(frame_key(&sequence.tail)) {
                 define(keys, key, RuleRole::KSequenceTail)?;
             }
@@ -1186,8 +1180,7 @@ pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
             }
         }
         ProtocolRuleStateTerm::Map(map) => {
-            let key = map.payload_key.as_ref().ok_or(KeyFailure::UnkeyedShell)?;
-            define(keys, key, RuleRole::MapPayload)?;
+            define(keys, &map.payload_key, RuleRole::MapPayload)?;
             match &map.body {
                 ProtocolRuleMapBody::Empty { .. } => {}
                 ProtocolRuleMapBody::Items { items, remainder } => {
@@ -1666,9 +1659,7 @@ impl DescriptorConfigurationRule {
     }
 
     /// Returns every key this rule's nodes carry, with its fixed declaration
-    /// key. A node that denotes a node of its own but carries no key (a
-    /// claim's anonymous constant's spelling, a condition's fragment path)
-    /// adds none.
+    /// key.
     ///
     /// # Errors
     ///
@@ -2756,6 +2747,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         &mut self,
         key: &ProvenanceKey,
         sort: &S::Sort,
+        spelling_key: &ProvenanceKey,
         spelling: &str,
     ) -> Result<(), Self::Error> {
         if !matches!(self.side, ValidationSide::Left) || !spelling.starts_with('_') {
@@ -2768,9 +2760,8 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         self.keys.define(key, ProvenanceRole::ClaimAnonymous)?;
         self.keys
             .define(S::sort_key(sort), ProvenanceRole::ClaimAnonymousSort)?;
-        // The constant's spelling is a node of its own, which the term
-        // carries as text.
-        self.keys.implicit(ProvenanceRole::ClaimAnonymousSpelling);
+        self.keys
+            .define(spelling_key, ProvenanceRole::ClaimAnonymousSpelling)?;
         Ok(())
     }
 
@@ -2786,18 +2777,16 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     fn cell(
         &mut self,
         key: &ProvenanceKey,
+        path_key: &ProvenanceKey,
         declaration: &S::Nominal,
         fields: &[CellTermField<S>],
         partial: bool,
     ) -> Result<(), Self::Error> {
         S::validate_fragment(declaration, fields.is_empty() && !partial)?;
+        // The fragment's path is keyed as an application's.
+        validate_term_path_key(self.keys, path_key, key, self.side)?;
         self.keys
             .define(key, TermRole::ApplicationHead.on_side(self.side))?;
-        // A condition keys the fragment's cell path, which the cell's
-        // declaration reference denotes; a cell value keys no path.
-        if let Some(path) = condition_path_role(self.side) {
-            self.keys.implicit(path);
-        }
         Ok(())
     }
 

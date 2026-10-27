@@ -270,8 +270,8 @@ impl RefMap<WireStage, HostStage> for Decoder<'_> {
         Ok(self.type_reference(wire).key)
     }
 
-    fn parent(&mut self, wire: WireTypeReference) -> Result<HostTypeReference, Self::Error> {
-        self.nominal(wire)
+    fn parent(&mut self, wire: WireSortReference) -> Result<HostSortReference, Self::Error> {
+        self.sort(wire)
     }
 
     fn constructor_sort(
@@ -283,9 +283,9 @@ impl RefMap<WireStage, HostStage> for Decoder<'_> {
 
     fn constructor_field_sort(
         &mut self,
-        wire: WireTypeReference,
-    ) -> Result<HostTypeReference, Self::Error> {
-        self.nominal(wire)
+        wire: WireSortReference,
+    ) -> Result<HostSortReference, Self::Error> {
+        self.sort(wire)
     }
 }
 
@@ -405,9 +405,12 @@ mod tests {
             sort: wire_sort(),
             fields: vec![WireConstructorFieldDescriptor {
                 name: "value".to_owned(),
-                sort: WireTypeReference {
-                    slot: TypeSlot(0),
-                    authored_path: "u64".to_owned(),
+                sort: WireSortReference {
+                    key: key(ProvenanceRole::ConstructorFieldSort),
+                    target: WireTypeReference {
+                        slot: TypeSlot(0),
+                        authored_path: "u64".to_owned(),
+                    },
                 },
                 arguments: Vec::new(),
             }],
@@ -419,9 +422,12 @@ mod tests {
             sort: host_sort(),
             fields: vec![HostConstructorFieldDescriptor {
                 name: "value".to_owned(),
-                sort: HostTypeReference {
-                    key: HostTypeKey(type_id),
-                    authored_path: "u64".to_owned(),
+                sort: HostSortReference {
+                    key: key(ProvenanceRole::ConstructorFieldSort),
+                    target: HostTypeReference {
+                        key: HostTypeKey(type_id),
+                        authored_path: "u64".to_owned(),
+                    },
                 },
                 arguments: Vec::new(),
             }],
@@ -668,7 +674,8 @@ mod tests {
             result_key: key(ProvenanceRole::RuleResult),
             head_sort: Some(wire_sort()),
             configuration: None,
-            computation_cell_name: None,
+            result_type_key: key(ProvenanceRole::RuleResultType),
+            computation_cell: None,
             bindings: vec![],
             head: Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![wire_term()],
@@ -697,7 +704,8 @@ mod tests {
             result_key: key(ProvenanceRole::RuleResult),
             head_sort: Some(host_sort()),
             configuration: None,
-            computation_cell_name: None,
+            result_type_key: key(ProvenanceRole::RuleResultType),
+            computation_cell: None,
             bindings: vec![],
             head: Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![host_term()],
@@ -857,18 +865,24 @@ mod tests {
     fn sort_wire_matches_code_built_payload_and_resolves_parent_identity() {
         let actual = decode(
             &WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
-                parents: vec![wire_nominal(0, "u64")],
+                parents: vec![WireSortReference {
+                    key: key(ProvenanceRole::SortParent),
+                    target: wire_nominal(0, "u64"),
+                }],
             }),
             type_slots(),
         );
         let expected = HostDescriptorPayload::Sort(krs_ir::HostSortDescriptor {
-            parents: vec![host_nominal("u64")],
+            parents: vec![HostSortReference {
+                key: key(ProvenanceRole::SortParent),
+                target: host_nominal("u64"),
+            }],
         });
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
         let HostDescriptorPayload::Sort(sort) = actual else {
             panic!("wrong payload kind")
         };
-        assert_eq!(sort.parents[0].key.resolve(), type_id());
+        assert_eq!(sort.parents[0].target.key.resolve(), type_id());
     }
 
     #[test]

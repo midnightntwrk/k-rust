@@ -23,7 +23,8 @@ fn constructor_accepts_bare_and_reference_spellings() {
                 .contains(&ProvenanceRole::ConstructorInternal)
         );
         assert!(
-            !roles(&attribute.provenance().unwrap()).contains(&ProvenanceRole::ConstructorInternal)
+            !roles(&attribute.sort_provenance().unwrap())
+                .contains(&ProvenanceRole::ConstructorInternal)
         );
     }
     let program = krs_syntax::ConstructorAttribute::parse_source(

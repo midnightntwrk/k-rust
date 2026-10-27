@@ -188,7 +188,7 @@ pub enum TermNode {
     ApplicationHead(Path),
     /// Bare path awaiting binder/constructor resolution.
     Reference(Path),
-    /// Integer or Boolean literal.
+    /// Integer, Boolean, string, or float literal.
     Literal(TermLiteral),
     /// Compiler-owned concrete token of builtin sort `Id`.
     IdToken(LitStr),
@@ -593,7 +593,7 @@ pub enum TermTree {
     Application(TermApplication),
     /// Bare path awaiting binder or zero-argument constructor resolution.
     Reference(Path),
-    /// Integer or Boolean literal.
+    /// Integer, Boolean, string, or float literal.
     Literal(TermLiteral),
     /// Native Rust pattern wildcard.
     Wildcard(TokenRange),
@@ -3233,6 +3233,27 @@ pub(crate) fn allocate_lexeme_keys(
             term_keys.push_node(index, sort);
             let text = keys.key(ProvenanceRole::LexemeText, TokenRange::for_tokens(text)?)?;
             term_keys.push_node(index, text);
+        }
+    }
+    Ok(())
+}
+
+/// Keys every literal node in `nodes` under `role`, over the literal's
+/// tokens: an initializer's literals, which a pass numbers in preorder across
+/// the initializer's terms.
+///
+/// # Errors
+///
+/// Returns an endpoint or occurrence-overflow error.
+pub(crate) fn allocate_literal_keys(
+    keys: &mut KeyAllocator,
+    nodes: &[TermNode],
+    term_keys: &mut TermKeys,
+    role: ProvenanceRole,
+) -> Result<(), SyntaxError> {
+    for (index, node) in nodes.iter().enumerate() {
+        if let TermNode::Literal(literal) = node {
+            term_keys.push_node(index, keys.key(role, literal.range()?)?);
         }
     }
     Ok(())

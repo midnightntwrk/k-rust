@@ -4,6 +4,8 @@ This package keeps its semantic equations literal-only: `BitValue(true) = 1` and
 Arithmetic operations first appear in the claims, so compiling this proof also checks that standard builtin dependencies enter the proof's definition context.
 Authored specification rules remain forbidden.
 
+From the repository root, with `krs` built by `cargo build -p krs-cli`:
+
 ```console
 target/debug/krs prove --manifest-path krs/tests/native-finite-claims/Cargo.toml \
   --package krs-native-finite-claims --definition main \

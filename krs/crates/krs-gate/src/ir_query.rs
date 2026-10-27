@@ -2158,13 +2158,15 @@ mod tests {
             result_key: key(ProvenanceRole::RuleResult, 0),
             head_sort: None,
             configuration: config.clone(),
-            // The collector keys the computation cell at the pattern.
-            computation_cell: Some(krs_ir::DescriptorCellReference {
-                key: key(ProvenanceRole::RulePattern, 0),
+            configuration_key: Some(key(ProvenanceRole::RuleType, 0)),
+            result_type_key: key(ProvenanceRole::RuleResultType, 0),
+            computation_cell: Some(krs_ir::DescriptorComputationCell {
                 cell: krs_ir::DescriptorCellIdentity {
                     owner: config,
                     field: "k".into(),
                 },
+                key: Some(key(ProvenanceRole::RuleLeftCellsField, 0)),
+                result_key: Some(key(ProvenanceRole::RuleRightCellsField, 0)),
             }),
             bindings: vec![
                 DescriptorHeadRuleBinding {
@@ -2217,14 +2219,18 @@ mod tests {
             evaluation: None,
             claim: None,
         };
-        // The rule's anchors: its declaration, label, pattern and result,
-        // and its terms' nodes.
+        // The rule's anchors: its declaration, label, pattern, result, header
+        // and result type, its computation cell's names, and its terms' nodes.
         let origin = descriptor.provenance.origins()[0].origin.clone();
         let mut anchors = vec![
             key(ProvenanceRole::RuleDeclaration, 0),
             key(ProvenanceRole::RuleLabel, 0),
             key(ProvenanceRole::RulePattern, 0),
             key(ProvenanceRole::RuleResult, 0),
+            key(ProvenanceRole::RuleType, 0),
+            key(ProvenanceRole::RuleResultType, 0),
+            key(ProvenanceRole::RuleLeftCellsField, 0),
+            key(ProvenanceRole::RuleRightCellsField, 0),
             key(ProvenanceRole::RuleLeftApplicationHead, 0),
             key(ProvenanceRole::RuleRightApplicationHead, 0),
         ];

@@ -4,7 +4,7 @@ use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::testing;
-use krs_ir::transport::detail::{StateCellContentReason, StateTermReason, TransportField};
+use krs_ir::transport::detail::{StateTermReason, TransportField};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, CellWrapper, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle,
@@ -150,7 +150,7 @@ fn fixed_configuration() -> (StableItemId, DescriptorFixedConfiguration) {
                     constructor_key: key(ProvenanceRole::InitializerCellConstructor, 0),
                     wrapper: CellWrapper::KCell,
                     value: ProtocolInitializerStateTerm::KSequence(ProtocolKSequence {
-                        payload_key: Some(key(ProvenanceRole::KSequencePayload, 0)),
+                        payload_key: key(ProvenanceRole::KSequencePayload, 0),
                         dot_k_key: None,
                         notation: DescriptorKSequenceNotation::Comma,
                         items: vec![ProtocolKSequenceItem {
@@ -170,7 +170,7 @@ fn fixed_configuration() -> (StableItemId, DescriptorFixedConfiguration) {
                     constructor_key: key(ProvenanceRole::InitializerCellConstructor, 1),
                     wrapper: CellWrapper::Cell,
                     value: ProtocolInitializerStateTerm::Map(ProtocolMap {
-                        payload_key: Some(key(ProvenanceRole::MapPayload, 0)),
+                        payload_key: key(ProvenanceRole::MapPayload, 0),
                         body: ProtocolMapBody::Empty {
                             explicit_dot: false,
                         },
@@ -237,24 +237,6 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
         duplicate_external.validate(&owner),
         Err(StateTransportError::DuplicateValue(
             TransportField::ExternalConfigurationVariableNames
-        ))
-    );
-
-    // Every shell has its payload key: an empty `map![]`'s is anchored at
-    // its invocation.
-    let mut keyless_shell = configuration.clone();
-    let ProtocolInitializerCellContent::Leaf {
-        value: ProtocolInitializerStateTerm::Map(map),
-        ..
-    } = &mut keyless_shell.initializer.cells[1].content
-    else {
-        panic!("the env cell holds a map");
-    };
-    map.payload_key = None;
-    assert_eq!(
-        keyless_shell.validate(&owner),
-        Err(StateTransportError::InvalidCellContent(
-            StateCellContentReason::MissingShellPayloadProvenance
         ))
     );
 
@@ -490,7 +472,7 @@ fn descriptor_context_alias() -> DescriptorContextAlias {
                 "k",
                 CellWrapper::KCell,
                 ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
-                    payload_key: Some(key(ProvenanceRole::RuleLeftKSequencePayload, 0)),
+                    payload_key: key(ProvenanceRole::RuleLeftKSequencePayload, 0),
                     dot_k_key: None,
                     notation: DescriptorKSequenceNotation::Comma,
                     items: vec![ProtocolRuleKSequenceItem {
@@ -678,7 +660,7 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
                 "k",
                 CellWrapper::KCell,
                 ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
-                    payload_key: Some(key(ProvenanceRole::RuleLeftKSequencePayload, 0)),
+                    payload_key: key(ProvenanceRole::RuleLeftKSequencePayload, 0),
                     dot_k_key: None,
                     notation: DescriptorKSequenceNotation::Comma,
                     items: vec![ProtocolRuleKSequenceItem {
@@ -698,7 +680,7 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
                 "env",
                 CellWrapper::Cell,
                 ProtocolRuleStateTerm::Map(ProtocolRuleMap {
-                    payload_key: Some(key(ProvenanceRole::RuleLeftMapPayload, 0)),
+                    payload_key: key(ProvenanceRole::RuleLeftMapPayload, 0),
                     body: ProtocolRuleMapBody::Items {
                         items: vec![ProtocolRuleMapItem {
                             key_key: key(ProvenanceRole::RuleLeftMapKey, 0),
@@ -728,7 +710,7 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
             "k",
             CellWrapper::KCell,
             ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
-                payload_key: Some(key(ProvenanceRole::RuleRightKSequencePayload, 0)),
+                payload_key: key(ProvenanceRole::RuleRightKSequencePayload, 0),
                 dot_k_key: None,
                 notation: DescriptorKSequenceNotation::Comma,
                 items: vec![ProtocolRuleKSequenceItem {
@@ -1380,7 +1362,7 @@ fn simultaneous_k_and_map_update_is_structured() {
         "env",
         CellWrapper::Cell,
         ProtocolRuleStateTerm::Map(ProtocolRuleMap {
-            payload_key: Some(key(ProvenanceRole::RuleRightMapPayload, 0)),
+            payload_key: key(ProvenanceRole::RuleRightMapPayload, 0),
             body: ProtocolRuleMapBody::Update {
                 base_key: key(ProvenanceRole::RuleRightMapUpdateBase, 0),
                 base: rule_variable("right", 1, "E"),
@@ -1398,8 +1380,7 @@ fn simultaneous_k_and_map_update_is_structured() {
 }
 
 /// An empty `map![]` in a rule is a shell like any other: it defines its
-/// payload key, anchored at its invocation, and a shell without one is
-/// refused.
+/// payload key, anchored at its invocation.
 #[test]
 fn empty_rule_map_shell_has_its_payload_key() {
     let (_, mut rule) = var_configuration_rule();
@@ -1416,7 +1397,7 @@ fn empty_rule_map_shell_has_its_payload_key() {
         "env",
         CellWrapper::Cell,
         ProtocolRuleStateTerm::Map(ProtocolRuleMap {
-            payload_key: Some(key(ProvenanceRole::RuleRightMapPayload, 0)),
+            payload_key: key(ProvenanceRole::RuleRightMapPayload, 0),
             body: ProtocolRuleMapBody::Empty {
                 explicit_dot: false,
             },
@@ -1425,17 +1406,6 @@ fn empty_rule_map_shell_has_its_payload_key() {
     rule.validate(ItemKind::Rule).unwrap();
     let keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
     assert!(keys.contains(&key(ProvenanceRole::RuleRightMapPayload, 0)));
-
-    let ProtocolRuleStateTerm::Map(map) = &mut rule.result.as_mut().unwrap().cells[1].value else {
-        unreachable!()
-    };
-    map.payload_key = None;
-    assert_eq!(
-        rule.validate(ItemKind::Rule),
-        Err(StateTransportError::InvalidCellContent(
-            StateCellContentReason::MissingShellPayloadProvenance
-        ))
-    );
 }
 
 #[test]

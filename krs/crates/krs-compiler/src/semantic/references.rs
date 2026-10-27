@@ -31,23 +31,13 @@ fn validate_descriptor_references(
     match descriptor.payload() {
         DescriptorPayload::Sort(sort) => {
             for parent in &sort.parents {
-                declarations.sort(parent)?;
+                declarations.sort(&parent.sort)?;
             }
         }
         DescriptorPayload::Constructor(constructor) => {
             validate_sort_ref(&constructor.sort, declarations)?;
             for field in &constructor.fields {
-                let sort = field.sort.as_ref().ok_or_else(|| {
-                    DescriptorLoweringError::unsupported_shape(
-                        "constructor field",
-                        format!(
-                            "field {:?} on {} has no resolved sort",
-                            field.name,
-                            descriptor.id()
-                        ),
-                    )
-                })?;
-                validate_sort_ref(sort, declarations)?;
+                validate_sort_ref(&field.sort.sort, declarations)?;
             }
         }
         DescriptorPayload::Grammar(grammar) => {

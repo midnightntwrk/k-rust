@@ -488,3 +488,83 @@ fn sibling_cells_each_start_with_their_own_structure() {
         "{stderr}"
     );
 }
+
+/// A configuration whose cells, map values and list elements are `Int`s,
+/// so that a literal stands at each.
+const LITERALS: &str = r#"
+use k::builtin::{Id, Int, KSequence, List, Map, int, list};
+
+k::sorts! {
+    Stmt;
+}
+
+#[k::constructors(sort = Stmt, result = k::KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("skip")]
+    Skip(),
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map<Id, Int>,
+    #[k::cell]
+    pub stack: List<Int>,
+    #[k::cell]
+    pub acc: Int,
+    #[k::cell]
+    pub total: Int,
+}
+"#;
+
+/// An initializer for `LITERALS` with `stack`, `acc` and `total` as those
+/// cells' values.
+fn literal_initializer(stack: &str, acc: &str, total: &str) -> String {
+    format!(
+        "{LITERALS}impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt, n: Id) -> Self {{\n        Self {{\n            k: k::k![pgm],\n            env: k::map![n -> 1],\n            stack: {stack},\n            acc: {acc},\n            total: {total},\n        }}\n    }}\n}}\n"
+    )
+}
+
+/// Each literal of an initializer is a node of its own (N26): at a cell's
+/// root, in a map value, in a `list::item`, and nested in builtin calls, it
+/// is checked like any term, and a diagnostic about one lands on that
+/// literal, not on the term that holds it.
+#[test]
+fn initializer_literals_are_terms_of_their_own() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "literals",
+        &literal_initializer("list::item(2)", "3", "int::mul(int::add(1, 2), 4)"),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(success, "{stderr}");
+
+    let cases = [
+        ("call", "list::item(2)", "int::add(0, true)"),
+        ("item", "list::item(true)", "3"),
+    ];
+    for (name, stack, acc) in cases {
+        let manifest = package(
+            temporary.path(),
+            &format!("literals-{name}"),
+            &literal_initializer(stack, acc, "int::add(1, 2)"),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{name}: {stderr}");
+        let lines = stderr.lines().collect::<Vec<_>>();
+        let index = lines
+            .iter()
+            .position(|line| line.starts_with("error"))
+            .unwrap_or_else(|| panic!("{name}: {stderr}"));
+        // `--> path`, ` |`, `N | source`, ` |   ^^^`.
+        let source = lines[index + 3].split_once(" | ").unwrap().1;
+        let carets = lines[index + 4].split_once(" | ").unwrap().1;
+        let start = carets.find('^').unwrap();
+        let width = carets[start..].chars().take_while(|c| *c == '^').count();
+        assert_eq!(&source[start..start + width], "true", "{name}: {stderr}");
+    }
+}

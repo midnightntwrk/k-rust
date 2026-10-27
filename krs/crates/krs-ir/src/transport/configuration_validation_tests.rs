@@ -100,7 +100,7 @@ fn initializer_cell<S: Stage>(field: S::Cell) -> StageInitializerCell<S> {
             value: ProtocolInitializerStateTerm::Term(ProtocolInitializerTerm {
                 key: key(ProvenanceRole::InitializerTerm),
                 term: Term::Literal {
-                    key: key(ProvenanceRole::InitializerTerm),
+                    key: key(ProvenanceRole::InitializerTermLiteral),
                     literal: DescriptorLiteral::Int("1".into()),
                 },
             }),
@@ -455,7 +455,6 @@ fn initializer_term<S: ConfigurationValidationStage>(
         },
         &BTreeSet::new(),
         &mut WireKeys::default(),
-        None,
     )
 }
 
@@ -525,19 +524,21 @@ fn assert_initializer_context<S: ConfigurationValidationStage>() {
             StateTermReason::InitializerClaimTerm
         ))
     );
+    // A literal is a node of its own, keyed with its own role, not its
+    // term's (N26).
     assert_eq!(
         initializer_term::<S>(Term::Literal {
-            key: key(ProvenanceRole::InitializerTermPath),
-            literal: DescriptorLiteral::Int("-0".into()),
+            key: key(ProvenanceRole::InitializerTerm),
+            literal: DescriptorLiteral::Int("1".into()),
         }),
-        Err(StateTransportError::MismatchedProvenance {
-            expected: key(ProvenanceRole::InitializerTerm),
-            actual: key(ProvenanceRole::InitializerTermPath),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::InitializerTermLiteral,
+            actual: key(ProvenanceRole::InitializerTerm),
         })
     );
     assert_eq!(
         initializer_term::<S>(Term::Literal {
-            key: key(ProvenanceRole::InitializerTerm),
+            key: key(ProvenanceRole::InitializerTermLiteral),
             literal: DescriptorLiteral::Int("-0".into()),
         }),
         Err(StateTransportError::InvalidTerm(
@@ -648,7 +649,7 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
         key: ProvenanceKey::new(ProvenanceRole::InitializerRecordFieldName, ordinal),
         field: ProductionFieldId::new(name).unwrap(),
         value: Box::new(Term::Literal {
-            key: key(ProvenanceRole::InitializerTerm),
+            key: ProvenanceKey::new(ProvenanceRole::InitializerTermLiteral, ordinal),
             literal: DescriptorLiteral::Int("1".into()),
         }),
     };
@@ -667,6 +668,24 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
         Err(StateTransportError::DuplicateValue(
             TransportField::RuleApplicationRecordFields
         ))
+    );
+    // Each literal of a term is a node of its own (N26): two literals take
+    // two keys, and one key cannot name both.
+    let literal = |ordinal| TermArgument::Positional {
+        value: Box::new(Term::Literal {
+            key: ProvenanceKey::new(ProvenanceRole::InitializerTermLiteral, ordinal),
+            literal: DescriptorLiteral::Int("1".into()),
+        }),
+    };
+    assert_eq!(
+        initializer_term::<S>(application(vec![literal(0), literal(1)])),
+        Ok(())
+    );
+    assert_eq!(
+        initializer_term::<S>(application(vec![literal(0), literal(0)])),
+        Err(StateTransportError::DuplicateProvenance(key(
+            ProvenanceRole::InitializerTermLiteral
+        )))
     );
     assert!(matches!(
         crate::Arguments::<S>::try_from(vec![
@@ -783,23 +802,20 @@ fn cell_and_sibling_identities_preserve_owner_and_field_comparisons_on_both_stag
     assert_duplicate_nested_children::<HostStage>(host, &type_key::<Owner>());
 }
 
-/// A one-item `k!` shell whose payload, item, and term keys carry `ordinal`;
-/// the item's literal is keyed by the item.
+/// A one-item `k!` shell whose payload, item, term, and literal keys carry
+/// `ordinal`.
 fn k_sequence_shell(ordinal: u32) -> ProtocolInitializerStateTerm<Term<DescriptorStage>> {
     let item = ProvenanceKey::new(ProvenanceRole::KSequenceItem, ordinal);
     ProtocolInitializerStateTerm::KSequence(ProtocolKSequence {
-        payload_key: Some(ProvenanceKey::new(
-            ProvenanceRole::KSequencePayload,
-            ordinal,
-        )),
+        payload_key: ProvenanceKey::new(ProvenanceRole::KSequencePayload, ordinal),
         dot_k_key: None,
         notation: DescriptorKSequenceNotation::Comma,
         items: vec![ProtocolKSequenceItem {
-            key: item.clone(),
+            key: item,
             value: ProtocolInitializerTerm {
                 key: ProvenanceKey::new(ProvenanceRole::InitializerTerm, ordinal),
                 term: Term::Literal {
-                    key: item,
+                    key: ProvenanceKey::new(ProvenanceRole::InitializerTermLiteral, ordinal),
                     literal: DescriptorLiteral::Int("1".into()),
                 },
             },

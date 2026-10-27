@@ -25,7 +25,7 @@ use super::error::DescriptorLoweringError;
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{
     generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
-    semantic_origin_from_primary, shell_payload_key,
+    semantic_origin_from_primary,
 };
 use super::references::require_cell_field;
 
@@ -277,8 +277,8 @@ fn head_rule_typing(
         roots.extend(head.items.iter().map(|item| untyped(item, true)));
         match &head.result {
             Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => roots.push(untyped(term, false)),
-            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
-                roots.extend(items.iter().map(|item| untyped(item, false)));
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(splice)) => {
+                roots.extend(splice.terms().map(|item| untyped(item, false)));
             }
             Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
         }
@@ -437,7 +437,7 @@ pub(super) fn head_rule_terms(rule: &krs_ir::DescriptorHeadRule) -> Vec<&Descrip
         terms.extend(&head.items);
         match &head.result {
             Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => terms.push(term),
-            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => terms.extend(items),
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(splice)) => terms.extend(splice.terms()),
             Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
         }
     }
@@ -1116,8 +1116,8 @@ fn infer_head_rule(
                 Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
                     builder.infer(term, head_sort, false)?;
                 }
-                Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
-                    for term in items {
+                Some(krs_ir::ProtocolHeadRuleResult::Splice(splice)) => {
+                    for term in splice.terms() {
                         builder.infer(term, head_sort, false)?;
                     }
                 }
@@ -1274,7 +1274,7 @@ fn lower_head_rule_computation_clause(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
     head: &krs_ir::ProtocolHeadRuleHead<DescriptorTerm>,
-    computation: &DescriptorCellReference,
+    computation: &krs_ir::DescriptorComputationCell,
     head_sort: Option<&SemanticSortRef>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
@@ -1309,8 +1309,8 @@ fn lower_head_rule_computation_clause(
                 krs_ir::ProtocolHeadRuleResult::Replace(term) => {
                     vec![builder.lower(term, head_sort, false)?]
                 }
-                krs_ir::ProtocolHeadRuleResult::Splice(items) => items
-                    .iter()
+                krs_ir::ProtocolHeadRuleResult::Splice(splice) => splice
+                    .terms()
                     .map(|term| builder.lower(term, head_sort, false))
                     .collect::<Result<Vec<_>, _>>()?,
                 krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
@@ -1432,7 +1432,7 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
         match state {
             State::Term(term) | State::Group(term) => self.builder.lower(term, Some(sort), subject),
             State::KSequence(sequence) => {
-                let key = shell_payload_key(descriptor, sequence.payload_key.as_ref())?;
+                let key = &sequence.payload_key;
                 let range = key_range(descriptor, key);
                 if *sort != SemanticSortRef::k_sequence() {
                     return Err(DescriptorLoweringError::invalid_term(

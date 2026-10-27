@@ -1909,6 +1909,7 @@ impl StructuredTermBuilder<'_> {
             DescriptorTerm::Anonymous {
                 key,
                 sort,
+                spelling_key: _,
                 spelling,
             } => {
                 if !subject {
@@ -1930,6 +1931,7 @@ impl StructuredTermBuilder<'_> {
             }
             DescriptorTerm::Cell {
                 key,
+                path_key: _,
                 declaration,
                 fields,
                 open,

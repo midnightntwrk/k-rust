@@ -859,6 +859,7 @@ impl LongForm<'_, '_> {
                 fields,
                 open,
                 update,
+                ..
             } => {
                 let declared = record_fields(
                     &Record::Cell(declaration.clone()),
@@ -872,8 +873,7 @@ impl LongForm<'_, '_> {
                 for (field, value) in &mut values {
                     *value = self.term(value, self.child_record(alias, field, value))?;
                 }
-                let base = update.take();
-                self.fill(&declared, &mut values, alias, base.as_deref(), key)?;
+                self.fill(&declared, &mut values, alias, update.take().as_deref(), key)?;
                 if *open {
                     for field in &declared {
                         values
@@ -930,6 +930,7 @@ impl LongForm<'_, '_> {
         self.term(
             &DescriptorTerm::Cell {
                 key: key.clone(),
+                path_key: key.clone(),
                 declaration: group.clone(),
                 fields: Vec::new(),
                 open: false,
@@ -1097,8 +1098,8 @@ pub(crate) fn head_rule_long_form(
         }
         match &mut head.result {
             Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => *term = long(term)?,
-            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
-                for item in items {
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(splice)) => {
+                for item in splice.terms_mut() {
                     *item = long(item)?;
                 }
             }

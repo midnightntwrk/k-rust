@@ -1,11 +1,11 @@
 {
   "artifact_sha256": {
-    "definition-ir.json": "836cff5b2ab941b9bed2bdae2f6d4529256271e1ef713965479867b026cda83b",
+    "definition-ir.json": "8a0aee482d7e8e4f12cabc23ca852e8af7906a662246e9d53d24572b8cedad40",
     "definition.k": "1c1560612616be4a22f4a26de9049b0b99411d25d88d24ce855c0aa2d09609a8",
-    "descriptor-bundle.json": "35b648ca08817966d6b1b3d5a63e0f985bc58a104eb83ced779e4237d4a1aead",
-    "native-source.txt": "0b6e6cb4d79d7473868d299d1d723d079613904bd937a139a80ddac56e797e40",
-    "semantic-ir.json": "af2cf20d9ed9f2f51eab6557685f485d684595b97e89ae3df0406f15ba090e4c",
-    "sources.json": "57c8abc255efe225e078df5259401aa82a5ec023d5350f4917392c5f84cb1178",
+    "descriptor-bundle.json": "07aaf994e5fa0feca2fd8c64f088ceb2abd7232cba57d0d74b3ec503a33afa4d",
+    "native-source.txt": "1f6308c35f44ea65a6ddd27057167c11167ce16bfc0c3ebbef8e155362d51271",
+    "semantic-ir.json": "39d74d607d0905be3846d50bb46ad7efbe49369c62e4bd2ccedb59576f281d4f",
+    "sources.json": "b5a62fe3dac85850eb6319a4817eaec873c151436f5340c659eacef5ebb6263c",
     "symbols.json": "38c38528b5501ad91fca5b7183873eb97fb5bd73799a50de6fdabad0f1d1c38d",
     "spec.k": "46ad9636a91feb24b3c1b18752e64d36922f702322b3ae586c66a700b0fc6133"
   },
@@ -2053,7 +2053,7 @@
     "source-definitions": "a2f5a9f38cf1ff87621c99398597882706ed01a3c6ed4bf1aaec22a82d3d904d",
     "native-claims": "035d9a30ad829d26f3b9e9ca6ff4862807a3ee2fd8e93a68bbc70afd04f57ec2",
     "behavior": "a9a0a0977cbd403b51e7743f069fbef5178f9e4a0f77ca16f29049a5fa79e23c",
-    "proofs": "2d48c17e39c985356c8d39b6ad1e5ae07853be581e023a8d7e926052994cfb5a",
+    "proofs": "71a7a0e3d5b6f34428b7b3a0909851fca5dd0c967d4629628393ded8ef645514",
     "frontend-diagnostic": "ee14641253225485d5b3166c1d551ba1691a5ff8c38bfde7bd398baedabe7fd4"
   },
   "native_proof_divergences": {

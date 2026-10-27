@@ -764,6 +764,13 @@ fn emitted_kore_matches_the_reference_frontend() {
     println!(
         "lambda refutation equations the reference does not state dropped (N49): {refutations}"
     );
+    let selector_contracts = normalize_selector_contracts(&mut actual);
+    println!(
+        "selector domain and inverse axioms equal to the pair rebuilt from their projection's \
+         identity equation dropped (N51): {selector_contracts}"
+    );
+    let definedness = normalize_builtin_definedness_rules(&mut actual);
+    println!("definedness rules of the port's builtin domains.md dropped (N52): {definedness}");
     let lifted = lifted_cells_from_environment();
     let lifted_cells = normalize_lifted_cells(&reference, &mut actual, &lifted)
         .unwrap_or_else(|error| panic!("{error}"));
@@ -1990,6 +1997,447 @@ fn normalize_lambda_refutations(actual: &mut Definition) -> usize {
     dropped
 }
 
+/// N51: the free variable over `K` that the port's selector contracts quantify.
+const SELECTOR_INPUT: &str = "SelectorInput";
+
+/// N51: drop from the port's definition the selector domain and inverse of each compiler sort
+/// projection, the axioms marked `<id>.selector-domain` and `<id>.selector-inverse` beside the
+/// identity equation `project:S(E[V]) = V` whose UNIQUE'Unds'ID is `<id>`
+/// (docs/compatibility.md#semantic-casts-compute-nothing). The domain
+/// `\ceil(project:S(X)) = \exists V. X = E[V]` states the projection's exact domain, the image of
+/// the embedding `E`; the inverse `\ceil(project:S(X)) -> E[project:S(X)] = X` follows from it and
+/// the identity equation. A pair is dropped only when the identity equation is the one axiom of
+/// its module with id `<id>`, has exactly that shape over an embedding of `inj` and the
+/// `kseq`/`dotk` singleton alone, and both marked axioms are the only ones with their ids and
+/// equal the pair rebuilt from that equation, attributes included. A marked axiom that differs, a
+/// lone member, a pair without its equation and an unmarked copy stay compared, as does the
+/// identity equation. Returns the number of axioms dropped.
+fn normalize_selector_contracts(actual: &mut Definition) -> usize {
+    let mut dropped = 0;
+    for module in &mut actual.modules {
+        let ids = module
+            .sentences
+            .iter()
+            .map(|sentence| match sentence {
+                Sentence::Axiom { .. } => sentence_attribute(sentence, "UNIQUE'Unds'ID"),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let sole = |id: &str| {
+            let mut matches = (0..ids.len()).filter(|index| ids[*index].as_deref() == Some(id));
+            let index = matches.next()?;
+            matches.next().is_none().then_some(index)
+        };
+        let bases = ids
+            .iter()
+            .flatten()
+            .filter_map(|id| {
+                id.strip_suffix(".selector-domain")
+                    .or_else(|| id.strip_suffix(".selector-inverse"))
+            })
+            .collect::<BTreeSet<_>>();
+        let mut removed = BTreeSet::new();
+        for base in bases {
+            let domain_id = format!("{base}.selector-domain");
+            let inverse_id = format!("{base}.selector-inverse");
+            let (Some(forward), Some(domain), Some(inverse)) =
+                (sole(base), sole(&domain_id), sole(&inverse_id))
+            else {
+                continue;
+            };
+            let Sentence::Axiom {
+                parameters,
+                attributes,
+                ..
+            } = &module.sentences[forward]
+            else {
+                continue;
+            };
+            let Some([expected_domain, expected_inverse]) =
+                selector_identity_equation(&module.sentences[forward])
+                    .and_then(|equation| selector_contract_patterns(&equation))
+            else {
+                continue;
+            };
+            if selector_contract_matches(
+                &module.sentences[domain],
+                parameters,
+                &expected_domain,
+                &selector_contract_attributes(attributes, &domain_id),
+                false,
+            ) && selector_contract_matches(
+                &module.sentences[inverse],
+                parameters,
+                &expected_inverse,
+                &selector_contract_attributes(attributes, &inverse_id),
+                true,
+            ) {
+                removed.extend([domain, inverse]);
+            }
+        }
+        let mut index = 0;
+        module.sentences.retain(|_| {
+            let keep = !removed.contains(&index);
+            index += 1;
+            keep
+        });
+        dropped += removed.len();
+    }
+    dropped
+}
+
+/// N51: a compiler sort projection's identity equation `project:S(X) = V` over `X` bound to
+/// `E[V]`, and the axiom's one sort parameter, the sort of its predicates.
+struct SelectorIdentity<'a> {
+    predicate: Sort,
+    projection: &'a Symbol,
+    embedding: &'a Pattern,
+    value: &'a Variable,
+}
+
+/// N51: `forward` as `\implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortK{},R}(X:SortK{}, E),
+/// \top{R}())), \equals{S,R}(project:S(X), \and{S}(V:S, \top{S}())))`.
+fn selector_identity_equation(forward: &Sentence) -> Option<SelectorIdentity<'_>> {
+    let Sentence::Axiom {
+        parameters,
+        pattern,
+        ..
+    } = forward
+    else {
+        return None;
+    };
+    let (
+        [parameter],
+        Pattern::Implies {
+            sort: axiom_sort,
+            left,
+            right,
+        },
+    ) = (parameters.as_slice(), pattern.as_ref())
+    else {
+        return None;
+    };
+    let predicate = Sort::Variable(parameter.clone());
+    let (input, embedding) = selector_input_binding(left, &predicate)?;
+    let Pattern::Equals {
+        operand_sort: value_sort,
+        result_sort: equation_sort,
+        left: head,
+        right: result,
+    } = right.as_ref()
+    else {
+        return None;
+    };
+    let Pattern::Application {
+        symbol: projection,
+        arguments,
+    } = head.as_ref()
+    else {
+        return None;
+    };
+    let Pattern::And {
+        sort: result_sort,
+        arguments: result,
+    } = result.as_ref()
+    else {
+        return None;
+    };
+    let [Pattern::Variable(value), Pattern::Top { sort: unit_sort }] = result.as_slice() else {
+        return None;
+    };
+    let well_formed = *axiom_sort == predicate
+        && *equation_sort == predicate
+        && projection.name.starts_with("Lblproject'Coln'")
+        && projection.sort_parameters.is_empty()
+        && arguments.as_slice() == [Pattern::Variable(input.clone())]
+        && value.sort == **value_sort
+        && *result_sort == value.sort
+        && *unit_sort == value.sort;
+    well_formed.then_some(SelectorIdentity {
+        predicate,
+        projection,
+        embedding,
+        value,
+    })
+}
+
+/// N51: the variable `X` and its pattern `E` of the unconditional guard
+/// `\and{R}(\top{R}(), \and{R}(\in{SortK{},R}(X:SortK{}, E), \top{R}()))`.
+fn selector_input_binding<'a>(
+    guard: &'a Pattern,
+    predicate: &Sort,
+) -> Option<(&'a Variable, &'a Pattern)> {
+    let Pattern::And {
+        sort: guard_sort,
+        arguments: guard,
+    } = guard
+    else {
+        return None;
+    };
+    let [
+        Pattern::Top {
+            sort: requires_sort,
+        },
+        Pattern::And {
+            sort: conjunction_sort,
+            arguments: conjunction,
+        },
+    ] = guard.as_slice()
+    else {
+        return None;
+    };
+    let [
+        Pattern::In {
+            operand_sort,
+            result_sort: membership_sort,
+            left: input,
+            right: embedding,
+        },
+        Pattern::Top { sort: ensures_sort },
+    ] = conjunction.as_slice()
+    else {
+        return None;
+    };
+    let Pattern::Variable(input) = input.as_ref() else {
+        return None;
+    };
+    let well_formed = [
+        guard_sort,
+        requires_sort,
+        conjunction_sort,
+        membership_sort,
+        ensures_sort,
+    ]
+    .iter()
+    .all(|sort| *sort == predicate)
+        && **operand_sort == kore_sort("SortK")
+        && input.sort == kore_sort("SortK");
+    well_formed.then_some((input, embedding.as_ref()))
+}
+
+/// N51: the selector domain and inverse the port states for `equation`.
+fn selector_contract_patterns(equation: &SelectorIdentity<'_>) -> Option<[Pattern; 2]> {
+    let SelectorIdentity {
+        predicate,
+        projection,
+        embedding,
+        value,
+    } = equation;
+    let k = kore_sort("SortK");
+    let selector_input = Variable {
+        kind: k_rust::kore::ast::VariableKind::Element,
+        name: SELECTOR_INPUT.into(),
+        sort: k.clone(),
+    };
+    if **value == selector_input {
+        return None;
+    }
+    let application = Pattern::Application {
+        symbol: (*projection).clone(),
+        arguments: vec![Pattern::Variable(selector_input.clone())],
+    };
+    let reconstruction = reconstruct_selector_embedding(embedding, value, &application)?;
+    let ceil = Pattern::Ceil {
+        operand_sort: Box::new(value.sort.clone()),
+        result_sort: predicate.clone(),
+        argument: Box::new(application),
+    };
+    let domain = Pattern::Implies {
+        sort: predicate.clone(),
+        left: Box::new(Pattern::Top {
+            sort: predicate.clone(),
+        }),
+        right: Box::new(Pattern::Equals {
+            operand_sort: Box::new(predicate.clone()),
+            result_sort: predicate.clone(),
+            left: Box::new(ceil.clone()),
+            right: Box::new(Pattern::Exists {
+                sort: predicate.clone(),
+                variable: Box::new((*value).clone()),
+                body: Box::new(Pattern::Equals {
+                    operand_sort: Box::new(k.clone()),
+                    result_sort: predicate.clone(),
+                    left: Box::new(Pattern::Variable(selector_input.clone())),
+                    right: Box::new((*embedding).clone()),
+                }),
+            }),
+        }),
+    };
+    let inverse = Pattern::Implies {
+        sort: predicate.clone(),
+        left: Box::new(ceil),
+        right: Box::new(Pattern::Equals {
+            operand_sort: Box::new(k.clone()),
+            result_sort: predicate.clone(),
+            left: Box::new(reconstruction),
+            right: Box::new(Pattern::And {
+                sort: k.clone(),
+                arguments: vec![Pattern::Variable(selector_input), Pattern::Top { sort: k }],
+            }),
+        }),
+    };
+    Some([domain, inverse])
+}
+
+/// N51: `embedding` with its one occurrence of `value` replaced by `replacement`, when
+/// `embedding` wraps `value` only in `inj` and the `kseq`/`dotk` singleton.
+fn reconstruct_selector_embedding(
+    embedding: &Pattern,
+    value: &Variable,
+    replacement: &Pattern,
+) -> Option<Pattern> {
+    match embedding {
+        Pattern::Variable(variable) if variable == value => Some(replacement.clone()),
+        Pattern::Application { symbol, arguments }
+            if symbol.name == "inj" && symbol.sort_parameters.len() == 2 =>
+        {
+            let [inner] = arguments.as_slice() else {
+                return None;
+            };
+            Some(Pattern::Application {
+                symbol: symbol.clone(),
+                arguments: vec![reconstruct_selector_embedding(inner, value, replacement)?],
+            })
+        }
+        Pattern::Application { symbol, arguments }
+            if symbol.name == "kseq" && symbol.sort_parameters.is_empty() =>
+        {
+            let [inner, end] = arguments.as_slice() else {
+                return None;
+            };
+            if *end != kore_application("dotk", Vec::new()) {
+                return None;
+            }
+            Some(Pattern::Application {
+                symbol: symbol.clone(),
+                arguments: vec![
+                    reconstruct_selector_embedding(inner, value, replacement)?,
+                    end.clone(),
+                ],
+            })
+        }
+        _ => None,
+    }
+}
+
+/// N51: the identity equation's attributes with its UNIQUE'Unds'ID replaced by `id`.
+fn selector_contract_attributes(forward: &Attributes, id: &str) -> Vec<Pattern> {
+    forward
+        .0
+        .iter()
+        .map(|attribute| match attribute {
+            Pattern::Application { symbol, .. } if symbol.name == "UNIQUE'Unds'ID" => {
+                kore_application("UNIQUE'Unds'ID", vec![Pattern::String(id.into())])
+            }
+            attribute => attribute.clone(),
+        })
+        .collect()
+}
+
+/// N51: whether `sentence` is the axiom with exactly these parameters, pattern and attributes,
+/// plus one `simplification` without a priority when `simplification` is set.
+fn selector_contract_matches(
+    sentence: &Sentence,
+    expected_parameters: &[String],
+    expected_pattern: &Pattern,
+    expected_attributes: &[Pattern],
+    simplification: bool,
+) -> bool {
+    let Sentence::Axiom {
+        parameters,
+        pattern,
+        attributes,
+    } = sentence
+    else {
+        return false;
+    };
+    let mut attributes = attributes.0.clone();
+    if simplification {
+        let Some(position) = attributes.iter().position(unprioritized_simplification) else {
+            return false;
+        };
+        attributes.remove(position);
+    }
+    let mut expected_attributes = expected_attributes.to_vec();
+    attributes.sort();
+    expected_attributes.sort();
+    parameters == expected_parameters
+        && **pattern == *expected_pattern
+        && attributes == expected_attributes
+}
+
+/// N51, N52: `simplification{}()`, or `simplification{}("")` in a definition that gives some
+/// simplification a priority: the attribute without a priority.
+fn unprioritized_simplification(attribute: &Pattern) -> bool {
+    matches!(attribute, Pattern::Application { symbol, arguments }
+    if symbol.name == "simplification"
+        && symbol.sort_parameters.is_empty()
+        && match arguments.as_slice() {
+            [] => true,
+            [Pattern::String(priority)] => priority.is_empty(),
+            _ => false,
+        })
+}
+
+/// N52: the port's builtin `INT-SYMBOLIC-KORE` rule `#Ceil(@I1:Int divInt @I2:Int) =>
+/// {(@I2 =/=Int 0) #Equals true} #And #Ceil(@I1) #And #Ceil(@I2) [simplification]`.
+const DIV_INT_DEFINEDNESS: &str = r#"\implies{R}(\top{R}(), \equals{Q0,R}(\ceil{SortInt{},Q0}(Lbl'Unds'divInt'Unds'{}(@VarI1:SortInt{}, @VarI2:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{},Q0}(Lbl'UndsEqlsSlshEqls'Int'Unds'{}(@VarI2:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \ceil{SortInt{},Q0}(@VarI1:SortInt{})), \ceil{SortInt{},Q0}(@VarI2:SortInt{})), \top{Q0}())))"#;
+
+/// N52: the port's builtin `INT-SYMBOLIC-KORE` rule `#Ceil(bitRangeInt(@I:Int, @O:Int, @L:Int))
+/// => {(@O >=Int 0 andBool @L >=Int 0) #Equals true} #And #Ceil(@I) #And #Ceil(@O) #And
+/// #Ceil(@L) [simplification]`.
+const BIT_RANGE_INT_DEFINEDNESS: &str = r#"\implies{R}(\top{R}(), \equals{Q0,R}(\ceil{SortInt{},Q0}(LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(@VarI:SortInt{}, @VarO:SortInt{}, @VarL:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{},Q0}(Lbl'Unds'andBool'Unds'{}(Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarO:SortInt{}, \dv{SortInt{}}("0")), Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarL:SortInt{}, \dv{SortInt{}}("0"))), \dv{SortBool{}}("true")), \ceil{SortInt{},Q0}(@VarI:SortInt{})), \ceil{SortInt{},Q0}(@VarO:SortInt{})), \ceil{SortInt{},Q0}(@VarL:SortInt{})), \top{Q0}())))"#;
+
+/// N52: drop from the port's definition two definedness rules of its builtin `domains.md`.
+/// `#Ceil(bitRangeInt(I, O, L))` is entailed by the unconditional equation
+/// `bitRangeInt(I, O, L) = (I >>Int O) modInt (1 <<Int L)` and the definedness rules of `>>Int`,
+/// `<<Int` and `modInt`, since `1 <<Int L` is positive for `L >=Int 0`. `#Ceil(I1 divInt I2)`
+/// states that the quotient of a division by zero is no integer, the domain of the hooked partial
+/// operation, which the conditional equation of `divInt` leaves open at zero. An axiom is dropped
+/// only when its sort parameters and pattern are exactly one of the two rules, its source is
+/// `krust-builtin://domains.md`, it carries `simplification` without a priority, and its only
+/// other attributes are its identifier and location. Returns the number of axioms dropped.
+fn normalize_builtin_definedness_rules(actual: &mut Definition) -> usize {
+    let rules = [DIV_INT_DEFINEDNESS, BIT_RANGE_INT_DEFINEDNESS]
+        .map(|rule| parse_pattern(rule).expect("N52 rule parses"));
+    let source = kore_application(
+        "org'Stop'kframework'Stop'attributes'Stop'Source",
+        vec![Pattern::String("Source(krust-builtin://domains.md)".into())],
+    );
+    let mut dropped = 0;
+    for module in &mut actual.modules {
+        module.sentences.retain(|sentence| {
+            let Sentence::Axiom {
+                parameters,
+                pattern,
+                attributes,
+            } = sentence
+            else {
+                return true;
+            };
+            let rule = parameters.as_slice() == ["R", "Q0"]
+                && rules.iter().any(|rule| **pattern == *rule)
+                && attributes.0.contains(&source)
+                && attributes
+                    .0
+                    .iter()
+                    .filter(|attribute| unprioritized_simplification(attribute))
+                    .count()
+                    == 1
+                && attributes.0.iter().all(|attribute| {
+                    *attribute == source
+                        || unprioritized_simplification(attribute)
+                        || matches!(attribute, Pattern::Application { symbol, .. }
+                            if symbol.name == "UNIQUE'Unds'ID"
+                                || symbol.name == "org'Stop'kframework'Stop'attributes'Stop'Location")
+                });
+            dropped += usize::from(rule);
+            !rule
+        });
+    }
+    dropped
+}
+
 /// N45: one entry of a compile case's `lifted-cells` manifest key. The rule whose KORE axiom
 /// carries the label `rule` writes the cell `<cell>` inside a cell that the configuration does not
 /// place it under; the port compiles it into the instance of its configured parent that holds the
@@ -2975,6 +3423,113 @@ fn lambda_refutation_normalizer_drops_only_the_owise_bottom_equation_of_a_lambda
     let mut unchanged = definition(false);
     assert_eq!(normalize_lambda_refutations(&mut unchanged), 0);
     assert_eq!(unchanged, definition(false));
+}
+
+/// N51 fixtures: the identity equation of `project:Bool`, its selector domain and its inverse,
+/// and the pair of `project:K`, whose embedding is the value itself, with the valued spelling of
+/// `simplification`.
+const SELECTOR_EQUATION: &str = r#"axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortBool{}, SortKItem{}}(VarK:SortBool{}), dotk{}())), \top{R}())), \equals{SortBool{}, R}(Lblproject'Coln'Bool{}(X0:SortK{}), \and{SortBool{}}(VarK:SortBool{}, \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("b")]
+"#;
+const SELECTOR_DOMAIN: &str = r#"axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortBool{}, R}(Lblproject'Coln'Bool{}(SelectorInput:SortK{})), \exists{R}(VarK:SortBool{}, \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(inj{SortBool{}, SortKItem{}}(VarK:SortBool{}), dotk{}()))))) [UNIQUE'Unds'ID{}("b.selector-domain")]
+"#;
+const SELECTOR_INVERSE: &str = r#"axiom{R} \implies{R}(\ceil{SortBool{}, R}(Lblproject'Coln'Bool{}(SelectorInput:SortK{})), \equals{SortK{}, R}(kseq{}(inj{SortBool{}, SortKItem{}}(Lblproject'Coln'Bool{}(SelectorInput:SortK{})), dotk{}()), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("b.selector-inverse"), simplification{}()]
+"#;
+const K_SELECTOR_CONTRACTS: &str = r#"axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}())), \equals{SortK{}, R}(Lblproject'Coln'K{}(X0:SortK{}), \and{SortK{}}(VarK:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("k")]
+axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \exists{R}(VarK:SortK{}, \equals{SortK{}, R}(SelectorInput:SortK{}, VarK:SortK{})))) [UNIQUE'Unds'ID{}("k.selector-domain")]
+axiom{R} \implies{R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \equals{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{}), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("k.selector-inverse"), simplification{}("")]
+"#;
+
+fn test_module(sentences: &str) -> Definition {
+    parse_definition(&format!("[] module TEST {sentences} endmodule []")).unwrap()
+}
+
+/// N51 drops an exact selector domain and inverse pair and keeps its identity equation.
+#[test]
+fn selector_contract_normalizer_drops_exact_pairs_and_keeps_their_equations() {
+    let mut actual = test_module(&format!(
+        "{SELECTOR_EQUATION}{SELECTOR_DOMAIN}{SELECTOR_INVERSE}{K_SELECTOR_CONTRACTS}"
+    ));
+    assert_eq!(normalize_selector_contracts(&mut actual), 4);
+    let ids = actual.modules[0]
+        .sentences
+        .iter()
+        .filter_map(|sentence| sentence_attribute(sentence, "UNIQUE'Unds'ID"))
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["b", "k"]);
+}
+
+/// N51 keeps a marked axiom that is not the pair rebuilt from its identity equation, a lone
+/// member, a pair without its equation or with a conditional one, an ambiguous pair and an
+/// unmarked copy.
+#[test]
+fn selector_contract_normalizer_keeps_axioms_it_cannot_rebuild_exactly() {
+    let unchanged = |sentences: &str| {
+        let mut actual = test_module(sentences);
+        assert_eq!(normalize_selector_contracts(&mut actual), 0, "{sentences}");
+        assert_eq!(actual, test_module(sentences));
+    };
+    let altered = SELECTOR_DOMAIN.replace(
+        r"(SelectorInput:SortK{}, kseq{}(inj{SortBool{}, SortKItem{}}(VarK:SortBool{}), dotk{}()))",
+        r"(SelectorInput:SortK{}, kseq{}(inj{SortBool{}, SortKItem{}}(VarK:SortBool{}), SelectorInput:SortK{}))",
+    );
+    assert_ne!(altered, SELECTOR_DOMAIN);
+    unchanged(&format!("{SELECTOR_EQUATION}{altered}{SELECTOR_INVERSE}"));
+    unchanged(&format!(
+        "{SELECTOR_EQUATION}{SELECTOR_DOMAIN}{}",
+        SELECTOR_INVERSE.replace(", simplification{}()", "")
+    ));
+    unchanged(&format!(
+        "{SELECTOR_EQUATION}{SELECTOR_DOMAIN}{}",
+        SELECTOR_INVERSE.replace("simplification{}()", r#"simplification{}("40")"#)
+    ));
+    unchanged(&format!("{SELECTOR_EQUATION}{SELECTOR_DOMAIN}"));
+    unchanged(&format!("{SELECTOR_DOMAIN}{SELECTOR_INVERSE}"));
+    unchanged(&format!(
+        "{}{SELECTOR_DOMAIN}{SELECTOR_INVERSE}",
+        SELECTOR_EQUATION.replacen(r"\and{R}(\top{R}(),", r"\and{R}(\bottom{R}(),", 1)
+    ));
+    unchanged(&format!(
+        "{SELECTOR_EQUATION}{SELECTOR_DOMAIN}{SELECTOR_DOMAIN}{SELECTOR_INVERSE}"
+    ));
+    unchanged(&format!(
+        "{SELECTOR_EQUATION}{}{}",
+        SELECTOR_DOMAIN.replace("b.selector-domain", "copy"),
+        SELECTOR_INVERSE.replace("b.selector-inverse", "b.inverse")
+    ));
+}
+
+/// N52 fixtures: the two builtin definedness rules as the port emits them.
+const DIV_INT_RULE: &str = r#"axiom{R, Q0} \implies{R}(\top{R}(), \equals{Q0, R}(\ceil{SortInt{}, Q0}(Lbl'Unds'divInt'Unds'{}(@VarI1:SortInt{}, @VarI2:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{}, Q0}(Lbl'UndsEqlsSlshEqls'Int'Unds'{}(@VarI2:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \ceil{SortInt{}, Q0}(@VarI1:SortInt{})), \ceil{SortInt{}, Q0}(@VarI2:SortInt{})), \top{Q0}()))) [UNIQUE'Unds'ID{}("d"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1395,3,1395,119)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(krust-builtin://domains.md)"), simplification{}("")]
+"#;
+const BIT_RANGE_INT_RULE: &str = r#"axiom{R, Q0} \implies{R}(\top{R}(), \equals{Q0, R}(\ceil{SortInt{}, Q0}(LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(@VarI:SortInt{}, @VarO:SortInt{}, @VarL:SortInt{})), \and{Q0}(\and{Q0}(\and{Q0}(\and{Q0}(\equals{SortBool{}, Q0}(Lbl'Unds'andBool'Unds'{}(Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarO:SortInt{}, \dv{SortInt{}}("0")), Lbl'Unds-GT-Eqls'Int'Unds'{}(@VarL:SortInt{}, \dv{SortInt{}}("0"))), \dv{SortBool{}}("true")), \ceil{SortInt{}, Q0}(@VarI:SortInt{})), \ceil{SortInt{}, Q0}(@VarO:SortInt{})), \ceil{SortInt{}, Q0}(@VarL:SortInt{})), \top{Q0}()))) [UNIQUE'Unds'ID{}("r"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(krust-builtin://domains.md)"), simplification{}()]
+"#;
+
+/// N52 drops exactly the two builtin rules, and nothing that differs from them in its pattern,
+/// sort parameters, source or attributes.
+#[test]
+fn builtin_definedness_normalizer_drops_only_the_exact_builtin_rules() {
+    let mut actual = test_module(&format!("{DIV_INT_RULE}{BIT_RANGE_INT_RULE}"));
+    assert_eq!(normalize_builtin_definedness_rules(&mut actual), 2);
+    assert!(actual.modules[0].sentences.is_empty());
+    for changed in [
+        DIV_INT_RULE.replace(r#"\dv{SortInt{}}("0")"#, r#"\dv{SortInt{}}("1")"#),
+        DIV_INT_RULE.replace("krust-builtin://domains.md", "imp.k"),
+        DIV_INT_RULE.replace(
+            r#"org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(krust-builtin://domains.md)"), "#,
+            "",
+        ),
+        DIV_INT_RULE.replace(r#"simplification{}("")"#, r#"simplification{}("40")"#),
+        DIV_INT_RULE.replace(
+            r#"simplification{}("")"#,
+            r#"simplification{}(""), concrete{}()"#,
+        ),
+        DIV_INT_RULE.replace("axiom{R, Q0}", "axiom{Q0, R}"),
+    ] {
+        assert_ne!(changed, DIV_INT_RULE);
+        let mut actual = test_module(&changed);
+        assert_eq!(normalize_builtin_definedness_rules(&mut actual), 0, "{changed}");
+        assert_eq!(actual, test_module(&changed));
+    }
 }
 
 /// N45 fixtures: the configuration `<generatedTop> <k/> <frame/> <stack/> </generatedTop>` and

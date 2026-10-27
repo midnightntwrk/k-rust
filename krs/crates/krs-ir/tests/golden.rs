@@ -6,10 +6,10 @@ use krs_ir::testing::{assert_canonical_contract, authored, item};
 use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, DescriptorProvenanceError, DescriptorSortRef, ExplicitSymbol,
-    IdentityError, ItemKind, OriginFrame, OriginStack, OriginStackError, ProvenanceKey,
-    ProvenanceRole, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor, StableItemId,
-    TransformationOriginKind,
+    DescriptorProvenance, DescriptorProvenanceError, DescriptorSortParent, DescriptorSortRef,
+    DescriptorSortReference, ExplicitSymbol, IdentityError, ItemKind, OriginFrame, OriginStack,
+    OriginStackError, ProvenanceKey, ProvenanceRole, RangedOriginKind, RustVisibility,
+    SchemaVersion, SortDescriptor, StableItemId, TransformationOriginKind,
 };
 use krs_test_support::{assert_rejects, assert_rejects_with_message};
 use serde::Serialize;
@@ -22,7 +22,7 @@ fn origin() -> OriginStack {
 fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
     let role = match id.item_kind() {
         ItemKind::Sort => ProvenanceRole::SortDeclaration,
-        ItemKind::Constructor => ProvenanceRole::ConstructorDeclaration,
+        ItemKind::Constructor => ProvenanceRole::ConstructorSort,
         ItemKind::Configuration | ItemKind::Cell => ProvenanceRole::ConfigurationDeclaration,
         ItemKind::Grammar
         | ItemKind::Rule
@@ -36,12 +36,21 @@ fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
         ItemKind::Constant => ProvenanceRole::ConstantDeclaration,
     };
     let primary_key = ProvenanceKey::new(role, 0);
+    // A sort's and a constructor's other nodes, each with an origin of its
+    // own.
+    let others = krs_ir::testing::declaration_keys(&payload)
+        .into_iter()
+        .filter(|key| *key != primary_key)
+        .map(|key| DescriptorNodeOrigin::new(key, authored(4, 7)))
+        .collect::<Vec<_>>();
     krs_ir::testing::descriptor(
         id,
         BTreeMap::new(),
         DescriptorProvenance::new(
             primary_key.clone(),
-            vec![DescriptorNodeOrigin::new(primary_key, origin())],
+            std::iter::once(DescriptorNodeOrigin::new(primary_key, origin()))
+                .chain(others)
+                .collect(),
         )
         .unwrap(),
         payload,
@@ -57,7 +66,10 @@ fn populated_bundle() -> DescriptorBundle {
     let sort = descriptor(
         value.clone(),
         DescriptorPayload::Sort(SortDescriptor {
-            parents: BTreeSet::from([k_item.clone()]),
+            parents: BTreeSet::from([DescriptorSortParent {
+                sort: k_item.clone(),
+                key: ProvenanceRole::SortParent.key(0),
+            }]),
         }),
     );
     let constructor = descriptor(
@@ -67,7 +79,10 @@ fn populated_bundle() -> DescriptorBundle {
             sort: DescriptorSortRef::Declared(value.clone()),
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".into(),
-                sort: Some(DescriptorSortRef::Declared(k_item)),
+                sort: DescriptorSortReference {
+                    key: ProvenanceRole::ConstructorFieldSort.key(0),
+                    sort: DescriptorSortRef::Declared(k_item),
+                },
                 arguments: Vec::new(),
             }],
             arguments: Vec::new(),
@@ -393,11 +408,7 @@ fn bundles_reject_duplicate_identities_even_when_payloads_differ() {
     let mut descriptors = bundle.descriptors().to_vec();
     let mut alternate = krs_ir::testing::DescriptorInputs::from(descriptors[0].clone());
     if let DescriptorPayload::Constructor(constructor) = &mut alternate.payload {
-        constructor.fields.push(ConstructorFieldDescriptor {
-            name: "alternate".into(),
-            sort: None,
-            arguments: Vec::new(),
-        });
+        constructor.sort = DescriptorSortRef::Builtin(krs_ir::BuiltinSort::Int);
     }
     descriptors.push(alternate.build().unwrap());
     let expected =
@@ -419,8 +430,9 @@ fn bundles_reject_duplicate_identities_even_when_payloads_differ() {
 
 #[test]
 fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
-    let primary_key = ProvenanceKey::new(ProvenanceRole::ConstructorDeclaration, 0);
-    let nested_key = ProvenanceKey::new(ProvenanceRole::ConstructorFieldDeclaration, 0);
+    // `Foo`'s sort reference and its field's sort.
+    let primary_key = ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0);
+    let nested_key = ProvenanceKey::new(ProvenanceRole::ConstructorFieldSort, 0);
     let mut descriptors = populated_bundle()
         .descriptors()
         .iter()
@@ -429,7 +441,7 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
         .collect::<Vec<_>>();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| descriptor.id.item_kind() == ItemKind::Constructor)
+        .find(|descriptor| descriptor.id.item_name() == "Foo")
         .unwrap();
     descriptor.provenance = DescriptorProvenance::new(
         primary_key.clone(),
@@ -450,7 +462,7 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
         .collect::<Vec<_>>();
     ordered_descriptors
         .iter_mut()
-        .find(|descriptor| descriptor.id.item_kind() == ItemKind::Constructor)
+        .find(|descriptor| descriptor.id.item_name() == "Foo")
         .unwrap()
         .provenance = DescriptorProvenance::new(
         primary_key.clone(),
@@ -469,7 +481,7 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     let descriptor = forward
         .descriptors()
         .iter()
-        .find(|descriptor| descriptor.id().item_kind() == ItemKind::Constructor)
+        .find(|descriptor| descriptor.id().item_name() == "Foo")
         .unwrap();
     assert_eq!(descriptor.provenance().primary_key(), &primary_key);
     assert_eq!(
@@ -482,15 +494,12 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     let constructor = round_trip
         .descriptors()
         .iter()
-        .find(|descriptor| descriptor.id().item_kind() == ItemKind::Constructor)
+        .find(|descriptor| descriptor.id().item_name() == "Foo")
         .unwrap();
     assert!(
         constructor
             .provenance()
-            .origin_for(&ProvenanceKey::new(
-                ProvenanceRole::ConstructorFieldDeclaration,
-                0
-            ))
+            .origin_for(&ProvenanceKey::new(ProvenanceRole::ConstructorFieldSort, 0))
             .is_some(),
         "an exact nested parser-keyed origin survives a round trip"
     );
@@ -600,5 +609,107 @@ fn transformation_frame_cannot_begin_an_origin_stack() {
     assert_rejects_with_message(
         serde_json::from_str::<OriginStack>(json),
         OriginStackError::FirstFrameNotAuthored,
+    );
+}
+
+/// A sort and a constructor read from a bundle are closed over their
+/// anchors as every other descriptor is: a sort's are its declaration and
+/// one parent reference per entry, a constructor's its sort reference (its
+/// primary node), its fields' sorts and their element types.
+#[test]
+fn sorts_and_constructors_are_closed_over_their_anchors() {
+    use krs_ir::{DescriptorError, GrammarTransportError};
+    let inputs = |name: &str| {
+        let descriptor = populated_bundle()
+            .descriptors()
+            .iter()
+            .find(|descriptor| descriptor.id().item_name() == name)
+            .unwrap()
+            .clone();
+        krs_ir::testing::DescriptorInputs::from(descriptor)
+    };
+    let with_origins = |inputs: &krs_ir::testing::DescriptorInputs, keys: &[ProvenanceKey]| {
+        let mut inputs = inputs.clone();
+        inputs.provenance = DescriptorProvenance::new(
+            inputs.provenance.primary_key().clone(),
+            keys.iter()
+                .map(|key| DescriptorNodeOrigin::new(key.clone(), origin()))
+                .collect(),
+        )
+        .unwrap();
+        inputs.build()
+    };
+    let grammar = |error| Err(DescriptorError::Grammar(error));
+    let declaration = ProvenanceRole::SortDeclaration.key(0);
+    let parent = ProvenanceRole::SortParent.key(0);
+
+    let value = inputs("Value");
+    assert!(with_origins(&value, &[declaration.clone(), parent.clone()]).is_ok());
+    assert_eq!(
+        with_origins(&value, std::slice::from_ref(&declaration)),
+        grammar(GrammarTransportError::MissingProvenance(parent.clone()))
+    );
+    let second = ProvenanceRole::SortParent.key(1);
+    assert_eq!(
+        with_origins(
+            &value,
+            &[declaration.clone(), parent.clone(), second.clone()]
+        ),
+        grammar(GrammarTransportError::ExtraProvenance(second))
+    );
+    // Two parent references hold one key: two nodes define it.
+    let mut repeated = value.clone();
+    if let DescriptorPayload::Sort(sort) = &mut repeated.payload {
+        sort.parents.insert(DescriptorSortParent {
+            sort: item("syntax", "Value", ItemKind::Sort),
+            key: parent.clone(),
+        });
+    }
+    assert_eq!(
+        repeated.build(),
+        grammar(GrammarTransportError::DuplicateProvenance(parent))
+    );
+
+    let sort = ProvenanceRole::ConstructorSort.key(0);
+    let field = ProvenanceRole::ConstructorFieldSort.key(0);
+    let foo = inputs("Foo");
+    assert!(with_origins(&foo, &[sort.clone(), field.clone()]).is_ok());
+    // The production's declaration is its grammar descriptor's node.
+    let name = ProvenanceRole::ConstructorDeclaration.key(0);
+    assert_eq!(
+        with_origins(&foo, &[sort.clone(), field.clone(), name.clone()]),
+        grammar(GrammarTransportError::ExtraProvenance(name))
+    );
+    assert_eq!(
+        with_origins(&foo, std::slice::from_ref(&sort)),
+        grammar(GrammarTransportError::MissingProvenance(field.clone()))
+    );
+    let mut mistyped = foo.clone();
+    if let DescriptorPayload::Constructor(constructor) = &mut mistyped.payload {
+        constructor.fields[0].sort.key = ProvenanceRole::ConstructorSortArgument.key(0);
+    }
+    assert_eq!(
+        mistyped.build(),
+        grammar(GrammarTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::ConstructorFieldSort,
+            actual: ProvenanceRole::ConstructorSortArgument.key(0),
+        })
+    );
+    // The primary node is the sort reference.
+    let mut primary = foo;
+    primary.provenance = DescriptorProvenance::new(
+        field.clone(),
+        [sort.clone(), field.clone()]
+            .into_iter()
+            .map(|key| DescriptorNodeOrigin::new(key, origin()))
+            .collect(),
+    )
+    .unwrap();
+    assert_eq!(
+        primary.build(),
+        grammar(GrammarTransportError::MismatchedProvenance {
+            expected: sort,
+            actual: field,
+        })
     );
 }

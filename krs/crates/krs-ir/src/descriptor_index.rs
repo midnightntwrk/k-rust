@@ -309,6 +309,18 @@ mod tests {
 
     fn descriptor(name: &str, kind: ItemKind, payload: DescriptorPayload) -> Descriptor {
         let id = item("lookup", name, kind);
+        // A rule's declaration is its primary node, and a constructor's its
+        // sort reference.
+        let primary = match &payload {
+            DescriptorPayload::HeadRule(_) => {
+                ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0)
+            }
+            DescriptorPayload::Sort(_) => ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0),
+            DescriptorPayload::Constructor(_) => {
+                ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0)
+            }
+            _ => key(),
+        };
         let keys = match &payload {
             DescriptorPayload::FixedConfiguration(configuration) => {
                 configuration.expected_provenance_keys(&id).unwrap()
@@ -317,21 +329,27 @@ mod tests {
                 declaration.expected_provenance_keys(&id).unwrap()
             }
             DescriptorPayload::HeadRule(_) => [
-                key(),
                 ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0),
                 head_key(ProvenanceRole::RulePattern),
                 head_key(ProvenanceRole::RuleResult),
+                head_key(ProvenanceRole::RuleType),
+                head_key(ProvenanceRole::RuleResultType),
+                head_key(ProvenanceRole::RuleLeftCellsField),
+                head_key(ProvenanceRole::RuleRightCellsField),
                 head_key(ProvenanceRole::RuleLeftReference),
                 head_key(ProvenanceRole::RuleLeftPath),
             ]
             .into(),
+            DescriptorPayload::Sort(_) | DescriptorPayload::Constructor(_) => {
+                crate::testing::declaration_keys(&payload)
+            }
             _ => [key()].into(),
         };
         crate::testing::descriptor(
             id,
             BTreeMap::new(),
             DescriptorProvenance::new(
-                key(),
+                primary,
                 keys.into_iter()
                     .map(|key| DescriptorNodeOrigin::new(key, authored(0, 3)))
                     .collect(),
@@ -350,11 +368,10 @@ mod tests {
                 sort: DescriptorSortRef::Declared(item("lookup", "Sort", ItemKind::Sort)),
                 fields: vec![ConstructorFieldDescriptor {
                     name: "field".into(),
-                    sort: Some(DescriptorSortRef::Declared(item(
-                        "lookup",
-                        "Sort",
-                        ItemKind::Sort,
-                    ))),
+                    sort: DescriptorSortReference {
+                        key: ProvenanceRole::ConstructorFieldSort.key(0),
+                        sort: DescriptorSortRef::Declared(item("lookup", "Sort", ItemKind::Sort)),
+                    },
                     arguments: Vec::new(),
                 }],
                 arguments: Vec::new(),
@@ -380,12 +397,15 @@ mod tests {
                 result_key: head_key(ProvenanceRole::RuleResult),
                 head_sort: None,
                 configuration: configuration.clone(),
-                computation_cell: Some(DescriptorCellReference {
-                    key: head_key(ProvenanceRole::RulePattern),
+                configuration_key: Some(head_key(ProvenanceRole::RuleType)),
+                result_type_key: head_key(ProvenanceRole::RuleResultType),
+                computation_cell: Some(crate::DescriptorComputationCell {
                     cell: DescriptorCellIdentity {
                         owner: configuration,
                         field: "k".into(),
                     },
+                    key: Some(head_key(ProvenanceRole::RuleLeftCellsField)),
+                    result_key: Some(head_key(ProvenanceRole::RuleRightCellsField)),
                 }),
                 bindings: Vec::new(),
                 head: Some(crate::ProtocolHeadRuleHead {
@@ -446,9 +466,16 @@ mod tests {
 
     #[test]
     fn constructor_and_deserialization_reject_payload_kind_mismatch() {
-        let descriptor = constructor("Constructor");
-        let mut inputs = crate::testing::DescriptorInputs::from(descriptor);
-        inputs.payload = DescriptorPayload::Sort(SortDescriptor::default());
+        let mut inputs = crate::testing::DescriptorInputs::from(constructor("Constructor"));
+        // A well-formed sort, provenance and payload, under a constructor's
+        // identity.
+        let sort = descriptor(
+            "Sort",
+            ItemKind::Sort,
+            DescriptorPayload::Sort(SortDescriptor::default()),
+        );
+        inputs.provenance = sort.provenance().clone();
+        inputs.payload = sort.payload().clone();
         let error = crate::DescriptorError::WrongKind {
             id: Box::new(inputs.id.clone()),
             expected: ItemKind::Sort,
@@ -560,10 +587,7 @@ mod tests {
                             ),
                             wrapper: CellWrapper::Cell,
                             value: ProtocolInitializerStateTerm::Map(ProtocolMap {
-                                payload_key: Some(ProvenanceKey::new(
-                                    ProvenanceRole::MapPayload,
-                                    0,
-                                )),
+                                payload_key: ProvenanceKey::new(ProvenanceRole::MapPayload, 0),
                                 body: ProtocolMapBody::Empty {
                                     explicit_dot: false,
                                 },

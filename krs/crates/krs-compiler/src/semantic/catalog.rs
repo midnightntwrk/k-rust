@@ -49,7 +49,11 @@ pub(super) fn build_semantic_sort_parents(
                 parents
                     .entry(SemanticSortRef::Declared(descriptor.id().clone()))
                     .or_default()
-                    .extend(sort.parents.iter().cloned().map(SemanticSortRef::Declared));
+                    .extend(
+                        sort.parents
+                            .iter()
+                            .map(|parent| SemanticSortRef::Declared(parent.sort.clone())),
+                    );
             }
             DescriptorPayload::Grammar(grammar) => {
                 if let GrammarDescriptor::Subsort {

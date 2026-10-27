@@ -981,13 +981,7 @@ fn materialize_reference_variant_fields(
                         variant: output.ident.to_string(),
                         field: name.to_string(),
                     })?;
-                let sort = descriptor_field.sort.as_ref().ok_or_else(|| {
-                    ReferenceExpansionError::MissingConstructorFieldSort {
-                        family: family.to_string(),
-                        variant: output.ident.to_string(),
-                        field: name.to_string(),
-                    }
-                })?;
+                let sort = &descriptor_field.sort.sort;
                 let ty = if descriptor_field.arguments.is_empty() {
                     render_reference_term_type(sort, package, module_path, bundle)?
                 } else {
@@ -1948,8 +1942,8 @@ fn render_rule(
                 ProtocolHeadRuleResult::Replace(term) => {
                     vec![render_term(term, false, package, bundle)?]
                 }
-                ProtocolHeadRuleResult::Splice(items) => items
-                    .iter()
+                ProtocolHeadRuleResult::Splice(splice) => splice
+                    .terms()
                     .map(|term| render_term(term, false, package, bundle))
                     .collect::<Result<Vec<_>, _>>()?,
                 ProtocolHeadRuleResult::Erase => Vec::new(),
@@ -3560,15 +3554,6 @@ pub enum ReferenceExpansionError {
         /// Rust field.
         field: String,
     },
-    /// Collection did not resolve a constructor field sort.
-    MissingConstructorFieldSort {
-        /// Rust enum family.
-        family: String,
-        /// Rust variant.
-        variant: String,
-        /// Rust field.
-        field: String,
-    },
     /// Semantic lowering omitted a collected rule.
     MissingSemanticRule(Box<StableItemId>),
     /// Inference did not produce a type for a readable binder.
@@ -3640,9 +3625,6 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::ConstructorCoverage { .. } => codes::reference::CONSTRUCTOR_COVERAGE,
             Self::ConstructorFieldCoverage { .. } => codes::reference::CONSTRUCTOR_FIELD_COVERAGE,
             Self::MissingConstructorField { .. } => codes::reference::MISSING_CONSTRUCTOR_FIELD,
-            Self::MissingConstructorFieldSort { .. } => {
-                codes::reference::MISSING_CONSTRUCTOR_FIELD_SORT
-            }
             Self::MissingSemanticRule(_) => codes::reference::MISSING_SEMANTIC_RULE,
             Self::MissingBindingSort { .. } => codes::reference::MISSING_BINDING_SORT,
             Self::ExternalDeclaration(_) => codes::reference::EXTERNAL_DECLARATION,
@@ -3701,14 +3683,6 @@ impl fmt::Display for ReferenceExpansionError {
             } => write!(
                 formatter,
                 "readable enum field `{family}::{variant}.{field}` is absent from its collected constructor"
-            ),
-            Self::MissingConstructorFieldSort {
-                family,
-                variant,
-                field,
-            } => write!(
-                formatter,
-                "readable enum field `{family}::{variant}.{field}` has no collected sort"
             ),
             Self::MissingSemanticRule(id) => {
                 write!(formatter, "collected rule {id} is absent from semantic IR")
@@ -3776,7 +3750,6 @@ impl Error for ReferenceExpansionError {
             | Self::ConstructorCoverage { .. }
             | Self::ConstructorFieldCoverage { .. }
             | Self::MissingConstructorField { .. }
-            | Self::MissingConstructorFieldSort { .. }
             | Self::MissingSemanticRule(_)
             | Self::MissingBindingSort { .. }
             | Self::ExternalDeclaration(_)

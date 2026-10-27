@@ -745,18 +745,24 @@ fn constructor_accepts_required_sort_and_optional_template_in_any_order() {
     assert_eq!(parsed.syntax.as_ref().unwrap().value(), "{lhs} + {rhs}");
     assert_eq!(parsed.sort.segments.last().unwrap().ident, "Expr");
 
-    let anchors = parsed.provenance().unwrap();
-    assert_eq!(anchors.len(), 2);
+    // The sort and the syntax come first, then the template's items.
+    let anchors = parsed.full_provenance().unwrap();
+    assert_eq!(anchors.len(), 7);
     assert_eq!(anchors[0].role(), ProvenanceRole::ConstructorSort);
     assert_eq!(anchors[0].key().role(), ProvenanceRole::ConstructorSort);
     assert_eq!(anchors[1].role(), ProvenanceRole::ConstructorSyntax);
+    // The constructor descriptor denotes the sort alone; the syntax is the
+    // grammar descriptor's.
+    let sort = parsed.sort_provenance().unwrap();
+    assert_eq!(sort.len(), 1);
+    assert_eq!(sort[0].key(), anchors[0].key());
 }
 
 #[test]
 fn constructor_syntax_is_optional() {
     let parsed = krs_syntax::ConstructorAttribute::parse_source("sort = Value").unwrap();
     assert!(parsed.syntax.is_none());
-    assert_eq!(parsed.provenance().unwrap().len(), 1);
+    assert_eq!(parsed.full_provenance().unwrap().len(), 1);
 }
 
 #[test]

@@ -107,7 +107,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
         })
         .unwrap();
     rule.subject.cells[1].value = ProtocolRuleStateTerm::Map(ProtocolRuleMap {
-        payload_key: Some(key(ProvenanceRole::RuleLeftMapPayload, 0)),
+        payload_key: key(ProvenanceRole::RuleLeftMapPayload, 0),
         body: ProtocolRuleMapBody::Empty { explicit_dot: true },
     });
     let ProtocolRuleStateTerm::KSequence(result_k) =
@@ -124,7 +124,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
         "env",
         CellWrapper::Cell,
         ProtocolRuleStateTerm::Map(ProtocolRuleMap {
-            payload_key: Some(key(ProvenanceRole::RuleRightMapPayload, 0)),
+            payload_key: key(ProvenanceRole::RuleRightMapPayload, 0),
             body: ProtocolRuleMapBody::Items {
                 items: vec![ProtocolRuleMapItem {
                     key_key: key(ProvenanceRole::RuleRightMapKey, 0),
@@ -190,7 +190,7 @@ fn an_empty_map_in_a_non_map_rule_cell_is_reported_at_its_spelling() {
             }
             DescriptorPayload::ConfigurationRule(rule) => {
                 rule.subject.cells[1].value = ProtocolRuleStateTerm::Map(ProtocolRuleMap {
-                    payload_key: Some(key(ProvenanceRole::RuleLeftMapPayload, 0)),
+                    payload_key: key(ProvenanceRole::RuleLeftMapPayload, 0),
                     body: ProtocolRuleMapBody::Empty {
                         explicit_dot: false,
                     },
@@ -366,7 +366,10 @@ fn descriptor_lookup_errors_preserve_kind_messages_and_missing_ids() {
         bundle.descriptors.push(descriptor(
             id("Referrer", ItemKind::Sort),
             DescriptorPayload::Sort(SortDescriptor {
-                parents: BTreeSet::from([reference.clone()]),
+                parents: BTreeSet::from([krs_ir::DescriptorSortParent {
+                    sort: reference.clone(),
+                    key: ProvenanceRole::SortParent.key(0),
+                }]),
             }),
         ));
         let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
@@ -415,7 +418,10 @@ fn duplicate_descriptor_precedes_dangling_reference_validation() {
     let referrer = descriptor(
         duplicate_id.clone(),
         DescriptorPayload::Sort(SortDescriptor {
-            parents: BTreeSet::from([id("Missing", ItemKind::Sort)]),
+            parents: BTreeSet::from([krs_ir::DescriptorSortParent {
+                sort: id("Missing", ItemKind::Sort),
+                key: ProvenanceRole::SortParent.key(0),
+            }]),
         }),
     );
     bundle.descriptors.push(referrer.clone());

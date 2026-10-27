@@ -171,25 +171,34 @@ fn a_bracket_that_reads_both_ways_carries_its_list_reading() {
     assert_eq!(before.front().len(), 1);
     assert!(matches!(before.front()[0].rest(), InstanceRest::Exact));
     assert_eq!(after.front().len(), 1);
+    // Each reading keys the cell's names, the List reading its instances.
     let anchors = retire.provenance().unwrap();
-    for role in [
-        krs_syntax::ProvenanceRole::RuleLeftCellsField,
-        krs_syntax::ProvenanceRole::RuleRightCellsField,
-        krs_syntax::ProvenanceRole::RuleLeftCellsInstance,
-        krs_syntax::ProvenanceRole::RuleLeftCellsInstanceField,
-        krs_syntax::ProvenanceRole::RuleLeftCellsInstancesRest,
-        krs_syntax::ProvenanceRole::RuleRightCellsInstance,
-        krs_syntax::ProvenanceRole::RuleRightCellsInstancesRest,
+    for (role, count) in [
+        (krs_syntax::ProvenanceRole::RuleLeftCellsField, 2),
+        (krs_syntax::ProvenanceRole::RuleRightCellsField, 2),
+        (krs_syntax::ProvenanceRole::RuleLeftCellsInstance, 1),
+        (krs_syntax::ProvenanceRole::RuleLeftCellsInstanceField, 1),
+        (krs_syntax::ProvenanceRole::RuleLeftCellsInstancesRest, 1),
+        (krs_syntax::ProvenanceRole::RuleRightCellsInstance, 1),
+        (krs_syntax::ProvenanceRole::RuleRightCellsInstancesRest, 1),
     ] {
         assert_eq!(
             anchors
                 .iter()
                 .filter(|anchor| anchor.role() == role)
                 .count(),
-            1,
+            count,
             "{role:?}"
         );
     }
+    assert_eq!(
+        retire.computation_cell_keys().cell(),
+        Some(&krs_syntax::ProvenanceRole::RuleLeftCellsField.key(1))
+    );
+    assert_eq!(
+        retire.computation_cell_keys().result_cell(),
+        Some(&krs_syntax::ProvenanceRole::RuleRightCellsField.key(1))
+    );
 
     // `k` is the computation cell, so `job` is a collection or a list: it
     // reads as list elements with the List reading beside it.

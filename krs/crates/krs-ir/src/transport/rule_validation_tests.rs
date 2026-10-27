@@ -255,11 +255,13 @@ fn anonymous_terms_validate_descriptor_sort_before_provenance() {
     let descriptor: Term<DescriptorStage> = Term::Anonymous {
         key: key(ProvenanceRole::RuleLeftLiteral),
         sort: descriptor_sort(ProvenanceRole::ClaimAnonymousSort, ItemKind::Constructor),
+        spelling_key: key(ProvenanceRole::ClaimAnonymousSpelling),
         spelling: "_value".into(),
     };
     let mut host: Term<HostStage> = Term::Anonymous {
         key: key(ProvenanceRole::ClaimAnonymous),
         sort: host_sort(ProvenanceRole::ClaimAnonymousSort),
+        spelling_key: key(ProvenanceRole::ClaimAnonymousSpelling),
         spelling: "_value".into(),
     };
     assert_eq!(
@@ -269,6 +271,18 @@ fn anonymous_terms_validate_descriptor_sort_before_provenance() {
         ))
     );
     assert!(check_term(&host).is_ok());
+    // The spelling is a node of its own, keyed by its role.
+    let mut spelled = host.clone();
+    if let Term::Anonymous { spelling_key, .. } = &mut spelled {
+        *spelling_key = key(ProvenanceRole::ClaimAnonymous);
+    }
+    assert_eq!(
+        check_term(&spelled),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::ClaimAnonymousSpelling,
+            actual: key(ProvenanceRole::ClaimAnonymous),
+        })
+    );
     if let Term::Anonymous {
         key: occurrence_key,
         ..
@@ -289,6 +303,7 @@ fn anonymous_terms_validate_descriptor_sort_before_provenance() {
 fn fragments_preserve_stage_specific_declaration_and_empty_errors() {
     let mut descriptor: Term<DescriptorStage> = Term::Cell {
         key: key(ProvenanceRole::RuleLeftApplicationHead),
+        path_key: key(ProvenanceRole::RuleLeftApplicationHead),
         declaration: item("Target", ItemKind::Sort),
         fields: Vec::new(),
         open: false,
@@ -296,6 +311,7 @@ fn fragments_preserve_stage_specific_declaration_and_empty_errors() {
     };
     let mut host: Term<HostStage> = Term::Cell {
         key: key(ProvenanceRole::RuleLeftApplicationHead),
+        path_key: key(ProvenanceRole::RuleLeftApplicationHead),
         declaration: host_type::<()>(),
         fields: Vec::new(),
         open: false,
@@ -341,6 +357,17 @@ fn fragments_preserve_stage_specific_declaration_and_empty_errors() {
         ))
     );
     assert!(check_term(&host).is_ok());
+    // In a cell value, a fragment's path names its head's node, as an
+    // application's does.
+    if let Term::Cell { path_key, .. } = &mut host {
+        *path_key = key(ProvenanceRole::RuleLeftPath);
+    }
+    assert_eq!(
+        check_term(&host),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::RuleTermKeyMismatch
+        ))
+    );
 }
 
 fn cells<S: ValidationStage>(reference: S::Cell) -> ProtocolRuleCells<S::Cell, Term<S>> {

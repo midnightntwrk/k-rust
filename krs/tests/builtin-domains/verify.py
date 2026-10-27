@@ -69,10 +69,8 @@ operation, and a corpus of programs that apply them to concrete values:
   `chk(box(1))` is stuck because its guard fails, `prj(4)` is `5`, the user
   sort `Value` decides `isval`, a projected list lookup has one cast, and an
   equation `kind` computes with `k::is!` in its result. The
-  failing projections `prj(true)` and `unbox(box(true))` are pinned
-  divergences: Java K's LLVM backend aborts with `project:Int ( true ~> .K )`
-  (`undefined`), while k-rust splits on whether the projection is defined and
-  ends in a stuck leaf and a `#Bottom` (`trivial`) leaf, as for `go()` below. `sort-test-matched` (a sort test in a rule
+  failing projections `prj(true)` and `unbox(box(true))` are `undefined` on
+  both routes: a projection is defined exactly on its sort's values. `sort-test-matched` (a sort test in a rule
   subject) and `sort-test-project-k` (a projection into `K`) pin their
   `krs::analysis::invalid-sort-test` errors, and `sort-test-trivial` pins the
   `krs::analysis::trivial-sort-test` warnings of an identity projection and of
@@ -90,9 +88,7 @@ operation, and a corpus of programs that apply them to concrete values:
   closed with `krs::native::raw-k-parse` at the `raw_k!` text, after the
   `krs::semantic::raw-k` warning that names it.
 
-`known_divergences` in `pins.json` pins the two failing projections of
-`sort-tests` (upstream k-rust/undefined-projection-stuck-leaf, reviewed, not a
-request), and `ite-undefined-branch`, the k-equal
+`known_divergences` in `pins.json` pins `ite-undefined-branch`, the k-equal
 program `go()`, whose rule is `kequal::ite(true, 1, Undef())` with `Undef` a
 function that has no equations: Java K's LLVM backend evaluates only the taken
 branch and ends in `1`, while k-rust, strict in both branches, splits on whether

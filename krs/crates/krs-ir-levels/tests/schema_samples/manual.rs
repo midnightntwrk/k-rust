@@ -93,17 +93,12 @@ impl Sample for DescriptorBundle {
     fn samples() -> Vec<Self> {
         let mut descriptor = krs_ir::testing::DescriptorInputs::from(sample::<Descriptor>());
         let primary = descriptor.provenance.primary_key().clone();
-        descriptor.provenance = DescriptorProvenance::new(
-            primary.clone(),
-            vec![
-                DescriptorNodeOrigin::new(primary, sample::<OriginStack>()),
-                DescriptorNodeOrigin::new(
-                    ProvenanceKey::new(ProvenanceRole::StableSymbol, 0),
-                    sample::<OriginStack>(),
-                ),
-            ],
-        )
-        .unwrap();
+        let mut origins = descriptor.provenance.origins().to_vec();
+        origins.push(DescriptorNodeOrigin::new(
+            ProvenanceKey::new(ProvenanceRole::StableSymbol, 0),
+            sample::<OriginStack>(),
+        ));
+        descriptor.provenance = DescriptorProvenance::new(primary, origins).unwrap();
         let declaration = DescriptorDeclaration::new(
             descriptor.id.clone(),
             RustVisibility::Inherited,

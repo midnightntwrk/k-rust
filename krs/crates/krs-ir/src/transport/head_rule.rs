@@ -12,9 +12,10 @@ use crate::stage::{protocol_shape, stage_shape};
 use crate::transport::grammar::{RuleCondition, Term};
 
 use crate::{
-    DescriptorCellReference, DescriptorRuleLabel, DescriptorRulePriority, DescriptorSortReference,
-    DescriptorStage, DescriptorTerm, HostSortReference, HostStage, HostTerm, ItemKind,
-    ProvenanceKey, ProvenanceRole, RuleSide, SentenceKind, Stage, StateTransportError,
+    DescriptorCellIdentity, DescriptorCellReference, DescriptorRuleLabel, DescriptorRulePriority,
+    DescriptorSortReference, DescriptorStage, DescriptorTerm, HostSortReference, HostStage,
+    HostTerm, ItemKind, ProvenanceKey, ProvenanceRole, RuleSide, SentenceKind, Stage,
+    StateTransportError,
 };
 
 protocol_shape! {
@@ -56,9 +57,59 @@ protocol_shape! {
         /// Replace the matched head with one ordinary term.
         Replace(value: T => [term_map]),
         /// Splice zero or more `k![...]` items before the preserved tail.
-        Splice(values: Vec<T> => [vec term_map]),
+        Splice(value: ProtocolHeadRuleSplice<T> => [nested term_map]),
         /// Erase the matched head and expose the preserved tail.
         Erase,
+    }
+}
+
+protocol_shape! {
+    /// The items a head result splices before the preserved tail,
+    /// `k: [x, y, ..]`, with the keys of the sequence and of its items.
+    ///
+    /// The keys are those of the nodes the clause's sentence keyed. A
+    /// splice the collector reads from a list cell written on the
+    /// computation cell denotes a list value and its elements, which the
+    /// sentence keyed as no sequence, so it carries none.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolHeadRuleSplice<T => term_map => U> {
+        /// The spliced sequence's provenance, `rule_right_k_sequence_payload`.
+        #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// The spliced items, front first.
+        pub items: Vec<ProtocolHeadRuleSpliceItem<T>> => [vec nested term_map],
+    }
+}
+
+protocol_shape! {
+    /// One spliced item of a head result.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolHeadRuleSpliceItem<T => term_map => U> {
+        /// The item's provenance, `rule_right_k_sequence_item`.
+        #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+        pub key: Option<ProvenanceKey> => [keep],
+        /// The item's term.
+        pub value: T => [term_map],
+    }
+}
+
+impl<T> ProtocolHeadRuleSplice<T> {
+    /// The spliced items' terms, front first.
+    pub fn terms(&self) -> impl Iterator<Item = &T> {
+        self.items.iter().map(|item| &item.value)
+    }
+
+    /// The spliced items' terms, front first, for rewriting.
+    pub fn terms_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.items.iter_mut().map(|item| &mut item.value)
+    }
+
+    /// The spliced items' terms, front first, without their keys.
+    #[must_use]
+    pub fn into_terms(self) -> Vec<T> {
+        self.items.into_iter().map(|item| item.value).collect()
     }
 }
 
@@ -94,8 +145,12 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolHeadRuleMapEntry<T => term_map => U> {
+        /// Exact key-expression provenance, `rule_left_map_key`.
+        pub key_key: ProvenanceKey => [keep],
         /// Required map key.
         pub key: T => [term_map],
+        /// Exact value-binder provenance, `rule_left_map_value`.
+        pub value_key: ProvenanceKey => [keep],
         /// Value binding introduced by the item match.
         pub value_binding: String => [keep],
     }
@@ -300,8 +355,13 @@ stage_shape! {
         pub head_sort: Option<S::Sort> => [option sort],
         /// Fixed configuration named by a `for Configuration` cell-record header.
         pub configuration: Option<S::Configuration> => [option configuration],
-        /// Authored computation-cell field for a cell-record clause that matches one.
-        pub computation_cell_name: Option<String> => [keep],
+        /// The result's type, `rule_result_type`: the header's sort or
+        /// configuration types the result as it types the subject.
+        pub result_type_key: ProvenanceKey => [keep],
+        /// The computation cell a cell-record clause names, absent for a
+        /// `for Sort` table clause, whose cell the collector selects, and
+        /// for a cell-record clause that leaves the cell out.
+        pub computation_cell: Option<HeadRuleComputationCell> => [keep],
         /// Bindings and authored refinements in introduction order.
         pub bindings: Vec<ProtocolHeadRuleBinding<S::Sort>> => [vec protocol sort],
         /// The matched computation-cell head and its rewrite; absent only for a
@@ -334,11 +394,41 @@ stage_shape! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub claim: Option<HeadRuleClaim> => [keep],
     }
-    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures, fresh, evaluation, bracket_alternative, claim];
+    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, result_type_key, computation_cell, bindings, requires, existentials, ensures, fresh, evaluation, bracket_alternative, claim];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
 pub type HostHeadRule = HeadRule<HostStage>;
+
+/// The computation cell a cell-record clause names: `k: [..] => { k: [..] }`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeadRuleComputationCell {
+    /// The cell's field in the subject record, `rule_left_cells_field`.
+    pub key: ProvenanceKey,
+    /// Rust field name.
+    pub name: String,
+    /// The cell's field in the result record, `rule_right_cells_field`,
+    /// absent when the result leaves the cell out and only reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_key: Option<ProvenanceKey>,
+}
+
+/// The computation cell a resolved readable rule matches the head of.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorComputationCell {
+    /// The selected `KCell<KSequence>` cell.
+    pub cell: DescriptorCellIdentity,
+    /// The cell's field in the subject record, `rule_left_cells_field`;
+    /// absent for a `for Sort` table clause, which names no cell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<ProvenanceKey>,
+    /// The cell's field in the result record, `rule_right_cells_field`,
+    /// present when a cell-record clause's result restates the cell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_key: Option<ProvenanceKey>,
+}
 
 /// The claim metadata of a readable claim clause (`k::claims!`, F7): its
 /// reachability modality and flags. A readable claim's binders are the
@@ -391,10 +481,17 @@ stage_shape! {
         pub head_sort: Option<S::Sort> => [option sort],
         /// Unique fixed configuration selected by collection.
         pub configuration: S::Item => [item],
+        /// The `for Configuration` header's key, `rule_type`, absent for a
+        /// `for Sort` table clause, whose configuration collection selects.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub configuration_key: Option<ProvenanceKey> => [keep],
+        /// The result's type, `rule_result_type`: the header's sort or
+        /// configuration types the result as it types the subject.
+        pub result_type_key: ProvenanceKey => [keep],
         /// Unique top-level `KCell<KSequence>` selected by collection, present
         /// exactly when the rule matches a computation-cell head.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub computation_cell: Option<S::Cell> => [option cell],
+        pub computation_cell: Option<DescriptorComputationCell> => [keep],
         /// Bindings and authored refinements in introduction order.
         pub bindings: Vec<ProtocolHeadRuleBinding<S::Sort>> => [vec protocol sort],
         /// The matched computation-cell head and its rewrite; absent only for a
@@ -424,7 +521,8 @@ stage_shape! {
     }
     descriptor_from: HeadRule<DescriptorStage> {
         configuration: crate::StableItemId,
-        computation_cell: Option<DescriptorCellReference>,
+        configuration_key: Option<ProvenanceKey>,
+        computation_cell: Option<DescriptorComputationCell>,
     }
 }
 
@@ -679,6 +777,16 @@ fn validate_bindings<S, I, T>(
     Ok(())
 }
 
+/// Whether a named computation cell's result field, `result_key`, is
+/// written exactly when the head has a result: the result record restates
+/// the cell to rewrite it.
+fn computation_result_pairs<T>(
+    result_key: Option<&ProvenanceKey>,
+    head: Option<&ProtocolHeadRuleHead<T>>,
+) -> bool {
+    result_key.is_some() == head.is_some_and(|head| head.result.is_some())
+}
+
 /// An open computation-cell pattern matches at least one item (`[..]` is
 /// rejected: it would match any computation); a `for Sort` table's head is
 /// one item that the rule rewrites, never a whole cell or a read.
@@ -733,18 +841,17 @@ impl HostHeadRule {
                 StateTermReason::HeadRuleStructuralProvenanceKey,
             ));
         }
-        match (
-            &self.head_sort,
-            &self.configuration,
-            &self.computation_cell_name,
-        ) {
+        match (&self.head_sort, &self.configuration, &self.computation_cell) {
             (Some(sort), None, None)
                 if sort.key.role() == ProvenanceRole::RuleType && sort.key.ordinal() == 0 => {}
             (None, Some(configuration), cell)
                 if configuration.key.role() == ProvenanceRole::RuleType
                     && configuration.key.ordinal() == 0
-                    && cell.as_ref().is_none_or(|cell| !cell.is_empty())
+                    && cell.as_ref().is_none_or(|cell| !cell.name.is_empty())
                     && cell.is_some() == self.head.is_some()
+                    && cell.as_ref().is_none_or(|cell| {
+                        computation_result_pairs(cell.result_key.as_ref(), self.head.as_ref())
+                    })
                     && (self.head.is_some() || !self.extras.is_empty()) => {}
             _ => {
                 return Err(StateTransportError::InvalidTerm(
@@ -878,7 +985,10 @@ impl HostHeadRule {
                 ));
             };
             let replaces_head = self.head.is_some()
-                && self.computation_cell_name.as_deref() == Some(cell.name.as_str());
+                && self
+                    .computation_cell
+                    .as_ref()
+                    .is_some_and(|computation| computation.name == cell.name);
             let replaces_list = self.extras.iter().any(|extra| {
                 matches!(
                     extra,
@@ -909,6 +1019,40 @@ impl HostHeadRule {
 }
 
 impl DescriptorHeadRule {
+    /// A cell-record clause names its configuration and, when it matches
+    /// one, its computation cell; a table clause names its sort only. The
+    /// computation cell may sit inside a nested cell, such as the `<k>` of
+    /// each `<thread>` instance (KF-023).
+    fn validate_header(&self) -> Result<(), StateTransportError> {
+        let named = self.configuration_key.is_some();
+        if self.computation_cell.is_some() != self.head.is_some()
+            || (self.head.is_none() && self.extras.is_empty())
+            || self.head_sort.is_some() == named
+            || self.computation_cell.as_ref().is_some_and(|computation| {
+                computation.key.is_some() != named
+                    || if named {
+                        !computation_result_pairs(
+                            computation.result_key.as_ref(),
+                            self.head.as_ref(),
+                        )
+                    } else {
+                        computation.result_key.is_some()
+                    }
+            })
+        {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::HeadRuleHeaderOwnership,
+            ));
+        }
+        if let Some(computation) = &self.computation_cell
+            && computation.cell.owner != self.configuration
+            && computation.cell.owner.item_kind() != ItemKind::Cell
+        {
+            return Err(StateTransportError::CellOwnerMismatch);
+        }
+        Ok(())
+    }
+
     /// Validates stable ownership after configuration and cell resolution.
     ///
     /// # Errors
@@ -939,21 +1083,7 @@ impl DescriptorHeadRule {
                 actual: self.configuration.item_kind(),
             });
         }
-        if self.computation_cell.is_some() != self.head.is_some()
-            || (self.head.is_none() && self.extras.is_empty())
-        {
-            return Err(StateTransportError::InvalidTerm(
-                StateTermReason::HeadRuleHeaderOwnership,
-            ));
-        }
-        // The computation cell may sit inside a nested cell, such as the
-        // `<k>` of each `<thread>` instance (KF-023).
-        if let Some(computation) = &self.computation_cell
-            && computation.cell.owner != self.configuration
-            && computation.cell.owner.item_kind() != ItemKind::Cell
-        {
-            return Err(StateTransportError::CellOwnerMismatch);
-        }
+        self.validate_header()?;
         validate_head(self.head.as_ref(), self.head_sort.is_some())?;
         validate_bindings(&self.bindings, &self.extras)?;
         if let Some(requires) = &self.requires
@@ -1019,17 +1149,72 @@ impl DescriptorHeadRule {
 
 impl HostHeadRule {
     /// Checks that the clause's keys are exactly `anchors`, its descriptor's:
-    /// each key field has its field's role and defines its key once, the
-    /// fixed declaration key is the rule clause's or the claim clause's, and
-    /// the nodes that carry no key of their own pair with the anchors of
-    /// their roles.
+    /// each key field has its field's role and defines its key once, and the
+    /// fixed declaration key is the rule clause's or the claim clause's.
     ///
-    /// The check reads the clause as the expander built it. The collector
-    /// then keeps one of a bracketed value's two readings, moves a cell's
-    /// list to the computation cell's head or back, and keys the cells it so
-    /// writes at the clause's pattern and result, so the resolved rule
-    /// carries only some of these keys, and some under another role
-    /// ([`DescriptorHeadRule::validate_anchored_provenance`]).
+    /// The check reads the clause as the expander built it, with both
+    /// readings of a bracketed value. The collector keeps one reading, and
+    /// drops the anchors of the nodes only the other denotes
+    /// ([`Self::carried_keys`]), so the resolved rule is closed over what
+    /// remains ([`DescriptorHeadRule::validate_complete_provenance`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateTransportError`] for a key of another role than its
+    /// field's, a key two nodes define, or keys that are not the anchors.
+    pub fn validate_complete_provenance<'a>(
+        &self,
+        anchors: impl IntoIterator<Item = &'a ProvenanceKey>,
+    ) -> Result<(), StateTransportError> {
+        Ok(self.wire_keys()?.close(anchors)?)
+    }
+
+    /// The keys the clause's nodes carry, each checked for its field's
+    /// role: those of the nodes it denotes and of the nodes it names. A
+    /// reading the collector discards denotes the keys the clause carries
+    /// before and not after.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateTransportError`] for a key of another role than its
+    /// field's or a key two nodes define.
+    pub fn carried_keys(&self) -> Result<BTreeSet<ProvenanceKey>, StateTransportError> {
+        Ok(self.wire_keys()?.into_carried())
+    }
+
+    fn wire_keys(&self) -> Result<WireKeys, StateTransportError> {
+        let mut keys = WireKeys::default();
+        let computation = self.computation_cell.as_ref();
+        let clause = clause_keys!(
+            self,
+            self.configuration
+                .as_ref()
+                .map(|configuration| &configuration.key),
+            computation.map(|computation| &computation.key),
+            computation.and_then(|computation| computation.result_key.as_ref())
+        );
+        clause.collect(&mut keys)?;
+        if let Some(alternative) = &self.bracket_alternative {
+            // The List reading's bindings are the clause's, and its instance
+            // children the head's or the list's terms: it defines its cell
+            // names and its instance structure only.
+            for binding in &alternative.bindings {
+                if let Some(refinement) = &binding.refinement {
+                    keys.refer(&refinement.key, ProvenanceRole::RuleBindingType)?;
+                }
+            }
+            collect_extra_keys(&alternative.extra, true, &mut keys)?;
+        }
+        Ok(keys)
+    }
+}
+
+impl DescriptorHeadRule {
+    /// Checks that the resolved clause's keys are exactly `anchors`, its
+    /// descriptor's, as [`HostHeadRule::validate_complete_provenance`] does
+    /// for the clause the expander built: the collector kept one reading of
+    /// each bracketed or list value and dropped the anchors only the other
+    /// reading's nodes held.
     ///
     /// # Errors
     ///
@@ -1040,58 +1225,15 @@ impl HostHeadRule {
         anchors: impl IntoIterator<Item = &'a ProvenanceKey>,
     ) -> Result<(), StateTransportError> {
         let mut keys = WireKeys::default();
-        let clause = clause_keys!(self, false);
-        clause.collect(&mut keys)?;
-        if let Some(configuration) = &self.configuration {
-            keys.define(&configuration.key, ProvenanceRole::RuleType)?;
-        }
-        if let Some(alternative) = &self.bracket_alternative {
-            // The List reading's bindings are the clause's, and its instance
-            // children the head's or the list's terms: it defines its cell
-            // names and its instance structure only.
-            for binding in &alternative.bindings {
-                if let Some(refinement) = &binding.refinement {
-                    keys.refer(&refinement.key, ProvenanceRole::RuleBindingType)?;
-                }
-            }
-            clause.collect_extra(&alternative.extra, true, &mut keys)?;
-        }
+        let computation = self.computation_cell.as_ref();
+        clause_keys!(
+            self,
+            self.configuration_key.as_ref(),
+            computation.and_then(|computation| computation.key.as_ref()),
+            computation.and_then(|computation| computation.result_key.as_ref())
+        )
+        .collect(&mut keys)?;
         Ok(keys.close(anchors)?)
-    }
-}
-
-impl DescriptorHeadRule {
-    /// Checks the part of the clause's closure that holds once the collector
-    /// resolved it: each key field has its field's role and defines its key
-    /// once, and every key is one of `anchors`, its descriptor's.
-    ///
-    /// The collector keeps one of a bracketed value's readings, so anchors
-    /// of the other reading are left unconsumed, and keys the cells it
-    /// writes, the computation cell and a list cell read from or as the
-    /// head, at the clause's pattern and result, which such a cell refers
-    /// to. The header's configuration, now a stable identity, carries no
-    /// key, and nodes that carry none are not paired: a moved list or head
-    /// denotes other nodes than the authored reading did.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StateTransportError`] for a key of another role than its
-    /// field's, a key two nodes define, or a key no anchor holds.
-    pub fn validate_anchored_provenance<'a>(
-        &self,
-        anchors: impl IntoIterator<Item = &'a ProvenanceKey>,
-    ) -> Result<(), StateTransportError> {
-        let mut keys = WireKeys::default();
-        let clause = clause_keys!(self, true);
-        clause.collect(&mut keys)?;
-        if let Some(computation) = &self.computation_cell {
-            clause.cell(
-                &mut keys,
-                &computation.key,
-                ProvenanceRole::RuleLeftCellsField,
-            )?;
-        }
-        Ok(keys.close_within(anchors)?)
     }
 }
 
@@ -1122,8 +1264,15 @@ struct ClauseKeys<'a, S: Stage, I> {
     pattern_key: &'a ProvenanceKey,
     result_key: &'a ProvenanceKey,
     head_sort: Option<&'a S::Sort>,
+    /// The `for Configuration` header's key.
+    configuration_key: Option<&'a ProvenanceKey>,
+    result_type_key: &'a ProvenanceKey,
     bindings: &'a [ProtocolHeadRuleBinding<S::Sort>],
     head: Option<&'a ProtocolHeadRuleHead<Term<S>>>,
+    /// The keys of the computation cell's field in the subject record and
+    /// in the result record.
+    computation_key: Option<&'a ProvenanceKey>,
+    computation_result_key: Option<&'a ProvenanceKey>,
     extras: &'a [ProtocolHeadRuleExtra<I, Term<S>>],
     requires: Option<&'a RuleCondition<S>>,
     existentials: &'a [ClaimBinder<S>],
@@ -1131,15 +1280,13 @@ struct ClauseKeys<'a, S: Stage, I> {
     fresh: &'a [ClaimBinder<S>],
     evaluation: Option<&'a EvaluationStep<S>>,
     claim: Option<&'a HeadRuleClaim>,
-    /// Whether the collector resolved the clause, keying the cells it
-    /// writes at the clause's pattern and result.
-    resolved: bool,
 }
 
 /// Borrows the parts of a readable clause that carry keys, from either
-/// form: both name them alike.
+/// form: both name them alike, except the header's configuration and the
+/// computation cell, whose keys each form holds its own way.
 macro_rules! clause_keys {
-    ($rule:expr, $resolved:expr) => {
+    ($rule:expr, $configuration_key:expr, $computation_key:expr, $computation_result_key:expr) => {
         ClauseKeys {
             sentence_kind: $rule.sentence_kind,
             label: $rule.label.as_ref(),
@@ -1148,8 +1295,12 @@ macro_rules! clause_keys {
             pattern_key: &$rule.pattern_key,
             result_key: &$rule.result_key,
             head_sort: $rule.head_sort.as_ref(),
+            configuration_key: $configuration_key,
+            result_type_key: &$rule.result_type_key,
             bindings: &$rule.bindings,
             head: $rule.head.as_ref(),
+            computation_key: $computation_key,
+            computation_result_key: $computation_result_key,
             extras: &$rule.extras,
             requires: $rule.requires.as_ref(),
             existentials: &$rule.existentials,
@@ -1157,7 +1308,6 @@ macro_rules! clause_keys {
             fresh: &$rule.fresh,
             evaluation: $rule.evaluation.as_ref(),
             claim: $rule.claim.as_ref(),
-            resolved: $resolved,
         }
     };
 }
@@ -1192,12 +1342,20 @@ impl<S: ValidationStage, I: CellKey> ClauseKeys<'_, S, I> {
         keys.define(self.pattern_key, ProvenanceRole::RulePattern)?;
         keys.define(self.result_key, ProvenanceRole::RuleResult)?;
         // The clause's header, a sort or a configuration, is the type of its
-        // subject and of its result: it denotes both nodes, and carries the
-        // first's key only.
+        // subject and of its result, two nodes with a key each.
         if let Some(sort) = self.head_sort {
             keys.define(S::sort_key(sort), ProvenanceRole::RuleType)?;
         }
-        keys.implicit(ProvenanceRole::RuleResultType);
+        if let Some(key) = self.configuration_key {
+            keys.define(key, ProvenanceRole::RuleType)?;
+        }
+        keys.define(self.result_type_key, ProvenanceRole::RuleResultType)?;
+        if let Some(key) = self.computation_key {
+            keys.define(key, ProvenanceRole::RuleLeftCellsField)?;
+        }
+        if let Some(key) = self.computation_result_key {
+            keys.define(key, ProvenanceRole::RuleRightCellsField)?;
+        }
         for binding in self.bindings {
             if let Some(refinement) = &binding.refinement {
                 keys.define(S::sort_key(refinement), ProvenanceRole::RuleBindingType)?;
@@ -1213,18 +1371,23 @@ impl<S: ValidationStage, I: CellKey> ClauseKeys<'_, S, I> {
                     collect_term_keys(term, ValidationSide::Right, false, keys)?;
                 }
                 // The splice denotes the result's sequence, and each of its
-                // terms an item of it; neither carries the key.
-                Some(ProtocolHeadRuleResult::Splice(items)) => {
-                    keys.implicit(ProvenanceRole::RuleRightKSequencePayload);
-                    for item in items {
-                        keys.implicit(ProvenanceRole::RuleRightKSequenceItem);
-                        collect_term_keys(item, ValidationSide::Right, false, keys)?;
+                // items an item of it; one the collector read from a list
+                // cell denotes nodes the sentence did not key.
+                Some(ProtocolHeadRuleResult::Splice(splice)) => {
+                    if let Some(key) = &splice.payload_key {
+                        keys.define(key, ProvenanceRole::RuleRightKSequencePayload)?;
+                    }
+                    for item in &splice.items {
+                        if let Some(key) = &item.key {
+                            keys.define(key, ProvenanceRole::RuleRightKSequenceItem)?;
+                        }
+                        collect_term_keys(&item.value, ValidationSide::Right, false, keys)?;
                     }
                 }
             }
         }
         for extra in self.extras {
-            self.collect_extra(extra, false, keys)?;
+            collect_extra_keys(extra, false, keys)?;
         }
         if let Some(requires) = self.requires {
             keys.define(&requires.key, ProvenanceRole::RuleRequires)?;
@@ -1277,111 +1440,97 @@ impl<S: ValidationStage, I: CellKey> ClauseKeys<'_, S, I> {
         }
         Ok(())
     }
+}
 
-    /// Records a cell's key, of `role`; in a resolved clause, a cell keyed
-    /// at the clause's pattern or result names that node.
-    fn cell(
-        &self,
-        keys: &mut WireKeys,
-        key: &ProvenanceKey,
-        role: ProvenanceRole,
-    ) -> Result<(), StateTransportError> {
-        if self.resolved && key == self.pattern_key {
-            keys.refer(key, ProvenanceRole::RulePattern)?;
-        } else if self.resolved && key == self.result_key {
-            keys.refer(key, ProvenanceRole::RuleResult)?;
-        } else {
-            keys.define(key, role)?;
-        }
-        Ok(())
-    }
-
-    /// Collects the keys of a readable extra cell. `cloned_terms` marks the
-    /// bracket alternative's extra, whose terms are other nodes' and refer.
-    fn collect_extra(
-        &self,
-        extra: &ProtocolHeadRuleExtra<I, Term<S>>,
-        cloned_terms: bool,
-        keys: &mut WireKeys,
-    ) -> Result<(), StateTransportError> {
-        let left_cell = ProvenanceRole::RuleLeftCellsField;
-        let right_cell = ProvenanceRole::RuleRightCellsField;
-        match extra {
-            ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
-                self.cell(keys, cell.cell_key(), left_cell)?;
-                // An entry denotes its key term's payload and its value
-                // binder, and carries neither key; a clone's are another
-                // entry's.
-                for entry in entries {
-                    if !cloned_terms {
-                        keys.implicit(ProvenanceRole::RuleLeftMapKey);
-                        keys.implicit(ProvenanceRole::RuleLeftMapValue);
-                    }
-                    collect_term_keys(&entry.key, ValidationSide::Left, cloned_terms, keys)?;
-                }
-            }
-            ProtocolHeadRuleExtra::UpdateMap { cell, update, .. } => {
-                self.cell(keys, cell.cell_key(), right_cell)?;
-                collect_term_keys(update, ValidationSide::Right, cloned_terms, keys)?;
-            }
-            ProtocolHeadRuleExtra::RewriteCell {
-                cell,
-                result_key,
-                before,
-                after,
-            } => {
-                self.cell(keys, cell.cell_key(), left_cell)?;
-                if let Some(result_key) = result_key {
-                    self.cell(keys, result_key, right_cell)?;
-                }
-                collect_term_keys(before, ValidationSide::Left, cloned_terms, keys)?;
-                if let Some(after) = after {
-                    collect_term_keys(after, ValidationSide::Right, cloned_terms, keys)?;
-                }
-            }
-            ProtocolHeadRuleExtra::RewriteState {
-                cell,
-                result_key,
-                before,
-                after,
-            } => {
-                self.cell(keys, cell.cell_key(), left_cell)?;
-                if let Some(result_key) = result_key {
-                    self.cell(keys, result_key, right_cell)?;
-                }
-                // The state's structure defines its keys; its terms define
-                // theirs unless cloned.
-                for (state, side) in [
-                    (Some(before), RuleSide::Left),
-                    (after.as_ref(), RuleSide::Right),
+/// Collects the keys of a readable extra cell. `cloned_terms` marks the
+/// bracket alternative's extra, whose terms are other nodes' and refer.
+fn collect_extra_keys<S: ValidationStage, I: CellKey>(
+    extra: &ProtocolHeadRuleExtra<I, Term<S>>,
+    cloned_terms: bool,
+    keys: &mut WireKeys,
+) -> Result<(), StateTransportError> {
+    let left_cell = ProvenanceRole::RuleLeftCellsField;
+    let right_cell = ProvenanceRole::RuleRightCellsField;
+    match extra {
+        ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
+            keys.define(cell.cell_key(), left_cell)?;
+            // An entry denotes its key expression and its value binder;
+            // a clone's are another entry's.
+            for entry in entries {
+                for (key, role) in [
+                    (&entry.key_key, ProvenanceRole::RuleLeftMapKey),
+                    (&entry.value_key, ProvenanceRole::RuleLeftMapValue),
                 ] {
-                    if let Some(state) = state {
-                        collect_state_keys(state, side, keys, &mut |term, keys| {
-                            collect_term_keys(term, side.into(), cloned_terms, keys)
-                        })?;
+                    if cloned_terms {
+                        keys.refer(key, role)?;
+                    } else {
+                        keys.define(key, role)?;
                     }
                 }
+                collect_term_keys(&entry.key, ValidationSide::Left, cloned_terms, keys)?;
             }
-            ProtocolHeadRuleExtra::RewriteList {
-                cell,
-                result_key,
-                before,
-                after,
-            } => {
-                self.cell(keys, cell.cell_key(), left_cell)?;
-                if let Some(result_key) = result_key {
-                    self.cell(keys, result_key, right_cell)?;
-                }
-                for term in before.terms() {
-                    collect_term_keys(term, ValidationSide::Left, cloned_terms, keys)?;
-                }
-                for term in after.iter().flat_map(ProtocolHeadRuleList::terms) {
-                    collect_term_keys(term, ValidationSide::Right, cloned_terms, keys)?;
+        }
+        ProtocolHeadRuleExtra::UpdateMap { cell, update, .. } => {
+            keys.define(cell.cell_key(), right_cell)?;
+            collect_term_keys(update, ValidationSide::Right, cloned_terms, keys)?;
+        }
+        ProtocolHeadRuleExtra::RewriteCell {
+            cell,
+            result_key,
+            before,
+            after,
+        } => {
+            keys.define(cell.cell_key(), left_cell)?;
+            if let Some(result_key) = result_key {
+                keys.define(result_key, right_cell)?;
+            }
+            collect_term_keys(before, ValidationSide::Left, cloned_terms, keys)?;
+            if let Some(after) = after {
+                collect_term_keys(after, ValidationSide::Right, cloned_terms, keys)?;
+            }
+        }
+        ProtocolHeadRuleExtra::RewriteState {
+            cell,
+            result_key,
+            before,
+            after,
+        } => {
+            keys.define(cell.cell_key(), left_cell)?;
+            if let Some(result_key) = result_key {
+                keys.define(result_key, right_cell)?;
+            }
+            // The state's structure defines its keys; its terms define
+            // theirs unless cloned.
+            for (state, side) in [
+                (Some(before), RuleSide::Left),
+                (after.as_ref(), RuleSide::Right),
+            ] {
+                if let Some(state) = state {
+                    collect_state_keys(state, side, keys, &mut |term, keys| {
+                        collect_term_keys(term, side.into(), cloned_terms, keys)
+                    })?;
                 }
             }
         }
-        Ok(())
+        ProtocolHeadRuleExtra::RewriteList {
+            cell,
+            result_key,
+            before,
+            after,
+        } => {
+            keys.define(cell.cell_key(), left_cell)?;
+            if let Some(result_key) = result_key {
+                keys.define(result_key, right_cell)?;
+            }
+            for term in before.terms() {
+                collect_term_keys(term, ValidationSide::Left, cloned_terms, keys)?;
+            }
+            for term in after.iter().flat_map(ProtocolHeadRuleList::terms) {
+                collect_term_keys(term, ValidationSide::Right, cloned_terms, keys)?;
+            }
+        }
     }
+    Ok(())
 }
 
 /// Collects the keys of a readable term's nodes on `side`. The clause's
@@ -1419,6 +1568,25 @@ mod tests {
         ProvenanceRole, SentenceKind, StableItemId, WireStage,
     };
 
+    /// A splice of `values` whose keys traversal leaves alone.
+    fn splice<T>(values: Vec<T>) -> super::ProtocolHeadRuleSplice<T> {
+        super::ProtocolHeadRuleSplice {
+            payload_key: None,
+            items: values
+                .into_iter()
+                .map(|value| super::ProtocolHeadRuleSpliceItem { key: None, value })
+                .collect(),
+        }
+    }
+
+    fn map_key() -> ProvenanceKey {
+        ProvenanceKey::new(ProvenanceRole::RuleLeftMapKey, 0)
+    }
+
+    fn map_value() -> ProvenanceKey {
+        ProvenanceKey::new(ProvenanceRole::RuleLeftMapValue, 0)
+    }
+
     fn host_sort(role: ProvenanceRole) -> crate::HostSortReference {
         crate::HostSortReference {
             key: ProvenanceKey::new(role, 0),
@@ -1442,7 +1610,8 @@ mod tests {
             result_key: key(ProvenanceRole::RuleResult, 0),
             head_sort: Some(host_sort(ProvenanceRole::RuleType)),
             configuration: None,
-            computation_cell_name: None,
+            result_type_key: key(ProvenanceRole::RuleResultType, 0),
+            computation_cell: None,
             bindings: vec![ProtocolHeadRuleBinding {
                 name: "x".to_owned(),
                 refinement: None,
@@ -1454,10 +1623,18 @@ mod tests {
                     name: "x".to_owned(),
                 }],
                 exact: false,
-                result: Some(ProtocolHeadRuleResult::Splice(vec![crate::Term::Literal {
-                    key: key(ProvenanceRole::RuleRightLiteral, 0),
-                    literal: crate::DescriptorLiteral::Int("1".to_owned()),
-                }])),
+                result: Some(ProtocolHeadRuleResult::Splice(
+                    super::ProtocolHeadRuleSplice {
+                        payload_key: Some(key(ProvenanceRole::RuleRightKSequencePayload, 0)),
+                        items: vec![super::ProtocolHeadRuleSpliceItem {
+                            key: Some(key(ProvenanceRole::RuleRightKSequenceItem, 0)),
+                            value: crate::Term::Literal {
+                                key: key(ProvenanceRole::RuleRightLiteral, 0),
+                                literal: crate::DescriptorLiteral::Int("1".to_owned()),
+                            },
+                        }],
+                    },
+                )),
             }),
             requires: None,
             extras: Vec::new(),
@@ -1488,9 +1665,8 @@ mod tests {
     }
 
     /// A readable clause's keys are its anchors: each key field defines its
-    /// node, the clause's declaration is fixed, and the result type, the
-    /// splice and its item pair with their anchors though no field carries
-    /// their keys.
+    /// node, the result type, the splice and its item included, and the
+    /// clause's declaration is fixed.
     #[test]
     fn a_readable_clause_is_closed_over_its_anchors() {
         let rule = table_clause();
@@ -1507,16 +1683,22 @@ mod tests {
             ))
         );
 
-        // A spliced item with no anchor of its own: the pairing runs out.
+        // A spliced item whose key no anchor holds.
         let mut spliced = rule.clone();
-        let Some(ProtocolHeadRuleResult::Splice(items)) =
+        let Some(ProtocolHeadRuleResult::Splice(splice)) =
             spliced.head.as_mut().and_then(|head| head.result.as_mut())
         else {
             unreachable!()
         };
-        items.push(crate::Term::Literal {
-            key: ProvenanceKey::new(ProvenanceRole::RuleRightLiteral, 1),
-            literal: crate::DescriptorLiteral::Int("2".to_owned()),
+        splice.items.push(super::ProtocolHeadRuleSpliceItem {
+            key: Some(ProvenanceKey::new(
+                ProvenanceRole::RuleRightKSequenceItem,
+                1,
+            )),
+            value: crate::Term::Literal {
+                key: ProvenanceKey::new(ProvenanceRole::RuleRightLiteral, 1),
+                literal: crate::DescriptorLiteral::Int("2".to_owned()),
+            },
         });
         let mut with_literal = anchors.clone();
         with_literal.push(ProvenanceKey::new(ProvenanceRole::RuleRightLiteral, 1));
@@ -1525,6 +1707,48 @@ mod tests {
             Err(crate::StateTransportError::MissingProvenance(
                 ProvenanceKey::new(ProvenanceRole::RuleRightKSequenceItem, 1)
             ))
+        );
+
+        // A splice whose keys the clause does not carry leaves its anchors
+        // unconsumed.
+        let mut unkeyed = rule.clone();
+        let Some(ProtocolHeadRuleResult::Splice(splice)) =
+            unkeyed.head.as_mut().and_then(|head| head.result.as_mut())
+        else {
+            unreachable!()
+        };
+        splice.payload_key = None;
+        assert_eq!(
+            unkeyed.validate_complete_provenance(&anchors),
+            Err(crate::StateTransportError::ExtraProvenance(
+                ProvenanceKey::new(ProvenanceRole::RuleRightKSequencePayload, 0)
+            ))
+        );
+        let mut unkeyed_item = rule.clone();
+        let Some(ProtocolHeadRuleResult::Splice(splice)) = unkeyed_item
+            .head
+            .as_mut()
+            .and_then(|head| head.result.as_mut())
+        else {
+            unreachable!()
+        };
+        splice.items[0].key = None;
+        assert_eq!(
+            unkeyed_item.validate_complete_provenance(&anchors),
+            Err(crate::StateTransportError::ExtraProvenance(
+                ProvenanceKey::new(ProvenanceRole::RuleRightKSequenceItem, 0)
+            ))
+        );
+
+        // The result type is a node of its own, with its own role.
+        let mut retyped = rule.clone();
+        retyped.result_type_key = ProvenanceKey::new(ProvenanceRole::RuleType, 0);
+        assert_eq!(
+            retyped.validate_complete_provenance(&anchors),
+            Err(crate::StateTransportError::UnexpectedProvenance {
+                expected: ProvenanceRole::RuleResultType,
+                actual: ProvenanceKey::new(ProvenanceRole::RuleType, 0),
+            })
         );
 
         // Two head items that carry one node's keys.
@@ -1553,8 +1777,9 @@ mod tests {
         assert_eq!(claim.validate_complete_provenance(&claim_anchors), Ok(()));
     }
 
-    /// A cell-record clause `k: [x, ..] => [x, ..], env: e => e` as the
-    /// collector resolves it: its computation cell is keyed at the pattern.
+    /// A cell-record clause `for State; k: [x, ..], env: x => k: [x, ..],
+    /// env: x` as the collector resolves it: its header and its computation
+    /// cell's names keep their keys.
     fn resolved_clause() -> DescriptorHeadRule {
         let key = ProvenanceKey::new;
         let configuration = StableItemId::new(
@@ -1586,7 +1811,16 @@ mod tests {
             result_key: key(ProvenanceRole::RuleResult, 0),
             head_sort: None,
             configuration: configuration.clone(),
-            computation_cell: Some(cell(key(ProvenanceRole::RulePattern, 0), "k")),
+            configuration_key: Some(key(ProvenanceRole::RuleType, 0)),
+            result_type_key: key(ProvenanceRole::RuleResultType, 0),
+            computation_cell: Some(super::DescriptorComputationCell {
+                cell: DescriptorCellIdentity {
+                    owner: configuration.clone(),
+                    field: "k".to_owned(),
+                },
+                key: Some(key(ProvenanceRole::RuleLeftCellsField, 1)),
+                result_key: Some(key(ProvenanceRole::RuleRightCellsField, 1)),
+            }),
             bindings: Vec::new(),
             head: Some(ProtocolHeadRuleHead {
                 items: vec![variable(
@@ -1620,19 +1854,22 @@ mod tests {
         }
     }
 
-    /// The resolved clause keeps the part of closure that holds once the
-    /// collector reshaped it: roles, one definition per key, every key
-    /// anchored, and a cell keyed at the pattern or the result refers to it;
-    /// anchors of a dropped reading are left over.
+    /// The resolved clause is closed over its anchors as the expander's is:
+    /// roles, one definition per key, every key anchored and every anchor a
+    /// key, the header's and the computation cell's names included.
     #[test]
-    fn a_resolved_clause_is_anchored_by_role() {
+    fn a_resolved_clause_is_closed_over_its_anchors() {
         let key = ProvenanceKey::new;
         let mut anchors = vec![
             key(ProvenanceRole::RuleDeclaration, 0),
             key(ProvenanceRole::RulePattern, 0),
             key(ProvenanceRole::RuleResult, 0),
+            key(ProvenanceRole::RuleType, 0),
+            key(ProvenanceRole::RuleResultType, 0),
             key(ProvenanceRole::RuleLeftCellsField, 0),
             key(ProvenanceRole::RuleRightCellsField, 0),
+            key(ProvenanceRole::RuleLeftCellsField, 1),
+            key(ProvenanceRole::RuleRightCellsField, 1),
         ];
         for ordinal in 0..2 {
             anchors.extend([
@@ -1654,16 +1891,55 @@ mod tests {
             *key = ProvenanceKey::new(key.role(), 1);
             *path_key = ProvenanceKey::new(path_key.role(), 1);
         }
-        assert_eq!(rule.validate_anchored_provenance(&anchors), Ok(()));
+        assert_eq!(rule.validate(ItemKind::Rule), Ok(()));
+        assert_eq!(rule.validate_complete_provenance(&anchors), Ok(()));
 
-        // An anchor of a reading the collector dropped is left over.
-        let mut dropped = anchors.clone();
-        dropped.push(key(ProvenanceRole::RuleLeftCellsField, 1));
-        assert_eq!(rule.validate_anchored_provenance(&dropped), Ok(()));
+        // An anchor no node of the resolved clause denotes is left over.
+        let mut extra = anchors.clone();
+        extra.push(key(ProvenanceRole::RuleLeftCellsField, 2));
+        assert_eq!(
+            rule.validate_complete_provenance(&extra),
+            Err(crate::StateTransportError::ExtraProvenance(key(
+                ProvenanceRole::RuleLeftCellsField,
+                2
+            )))
+        );
+
+        // The computation cell keyed at the pattern names a node of another
+        // role.
+        let mut at_pattern = rule.clone();
+        at_pattern.computation_cell.as_mut().unwrap().key =
+            Some(key(ProvenanceRole::RulePattern, 0));
+        assert_eq!(
+            at_pattern.validate_complete_provenance(&anchors),
+            Err(crate::StateTransportError::UnexpectedProvenance {
+                expected: ProvenanceRole::RuleLeftCellsField,
+                actual: key(ProvenanceRole::RulePattern, 0),
+            })
+        );
+
+        // A cell-record clause's header and computation cell are named; a
+        // table clause's are not.
+        let mut unnamed = rule.clone();
+        unnamed.configuration_key = None;
+        assert_eq!(
+            unnamed.validate(ItemKind::Rule),
+            Err(crate::StateTransportError::InvalidTerm(
+                super::StateTermReason::HeadRuleHeaderOwnership
+            ))
+        );
+        let mut unwritten = rule.clone();
+        unwritten.computation_cell.as_mut().unwrap().result_key = None;
+        assert_eq!(
+            unwritten.validate(ItemKind::Rule),
+            Err(crate::StateTransportError::InvalidTerm(
+                super::StateTermReason::HeadRuleHeaderOwnership
+            ))
+        );
 
         // A key no anchor holds.
         assert_eq!(
-            rule.validate_anchored_provenance(&anchors[1..]),
+            rule.validate_complete_provenance(&anchors[1..]),
             Err(crate::StateTransportError::MissingProvenance(key(
                 ProvenanceRole::RuleDeclaration,
                 0
@@ -1680,7 +1956,7 @@ mod tests {
         };
         std::mem::swap(&mut cell.key, result_key.as_mut().unwrap());
         assert_eq!(
-            swapped.validate_anchored_provenance(&anchors),
+            swapped.validate_complete_provenance(&anchors),
             Err(crate::StateTransportError::UnexpectedProvenance {
                 expected: ProvenanceRole::RuleLeftCellsField,
                 actual: key(ProvenanceRole::RuleRightCellsField, 0),
@@ -1690,7 +1966,7 @@ mod tests {
         // The extra's terms repeating the head's keys.
         let repeated = resolved_clause();
         assert_eq!(
-            repeated.validate_anchored_provenance(&anchors),
+            repeated.validate_complete_provenance(&anchors),
             Err(crate::StateTransportError::DuplicateProvenance(key(
                 ProvenanceRole::RuleLeftPath,
                 0
@@ -1698,12 +1974,11 @@ mod tests {
         );
     }
 
-    /// A readable state's shells have their payload keys, as every shell
-    /// does: an instance child `[]` or `map![]` without its key is refused
-    /// at the transport.
+    /// A readable state's shells define their payload keys, as every shell
+    /// does: an instance child `[]` or `map![]` is accepted with its key
+    /// anchored, and refused when no anchor holds it.
     #[test]
     fn a_readable_state_shell_has_its_payload_key() {
-        use crate::transport::detail::StateCellContentReason;
         use crate::{
             InstanceDelimiter, ProtocolInstanceRest, ProtocolRuleFrame, ProtocolRuleInstance,
             ProtocolRuleInstanceField, ProtocolRuleInstances, ProtocolRuleKSequence,
@@ -1756,10 +2031,14 @@ mod tests {
                 },
             })
         };
-        let mut anchors = vec![
+        let anchors = vec![
             key(ProvenanceRole::RuleDeclaration, 0),
             key(ProvenanceRole::RulePattern, 0),
             key(ProvenanceRole::RuleResult, 0),
+            key(ProvenanceRole::RuleType, 0),
+            key(ProvenanceRole::RuleResultType, 0),
+            key(ProvenanceRole::RuleLeftCellsField, 1),
+            key(ProvenanceRole::RuleRightCellsField, 1),
             key(ProvenanceRole::RuleLeftReference, 0),
             key(ProvenanceRole::RuleLeftPath, 0),
             key(ProvenanceRole::RuleRightReference, 0),
@@ -1767,34 +2046,29 @@ mod tests {
             key(ProvenanceRole::RuleLeftCellsField, 0),
             key(ProvenanceRole::RuleLeftCellsInstance, 0),
             key(ProvenanceRole::RuleLeftCellsInstanceField, 0),
-            key(ProvenanceRole::RuleLeftKSequencePayload, 0),
-            key(ProvenanceRole::RuleLeftMapPayload, 0),
         ];
-        let unkeyed = Err(crate::StateTransportError::InvalidCellContent(
-            StateCellContentReason::MissingShellPayloadProvenance,
-        ));
-
-        let keyed = with_child(sequence(Some(key(
-            ProvenanceRole::RuleLeftKSequencePayload,
-            0,
-        ))));
-        assert_eq!(keyed.validate_anchored_provenance(&anchors), Ok(()));
+        let with_anchor = |role| {
+            let mut anchors = anchors.clone();
+            anchors.push(key(role, 0));
+            anchors
+        };
+        let keyed = with_child(sequence(key(ProvenanceRole::RuleLeftKSequencePayload, 0)));
         assert_eq!(
-            with_child(sequence(None)).validate_anchored_provenance(&anchors),
-            unkeyed
+            keyed.validate_complete_provenance(&with_anchor(
+                ProvenanceRole::RuleLeftKSequencePayload
+            )),
+            Ok(())
         );
 
-        let keyed = with_child(map(Some(key(ProvenanceRole::RuleLeftMapPayload, 0))));
-        assert_eq!(keyed.validate_anchored_provenance(&anchors), Ok(()));
+        let keyed = with_child(map(key(ProvenanceRole::RuleLeftMapPayload, 0)));
         assert_eq!(
-            with_child(map(None)).validate_anchored_provenance(&anchors),
-            unkeyed
+            keyed.validate_complete_provenance(&with_anchor(ProvenanceRole::RuleLeftMapPayload)),
+            Ok(())
         );
 
         // The key is defined by the shell: one no anchor holds is refused.
-        anchors.pop();
         assert_eq!(
-            keyed.validate_anchored_provenance(&anchors),
+            keyed.validate_complete_provenance(&anchors),
             Err(crate::StateTransportError::MissingProvenance(key(
                 ProvenanceRole::RuleLeftMapPayload,
                 0
@@ -1849,17 +2123,20 @@ mod tests {
             .try_map_refs(&mut calls, &mut map_number)
             .unwrap();
         assert_eq!(replace, ProtocolHeadRuleResult::Replace(11));
-        let splice = ProtocolHeadRuleResult::Splice(vec![2, 3])
+        let spliced = ProtocolHeadRuleResult::Splice(splice(vec![2, 3]))
             .try_map_refs(&mut calls, &mut map_number)
             .unwrap();
-        assert_eq!(splice, ProtocolHeadRuleResult::Splice(vec![12, 13]));
+        assert_eq!(
+            spliced,
+            ProtocolHeadRuleResult::Splice(splice(vec![12, 13]))
+        );
         let erase = ProtocolHeadRuleResult::<u8>::Erase
             .try_map_refs(&mut calls, &mut map_number)
             .unwrap();
         assert_eq!(erase, ProtocolHeadRuleResult::Erase);
         assert_eq!(calls, [1, 2, 3]);
-        let failure =
-            ProtocolHeadRuleResult::Splice(vec![4, 9, 5]).try_map_refs(&mut calls, &mut map_number);
+        let failure = ProtocolHeadRuleResult::Splice(splice(vec![4, 9, 5]))
+            .try_map_refs(&mut calls, &mut map_number);
         assert_eq!(failure, Err("unresolved reference"));
         assert_eq!(calls, [1, 2, 3, 4, 9]);
     }
@@ -1878,7 +2155,9 @@ mod tests {
             entries: names
                 .iter()
                 .map(|name| ProtocolHeadRuleMapEntry {
+                    key_key: map_key(),
                     key: 0,
+                    value_key: map_value(),
                     value_binding: (*name).to_owned(),
                 })
                 .collect(),
@@ -1905,7 +2184,9 @@ mod tests {
         let have = ProtocolHeadRuleExtra::HaveMap {
             cell: 1,
             entries: vec![ProtocolHeadRuleMapEntry {
+                key_key: map_key(),
                 key: 2,
+                value_key: map_value(),
                 value_binding: "value".to_owned(),
             }],
         }
@@ -1916,7 +2197,9 @@ mod tests {
             ProtocolHeadRuleExtra::HaveMap {
                 cell: 11,
                 entries: vec![ProtocolHeadRuleMapEntry {
+                    key_key: map_key(),
                     key: 12,
+                    value_key: map_value(),
                     value_binding: "value".to_owned(),
                 }],
             }
@@ -1979,6 +2262,7 @@ mod tests {
         WireTerm::Anonymous {
             key: ProvenanceKey::new(ProvenanceRole::RulePattern, 0),
             sort: wire_sort(),
+            spelling_key: ProvenanceKey::new(ProvenanceRole::ClaimAnonymousSpelling, 0),
             spelling: "_".to_owned(),
         }
     }
@@ -2001,7 +2285,12 @@ mod tests {
                     authored_path: "State".to_owned(),
                 },
             }),
-            computation_cell_name: Some("k".to_owned()),
+            result_type_key: key.clone(),
+            computation_cell: Some(super::HeadRuleComputationCell {
+                key: key.clone(),
+                name: "k".to_owned(),
+                result_key: Some(key.clone()),
+            }),
             bindings: vec![ProtocolHeadRuleBinding {
                 name: "value".to_owned(),
                 refinement: Some(wire_sort()),
@@ -2009,7 +2298,7 @@ mod tests {
             head: Some(ProtocolHeadRuleHead {
                 items: vec![wire_term()],
                 exact: false,
-                result: Some(ProtocolHeadRuleResult::Splice(vec![wire_term()])),
+                result: Some(ProtocolHeadRuleResult::Splice(splice(vec![wire_term()]))),
             }),
             requires: Some(crate::wire::WireRuleCondition {
                 key: key.clone(),
@@ -2082,6 +2371,7 @@ mod tests {
         DescriptorTerm::Anonymous {
             key: ProvenanceKey::new(ProvenanceRole::RulePattern, 0),
             sort: descriptor_sort(),
+            spelling_key: ProvenanceKey::new(ProvenanceRole::ClaimAnonymousSpelling, 0),
             spelling: "_".to_owned(),
         }
     }
@@ -2114,7 +2404,13 @@ mod tests {
             result_key: key.clone(),
             head_sort: Some(descriptor_sort()),
             configuration,
-            computation_cell: Some(cell.clone()),
+            configuration_key: None,
+            result_type_key: key.clone(),
+            computation_cell: Some(super::DescriptorComputationCell {
+                cell: cell.cell.clone(),
+                key: None,
+                result_key: None,
+            }),
             bindings: vec![ProtocolHeadRuleBinding {
                 name: "value".to_owned(),
                 refinement: Some(descriptor_sort()),
@@ -2131,7 +2427,9 @@ mod tests {
             extras: vec![ProtocolHeadRuleExtra::HaveMap {
                 cell,
                 entries: vec![ProtocolHeadRuleMapEntry {
+                    key_key: map_key(),
                     key: descriptor_term(),
+                    value_key: map_value(),
                     value_binding: "value".to_owned(),
                 }],
             }],
@@ -2149,7 +2447,6 @@ mod tests {
             [
                 "sort",
                 "item",
-                "cell",
                 "sort",
                 "sort",
                 "sort",
@@ -2159,10 +2456,10 @@ mod tests {
             ]
         );
         let mut failing = CountingMap {
-            fail: Some("cell"),
+            fail: Some("item"),
             ..CountingMap::default()
         };
-        assert_eq!(rule.try_map_refs(&mut failing).unwrap_err(), "cell");
-        assert_eq!(failing.calls, ["sort", "item", "cell"]);
+        assert_eq!(rule.try_map_refs(&mut failing).unwrap_err(), "item");
+        assert_eq!(failing.calls, ["sort", "item"]);
     }
 }

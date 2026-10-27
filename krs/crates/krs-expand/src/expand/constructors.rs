@@ -21,7 +21,7 @@ use syn::{Attribute, Ident, Item, ItemStruct, Meta, Path, parse_quote};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::productions::{REPEATED_PRODUCTION_ROLES, strictness_key_function};
+use super::productions::strictness_key_function;
 use super::terms::{SortArgumentSink, WireSlots, production_sort_arguments, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, sort_type_tokens,
@@ -506,15 +506,14 @@ fn constructor_like(
                 ::core::any::TypeId::of::<#generated>()
             }
         });
-        // The field's sort reference carries no key on the wire: the
-        // collector numbers the fields' sorts in order, as the sentence
-        // keyed them.
-        ledger.define(field.sort_key())?;
         fields.push(WireConstructorFieldDescriptor {
             name: field_name,
-            sort: WireTypeReference {
-                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
-                authored_path: spelling,
+            sort: WireSortReference {
+                key: ledger.define(field.sort_key())?,
+                target: WireTypeReference {
+                    slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                    authored_path: spelling,
+                },
             },
             arguments: Vec::new(),
         });
@@ -600,7 +599,7 @@ fn constructor_like(
         hook.as_ref(),
         static_marker.as_ref().map(|(marker, _)| marker),
     )?;
-    ledger.finish_beside(&grammar_ledger, &REPEATED_PRODUCTION_ROLES)?;
+    ledger.finish()?;
 
     let factory_tokens = DescriptorFactory {
         facade: &facade,

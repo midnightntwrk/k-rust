@@ -12,7 +12,7 @@ use krs_ir::{
     BuiltinSort, CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
     ProductionFieldId, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
     ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
-    ProtocolMapBody, ProtocolMapItem, ProvenanceKey,
+    ProtocolMapBody, ProtocolMapItem,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
@@ -479,7 +479,7 @@ impl<'a> InitializerBuilder<'a> {
                 unreachable!("initializers hold templates only")
             }
             StateTerm::Term(term) | StateTerm::Group(term) => {
-                let term = self.expand_term(term, None)?;
+                let term = self.expand_term(term)?;
                 Ok(ProtocolInitializerStateTerm::Term(term))
             }
             StateTerm::KSequence(sequence) => {
@@ -497,7 +497,7 @@ impl<'a> InitializerBuilder<'a> {
         let ledger = self.terms.ledger;
         // Every shell has its payload key: an empty one is anchored at
         // its invocation.
-        let payload_key = Some(ledger.define(sequence.payload_key())?);
+        let payload_key = ledger.define(sequence.payload_key())?;
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
             Some(ledger.define(sequence.tail_key())?)
         } else {
@@ -510,22 +510,20 @@ impl<'a> InitializerBuilder<'a> {
         };
         let mut items = Vec::new();
         for item in sequence.items() {
-            let structural = ledger.define(item.keys().payload())?;
-            let value = self.expand_term(item, Some(structural.clone()))?;
-            items.push(ProtocolKSequenceItem {
-                key: structural,
-                value,
-            });
+            let key = ledger.define(item.keys().payload())?;
+            let value = self.expand_term(item)?;
+            items.push(ProtocolKSequenceItem { key, value });
         }
-        // `..pgm` after the items denotes `items ~> $PGM`, the variable's
-        // sequence after them, which the initializer's sequence has no
-        // place for yet: the remainder is refused where it is written
-        // rather than dropped.
+        // `..pgm` after the items would denote `items ~> $PGM`, the
+        // variable's sequence after them. An initializer's `k!` lists its
+        // items and takes no remainder, so the remainder is refused where it
+        // is written rather than dropped; a configuration variable of an
+        // item sort is written as an item.
         if let Some(range) = sequence.tail().range() {
             return Err(ExpandError::at_range(
                 codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
                 range,
-                "unsupported declarative initializer body: an initializer's `k!` does not yet take a remainder; list the sequence's items",
+                "unsupported declarative initializer body: an initializer's `k!` lists its items and takes no remainder; write a configuration variable of an item sort as an item, as in `k::k![Cmd::Go(), pgm]`",
             ));
         }
         Ok(ProtocolKSequence {
@@ -540,7 +538,7 @@ impl<'a> InitializerBuilder<'a> {
         let ledger = self.terms.ledger;
         // Every shell has its payload key: an empty one is anchored at
         // its invocation.
-        let payload_key = Some(ledger.define(map.payload_key())?);
+        let payload_key = ledger.define(map.payload_key())?;
         let body = match map.body() {
             MapBody::Empty { explicit_dot } => ProtocolMapBody::Empty {
                 explicit_dot: *explicit_dot,
@@ -550,8 +548,8 @@ impl<'a> InitializerBuilder<'a> {
                 for item in items {
                     let key_key = ledger.define(item.key().keys().payload())?;
                     let value_key = ledger.define(item.value().keys().payload())?;
-                    let key = self.expand_term(item.key(), Some(key_key.clone()))?;
-                    let value = self.expand_term(item.value(), Some(value_key.clone()))?;
+                    let key = self.expand_term(item.key())?;
+                    let value = self.expand_term(item.value())?;
                     output.push(ProtocolMapItem {
                         key_key,
                         key,
@@ -559,16 +557,17 @@ impl<'a> InitializerBuilder<'a> {
                         value,
                     });
                 }
-                // `..pgm` after the items denotes `items $PGM`, the items
-                // joined with the variable's map, which the initializer's
-                // map has no place for: its body holds the items only. The
+                // `..m` after the items would denote the items joined with
+                // the variable's map, a join that is undefined when the two
+                // share a key, which only a run would find. An initializer's
+                // `map!` lists its items and takes no remainder, so the
                 // remainder is refused where it is written rather than
                 // dropped.
                 if let Some(range) = remainder.range() {
                     return Err(ExpandError::at_range(
                         codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
                         range,
-                        "unsupported declarative initializer body: an initializer's `map!` does not take a remainder; list the map's items",
+                        "unsupported declarative initializer body: an initializer's `map!` takes no remainder, since joining its items with another map is undefined when the two share a key, which only a run would find; list the map's items",
                     ));
                 }
                 ProtocolMapBody::Items { items: output }
@@ -577,9 +576,9 @@ impl<'a> InitializerBuilder<'a> {
                 let base_key = ledger.define(base.keys().payload())?;
                 let key_key = ledger.define(key.keys().payload())?;
                 let value_key = ledger.define(value.keys().payload())?;
-                let base = self.expand_term(base, Some(base_key.clone()))?;
-                let key = self.expand_term(key, Some(key_key.clone()))?;
-                let value = self.expand_term(value, Some(value_key.clone()))?;
+                let base = self.expand_term(base)?;
+                let key = self.expand_term(key)?;
+                let value = self.expand_term(value)?;
                 ProtocolMapBody::Update {
                     base_key,
                     base,
@@ -596,18 +595,10 @@ impl<'a> InitializerBuilder<'a> {
     fn expand_term(
         &mut self,
         term: &TermExpression,
-        structural_key: Option<ProvenanceKey>,
     ) -> crate::Result<ProtocolInitializerTerm<WireTerm>> {
         let key = self.terms.ledger.define(term.keys().term())?;
-        // A literal of the term takes the key of the place the term stands
-        // in: the `k!` item, map key or value, or the term itself (N26).
-        let structural = structural_key.unwrap_or_else(|| key.clone());
         let keyed = KeyedTerm::of(term);
-        let term = self.expand_term_tree(
-            keyed.tree(),
-            &mut keyed.reader(self.terms.ledger),
-            structural,
-        )?;
+        let term = self.expand_term_tree(keyed.tree(), &mut keyed.reader(self.terms.ledger))?;
         Ok(ProtocolInitializerTerm { key, term })
     }
 
@@ -619,7 +610,6 @@ impl<'a> InitializerBuilder<'a> {
         &mut self,
         tree: &TermTree,
         keys: &mut TermKeyReader<'_>,
-        structural_key: ProvenanceKey,
     ) -> crate::Result<WireTerm> {
         match tree {
             TermTree::Application(application) => {
@@ -649,10 +639,7 @@ impl<'a> InitializerBuilder<'a> {
                     TermArguments::Positional(values) => krs_ir::Arguments::Positional(
                         values
                             .iter()
-                            .map(|value| {
-                                self.expand_term_tree(value, keys, structural_key.clone())
-                                    .map(Box::new)
-                            })
+                            .map(|value| self.expand_term_tree(value, keys).map(Box::new))
                             .collect::<crate::Result<Vec<_>>>()?,
                     ),
                     // A record constructor denotes the same application as
@@ -665,11 +652,7 @@ impl<'a> InitializerBuilder<'a> {
                             arguments.push(krs_ir::NamedTermArgument {
                                 key: keys.record_field(argument.name())?,
                                 field,
-                                value: Box::new(self.expand_term_tree(
-                                    argument.value(),
-                                    keys,
-                                    structural_key.clone(),
-                                )?),
+                                value: Box::new(self.expand_term_tree(argument.value(), keys)?),
                             });
                         }
                         krs_ir::Arguments::named(arguments)
@@ -729,10 +712,10 @@ impl<'a> InitializerBuilder<'a> {
                     })
                 }
             }
-            // The literal names the place its term stands in, whose own
-            // wire node defines that key (N26).
             TermTree::Literal(literal) => Ok(WireTerm::Literal {
-                key: self.terms.ledger.refer_key(structural_key)?,
+                key: keys
+                    .node(NodeKind::Literal, literal.range()?)?
+                    .key(ProvenanceRole::InitializerTermLiteral)?,
                 literal: wire_literal(literal),
             }),
             TermTree::Wildcard(range) => Err(ExpandError::at_range(

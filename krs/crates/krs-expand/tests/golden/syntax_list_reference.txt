@@ -164,7 +164,7 @@ fn __krs_list_constructor_5b4819a968a932af_0() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Args\"}},\"fields\":[{\"name\":\"head\",\"sort\":{\"slot\":1,\"authored_path\":\"crate :: ExprSort\"}},{\"name\":\"tail\",\"sort\":{\"slot\":2,\"authored_path\":\"crate :: Args\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Args\"}},\"fields\":[{\"name\":\"head\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"crate :: ExprSort\"}}},{\"name\":\"tail\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":1},\"target\":{\"slot\":2,\"authored_path\":\"crate :: Args\"}}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_list_type_5b4819a968a932af),
@@ -196,17 +196,6 @@ fn __krs_list_constructor_5b4819a968a932af_0() -> ::core::result::Result<
                         ),
                     ),
                     (
-                        ::k::ProvenanceRole::ConstructorDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (5u32, 5u32),
-                            (5u32, 9u32),
-                            true,
-                        ),
-                    ),
-                    (
                         ::k::ProvenanceRole::ConstructorFieldSort,
                         0u32,
                         ::k::__KrsRawAnchor::new(
@@ -218,17 +207,6 @@ fn __krs_list_constructor_5b4819a968a932af_0() -> ::core::result::Result<
                         ),
                     ),
                     (
-                        ::k::ProvenanceRole::ConstructorFieldDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (5u32, 12u32),
-                            (5u32, 16u32),
-                            true,
-                        ),
-                    ),
-                    (
                         ::k::ProvenanceRole::ConstructorFieldSort,
                         1u32,
                         ::k::__KrsRawAnchor::new(
@@ -236,94 +214,6 @@ fn __krs_list_constructor_5b4819a968a932af_0() -> ::core::result::Result<
                             false,
                             (5u32, 62u32),
                             (5u32, 73u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorFieldDeclaration,
-                        1u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (5u32, 48u32),
-                            (5u32, 52u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::StrictnessDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (4u32, 17u32),
-                            (4u32, 61u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::StrictnessFieldReference,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (4u32, 29u32),
-                            (4u32, 33u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::StrictnessFieldReference,
-                        1u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (4u32, 35u32),
-                            (4u32, 39u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::StrictnessResultSort,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (4u32, 51u32),
-                            (4u32, 61u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ListDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 18u32),
-                            (2u32, 55u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ListSeparator,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 30u32),
-                            (2u32, 33u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ListNonEmpty,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 35u32),
-                            (2u32, 44u32),
                             true,
                         ),
                     ),
@@ -603,28 +493,6 @@ fn __krs_list_constructor_5b4819a968a932af_1() -> ::core::result::Result<
                             false,
                             (3u32, 10u32),
                             (3u32, 14u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (6u32, 5u32),
-                            (6u32, 8u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ListDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 18u32),
-                            (2u32, 55u32),
                             true,
                         ),
                     ),

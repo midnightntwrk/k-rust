@@ -6,7 +6,7 @@ IMP.5 `native-kore` (`phase_native` in `tests/imp/verify.py`) proves it on
 every gate run and requires exactly this comparator summary:
 
 ```text
-PASS native KORE: reference=1188 native=1188 reference_injective_withheld=1 native_transport_rewrites=35 reference_lambda_symbols=0 native_lambda_symbols=0
+PASS native KORE: reference=1188 native=1188 reference_injective_withheld=1 native_transport_rewrites=35 native_selector_contracts=38 native_builtin_definedness_rules=2 reference_lambda_symbols=0 native_lambda_symbols=0
 ```
 
 All non-claim sentences and all 20 claims match.
@@ -14,11 +14,13 @@ The comparator removes only its enumerated renderer and context metadata attribu
 K-rust's `docs/compatibility.md` Comparison contract specifies dependency-first declaration order for emitted sentences.
 The no-confusion pair normalization applies `scripts/reference-normalisations.toml` N30 to the commutative conjunction ordered by K's `Production.ord`.
 The no-junk normalization applies N6 to the commutative top-level disjunction of complete existentially wrapped constructor alternatives and retains multiplicity; N13 compares sentences as a multiset.
-It applies two further k-rust normalizations, each restricted to the exact generated shapes its entry names.
+It applies four further k-rust normalizations, each restricted to the exact generated shapes its entry names.
 N33 drops `injective` from a reference declaration that carries `macro`, `alias`, `anywhere`, `macro-rec`, or `alias-rec` only when the native route declares the same symbol without it; in complete IMP this is the one `zeroAlias` declaration.
 N37 removes k-rust's private configuration-value transport from the native module: the `#KConfigValue` and `#unboxKConfigValue` declarations, the box's functional, injectivity, and no-confusion axioms, its `KItem` no-junk alternative, and its decoder equation, and it translates each cell initializer's `project:S(#unboxKConfigValue(lookup))` back to the reference's `project:S(kseq(lookup, dotk))`.
 In complete IMP these are 35 removals and translations, two of them the `$PGM` and `$ENV` initializer reads.
 N37 fails when the reference mentions either private symbol or when a mention survives on the native route.
+N51 removes the native selector domain and inverse axioms (`<id>.selector-domain`, `<id>.selector-inverse`) of each compiler sort projection, only as a pair and only when both equal the pair rebuilt from the projection's identity equation `<id>`, which stays compared; in complete IMP these are 19 pairs.
+N52 removes the two definedness rules of k-rust's builtin `domains.md`, `#Ceil(I1 divInt I2)` and `#Ceil(bitRangeInt(I, O, L))`, matched by their exact KORE and source.
 It performs no other parenthesis, associative/commutative, or claim-specific normalization.
 
 The separate incomplete-proof residual comparator permits

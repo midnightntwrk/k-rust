@@ -811,28 +811,16 @@
         "run": "5"
       },
       "prj-undefined": {
-        "native": {
-          "parse": "accepted",
-          "run": "branches: stuck, trivial"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "undefined"
-        }
+        "parse": "accepted",
+        "run": "undefined"
       },
       "unbox": {
         "parse": "accepted",
         "run": "2"
       },
       "unbox-undefined": {
-        "native": {
-          "parse": "accepted",
-          "run": "branches: stuck, trivial"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "undefined"
-        }
+        "parse": "accepted",
+        "run": "undefined"
       },
       "isval-value": {
         "parse": "accepted",
@@ -878,28 +866,6 @@
         "java": {
           "parse": "accepted",
           "run": "1"
-        }
-      }
-    },
-    "krs-builtin-sort-tests": {
-      "prj-undefined": {
-        "native": {
-          "parse": "accepted",
-          "run": "branches: stuck, trivial"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "undefined"
-        }
-      },
-      "unbox-undefined": {
-        "native": {
-          "parse": "accepted",
-          "run": "branches: stuck, trivial"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "undefined"
         }
       }
     }

@@ -107,7 +107,11 @@ fn add_bool_common_descendant(bundle: &mut DescriptorBundleInputs, name: &str) -
                 [key(ProvenanceRole::SortParent, 0)],
             ),
             DescriptorPayload::Sort(SortDescriptor {
-                parents: [expr].into(),
+                parents: [krs_ir::DescriptorSortParent {
+                    sort: expr,
+                    key: key(ProvenanceRole::SortParent, 0),
+                }]
+                .into(),
             }),
         ),
     );
@@ -550,7 +554,11 @@ fn constructor_without_grammar_descriptor_is_rejected() {
             sort: DescriptorSortRef::Declared(id("Expr", ItemKind::Sort)),
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".into(),
-                sort: Some(DescriptorSortRef::Declared(id("Expr", ItemKind::Sort))),
+                sort: declared_sort(
+                    ProvenanceRole::ConstructorFieldSort,
+                    0,
+                    id("Expr", ItemKind::Sort),
+                ),
                 arguments: Vec::new(),
             }],
             arguments: Vec::new(),
@@ -769,7 +777,7 @@ fn grammar_owned_constructor_field_preserves_builtin_sort_through_lowering() {
     let DescriptorPayload::Constructor(constructor) = &mut constructor.payload else {
         unreachable!();
     };
-    constructor.fields[0].sort = Some(DescriptorSortRef::Builtin(BuiltinSort::Id));
+    constructor.fields[0].sort.sort = DescriptorSortRef::Builtin(BuiltinSort::Id);
 
     let grammar = descriptors.iter_mut()
         .find(|descriptor| {

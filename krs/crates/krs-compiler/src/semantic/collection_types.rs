@@ -1529,7 +1529,7 @@ impl<'a> Walker<'a> {
             .fields
             .iter()
             .filter_map(|field| {
-                let ty = SortType::of_production(field.sort.as_ref()?, &field.arguments);
+                let ty = SortType::of_production(&field.sort.sort, &field.arguments);
                 ty.kind()?;
                 let position = Position::of(
                     Owner::Field {
@@ -1715,8 +1715,8 @@ pub(super) fn check_production_types(
             )?;
         }
         for field in &constructor.fields {
-            if let (Some(sort), Some(first)) = (&field.sort, field.arguments.first()) {
-                SortType::of_production(sort, &field.arguments).check_arity(
+            if let Some(first) = field.arguments.first() {
+                SortType::of_production(&field.sort.sort, &field.arguments).check_arity(
                     &format!("the {noun} `{}` of `{production}`", field.name),
                     descriptor,
                     &first.sort.key,

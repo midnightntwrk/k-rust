@@ -802,6 +802,7 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
     expected_summary = (
         "PASS native KORE: reference=1188 native=1188 "
         "reference_injective_withheld=1 native_transport_rewrites=35 "
+        "native_selector_contracts=38 native_builtin_definedness_rules=2 "
         "reference_lambda_symbols=0 native_lambda_symbols=0\n"
     )
     require_exact_summary(result, expected_summary, "native comparator")

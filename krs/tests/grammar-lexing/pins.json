@@ -63,7 +63,7 @@
     }
   },
   "partition": {
-    "krs-grammar-partition": "KRS-PART-SYNTAX (program syntax)\n  sort Exp\n  sort Value\n  subsort Value ::= Int\n  subsort Exp ::= Value\n  subsort Value ::= Bool\n  production ExpSyntax::And\n  production ExpSyntax::Neg\nKRS-PART (pub productions that are not program syntax)\n  (none)\n",
+    "krs-grammar-partition": "KRS-PART-SYNTAX (program syntax)\n  sort Exp\n  sort Value\n  subsort Value ::= Int\n  subsort Value ::= Bool\n  subsort Exp ::= Value\n  production ExpSyntax::And\n  production ExpSyntax::Neg\nKRS-PART (pub productions that are not program syntax)\n  (none)\n",
     "krs-grammar-kevm-case": "KRS-EVM-SYNTAX (program syntax)\n  sort Command\n  sort LogEntry\n  production Commands::Done\n  production Commands::Emit\nKRS-EVM (pub productions that are not program syntax)\n  production BlockHashLookup: argument `hashes: List`: K has no LIST-SYNTAX module\n  production LogRecord::Entry: argument `topics: List`: K has no LIST-SYNTAX module\n",
     "krs-grammar-program-warning": "KRS-PROGRAM-WARNING-SYNTAX (program syntax)\n  sort LogEntry\nKRS-PROGRAM-WARNING (pub productions that are not program syntax)\n  production LogRecord::Entry: argument `topics: List`: K has no LIST-SYNTAX module\n"
   },

@@ -45,7 +45,7 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"ExprSort\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"ExprSort\"}}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_constructor_sort_1bd4e99d7edfdcae),
@@ -72,28 +72,6 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::core::result::Result<
                             false,
                             (2u32, 25u32),
                             (2u32, 29u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorSyntax,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 40u32),
-                            (2u32, 50u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (4u32, 12u32),
-                            (4u32, 15u32),
                             true,
                         ),
                     ),

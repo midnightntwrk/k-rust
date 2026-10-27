@@ -77,12 +77,11 @@ pub fn declaration(
     payload: DescriptorPayload,
     primary: ProvenanceRole,
 ) -> DescriptorInputs {
-    let extra = matches!(payload, DescriptorPayload::Constructor(_))
-        .then(|| key(ProvenanceRole::ConstructorDeclaration, 0));
+    let keys = testing::declaration_keys(&payload);
     DescriptorInputs::new(
         id,
         BTreeMap::new(),
-        provenance(key(primary, 0), extra),
+        provenance(key(primary, 0), keys),
         payload,
     )
 }
@@ -138,7 +137,7 @@ pub fn machine_configuration(start: StableItemId) -> DescriptorInputs {
                     wrapper: CellWrapper::KCell,
                     value: krs_ir::ProtocolInitializerStateTerm::KSequence(
                         krs_ir::ProtocolKSequence {
-                            payload_key: Some(key(ProvenanceRole::KSequencePayload, 0)),
+                            payload_key: key(ProvenanceRole::KSequencePayload, 0),
                             dot_k_key: None,
                             notation: krs_ir::DescriptorKSequenceNotation::Comma,
                             items: vec![krs_ir::ProtocolKSequenceItem {
@@ -214,12 +213,12 @@ pub fn bundle() -> (DescriptorBundleInputs, StableItemId) {
                 fields: vec![
                     ConstructorFieldDescriptor {
                         name: "lhs".into(),
-                        sort: Some(DescriptorSortRef::Declared(expr.clone())),
+                        sort: declared_sort(ProvenanceRole::ConstructorFieldSort, 0, expr.clone()),
                         arguments: Vec::new(),
                     },
                     ConstructorFieldDescriptor {
                         name: "rhs".into(),
-                        sort: Some(DescriptorSortRef::Declared(expr.clone())),
+                        sort: declared_sort(ProvenanceRole::ConstructorFieldSort, 1, expr.clone()),
                         arguments: Vec::new(),
                     },
                 ],
@@ -617,7 +616,11 @@ pub fn add_builtin_expr_subsort(
                 [key(ProvenanceRole::SortParent, 0)],
             ),
             DescriptorPayload::Sort(SortDescriptor {
-                parents: [expr].into(),
+                parents: [krs_ir::DescriptorSortParent {
+                    sort: expr,
+                    key: key(ProvenanceRole::SortParent, 0),
+                }]
+                .into(),
             }),
         ),
     );

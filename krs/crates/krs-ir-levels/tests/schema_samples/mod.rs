@@ -249,6 +249,24 @@ impl Sample for ClaimModality {
         vec![Self::AllPaths]
     }
 }
+impl Sample for HeadRuleComputationCell {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            name: sample::<String>(),
+            result_key: Some(sample::<ProvenanceKey>()),
+        }]
+    }
+}
+impl Sample for DescriptorComputationCell {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            cell: sample::<DescriptorCellIdentity>(),
+            key: Some(sample::<ProvenanceKey>()),
+            result_key: Some(sample::<ProvenanceKey>()),
+        }]
+    }
+}
 impl Sample for HeadRuleClaim {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -664,7 +682,15 @@ impl Sample for SetOperation {
 impl Sample for SortDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
-            parents: sample::<BTreeSet<StableItemId>>(),
+            parents: sample::<BTreeSet<DescriptorSortParent>>(),
+        }]
+    }
+}
+impl Sample for DescriptorSortParent {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<StableItemId>(),
+            key: ProvenanceRole::SortParent.key(0),
         }]
     }
 }
@@ -779,7 +805,7 @@ impl Sample for WireCellDeclarationReference {
 impl Sample for WireSortDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
-            parents: sample::<Vec<WireTypeReference>>(),
+            parents: sample::<Vec<WireSortReference>>(),
         }]
     }
 }
@@ -805,7 +831,7 @@ impl Sample for WireConstructorFieldDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
             name: sample::<String>(),
-            sort: sample::<WireTypeReference>(),
+            sort: sample::<WireSortReference>(),
             arguments: sample::<Vec<WireConstructorSortArgument>>(),
         }]
     }
@@ -882,7 +908,7 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolKSeque
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolKSequence<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
-            payload_key: sample::<Option<ProvenanceKey>>(),
+            payload_key: sample::<ProvenanceKey>(),
             dot_k_key: sample::<Option<ProvenanceKey>>(),
             notation: sample::<DescriptorKSequenceNotation>(),
             items: sample::<Vec<ProtocolKSequenceItem<T>>>(),
@@ -936,8 +962,26 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleMapEntry<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
+            key_key: sample::<ProvenanceKey>(),
             key: sample::<T>(),
+            value_key: sample::<ProvenanceKey>(),
             value_binding: sample::<String>(),
+        }]
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleSplice<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            payload_key: sample::<Option<ProvenanceKey>>(),
+            items: sample::<Vec<ProtocolHeadRuleSpliceItem<T>>>(),
+        }]
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleSpliceItem<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<Option<ProvenanceKey>>(),
+            value: sample::<T>(),
         }]
     }
 }
@@ -1330,6 +1374,7 @@ impl Sample for ConstantDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
             sort: sample::<DescriptorSortReference>(),
+            value_key: sample::<ProvenanceKey>(),
             value: sample::<DescriptorTerm>(),
         }]
     }
@@ -1338,6 +1383,7 @@ impl Sample for WireConstant {
     fn samples() -> Vec<Self> {
         vec![Self {
             sort: sample::<WireSortReference>(),
+            value_key: sample::<ProvenanceKey>(),
             value: sample::<WireTerm>(),
         }]
     }
@@ -1601,6 +1647,7 @@ impl Sample for DescriptorTerm {
                 Self::Anonymous {
                     key: sample::<ProvenanceKey>(),
                     sort: sample::<DescriptorSortReference>(),
+                    spelling_key: sample::<ProvenanceKey>(),
                     spelling: sample::<String>(),
                 },
                 Self::OrBool {
@@ -1613,6 +1660,7 @@ impl Sample for DescriptorTerm {
                 },
                 Self::Cell {
                     key: sample::<ProvenanceKey>(),
+                    path_key: sample::<ProvenanceKey>(),
                     declaration: sample::<StableItemId>(),
                     fields: sample::<Vec<DescriptorCellTermField>>(),
                     open: true,
@@ -2309,7 +2357,7 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
         checked_samples(
             vec![
                 Self::Replace(sample::<T>()),
-                Self::Splice(sample::<Vec<T>>()),
+                Self::Splice(sample::<ProtocolHeadRuleSplice<T>>()),
                 Self::Erase,
             ],
             3,
@@ -2958,6 +3006,7 @@ impl Sample for WireTerm {
                 Self::Anonymous {
                     key: sample::<ProvenanceKey>(),
                     sort: sample::<WireSortReference>(),
+                    spelling_key: sample::<ProvenanceKey>(),
                     spelling: sample::<String>(),
                 },
                 Self::OrBool {
@@ -2970,6 +3019,7 @@ impl Sample for WireTerm {
                 },
                 Self::Cell {
                     key: sample::<ProvenanceKey>(),
+                    path_key: sample::<ProvenanceKey>(),
                     declaration: sample::<WireTypeReference>(),
                     fields: sample::<Vec<WireCellTermField>>(),
                     open: true,
@@ -3102,11 +3152,24 @@ impl Sample for WireTermArgument {
 }
 impl Sample for Descriptor {
     fn samples() -> Vec<Self> {
+        // The sample payload, a sort, anchors its declaration (the sample
+        // key) and its parent reference.
+        let payload = sample::<DescriptorPayload>();
+        let primary = sample::<ProvenanceKey>();
+        let mut keys = krs_ir::testing::declaration_keys(&payload);
+        keys.insert(primary.clone());
+        let provenance = DescriptorProvenance::new(
+            primary,
+            keys.into_iter()
+                .map(|key| DescriptorNodeOrigin::new(key, sample::<OriginStack>()))
+                .collect(),
+        )
+        .unwrap();
         vec![krs_ir::testing::descriptor(
             sample::<StableItemId>(),
             sample::<BTreeMap<String, Option<String>>>(),
-            sample::<DescriptorProvenance>(),
-            sample::<DescriptorPayload>(),
+            provenance,
+            payload,
         )]
     }
 }
@@ -3160,7 +3223,10 @@ impl Sample for ConstructorFieldDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
             name: sample::<String>(),
-            sort: sample::<Option<crate::DescriptorSortRef>>(),
+            sort: DescriptorSortReference {
+                key: ProvenanceRole::ConstructorFieldSort.key(0),
+                sort: sample::<DescriptorSortRef>(),
+            },
             arguments: sample::<Vec<ConstructorSortArgumentDescriptor>>(),
         }]
     }
@@ -3498,7 +3564,9 @@ impl Sample for DescriptorHeadRule {
             result_key: sample::<ProvenanceKey>(),
             head_sort: sample::<Option<DescriptorSortReference>>(),
             configuration: sample::<StableItemId>(),
-            computation_cell: sample::<Option<DescriptorCellReference>>(),
+            configuration_key: sample::<Option<ProvenanceKey>>(),
+            result_type_key: sample::<ProvenanceKey>(),
+            computation_cell: sample::<Option<DescriptorComputationCell>>(),
             bindings: sample::<Vec<DescriptorHeadRuleBinding>>(),
             head: sample::<Option<ProtocolHeadRuleHead<DescriptorTerm>>>(),
             requires: sample::<Option<DescriptorRuleCondition>>(),
@@ -3857,7 +3925,7 @@ impl<
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolMap<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
-            payload_key: sample::<Option<ProvenanceKey>>(),
+            payload_key: sample::<ProvenanceKey>(),
             body: sample::<ProtocolMapBody<T>>(),
         }]
     }
@@ -3908,7 +3976,7 @@ impl<
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleKSequence<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
-            payload_key: sample::<Option<ProvenanceKey>>(),
+            payload_key: sample::<ProvenanceKey>(),
             dot_k_key: sample::<Option<ProvenanceKey>>(),
             notation: sample::<DescriptorKSequenceNotation>(),
             items: sample::<Vec<ProtocolRuleKSequenceItem<T>>>(),
@@ -3919,7 +3987,7 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleKS
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleMap<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
-            payload_key: sample::<Option<ProvenanceKey>>(),
+            payload_key: sample::<ProvenanceKey>(),
             body: sample::<ProtocolRuleMapBody<T>>(),
         }]
     }
@@ -4070,7 +4138,8 @@ impl Sample for WireHeadRule {
             result_key: sample::<ProvenanceKey>(),
             head_sort: sample::<Option<WireSortReference>>(),
             configuration: sample::<Option<WireConfigurationReference>>(),
-            computation_cell_name: sample::<Option<String>>(),
+            result_type_key: sample::<ProvenanceKey>(),
+            computation_cell: sample::<Option<HeadRuleComputationCell>>(),
             bindings: sample::<Vec<WireHeadRuleBinding>>(),
             head: sample::<Option<WireHeadRuleHead>>(),
             requires: sample::<Option<WireRuleCondition>>(),
@@ -4261,6 +4330,69 @@ fn insert<T: Sample + Serialize + DeserializeOwned>(
         .collect();
     assert!(!values.is_empty());
     assert!(corpus.insert(name, values).is_none());
+}
+
+/// Checks that each of `fields` is required in the samples of `T` that
+/// `variant` selects (a tag and its value, or every sample): the sample
+/// deserializes, and without the field it does not.
+fn required<T: Sample + Serialize + DeserializeOwned>(
+    variant: Option<(&str, &str)>,
+    fields: &[&str],
+) {
+    let samples = T::samples()
+        .iter()
+        .map(|sample| serde_json::to_value(sample).unwrap())
+        .filter(|json| variant.is_none_or(|(tag, value)| json[tag] == value))
+        .collect::<Vec<_>>();
+    assert!(
+        !samples.is_empty(),
+        "{} {variant:?}",
+        std::any::type_name::<T>()
+    );
+    for json in samples {
+        assert!(
+            serde_json::from_value::<T>(json.clone()).is_ok(),
+            "{} sample does not deserialize",
+            std::any::type_name::<T>()
+        );
+        for field in fields {
+            let mut without = json.clone();
+            assert!(
+                without.as_object_mut().unwrap().remove(*field).is_some(),
+                "{} has no field {field}",
+                std::any::type_name::<T>()
+            );
+            assert!(
+                serde_json::from_value::<T>(without).is_err(),
+                "{}.{field} must be required",
+                std::any::type_name::<T>()
+            );
+        }
+    }
+}
+
+/// Checks that the key fields of the shapes the registry cannot trace are
+/// required. A sample serializes a field and an optional field that holds a
+/// value alike, so the pinned samples alone would not show a key field
+/// becoming optional.
+pub fn assert_required_key_fields() {
+    required::<ProtocolMap<DescriptorTerm>>(None, &["payload_key"]);
+    required::<ProtocolRuleKSequence<DescriptorTerm>>(None, &["payload_key"]);
+    required::<ProtocolRuleMap<DescriptorTerm>>(None, &["payload_key"]);
+    required::<ConstantDescriptor>(None, &["value_key"]);
+    // A resolved constructor field has a sort, keyed at its authored type.
+    required::<ConstructorFieldDescriptor>(None, &["sort"]);
+    required::<DescriptorSortReference>(None, &["key"]);
+    required::<WireConstant>(None, &["value_key"]);
+    for term in [
+        |variant, fields| required::<DescriptorTerm>(variant, fields),
+        |variant, fields| required::<WireTerm>(variant, fields),
+    ] {
+        term(Some(("term_kind", "anonymous")), &["spelling_key"]);
+        term(Some(("term_kind", "cell")), &["path_key"]);
+    }
+    required::<DescriptorHeadRule>(None, &["result_type_key"]);
+    required::<WireHeadRule>(None, &["result_type_key"]);
 }
 
 fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {

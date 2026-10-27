@@ -323,9 +323,12 @@ mod tests {
     fn production(production: &ProductionItem<'_>, label: &str, round_trip: &mut RoundTrip) {
         let attribute = production.attribute.production();
         let declaration = production.declaration;
-        let full = attribute.full_provenance().unwrap();
-        round_trip.prefix(label, &attribute.provenance().unwrap(), &full);
-        round_trip.sentence(label, Ok(full), |nodes| attribute.keyed_nodes(nodes));
+        round_trip.sentence(label, attribute.full_provenance(), |nodes| {
+            attribute.keyed_nodes(nodes)
+        });
+        round_trip.sentence(label, attribute.sort_provenance(), |nodes| {
+            attribute.keyed_sort_nodes(nodes)
+        });
         round_trip.sentence(label, attribute.sort_argument_provenance(), |nodes| {
             attribute.keyed_sort_argument_nodes(nodes)
         });
@@ -336,8 +339,8 @@ mod tests {
             });
         }
         round_trip.descriptor(label, production.constructor_provenance(), |nodes| {
-            attribute.keyed_compact_nodes(nodes)?;
-            declaration.keyed_compact_nodes(nodes)?;
+            attribute.keyed_sort_nodes(nodes)?;
+            declaration.keyed_sort_nodes(nodes)?;
             attribute.keyed_sort_argument_nodes(nodes)?;
             declaration.keyed_argument_nodes(nodes)?;
             if let Some(symbol) = production.symbol {
@@ -371,16 +374,19 @@ mod tests {
         });
     }
 
-    /// Checks a struct's three views: the full one both ways, the compact
-    /// one as its prefix, and the element types of its field sorts.
+    /// Checks a struct's three views: the full one, its sort parameters and
+    /// field sorts, and the element types of its field sorts.
     fn constructor_declaration(
         declaration: &ConstructorDeclaration,
         label: &str,
         round_trip: &mut RoundTrip,
     ) {
-        let full = declaration.full_provenance().unwrap();
-        round_trip.prefix(label, &declaration.provenance().unwrap(), &full);
-        round_trip.sentence(label, Ok(full), |nodes| declaration.keyed_nodes(nodes));
+        round_trip.sentence(label, declaration.full_provenance(), |nodes| {
+            declaration.keyed_nodes(nodes)
+        });
+        round_trip.sentence(label, declaration.sort_provenance(), |nodes| {
+            declaration.keyed_sort_nodes(nodes)
+        });
         round_trip.sentence(label, declaration.argument_provenance(), |nodes| {
             declaration.keyed_argument_nodes(nodes)
         });
@@ -401,7 +407,7 @@ mod tests {
                 variant.keyed_argument_nodes(nodes)
             });
             round_trip.descriptor(label, variant.constructor_provenance(), |nodes| {
-                variant.keyed_nodes(nodes)?;
+                variant.keyed_constructor_nodes(nodes)?;
                 variant.keyed_argument_nodes(nodes)
             });
         }
@@ -427,9 +433,17 @@ mod tests {
         round_trip.sentence(label, declaration.cons_provenance(), |nodes| {
             declaration.keyed_cons_nodes(nodes)
         });
+        round_trip.descriptor(label, declaration.cons_constructor_provenance(), |nodes| {
+            declaration.keyed_cons_constructor_nodes(nodes)
+        });
         round_trip.sentence(label, declaration.terminator_provenance(), |nodes| {
             declaration.keyed_terminator_nodes(nodes)
         });
+        round_trip.descriptor(
+            label,
+            declaration.terminator_constructor_provenance(),
+            |nodes| declaration.keyed_terminator_constructor_nodes(nodes),
+        );
     }
 
     /// Checks a `sorts!` block's sorts, their brackets, and its memberships.
@@ -533,10 +547,11 @@ mod tests {
             constructor_declaration(&value, &label("constructor"), round_trip);
         }
         if let Ok(value) = ConstructorAttribute::parse_source(source) {
-            let full = value.full_provenance().unwrap();
-            round_trip.prefix(&label("constructor"), &value.provenance().unwrap(), &full);
-            round_trip.sentence(&label("constructor"), Ok(full), |nodes| {
+            round_trip.sentence(&label("constructor"), value.full_provenance(), |nodes| {
                 value.keyed_nodes(nodes)
+            });
+            round_trip.sentence(&label("constructor"), value.sort_provenance(), |nodes| {
+                value.keyed_sort_nodes(nodes)
             });
             round_trip.sentence(
                 &label("constructor"),

@@ -10,9 +10,9 @@ use crate::{
     DescriptorConfigurationRule, DescriptorConfigurationVariable, DescriptorContextAlias,
     DescriptorFixedConfiguration, DescriptorHeadRule, DescriptorInitializerCell,
     DescriptorInitializerStateTerm, DescriptorPayload, DescriptorRuleCells,
-    DescriptorRuleCondition, DescriptorSortRef, DescriptorSortReference, DescriptorStage,
-    DescriptorTerm, GrammarDescriptor, ItemKind, PackageId, ProvenanceKey, ProvenanceRole, RefMap,
-    SentenceKind, SortDescriptor, StableItemId, StructuredRuleDescriptor,
+    DescriptorRuleCondition, DescriptorSortParent, DescriptorSortRef, DescriptorSortReference,
+    DescriptorStage, DescriptorTerm, GrammarDescriptor, ItemKind, PackageId, ProvenanceKey,
+    ProvenanceRole, RefMap, SentenceKind, SortDescriptor, StableItemId, StructuredRuleDescriptor,
 };
 
 macro_rules! assert_mapping {
@@ -47,6 +47,20 @@ fn item(kind: ItemKind, name: &str) -> StableItemId {
     StableItemId::new(package, ["transport"], name, kind, "").unwrap()
 }
 
+fn parent(sort: StableItemId, ordinal: u32) -> DescriptorSortParent {
+    DescriptorSortParent {
+        sort,
+        key: ProvenanceRole::SortParent.key(ordinal),
+    }
+}
+
+fn field_sort(ordinal: u32) -> DescriptorSortReference {
+    DescriptorSortReference {
+        key: ProvenanceRole::ConstructorFieldSort.key(ordinal),
+        sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
+    }
+}
+
 fn sort(ordinal: u32) -> DescriptorSortReference {
     DescriptorSortReference {
         key: key(ordinal),
@@ -58,6 +72,7 @@ fn term(ordinal: u32) -> DescriptorTerm {
     DescriptorTerm::Anonymous {
         key: key(ordinal),
         sort: sort(ordinal),
+        spelling_key: key(ordinal),
         spelling: "_".to_owned(),
     }
 }
@@ -294,7 +309,7 @@ fn configuration_declaration_traversal_maps_fields_and_generic_arguments() {
 fn initializer_state_traversal_maps_sequences_and_every_map_variant() {
     assert_mapping!(initializer_term(0), [map_term], ["sort"]);
     let sequence = cfg::ProtocolKSequence {
-        payload_key: Some(key(0)),
+        payload_key: key(0),
         dot_k_key: None,
         notation: cfg::DescriptorKSequenceNotation::Operator,
         items: vec![cfg::ProtocolKSequenceItem {
@@ -344,7 +359,7 @@ fn initializer_state_traversal_maps_sequences_and_every_map_variant() {
         assert_eq!(mapped, body);
         assert_eq!(map.calls, vec!["sort"; expected]);
         let state = cfg::ProtocolInitializerStateTerm::Map(cfg::ProtocolMap {
-            payload_key: Some(key(0)),
+            payload_key: key(0),
             body,
         });
         let mut map = CountingMap::default();
@@ -565,7 +580,7 @@ fn rule_sequence_traversal_preserves_every_frame_variant() {
     assert_mapping!(sequence_item.clone(), [map_term], ["sort"]);
     for tail in frames() {
         let sequence = rule::ProtocolRuleKSequence {
-            payload_key: Some(key(0)),
+            payload_key: key(0),
             dot_k_key: None,
             notation: cfg::DescriptorKSequenceNotation::Operator,
             items: vec![sequence_item.clone()],
@@ -596,7 +611,7 @@ fn rule_map_traversal_covers_items_updates_empty_and_frames() {
         };
         assert_mapping!(body.clone(), [map_term], ["sort", "sort"]);
         let map = rule::ProtocolRuleMap {
-            payload_key: Some(key(0)),
+            payload_key: key(0),
             body,
         };
         assert_mapping!(map.clone(), [map_term], ["sort", "sort"]);
@@ -675,7 +690,13 @@ fn head_rule() -> DescriptorHeadRule {
         result_key: key(1),
         head_sort: None,
         configuration: item(ItemKind::Configuration, "State"),
-        computation_cell: Some(cell(2)),
+        configuration_key: Some(key(6)),
+        result_type_key: key(5),
+        computation_cell: Some(crate::DescriptorComputationCell {
+            cell: cell(2).cell,
+            key: Some(key(2)),
+            result_key: Some(key(7)),
+        }),
         bindings: Vec::new(),
         head: Some(crate::ProtocolHeadRuleHead {
             items: vec![term(3)],
@@ -738,8 +759,8 @@ fn structured_rule() -> StructuredRuleDescriptor {
 fn sort_and_constructor_traversals_preserve_variant_data() {
     let sorts = SortDescriptor {
         parents: [
-            item(ItemKind::Sort, "First"),
-            item(ItemKind::Sort, "Second"),
+            parent(item(ItemKind::Sort, "First"), 0),
+            parent(item(ItemKind::Sort, "Second"), 1),
         ]
         .into_iter()
         .collect(),
@@ -751,12 +772,12 @@ fn sort_and_constructor_traversals_preserve_variant_data() {
         fields: vec![
             ConstructorFieldDescriptor {
                 name: "first".to_owned(),
-                sort: Some(DescriptorSortRef::Builtin(BuiltinSort::Int)),
+                sort: field_sort(0),
                 arguments: Vec::new(),
             },
             ConstructorFieldDescriptor {
                 name: "second".to_owned(),
-                sort: None,
+                sort: field_sort(1),
                 arguments: Vec::new(),
             },
         ],
@@ -782,8 +803,8 @@ fn sort_and_constructor_traversals_preserve_variant_data() {
 fn declaration_payload_traversal_maps_references_and_propagates_errors() {
     let sorts = SortDescriptor {
         parents: [
-            item(ItemKind::Sort, "First"),
-            item(ItemKind::Sort, "Second"),
+            parent(item(ItemKind::Sort, "First"), 0),
+            parent(item(ItemKind::Sort, "Second"), 1),
         ]
         .into_iter()
         .collect(),
@@ -794,12 +815,12 @@ fn declaration_payload_traversal_maps_references_and_propagates_errors() {
         fields: vec![
             ConstructorFieldDescriptor {
                 name: "first".to_owned(),
-                sort: Some(DescriptorSortRef::Builtin(BuiltinSort::Int)),
+                sort: field_sort(0),
                 arguments: Vec::new(),
             },
             ConstructorFieldDescriptor {
                 name: "second".to_owned(),
-                sort: None,
+                sort: field_sort(1),
                 arguments: Vec::new(),
             },
         ],
@@ -880,7 +901,7 @@ fn configuration_payload_traversal_maps_references_and_propagates_errors() {
     assert_mapping!(
         DescriptorPayload::HeadRule(Box::new(head_rule())),
         [map_head],
-        ["item", "cell", "sort", "sort"]
+        ["item", "sort", "sort"]
     );
     assert_mapping!(
         DescriptorPayload::ContextAlias(Box::new(context_alias())),

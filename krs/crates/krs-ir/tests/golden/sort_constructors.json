@@ -1,5 +1,5 @@
 {
-  "protocol_version": 68,
+  "protocol_version": 69,
   "descriptors": [
     {
       "id": {
@@ -19,13 +19,13 @@
       "cfg": {},
       "provenance": {
         "primary_key": {
-          "role": "constructor_declaration",
+          "role": "constructor_sort",
           "ordinal": 0
         },
         "origins": [
           {
             "key": {
-              "role": "constructor_declaration",
+              "role": "constructor_sort",
               "ordinal": 0
             },
             "origin": [
@@ -91,13 +91,39 @@
       "cfg": {},
       "provenance": {
         "primary_key": {
-          "role": "constructor_declaration",
+          "role": "constructor_sort",
           "ordinal": 0
         },
         "origins": [
           {
             "key": {
-              "role": "constructor_declaration",
+              "role": "constructor_field_sort",
+              "ordinal": 0
+            },
+            "origin": [
+              {
+                "frame_type": "ranged",
+                "kind": "authored",
+                "range": {
+                  "file": {
+                    "package": {
+                      "k_namespace": "ORG-EXAMPLE-SMOKE",
+                      "cargo_name": "smoke-semantics",
+                      "cargo_version": "0.1.0",
+                      "cargo_source": "workspace"
+                    },
+                    "package_relative_path": "src/lib.rs",
+                    "content_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                  },
+                  "start_byte": 4,
+                  "end_byte": 7
+                }
+              }
+            ]
+          },
+          {
+            "key": {
+              "role": "constructor_sort",
               "ordinal": 0
             },
             "origin": [
@@ -146,20 +172,26 @@
           {
             "name": "value",
             "sort": {
-              "sort_source": "declared",
+              "key": {
+                "role": "constructor_field_sort",
+                "ordinal": 0
+              },
               "sort": {
-                "package": {
-                  "k_namespace": "ORG-EXAMPLE-SMOKE",
-                  "cargo_name": "smoke-semantics",
-                  "cargo_version": "0.1.0",
-                  "cargo_source": "workspace"
-                },
-                "module_path": [
-                  "syntax"
-                ],
-                "item_name": "KItem",
-                "item_kind": "sort",
-                "disambiguator": ""
+                "sort_source": "declared",
+                "sort": {
+                  "package": {
+                    "k_namespace": "ORG-EXAMPLE-SMOKE",
+                    "cargo_name": "smoke-semantics",
+                    "cargo_version": "0.1.0",
+                    "cargo_source": "workspace"
+                  },
+                  "module_path": [
+                    "syntax"
+                  ],
+                  "item_name": "KItem",
+                  "item_kind": "sort",
+                  "disambiguator": ""
+                }
               }
             }
           }
@@ -213,6 +245,32 @@
                 }
               }
             ]
+          },
+          {
+            "key": {
+              "role": "sort_parent",
+              "ordinal": 0
+            },
+            "origin": [
+              {
+                "frame_type": "ranged",
+                "kind": "authored",
+                "range": {
+                  "file": {
+                    "package": {
+                      "k_namespace": "ORG-EXAMPLE-SMOKE",
+                      "cargo_name": "smoke-semantics",
+                      "cargo_version": "0.1.0",
+                      "cargo_source": "workspace"
+                    },
+                    "package_relative_path": "src/lib.rs",
+                    "content_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                  },
+                  "start_byte": 4,
+                  "end_byte": 7
+                }
+              }
+            ]
           }
         ]
       },
@@ -220,18 +278,24 @@
       "descriptor": {
         "parents": [
           {
-            "package": {
-              "k_namespace": "ORG-EXAMPLE-SMOKE",
-              "cargo_name": "smoke-semantics",
-              "cargo_version": "0.1.0",
-              "cargo_source": "workspace"
+            "sort": {
+              "package": {
+                "k_namespace": "ORG-EXAMPLE-SMOKE",
+                "cargo_name": "smoke-semantics",
+                "cargo_version": "0.1.0",
+                "cargo_source": "workspace"
+              },
+              "module_path": [
+                "syntax"
+              ],
+              "item_name": "KItem",
+              "item_kind": "sort",
+              "disambiguator": ""
             },
-            "module_path": [
-              "syntax"
-            ],
-            "item_name": "KItem",
-            "item_kind": "sort",
-            "disambiguator": ""
+            "key": {
+              "role": "sort_parent",
+              "ordinal": 0
+            }
           }
         ]
       }

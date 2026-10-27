@@ -18,9 +18,7 @@ use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_so
 use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::{DescriptorLoweringError, ImplicitPresentCell};
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
-use super::origin::{
-    generated_semantic_id, key_range, semantic_cell_id, semantic_origin, shell_payload_key,
-};
+use super::origin::{generated_semantic_id, key_range, semantic_cell_id, semantic_origin};
 use super::references::require_cell_field;
 
 pub(super) fn lower_fixed_configuration_descriptor(
@@ -787,7 +785,7 @@ fn lower_initializer_state(
     match state {
         ProtocolInitializerStateTerm::Term(term) => lower_term(&term.term, Some(declared_sort)),
         ProtocolInitializerStateTerm::KSequence(sequence) => {
-            let key = shell_payload_key(descriptor, sequence.payload_key.as_ref())?;
+            let key = &sequence.payload_key;
             if *declared_sort != SemanticSortRef::k_sequence() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),
@@ -811,7 +809,7 @@ fn lower_initializer_state(
             ))
         }
         ProtocolInitializerStateTerm::Map(map) => {
-            let key = shell_payload_key(descriptor, map.payload_key.as_ref())?;
+            let key = &map.payload_key;
             if *declared_sort != SemanticSortRef::map() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),

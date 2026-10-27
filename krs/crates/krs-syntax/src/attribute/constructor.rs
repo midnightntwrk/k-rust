@@ -43,10 +43,8 @@ pub struct ConstructorAttribute {
     colors: ProductionColors,
     sort_key: Option<ProvenanceKey>,
     keys: ProductionKeys,
-    /// The anchors of the full view's keying, whose first `compact` anchors
-    /// are the compact view's.
+    /// The anchors of the full view's keying.
     anchors: Vec<ProvenanceAnchor>,
-    compact: usize,
     /// The anchors of the sort-argument view's keying.
     sort_argument_anchors: Vec<ProvenanceAnchor>,
 }
@@ -1145,13 +1143,20 @@ impl ConstructorAttribute {
         Ok(())
     }
 
-    /// Returns canonical anchors in descriptor field order.
+    /// Returns the anchor of the production's sort, the one node of the
+    /// attribute that the constructor descriptor denotes: the syntax and the
+    /// metadata are the grammar descriptor's.
     ///
     /// # Errors
     ///
     /// None: the attribute was keyed when it was parsed.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(self.anchors[..self.compact].to_vec())
+    pub fn sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self
+            .anchors
+            .iter()
+            .filter(|anchor| self.sort_key.as_ref() == Some(&anchor.key()))
+            .cloned()
+            .collect())
     }
 
     /// The key of the sort path.
@@ -1166,14 +1171,12 @@ impl ConstructorAttribute {
         &self.keys
     }
 
-    /// Keys the attribute's two descriptors, each a sentence of its own. The
-    /// full view starts with the compact one, the sort and the syntax, so one
-    /// pass keys both; the sort-argument view keys the result's element
-    /// types on its own.
+    /// Keys the attribute's two views, each a sentence of its own: the full
+    /// view keys the sort, the syntax and the metadata; the sort-argument
+    /// view keys the result's element types on its own.
     fn rekey(&mut self) -> Result<(), SyntaxError> {
         let mut keys = KeyAllocator::default();
         self.allocate_keys(&mut keys)?;
-        self.compact = keys.anchors().len();
         self.allocate_metadata_keys(&mut keys)?;
         self.anchors = keys.into_anchors();
         let mut keys = KeyAllocator::default();
@@ -1232,8 +1235,8 @@ impl ConstructorAttribute {
         Ok(self.sort_argument_anchors.clone())
     }
 
-    /// Returns the complete anchor catalog, including syntax-template, group,
-    /// and avoid anchors; [`Self::provenance`] keeps the compact protocol-v5 catalog.
+    /// Returns the complete anchor catalog: the sort, the syntax and its
+    /// template, and the metadata.
     ///
     /// # Errors
     ///
@@ -1516,7 +1519,6 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
         sort_key: None,
         keys: ProductionKeys::default(),
         anchors: Vec::new(),
-        compact: 0,
         sort_argument_anchors: Vec::new(),
     }
     .keyed()?)
@@ -1756,7 +1758,6 @@ fn parse_function_keys(
             sort_key: None,
             keys: ProductionKeys::default(),
             anchors: Vec::new(),
-            compact: 0,
             sort_argument_anchors: Vec::new(),
         },
         default_syntax: false,
@@ -2321,22 +2322,19 @@ mod keyed {
     }
 
     impl ConstructorAttribute {
-        /// Records the keys of the compact view: the sort and the syntax.
-        pub(crate) fn keyed_compact_nodes(
-            &self,
-            nodes: &mut KeyedNodes,
-        ) -> Result<(), SyntaxError> {
-            nodes.push_tokens(self.sort_key.as_ref(), &self.sort)?;
+        /// Records the key of the sort, the node of
+        /// [`Self::sort_provenance`].
+        pub(crate) fn keyed_sort_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.sort)
+        }
+
+        /// Records the keys of the full view: the sort, the syntax, then the
+        /// metadata.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            self.keyed_sort_nodes(nodes)?;
             if let Some(syntax) = &self.syntax {
                 nodes.push_tokens(self.keys.syntax.as_ref(), syntax)?;
             }
-            Ok(())
-        }
-
-        /// Records the keys of the full view: the compact view's, then the
-        /// metadata.
-        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
-            self.keyed_compact_nodes(nodes)?;
             Metadata {
                 keys: &self.keys,
                 syntax: None,

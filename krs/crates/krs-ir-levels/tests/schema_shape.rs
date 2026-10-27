@@ -726,6 +726,7 @@ fn registry() -> Registry {
     trace!(DescriptorConfigurationReference: DescriptorConfigurationReference);
     trace!(DescriptorColorEntry: DescriptorColorEntry);
     trace!(DescriptorContextAliasReference: DescriptorContextAliasReference);
+    trace!(DescriptorSortParent: DescriptorSortParent);
     trace!(DescriptorFieldReference: DescriptorFieldReference);
     trace!(DescriptorGroupReference: DescriptorGroupReference);
     trace!(DescriptorKSequenceNotation: DescriptorKSequenceNotation);
@@ -808,7 +809,11 @@ fn registry() -> Registry {
     trace!(ProtocolConfigurationInitializer: ProtocolConfigurationInitializer<String,String,String>);
     trace!(ProtocolHeadRuleBinding: ProtocolHeadRuleBinding<String>);
     trace!(HeadRuleClaim: HeadRuleClaim);
+    trace!(HeadRuleComputationCell: HeadRuleComputationCell);
+    trace!(DescriptorComputationCell: DescriptorComputationCell);
     trace!(ProtocolHeadRuleMapEntry: ProtocolHeadRuleMapEntry<String>);
+    trace!(ProtocolHeadRuleSplice: ProtocolHeadRuleSplice<String>);
+    trace!(ProtocolHeadRuleSpliceItem: ProtocolHeadRuleSpliceItem<String>);
     trace!(ProtocolTypedBinding: ProtocolTypedBinding<String>);
     trace!(ProtocolRuleKSequenceItem: ProtocolRuleKSequenceItem<String>);
     trace!(ProtocolRuleMapItem: ProtocolRuleMapItem<String>);
@@ -1076,6 +1081,15 @@ fn krs_ir_schema_shape_is_pinned() {
         "SchemaVersion::CURRENT and Krs.lock [schemas] krs_ir",
         &actual,
     );
+}
+
+/// The shell shapes `ProtocolMap`, `ProtocolRuleKSequence` and
+/// `ProtocolRuleMap`, the terms, constants and readable clauses reach
+/// tagged enums, which the registry cannot trace, so their key fields'
+/// optionality is checked against their samples.
+#[test]
+fn untraced_key_fields_are_required() {
+    schema_samples::assert_required_key_fields();
 }
 
 #[test]
