@@ -30,6 +30,8 @@ use crate::{
 };
 
 #[cfg(feature = "z3")]
+mod aliases;
+#[cfg(feature = "z3")]
 mod congruence;
 #[cfg(feature = "z3")]
 mod query;

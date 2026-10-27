@@ -43,7 +43,7 @@
 //! ```toml algorithm
 //! id = "backend.smt.check"
 //! name = "bounded sufficient proof attempt and Z3 satisfiability check"
-//! sites = ["measured_check", "Z3Solver::solve_uncached", "Z3Solver::solve_model"]
+//! sites = ["measured_check", "Z3Solver::solve_uncached", "Z3Solver::solve_model", "Z3Solver::check_predicates_inner", "Z3Solver::prove_with_observation_aliases"]
 //! variable = "R = Z3 resource-limit units consumed by one check"
 //! counters = ["SmtSolverRuns", "SmtRlimitCount"]
 //! span = "per call"
@@ -60,10 +60,16 @@
 //! [[cost]]
 //! mode = "source scalar guard partitions during preparation"
 //! bound = "The definition-local catalog shares its 16384-work allowance across at most 128 specializations, 64 rows and depth 64. Reading Boolean DAG guards and taking Shannon cofactors charge each node visit and child handle; guards are not eagerly expanded to DNF. Structural source-atom comparisons and matching/domain-plan costs remain additional work. Exhaustion refuses the summary and retains ordinary conservative translation."
+//!
+//! [[cost]]
+//! mode = "observation aliases after Unknown"
+//! bound = "At most 4096 predicate/term discovery and expanded preflight visits, plus the existing observation builder's 16384-work/depth limits and structural comparisons on bounded expanded inputs. At most 16 ordinary validity checks prove both domains and a candidate equality; at most eight equality facts enter a request-local known vector. One fresh check of the unchanged exhausted query must be Valid. Auxiliary, augmented and congruence checks disable alias discovery explicitly, so candidates cannot recreate their own proof attempt. No model or global source catalog uses these facts. Failed trials retain the original Unknown; stops propagate."
 //! ```
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
+#[cfg(test)]
+mod alias_tests;
 mod typed_cache;
 
 use std::num::NonZeroU32;
@@ -929,6 +935,143 @@ impl Z3Solver {
     }
 }
 
+impl Z3Solver {
+    fn check_predicates_inner(
+        &self,
+        known: &[Predicate],
+        substitution: &Substitution,
+        checked: &[Predicate],
+        allow_observation_aliases: bool,
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        if let Some(failure) = self.prelude_failure() {
+            return Err(self.prelude_stop(failure));
+        }
+        stop::check()?;
+        if checked.is_empty() {
+            return Ok(Ok(Validity::Valid));
+        }
+        let inputs = typed_cache::Query::new(true, known, substitution, checked);
+        if let Some(typed_cache::Answer::Validity(answer)) = self.typed_answer(&inputs)? {
+            return Ok(Ok(answer));
+        }
+        if let Some(goals) = super::congruence::sufficient(&self.prelude, checked)? {
+            // Preparing the sufficient conjunction together can demand useful source/domain
+            // links shared by its conditions. If that does not prove it, try independently:
+            // smaller queries and cached field checks can avoid the larger solver search.
+            let mut valid = matches!(
+                self.check_predicates_inner(known, substitution, &goals, false)?,
+                Ok(Validity::Valid)
+            );
+            if !valid {
+                valid = true;
+                for goal in goals {
+                    match self.check_predicates_inner(
+                        known,
+                        substitution,
+                        std::slice::from_ref(&goal),
+                        false,
+                    )? {
+                        Ok(Validity::Valid) => {}
+                        // These are sufficient conditions, not equivalent obligations. No failure,
+                        // refutation, contingency or Unknown of this attempt refutes the original.
+                        Ok(
+                            Validity::Refuted
+                            | Validity::InconsistentGroundTruth
+                            | Validity::Contingent
+                            | Validity::Unknown(_),
+                        )
+                        | Err(_) => {
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if valid {
+                self.check_prelude()?;
+                stop::check()?;
+                self.remember_typed(&inputs, typed_cache::Answer::Validity(Validity::Valid))?;
+                return Ok(Ok(Validity::Valid));
+            }
+        }
+        #[cfg(test)]
+        self.preparation_count.fetch_add(1, Ordering::Relaxed);
+        let query = match self.prelude.query(known, substitution, checked, true)? {
+            Ok(query) => query,
+            Err(error) => return Ok(Err(error.into())),
+        };
+        let checked_text = query.checked().to_string();
+        let mut answer = decide_validity(|subquery| match subquery {
+            ValiditySubquery::Base => self.solve_query(&query, None),
+            ValiditySubquery::Positive => self.solve_query(&query, Some(&checked_text)),
+            ValiditySubquery::Negative => {
+                self.solve_query(&query, Some(&format!("(not {checked_text})")))
+            }
+        })?;
+        if allow_observation_aliases
+            && matches!(&answer, Ok(Validity::Unknown(_)))
+            && self.prove_with_observation_aliases(known, substitution, checked)?
+        {
+            self.check_prelude()?;
+            stop::check()?;
+            answer = Ok(Validity::Valid);
+        }
+        if let Ok(answer) = &answer {
+            self.remember_typed(&inputs, typed_cache::Answer::Validity(answer.clone()))?;
+        }
+        Ok(answer)
+    }
+
+    /// Learn only independently proved source observation aliases, then recheck the original
+    /// checked predicates unchanged. Auxiliary checks disable this attempt explicitly.
+    fn prove_with_observation_aliases(
+        &self,
+        known: &[Predicate],
+        substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Stoppable<bool> {
+        let Some(candidates) = super::aliases::discover(&self.prelude, checked)? else {
+            return Ok(false);
+        };
+        let mut facts = Vec::new();
+        let mut trials = 0;
+        for candidate in candidates {
+            for leaf in candidate.leaves {
+                stop::check()?;
+                if trials >= super::aliases::TRIALS {
+                    break;
+                }
+                trials += 1;
+                let equality = Predicate::Equals(candidate.original.clone(), leaf.clone());
+                let conditions = [
+                    Predicate::Ceil(candidate.original.clone()),
+                    Predicate::Ceil(leaf),
+                    equality.clone(),
+                ];
+                if matches!(
+                    self.check_predicates_inner(known, substitution, &conditions, false)?,
+                    Ok(Validity::Valid)
+                ) {
+                    facts.push(equality);
+                    break;
+                }
+            }
+            if trials >= super::aliases::TRIALS || facts.len() >= super::aliases::FACTS {
+                break;
+            }
+        }
+        if facts.is_empty() {
+            return Ok(false);
+        }
+        let mut augmented = known.to_vec();
+        augmented.extend(facts);
+        Ok(matches!(
+            self.check_predicates_inner(&augmented, substitution, checked, false)?,
+            Ok(Validity::Valid)
+        ))
+    }
+}
+
 impl SmtSolver for Z3Solver {
     fn is_sat(
         &self,
@@ -961,70 +1104,7 @@ impl SmtSolver for Z3Solver {
         substitution: &Substitution,
         checked: &[Predicate],
     ) -> Stoppable<Result<Validity, SmtError>> {
-        if let Some(failure) = self.prelude_failure() {
-            return Err(self.prelude_stop(failure));
-        }
-        stop::check()?;
-        if checked.is_empty() {
-            return Ok(Ok(Validity::Valid));
-        }
-        let inputs = typed_cache::Query::new(true, known, substitution, checked);
-        if let Some(typed_cache::Answer::Validity(answer)) = self.typed_answer(&inputs)? {
-            return Ok(Ok(answer));
-        }
-        if let Some(goals) = super::congruence::sufficient(&self.prelude, checked)? {
-            // Preparing the sufficient conjunction together can demand useful source/domain
-            // links shared by its conditions. If that does not prove it, try independently:
-            // smaller queries and cached field checks can avoid the larger solver search.
-            let mut valid = matches!(
-                self.check_predicates(known, substitution, &goals)?,
-                Ok(Validity::Valid)
-            );
-            if !valid {
-                valid = true;
-                for goal in goals {
-                    match self.check_predicates(known, substitution, std::slice::from_ref(&goal))? {
-                        Ok(Validity::Valid) => {}
-                        // These are sufficient conditions, not equivalent obligations. No failure,
-                        // refutation, contingency or Unknown of this attempt refutes the original.
-                        Ok(
-                            Validity::Refuted
-                            | Validity::InconsistentGroundTruth
-                            | Validity::Contingent
-                            | Validity::Unknown(_),
-                        )
-                        | Err(_) => {
-                            valid = false;
-                            break;
-                        }
-                    }
-                }
-            }
-            if valid {
-                self.check_prelude()?;
-                stop::check()?;
-                self.remember_typed(&inputs, typed_cache::Answer::Validity(Validity::Valid))?;
-                return Ok(Ok(Validity::Valid));
-            }
-        }
-        #[cfg(test)]
-        self.preparation_count.fetch_add(1, Ordering::Relaxed);
-        let query = match self.prelude.query(known, substitution, checked, true)? {
-            Ok(query) => query,
-            Err(error) => return Ok(Err(error.into())),
-        };
-        let checked = query.checked().to_string();
-        let answer = decide_validity(|subquery| match subquery {
-            ValiditySubquery::Base => self.solve_query(&query, None),
-            ValiditySubquery::Positive => self.solve_query(&query, Some(&checked)),
-            ValiditySubquery::Negative => {
-                self.solve_query(&query, Some(&format!("(not {checked})")))
-            }
-        })?;
-        if let Ok(answer) = &answer {
-            self.remember_typed(&inputs, typed_cache::Answer::Validity(answer.clone()))?;
-        }
-        Ok(answer)
+        self.check_predicates_inner(known, substitution, checked, true)
     }
 
     fn get_model(&self, query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {

@@ -156,7 +156,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.simplify.predicates — n predicate simplifications plus up to n rebuilds… +5 modes — in: [match result] — at backend/simplify.rs `simplify_predicates_with_solver`
 - backend.simplify.term — O(r x |t| x c), with the rounds that are not… +6 modes — in: [match result] — at backend/simplify.rs `simplify_with_optional_execution`
 - backend.smt.cache — O(L x log E) for the key comparison, after an… +3 modes — at backend/smt/z3.rs `Z3Solver::solve`
-- backend.smt.check — O(R) solver work as reported by Z3 +2 modes — at backend/smt/z3.rs `measured_check`
+- backend.smt.check — O(R) solver work as reported by Z3 +3 modes — at backend/smt/z3.rs `measured_check`
 - backend.substitution.apply — per entered subterm, the variable-set meet test… +2 modes — at backend/substitution.rs `substitute`
 - backend.substitution.extract_output — O(c^2 x t), plus for each solved binding whose… — at backend/search.rs `normalize_match_condition`
 - backend.term.chunked — O(log n) nodes copied, plus O(d log V) per copied… +12 modes — at backend/term/chunked.rs `Chunked`

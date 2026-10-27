@@ -3158,6 +3158,9 @@ Equal defined arguments imply equal application domains and equal values where d
 For a positive map equality, the solver may check sufficient conditions through common pure source-owned application and injection contexts, retaining both original map domains.
 Scalar observations remain whole expressions: equal reads do not require their underlying maps to be equal.
 The bounded attempt checks the sufficient conjunction, then independent conditions if necessary; an unsuccessful condition falls back to the original map reasoning and does not refute the map equality.
+After an exhausted validity query, bounded source observation views may also propose scalar aliases, such as a typed read preserved across distinct-key writes.
+Each alias and both operand domains must first prove under the original request's assumptions; the unchanged query is then checked again with only the proved equality facts added.
+These facts belong to that request, supply no model or witness, and never become source axioms.
 For an unresolved key alias, the corresponding observation/update law remains guarded rather than choosing an alias or enumerating every partition.
 A structural entry/rest match must justify its type, presence, disjoint remainder and reconstruction against the original subject; a proposed witness cannot establish its own applicability or bind away the subject map.
 The builtin list tail is `range(L,1,0)`: `LIST.range` removes counts from the front and back, not an end-index slice.

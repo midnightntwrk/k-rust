@@ -12,7 +12,7 @@ use super::{SmtPrelude, TranslationState};
 use crate::{
     rule::Predicate,
     stop::{self, Stoppable},
-    term::{TermKind, equal_terms_bounded},
+    term::{Term, TermKind, equal_terms_bounded},
 };
 use k_rust_kore::names::BuiltinSort;
 use rustc_hash::FxHashSet;
@@ -28,7 +28,7 @@ pub(super) const GOALS: usize = 32;
 /// ```toml algorithm-site
 /// id = "backend.smt.check"
 /// role = "part"
-/// sites = ["sufficient"]
+/// sites = ["sufficient", "admit_graph"]
 /// ```
 pub(super) fn sufficient(
     prelude: &SmtPrelude,
@@ -39,14 +39,9 @@ pub(super) fn sufficient(
         return Ok(None);
     };
     let definition = source.definition();
-    let Some(policy) = &prelude.congruence else {
-        return Ok(None);
-    };
     if checked.len() > GOALS {
         return Ok(None);
     }
-    let mut state = TranslationState::new();
-    state.congruence = Some(policy.clone());
     let mut remaining = WORK;
     let mut goals = Vec::new();
     let mut predicates = checked.iter().collect::<Vec<_>>();
@@ -85,69 +80,8 @@ pub(super) fn sufficient(
         if goals.len() > GOALS {
             return Ok(None);
         }
-        // Borrowed graph identity bounds admission even for separately allocated equal DAGs.
-        // Do not send an unbounded term graph through a value-keyed eligibility memo first.
-        let mut terms = vec![left, right];
-        while let Some(term) = terms.pop() {
-            stop::check()?;
-            if remaining == 0 {
-                return Ok(None);
-            }
-            remaining -= 1;
-            if !admitted.insert(term.node_address()) {
-                continue;
-            }
-            if !crate::rewrite::functional_pattern_node(term) {
-                return Ok(None);
-            }
-            let arity = match term.kind() {
-                TermKind::Application {
-                    symbol,
-                    arguments,
-                    sort_arguments,
-                } => {
-                    if arguments.len() > remaining.saturating_sub(terms.len())
-                        || sort_arguments.len() > remaining
-                    {
-                        return Ok(None);
-                    }
-                    if symbol.attributes.binder
-                        || symbol.attributes.macro_or_alias
-                        || policy.effects.contains(symbol.name.as_ref())
-                        || !definition
-                            .symbols()
-                            .get(&symbol.name)
-                            .is_some_and(|owned| Arc::ptr_eq(owned, symbol))
-                        || state.functional_head_rank(term).is_none()
-                    {
-                        return Ok(None);
-                    }
-                    arguments.len()
-                }
-                TermKind::Injection { .. } => {
-                    if state.functional_head_rank(term).is_none() {
-                        return Ok(None);
-                    }
-                    1
-                }
-                TermKind::Map { entries, rest, .. } => entries
-                    .len()
-                    .saturating_mul(2)
-                    .saturating_add(usize::from(rest.is_some())),
-                TermKind::List { heads, rest, .. } => heads.len().saturating_add(
-                    rest.as_ref()
-                        .map_or(0, |(_, tails)| tails.len().saturating_add(1)),
-                ),
-                TermKind::Set { elements, rest, .. } => {
-                    elements.len().saturating_add(usize::from(rest.is_some()))
-                }
-                TermKind::Variable(_) | TermKind::DomainValue { .. } => 0,
-                TermKind::And(..) => return Ok(None),
-            };
-            if arity > remaining.saturating_sub(terms.len()) {
-                return Ok(None);
-            }
-            terms.extend(crate::term::immediate_children(term.kind()));
+        if !admit_graph(prelude, &[left, right], &mut remaining, Some(&mut admitted))? {
+            return Ok(None);
         }
         let mut pairs = vec![(left, right)];
         let mut seen = FxHashSet::default();
@@ -213,6 +147,91 @@ pub(super) fn sufficient(
     // Empty/reflexive checks keep the ordinary prelude/query handling. A returned plan is
     // strictly smaller in its map contexts, so independent checks cannot recreate this plan.
     Ok((changed && !goals.is_empty()).then_some(goals))
+}
+
+/// Source-owned pure functional admission shared by bounded query proof attempts.
+/// A memo visits shared nodes once; no memo bounds the expanded tree before value-keyed walks.
+pub(super) fn admit_graph(
+    prelude: &SmtPrelude,
+    roots: &[&Term],
+    remaining: &mut usize,
+    mut seen: Option<&mut FxHashSet<usize>>,
+) -> Stoppable<bool> {
+    let (Some(source), Some(policy)) = (&prelude.source, &prelude.congruence) else {
+        return Ok(false);
+    };
+    if roots.len() > *remaining {
+        return Ok(false);
+    }
+    let definition = source.definition();
+    let mut state = TranslationState::new();
+    state.congruence = Some(policy.clone());
+    let mut terms = roots.to_vec();
+    while let Some(term) = terms.pop() {
+        stop::check()?;
+        if *remaining == 0 {
+            return Ok(false);
+        }
+        *remaining -= 1;
+        if seen
+            .as_deref_mut()
+            .is_some_and(|seen| !seen.insert(term.node_address()))
+        {
+            continue;
+        }
+        if !crate::rewrite::functional_pattern_node(term) {
+            return Ok(false);
+        }
+        let arity = match term.kind() {
+            TermKind::Application {
+                symbol,
+                arguments,
+                sort_arguments,
+            } => {
+                if arguments.len() > remaining.saturating_sub(terms.len())
+                    || sort_arguments.len() > *remaining
+                {
+                    return Ok(false);
+                }
+                if symbol.attributes.binder
+                    || symbol.attributes.macro_or_alias
+                    || policy.effects.contains(symbol.name.as_ref())
+                    || !definition
+                        .symbols()
+                        .get(&symbol.name)
+                        .is_some_and(|owned| Arc::ptr_eq(owned, symbol))
+                    || state.functional_head_rank(term).is_none()
+                {
+                    return Ok(false);
+                }
+                arguments.len()
+            }
+            TermKind::Injection { .. } => {
+                if state.functional_head_rank(term).is_none() {
+                    return Ok(false);
+                }
+                1
+            }
+            TermKind::Map { entries, rest, .. } => entries
+                .len()
+                .saturating_mul(2)
+                .saturating_add(usize::from(rest.is_some())),
+            TermKind::List { heads, rest, .. } => heads.len().saturating_add(
+                rest.as_ref()
+                    .map_or(0, |(_, tails)| tails.len().saturating_add(1)),
+            ),
+            TermKind::Set { elements, rest, .. } => {
+                elements.len().saturating_add(usize::from(rest.is_some()))
+            }
+            TermKind::Variable(_) | TermKind::DomainValue { .. } => 0,
+            TermKind::And(..) => return Ok(false),
+        };
+        if arity > remaining.saturating_sub(terms.len()) {
+            return Ok(false);
+        }
+        terms.extend(crate::term::immediate_children(term.kind()));
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

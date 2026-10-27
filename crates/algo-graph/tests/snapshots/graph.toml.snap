@@ -4506,8 +4506,18 @@ symbol = "measured_check"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/aliases.rs"
+symbol = "discover"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt/congruence.rs"
 symbol = "sufficient"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/congruence.rs"
+symbol = "admit_graph"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -4554,6 +4564,16 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt/z3.rs"
 symbol = "Z3Solver::solve_model"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::check_predicates_inner"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::prove_with_observation_aliases"
+
 [[node.cost]]
 mode = "solver check"
 bound = "O(R) solver work as reported by Z3"
@@ -4565,6 +4585,10 @@ bound = "At most 4096 graph/structural-comparison work units and 32 sufficient g
 [[node.cost]]
 mode = "source scalar guard partitions during preparation"
 bound = "The definition-local catalog shares its 16384-work allowance across at most 128 specializations, 64 rows and depth 64. Reading Boolean DAG guards and taking Shannon cofactors charge each node visit and child handle; guards are not eagerly expanded to DNF. Structural source-atom comparisons and matching/domain-plan costs remain additional work. Exhaustion refuses the summary and retains ordinary conservative translation."
+
+[[node.cost]]
+mode = "observation aliases after Unknown"
+bound = "At most 4096 predicate/term discovery and expanded preflight visits, plus the existing observation builder's 16384-work/depth limits and structural comparisons on bounded expanded inputs. At most 16 ordinary validity checks prove both domains and a candidate equality; at most eight equality facts enter a request-local known vector. One fresh check of the unchanged exhausted query must be Valid. Auxiliary, augmented and congruence checks disable alias discovery explicitly, so candidates cannot recreate their own proof attempt. No model or global source catalog uses these facts. Failed trials retain the original Unknown; stops propagate."
 
 [[node]]
 kind = "algorithm"
