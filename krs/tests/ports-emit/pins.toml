@@ -12,8 +12,8 @@ source_map_sha256 = "5a5664ebfcb48fa859fd073fc5b8c9219d264102019e5ca4b55b2a49d07
 refusal_sha256 = "b56ec1282fdb48a079f6f96835c41979b35727b016fd95f85c131682588c23ac"
 
 [macro_output.imp."tests/imp/rust-definition/src/imp.rs"]
-text_sha256 = "8ca08e4c4f9713238804e948db6d47654ce8f33d3f31e0d6bf2ecf34785df1cc"
-source_map_sha256 = "089f022a81707915714be2bf5ecb9404b0d4333a1a6eb56e9172a68b4cccb145"
+text_sha256 = "9de2a5ebd1dbc7e6eee6737154e1ab649364c64b7fbd5d7fdb05d2eafeb712a6"
+source_map_sha256 = "d44a82309061ce867d8353a783d9f0e19d488846eac11f44c1cc39fcce40261e"
 
 [macro_output.imp."tests/imp/rust-definition/src/lib.rs"]
 text_sha256 = "39715992111fe6c7c802d2fa710c67e95c17393478c6b89980d9383fb89fb6e7"
@@ -23,16 +23,16 @@ source_map_sha256 = "630083ff5565c5588b5deb4f292789747aba1f46ef73d5b485db3bfa3b2
 refusal_sha256 = "a8cf6cb56ee1a96ff5414ce9dfb7c1fd58a986682fd0739c65d3838644226c50"
 
 [macro_output.imp."tests/imp/rust-definition/src/static_adjunct.rs"]
-text_sha256 = "2c1ef13714663a26fb1042edbafacd77bf4c307e2e122969bd20a1af568f0d49"
-source_map_sha256 = "51a974157ec6bba8be0c0ed4a93311f5edc8089ac1900da1a47507798e17eb4d"
+text_sha256 = "dda9fba3a07830bc2dd55de82838cf945bb3e9c32305459fe46a1fd36d8d32ac"
+source_map_sha256 = "e6f9e6e7a850749d9ca54bc2dfc6bc943786ecff69e683deef5f4f06cfa0dea6"
 
 [macro_output.imp."tests/imp/rust-definition/src/verification.rs"]
 text_sha256 = "134de03d79ab6b20c5875240e7213345e829895fd14e866bc4837b7a27b9a6f8"
 source_map_sha256 = "48662142b170965d7bf309c1c327e568b6fa3305296ca23c2381548e22e4fef1"
 
 [macro_output.imp."tests/imp/expanded-definition/src/imp.rs"]
-text_sha256 = "9f7300b72c82a6c457bff3713b1b89828dd7c2b65da05c4f309610cfd1c44bf5"
-source_map_sha256 = "44125ebcaa3bd3a29cb4d8e35d28c4355871c2e469b8babde4e992e72ba198e1"
+text_sha256 = "6ddfbbad894fad79f973d9c43438b0d889940f0a60d009ea3038367b430eeb96"
+source_map_sha256 = "0e9bcfe32c953d094f30a082133a139a1cc8fbfc1aba0f42d305dafe41b81871"
 
 [macro_output.imp."tests/imp/expanded-definition/src/lib.rs"]
 text_sha256 = "9837a05d096eb546f6249ed8e3b5e0bea62164cfb33c57a6dcc394879ae4f578"
@@ -41,17 +41,17 @@ source_map_sha256 = "365a0b0890ac9b29010babb0749b5f1a89e02416f6f0d4e14da861fcc33
 [macro_output.kevm]
 
 [macro_output.kevm."semantics/kevm/src/lib.rs"]
-text_sha256 = "28c76266f88e2c0c887c0be26ccfcd10227e40aeb88ed4aa830a1968fb70d9cf"
-source_map_sha256 = "6144f0a923bf25b53559589bd6b4e0542ceb06919c88ebac3ce4b494122fbd90"
+text_sha256 = "e98a0001afc436ed18a418efb25cb954b2f529a01bcc97bc1c0c20cdf20c7e2f"
+source_map_sha256 = "8965ecb2f347aaad72155492d283c6e9e8e571863109d0d54e5bd6852a460367"
 
 [macro_output.kmir]
 
 [macro_output.kmir."semantics/kmir/src/lib.rs"]
-text_sha256 = "38b64d5424a77a748f4b5606a1b98c0707ec260b33356db23cf756aff62377cd"
-source_map_sha256 = "dabbbe6ef429c37e79e88f7baf1098ee35a3e5d63374946cb48c7a4e368da872"
+text_sha256 = "1347883d4643a743c1a90fb077f9d027e18519b108bf32da2bf68cb7f6330645"
+source_map_sha256 = "3221f83c9cd7b126f5d7370ceb113066c31d580e4fdff0477ca25a75a0ff245e"
 
 [macro_output.kwasm]
 
 [macro_output.kwasm."semantics/kwasm/src/lib.rs"]
-text_sha256 = "ba3104eccaca85dedbda537caf215ff7ebeaf2774877af18b02c735e2ce78da1"
-source_map_sha256 = "b044e1d7f57b07ffe3beacdbdf97072a54ffbb68ac4b15bd1eed2d98bcef5a5e"
+text_sha256 = "e29562ef06f8d92d68ffc021ff41694d8777d9a0d00e6cd257eb8124725c050c"
+source_map_sha256 = "7c2fe4ff7d9102f8675c76027f2e4ffc22b7ab4a72c67e06dc61d823daf93892"
