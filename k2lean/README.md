@@ -138,6 +138,7 @@ target/release/k2lean noninterference --kore A/definition.kore --name A --ns ANI
 | `confluence --open FILE` | the pairs of rules the hand module joins (`RULE \| RULE`); `--hand-module` (default `NS.Hand`) and `--hyp` (default `H`) name the program hypothesis, `--join local` asks for `μ` and `μ_dec` |
 | `noninterference --params`, `--secure`, `--low-eq` | the hand module's parameters and predicates the statement uses; `--hand-module` (default `NS.Hand`) |
 | `noninterference --checker-kore` | the relation from a two-level checker (`--lev`, `--sec`, `--conf` name its functions): `Levels.lean`, `Stack.lean`, `Proof.lean` in `--out-dir`, around the hand module `NS.Store` (`--store-module`), which proves the per-rule cases `--open` lists (`KIND RULE`, `KIND` one of `cq`, `sq`, `same`) |
+| `noninterference --per-sort-terms true` | with `--checker-kore`, the libraries are in the per-sort universe (`gen --per-sort-terms`); by default the relation's modules are written for the arity-indexed one (`docs/design.md`, §3.7) |
 
 ## Large definitions
 
