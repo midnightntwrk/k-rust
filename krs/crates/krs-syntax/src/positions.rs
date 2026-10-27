@@ -514,7 +514,7 @@ impl Class {
                 "a matching-logic predicate is a formula about terms, no term itself, so a pattern cannot match it"
             }
             Self::RecordRemainderInCellsTerm => {
-                "a `cells!` term, the reference notation, names every field of a record; `..base` and `..` are readable-record notation"
+                "a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained; `..base` and `..` are readable-record notation"
             }
             Self::RecordRemainderInInitializer => {
                 "an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing"

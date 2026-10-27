@@ -401,7 +401,7 @@ pub fn cells_update(
                 ],
             ],
             [
-                "error[krs::expand::invalid-record-update]: a `cells!` term names every field: write each one (`_` for a field a pattern leaves unconstrained); `Ctor { f: e, ..t }` and a `..` group pattern are readable-record notation",
+                "error[krs::analysis::invalid-record-update]: a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained; `..base` and `..` are readable-record notation; here it stands in the result of a `cells!` rule",
                 "--> src/lib.rs:83:114",
             ],
         )

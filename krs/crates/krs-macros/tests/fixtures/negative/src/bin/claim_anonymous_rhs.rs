@@ -9,7 +9,7 @@ fn invalid(
 ) -> Machine {
     cells! {
         k: renamed_krs::configuration::KCell(
-            renamed_krs::anonymous!(renamed_krs::builtin::Bool, "_B"), //~ ERROR anonymous! is allowed only in claim subjects
+            renamed_krs::anonymous!(renamed_krs::builtin::Bool, "_B"), //~ ERROR only a claim's start state may hold
             ..tail
         ),
         ..state

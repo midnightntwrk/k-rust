@@ -432,12 +432,6 @@ impl<'t> NodeKeys<'t> {
         Ok((reference, path_key))
     }
 
-    /// The node's key of `role`, without taking it: what a walker chose
-    /// before the keys were read as data, which a debug assertion compares.
-    pub(super) fn chosen(self, role: ProvenanceRole) -> Option<&'t ProvenanceKey> {
-        self.keys.node_key(self.index, role)
-    }
-
     /// The node's keys of `role`, in allocation order, each read as the
     /// next is reached: the wire node of each takes it as its own.
     pub(super) fn keys(self, role: ProvenanceRole) -> NodeKeyList<'t> {
@@ -507,38 +501,6 @@ impl TermSide {
     }
 }
 
-/// A term-node role that a [`TermSide`] maps to its provenance role.
-#[derive(Clone, Copy)]
-pub(super) enum TermRole {
-    ApplicationHead,
-    Reference,
-    Literal,
-}
-
-impl TermSide {
-    pub(super) fn role(self, role: TermRole) -> ProvenanceRole {
-        use ProvenanceRole as P;
-        use TermRole as T;
-        match (self, role) {
-            (Self::Left, T::ApplicationHead) => P::RuleLeftApplicationHead,
-            (Self::Left, T::Reference) => P::RuleLeftReference,
-            (Self::Left, T::Literal) => P::RuleLeftLiteral,
-            (Self::Right, T::ApplicationHead) => P::RuleRightApplicationHead,
-            (Self::Right, T::Reference) => P::RuleRightReference,
-            (Self::Right, T::Literal) => P::RuleRightLiteral,
-            (Self::Requires, T::ApplicationHead) => P::RuleRequiresApplicationHead,
-            (Self::Requires, T::Reference) => P::RuleRequiresReference,
-            (Self::Requires, T::Literal) => P::RuleRequiresLiteral,
-            (Self::Ensures, T::ApplicationHead) => P::ClaimEnsuresApplicationHead,
-            (Self::Ensures, T::Reference) => P::ClaimEnsuresReference,
-            (Self::Ensures, T::Literal) => P::ClaimEnsuresLiteral,
-            (Self::RuleEnsures, T::ApplicationHead) => P::RuleEnsuresApplicationHead,
-            (Self::RuleEnsures, T::Reference) => P::RuleEnsuresReference,
-            (Self::RuleEnsures, T::Literal) => P::RuleEnsuresLiteral,
-        }
-    }
-}
-
 #[expect(
     clippy::struct_excessive_bools,
     reason = "Each flag selects one independent sentence-kind policy or records one mode or nesting context of the shared term builder."
@@ -584,6 +546,9 @@ pub(super) struct TermBuilder<'a> {
     pub(super) tooling_binding_references: Vec<Path>,
     /// Whether a `k::rewrite!` is being expanded.
     in_rewrite: bool,
+    /// Whether an unbound bare snake-case name is refused here, rather than
+    /// left to rustc as a path.
+    checks_unbound_names: bool,
 }
 
 impl<'a> TermBuilder<'a> {
@@ -614,6 +579,7 @@ impl<'a> TermBuilder<'a> {
             lexical_imports: None,
             tooling_binding_references: Vec::new(),
             in_rewrite: false,
+            checks_unbound_names: true,
         }
     }
 
@@ -718,6 +684,12 @@ impl<'a> TermBuilder<'a> {
 
     pub(super) fn with_associated_keys(mut self) -> Self {
         self.associated_keys = true;
+        self
+    }
+
+    /// Leaves an unbound bare snake-case name to rustc as a path.
+    pub(super) const fn without_unbound_names(mut self) -> Self {
+        self.checks_unbound_names = false;
         self
     }
 
@@ -979,17 +951,9 @@ impl<'a> TermBuilder<'a> {
                     application.is_open(),
                     head_range,
                 )?;
-                let path = keys.path(application.head())?;
+                let path_key = keys.path(application.head())?;
                 let node = keys.node(NodeKind::ApplicationHead, head_range)?;
-                let (key, path_key) = node.head(path.clone())?;
-                debug_assert_eq!(
-                    (Some(&key), Some(&path_key)),
-                    (
-                        node.chosen(side.role(TermRole::ApplicationHead)),
-                        path.as_ref()
-                    ),
-                    "a term's head takes its node's key, and its path its path's"
-                );
+                let (key, path_key) = node.head(path_key)?;
                 let lexical = if self.lexical_imports.is_some() {
                     !application.is_notation()
                         && application.head().leading_colon.is_none()
@@ -1054,17 +1018,9 @@ impl<'a> TermBuilder<'a> {
             }
             TermTree::Reference(path) => {
                 let lexical = self.take_lexical_rule_head(path);
-                let path_read = keys.path(path)?;
+                let path_key = keys.path(path)?;
                 let node = keys.node(NodeKind::Reference, TokenRange::for_tokens(path)?)?;
-                let (key, path_key) = node.head(path_read.clone())?;
-                debug_assert_eq!(
-                    (Some(&key), Some(&path_key)),
-                    (
-                        node.chosen(side.role(TermRole::Reference)),
-                        path_read.as_ref()
-                    ),
-                    "a term's reference takes its node's key, and its path its path's"
-                );
+                let (key, path_key) = node.head(path_key)?;
                 if self.is_local_binder(path) {
                     // A local binder has no Rust binding for tooling to use.
                     Ok(WireTerm::Variable {
@@ -1079,18 +1035,13 @@ impl<'a> TermBuilder<'a> {
                         path_key,
                         name: binder_spelling(path),
                     })
-                } else if let Some(name) = snake_case_bare_name(path) {
+                } else if let Some(name) = snake_case_bare_name(path)
+                    && self.checks_unbound_names
+                {
                     // A bare snake-case name is a binder by KRS's spelling
                     // rule, never a Rust item, so an unbound one is a free
                     // variable of the sentence, not a path for rustc.
-                    Err(ExpandError::new(
-                        expand::UNBOUND_NAME,
-                        syn::spanned::Spanned::span(path),
-                        format!(
-                            "`{name}` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one{}",
-                            did_you_mean(&name, self.names_in_scope())
-                        ),
-                    ))
+                    Err(self.unbound_name(path, &name))
                 } else {
                     let authored_path = spelling(path);
                     let target = if lexical {
@@ -1117,15 +1068,8 @@ impl<'a> TermBuilder<'a> {
             TermTree::Literal(literal) => {
                 let range = literal.range()?;
                 self.admit(side, Construct::Literal, range)?;
-                let node = keys.node(NodeKind::Literal, range)?;
-                let key = node.own_key()?;
-                debug_assert_eq!(
-                    Some(&key),
-                    node.chosen(side.role(TermRole::Literal)),
-                    "a term's literal takes its node's key"
-                );
                 Ok(WireTerm::Literal {
-                    key,
+                    key: keys.node(NodeKind::Literal, range)?.own_key()?,
                     literal: wire_literal(literal),
                 })
             }
@@ -1306,17 +1250,9 @@ impl<'a> TermBuilder<'a> {
                 let owner_range = TokenRange::for_tokens(cell.owner())?;
                 self.admit(side, Construct::Fragment, owner_range)?;
                 self.admit_record(side, cell.update(), cell.is_open(), owner_range)?;
-                let path = keys.path(cell.owner())?;
+                let path_key = keys.path(cell.owner())?;
                 let node = keys.node(NodeKind::ApplicationHead, owner_range)?;
-                let (key, path_key) = node.head(path.clone())?;
-                debug_assert_eq!(
-                    (Some(&key), Some(&path_key)),
-                    (
-                        node.chosen(side.role(TermRole::ApplicationHead)),
-                        path.as_ref()
-                    ),
-                    "a fragment's head takes its node's key, and its path its path's"
-                );
+                let (key, path_key) = node.head(path_key)?;
                 let declaration = self.cell_declaration_reference(cell.owner(), slots)?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
@@ -1339,6 +1275,27 @@ impl<'a> TermBuilder<'a> {
                 })
             }
         }
+    }
+
+    /// `name`, the bare snake-case name `path`, which nothing in scope
+    /// binds: an initializer's names are its parameters, a sentence's its
+    /// pattern's and its local binders.
+    fn unbound_name(&self, path: &Path, name: &str) -> ExpandError {
+        let suggestion = did_you_mean(name, self.names_in_scope());
+        let message = if matches!(self.form, Form::Initializer) {
+            format!(
+                "`{name}` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters{suggestion}"
+            )
+        } else {
+            format!(
+                "`{name}` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one{suggestion}"
+            )
+        };
+        ExpandError::new(
+            expand::UNBOUND_NAME,
+            syn::spanned::Spanned::span(path),
+            message,
+        )
     }
 
     /// Expands the base `t` of a record update `Ctor { f: e, ..t }` (F5),

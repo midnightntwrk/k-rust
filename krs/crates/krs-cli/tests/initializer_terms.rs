@@ -322,7 +322,7 @@ fn initializer_terms_take_record_syntax() {
         (
             "update",
             "k::map![n -> ValueSyntax::Boxed { v: 1, ..x }]",
-            "error[krs::expand::initializer-record-update]: an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing",
+            "error[krs::expand::initializer-record-update]: an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing; here it stands in the value of an initializer",
         ),
     ];
     for (name, env, headline) in cases {
