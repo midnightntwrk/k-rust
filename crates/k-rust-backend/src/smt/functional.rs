@@ -116,24 +116,7 @@ impl TranslationState {
                 );
                 // These are source consequences, not checked obligations. Close their
                 // lexical lets and binders before adding them to the query's known facts.
-                let mut fact = self
-                    .shared_domains
-                    .as_ref()
-                    .expect("active domain scope")
-                    .clone()
-                    .bind(fact);
-                for (variable, name) in self.bound_variables.clone().into_iter().rev() {
-                    let sort = self.smt_sort(&variable.sort)?;
-                    fact = SExpr::List(vec![
-                        SExpr::atom("forall"),
-                        SExpr::List(vec![SExpr::List(vec![
-                            SExpr::atom(name),
-                            SExpr::atom(sort),
-                        ])]),
-                        fact,
-                    ]);
-                }
-                self.domain_facts.push(fact);
+                self.record_source_fact(fact)?;
             }
             Ok(value)
         })();

@@ -1345,6 +1345,43 @@ fn partial_helper_mutations_and_explicit_domain_rows_keep_their_actual_source_me
             solver.check_predicates(&[], &Substitution::new(), &[domain]),
             Ok(Ok(Validity::Valid))
         );
+        let strict_domain = Predicate::Ceil(term(
+            &d,
+            &format!("strictChoose{{}}({},{},{})", boolv(false), int(6), int(0)),
+        ));
+        let strict_domain = if defined_at_zero {
+            strict_domain
+        } else {
+            Predicate::Not(Arc::new(strict_domain))
+        };
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), &[strict_domain]),
+            Ok(Ok(Validity::Valid))
+        );
+        let strict_domain = Predicate::Ceil(term(
+            &d,
+            &format!(
+                "strictChoose{{}}({}, {}, SYM:SortInt{{}})",
+                boolv(false),
+                int(6)
+            ),
+        ));
+        let strict_domain = if defined_at_zero {
+            strict_domain
+        } else {
+            Predicate::Not(Arc::new(strict_domain))
+        };
+        let known = [
+            Predicate::Equals(term(&d, "SYM:SortInt{}"), term(&d, &int(0))),
+            Predicate::Ceil(term(
+                &d,
+                &format!("ediv{{}}({},plus{{}}(SYM:SortInt{{}},{}) )", int(6), int(1)),
+            )),
+        ];
+        assert_eq!(
+            solver.check_predicates(&known, &Substitution::new(), &[strict_domain]),
+            Ok(Ok(Validity::Valid))
+        );
     }
     let explicit = baseline.replace("endmodule []", "axiom{R} \\implies{R}(\\top{R}(),\\equals{R,R}(\\ceil{SortInt{},R}(choose{}(B:SortBool{},X:SortInt{},Y:SortInt{})),\\bottom{R}())) []\nendmodule []");
     let d = BackendDefinition::internalize(&parse_definition(&explicit).unwrap(), "MAIN").unwrap();

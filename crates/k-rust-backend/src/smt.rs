@@ -310,6 +310,19 @@ struct SharedTerms {
     bindings: Vec<(String, SExpr)>,
 }
 
+impl SharedTerms {
+    fn bind(self, mut body: SExpr) -> SExpr {
+        for (name, value) in self.bindings.into_iter().rev() {
+            body = SExpr::List(vec![
+                SExpr::atom("let"),
+                SExpr::List(vec![SExpr::List(vec![SExpr::atom(name), value])]),
+                body,
+            ]);
+        }
+        body
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TranslationState {
     pub mappings: BTreeMap<Term, String>,
@@ -375,6 +388,31 @@ impl TranslationState {
         self.exactness = self.exactness.and(exactness);
     }
 
+    /// Close a source consequence where it was derived. Value bindings precede domain
+    /// bindings: query value totalizations do not depend on the query's domain lets, while
+    /// domain conditions may read shared values. Both scopes remain inside their binders.
+    fn record_source_fact(&mut self, mut fact: SExpr) -> Result<(), TranslationError> {
+        if let Some(scope) = &self.shared_domains {
+            fact = scope.clone().bind(fact);
+        }
+        if let Some(scope) = &self.shared_terms {
+            fact = scope.clone().bind(fact);
+        }
+        for (variable, name) in self.bound_variables.clone().into_iter().rev() {
+            let sort = self.smt_sort(&variable.sort)?;
+            fact = SExpr::List(vec![
+                SExpr::atom("forall"),
+                SExpr::List(vec![SExpr::List(vec![
+                    SExpr::atom(name),
+                    SExpr::atom(sort),
+                ])]),
+                fact,
+            ]);
+        }
+        self.domain_facts.push(fact);
+        Ok(())
+    }
+
     /// Record that the translation copies text into the script that it did not write itself:
     /// an `smt-hook` operator or template, an `smtlib` function name, or a domain value's text
     /// that is not an SMT-LIB literal of its sort. Whether the solver reads such text depends
@@ -421,16 +459,7 @@ impl TranslationState {
             return result;
         }
         let scope = self.shared_terms.take().expect("root term scope");
-        result.map(|mut body| {
-            for (name, value) in scope.bindings.into_iter().rev() {
-                body = SExpr::List(vec![
-                    SExpr::atom("let"),
-                    SExpr::List(vec![SExpr::List(vec![SExpr::atom(name), value])]),
-                    body,
-                ]);
-            }
-            body
-        })
+        result.map(|body| scope.bind(body))
     }
 
     fn translate_term_node(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
