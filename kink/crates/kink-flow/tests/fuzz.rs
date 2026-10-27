@@ -2107,7 +2107,8 @@ endmodule
         /// A refusal for every input of the template (`tag` always ends on a non-ASCII string) spends
         /// the budget without a kink run: every hit is refused in the campaign (no repair applies, the
         /// holes are integers), and the campaign stops `client-refused` with a warning, never `budget`
-        /// (review M5). Without the filter the first hit is the witness, and kink refuses it.
+        /// (review M5). Without the filter the first hit is the witness, and kink refuses it; that half
+        /// is pinned by `a_witness_kink_refuses_is_unconfirmed_with_kinks_cause`, not here.
         #[test]
         #[ignore = "kink"]
         fn a_systematic_refusal_stops_client_refused_without_kink_runs() {
