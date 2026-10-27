@@ -3129,3 +3129,84 @@ Genuine finite input fields may use checked alternatives, for example KRS `b @ (
 Every alternative must prove; success for one alternative cannot prove the authored claim.
 Use the existing function-style `#[k::claim]` with `cells!` and `map!` when a claim must name a known-key map frame and write that cell: the readable machine shorthand's map-item pattern preserves its map cell.
 Such a frame expresses known bindings and a disjoint remainder; this does not supply arbitrary map decomposition, alias branching, induction or termination proofs.
+
+## Native local state-transition contracts
+
+The native claim workflow supports independent postconditions for decoded instructions, interpreter steps and fixed finite compositions over symbolic state.
+The supported boundary is the local laws below and their composition, with explicit domain and type premises.
+The automatic scope concerns pure functional local value/domain obligations and existing checked existential matching; arbitrary quantified theories and binder-crossing transformations are not promised.
+It is not a guarantee to prove every theorem written using these operations, even when its execution is finite or its inputs have finitely many values.
+The same meanings feed ordinary source rewriting, matching, implication and definition-aware solver queries; authors need no application-specific trusted axiom to connect them.
+
+| Family | Selected local meaning | Required evidence or limit |
+| --- | --- | --- |
+| Scalars | Int/Bool arithmetic, comparisons and finite conditions; guarded word operations on bounded unsigned 8/16-bit inputs with justified widened or signed intermediates | Int remains unbounded. Division retains its actual domain. Fixed shifts, masks, bit ranges and power-of-two projections do not supply unrestricted symbolic-shift or nonlinear arithmetic solving. |
+| Scalar helpers | Finite, checked source cases with scalar residual inputs/results, known constructor specialization and acyclic dependencies | Admission requires the complete supported source partition and pure, defined partition tests. A function name or `total` declaration alone supplies no body. See [Source-derived scalar functions](#source-derived-scalar-functions-and-bounded-word-queries). |
+| Products | Checked field selection and complete reconstruction of finite nonrecursive products; exposed known constructor cases of sums | Reuse the actual constructor, selector and shape evidence. Unknown tags may need explicit checked cases; no arbitrary function inverse or datatype induction is inferred. |
+| Maps | Known-key lookup/presence and typed reads, finite ordered overwrites, and deterministic entry/rest matching | Keys are supplied expressions. Arithmetic path evidence can establish their equality or distinctness. Presence alone does not establish an entry's value sort. Unbound-key search is not supplied. |
+| Map equality | Last write at one key, put-back of a defined existing value, distinct-key write commutation, and preservation outside a finite write footprint | Both sides must have a justified common base and their original domains. This is not arbitrary extensional equality of unrelated opaque maps. |
+| Lists | Empty and fixed finite prefixes, typed head/index-zero observation, tail decomposition and rebuilding over an opaque rest | Nonempty evidence and the required element type must be established. Length alone gives no element type; arbitrary index search, concatenation/length algebra and list induction are not supplied. |
+
+These laws compose when observed scalar values compute keys, flags or written values, when final framed states are compared, and through eligible pure functional contexts and finite conditions.
+Reading an overwrite at its written key returns the new value; at a distinct key it returns the original lookup.
+Presence is true at the written key and unchanged at a distinct key, with all original operand and lookup domains retained.
+Equal defined arguments imply equal application domains and equal values where defined; this is forward congruence, not injectivity of an arbitrary function.
+For an unresolved key alias, the corresponding observation/update law remains guarded rather than choosing an alias or enumerating every partition.
+A structural entry/rest match must justify its type, presence, disjoint remainder and reconstruction against the original subject; a proposed witness cannot establish its own applicability or bind away the subject map.
+The builtin list tail is `range(L,1,0)`: `LIST.range` removes counts from the front and back, not an end-index slice.
+
+### Typed observations and generated projection meaning
+
+A typed map read needs evidence that the entry belongs to the projected sort, as well as evidence that it is present.
+For example, `K in_keys(M)` alone does not justify `{M[K]}:>Int`; a defined Int projection or a justified equality to an Int value can supply the required typed observation.
+The Rust facade's map type does not impose a universal invariant on every entry of the underlying symbolic K map.
+An Int overwrite may replace a previously noninteger entry, but every original strict operand must still be defined.
+
+For canonical compiler projections, this reasoning relies on explicitly emitted semantics, not only a solver optimization.
+With the actual embedding `E` into the projection's input sort, the compiler emits the forward equation `project:S(E(x)) = x`, the exact domain `ceil(project:S(y))` iff `y` is in the image of `E`, and conditional reconstruction `E(project:S(y)) = y` on that domain.
+The embedding includes the required injections and K-sequence structure.
+The native catalog validates the actual source equations and ranks before using these consequences; a marker, spelling, return sort or forward equation alone does not establish the inverse.
+Additional, overridden or incompatible rows prevent specialized admission and retain conservative source reasoning.
+An exporter or source mutation must account for these generated domain/reconstruction axioms as part of the definition's meaning; see [Semantic casts compute nothing](#semantic-casts-compute-nothing).
+
+### Partiality and finite input cases
+
+Keep the original domains when writing a claim, including operands discarded by a strict conditional and values shadowed by a later overwrite.
+For example, writing an undefined value and then overwriting it with `7` does not make the original map-update expression defined.
+Observing a selected map requires the selected lookup's domain, rather than both branches' lookup domains, while still retaining the source conditional's strict state-operand domains.
+A helper whose equations select a branch has that selected branch's domain; replacing it with a strict source conditional may change its meaning.
+Checking deferred definedness does not perform effects, and an effectful operand does not acquire a functional solver reading.
+
+Finite input alternatives are an existing checked proof technique.
+For an integer opcode field constrained by `0 <= bit && bit < 8`, a matched input `bit @ (0 | 1 | 2 | 3 | 4 | 5 | 6 | 7)` covers exactly the original domain.
+Every alternative must prove with its original premises, target and state frames.
+This can make each shift amount literal without changing the implementation or weakening the property.
+The original bounded variable form is not thereby promised automatic symbolic-shift reasoning, and a successful alternative cannot stand for the other alternatives.
+
+### Proof meaning and unresolved work
+
+Native claims have [weak reachability meaning](#weak-reachability-and-continuation).
+A guarded circularity may establish partial correctness of a loop without establishing termination or a finite visit to the destination.
+A supplied checked invariant/circularity can remain in the native workflow; discovering an invariant, proving a ranking theorem or asking for a stronger modality requires its own argument.
+
+Distinguish a missing selected source meaning from an unresolved proof.
+If one of the selected value/domain/matching laws is absent from the actual prepared obligation, that is a defect against this boundary.
+If the needed meanings are present but search or the solver cannot decide the obligation within its resources, record that residual and limit; `Failed` or `Unknown` alone does not establish which cause occurred.
+Only the reported [certified refutation](#proof-verdicts) establishes that a claim is false.
+An external wall-time or memory stop supplies no native verdict by itself, and an approximate solver model is not a certified K witness.
+
+General collection aggregates/algebra, recursive container theorems, arbitrary container-input/result helper summaries, inverse-witness discovery and full nondeterministic one-path backtracking are separate capability decisions.
+The unfinished k2lean project is a separate theorem-development route; native ineligibility or an unresolved result alone establishes neither a need for Lean nor the existence of an automatic Lean proof.
+Fuzz proposals and kink mutation/reachability checks retain their own evidence contracts and do not substitute for a claim proof.
+
+### Recorded consumer qualification
+
+At implementation revision `492ac739a`, the unchanged 181-claim Foldiboy workload produced 172 native proofs, six unguided symbolic-index failures and three external 90-second wall limits.
+The consumer review at merge `e50f28748` independently proved equivalent versions of all six bit contracts with exhaustive input alternatives: 48 productive branches, preserving their original premises, arbitrary register targets, indirect memory, postconditions and frames.
+Those are separate case-guided inputs; the six original unguided forms are not reported as proven.
+The original map repro and independent instruction spot checks also passed the consumer review.
+
+`contract-call-taken`, `contract-dispatch-running` and `contract-dispatch-wake` independently reached the same external limit without a native verdict.
+They remain ordinary local-contract workload whose individual proofs are unqualified by those runs; they were not assigned outside the supported syntax or declared Lean work.
+Profile preparation, authored-case aggregation, missing source links and SMT work before diagnosing their cause or changing budgets.
+These are historical qualification measurements, not certification of every later checkout or a Foldiboy-specific whitelist defining the supported laws.

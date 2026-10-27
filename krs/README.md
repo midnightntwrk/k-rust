@@ -12,6 +12,7 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 `krs expand` projects the readable (layer-1) surface to a deterministic, explicit (layer-2) Rust reference surface, and `krs fmt` is the canonical formatter for both.
 
 `krs parse`, `run`, `search`, and `prove` play the roles of K's `kast`, `krun`, `krun --search`, and `kprove`: they compile the same Definition IR in-process through `krs-exec` and the `k-rust` symbolic backend, and `--output json` prints a `krs-exec/1` report.
+The [native local-contract boundary](../docs/compatibility.md#native-local-state-transition-contracts) describes the supported symbolic state/helper laws, typed observation and domain premises, exhaustive input cases, weak partial correctness and unresolved proof limits.
 
 `krs check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, with diagnostic codes, notes, help, and authored source snippets when the source revision matches.
 Pass `--message-format=json` for machine consumption: every diagnostic is a schema-2 JSON envelope line, with a `null` authored range when no authored text is its subject; only failures without a code (a usage error, a crashed collector) are prose lines.
