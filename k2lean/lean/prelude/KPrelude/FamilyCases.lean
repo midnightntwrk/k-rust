@@ -69,6 +69,12 @@ def refuteCase (g : MVarId) (fields : Array Expr) : MetaM Bool := do
 /-- When the term `a` of the family has a builtin carrier's tag (its only possible constructor is
 `b_… v`): the goal after splitting it, and `v`. -/
 def builtinLeaf (g : MVarId) (a : FVarId) : MetaM (Option (MVarId × Expr)) := do
+  -- only a builtin carrier's tag `T` has a constructor `b_T` in the family: read that off the
+  -- index before splitting (most leaves are not builtin carriers)
+  let ty ← g.withContext do whnfR (← instantiateMVars (← a.getType))
+  let .const fam _ := ty.getAppFn | return none
+  let .const (.str _ tag) _ := (← g.withContext do whnfD ty.appArg!).getAppFn | return none
+  unless (← getEnv).contains (.str fam ("b_" ++ tag)) do return none
   let st ← saveState
   let gs ← try g.cases a catch _ => st.restore; return none
   let mut kept := #[]
