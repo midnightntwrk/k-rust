@@ -908,7 +908,15 @@ fn chosen_value_met(
             rule_named_by_id(definition, hook),
             class.name()
         ),
-        _ => format!(
+        k_rust_backend::builtin::ChosenClass::Order
+        | k_rust_backend::builtin::ChosenClass::Item
+        | k_rust_backend::builtin::ChosenClass::FloatDestination
+        | k_rust_backend::builtin::ChosenClass::NanSign
+        | k_rust_backend::builtin::ChosenClass::LetterCase
+        | k_rust_backend::builtin::ChosenClass::SignedZero
+        | k_rust_backend::builtin::ChosenClass::FreshName
+        | k_rust_backend::builtin::ChosenClass::ReadCount
+        | _ => format!(
             "read a value of {hook} the definition leaves open ({})",
             class.name()
         ),

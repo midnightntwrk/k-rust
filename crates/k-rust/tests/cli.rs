@@ -2401,6 +2401,46 @@ fn kprove_does_not_prove_a_subsort_item_absent_from_a_set_holding_it() {
     }
 }
 
+/// KR-MARK's warning (FZ-FRESH): a run through a rule with two `!` names rests on k-rust's
+/// association of the names to counter offsets, which the definition leaves open
+/// (`docs/compatibility.md`, "Compiler-resolved fresh constants"), so krun warns once, naming
+/// the rule and the class; a run through a one-name rule does not warn.
+#[test]
+fn krun_warns_of_a_run_through_a_rule_with_two_fresh_names() {
+    const FRESH: &str = r#"
+module FRESH-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= mk(Int) | one(Int)
+endmodule
+module FRESH
+  imports FRESH-SYNTAX
+  imports INT
+  configuration <T> <k> $PGM:Pgm </k> <a> 7 </a> <b> 7 </b> </T>
+  rule [two]: <k> mk(_) => .K ... </k> <a> _ => !A:Int </a> <b> _ => !B:Int </b>
+  rule [single]: <k> one(_) => .K ... </k> <a> _ => !A:Int </a>
+endmodule
+"#;
+    let two = krun_mint_program(FRESH, "FRESH", "mk(3)");
+    compact_success(&two);
+    let warning = String::from_utf8(two.stderr).unwrap();
+    let warnings = warning
+        .lines()
+        .filter(|line| line.starts_with("warning: "))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "{warning}");
+    assert!(
+        warnings[0].contains("FRESH.two") && warnings[0].contains("(fresh-association)"),
+        "{warning}"
+    );
+    let one = krun_mint_program(FRESH, "FRESH", "one(3)");
+    compact_success(&one);
+    assert!(
+        !String::from_utf8_lossy(&one.stderr).contains("warning: "),
+        "{}",
+        String::from_utf8_lossy(&one.stderr)
+    );
+}
+
 /// `krun` of `program` (a `Pgm`) in the definition `source` with main module `module`.
 fn krun_mint_program(source: &str, module: &str, program: &str) -> Output {
     let (root, definition) = fixture();
