@@ -53,7 +53,7 @@ gen_relational() {
 # cellmapb, pick and pickb)
 relate_relational() {
   case $1 in
-    ImpRel) nb=KrsImp kd=$KRS f=Bisim extra=(--per-sort-terms true) ;;
+    ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
     ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim extra=(--split true) ;;

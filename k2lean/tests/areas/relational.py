@@ -6,8 +6,7 @@ LIBS = {
 }
 
 DEMOS = {
-    # ImpRel relates kimp-ps and krsimp-ps (per-sort): its arity bisimulation's build exceeds 14 GB
-    "ImpRel": {"tier": "light", "encoding": "per-sort", "sources": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml"]},
+    "ImpRel": {"tier": "light", "sources": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml"]},
     "ImpMut": {"tier": "light", "sources": ["demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml"]},
     "PeanoRel": {"tier": "light", "sources": ["generated/peano", "generated/peanob",
                                               "demos/PeanoRel/PeanoRel/Bisim.lean", "demos/PeanoRel/correspondence.toml"]},

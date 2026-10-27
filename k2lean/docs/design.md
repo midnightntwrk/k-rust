@@ -117,7 +117,6 @@ The arity universe is the default of `gen` and `relate` since 2026-10-25 (K6): `
 Every generated theorem states the same thing on both universes, so no statement changed with the default.
 A library or demo whose arity form would lose a count stays per-sort, with `encoding = "per-sort"` in its gate registry entry (`tests/areas/AREA.py`; `gate.sh list` prints it); these are, with the reason of each:
 
-- `ImpRel` and `ImpRelClaims` (on `kimp-ps` and `krsimp-ps`): `ImpRel`'s bisimulation on the arity universe grows past 14 GB in its build, and `ImpRelClaims` needs `ImpRel` and so the per-sort copy of kimp's claims, `kimp-claims-ps` (the same generated modules over `kimp-ps`);
 - `SimpleEnv` (on `simple-ps`): its hand-written modules match on per-sort constructors (`KSimple.Term.nil`, `inj_FstackCell`);
 - `SimpleRel` (`pipelines/simple-rel.sh`, outside the gate; `simple`, `simplev` and the relation generated per-sort there): its bisimulation builds in the per-sort form (§9);
 - six snapshot tests of the generator (params, measure, peano, counter, freekey, counter_det2), which keep the per-sort output under test (`--per-sort-terms` in `tests/snapshots.rs`).
@@ -663,10 +662,11 @@ Open, in the order they block a KEVM library with kimp's guarantees:
   The two libraries build: `Terms.lean` in 334 s / 663 CPU-s / 6.7 GB peak (KEVM) and 367 s / 698 CPU-s / 6.8 GB (the mutant), `Functions.lean` in 103 s / 2.9 GB and 130 s / 2.9 GB.
   The mutant relation's Lean build (`lake build` of its module, under a 14 GB cap) had not finished after 20.5 minutes at 7.4 GB peak, when it was stopped: a measured lower bound.
   Open: the cost of the KEVM relation's Lean build, and where it goes.
-- **The per-sort holdouts** (§2.1, with their reasons): `ImpRel`'s bisimulation (past 14 GB) is to be localized, by elaborating its modules in pieces under a cap; `SimpleEnv` needs its hand-written modules rewritten over the family (`k2l_cases`).
+- **The per-sort holdouts** (§2.1, with their reasons): `SimpleEnv` needs its hand-written modules rewritten over the family (`k2l_cases`).
   `ImpMut` and `RaceConf` moved on 2026-10-28 with their counts unchanged: `ImpMut`'s hand module needed only the arity name of the empty map, and `confluence`'s rule text, written with the constructors' names, elaborates on both universes.
   `ImpUnroll` (with `ImpUnrollClaims`) and `SimpleConf` moved the same day: `ImpUnroll`'s hand module inverts an equation of two configurations by `k2l_injections` (`KPrelude/Relate.lean`) in place of the per-sort constructors' `injEq` lemmas, which the arity universe's constructors, being definitions, do not have.
   `ImpNI` moved the same day: `noninterference` writes its relation for the family (§3.7), and its hand module cases by `k2l_cases`.
+  `ImpRel` (with `ImpRelClaims`) moved the same day: its bisimulation, which had grown past 14 GB on the arity universe before core's `familyCases` stopped searching the context (K6-cost), builds in one module in 53 s wall, 106 CPU-s and 5.1 GB peak (per-sort: 14 s for `Bisim.lean`; 2026-10-28, Lean v4.34.0, load about 20); `relate`'s invariant (`Inv`, for a translation that moves a constructor) states its map lemma on the family's lists. `krsimp-ps` and `kimp-claims-ps`, which only these two used, are gone.
   Each holdout moves to the arity universe when its counts there are at least its per-sort ones; the per-sort encoding can be retired when none is left.
 - **`Terms` cost**: about 280 of KEVM's 665 CPU-s are the decoder's round trip by `simp` and 128 leaf-inclusion lemmas by `decide` (estimate from a profile, 2026-10-23).
 - **Lean's realization of match equations and equation lemmas for imported constants** runs under the default 200,000 heartbeats whatever the importing file sets with `set_option` (Lean v4.30.0 and v4.34.0): the adequacy proofs avoid splitting large matches of another module and each equation proof unfolds only its own definitions, but another proof that does either can reach that limit.

@@ -7,7 +7,7 @@ package «ImpRelClaims» where
 
 require KClaims from "../../lean/claims"
 require «ImpRel» from "../ImpRel"
-require «KImpClaims» from "../../generated/kimp-claims-ps"
+require «KImpClaims» from "../../generated/kimp-claims"
 
 @[default_target]
 lean_lib ImpRelClaims

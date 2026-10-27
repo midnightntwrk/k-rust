@@ -2,8 +2,8 @@
 # The format of every area's registry is described in gate-check.py's docstring.
 
 DEMOS = {
-    # on ImpRel and kimp-claims-ps, both per-sort (ImpRel is a holdout of the relational area)
-    "ImpRelClaims": {"tier": "heavy", "encoding": "per-sort", "sources": ["demos/ImpRelClaims/ImpRelClaims/Transfers.lean"]},
+    # on ImpRel and kimp-claims (the arity universe)
+    "ImpRelClaims": {"tier": "heavy", "sources": ["demos/ImpRelClaims/ImpRelClaims/Transfers.lean"]},
     # on ImpUnroll and kimp-claims (the arity universe)
     "ImpUnrollClaims": {"tier": "heavy", "sources": ["demos/ImpUnrollClaims/ImpUnrollClaims/Transfers.lean"]},
 }
@@ -25,9 +25,9 @@ def measure_claims(c):
 
 
 RECORDS = {
-    # on kimp and kimpinv (the arity universe); kimp-claims-ps is the same modules over kimp-ps
+    # on kimp and kimpinv (the arity universe)
     "claims": {"tier": "heavy", "measure": measure_claims,
-               "sources": ["generated/kimp-claims", "generated/kimp-claims-ps", "generated/kimpinv-claims"]},
+               "sources": ["generated/kimp-claims", "generated/kimpinv-claims"]},
 }
 
 OUTPUTS = {

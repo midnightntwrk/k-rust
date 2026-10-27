@@ -2,7 +2,7 @@
 # The core area: kimp (goldens and step traces), KRS IMP, determinism along the rule index
 # (kimp-d2, ovl), rules with `ensures` (ens), the fixture freekey, SIMPLE and its acceptance against
 # krust, the synthesized termination measures (kterm-ar), and kimp and SIMPLE in the per-sort encoding
-# (kimp-ps, simple-ps, krsimp-ps, for the holdouts built on it). Registry: core.py.
+# (kimp-ps, simple-ps, for the holdouts built on it). Registry: core.py.
 
 kore_core() {
   case $1 in
@@ -18,13 +18,13 @@ kore_core() {
 
 name_core() {
   case $1 in
-    kimp|kimp-d2|kimp-ps) echo KImp ;; krsimp|krsimp-ps) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
+    kimp|kimp-d2|kimp-ps) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
     simple|simple-ps) echo KSimple ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;;
     *) return 1 ;;
   esac
 }
 
-# kimp-ps, simple-ps and krsimp-ps are kimp, SIMPLE and krsimp in the per-sort encoding (`--per-sort-terms`)
+# kimp-ps and simple-ps are kimp and SIMPLE in the per-sort encoding (`--per-sort-terms`)
 gen_core() {
   case $1 in
     kimp|kimp-ps) GEN_ARGS=(--kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json"
@@ -39,10 +39,8 @@ gen_core() {
             --out "$o" --name KImp --prelude ../../lean/prelude
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt"
             --det2 --det2-overlap "IMP.if-true,IMP.if-false" --equations-part-weight 30) ;;
-    # krsimp-ps: the KRS IMP port in the per-sort encoding, for ImpRel and ImpRelClaims (holdouts)
-    krsimp|krsimp-ps) GEN_ARGS=(--kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude
-            --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json")
-      [ "$1" = krsimp-ps ] && GEN_ARGS+=(--per-sort-terms) ;;
+    krsimp) GEN_ARGS=(--kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude
+            --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json") ;;
     # a definition with two genuine overlaps (witnessed; one reads a map cell), one joinable pair
     # and exclusive pairs (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
     ovl) GEN_ARGS=(--kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json"
@@ -184,7 +182,6 @@ gate_core() {
     kc kimp && kc kimp-verif && lib kimp-d2 KImp
   fi
   runs lib krsimp && lib krsimp KrsImp
-  runs lib krsimp-ps && lib krsimp-ps KrsImp
   runs lib ovl && kc ovl && lib ovl KOvl
   runs lib ens && kc ens && lib ens KEns
   # the fixture whose function equations match maps by free-key patterns (`MapHook.chooseFirst`)
