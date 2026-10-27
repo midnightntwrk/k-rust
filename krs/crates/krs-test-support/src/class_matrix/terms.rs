@@ -161,8 +161,9 @@ const CONSTRUCTS: [&str; 26] = [
 const IMPORTED_CONSTRUCTS: [&str; 2] = ["Go()", "Hold(x)"];
 
 /// One term position of one form: its template, in which `HOLE` is the construct, `TAG` the
-/// case's hash, `NAME` its command, `UPPER` its hash in upper case, and `USES` the block's
-/// import of the command family (empty on the import axis).
+/// case's hash, `NAME` its command, `UPPER` its hash in upper case, `USES` the block's import
+/// of the command family (empty on the import axis), and `BINDERS` a `cells!` rule's binder
+/// parameters ([`binders`]).
 #[derive(Clone, Copy)]
 struct Slot {
     form: &'static str,
@@ -200,11 +201,15 @@ impl Slot {
     }
 }
 
-/// The term positions. A `#[k::rule]` fn, a `for Stmt` rule and a readable record keep their
-/// cases apart by a command over two items, `NAME(x, ..)`, which also binds `x`; the equation
-/// forms by the first argument of `Probe`, a command with no field. The shorthand, the constant
-/// and the initializer name items of their own.
-const SLOTS: [Slot; 29] = [
+/// The term positions. A `#[k::rule]` fn, a `cells!` rule, a `for Stmt` rule and a readable
+/// record keep their cases apart by a command over two items, `NAME(x, ..)`, which also binds
+/// `x`; the equation forms by the first argument of `Probe`, a command with no field. The
+/// shorthand, the constant and the initializer name items of their own.
+///
+/// The `cells!` slots are the value inside `KCell(..)`, the reference spelling of a readable
+/// record's computation cell: the subject reads `KCell(NAME(x, HOLE), tail @ ..)`, the result
+/// writes `KCell(Hold(HOLE), ..tail)`.
+const SLOTS: [Slot; 31] = [
     slot(
         "rule",
         "subject",
@@ -257,6 +262,30 @@ const SLOTS: [Slot; 29] = [
         concat!(
             "#[k::rule(label = \"case-TAG\")]\n",
             "fn case_TAG(k::term![Cmd::NAME(k::rewrite!(x => Cmd::Go()), HOLE)]: Term<Stmt>) {}\n"
+        ),
+    ),
+    slot(
+        "cells",
+        "subject",
+        Side::Subject,
+        concat!(
+            "#[k::rule(label = \"case-TAG\")]\n",
+            "pub fn case_TAG(\nBINDERS",
+            "    k::cells! { k: k::configuration::KCell(Cmd::NAME(x, HOLE), tail @ ..), state @ .. }: Machine,\n",
+            ") -> Machine {\n",
+            "    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n"
+        ),
+    ),
+    slot(
+        "cells",
+        "result",
+        Side::Result,
+        concat!(
+            "#[k::rule(label = \"case-TAG\")]\n",
+            "pub fn case_TAG(\nBINDERS",
+            "    k::cells! { k: k::configuration::KCell(Cmd::NAME(x, _), tail @ ..), state @ .. }: Machine,\n",
+            ") -> Machine {\n",
+            "    k::cells! { k: k::configuration::KCell(Cmd::Hold(HOLE), ..tail), ..state }\n}\n"
         ),
     ),
     slot(
@@ -441,7 +470,7 @@ const SLOTS: [Slot; 29] = [
     .parsed_by_rustc(),
 ];
 
-/// The term family: 29 slots × 26 constructs, and the import axis: 29 slots × 2 bare
+/// The term family: 31 slots × 26 constructs, and the import axis: 31 slots × 2 bare
 /// variants.
 pub(super) fn cases(cases: &mut Vec<Case>) {
     for slot in SLOTS {
@@ -479,7 +508,8 @@ fn case(family: Family, slot: Slot, construct: &str) -> Case {
         .replace("TAG", &tag)
         .replace("NAME", &command.name)
         .replace("UPPER", &tag.to_uppercase())
-        .replace("USES", if imported { "" } else { "    use Cmd::*;\n" });
+        .replace("USES", if imported { "" } else { "    use Cmd::*;\n" })
+        .replace("BINDERS", &binders(slot, construct));
     let (before, after) = template
         .split_once("HOLE")
         .expect("every template has a hole");
@@ -493,4 +523,19 @@ fn case(family: Family, slot: Slot, construct: &str) -> Case {
     let mut case = spec.finish(packaging, &item);
     case.rustc_parses = slot.rustc_parses;
     case
+}
+
+/// A `cells!` rule's binder parameters, which declare every subject binder once in the order
+/// the binders first occur: the command's `x`, then the alias `y` of `y @ P` in the subject (an
+/// alias counts before the binders inside its pattern). Each is typed by the `KItem` field it
+/// fills. A result's `y @ P` binds nothing, and a `let`'s or a closure's names are their own.
+fn binders(slot: Slot, construct: &str) -> String {
+    if slot.form != "cells" {
+        return String::new();
+    }
+    let mut binders = String::from("    x: KItem,\n");
+    if slot.side == Side::Subject && construct.starts_with("y @ ") {
+        binders.push_str("    y: KItem,\n");
+    }
+    binders
 }

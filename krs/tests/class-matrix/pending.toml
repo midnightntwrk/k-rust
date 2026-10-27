@@ -829,6 +829,26 @@ step = "S5"
 
 # S0-10: a term construct outside the positions it may stand at is refused with the generic parse code of the form that meets it (`rust-syntax`, `unsupported-term-expression`, `syntax::invalid-matches`, `syntax::invalid-let`, `unsupported-rule-signature`) instead of the construct's code
 
+["terms/cells/result/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::expand::ml-placement @ spelling"
+step = "S3"
+
+["terms/cells/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/cells/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/cells/subject/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
 ["terms/claim/result/y @ Cmd::Hold(_)"]
 finding = "S0-10"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -1250,6 +1270,16 @@ deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::missing
 step = "S3"
 
 # S0-11: a function application below the root of a rewrite rule's or equation's pattern is accepted and emitted; k-rust refuses it (`IllegalFunctionOnLhs`)
+
+["terms/cells/subject/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/cells/subject/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
 
 ["terms/equation/subject-depth-2/Size(x)"]
 finding = "S0-11"
@@ -2129,6 +2159,26 @@ step = "S5"
 
 # N22: a module-level `use Cmd::*;` does not reach the term positions (rustc E0573)
 
+["import/cells/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/cells/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/cells/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/cells/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
 ["import/claim/result/Go()"]
 finding = "N22"
 deviation = "E0573 @ spelling"
@@ -2420,3 +2470,14 @@ step = "S4"
 finding = "N27"
 deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
+
+# Unassigned: a `cells!` subject alias `y @ Cmd::Hold(_)` whose binder is declared at the sort of
+# the position it fills (`y: KItem`, above the pattern's `Stmt`) reaches the IR validator's internal
+# "an `alias @ pattern` (#as) node's sort is not its alias variable's, or its pattern's sort does
+# not inject into it"; declared `y: Stmt`, the case is accepted. A declared binder sort above the
+# pattern's is legal, so this is a lowering bug, not the author's: the #as node is not injected
+# into its variable's sort (a cousin of N27's sort equality). No finding or step owns it yet.
+
+["terms/cells/subject/y @ Cmd::Hold(_)"]
+finding = "unassigned"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"

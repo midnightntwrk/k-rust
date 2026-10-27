@@ -89,10 +89,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 16 values, the computation cell's remainder, 3 field orders and the
             // nested group's, and 8 typed cells × 4 contents.
             (Family::Init, 112 + 1 + 3 + 1 + 32),
-            // 29 term positions × 26 constructs.
-            (Family::Terms, 754),
-            // 29 term positions × 2 bare variants.
-            (Family::Import, 58),
+            // 31 term positions × 26 constructs.
+            (Family::Terms, 806),
+            // 31 term positions × 2 bare variants.
+            (Family::Import, 62),
         ])
     );
     assert!(cases.len() <= FRONT_CASE_CAP);
