@@ -153,9 +153,26 @@ fn every_refusal_stage_and_first_failure() {
     assert!(
         detail.contains("rule H (signature)")
             && detail.contains("[hook INT.add]")
-            && detail.contains("-> SortBool")
             && detail.contains("t13owk.k:"),
         "{detail}"
+    );
+    // KINK-R4 fix round (review N3): the symbol and the sorts by their K names, not KORE's
+    // (`LbladdB`, `SortInt`), which the admission record's census keeps.
+    assert!(
+        detail.contains(
+            "rule H (signature): addB [hook INT.add] declared (Int, Int) -> Bool, \
+                         expected (Int, Int) -> Int at t13owk.k:"
+        ),
+        "{detail}"
+    );
+    assert!(
+        !detail.contains("SortInt") && !detail.contains("LbladdB"),
+        "{detail}"
+    );
+    assert_eq!(
+        r.record.value()["census"]["findings"][0]["symbol"],
+        "LbladdB",
+        "the record keeps the KORE name"
     );
     v = clean();
     v["definitions"][0]["tests"][0]["input"]["program"]["text"] = json!("???");

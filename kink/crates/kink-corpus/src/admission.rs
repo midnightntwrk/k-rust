@@ -10,6 +10,7 @@ use crate::{
 use k_rust::{
     backend::{Backend, BackendOptions},
     builtin,
+    kast::identifier::{decode_sort_name, label_or_name},
     kompile::{CompilationBackend, CompileOptions},
     kore::{ast::Pattern, codec::from_value},
     outer::{LoadOptions, ResolvedSource, SourceResolver, load_for_compilation},
@@ -384,6 +385,39 @@ pub fn compile_definition_with(
     Ok(compiled)
 }
 
+/// `text` with each KORE symbol or sort name written as the K name it encodes (KINK-R4 review N3):
+/// a token of identifier characters and quotes that starts with `Lbl` is a symbol, decoded by
+/// k-rust's [`label_or_name`], and one that starts with `Sort` is a sort, decoded by
+/// [`decode_sort_name`]; a token that does not decode, and every other character, is kept. The
+/// census records the KORE names (the admission record keeps them); only the detail an author
+/// reads beside the K source is rewritten. K's KORE identifier encoding writes every character a
+/// K name may hold outside letters and digits as a quoted mnemonic of letters and digits, so an
+/// encoded name is one such token.
+fn k_names(text: &str) -> String {
+    let decode = |token: &str| {
+        if token.starts_with("Lbl") {
+            label_or_name(token)
+        } else if token.starts_with("Sort") {
+            decode_sort_name(token).unwrap_or_else(|_| token.to_owned())
+        } else {
+            token.to_owned()
+        }
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut token = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() || c == '\'' {
+            token.push(c);
+        } else {
+            out.push_str(&decode(&token));
+            token.clear();
+            out.push(c);
+        }
+    }
+    out.push_str(&decode(&token));
+    out
+}
+
 /// The most census findings a refusal's detail names; the admission record's `census` holds them
 /// all.
 const CENSUS_DETAIL_FINDINGS: usize = 8;
@@ -416,17 +450,25 @@ fn census_detail(census: &DeclarationCensus) -> String {
         detail.push_str(&format!(
             "\n  rule {}: {}{} declared ({}) -> {}{}{}",
             rule(finding.class),
-            finding.symbol,
+            k_names(&finding.symbol),
             finding
                 .hook
                 .as_deref()
                 .map_or_else(String::new, |hook| format!(" [hook {hook}]")),
-            finding.arguments.join(", "),
-            finding.result,
+            finding
+                .arguments
+                .iter()
+                .map(|sort| k_names(sort))
+                .collect::<Vec<_>>()
+                .join(", "),
+            k_names(&finding.result),
             finding
                 .expected
                 .as_deref()
-                .map_or_else(String::new, |expected| format!(", expected {expected}")),
+                .map_or_else(String::new, |expected| format!(
+                    ", expected {}",
+                    k_names(expected)
+                )),
             match (source, finding.location) {
                 (Some(source), Some([line, column, _, _])) => {
                     format!(" at {source}:{line}:{column}")
