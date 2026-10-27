@@ -730,7 +730,7 @@ impl LiveCases {
             .map_err(|error| CampaignError::Definition {
                 message: format!("the rule catalog is not available: {error}"),
             })?;
-        let catalog = target::relative_catalog(
+        let (catalog, _) = target::relative_catalog(
             catalog,
             &crate::source_names::SourceNames::of(&side.definition.frontend_definition),
         );

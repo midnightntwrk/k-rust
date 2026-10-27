@@ -133,6 +133,59 @@ fn write_compiled_with(
     .expect("the runnable artifact is written");
 }
 
+/// [`write_compiled_with`], with each `requires` text (as written, recorded as, text) recorded
+/// under a name of its own, as `krust kcompile` records each file under its absolute path.
+fn write_compiled_recorded(
+    file: &str,
+    source: &str,
+    main_module: &str,
+    requires: &[(&str, &str, &str)],
+    directory: &Path,
+) {
+    fs::create_dir_all(directory).expect("the compiled directory is created");
+    let mut resolver = |_: &str, required: &str| {
+        requires
+            .iter()
+            .find(|(written, _, _)| *written == required)
+            .map(|(_, recorded, text)| ResolvedSource::new(*recorded, *text))
+            .or_else(|| embedded(required))
+            .ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let options = LoadOptions {
+        implicit_sources: vec![embedded("prelude.md").expect("the prelude is embedded")],
+        ..CompilationBackend::Rust.load_options()
+    };
+    let (loaded, syntax_module) = load_for_compilation(
+        ResolvedSource::new(file, source),
+        main_module,
+        None,
+        &mut resolver,
+        &options,
+    )
+    .unwrap_or_else(|error| panic!("{file} does not load: {error:?}"));
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("{file} does not compile: {error}"));
+    for (name, text) in [
+        ("definition.kore", &artifacts.definition_kore),
+        ("syntaxDefinition.kore", &artifacts.syntax_definition_kore),
+        ("macros.kore", &artifacts.macros_kore),
+    ] {
+        fs::write(directory.join(name), text).expect("a KORE file is written");
+    }
+    write_runnable_artifact(
+        directory,
+        main_module,
+        &syntax_module,
+        loaded.definition(),
+        loaded.source_table(),
+        &artifacts.execution_definition,
+        &artifacts.configuration_variables,
+        &artifacts.execution_rewrite_order,
+        &artifacts.definition_kore,
+    )
+    .expect("the runnable artifact is written");
+}
+
 /// A fresh working directory for one test, under Cargo's temporary directory for integration
 /// tests, holding the compiled directories and the files it names. Each test has its own, so
 /// that tests running in parallel threads or processes (nextest) never share one.
@@ -454,6 +507,66 @@ fn a_replay_compares_the_whole_witness() {
         text(&replay.stdout),
         text(&replay.stderr)
     );
+}
+
+/// FZ-REPLAY-WHOLE fix round S-A: a definition whose main file `defs/main.k` requires
+/// `defs/sub/main.k` (another `main.k`) and `../lib/extra.k` (outside the main file's
+/// directory), compiled under absolute paths, is reached by every reference the recorded paths
+/// reached before the catalog was named relative to the main file (the base `krust-fuzz`
+/// resolves all of them; final review S-A): the recorded path, a path written from the
+/// project's root, and the relative path itself.
+#[test]
+fn a_rule_reference_names_its_file_as_recorded_from_the_root_or_relative() {
+    const SYNTAX: &str = "module MAIN-SYNTAX\n  imports INT-SYNTAX\n  syntax Pgm ::= a(Int) | b(Int) | c(Int) | d(Int)\nendmodule\n";
+    const MAIN: &str = "requires \"syntax.k\"\nrequires \"sub/main.k\"\nrequires \"../lib/extra.k\"\nmodule MAIN\n  imports MAIN-SYNTAX\n  imports SUB\n  imports EXTRA\n  imports INT\n  configuration <k> $PGM:Pgm </k>\n  rule a(N) => b(N)\nendmodule\n";
+    const SUB: &str = "requires \"../syntax.k\"\nmodule SUB\n  imports MAIN-SYNTAX\n  imports INT\n\n  rule b(N) => c(N)\nendmodule\n";
+    const EXTRA: &str = "requires \"../defs/syntax.k\"\nmodule EXTRA\n  imports MAIN-SYNTAX\n  imports INT\n\n\n\n  rule c(N) => d(N)\nendmodule\n";
+    let campaign = "definition = \"main-kompiled\"\nprogram = \"p.pgm\"\ncases = 1\n[[hole]]\nname = \"N\"\nsort = \"Int\"\nfind = \"a(1)\"\nliteral = \"1\"\nrange = { min = 0, max = 3 }\n";
+    let directory = workspace(
+        "rule-recorded",
+        &[],
+        &[("p.pgm", "a(1)\n"), ("c.toml", campaign)],
+    );
+    let root = directory.to_str().expect("a UTF-8 path").to_owned();
+    let syntax = format!("{root}/defs/syntax.k");
+    let sub = format!("{root}/defs/sub/main.k");
+    let extra = format!("{root}/lib/extra.k");
+    write_compiled_recorded(
+        &format!("{root}/defs/main.k"),
+        MAIN,
+        "MAIN",
+        &[
+            ("syntax.k", &syntax, SYNTAX),
+            ("../syntax.k", &syntax, SYNTAX),
+            ("../defs/syntax.k", &syntax, SYNTAX),
+            ("sub/main.k", &sub, SUB),
+            ("../lib/extra.k", &extra, EXTRA),
+        ],
+        &directory.join("main-kompiled"),
+    );
+    let target = |reference: &str| {
+        let (status, report) = json_run(
+            &directory,
+            &["--campaign", "c.toml", "--reach-rule", reference, "--json"],
+        );
+        assert!(matches!(status, Some(0 | 1)), "{reference}");
+        let rule = report.identity.target_rule.expect("a target rule");
+        (
+            rule.name.locations[0].source.clone(),
+            rule.name.locations[0].line,
+        )
+    };
+    for (reference, source, line) in [
+        (format!("{sub}:6"), "sub/main.k", 6),
+        ("defs/sub/main.k:6".to_owned(), "sub/main.k", 6),
+        ("sub/main.k:6".to_owned(), "sub/main.k", 6),
+        (format!("{extra}:8"), "../lib/extra.k", 8),
+        ("lib/extra.k:8".to_owned(), "../lib/extra.k", 8),
+        ("defs/main.k:10".to_owned(), "main.k", 10),
+        ("main.k:10".to_owned(), "main.k", 10),
+    ] {
+        assert_eq!(target(&reference), (source.to_owned(), line), "{reference}");
+    }
 }
 
 /// FZ-REPLAY-WHOLE (final review S1): one definition compiled in two directories gives

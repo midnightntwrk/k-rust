@@ -1079,17 +1079,56 @@ fn a_relative_source_names_its_own_file_and_an_absolute_one_falls_back_to_a_suff
     // module's directory, and a reference may be written from the checkout's root).
     assert_eq!(resolve("/work/defs/rules.k", 30), Ok("top-30".to_owned()));
     assert_eq!(resolve("defs/rules.k", 30), Ok("top-30".to_owned()));
-    // `/work/defs/lib/rules.k` ends with both relative paths: refused at every line, not
-    // resolved by the line.
-    for line in [12, 20, 30] {
-        assert_eq!(
-            resolve("/work/defs/lib/rules.k", line),
-            Err(TargetProblem::AmbiguousSource {
-                source: "/work/defs/lib/rules.k".to_owned(),
-                files: vec!["lib/rules.k".to_owned(), "rules.k".to_owned()],
-            }),
-            "line {line}"
-        );
+    // `/work/defs/lib/rules.k` ends with both relative paths: the longer one, `lib/rules.k`, is
+    // the one it names (FZ-REPLAY-WHOLE fix round S-A), whatever the line.
+    assert_eq!(
+        resolve("/work/defs/lib/rules.k", 12),
+        Ok("lib-12".to_owned())
+    );
+    unknown(resolve("/work/defs/lib/rules.k", 30));
+}
+
+/// FZ-REPLAY-WHOLE fix round S-A: a relative catalog (`main.k`, `sub/main.k`, `../lib/extra.k`,
+/// recorded at `/w/proj/defs/main.k`, `/w/proj/defs/sub/main.k` and `/w/proj/lib/extra.k`)
+/// resolves every reference the recorded catalog resolved: the recorded path itself, a path
+/// written from the checkout's root, and one outside the main file's directory; a path from
+/// another checkout names the longest relative path it ends with.
+#[test]
+fn a_relative_catalog_resolves_the_references_the_recorded_paths_did() {
+    use super::rule::{RecordedPaths, resolve_rule_recorded};
+    let at = |id: &str, source: &str, line: u32| {
+        let mut entry = entry(id, Some(id), CompiledRuleKind::Rewrite, line);
+        entry.origins[0].source = Some(source.to_owned());
+        entry
+    };
+    let catalog = vec![
+        at("main-10", "main.k", 10),
+        at("sub-6", "sub/main.k", 6),
+        at("extra-8", "../lib/extra.k", 8),
+    ];
+    let recorded: RecordedPaths = [
+        ("main.k", "/w/proj/defs/main.k"),
+        ("sub/main.k", "/w/proj/defs/sub/main.k"),
+        ("../lib/extra.k", "/w/proj/lib/extra.k"),
+    ]
+    .into_iter()
+    .map(|(relative, path)| (relative.to_owned(), path.to_owned()))
+    .collect();
+    let resolve =
+        |given: &str, line| resolve_rule_recorded(&catalog, &source(given, line), &recorded);
+    for (given, line, id) in [
+        ("/w/proj/defs/sub/main.k", 6, "sub-6"),
+        ("defs/sub/main.k", 6, "sub-6"),
+        ("sub/main.k", 6, "sub-6"),
+        ("/w/proj/lib/extra.k", 8, "extra-8"),
+        ("lib/extra.k", 8, "extra-8"),
+        ("../lib/extra.k", 8, "extra-8"),
+        ("defs/main.k", 10, "main-10"),
+        ("main.k", 10, "main-10"),
+        ("/w/proj/defs/main.k", 10, "main-10"),
+        ("/elsewhere/defs/sub/main.k", 6, "sub-6"),
+    ] {
+        assert_eq!(resolve(given, line), Ok(id.to_owned()), "{given}:{line}");
     }
 }
 

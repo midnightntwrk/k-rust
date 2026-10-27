@@ -712,11 +712,11 @@ impl ResolvedTarget {
                         message: format!("the rule catalog is not available: {error}"),
                     }
                 })?;
-                let catalog = rule::relative_catalog(
+                let (catalog, recorded) = rule::relative_catalog(
                     catalog,
                     &SourceNames::of(&definition.frontend_definition),
                 );
-                let id = rule::resolve_rule(&catalog, &rule_target.rule)
+                let id = rule::resolve_rule_recorded(&catalog, &rule_target.rule, &recorded)
                     .map_err(CampaignError::Target)?;
                 Resolved::Rule {
                     id,

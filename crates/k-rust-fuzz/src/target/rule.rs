@@ -49,6 +49,20 @@ pub(crate) fn resolve_rule(
     catalog: &[CompiledRuleOutput],
     rule: &RuleRef,
 ) -> Result<String, TargetProblem> {
+    resolve_rule_recorded(catalog, rule, &RecordedPaths::new())
+}
+
+/// The path each file of a relative catalog was recorded at, by its relative name
+/// ([`relative_catalog`]): a reference may name a file as it was recorded (an absolute path, or
+/// the name an in-process host gave).
+pub(crate) type RecordedPaths = BTreeMap<String, String>;
+
+/// [`resolve_rule`] on a relative catalog, whose files were recorded at `recorded`.
+pub(crate) fn resolve_rule_recorded(
+    catalog: &[CompiledRuleOutput],
+    rule: &RuleRef,
+    recorded: &RecordedPaths,
+) -> Result<String, TargetProblem> {
     let matching: Vec<&CompiledRuleOutput> = match rule {
         RuleRef::Label(label) => {
             let exact: Vec<_> = catalog
@@ -73,7 +87,7 @@ pub(crate) fn resolve_rule(
         RuleRef::UniqueId(id) => catalog.iter().filter(|entry| entry.id == *id).collect(),
         RuleRef::Source { source, line } => {
             let files = catalog_files(catalog);
-            match files_named(&files, source)[..] {
+            match files_named(&files, source, recorded)[..] {
                 [] => Vec::new(),
                 [file] => written_in(catalog, file, Some(*line)),
                 ref several => {
@@ -98,7 +112,9 @@ pub(crate) fn resolve_rule(
         ));
     }
     let Some(entry) = matching.first() else {
-        return Err(TargetProblem::UnknownRule(Box::new(unknown(catalog, rule))));
+        return Err(TargetProblem::UnknownRule(Box::new(unknown(
+            catalog, rule, recorded,
+        ))));
     };
     // The permanent refusal first: an equation stays refused in M1 whatever its attributes.
     if entry.kind != CompiledRuleKind::Rewrite {
@@ -160,22 +176,36 @@ pub(super) fn catalog_files(catalog: &[CompiledRuleOutput]) -> BTreeSet<&str> {
         .collect()
 }
 
-/// The files of `files` (catalog paths) that the source `given` names, in path order:
-/// - the file whose path is `given`, or whose `Source(path)` text is: a whole path names its
-///   file alone;
-/// - failing that, every file whose path ends with `given` right after a `/`;
-/// - failing that, every relative path that `given` ends with right after a `/`: a catalog
-///   names its files relative to the main module's directory ([`relative_catalog`]), and a
-///   reference may be written from another directory, absolute (`/work/defs/imp.k`) or relative
-///   (`defs/imp.k`, written from the checkout's root).
+/// The files of `files` (catalog paths, relative to the main module's directory in a relative
+/// catalog, which `recorded` maps to the paths the files were recorded at) that the source
+/// `given` names, in path order:
+/// - the file whose path, or recorded path, is `given`, or whose `Source(path)` text is: a whole
+///   path names its file alone;
+/// - failing that, every file whose path or recorded path ends with `given` right after a `/`
+///   (`defs/sub/main.k`, written from the checkout's root, names the file recorded at
+///   `/work/defs/sub/main.k`);
+/// - failing that, the longest relative path that `given` ends with right after a `/`: a
+///   reference written from another checkout (`/elsewhere/defs/sub/main.k`) names `sub/main.k`,
+///   not the main file `main.k`. The relative paths `given` ends with are suffixes of one
+///   another, so the longest is the most specific, and only it is named.
 ///
 /// More than one file is an ambiguity of the reference, whatever line it names: the line of a
 /// rule in one file may be a comment or lie between rules in the other.
-pub(super) fn files_named<'a>(files: &BTreeSet<&'a str>, given: &str) -> Vec<&'a str> {
+pub(super) fn files_named<'a>(
+    files: &BTreeSet<&'a str>,
+    given: &str,
+    recorded: &RecordedPaths,
+) -> Vec<&'a str> {
+    let recorded_as = |path: &str| recorded.get(path).map(String::as_str);
     let exact: Vec<&str> = files
         .iter()
         .copied()
-        .filter(|path| *path == given || format!("Source({path})") == given)
+        .filter(|path| {
+            [Some(*path), recorded_as(path)]
+                .into_iter()
+                .flatten()
+                .any(|name| name == given || format!("Source({name})") == given)
+        })
         .collect();
     if !exact.is_empty() {
         return exact;
@@ -183,7 +213,12 @@ pub(super) fn files_named<'a>(files: &BTreeSet<&'a str>, given: &str) -> Vec<&'a
     let suffix: Vec<&str> = files
         .iter()
         .copied()
-        .filter(|path| ends_at_directory(path, given))
+        .filter(|path| {
+            [Some(*path), recorded_as(path)]
+                .into_iter()
+                .flatten()
+                .any(|name| ends_at_directory(name, given))
+        })
         .collect();
     if !suffix.is_empty() {
         return suffix;
@@ -192,6 +227,8 @@ pub(super) fn files_named<'a>(files: &BTreeSet<&'a str>, given: &str) -> Vec<&'a
         .iter()
         .copied()
         .filter(|path| !path.starts_with('/') && ends_at_directory(given, path))
+        .max_by_key(|path| path.len())
+        .into_iter()
         .collect()
 }
 
@@ -205,13 +242,17 @@ pub(super) fn shortest_reference(files: &BTreeSet<&str>, path: &str) -> String {
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
-        .find(|suffix| files_named(files, suffix) == [path])
+        .find(|suffix| files_named(files, suffix, &RecordedPaths::new()) == [path])
         .unwrap_or(path)
         .to_owned()
 }
 
 /// What `catalog` offers in place of `rule`, which no entry matches ([`UnknownRule`]).
-fn unknown(catalog: &[CompiledRuleOutput], rule: &RuleRef) -> UnknownRule {
+fn unknown(
+    catalog: &[CompiledRuleOutput],
+    rule: &RuleRef,
+    recorded: &RecordedPaths,
+) -> UnknownRule {
     let names = rule_names(catalog);
     let with_names = |ids: Vec<&str>| -> Vec<(String, RuleName)> {
         let mut seen = BTreeSet::new();
@@ -267,7 +308,7 @@ fn unknown(catalog: &[CompiledRuleOutput], rule: &RuleRef) -> UnknownRule {
         RuleRef::UniqueId(id) => unknown.candidates = with_names(starting_with(id)),
         RuleRef::Source { source, line } => {
             let files = catalog_files(catalog);
-            let in_files = files_named(&files, source);
+            let in_files = files_named(&files, source, recorded);
             if in_files.is_empty() {
                 unknown.sources = catalog
                     .iter()
@@ -352,20 +393,23 @@ fn edit_distance(left: &str, right: &str) -> usize {
 /// FZ-REPLAY-WHOLE S1). A catalog records the path the definition was compiled at, which says
 /// where the checkout lay, not what the definition is: resolution, rule names and references
 /// then read the same names wherever the definition was compiled, and the report holds no host
-/// path. A rule reference resolves against these names ([`files_named`]): a path relative to the
-/// main module's directory names its file, a suffix of one after a `/` names the files it ends,
-/// and a path written from elsewhere (absolute, or relative to another directory) names the
-/// relative paths it ends with.
+/// path. The paths the files were recorded at are returned beside it, for resolution only: a
+/// rule reference resolves against both ([`files_named`]), so a reference written as the path
+/// was recorded, or from the checkout's root, names the file it named before the renaming.
 pub(crate) fn relative_catalog(
     mut catalog: Vec<CompiledRuleOutput>,
     names: &SourceNames,
-) -> Vec<CompiledRuleOutput> {
+) -> (Vec<CompiledRuleOutput>, RecordedPaths) {
+    let mut recorded = RecordedPaths::new();
     for origin in catalog.iter_mut().flat_map(|entry| &mut entry.origins) {
         if let Some(source) = &mut origin.source {
-            *source = names.location(catalog_path(source));
+            let path = catalog_path(source).to_owned();
+            let relative = names.location(&path);
+            recorded.insert(relative.clone(), path);
+            *source = relative;
         }
     }
-    catalog
+    (catalog, recorded)
 }
 
 /// The path inside the catalog's source text `Source(path)`, or the text itself.
