@@ -381,6 +381,27 @@ impl Operations {
             ))
         })
     }
+
+    pub fn lookup(&self, definition: &BackendDefinition, map: Term, key: &Term) -> Option<Term> {
+        self.symbols.iter().find_map(|symbol| {
+            let [map_sort, key_sort] = symbol.argument_sorts.as_slice() else {
+                return None;
+            };
+            if symbol.attributes.hook.as_deref() != Some("MAP.lookup")
+                || *map_sort != self.sort()
+                || map.sort() != *map_sort
+                || symbol.result_sort != self.collection.value_sort
+            {
+                return None;
+            }
+            let key = read_at(definition, key, key_sort)?;
+            Some(Term::application(
+                symbol.clone(),
+                vec![],
+                vec![map.clone(), key],
+            ))
+        })
+    }
 }
 
 fn closed_sort(sort: &k_rust_kore::kore::ast::Sort, depth: usize) -> Option<Sort> {

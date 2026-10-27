@@ -213,6 +213,7 @@ pub(super) fn prepare(
     let mut seen_readings = BTreeSet::new();
     let mut readings = Vec::new();
     let mut domains = Vec::new();
+    let mut equalities = BTreeSet::new();
     // Equalities select additional demands only. Even an equality under a negation or a
     // different binder may safely suggest a source-law instance; it is never assumed here.
     let mut aliases = BTreeMap::<Term, Vec<Term>>::new();
@@ -249,8 +250,38 @@ pub(super) fn prepare(
             }
         } else if let Some(predicate) = predicates.pop() {
             match predicate {
-                Predicate::Term(t) | Predicate::Ceil(t) | Predicate::Defined(t) => terms.push(t),
+                Predicate::Term(t) | Predicate::Ceil(t) | Predicate::Defined(t) => {
+                    if let crate::term::TermKind::Application {
+                        symbol, arguments, ..
+                    } = t.kind()
+                        && matches!(
+                            symbol.attributes.hook.as_deref(),
+                            Some("KEQUAL.eq" | "KEQUAL.ne")
+                        )
+                        && let [a, b] = arguments.as_slice()
+                    {
+                        equality_demands(
+                            &mut builder,
+                            state,
+                            a,
+                            b,
+                            &mut equalities,
+                            &mut predicates,
+                            &mut remaining,
+                        )?;
+                    }
+                    terms.push(t);
+                }
                 Predicate::Equals(a, b) => {
+                    equality_demands(
+                        &mut builder,
+                        state,
+                        &a,
+                        &b,
+                        &mut equalities,
+                        &mut predicates,
+                        &mut remaining,
+                    )?;
                     if a.sort() == b.sort() && definition.map_operations(&a.sort()).is_some() {
                         aliases.entry(a.clone()).or_default().push(b.clone());
                         aliases.entry(b.clone()).or_default().push(a.clone());
@@ -278,6 +309,18 @@ pub(super) fn prepare(
         } else if let Some(term) = terms.pop() {
             if !seen.insert(term.clone()) {
                 continue;
+            }
+            if let Some(plan) =
+                super::functional::domain_plan(definition, state, &term, &mut remaining)?
+            {
+                if plan.len() > remaining {
+                    break;
+                }
+                predicates.extend(
+                    plan.iter()
+                        .filter(|p| **p != Predicate::Ceil(term.clone()))
+                        .cloned(),
+                );
             }
             if let Some(ops) = definition.list_operations(&term.sort()) {
                 state
@@ -407,6 +450,92 @@ pub(super) fn prepare(
         }
     }
     Ok(domains)
+}
+
+/// Suggest finite source consequences at corresponding pure-context operands. The compared
+/// equality, including one under a negation, supplies no assumption to these consequences.
+#[cfg(any(feature = "z3", test))]
+fn equality_demands(
+    builder: &mut crate::observation::reading::Builder<'_>,
+    state: &mut TranslationState,
+    left: &Term,
+    right: &Term,
+    seen: &mut std::collections::BTreeSet<(Term, Term)>,
+    predicates: &mut Vec<Predicate>,
+    remaining: &mut usize,
+) -> crate::stop::Stoppable<()> {
+    use crate::term::TermKind;
+    let mut pending = vec![(left.clone(), right.clone())];
+    while let Some((a, b)) = pending.pop() {
+        crate::stop::check()?;
+        if a == b || a.sort() != b.sort() {
+            continue;
+        }
+        let pair = if a < b {
+            (a.clone(), b.clone())
+        } else {
+            (b.clone(), a.clone())
+        };
+        if !seen.insert(pair) {
+            continue;
+        }
+        if *remaining == 0 {
+            break;
+        }
+        *remaining -= 1;
+        if let Some(fact) = builder.map_equality(&a, &b)? {
+            predicates.push(fact.clone());
+            state
+                .observation_facts
+                .entry(a.clone())
+                .or_default()
+                .push(fact);
+        }
+        let children = match (a.kind(), b.kind()) {
+            (
+                TermKind::Application {
+                    symbol: x,
+                    sort_arguments: sx,
+                    arguments: ax,
+                },
+                TermKind::Application {
+                    symbol: y,
+                    sort_arguments: sy,
+                    arguments: ay,
+                },
+            ) if x == y
+                && sx == sy
+                && ax.len() == ay.len()
+                && !matches!(
+                    x.attributes.hook.as_deref(),
+                    Some("MAP.update" | "MAP.remove")
+                ) =>
+            {
+                ax.iter()
+                    .zip(ay)
+                    .map(|(x, y)| (x.clone(), y.clone()))
+                    .collect::<Vec<_>>()
+            }
+            (
+                TermKind::Injection {
+                    source: sx,
+                    target: tx,
+                    term: x,
+                },
+                TermKind::Injection {
+                    source: sy,
+                    target: ty,
+                    term: y,
+                },
+            ) if sx == sy && tx == ty => vec![(x.clone(), y.clone())],
+            _ => Vec::new(),
+        };
+        if children.len() > *remaining {
+            break;
+        }
+        pending.extend(children);
+    }
+    Ok(())
 }
 
 #[cfg(any(feature = "z3", test))]
@@ -736,6 +865,326 @@ mod tests {
             .check_predicates(known, &Substitution::new(), &[checked])
             .unwrap()
             .unwrap()
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn finite_map_equality_compares_final_presence_values_and_preserved_bases() {
+        use super::super::Validity;
+        let text = source().replace(
+            "endmodule",
+            "symbol context{}(SortMap{}) : SortInt{} [function{}()] endmodule",
+        );
+        let definition = definition(&text);
+        let a = term(
+            &definition,
+            "put{}(put{}(M:SortMap{},K:SortInt{},V:SortInt{}),J:SortInt{},W:SortInt{})",
+        );
+        let b = term(
+            &definition,
+            "put{}(put{}(M:SortMap{},J:SortInt{},W:SortInt{}),K:SortInt{},V:SortInt{})",
+        );
+        let different = Predicate::Not(Arc::new(Predicate::Equals(
+            term(&definition, "K:SortInt{}"),
+            term(&definition, "J:SortInt{}"),
+        )));
+        assert_eq!(
+            check(
+                &definition,
+                std::slice::from_ref(&different),
+                Predicate::Equals(a.clone(), b.clone())
+            ),
+            Validity::Valid
+        );
+        assert_ne!(
+            check(&definition, &[], Predicate::Equals(a.clone(), b.clone())),
+            Validity::Valid
+        );
+        let context =
+            |value| Term::application(definition.symbols()["context"].clone(), vec![], vec![value]);
+        assert_eq!(
+            check(
+                &definition,
+                &[different],
+                Predicate::Equals(context(a), context(b))
+            ),
+            Validity::Valid
+        );
+        let map = term(&definition, "M:SortMap{}");
+        let key = term(&definition, "K:SortInt{}");
+        let ops = definition.map_operations(&map.sort()).unwrap();
+        let read = ops.lookup(&definition, map.clone(), &key).unwrap();
+        let put_back = Term::application(
+            definition.symbols()["put"].clone(),
+            vec![],
+            vec![map.clone(), key.clone(), read.clone()],
+        );
+        assert_eq!(
+            check(
+                &definition,
+                &[Predicate::Ceil(read.clone())],
+                Predicate::Equals(map.clone(), put_back)
+            ),
+            Validity::Valid
+        );
+        let frame = ops.remove(&definition, map.clone(), &key).unwrap();
+        let rebuilt = Term::map(
+            ops.collection.clone(),
+            vec![(key.clone(), read.clone())],
+            Some(frame),
+        );
+        let frame_query = crate::smt::SmtPrelude::from_definition(&definition)
+            .unwrap()
+            .query(
+                &[Predicate::Ceil(read.clone())],
+                &Substitution::new(),
+                &[Predicate::Equals(map.clone(), rebuilt.clone())],
+                false,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            check(
+                &definition,
+                &[Predicate::Ceil(read.clone())],
+                Predicate::Equals(map.clone(), rebuilt)
+            ),
+            Validity::Valid,
+            "{}",
+            frame_query.base()
+        );
+        let wrong_frame = Term::map(
+            ops.collection.clone(),
+            vec![(key, read.clone())],
+            Some(term(&definition, "R:SortMap{}")),
+        );
+        assert_ne!(
+            check(
+                &definition,
+                &[Predicate::Ceil(read)],
+                Predicate::Equals(map, wrong_frame)
+            ),
+            Validity::Valid
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn finite_map_equality_retains_source_domains_and_binder_scopes() {
+        use super::super::Validity;
+        let definition = definition(source());
+        let map = term(&definition, "M:SortMap{}");
+        let key = term(&definition, "K:SortInt{}");
+        let read = term(&definition, "get{}(M:SortMap{},K:SortInt{})");
+        let put_back = Term::application(
+            definition.symbols()["put"].clone(),
+            vec![],
+            vec![map.clone(), key.clone(), read.clone()],
+        );
+        let checked = Predicate::And(
+            vec![
+                Predicate::Equals(map.clone(), put_back.clone()),
+                Predicate::Ceil(put_back),
+            ]
+            .into(),
+        );
+        assert_ne!(
+            check(
+                &definition,
+                &[Predicate::Not(Arc::new(Predicate::Ceil(read)))],
+                checked
+            ),
+            Validity::Valid
+        );
+        let left = term(
+            &definition,
+            "put{}(put{}(M:SortMap{},K:SortInt{},V:SortInt{}),J:SortInt{},W:SortInt{})",
+        );
+        let right = term(
+            &definition,
+            "put{}(put{}(N:SortMap{},J:SortInt{},W:SortInt{}),K:SortInt{},V:SortInt{})",
+        );
+        let known = [
+            Predicate::Equals(map, term(&definition, "N:SortMap{}")),
+            Predicate::Not(Arc::new(Predicate::Equals(
+                key.clone(),
+                term(&definition, "J:SortInt{}"),
+            ))),
+        ];
+        assert_eq!(
+            check(&definition, &known, Predicate::Equals(left, right)),
+            Validity::Valid
+        );
+        let a = term(
+            &definition,
+            r#"put{}(put{}(M:SortMap{},K:SortInt{},V:SortInt{}),\dv{SortInt{}}("0"),W:SortInt{})"#,
+        );
+        let b = term(
+            &definition,
+            r#"put{}(put{}(M:SortMap{},\dv{SortInt{}}("0"),W:SortInt{}),K:SortInt{},V:SortInt{})"#,
+        );
+        let variable = crate::term::Variable::new("K", crate::term::Sort::simple("SortInt"));
+        let theorem = Predicate::Forall(
+            variable,
+            Arc::new(Predicate::Implies(
+                Arc::new(Predicate::Not(Arc::new(Predicate::Equals(
+                    key,
+                    Term::int(0),
+                )))),
+                Arc::new(Predicate::Equals(a, b)),
+            )),
+        );
+        assert_eq!(check(&definition, &[], theorem), Validity::Valid);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn conditional_finite_map_equality_does_not_demand_absent_unselected_lookups() {
+        use super::super::Validity;
+        let definition = definition(source());
+        let a = term(
+            &definition,
+            "choose{SortMap{}}(B:SortBool{},put{}(put{}(unit{}(),K:SortInt{},V:SortInt{}),J:SortInt{},W:SortInt{}),put{}(unit{}(),J:SortInt{},W:SortInt{}))",
+        );
+        let b = term(
+            &definition,
+            "put{}(choose{SortMap{}}(B:SortBool{},put{}(unit{}(),K:SortInt{},V:SortInt{}),unit{}()),J:SortInt{},W:SortInt{})",
+        );
+        assert_eq!(
+            check(&definition, &[], Predicate::Equals(a, b)),
+            Validity::Valid
+        );
+        let partial = term(&definition, "f{}(X:SortInt{})");
+        let shadowed = Term::application(
+            definition.symbols()["put"].clone(),
+            vec![],
+            vec![
+                Term::application(
+                    definition.symbols()["put"].clone(),
+                    vec![],
+                    vec![
+                        term(&definition, "M:SortMap{}"),
+                        Term::int(0),
+                        partial.clone(),
+                    ],
+                ),
+                Term::int(0),
+                Term::int(1),
+            ],
+        );
+        assert_ne!(
+            check(
+                &definition,
+                &[Predicate::Not(Arc::new(Predicate::Ceil(partial)))],
+                Predicate::Ceil(shadowed)
+            ),
+            Validity::Valid
+        );
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn finite_map_equality_declines_mutated_operations_and_polls_cancellation() {
+        let text = source().replace("endmodule",r#"axiom{R} \implies{R}(\top{R}(),\equals{SortInt{},R}(get{}(M:SortMap{},K:SortInt{}),\and{SortInt{}}(\dv{SortInt{}}("7"),\top{SortInt{}}()))) [simplification{}()] endmodule"#);
+        let changed = definition(&text);
+        let a = term(
+            &changed,
+            "put{}(put{}(M:SortMap{},K:SortInt{},V:SortInt{}),J:SortInt{},W:SortInt{})",
+        );
+        let b = term(
+            &changed,
+            "put{}(put{}(M:SortMap{},J:SortInt{},W:SortInt{}),K:SortInt{},V:SortInt{})",
+        );
+        assert!(
+            crate::observation::reading::Builder::new(&changed)
+                .map_equality(&a, &b)
+                .unwrap()
+                .is_none()
+        );
+        let baseline = definition(source());
+        let a = term(&baseline, "put{}(M:SortMap{},K:SortInt{},V:SortInt{})");
+        let b = term(&baseline, "M:SortMap{}");
+        assert!(
+            crate::observation::reading::Builder::new(&baseline)
+                .map_equality(&a, &b)
+                .unwrap()
+                .is_some()
+        );
+        let token = crate::stop::CancellationToken::new();
+        token.cancel();
+        let stopped = token
+            .scope(|| crate::observation::reading::Builder::new(&baseline).map_equality(&a, &b))
+            .unwrap_err();
+        assert_eq!(stopped.into_cause(), crate::stop::StopCause::Cancelled);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn finite_map_equality_query_construction_shares_repeated_demands() {
+        let definition = definition(source());
+        let prelude = crate::smt::SmtPrelude::from_definition(&definition).unwrap();
+        let int = crate::term::Sort::simple("SortInt");
+        for symbolic in [false, true] {
+            for count in [1, 2, 8, 32] {
+                let build = |indices: Vec<usize>| {
+                    indices
+                        .into_iter()
+                        .fold(term(&definition, "M:SortMap{}"), |map, index| {
+                            Term::application(
+                                definition.symbols()["put"].clone(),
+                                vec![],
+                                vec![
+                                    map,
+                                    if symbolic {
+                                        Term::variable(crate::term::Variable::new(
+                                            format!("K{index}"),
+                                            int,
+                                        ))
+                                    } else {
+                                        Term::int(index)
+                                    },
+                                    Term::variable(crate::term::Variable::new(
+                                        format!("V{index}"),
+                                        int,
+                                    )),
+                                ],
+                            )
+                        })
+                };
+                let left = build((0..count).collect());
+                let right = build((0..count).rev().collect());
+                let equality = Predicate::Equals(left, right);
+                let query = prelude
+                    .query(
+                        &[],
+                        &Substitution::new(),
+                        std::slice::from_ref(&equality),
+                        false,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let repeated = prelude
+                    .query(
+                        &[],
+                        &Substitution::new(),
+                        &[equality.clone(), equality],
+                        false,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let bytes = query.base().len() + query.checked().to_string().len();
+                let repeated_bytes = repeated.base().len() + repeated.checked().to_string().len();
+                eprintln!(
+                    "finite map equality {count} symbolic={symbolic}: {bytes} bytes; repeated {repeated_bytes}"
+                );
+                assert!(bytes < 8 * 1024 * 1024, "{count}: {bytes} bytes");
+                assert!(
+                    repeated_bytes <= bytes * 2 + 4096,
+                    "repeated {count}: {repeated_bytes} vs {bytes}"
+                );
+                assert!(query.model_mappings().is_none());
+            }
+        }
     }
 
     #[cfg(feature = "z3")]

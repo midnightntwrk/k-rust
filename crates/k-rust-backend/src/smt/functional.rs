@@ -17,19 +17,13 @@ use crate::{
 pub(super) struct SharedDomains {
     values: BTreeMap<Term, SExpr>,
     active: BTreeSet<Term>,
+    reentrant: BTreeMap<Term, SExpr>,
     pub(super) bindings: Vec<(String, SExpr)>,
 }
 
 impl SharedDomains {
-    pub(super) fn bind(self, mut body: SExpr) -> SExpr {
-        for (name, value) in self.bindings.into_iter().rev() {
-            body = SExpr::List(vec![
-                SExpr::atom("let"),
-                SExpr::List(vec![SExpr::List(vec![SExpr::atom(name), value])]),
-                body,
-            ]);
-        }
-        body
+    pub(super) fn bind(&self, body: SExpr) -> SExpr {
+        super::bind_shared(&self.bindings, body)
     }
 }
 
@@ -176,11 +170,22 @@ impl TranslationState {
         if let Some(value) = scope.values.get(term) {
             return Ok(value.clone());
         }
-        // Source ceil equations can be recursive. A cycle or a deep source graph retains
-        // an opaque atom, rather than inventing totality or unboundedly expanding it.
-        if scope.active.len() >= 128 || !scope.active.insert(term.clone()) {
-            return Ok(self.abstract_predicate(&original));
+        // Source ceil equations can be recursive. Use an opaque atom to stop expansion;
+        // an actual lexical reentry is tied to the completed domain below. A depth-limited
+        // graph remains conservative rather than acquiring an invented total domain.
+        let reentrant = scope.active.contains(term);
+        if scope.active.len() >= 128 || reentrant {
+            let reference = self.abstract_predicate(&original);
+            if reentrant {
+                self.shared_domains
+                    .as_mut()
+                    .expect("active scope")
+                    .reentrant
+                    .insert(term.clone(), reference.clone());
+            }
+            return Ok(reference);
         }
+        scope.active.insert(term.clone());
         let resolved = summary.is_none()
             && (observation.is_some() || plan.as_ref().is_some_and(|p| !p.contains(&original)));
         let result = (|| {
@@ -222,6 +227,21 @@ impl TranslationState {
             scope.values.insert(term.clone(), reference.clone());
             reference
         };
+        let reentrant = self
+            .shared_domains
+            .as_mut()
+            .expect("active scope")
+            .reentrant
+            .remove(term);
+        if let Some(placeholder) = reentrant {
+            // A source consequence may demand this domain while its original derivation
+            // is active. Tie that lexical placeholder to the completed whole-term domain,
+            // including every strict argument; do not leave a second independent ceil.
+            self.record_source_fact(SExpr::application(
+                "=",
+                vec![placeholder, reference.clone()],
+            ))?;
+        }
         // Memoize the fully computed domain before translating the head's arguments.
         // Their value demands may reenter this domain (for example a product field's
         // source reconstruction), which is no longer a recursive domain derivation.
@@ -338,10 +358,7 @@ pub(super) fn prepare(
     substitution: &crate::substitution::Substitution,
     checked: &[Predicate],
 ) -> crate::stop::Stoppable<()> {
-    use crate::{
-        definedness::{apply_ceil_equation, request_definedness},
-        stop,
-    };
+    use crate::stop;
 
     let mut remaining = 16_384_usize;
     stop::check()?;
@@ -390,57 +407,12 @@ pub(super) fn prepare(
             continue;
         }
         let term = candidates.pop().expect("pending domain candidate");
-        if !seen.insert(term.clone()) || !state.eligible_operand(&term) {
+        if !seen.insert(term.clone()) {
             continue;
         }
-        let mut plan = match term.kind() {
-            TermKind::Application { symbol, .. } if state.functional_head(&term).is_some() => {
-                if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
-                    match apply_ceil_equation(definition, &term) {
-                        Some(conditions)
-                            if admit_conditions(state, &conditions, &mut remaining) =>
-                        {
-                            request_definedness(definition, conditions)
-                                .unwrap_or_else(|_| vec![Predicate::Ceil(term.clone())])
-                        }
-                        Some(_) | None => vec![Predicate::Ceil(term.clone())],
-                    }
-                } else {
-                    Vec::new()
-                }
-            }
-            TermKind::Variable(_) | TermKind::DomainValue { .. } | TermKind::Injection { .. } => {
-                Vec::new()
-            }
-            TermKind::Map { entries, .. }
-                if definition.map_operations(&term.sort()).is_some()
-                    && entries.len().saturating_mul(entries.len()) <= remaining =>
-            {
-                let Ok(conditions) = crate::definedness::collection_head_domain(definition, &term)
-                else {
-                    continue;
-                };
-                if !admit_conditions(state, &conditions, &mut remaining) {
-                    continue;
-                }
-                conditions
-            }
-            TermKind::Application { .. }
-            | TermKind::Map { .. }
-            | TermKind::List { .. }
-            | TermKind::Set { .. }
-            | TermKind::And(..) => continue,
+        let Some(plan) = domain_plan(definition, state, &term, &mut remaining)? else {
+            continue;
         };
-        // One head at a time: a full ceil walk here would repeatedly traverse shared
-        // operands and can expand a small partial-function DAG exponentially. These
-        // operands have already passed purity admission, so applications/injections keep
-        // exactly their strict child domains, without evaluating deferred effects.
-        for child in crate::deferred::children(&term) {
-            if !child.attributes().ceil_free() {
-                plan.push(Predicate::Ceil(child.clone()));
-            }
-        }
-        stop::check()?;
         if plan.len() > remaining {
             break;
         }
@@ -449,9 +421,81 @@ pub(super) fn prepare(
                 .filter(|p| **p != Predicate::Ceil(term.clone()))
                 .cloned(),
         );
-        state.domains.insert(term, plan.into());
     }
     Ok(())
+}
+
+/// One source-owned head domain shared by observation discovery and final domain preparation.
+/// The cached predicates contain no query facts or solver names; strict operands stay explicit.
+#[cfg(any(feature = "z3", test))]
+pub(super) fn domain_plan(
+    definition: &crate::definition::BackendDefinition,
+    state: &mut TranslationState,
+    term: &Term,
+    remaining: &mut usize,
+) -> crate::stop::Stoppable<Option<std::sync::Arc<[Predicate]>>> {
+    use crate::definedness::{apply_ceil_equation, request_definedness};
+    crate::stop::check()?;
+    if let Some(plan) = state.domains.get(term) {
+        return Ok(Some(plan.clone()));
+    }
+    if *remaining == 0 || !state.eligible_operand(term) {
+        return Ok(None);
+    }
+    let mut plan = match term.kind() {
+        TermKind::Application { symbol, .. } if state.functional_head(term).is_some() => {
+            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
+                match apply_ceil_equation(definition, term) {
+                    Some(conditions) if admit_conditions(state, &conditions, remaining) => {
+                        request_definedness(definition, conditions)
+                            .unwrap_or_else(|_| vec![Predicate::Ceil(term.clone())])
+                    }
+                    Some(_) | None => vec![Predicate::Ceil(term.clone())],
+                }
+            } else {
+                Vec::new()
+            }
+        }
+        TermKind::Variable(_) | TermKind::DomainValue { .. } | TermKind::Injection { .. } => {
+            Vec::new()
+        }
+        TermKind::Map { entries, .. }
+            if definition.map_operations(&term.sort()).is_some()
+                && entries.len().saturating_mul(entries.len()) <= *remaining =>
+        {
+            let Ok(conditions) = crate::definedness::collection_head_domain(definition, term)
+            else {
+                return Ok(None);
+            };
+            if !admit_conditions(state, &conditions, remaining) {
+                return Ok(None);
+            }
+            conditions
+        }
+        TermKind::List { .. } if definition.list_operations(&term.sort()).is_some() => Vec::new(),
+        TermKind::Application { .. }
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. }
+        | TermKind::And(..) => return Ok(None),
+    };
+    // One head at a time: a full ceil walk here would repeatedly traverse shared
+    // operands and can expand a small partial-function DAG exponentially. These
+    // operands have already passed purity admission, so applications/injections keep
+    // exactly their strict child domains, without evaluating deferred effects.
+    for child in crate::deferred::children(term) {
+        if !child.attributes().ceil_free() {
+            plan.push(Predicate::Ceil(child.clone()));
+        }
+    }
+    crate::stop::check()?;
+    if plan.len() > *remaining {
+        return Ok(None);
+    }
+
+    let plan: std::sync::Arc<[Predicate]> = plan.into();
+    state.domains.insert(term.clone(), plan.clone());
+    Ok(Some(plan))
 }
 
 /// Bound the tree work of canonical condition conversion before asking it to traverse a

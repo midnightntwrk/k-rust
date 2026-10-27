@@ -96,6 +96,37 @@ impl<'a> Builder<'a> {
         self.node(term, 0)
     }
 
+    pub(crate) fn map_equality(
+        &mut self,
+        left: &Term,
+        right: &Term,
+    ) -> Stoppable<Option<Predicate>> {
+        if left == right || left.sort() != right.sort() || self.remaining == 0 {
+            return Ok(None);
+        }
+        let Some(operations) = self.definition.map_operations(&left.sort()) else {
+            return Ok(None);
+        };
+        if !self.pure(left)? || !self.pure(right)? {
+            return Ok(None);
+        }
+        let views = self
+            .maps
+            .entry(left.sort())
+            .or_insert_with(|| Views::new(self.definition, operations));
+        let (Some(a), Some(b)) = (views.of_pure(left)?, views.of_pure(right)?) else {
+            return Ok(None);
+        };
+        super::map_equality::consequence(
+            self.definition,
+            operations,
+            left,
+            right,
+            [a, b],
+            &mut self.remaining,
+        )
+    }
+
     fn node(&mut self, term: &Term, depth: usize) -> Stoppable<Option<Arc<Reading>>> {
         stop::check()?;
         if let Some(result) = self.memo.get(term) {

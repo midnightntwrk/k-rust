@@ -313,16 +313,39 @@ struct SharedTerms {
 }
 
 impl SharedTerms {
-    fn bind(self, mut body: SExpr) -> SExpr {
-        for (name, value) in self.bindings.into_iter().rev() {
-            body = SExpr::List(vec![
-                SExpr::atom("let"),
-                SExpr::List(vec![SExpr::List(vec![SExpr::atom(name), value])]),
-                body,
-            ]);
-        }
-        body
+    fn bind(&self, body: SExpr) -> SExpr {
+        bind_shared(&self.bindings, body)
     }
+}
+
+/// Close the transitive dependencies of a lexical result, rather than copying unrelated
+/// earlier observations into every source fact. Bindings are topologically ordered and
+/// their names come from this query's unique SMT namespace.
+fn bind_shared(bindings: &[(String, SExpr)], mut body: SExpr) -> SExpr {
+    if bindings.is_empty() {
+        return body;
+    }
+    debug_assert!(bindings.iter().all(|(name, _)| name.starts_with("SMT-")));
+    let mut needed = smt_variables(&body);
+    let mut kept = Vec::new();
+    for (name, value) in bindings.iter().rev() {
+        if needed.remove(name.as_str()) {
+            needed.extend(smt_variables(value));
+            kept.push((name, value));
+        }
+    }
+    drop(needed);
+    for (name, value) in kept {
+        body = SExpr::List(vec![
+            SExpr::atom("let"),
+            SExpr::List(vec![SExpr::List(vec![
+                SExpr::atom(name.clone()),
+                value.clone(),
+            ])]),
+            body,
+        ]);
+    }
+    body
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -335,6 +358,7 @@ pub struct TranslationState {
     observations: BTreeMap<Term, Arc<crate::observation::reading::Reading>>,
     observation_demands: BTreeMap<Term, Vec<Term>>,
     observation_facts: BTreeMap<Term, Vec<Predicate>>,
+    observation_fact_seen: BTreeSet<(Term, Vec<String>)>,
     active_observations: BTreeSet<Term>,
     list_congruence: BTreeMap<Sort, Arc<crate::term::ListDefinition>>,
     summary_congruence: BTreeSet<CongruenceHead>,
@@ -383,6 +407,7 @@ impl TranslationState {
             observations: BTreeMap::new(),
             observation_demands: BTreeMap::new(),
             observation_facts: BTreeMap::new(),
+            observation_fact_seen: BTreeSet::new(),
             active_observations: BTreeSet::new(),
             list_congruence: BTreeMap::new(),
             summary_congruence: BTreeSet::new(),
@@ -427,10 +452,10 @@ impl TranslationState {
     /// domain conditions may read shared values. Both scopes remain inside their binders.
     fn record_source_fact(&mut self, mut fact: SExpr) -> Result<(), TranslationError> {
         if let Some(scope) = &self.shared_domains {
-            fact = scope.clone().bind(fact);
+            fact = scope.bind(fact);
         }
         if let Some(scope) = &self.shared_terms {
-            fact = scope.clone().bind(fact);
+            fact = scope.bind(fact);
         }
         for (variable, name) in self.bound_variables.clone().into_iter().rev() {
             let sort = self.smt_sort(&variable.sort)?;
@@ -503,11 +528,23 @@ impl TranslationState {
             .get(term)
             .cloned()
             .unwrap_or_default();
-        let facts = self
+        let mut facts = self
             .observation_facts
             .get(term)
             .cloned()
             .unwrap_or_default();
+        if !facts.is_empty() {
+            // These are unconditional source consequences closed by record_source_fact,
+            // so another lexical value scope needs no second copy. Binders remain distinct.
+            let scope = self
+                .bound_variables
+                .iter()
+                .map(|(_, name)| name.clone())
+                .collect();
+            if !self.observation_fact_seen.insert((term.clone(), scope)) {
+                facts.clear();
+            }
+        }
         if reading.is_some() || !demands.is_empty() || !facts.is_empty() {
             if !self.active_observations.insert(term.clone()) {
                 return self.translate_term_node_plain(term);
@@ -1688,7 +1725,6 @@ fn collection_size_term(term: &Term) -> bool {
 }
 
 /// The generated SMT identifiers (constants, functions and local bindings) mentioned in one walk.
-#[cfg(feature = "z3")]
 fn smt_variables(expression: &SExpr) -> BTreeSet<&str> {
     fn collect<'a>(expression: &'a SExpr, names: &mut BTreeSet<&'a str>) {
         match expression {
