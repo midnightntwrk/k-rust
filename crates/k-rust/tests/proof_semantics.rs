@@ -3701,3 +3701,73 @@ endmodule
         }
     }
 }
+
+/// Sort projection contracts are statements of the compiled semantics, including their actual
+/// K-sequence embedding. An image-domain precondition justifies reconstruction; a wrong sort
+/// has an empty initial state, and must be identified as such.
+#[test]
+fn compiled_sort_projections_state_exact_domains_and_conditional_reconstruction() {
+    const SOURCE: &str = r#"
+module SELECTOR
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:K </k> <v> .K </v>
+endmodule
+module SELECTOR-SPEC
+  imports SELECTOR
+  claim [inverse]: <k> .K </k> <v> X:K => {X}:>Int </v>
+    requires 0 <=Int {X}:>Int andBool {X}:>Int <Int 256
+  claim [wrong-type]: <k> .K </k> <v> true => 7 </v>
+    requires 0 <=Int {true}:>Int
+  claim [valid-image]: <k> .K </k> <v> 7 => {7}:>Int </v>
+  claim [wrong-inverse]: <k> .K </k> <v> X:K => {X}:>Int +Int 1 </v>
+    requires {X}:>Int ==Int 7
+endmodule
+"#;
+    let kore = compile(SOURCE, "SELECTOR-SPEC", "SELECTOR");
+    assert!(kore.contains(".selector-domain"));
+    assert!(kore.contains(".selector-inverse"));
+    for label in ["inverse", "valid-image", "wrong-type"] {
+        let result = prove(
+            &kore,
+            "SELECTOR-SPEC",
+            &format!("SELECTOR-SPEC.{label}"),
+            ProveRequest::default(),
+        );
+        assert_eq!(result.status, "proven", "{label}: {result:#?}");
+        assert_eq!(
+            result.leaves.iter().filter(|leaf| leaf.vacuous).count(),
+            usize::from(label == "wrong-type")
+        );
+        assert!(result.leaves.iter().all(|leaf| leaf.claim_steps.is_empty()));
+    }
+    let wrong = prove(
+        &kore,
+        "SELECTOR-SPEC",
+        "SELECTOR-SPEC.wrong-inverse",
+        ProveRequest::default(),
+    );
+    assert_ne!(wrong.status, "proven", "{wrong:#?}");
+    assert!(wrong.leaves.iter().all(|leaf| !leaf.vacuous));
+
+    // An authored additional row changes this projection's implementation. It must not
+    // inherit an exact compiler domain that contradicts the supplied row.
+    let overridden = SOURCE.replace(
+        "  configuration <k> $PGM:K </k> <v> .K </v>",
+        "  configuration <k> $PGM:K </k> <v> .K </v>\n  rule {true}:>Int => 0 [simplification]",
+    );
+    let overridden = compile(&overridden, "SELECTOR-SPEC", "SELECTOR");
+    let syntax = k_rust::kore::parser::parse_definition(&overridden).unwrap();
+    assert!(
+        !syntax
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .any(|sentence| {
+                matches!(sentence, k_rust::kore::ast::Sentence::Axiom { pattern, attributes, .. }
+            if attributes.string(k_rust::names::KoreAttribute::UniqueId).unwrap()
+                .is_some_and(|id| id.ends_with(".selector-domain"))
+                && pattern.to_string().contains("Lblproject'Coln'Int"))
+            })
+    );
+}

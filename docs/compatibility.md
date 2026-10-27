@@ -412,6 +412,10 @@ It types in the order injection runs in, where every user sort is declared below
 
 A semantic cast `t:S` states that the value of `t` is in `S`; it adds no symbol to the compiled term.
 The projection cast `{t}:>S` is the construct that computes: it lowers to `project:S`, a function defined exactly where the value of `t` is in `S`.
+For an unmodified compiler sort projection, emitted KORE states this exact domain as an existential image of the actual compiler embedding, together with conditional reconstruction and the forward identity equation.
+The embedding includes its injections and K-sequence singleton where required.
+The native observation catalog validates these source equations and their ranks before using a specialized image-domain test; a projection name, attribute or forward equation alone supplies no inverse fact.
+An override, additional competing equation or incomplete/changed contract retains ordinary conservative source reasoning.
 Where `t` may denote a value outside `S`, the two denote different things, so they must not compile alike, and a written rule must compile alike whatever route brings it to compilation (source text, a loaded definition edited and relinked with `LoadedDefinition::with_definition` or `from_loaded_parts`, or `load_structured`).
 
 So `t:S` is accepted exactly when a term of the sort of `t` can be placed at `S` (an upcast, placed by an injection or the one-element `K` sequence).

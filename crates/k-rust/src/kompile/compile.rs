@@ -1582,6 +1582,7 @@ mod tests {
         )
         .unwrap();
 
+        // Includes the ordinary exact selector-domain and reconstruction axioms.
         assert_eq!(
             [
                 artifact_digest(&artifacts.definition_kore),
@@ -1589,8 +1590,8 @@ mod tests {
                 artifact_digest(&artifacts.macros_kore),
             ],
             [
-                String::from("87b64f6846b14b122a51ca14dad17337b98dafe78b01bcf83bc63c77e2c4b6a0",),
-                String::from("aee6149a0ece4bad3ea72d9e254b795eb378eed7aa7d304bcd1b7d9b6f76c847",),
+                String::from("363205cc0fe05e19fbbbc0373feca3d375b18227fc3761bdff2952a55696fbf6",),
+                String::from("25c46880e81a5133968bbdb0fa5549a30232b4fcc2c47000458d048d1ec2cd9b",),
                 String::from("a78f2c566b2439463a2e7ca515bbfa3f92948506583cbadaebdd507f277542bd",),
             ],
         );

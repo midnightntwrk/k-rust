@@ -1033,6 +1033,13 @@ pub(crate) fn apply_ceil_equation(
     definition: &BackendDefinition,
     term: &Term,
 ) -> Option<Vec<Predicate>> {
+    if let Some(exists) = crate::observation::selector_domain(definition, term) {
+        return Some(if exists {
+            Vec::new()
+        } else {
+            vec![Predicate::False]
+        });
+    }
     if let Some(condition) = ceil_theory_condition(definition, term) {
         return Some(condition);
     }
