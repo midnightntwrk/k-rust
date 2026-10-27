@@ -263,6 +263,20 @@ elab "k2l_owise_arm" : tactic => withMainContext do
     replaceMainGoal [g]
     evalTactic (← `(tactic| k2l_no_arm))
 
+/-- `k2l_case_choose`: from `h : MapHook.chooseFirst m hw f = some b` (the matcher of a
+free-key map pattern found a binding), a binding `k |-> v` of `m`, its decomposition
+`hc : (k |-> v) (remove m k) = some m`, and `f k v hc = some b` in place of `h`; an `owise`
+equation's no-match premise refutes it with `hc` (`k2l_no_arm`). -/
+elab "k2l_case_choose" : tactic => withMainContext do
+  let some d ← (← getLCtx).findDeclM? fun d => do
+      if d.isImplementationDetail then return none
+      let some (_, lhs, rhs) := (← instantiateMVars d.type).eq? | return none
+      return if lhs.isAppOf ``MapHook.chooseFirst && rhs.isAppOf ``Option.some then some d else none
+    | throwError "k2l_case_choose: no chosen binding"
+  let t ← Term.exprToSyntax (← mkAppM ``MapHook.chooseFirst_eq_some #[d.toExpr])
+  evalTactic (← `(tactic| obtain ⟨_, _, _, h⟩ := $t; try dsimp only at h))
+  replaceMainGoal [← (← getMainGoal).tryClear d.fvarId]
+
 /-- `k2l_case_discr`: case on a variable of a generated sort (an inductive type `Sort…`, or a
 term of the arity-indexed family, split by `familyCases`) that a `match` in the goal inspects, so
 that the cascade of a function's equations reduces. -/
