@@ -121,6 +121,44 @@ fn cancellation_is_a_typed_stop_even_before_query_planning() {
     );
 }
 
+#[cfg(feature = "z3")]
+#[test]
+fn bounded_partial_scalar_observations_are_guarded_inputs_and_effects_stay_out() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    for effect in [false, true] {
+        let source = definition_source().replace(
+            "endmodule",
+            &format!(
+                "symbol observed{{}}(SortInt{{}}):SortInt{{}} [function{{}}(){}] endmodule",
+                if effect { ",impure{}()" } else { "" }
+            ),
+        );
+        let d =
+            BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN").unwrap();
+        let x = call(&d, "observed", vec![var("Address")]);
+        let y = var("Y");
+        let value = binary(&d, "and", binary(&d, "and", x.clone(), y.clone()), int(1));
+        let expected = binary(
+            &d,
+            "mul",
+            binary(&d, "mod", x.clone(), int(2)),
+            binary(&d, "mod", y.clone(), int(2)),
+        );
+        let checked = Predicate::Equals(value, expected);
+        let mut known = limits(&d, &[x.clone(), y], 0, 256);
+        known.push(Predicate::Ceil(x));
+        let q = query(&d, &known, std::slice::from_ref(&checked));
+        assert_eq!(q.checked().to_string().contains("bvand"), !effect);
+        assert!(q.model_mappings().is_none());
+        let validity = Z3Solver::new(&d)
+            .unwrap()
+            .check_predicates(&known, &Substitution::new(), &[checked])
+            .unwrap()
+            .unwrap();
+        assert_eq!(validity == Validity::Valid, !effect);
+    }
+}
+
 fn plan(term: &Term, known: &[Predicate]) -> Option<Plan> {
     let mut remaining = WORK_LIMIT;
     let bounds = bounds(known, &mut remaining).unwrap();

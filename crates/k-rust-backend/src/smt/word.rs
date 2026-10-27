@@ -6,7 +6,10 @@
 //! nodes are lexical lets. Unsupported operations, quantifiers and resource limits retain the
 //! ordinary translation, including its exactness/model restrictions and original definedness.
 
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use k_rust_kore::names::BuiltinSort;
 use num_bigint::{BigInt, Sign};
@@ -548,6 +551,15 @@ impl Planner<'_> {
         if let Some(value) = read_bool(term) {
             return Ok(self.expression(atom(value), None, &[]));
         }
+        // A bounded scalar observation is an input value just as a scalar variable is.
+        // Its range and original domain are checked again by the emitted plan guard;
+        // neither the hint nor a facade result sort asserts global definedness.
+        if term.sort().is_builtin(BuiltinSort::Int)
+            && let Some(interval) = self.bounds.get(term).cloned()
+        {
+            self.plan.used.insert(term.clone(), interval.clone());
+            return Ok(self.push(Value::Input(term.clone()), Some(interval)));
+        }
         match term.kind() {
             TermKind::Variable(variable) if variable.kind == VariableKind::Element => {
                 let interval = if term.sort().is_builtin(BuiltinSort::Int) {
@@ -868,6 +880,13 @@ impl Plan {
                 Ok(input) => input,
                 Err(error) => return Ok(Err(error)),
             };
+            if !term.attributes().ceil_free() {
+                let domain = match state.translate_predicate(&Predicate::Ceil(term.clone())) {
+                    Ok(domain) => domain,
+                    Err(error) => return Ok(Err(error)),
+                };
+                guard.push(domain);
+            }
             guard.push(app("<=", vec![atom(&range.lo), input.clone()]));
             guard.push(app("<=", vec![input, atom(&range.hi)]));
         }
@@ -1043,9 +1062,7 @@ fn bounds(known: &[Predicate], remaining: &mut usize) -> Stoppable<BTreeMap<Term
             (Some("INT.ge"), Some(n), None) => (b, n, !truth, !truth),
             _ => continue,
         };
-        if !matches!(var.kind(), TermKind::Variable(v) if v.kind == VariableKind::Element)
-            || value.bits() > u64::from(WIDTH_LIMIT)
-        {
+        if value.bits() > u64::from(WIDTH_LIMIT) {
             continue;
         }
         let value = if strict {
@@ -1069,6 +1086,88 @@ fn bounds(known: &[Predicate], remaining: &mut usize) -> Stoppable<BTreeMap<Term
         .collect())
 }
 
+/// A source observation can suggest the bounded region of an observed operand.
+/// These are hints only: the plan checks that operand's actual range and domain.
+/// A conditional with an unbounded/absent branch may suggest its other branch's range;
+/// the word reading is then used only where the guarded region actually holds.
+fn observation_hints(
+    state: &TranslationState,
+    bounds: &mut BTreeMap<Term, Interval>,
+    remaining: &mut usize,
+) -> Stoppable<()> {
+    use crate::observation::reading::Reading;
+    fn hint(
+        value: &Arc<Reading>,
+        state: &TranslationState,
+        bounds: &BTreeMap<Term, Interval>,
+        active: &mut BTreeSet<Term>,
+        memo: &mut BTreeMap<usize, Option<Interval>>,
+        remaining: &mut usize,
+        depth: usize,
+    ) -> Stoppable<Option<Interval>> {
+        stop::check()?;
+        if *remaining == 0 || depth >= DEPTH_LIMIT {
+            return Ok(None);
+        }
+        let key = Arc::as_ptr(value) as usize;
+        if let Some(hint) = memo.get(&key) {
+            return Ok(hint.clone());
+        }
+        *remaining -= 1;
+        let found = match value.as_ref() {
+            Reading::Missing => None,
+            Reading::Leaf(term) => {
+                if let Some(range) = bounds.get(term) {
+                    Some(range.clone())
+                } else if let Some(value) = integer(term) {
+                    Some(Interval::literal(value))
+                } else if active.insert(term.clone()) {
+                    let found = if let Some(reading) = state.observations.get(term) {
+                        hint(reading, state, bounds, active, memo, remaining, depth + 1)?
+                    } else {
+                        None
+                    };
+                    active.remove(term);
+                    found
+                } else {
+                    None
+                }
+            }
+            Reading::If { yes, no, .. } => {
+                match (
+                    hint(yes, state, bounds, active, memo, remaining, depth + 1)?,
+                    hint(no, state, bounds, active, memo, remaining, depth + 1)?,
+                ) {
+                    (Some(a), Some(b)) => Some(a.union(&b)),
+                    (Some(a), None) | (None, Some(a)) => Some(a),
+                    (None, None) => None,
+                }
+            }
+        }
+        .filter(|range| range.width().is_some());
+        memo.insert(key, found.clone());
+        Ok(found)
+    }
+    let mut active = BTreeSet::new();
+    let mut memo = BTreeMap::new();
+    for (term, reading) in &state.observations {
+        stop::check()?;
+        if *remaining == 0 {
+            break;
+        }
+        if !term.sort().is_builtin(BuiltinSort::Int) || bounds.contains_key(term) {
+            continue;
+        }
+        active.insert(term.clone());
+        let found = hint(reading, state, bounds, &mut active, &mut memo, remaining, 0)?;
+        active.remove(term);
+        if let Some(range) = found {
+            bounds.insert(term.clone(), range);
+        }
+    }
+    Ok(())
+}
+
 /// Definition-aware query preparation. No bound occurrence is lifted out of its binder.
 pub(super) fn prepare(
     state: &mut TranslationState,
@@ -1082,7 +1181,8 @@ pub(super) fn prepare(
     let mut remaining = WORK_LIMIT;
     let mut text_remaining = TEXT_LIMIT;
     let mut registry = Registry::new(state.summaries.clone());
-    let bounds = bounds(known, &mut remaining)?;
+    let mut bounds = bounds(known, &mut remaining)?;
+    observation_hints(state, &mut bounds, &mut remaining)?;
     if known.len().saturating_add(checked.len()) > remaining {
         return Ok(Ok(()));
     }
