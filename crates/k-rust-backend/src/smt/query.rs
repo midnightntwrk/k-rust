@@ -689,6 +689,24 @@ mod tests {
             .unwrap();
         assert_eq!(query.exactness(), Exactness::Exact);
         assert!(query.model_mappings().is_some());
-        assert!(!query.base().contains("(let "), "{}", query.base());
+        // Lexical value sharing is permitted for exact scalar terms too. It must
+        // preserve both the scalar answer and availability of exact models.
+        #[cfg(feature = "z3")]
+        {
+            use super::super::{SmtSolver, Validity};
+            assert_eq!(
+                super::super::Z3Solver::new(&definition)
+                    .unwrap()
+                    .check_predicates(
+                        &known,
+                        &Substitution::new(),
+                        &[Predicate::Equals(
+                            parsed_term(&definition, "X:SortInt{}"),
+                            integer("4"),
+                        )],
+                    ),
+                Ok(Ok(Validity::Valid))
+            );
+        }
     }
 }

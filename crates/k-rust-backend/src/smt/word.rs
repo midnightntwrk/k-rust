@@ -132,6 +132,7 @@ struct Planner<'a> {
     decisions: FxHashMap<*const Decision, usize>,
     plan: Plan,
     registry: Option<&'a mut Registry>,
+    opaque_boolean_inputs: bool,
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -205,6 +206,7 @@ impl Registry {
                 interesting: false,
             },
             registry: Some(self),
+            opaque_boolean_inputs: false,
         };
         let mut parameters = Vec::new();
         let mut complete = true;
@@ -534,7 +536,16 @@ impl Planner<'_> {
         if let Some(id) = self.memo.get(term) {
             return Ok(Some(*id));
         }
-        let result = self.term_node(term, depth)?;
+        let result = self.term_node(term, depth)?.or_else(|| {
+            // Pure Boolean results are finite inputs even when their source head is
+            // not word arithmetic. The whole-plan eligibility check and domain guard
+            // retain the same effect/partiality boundary as scalar observations.
+            if self.opaque_boolean_inputs && term.sort().is_builtin(BuiltinSort::Bool) {
+                self.push(Value::Input(term.clone()), None)
+            } else {
+                None
+            }
+        });
         if let Some(id) = result {
             self.memo.insert(term.clone(), id);
         }
@@ -874,19 +885,25 @@ impl Plan {
         fallback: SExpr,
     ) -> Stoppable<Result<SExpr, TranslationError>> {
         let mut guard = Vec::new();
-        for (term, range) in &self.used {
-            stop::check()?;
-            let input = match state.translate_term(term) {
-                Ok(input) => input,
-                Err(error) => return Ok(Err(error)),
-            };
-            if !term.attributes().ceil_free() {
+        let mut guarded = BTreeSet::new();
+        for node in &self.nodes {
+            if let Value::Input(term) = &node.value
+                && !term.attributes().ceil_free()
+                && guarded.insert(term.clone())
+            {
                 let domain = match state.translate_predicate(&Predicate::Ceil(term.clone())) {
                     Ok(domain) => domain,
                     Err(error) => return Ok(Err(error)),
                 };
                 guard.push(domain);
             }
+        }
+        for (term, range) in &self.used {
+            stop::check()?;
+            let input = match state.translate_term(term) {
+                Ok(input) => input,
+                Err(error) => return Ok(Err(error)),
+            };
             guard.push(app("<=", vec![atom(&range.lo), input.clone()]));
             guard.push(app("<=", vec![input, atom(&range.hi)]));
         }
@@ -1183,14 +1200,22 @@ pub(super) fn prepare(
     let mut registry = Registry::new(state.summaries.clone());
     let mut bounds = bounds(known, &mut remaining)?;
     observation_hints(state, &mut bounds, &mut remaining)?;
-    if known.len().saturating_add(checked.len()) > remaining {
+    let demands = state.word_demands.iter().cloned().collect::<Vec<_>>();
+    if known
+        .len()
+        .saturating_add(checked.len())
+        .saturating_add(demands.len())
+        > remaining
+    {
         return Ok(Ok(()));
     }
     let mut pending = known
         .iter()
         .chain(checked)
+        .chain(&demands)
         .take(remaining)
         .collect::<Vec<_>>();
+    let mut source_facts = Vec::new();
     while let Some(predicate) = pending.pop() {
         stop::check()?;
         if remaining == 0 {
@@ -1268,6 +1293,7 @@ pub(super) fn prepare(
         let mut planner = Planner {
             bounds: &bounds,
             registry: Some(&mut registry),
+            opaque_boolean_inputs: true,
             remaining: &mut remaining,
             memo: FxHashMap::default(),
             decisions: FxHashMap::default(),
@@ -1319,10 +1345,26 @@ pub(super) fn prepare(
             Err(error) => return Ok(Err(error)),
         };
         let fallback = scalar_bindings(scope.bindings, fallback)?;
-        let emitted = planner.plan.emit(state, fallback)?;
+        let emitted = planner.plan.emit(state, fallback.clone())?;
         match emitted {
             Ok(value) => {
                 if fits_text(&value, &mut text_remaining)? {
+                    let domain = match state.translate_predicate(&Predicate::And(
+                        terms
+                            .iter()
+                            .map(|t| Predicate::Ceil((*t).clone()))
+                            .collect::<Vec<_>>()
+                            .into(),
+                    )) {
+                        Ok(domain) => domain,
+                        Err(error) => return Ok(Err(error)),
+                    };
+                    let fact = app("=>", vec![domain, app("=", vec![fallback, value.clone()])]);
+                    if !fits_text(&fact, &mut text_remaining)? {
+                        state.word_predicates.clear();
+                        return Ok(Ok(()));
+                    }
+                    source_facts.push(fact);
                     state.word_predicates.insert(predicate.clone(), value);
                 }
             }
@@ -1330,7 +1372,14 @@ pub(super) fn prepare(
         }
     }
     match registry.emit(state, &mut text_remaining)? {
-        Ok(true) => {}
+        Ok(true) => {
+            for fact in source_facts {
+                stop::check()?;
+                if let Err(error) = state.record_source_fact(fact) {
+                    return Ok(Err(error));
+                }
+            }
+        }
         Ok(false) => state.word_predicates.clear(),
         Err(error) => return Ok(Err(error)),
     }
