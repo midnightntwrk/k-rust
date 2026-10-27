@@ -110,7 +110,7 @@ use k_rust_fuzz::{
 use kink_campaign::{MutantAdmission, claim_free_mutant};
 use kink_corpus::{ProgramSource, cli::DEFINITION_STACK_BYTES};
 use kink_native::{
-    K_RUST_REVISION, ValidatedDefinition,
+    ValidatedDefinition,
     coverage::{RuleAuthors, coverage_domain},
     exclusion::{DefinitionExclusions, Exclusion, ValidatedLoad},
     execution::SolverProfile,
@@ -522,7 +522,10 @@ fn document() -> Value {
     json!({
         "schema": FUZZ_SCHEMA,
         "version": FUZZ_VERSION,
-        "k_rust_revision": K_RUST_REVISION,
+        // k-rust's build identity, the one the embedded fuzz report records (GUIDE-USABILITY 5):
+        // its version and a digest of its sources. `kink.k_rust_revision` is the identity
+        // component, the version alone; `kink_build` pins the whole executable.
+        "k_rust_revision": k_rust::build_identity(),
         "profile": SolverProfile::BUILD.name(),
         "kink_build": kink_campaign::kink_build().map_or(Value::Null, |b| json!(b.to_string())),
         "kink": kink_campaign::kink_identity(),
@@ -1507,11 +1510,13 @@ pub fn fuzz_job(
                 }
             };
             let baseline = spec.validator.baseline();
+            // The names every later step judges under: the flow's and the command line's (the
+            // campaign, the filter and the confirmation read the same set; final review N1).
             let admission = MutantAdmission::new(
                 baseline,
                 &spec.compiled,
                 &k_rust::kast::identifier::encode(&manifest.spec.main_module),
-                &manifest.spec.assume_joined,
+                &assumed_names(manifest, options),
             );
             match claim_free_mutant(
                 &spec.validator,
@@ -1853,9 +1858,10 @@ pub fn fuzz_job(
             }
             let mut judgement =
                 KinkJudgement::new(job_kind, baseline, mutant_side, manifest.budget.work());
-            // Hole values add no hooked or function application to the template, so a state
-            // exclusion of the anchors' input is one of every candidate's: no witness could be
-            // confirmed.
+            // Every candidate keeps the template's text outside its holes, so a state exclusion
+            // of the template's input is one of every candidate whose holes do not replace the
+            // excluded application. A hole whose span text holds that application could remove
+            // it; refusing then loses witnesses, never admits one (final review N3).
             if let Ok(test) = &kink_template
                 && let Some((role, exclusion)) = judgement.initial_exclusion(&test.initial_state)
             {
@@ -1867,8 +1873,10 @@ pub fn fuzz_job(
                         "initial-state-excluded",
                         format!(
                             "kink's input of the template has the exclusion {exclusion} on the \
-                             {role}'s definition, so kink takes no evidence from any program of \
-                             this template"
+                             {role}'s definition; every candidate keeps the template's text \
+                             outside its holes, so kink takes no evidence from any candidate \
+                             unless a hole's text replaces the excluded application, which the \
+                             campaign does not look for"
                         ),
                     ),
                     "choose a template whose input applies no implementation-chosen hook and no \
@@ -2016,11 +2024,17 @@ pub fn fuzz_job(
                 }
                 refused.push((fragment.id.clone(), confirmation));
             }
-            if refused.len() > 1 {
+            // The refused verdicts other than the one `confirmation` holds: with a witness
+            // offered, every refused one; with none, `confirmation` is the last refused verdict,
+            // so it is left out here rather than repeated (GUIDE-USABILITY nit).
+            let shown = if offered.is_some() {
+                refused.as_slice()
+            } else {
+                &refused[..refused.len().saturating_sub(1)]
+            };
+            if !shown.is_empty() {
                 attempt["refused_confirmations"] =
-                    Value::Array(refused.iter().map(|(_, c)| c.clone()).collect());
-            } else if let (Some(_), [(_, earlier)]) = (&offered, refused.as_slice()) {
-                attempt["refused_confirmations"] = json!([earlier]);
+                    Value::Array(shown.iter().map(|(_, c)| c.clone()).collect());
             }
             let Some((fragment, confirmed)) = offered else {
                 // Every candidate kink was asked about was refused.
@@ -2108,7 +2122,8 @@ pub fn fuzz_job(
                 let mut action = match job {
                     FuzzJob::Kill { mutation, .. } => format!(
                         "{append}, then run `kink-flow run FLOW.toml MUTATIONS.toml --only \
-                         {mutation}`: kink's own run proves the kill and writes the hint"
+                         {mutation}`: kink's own run decides whether it kills, and writes the \
+                         hint when it does"
                     ),
                     FuzzJob::Reach { fired, .. } => format!(
                         "{append}, then run `kink-flow results FLOW.toml`: the rule's {} lists \

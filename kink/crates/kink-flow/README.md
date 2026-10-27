@@ -676,7 +676,11 @@ Exit status: 0 when every selected (pattern, program) got its answer (`hit`, `no
 1 when the manifest, the pattern list, the specification or a program is refused, a search failed, a record could not be written, or `--verify` found a difference;
 2 on a usage error (an `--only` id that names no pattern, an option given twice).
 
-## Killing a survivor with `fuzz`: `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] [--no-filter]`
+## Killing a survivor with `fuzz`
+
+```text
+kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] [--no-filter]
+```
 
 When a mutation survives or is unknown because no corpus program tells the two definitions apart, write (or pick) a program that reaches the edited rule, mark its literals as holes, and let `fuzz` look for hole values that kill the mutation.
 It runs a k-rust-fuzz campaign in process on kink's own two sides, confirms the candidate with kink's own code, and prints the program as a `[[program]]` fragment for `FLOW.toml`.
@@ -744,7 +748,10 @@ program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort an
 
 **Confirmation** (fz26 KF-T4). Unless `--no-confirm` is given, each candidate whose assembly matches is confirmed by kink's own code on an overlay of the flow held in memory: its `[spec]`, with the flow's `assume_joined` and the command line's `--assume-joined` names, its `[budget]`, and the fragment as the only `[[program]]`, with a fresh scratch cache under the system's temporary directory, removed on every path. A kill is confirmed when `run` kills the mutation with the fragment as killer; a reach when `results` gives the fragment class `comparable` and lists it in the targeted rule's own `reached_by` (`fired_by`), the entry of the authored rule the job resolved (a listing under any other rule is `not-listed`); a pattern when `query`, asked with `programs = [fragment]`, confirms the claim. Things the fuzz does not judge decide here: kink's end check (TV-01, which refuses some domain values the fuzz's data judgement accepts), `work_factor`, the exclusions kink reads on a run. There is no seed retry (`--attempts` is a usage error). Confirmation costs one kink run of the one program (a few seconds), outside `--time-limit-ms`; a kink time-out in it depends on the host.
 
-To use a witness, add every premise `FLOW.toml` lacks to `[spec] assume_joined` and append the fragment; then `kink-flow run` (or `results`, or `query` with the program claimed) gives the verdict the confirmation gave, and `run` writes the hint.
+To use a witness, add every premise `FLOW.toml` lacks to `[spec] assume_joined` and append the fragment; then `kink-flow run` (or `results`, or `query` with the program claimed) decides it again on the whole corpus, and `run` writes the hint.
+In the portable (no-Z3) profile, while no `time_ms` bound fires, that command gives the verdict the confirmation gave: each program's outcome is independent of the programs run before it, and under FirstKill a kill by the fragment is a kill of the corpus (another killing program may be named the killer).
+Under the Z3 profile it need not: the confirmation ran the fragment alone on a fresh mutant backend, while `run` runs it after other programs on a backend whose solver caches are warm, and a solver query can time out, so the corpus run can leave the mutation `unknown` or `survived`, or a pattern `unknown`, where the confirmation gave a verdict (`src/search.rs`, the program order). A kill or hit either gives is still sound: a kill is a proved distinction, and the confirmation's stands as kink's verdict on the fragment.
+A `time_ms` bound depends on the host in every profile, so a program near it can time out in one command and finish in the other.
 
 Exit status: 0 when the job reached a verdict (`stopped` is `null`, `budget`, `domain-exhausted`, `client-refused`, `unconfirmed`, `assembly-mismatch`, `equivalent`, `rejected-out` or `time-limit`);
 1 when an input, the template or the mutation is refused (`refused`: the exclusions and the up-front assembly check included), the campaign is `not-comparable`, or it `aborted`;

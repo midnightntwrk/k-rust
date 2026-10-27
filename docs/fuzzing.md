@@ -15,7 +15,7 @@ Two commands run these searches:
 - `kink-flow fuzz` (crate `kink-flow`) works on a kink flow: a `FLOW.toml` with its programs, a `MUTATIONS.toml`, and a `TEMPLATES.toml` holding your templates. It checks every candidate with kink's own rules, has kink confirm the witness, and prints it as a `[[program]]` table to append to `FLOW.toml`. Use it whenever kink admits your definition.
 - `krust fuzz` (crate `k-rust-fuzz`) works on compiled definitions and a campaign file. It runs on any definition `krust kcompile` compiles, including the ones kink does not admit (WebAssembly, KEVM), and it records a witness file you can replay.
 
-The references for every option, field and reason are [kink-flow's README](../kink/crates/kink-flow/README.md) (section "Killing a survivor with `fuzz`") and [k-rust-fuzz's README](../crates/k-rust-fuzz/README.md).
+The references for every option, field and reason are [kink-flow's README, section "Killing a survivor with `fuzz`"](../kink/crates/kink-flow/README.md#killing-a-survivor-with-fuzz) and [k-rust-fuzz's README](../crates/k-rust-fuzz/README.md).
 This guide teaches the jobs and links there for details.
 
 ## What the tools do not do

@@ -1382,6 +1382,56 @@ endmodule
         assert_eq!(document["program"]["confirmed"], true);
     }
 
+    /// GUIDE-USABILITY nit: when kink refuses both the shrunk and the first case, `confirmation`
+    /// holds the last refused verdict (the first case's) and `refused_confirmations` lists only
+    /// the others (the shrunk case's), not the first again. Every end here holds a non-ASCII
+    /// String, which kink's end check refuses, so without the witness filter every kill is
+    /// refused at confirmation.
+    #[test]
+    #[ignore = "kink"]
+    fn refused_confirmations_does_not_repeat_the_confirmation() {
+        let spec = "module NA-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int)
+endmodule
+
+module NA
+  imports NA-SYNTAX
+  imports INT
+  imports STRING
+  configuration <k> $PGM:Pgm </k> <out> \"\" </out>
+  rule <k> go(I) => .K </k> <out> _ => \"\u{e9}\" +String Int2String(I) </out>
+endmodule
+";
+        let mutations = "[[mutation]]\nid = \"accent\"\n[[mutation.edit]]\nline = 11\nfind = \
+                         \"\\\"\u{e9}\\\"\"\nreplace = \"\\\"\u{e8}\\\"\"\n";
+        let flow_toml = NA_FLOW.replace("go(1)", "go(2)");
+        let templates = NA_TEMPLATES
+            .replace("go(1)", "go(2)")
+            .replace("\"1\"", "\"2\"");
+        let dir = scratch_flow("both-refused", "na.k", spec, &flow_toml, mutations);
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(&templates),
+            "one-holes",
+            "accent",
+            FuzzOptions {
+                confirm: true,
+                filter: false,
+                ..imp_options(20)
+            },
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["stopped"], "unconfirmed", "{document:#}");
+        let attempt = &document["attempts"][0];
+        assert_eq!(attempt["confirmation"]["case"], "first", "{attempt:#}");
+        assert_eq!(attempt["confirmation"]["confirmed"], false, "{attempt:#}");
+        let refused = attempt["refused_confirmations"].as_array().unwrap();
+        assert_eq!(refused.len(), 1, "{attempt:#}");
+        assert_eq!(refused[0]["case"], "shrunk", "{attempt:#}");
+    }
+
     /// A premise given on the command line only confirms under the overlay (KF-T4): r3-plainq's
     /// finding, named with `--assume-joined` and absent from `FLOW.toml`, lets kink's run kill;
     /// the premise is printed as not in the flow.
@@ -1827,6 +1877,12 @@ endmodule
         assert!(
             action.contains("Rather than raising --cases or --work"),
             "{action}"
+        );
+        // GUIDE-USABILITY 5: the document names k-rust's build as the embedded report does.
+        assert_eq!(stalled["k_rust_revision"], k_rust::build_identity());
+        assert_eq!(
+            stalled["k_rust_revision"],
+            stalled["attempts"][0]["fuzz"]["identity"]["k-rust-revision"]
         );
     }
 
