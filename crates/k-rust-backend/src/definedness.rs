@@ -1029,7 +1029,10 @@ fn simplified_ceil_condition(
 /// `\ceil` only where no ceil equation states that `\ceil` differently. So the marker answers
 /// alone only where every ceil equation offered at the application is shown not to apply (it
 /// does not match, or its `requires` is decided false on every instance).
-fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
+pub(crate) fn apply_ceil_equation(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Option<Vec<Predicate>> {
     if let Some(condition) = ceil_theory_condition(definition, term) {
         return Some(condition);
     }

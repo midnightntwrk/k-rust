@@ -31,6 +31,11 @@ impl Source {
     pub fn new(definition: &BackendDefinition) -> Self {
         Self(Arc::new(definition.clone()))
     }
+
+    #[cfg(feature = "z3")]
+    pub(in crate::smt) fn definition(&self) -> &BackendDefinition {
+        &self.0
+    }
 }
 
 impl fmt::Debug for Source {

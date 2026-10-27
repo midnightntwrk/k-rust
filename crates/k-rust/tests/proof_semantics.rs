@@ -3374,7 +3374,7 @@ fn literal_equation_rows_apply_only_when_the_complete_condition_is_established()
 /// Equality travels forward through supported contexts without asserting their inverse laws.
 /// The same state frame must be retained, and negative truncation is not floor division.
 #[test]
-fn scalar_equalities_compose_through_total_functions_injections_and_symbolic_writes() {
+fn scalar_equalities_compose_through_pure_functions_injections_and_symbolic_writes() {
     let kore = compile(
         proof_sources::CONTEXTUAL_SCALAR_EQUALITIES,
         "CONTEXTUAL-EQUALITY-SPEC",
@@ -3390,7 +3390,9 @@ fn scalar_equalities_compose_through_total_functions_injections_and_symbolic_wri
         ("wrong-value", false),
         ("wrong-frame", false),
         ("different-heads", false),
-        ("opaque-partial", false),
+        // The initial state supplies the application's domain; equal arguments must
+        // transport it to the target as well as preserving the value.
+        ("opaque-partial", true),
         ("overwritten-not-injective", true),
         ("overwrite-does-not-equate-values", false),
         ("overwrite-retains-definedness", false),
@@ -3415,6 +3417,14 @@ fn scalar_equalities_compose_through_total_functions_injections_and_symbolic_wri
             assert_ne!(
                 result.status, "disproved",
                 "a true map law is not refuted by different UF arguments"
+            );
+        }
+        if label == "opaque-partial" {
+            assert!(
+                result
+                    .leaves
+                    .iter()
+                    .all(|leaf| !leaf.vacuous && leaf.claim_steps.is_empty())
             );
         }
     }

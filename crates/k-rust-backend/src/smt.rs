@@ -1,5 +1,5 @@
 //! Portable SMT-LIB translation shared by native Z3 and solver-free builds.
-//! Definition-local eligibility admits pure total function contexts as query-local UFs.
+//! Definition-local eligibility admits pure functional contexts as query-local UFs.
 //! Operand eligibility visits each distinct term DAG node once per query; lexical let bindings
 //! keep shared composite operands from expanding exponentially in the script.
 //! A reachability search over generated constants and function names selects the conjuncts a
@@ -34,6 +34,7 @@ mod query;
 #[cfg(feature = "z3")]
 mod z3;
 
+mod functional;
 mod literal;
 #[cfg(any(feature = "z3", test))]
 mod word;
@@ -204,8 +205,9 @@ impl<'a> SExprParser<'a> {
 
 /// Whether an SMT-LIB translation denotes exactly the predicates it was made from.
 ///
-/// Every abstraction of the translation over-approximates: eligible pure total function heads
+/// Every abstraction of the translation over-approximates: eligible pure functional heads
 /// and compatible injections become query-local uninterpreted functions retaining congruence;
+/// partial domains retain separate source conditions and Boolean head functions;
 /// other terms or predicates without an SMT translation become unrelated fresh constants.
 /// Neither reading adds constructor injectivity. A free or quantified variable of a sort other
 /// than `Int` or `Bool` ranges over an uninterpreted sort that need not have the K sort's values,
@@ -260,13 +262,8 @@ impl CongruencePolicy {
             .filter(|symbol| {
                 matches!(
                     symbol.attributes.head_role(),
-                    HeadRole::Function { declared: true, .. }
-                ) && symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
-                    && symbol.attributes.smt.is_none()
-                    // Native sizes carry a nonnegative range through constant abstraction.
-                    // Keep that existing primitive reading rather than replace it with a UF.
-                    && !collection_size_hook(symbol.attributes.hook.as_deref())
-                    && !symbol.attributes.binder
+                    HeadRole::Function { declared: true, .. } | HeadRole::FreeConstructor
+                ) && !symbol.attributes.binder
                     && !symbol.attributes.macro_or_alias
                     && !effects.contains(symbol.name.as_ref())
             })
@@ -318,6 +315,10 @@ pub struct TranslationState {
     pub mappings: BTreeMap<Term, String>,
     congruence: Option<Arc<CongruencePolicy>>,
     opaque_functions: BTreeMap<CongruenceHead, String>,
+    domain_functions: BTreeMap<CongruenceHead, String>,
+    domains: BTreeMap<Term, Arc<[Predicate]>>,
+    domain_facts: Vec<SExpr>,
+    shared_domains: Option<functional::SharedDomains>,
     eligible_operands: FxHashMap<Term, bool>,
     shared_terms: Option<SharedTerms>,
     word_predicates: BTreeMap<Predicate, SExpr>,
@@ -346,6 +347,10 @@ impl TranslationState {
             mappings: BTreeMap::new(),
             congruence: None,
             opaque_functions: BTreeMap::new(),
+            domain_functions: BTreeMap::new(),
+            domains: BTreeMap::new(),
+            domain_facts: Vec::new(),
+            shared_domains: None,
             eligible_operands: FxHashMap::default(),
             shared_terms: None,
             word_predicates: BTreeMap::new(),
@@ -605,6 +610,18 @@ impl TranslationState {
     }
 
     fn congruence_head(&mut self, term: &Term) -> Option<CongruenceHead> {
+        // Preserve interpreted primitive readings, including nonnegative collection sizes.
+        // Their domain may still retain functional congruence through `functional_head`.
+        if let TermKind::Application { symbol, .. } = term.kind()
+            && (symbol.attributes.smt.is_some()
+                || collection_size_hook(symbol.attributes.hook.as_deref()))
+        {
+            return None;
+        }
+        self.functional_head(term)
+    }
+
+    fn functional_head(&mut self, term: &Term) -> Option<CongruenceHead> {
         let policy = self.congruence.clone()?;
         let head = match term.kind() {
             TermKind::Application {
@@ -613,7 +630,6 @@ impl TranslationState {
                 arguments,
             } => {
                 if !policy.heads.contains(&symbol.name)
-                    || symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Total)
                     || arguments.len() != symbol.argument_sorts.len()
                     || sort_arguments.len() != symbol.sort_variables.len()
                     || sort_arguments.iter().any(Sort::has_variable)
@@ -702,6 +718,22 @@ impl TranslationState {
         &mut self,
         predicate: &Predicate,
     ) -> Result<SExpr, TranslationError> {
+        let root = self.shared_domains.is_none();
+        if root {
+            self.shared_domains = Some(functional::SharedDomains::default());
+        }
+        let result = self.translate_predicate_node(predicate);
+        if root {
+            let scope = self.shared_domains.take().expect("root domain scope");
+            return result.map(|body| scope.bind(body));
+        }
+        result
+    }
+
+    fn translate_predicate_node(
+        &mut self,
+        predicate: &Predicate,
+    ) -> Result<SExpr, TranslationError> {
         if self.bound_variables.is_empty()
             && let Some(value) = self.word_predicates.get(predicate)
         {
@@ -743,10 +775,9 @@ impl TranslationState {
             {
                 Ok(SExpr::atom("true"))
             }
-            predicate @ Predicate::Ceil(_) => Ok(self.abstract_predicate(predicate)),
-            // A deferred atom is the opaque atom of `\ceil(t)`, never a translation of `t`, under
-            // which an uninterpreted application would read as defined.
-            Predicate::Defined(term) => Ok(self.abstract_predicate(&Predicate::Ceil(term.clone()))),
+            // A domain reading does not evaluate the term. Preparation admits only pure
+            // functional operands, so effects and unsupported deferred atoms stay opaque.
+            Predicate::Ceil(term) | Predicate::Defined(term) => self.translate_domain(term),
             // An absence is opaque to the solver: one Boolean per key and rest.
             predicate @ (Predicate::Floor(_) | Predicate::In(..) | Predicate::Absent(_)) => {
                 Ok(self.abstract_predicate(predicate))
@@ -800,7 +831,10 @@ impl TranslationState {
         let variable_name = self.fresh_name();
         self.bound_variables
             .push((variable.clone(), variable_name.clone()));
+        // Domain let bindings referring to this variable must stay inside its quantifier.
+        let outside_domains = self.shared_domains.take();
         let body = self.translate_predicate(body);
+        self.shared_domains = outside_domains;
         self.bound_variables.pop();
         Ok(SExpr::List(vec![
             SExpr::atom(quantifier),
@@ -1020,6 +1054,17 @@ impl TranslationState {
                 arguments.join(" ")
             ));
         }
+        for (head, name) in self.domain_functions.clone() {
+            let (arguments, _) = head.rank();
+            let arguments = arguments
+                .iter()
+                .map(|sort| self.smt_sort(sort))
+                .collect::<Result<Vec<_>, _>>()?;
+            declarations.push(format!(
+                "(declare-fun {name} ({}) Bool)",
+                arguments.join(" ")
+            ));
+        }
         Ok(declarations)
     }
 }
@@ -1189,7 +1234,7 @@ fn translate_query_in_state(
             ))
         })
         .collect::<Result<Vec<_>, TranslationError>>()?;
-    let known = known
+    let mut known = known
         .iter()
         .map(|predicate| translation.translate_predicate(predicate))
         .collect::<Result<Vec<_>, _>>()?;
@@ -1198,6 +1243,7 @@ fn translate_query_in_state(
         .map(|predicate| translation.translate_predicate(predicate))
         .collect::<Result<Vec<_>, _>>()?;
     let checked = SExpr::application("and", checked);
+    known.extend(translation.domain_facts.clone());
     let mut declarations = translation.mapping_declarations()?;
     declarations.extend(translation.derived_definitions.clone());
     Ok((translation, declarations, substitution, known, checked))
@@ -1330,11 +1376,19 @@ impl SmtPrelude {
     ) -> Stoppable<Result<TranslatedQuery, TranslationError>> {
         let mut translation = TranslationState::new();
         translation.congruence = self.congruence.clone();
-        if let Some(source) = &self.source
-            && let Err(error) =
+        if let Some(source) = &self.source {
+            functional::prepare(
+                source.definition(),
+                &mut translation,
+                known,
+                substitution,
+                checked,
+            )?;
+            if let Err(error) =
                 summary::prepare(source, &mut translation, known, substitution, checked)?
-        {
-            return Ok(Err(error));
+            {
+                return Ok(Err(error));
+            }
         }
         if let Err(error) = word::prepare(&mut translation, known, checked)? {
             return Ok(Err(error));

@@ -190,12 +190,32 @@ mod tests {
                 symbol h{}(SortInt{}) : SortInt{} [function{}(), total{}()]
                 symbol pair{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}()]
                 symbol partial{}(SortInt{}) : SortInt{} [function{}()]
+                symbol restricted{}(SortInt{}) : SortInt{} [function{}()]
+                symbol nonzero{}(SortInt{}) : SortInt{} [function{}()]
+                symbol onDefined{}(SortInt{}) : SortInt{} [function{}()]
+                symbol domainEffect{}(SortInt{}) : SortInt{} [function{}()]
+                symbol booleanPartial{}(SortInt{}) : SortBool{} [function{}()]
+                symbol effectFlag{}(SortInt{}) : SortBool{} [function{}(),total{}(),impure{}()]
                 symbol effect{}(SortInt{}) : SortInt{} [function{}(), total{}(), impure{}()]
                 symbol wrapped{}(SortInt{}) : SortInt{} [function{}(), total{}()]
                 symbol poly{S}(S) : S [function{}(), total{}()]
                 symbol named{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("NAMED")]
                 hooked-symbol plus{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+                hooked-symbol ne{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+                axiom{R} \implies{R}(\top{R}(), \equals{R,R}(
+                    \ceil{SortInt{},R}(restricted{}(\dv{SortInt{}}("0"))), \bottom{R}())) []
+                axiom{R} \implies{R}(\top{R}(), \equals{R,R}(
+                    \ceil{SortInt{},R}(onDefined{}(X:SortInt{})), \top{R}())) []
+                axiom{R} \implies{R}(\top{R}(), \equals{R,R}(
+                    \ceil{SortInt{},R}(domainEffect{}(X:SortInt{})),
+                    \and{R}(\equals{SortBool{},R}(effectFlag{}(X:SortInt{}),
+                        \dv{SortBool{}}("true")),\top{R}()))) []
+                axiom{R} \implies{R}(\top{R}(), \equals{R,R}(
+                    \ceil{SortInt{},R}(nonzero{}(X:SortInt{})),
+                    \and{R}(\equals{SortBool{},R}(
+                        ne{}(X:SortInt{},\dv{SortInt{}}("0")),\dv{SortBool{}}("true")),\top{R}()))) []
                 axiom{R} \implies{R}(\top{R}(), \equals{SortInt{}, R}(
                     wrapped{}(X:SortInt{}), \and{SortInt{}}(effect{}(X:SortInt{}), \top{SortInt{}}()))) [simplification{}(), label{}("effect-wrapper")]
             endmodule []"#,
@@ -248,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn congruence_does_not_assert_injectivity_or_a_partial_or_effectful_function_rank() {
+    fn congruence_does_not_assert_injectivity_or_an_effectful_function_rank() {
         use super::super::{Satisfiability, SmtSolver};
         let definition = congruence_definition();
         let solver = super::super::Z3Solver::new(&definition).unwrap();
@@ -264,7 +284,7 @@ mod tests {
             Ok(Ok(Satisfiability::Sat))
         );
         let prelude = SmtPrelude::from_definition(&definition).unwrap();
-        for head in ["partial", "effect", "wrapped"] {
+        for head in ["effect", "wrapped", "domainEffect"] {
             let predicates = [Predicate::Equals(
                 parsed_term(&definition, &format!("{head}{{}}(X:SortInt{{}})")),
                 integer("0"),
@@ -276,6 +296,266 @@ mod tests {
             assert!(!query.base().contains("(declare-fun SMT-"), "{head}");
             assert!(query.model_mappings().is_none());
         }
+    }
+
+    #[test]
+    fn partial_values_and_domains_share_argument_congruence_without_asserting_totality() {
+        use super::super::{SmtSolver, Validity};
+        let definition = congruence_definition();
+        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let left = parsed_term(
+            &definition,
+            r#"partial{}(plus{}(X:SortInt{}, \dv{SortInt{}}("1")))"#,
+        );
+        let right = parsed_term(
+            &definition,
+            r#"partial{}(plus{}(\dv{SortInt{}}("1"), X:SortInt{}))"#,
+        );
+        let known = [Predicate::Ceil(left.clone())];
+        let checked = [
+            Predicate::Ceil(right.clone()),
+            Predicate::Equals(left.clone(), right.clone()),
+        ];
+        assert_eq!(
+            solver.check_predicates(&known, &Substitution::new(), &checked),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                &[Predicate::Not(Arc::new(Predicate::Ceil(left)))],
+                &Substitution::new(),
+                &[Predicate::Not(Arc::new(Predicate::Ceil(right.clone())))],
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), &[Predicate::Ceil(right)]),
+            Ok(Ok(Validity::Contingent))
+        );
+        let query = SmtPrelude::from_definition(&definition)
+            .unwrap()
+            .query(&known, &Substitution::new(), &checked, true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(query.exactness(), Exactness::Approximate);
+        assert!(query.model_mappings().is_none());
+    }
+
+    #[test]
+    fn partial_domains_keep_discarded_arguments_and_undefined_values_unrelated() {
+        use super::super::{SmtSolver, Validity};
+        let definition = congruence_definition();
+        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let left = parsed_term(&definition, r#"partial{}(\dv{SortInt{}}("0"))"#);
+        let right = parsed_term(&definition, r#"partial{}(\dv{SortInt{}}("1"))"#);
+        let outer = parsed_term(&definition, r#"g{}(partial{}(\dv{SortInt{}}("0")))"#);
+        let known = [
+            Predicate::Not(Arc::new(Predicate::Ceil(left.clone()))),
+            Predicate::Not(Arc::new(Predicate::Ceil(right.clone()))),
+        ];
+        assert_eq!(
+            solver.check_predicates(
+                &known,
+                &Substitution::new(),
+                &[Predicate::Not(Arc::new(Predicate::Ceil(outer)))],
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        // An equality atom must retain its domains: two undefined applications do not
+        // supply either a defined common result or equality of their totalized values.
+        assert_eq!(
+            solver.check_predicates(
+                &known,
+                &Substitution::new(),
+                &[
+                    Predicate::Ceil(left.clone()),
+                    Predicate::Ceil(right.clone()),
+                    Predicate::Equals(left, right),
+                ],
+            ),
+            Ok(Ok(Validity::Refuted))
+        );
+    }
+
+    #[test]
+    fn decided_source_domains_remain_congruent_with_unresolved_instances() {
+        use super::super::{SmtSolver, Validity};
+        let definition = congruence_definition();
+        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let zero = parsed_term(&definition, r#"restricted{}(\dv{SortInt{}}("0"))"#);
+        let symbolic = parsed_term(&definition, "restricted{}(X:SortInt{})");
+        let known = [
+            Predicate::Equals(parsed_term(&definition, "X:SortInt{}"), integer("0")),
+            Predicate::Not(Arc::new(Predicate::Ceil(zero))),
+        ];
+        assert_eq!(
+            solver.check_predicates(
+                &known,
+                &Substitution::new(),
+                &[Predicate::Not(Arc::new(Predicate::Ceil(symbolic)))],
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+    }
+
+    #[test]
+    fn source_domain_facts_and_lets_stay_under_their_own_quantifiers() {
+        use super::super::{Satisfiability, SmtSolver, Validity};
+        let definition = congruence_definition();
+        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let x = Variable::new("X", int());
+        let partial = parsed_term(&definition, "nonzero{}(X:SortInt{})");
+        let some_defined = Predicate::Exists(x.clone(), Arc::new(Predicate::Ceil(partial.clone())));
+        let some_undefined = Predicate::Exists(
+            x.clone(),
+            Arc::new(Predicate::Not(Arc::new(Predicate::Ceil(partial)))),
+        );
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), &[some_defined, some_undefined]),
+            Ok(Ok(Validity::Valid))
+        );
+        let undefined_zero = Predicate::Not(Arc::new(Predicate::Ceil(parsed_term(
+            &definition,
+            r#"nonzero{}(\dv{SortInt{}}("0"))"#,
+        ))));
+        let bound = Predicate::Forall(
+            x,
+            Arc::new(Predicate::Iff(
+                Arc::new(Predicate::Ceil(parsed_term(
+                    &definition,
+                    "nonzero{}(X:SortInt{})",
+                ))),
+                Arc::new(Predicate::Term(parsed_term(
+                    &definition,
+                    r#"ne{}(X:SortInt{},\dv{SortInt{}}("0"))"#,
+                ))),
+            )),
+        );
+        assert_eq!(
+            solver.is_sat(&[bound, undefined_zero], &Substitution::new()),
+            Ok(Ok(Satisfiability::Sat))
+        );
+    }
+
+    #[test]
+    fn shared_partial_domain_dags_have_bounded_construction_and_text() {
+        let definition = congruence_definition();
+        let prelude = SmtPrelude::from_definition(&definition).unwrap();
+        let size = |depth| {
+            let mut value = parsed_term(&definition, "X:SortInt{}");
+            for _ in 0..depth {
+                let partial =
+                    Term::application(definition.symbols()["partial"].clone(), vec![], vec![value]);
+                value = Term::application(
+                    definition.symbols()["pair"].clone(),
+                    vec![],
+                    vec![partial.clone(), partial],
+                );
+            }
+            let query = prelude
+                .query(&[], &Substitution::new(), &[Predicate::Ceil(value)], false)
+                .unwrap()
+                .unwrap();
+            assert_eq!(query.exactness(), Exactness::Approximate);
+            query.base().len() + query.checked().to_string().len()
+        };
+        let small = size(16);
+        let large = size(32);
+        assert!(large < 250_000, "shared domain DAG emitted {large} bytes");
+        assert!(large < small * 6, "domain DAG growth {small} -> {large}");
+    }
+
+    #[test]
+    fn source_head_facts_are_guarded_by_the_original_argument_domains() {
+        use super::super::{Satisfiability, SmtSolver};
+        let definition = congruence_definition();
+        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        let known = [
+            Predicate::Forall(
+                Variable::new("X", int()),
+                Arc::new(Predicate::Ceil(parsed_term(
+                    &definition,
+                    "onDefined{}(X:SortInt{})",
+                ))),
+            ),
+            Predicate::Not(Arc::new(Predicate::Ceil(parsed_term(
+                &definition,
+                r#"partial{}(\dv{SortInt{}}("0"))"#,
+            )))),
+            Predicate::Not(Arc::new(Predicate::Ceil(parsed_term(
+                &definition,
+                r#"onDefined{}(partial{}(\dv{SortInt{}}("0")))"#,
+            )))),
+        ];
+        // The source head exists on every Int, but a strict application to an undefined
+        // argument is still undefined. Its totalized argument must not constrain the head.
+        assert_eq!(
+            solver.is_sat(&known, &Substitution::new()),
+            Ok(Ok(Satisfiability::Sat))
+        );
+    }
+
+    #[test]
+    fn a_domain_equation_effect_keeps_value_and_domain_readings_opaque() {
+        use super::super::{SmtSolver, Validity};
+        let definition = congruence_definition();
+        assert!(
+            definition
+                .console_effect_symbols()
+                .unwrap()
+                .contains("domainEffect")
+        );
+        let left = parsed_term(
+            &definition,
+            r#"domainEffect{}(plus{}(X:SortInt{},\dv{SortInt{}}("1")))"#,
+        );
+        let right = parsed_term(
+            &definition,
+            r#"domainEffect{}(plus{}(\dv{SortInt{}}("1"),X:SortInt{}))"#,
+        );
+        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        assert_eq!(
+            solver.check_predicates(
+                &[Predicate::Ceil(left)],
+                &Substitution::new(),
+                &[Predicate::Ceil(right)],
+            ),
+            Ok(Ok(Validity::Contingent)),
+        );
+    }
+
+    #[test]
+    fn a_false_boolean_value_is_distinct_from_an_undefined_boolean() {
+        use super::super::{Satisfiability, SmtSolver};
+        let definition = congruence_definition();
+        let term = parsed_term(&definition, r#"booleanPartial{}(\dv{SortInt{}}("0"))"#);
+        let predicates = [
+            Predicate::Ceil(term.clone()),
+            Predicate::Not(Arc::new(Predicate::Term(term))),
+        ];
+        let solver = super::super::Z3Solver::new(&definition).unwrap();
+        assert_eq!(
+            solver.is_sat(&predicates, &Substitution::new()),
+            Ok(Ok(Satisfiability::Sat))
+        );
+    }
+
+    #[test]
+    fn eliminating_a_domain_keeps_uninterpreted_free_carriers_approximate() {
+        let syntax = k_rust_kore::kore::parser::parse_definition(
+            "[] module MAIN sort SortS{} [] endmodule []",
+        )
+        .unwrap();
+        let definition =
+            crate::definition::BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let term = parsed_term(&definition, "X:SortS{}");
+        let query = SmtPrelude::from_definition(&definition)
+            .unwrap()
+            .query(&[], &Substitution::new(), &[Predicate::Ceil(term)], false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(query.exactness(), Exactness::Approximate);
+        assert!(query.model_mappings().is_none());
     }
 
     #[test]

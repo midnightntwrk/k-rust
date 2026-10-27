@@ -2916,12 +2916,17 @@ Contextually rewriting these theory operations by their literal equations can er
 Recovery supplies table behavior for heads without that mapping; explicit `smtlib` declarations remain compatible with it.
 Unknown applicability leaves the equation undecided; it does not add the missing equality to the state.
 
-Within a solver query, a declared pure total function without an explicit SMT mapping retains forward congruence: `X = Y` implies `f(X) = f(Y)`.
-Compatible sort injections retain the same property.
+Within a solver query, a declared pure function without an explicit SMT mapping retains forward congruence on defined arguments: equal arguments give equal values where the application is defined.
+Eligible partial functions also retain domain congruence: equal defined arguments give equal application definedness.
+Compatible sort injections and pure constructor wrappers retain forward congruence.
 Function identities include their closed sort instantiation and full argument/result rank and are shared across the query's facts, substitution and checked predicates.
-Explicit SMT mappings take precedence; binders, macros, aliases and direct or transitive effects are excluded, and unindexed effect reachability disables automatic congruence.
+Explicit SMT mappings take precedence; binders, macros, aliases and direct or transitive effects are excluded, including effects reached through domain equations, and unindexed effect reachability disables automatic congruence.
 Native collection-size hooks retain their existing constant abstraction and nonnegative range.
-Partial heads remain opaque; this change supplies neither function injectivity nor map read/write or overwrite laws.
+An unresolved partial head has separate value and Boolean domain functions.
+The domain reading retains canonical source ceil conditions and every original strict child domain; source conditions pass the same faithful definedness conversion as requests.
+A decided source-domain instance is connected to the same domain function under its original argument domains, so it agrees with unresolved applications whose arguments are later shown equal.
+Domain bindings stay inside their lexical quantifiers and source consequences retain their binders.
+Unsupported or bounded-out domain readings remain conservative; these readings supply neither function injectivity nor map observation/update laws nor the bodies of arbitrary partial helpers.
 
 Automatic congruence is an approximation: an unsatisfiable query may discharge an obligation under the definedness conditions below, but a satisfying interpretation of its uninterpreted functions is not a certified K model or counterexample.
 The definition-free `TranslationState::new()` and independently translated SMT lemmas retain their previous reading.
@@ -2940,7 +2945,7 @@ A definition is not checked for `smt-hook`s whose out-of-domain values are deter
 
 A predicate is definedness-faithful when every K valuation that satisfies it extends to a model of its SMT translation; a solver `Unsat` then refutes it: no K valuation satisfies it.
 That rests on the definition's SMT reading, which is trusted and not checked: each `smt-hook` is exact where its symbol is defined (`X /Int Y` is SMT-LIB `div`), each `smt-lemma` axiom holds of the definition, and so does the user's SMT prelude; a client that cites a solver refutation inherits that trust.
-Under it, abstraction keeps the property: eligible pure total contexts retain congruence as query-local uninterpreted functions, other terms or predicates without a translation become fresh constants or atoms (an opaque `\ceil`, `\in` or `\floor` among them), and a variable of a sort other than `Int` or `Bool` ranges over an uninterpreted sort.
+Under it, abstraction keeps the property: eligible pure functional contexts retain congruence as query-local uninterpreted functions, with separate source-aware partial domains; other terms or predicates without a translation become fresh constants or atoms (an unsupported `\ceil`, `\in` or `\floor` among them), and a variable of a sort other than `Int` or `Bool` ranges over an uninterpreted sort.
 An uninterpreted `smtlib` function is constrained only by congruence and the trusted lemmas.
 The solver interprets only the sorts named `SortInt` and `SortBool`, so an `smt-hook` is applied only where the application's result and every argument have one of those sorts: an SMT-LIB theory operation applied to constants of an uninterpreted sort is no term, and a script holding one states nothing.
 Every other hooked application (each `FLOAT` and `MINT` operation, `fp.*` and `bv*` alike, and an `INT` hook over a sort hooked `INT.Int` under another name) is a fresh constant of its sort, as a term without a translation; a query over one is approximate, and its `Int` facts stay decidable beside it.

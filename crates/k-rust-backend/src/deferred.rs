@@ -228,6 +228,9 @@ impl ConsoleReach {
         let theories = [
             definition.function_theory(),
             definition.simplification_theory(),
+            // A partial function's existence can itself demand an effect through its
+            // domain equations. Pure value/domain readings must exclude that dependency.
+            definition.ceil_theory(),
         ];
         for (index, groups) in theories.into_iter().flatten() {
             for rule in groups.values().flatten() {
