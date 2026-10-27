@@ -908,7 +908,7 @@
       "error[krs::native::raw-k-parse]: K cannot parse this `raw_k!` rule with the grammar of module \"KRS-RAW-PARSE-ERROR\": Parse error: unexpected token '...' following token '+Int'."
     ],
     "sort-test-matched": [
-      "error[krs::analysis::invalid-sort-test]: `k::is!(Int, ..)` is a sort predicate, which is a function call and cannot be matched; restrict the binder with a typed parameter or `where x: Int`"
+      "error[krs::analysis::invalid-sort-test]: `k::is!` and `k::project!` compute from a term, and a pattern matches terms as they are: restrict a binder's sort with a typed parameter or `where x: Sort` instead; here it stands in the subject of a `#[k::rule]` fn"
     ],
     "sort-test-project-k": [
       "error[krs::analysis::invalid-sort-test]: `k::project!(K, ..)` projects into `K`, for which K generates no projection; every term already has sort `K`"

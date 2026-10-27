@@ -487,7 +487,7 @@ impl Class {
                 "`name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, a `let` pattern, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds"
             }
             Self::AlternativesInOneTermRewrite => {
-                "`A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched"
+                "`A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative"
             }
             Self::ClaimOnlyTerm => {
                 "`k::or_bool!` joins a claim's symbolic conditions, so it stands only in a claim"
@@ -526,7 +526,7 @@ impl Class {
                 "`k::is!` and `k::project!` test and narrow a term a rule or claim matched, and an initializer matches nothing"
             }
             Self::SortTestInPattern => {
-                "`k::is!` and `k::project!` compute from a term, and a pattern matches terms as they are"
+                "`k::is!` and `k::project!` compute from a term, and a pattern matches terms as they are: restrict a binder's sort with a typed parameter or `where x: Sort` instead"
             }
             Self::TurbofishInInitializer => {
                 "a turbofish instance chooses a parametric production's instance, and an initializer builds concrete values, whose syntax numbers no instance"

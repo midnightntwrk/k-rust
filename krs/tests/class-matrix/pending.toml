@@ -949,16 +949,6 @@ finding = "S0-10"
 deviation = "krs::syntax::invalid-let @ spelling"
 step = "S3"
 
-["terms/init/item-depth-2/k::anonymous!(Int, \"_V\")"]
-finding = "S0-10"
-deviation = "krs::expand::claim-only-term @ spelling"
-step = "S3"
-
-["terms/init/item/k::anonymous!(Int, \"_V\")"]
-finding = "S0-10"
-deviation = "krs::expand::claim-only-term @ spelling"
-step = "S3"
-
 ["terms/local-rule/subject/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-10"
 deviation = "krs::syntax::invalid-matches @ spelling"
@@ -992,11 +982,6 @@ step = "S3"
 ["terms/readable/list-element/{ let y = x; y }"]
 finding = "S0-10"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S3"
-
-["terms/readable/map-key/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "S0-10"
-deviation = "krs::expand::ml-placement @ spelling"
 step = "S3"
 
 ["terms/readable/result-list-element/y @ Cmd::Hold(_)"]

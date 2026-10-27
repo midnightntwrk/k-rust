@@ -4,6 +4,7 @@ use crate::ExpandError;
 use krs_diagnostic::codes::expand;
 use krs_syntax::KrsSyntax;
 use krs_syntax::TokenRange;
+use krs_syntax::positions::Form;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
@@ -97,14 +98,16 @@ fn expand_head_rule(
         .cloned()
         .chain(rule.existentials().names())
         .collect::<Vec<_>>();
-    let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents)
+    let form = if clause.claim().is_some() {
+        Form::ReadableClaim
+    } else if configuration_owned {
+        Form::ReadableRule
+    } else {
+        Form::SortRule
+    };
+    let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents, form)
         .with_lexical_imports((!imports.is_empty()).then_some(imports))
-        .with_lexical_rule_head(imports.is_empty())
-        .with_readable_instances();
-    // A claim's records may hold the claim-only literals (`k::bytes!(..)`).
-    if clause.claim().is_some() {
-        builder = builder.for_claim();
-    }
+        .with_lexical_rule_head(imports.is_empty());
     let mut refinement_functions = Vec::new();
     let mut bindings = Vec::new();
     let mut binding_checks = Vec::new();
@@ -185,7 +188,7 @@ fn expand_head_rule(
                     .map(|entry| {
                         Ok(krs_ir::wire::WireHeadRuleMapEntry {
                             key_key: ledger.define(entry.key.keys().payload())?,
-                            key: builder.expand_wire(
+                            key: builder.expand_entry_wire(
                                 KeyedTerm::of(&entry.key),
                                 TermSide::Left,
                                 &mut slots,
@@ -238,7 +241,7 @@ fn expand_head_rule(
             krs_syntax::RuleExtra::RewriteList { cell, before, .. } => {
                 let mut items = Vec::with_capacity(before.items().len());
                 for item in before.items() {
-                    items.push(builder.expand_wire(
+                    items.push(builder.expand_entry_wire(
                         KeyedTerm::pattern(item.pattern(), item.tree()),
                         TermSide::Left,
                         &mut slots,
@@ -257,7 +260,7 @@ fn expand_head_rule(
                 };
                 let mut back = Vec::with_capacity(before.back().len());
                 for item in before.back() {
-                    back.push(builder.expand_wire(
+                    back.push(builder.expand_entry_wire(
                         KeyedTerm::pattern(item.pattern(), item.tree()),
                         TermSide::Left,
                         &mut slots,
@@ -397,7 +400,7 @@ fn expand_head_rule(
                     (Some(_), Some(after)) => {
                         let mut items = Vec::with_capacity(after.items().len());
                         for item in after.items() {
-                            items.push(builder.expand_wire(
+                            items.push(builder.expand_entry_wire(
                                 KeyedTerm::of(item),
                                 TermSide::Right,
                                 &mut slots,
@@ -420,7 +423,7 @@ fn expand_head_rule(
                         };
                         let mut back = Vec::with_capacity(after.back().len());
                         for item in after.back() {
-                            back.push(builder.expand_wire(
+                            back.push(builder.expand_entry_wire(
                                 KeyedTerm::of(item),
                                 TermSide::Right,
                                 &mut slots,

@@ -15,6 +15,7 @@ use krs_ir::{
     ProtocolMapBody, ProtocolMapItem,
 };
 use krs_syntax::KrsSyntax;
+use krs_syntax::positions::{Construct, Form};
 use krs_syntax::{
     FixedCellInitializer, InitializerCellContent, KSequence, KSequenceNotation, MapBody,
     MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermNode, TermTree,
@@ -31,7 +32,7 @@ use super::configuration::{
 use super::island_checks::initializer_state_island_import_checks;
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::{KeyedTerm, NodeKind, TermBuilder, TermKeyReader, WireSlots};
+use super::terms::{KeyedTerm, NodeKind, TermBuilder, TermKeyReader, TermSide, WireSlots};
 use super::tokens::{
     call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
     wire_literal,
@@ -384,9 +385,8 @@ impl<'a> InitializerBuilder<'a> {
         Self {
             facade,
             bindings,
-            terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings)
-                .with_associated_keys()
-                .without_application_instances(),
+            terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings, Form::Initializer)
+                .with_associated_keys(),
             key_functions: Vec::new(),
             slots: WireSlots::new(facade),
         }
@@ -626,8 +626,12 @@ impl<'a> InitializerBuilder<'a> {
                 )?;
                 let authored_path = spelling(application.head());
                 // An initializer admits no turbofish (KF-027); this rejects one.
-                self.terms
-                    .application_instance_wire(application, node, &mut self.slots)?;
+                self.terms.application_instance_wire(
+                    application,
+                    node,
+                    TermSide::Right,
+                    &mut self.slots,
+                )?;
                 if application.update().is_some() || application.is_open() {
                     return Err(ExpandError::new(
                         expand::INITIALIZER_RECORD_UPDATE,
@@ -738,11 +742,14 @@ impl<'a> InitializerBuilder<'a> {
                 sort: BuiltinSort::Bytes,
                 value: bytes_token::encode(&literal.value()),
             }),
-            TermTree::Anonymous { spelling, .. } => Err(ExpandError::new(
-                expand::CLAIM_ONLY_TERM,
-                spelling.span(),
-                "`k::anonymous!` is a claim's symbolic value; an initializer builds the initial configuration from constants and configuration variables",
-            )),
+            TermTree::Anonymous { spelling, .. } => {
+                self.terms.admit(
+                    TermSide::Right,
+                    Construct::Anonymous,
+                    TokenRange::for_tokens(spelling)?,
+                )?;
+                unreachable!("the position table refuses `k::anonymous!` in an initializer")
+            }
             TermTree::OrBool { range, .. } => Err(ExpandError::new(
                 expand::CLAIM_ONLY_TERM,
                 range.first(),

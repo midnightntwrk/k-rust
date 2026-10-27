@@ -8,6 +8,7 @@
 //! the value; the compiler substitutes the value at every use.
 
 use krs_ir::wire::{WireConstant, WirePayload, WireSortReference, WireTypeReference};
+use krs_syntax::positions::Form;
 use krs_syntax::{KrsSyntax, ProvenanceRole};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -64,7 +65,7 @@ pub(crate) fn constant(
     };
     // A constant binds nothing, so every name in its value is a path that
     // rustc resolves: another constant or a constructor.
-    let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &[]);
+    let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &[], Form::Constant);
     let value_key = ledger.define(constant.value().keys().payload())?;
     let value =
         builder.expand_wire(KeyedTerm::of(constant.value()), TermSide::Right, &mut slots)?;

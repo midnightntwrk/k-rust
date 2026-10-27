@@ -1204,7 +1204,7 @@ Code points from U+0080 to U+00FF evaluate alike on every backend, with one exce
 `k::bytes!(b"..")` is one K `Bytes` token and `k::id!("$name")` one K `Id` token, in rules, equations, claims, and initializers, in patterns as well as results, as a string literal is: `fn is_elf(IsElf(k::bytes!(b"\x7fELF")): k::Term<Int>) -> k::Term<Int> { 1 }` emits `rule isElf ( b"\x7f\x45\x4c\x46" ) => 1`, which matches exactly those four bytes, and `k::id!("$main")` emits `#token("$main","Id")`.
 A call such as `bytes::empty()` computes a value and cannot be matched; the literal can.
 An initializer holds a literal wherever it holds a term, since a constant has the same value there as in a rule: `mem: k::bytes!(b"\x7fELF")`, `who: k::id!("$main")`, `label: k::lexeme!(Label, "entry")`, `env: k::map![k::id!("$x") -> 1]`, and `list::item(k::bytes!(b"ab"))` start the configuration at those values, and a rule's literal pattern matches them.
-`k::anonymous!` and `k::or_bool!` are not initializer terms (`krs::expand::claim-only-term`): an unknown value makes the initial configuration symbolic, so no run could start from it, and an initializer holds no condition.
+`k::anonymous!` and `k::or_bool!` are not initializer terms (`krs::expand::claim-subject-only-term` and `krs::expand::claim-only-term`): an unknown value makes the initial configuration symbolic, so no run could start from it, and an initializer holds no condition.
 
 K has one `Float` sort, and every value carries its precision and exponent range in its token.
 Rust's `f32` and `f64` are K's binary32 and binary64: `0.1f32` is the K token `0.1f`, `1.5f64` is `1.5d`, and an unsuffixed `1.5` is K's default, binary64.
