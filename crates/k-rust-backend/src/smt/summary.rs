@@ -4,8 +4,9 @@
 //! or models. Admission sees every offered function/simplification equation and requires the
 //! definition's equation-selection completeness token. Only matcher refutations discard rows.
 //! Remaining rows must partition total Boolean tests; every body/guard dependency is admitted
-//! recursively on its specialized signature. A total declaration cannot supply missing rows or
-//! make a partial branch safe. This module does not install summaries as equations or axioms.
+//! recursively on its specialized signature. Each leaf retains its canonical source domain.
+//! Partial helpers use the selected domain; total declarations retain an opaque total value
+//! outside the source-safe region. Neither caller bounds nor branch guards become totality. This module does not install summaries as equations or axioms.
 //!
 //! Discovery and decision-tree construction are explicitly bounded. Every new node/candidate
 //! polls the request stop; cancellation is propagated and never cached as ineligibility.
@@ -46,6 +47,7 @@ pub(super) use emission::{Source, prepare};
 pub(super) struct Reading {
     pub summary: Arc<Summary>,
     pub name: String,
+    pub domain_name: Option<String>,
     pub exactness: super::Exactness,
 }
 
@@ -68,7 +70,7 @@ pub(super) fn reading<'a>(
     };
     if symbol.attributes.hook.is_some()
         || symbol.attributes.smt.is_some()
-        || symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Total)
+        || !matches!(symbol.attributes.symbol_type, SymbolType::Function(_))
     {
         return None;
     }
@@ -121,7 +123,11 @@ pub(super) enum Decision {
 pub(super) struct Summary {
     pub key: Key,
     pub parameters: Vec<Variable>,
+    pub formal: Term,
     pub body: Arc<Decision>,
+    pub domains: BTreeMap<Term, Arc<[Predicate]>>,
+    pub declared_total: bool,
+    pub domain_total: bool,
     pub dependencies: BTreeSet<Key>,
     /// The actual source rules, retaining every collapsed origin, not just an authored label.
     pub source_rules: Vec<Arc<RewriteRule>>,
@@ -219,8 +225,7 @@ impl<'d> Catalog<'d> {
         let eligible = matches!(
             symbol.attributes.head_role(),
             HeadRole::Function { declared: true, .. }
-        ) && symbol.attributes.symbol_type
-            == SymbolType::Function(FunctionType::Total)
+        ) && matches!(symbol.attributes.symbol_type, SymbolType::Function(_))
             && symbol.attributes.hook.is_none()
             && symbol.attributes.smt.is_none()
             && !symbol.attributes.binder
@@ -373,6 +378,14 @@ impl<'d> Catalog<'d> {
                 }
             }
         }
+        // A separate offered ceil theory is authoritative source meaning. This extension
+        // derives a helper domain only from its complete finite value equations.
+        if !applicable_groups(self.definition.ceil_theory(), &index).is_empty() {
+            return Ok(Err(Rejected::Unsupported));
+        }
+        let declared_total = matches!(formal.kind(), TermKind::Application { symbol, .. }
+            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total));
+        let mut domains = BTreeMap::new();
         let mut rows = Vec::new();
         let mut source_rules = Vec::new();
         let mut dependencies = BTreeSet::new();
@@ -410,7 +423,10 @@ impl<'d> Catalog<'d> {
                 return Ok(Err(Rejected::Unsupported));
             };
             let value = substitute(rhs, &bindings);
-            admitted!(self.check_body(&value, &parameters, &mut seen, &mut dependencies));
+            admitted!(self.check_body(&value, &parameters, &mut seen, &mut dependencies, true));
+            let domain =
+                admitted!(self.body_domain(&value, &parameters, &mut seen, &mut dependencies));
+            domains.insert(value.clone(), domain.into());
             // Instantiate conditions through the same faithful/definedness boundary as rewrite
             // applicability. Raw conditions are never sent directly to a solver or evaluator.
             let condition = rule
@@ -424,7 +440,13 @@ impl<'d> Catalog<'d> {
             };
             let mut tests = BTreeSet::new();
             for predicate in condition {
-                admitted!(self.check_guard(&predicate, &parameters, &mut seen, &mut dependencies));
+                let predicate = admitted!(self.check_guard(
+                    &predicate,
+                    &parameters,
+                    &mut seen,
+                    &mut dependencies,
+                    0
+                ));
                 admitted!(tests_of(&predicate, true, &mut tests));
             }
             for (left, right) in remainder {
@@ -437,17 +459,24 @@ impl<'d> Catalog<'d> {
                 } else {
                     return Ok(Err(Rejected::Unsupported));
                 };
-                admitted!(self.check_body(&term, &parameters, &mut seen, &mut dependencies));
+                admitted!(self.check_body(&term, &parameters, &mut seen, &mut dependencies, false));
                 admitted!(tests_of(&Predicate::Term(term), value, &mut tests));
             }
             rows.push(Row { tests, value });
             source_rules.push(source);
         }
+        let domain_total = domains
+            .values()
+            .all(|domain: &Arc<[Predicate]>| domain.is_empty());
         let body = admitted!(self.partition(rows, 0));
         Ok(Ok(Arc::new(Summary {
             key,
             parameters,
+            formal,
             body,
+            domains,
+            declared_total,
+            domain_total,
             dependencies,
             source_rules,
         })))
@@ -457,12 +486,13 @@ impl<'d> Catalog<'d> {
         &mut self,
         root: &Term,
         parameters: &[Variable],
-        seen: &mut FxHashSet<Term>,
+        seen: &mut FxHashSet<(Term, bool)>,
         dependencies: &mut BTreeSet<Key>,
+        allow_partial: bool,
     ) -> Stoppable<Result<(), Rejected>> {
         let mut pending = vec![root.clone()];
         while let Some(term) = pending.pop() {
-            if !seen.insert(term.clone()) {
+            if !seen.insert((term.clone(), allow_partial)) {
                 continue;
             }
             admitted!(self.work());
@@ -490,6 +520,9 @@ impl<'d> Catalog<'d> {
                     }
                     if symbol.attributes.hook.is_none() {
                         let summary = admitted!(self.admit(&term));
+                        if !allow_partial && !summary.declared_total && !summary.domain_total {
+                            return Ok(Err(Rejected::Partial));
+                        }
                         dependencies.insert(summary.key.clone());
                         // Static constructor operands are already validated by signature().
                         pending.extend(arguments.iter().filter(|a| scalar(a.sort())).cloned());
@@ -499,9 +532,21 @@ impl<'d> Catalog<'d> {
                         {
                             return Ok(Err(Rejected::Unsupported));
                         }
-                        // Canonical ceil rules, not a second private domain table, establish
-                        // total bodies. No branch guard or call-site assumption is supplied.
-                        let obligations = ceil_term(self.definition, &term);
+                        // Partition tests must be globally defined. Body expressions instead
+                        // retain their canonical domains in body_domain; no branch guard or
+                        // call-site assumption supplies global totality here.
+                        let obligations = if allow_partial {
+                            Ok(Vec::new())
+                        } else if symbol.attributes.symbol_type
+                            == SymbolType::Function(FunctionType::Total)
+                        {
+                            // Strict children are checked separately below. A full ceil walk
+                            // here would lose a child's source-derived globally true domain.
+                            Ok(Vec::new())
+                        } else {
+                            crate::definedness::apply_ceil_equation(self.definition, &term)
+                                .ok_or(())
+                        };
                         stop::check()?;
                         let obligations = match obligations {
                             Ok(conditions) => conditions,
@@ -551,48 +596,154 @@ impl<'d> Catalog<'d> {
         Ok(Ok(()))
     }
 
-    fn check_guard(
+    /// A leaf's source domain, independent of its partition guard and of every caller.
+    /// Bound tree conversion work before invoking the canonical definedness machinery.
+    fn body_domain(
         &mut self,
-        root: &Predicate,
+        body: &Term,
         parameters: &[Variable],
-        seen: &mut FxHashSet<Term>,
+        seen: &mut FxHashSet<(Term, bool)>,
         dependencies: &mut BTreeSet<Key>,
-    ) -> Stoppable<Result<(), Rejected>> {
-        let mut pending = vec![(root, 0)];
-        while let Some((predicate, depth)) = pending.pop() {
+    ) -> Stoppable<Result<Vec<Predicate>, Rejected>> {
+        if body.attributes().ceil_free() {
+            return Ok(Ok(Vec::new()));
+        }
+        let mut pending = vec![body];
+        while let Some(term) = pending.pop() {
             admitted!(self.work());
-            if depth >= self.limits.depth {
+            let children = crate::deferred::children(term);
+            if children.len() > self.remaining {
                 return Ok(Err(Rejected::Limit));
             }
+            pending.extend(children);
+        }
+        let obligations = match ceil_term(self.definition, body) {
+            Ok(obligations) => obligations,
+            Err(_) => return Ok(Err(Rejected::Partial)),
+        };
+        stop::check()?;
+        let obligations =
+            match crate::definedness::request_definedness(self.definition, obligations) {
+                Ok(obligations) => obligations,
+                Err(_) => return Ok(Err(Rejected::Partial)),
+            };
+        let mut pending = obligations.iter().collect::<Vec<_>>();
+        while let Some(predicate) = pending.pop() {
+            admitted!(self.work());
             match predicate {
                 Predicate::True | Predicate::False => {}
                 Predicate::Term(t) => {
-                    admitted!(self.check_body(t, parameters, seen, dependencies));
+                    admitted!(self.check_body(t, parameters, seen, dependencies, true));
                 }
                 Predicate::Equals(a, b) => {
-                    admitted!(self.check_body(a, parameters, seen, dependencies));
-                    admitted!(self.check_body(b, parameters, seen, dependencies));
+                    admitted!(self.check_body(a, parameters, seen, dependencies, true));
+                    admitted!(self.check_body(b, parameters, seen, dependencies, true));
                 }
-                Predicate::Not(p) => pending.push((p, depth + 1)),
-                Predicate::And(parts) => {
-                    if parts.len() > self.remaining {
-                        return Ok(Err(Rejected::Limit));
+                Predicate::Ceil(call) | Predicate::Defined(call) => {
+                    // A dependency's complete decision graph supplies its domain. An
+                    // unresolved primitive domain is not evidence of bottom or totality.
+                    if matches!(call.kind(), TermKind::Application { symbol, .. } if symbol.attributes.hook.is_some())
+                    {
+                        if crate::definedness::apply_ceil_equation(self.definition, call).is_some()
+                        {
+                            // Pure deferred operands retain their canonical primitive domain;
+                            // the query's domain planner prepares it without evaluation.
+                            continue;
+                        }
+                        return Ok(Err(Rejected::Partial));
                     }
-                    pending.extend(parts.iter().map(|p| (p, depth + 1)));
+                    let summary = admitted!(self.admit(call));
+                    dependencies.insert(summary.key.clone());
                 }
-                Predicate::Ceil(_)
-                | Predicate::Floor(_)
+                Predicate::Not(p) => pending.push(p),
+                Predicate::And(ps) | Predicate::Or(ps) => pending.extend(ps.iter()),
+                Predicate::Implies(a, b) | Predicate::Iff(a, b) => {
+                    pending.extend([a.as_ref(), b.as_ref()])
+                }
+                Predicate::Floor(_)
                 | Predicate::In(..)
-                | Predicate::Or(_)
-                | Predicate::Implies(..)
-                | Predicate::Iff(..)
                 | Predicate::Exists(..)
                 | Predicate::Forall(..)
-                | Predicate::Absent(_)
-                | Predicate::Defined(_) => return Ok(Err(Rejected::Unsupported)),
+                | Predicate::Absent(_) => return Ok(Err(Rejected::Unsupported)),
             }
         }
-        Ok(Ok(()))
+        Ok(Ok(obligations
+            .into_iter()
+            .filter(|p| *p != Predicate::True)
+            .collect()))
+    }
+
+    fn check_guard(
+        &mut self,
+        predicate: &Predicate,
+        parameters: &[Variable],
+        seen: &mut FxHashSet<(Term, bool)>,
+        dependencies: &mut BTreeSet<Key>,
+        depth: usize,
+    ) -> Stoppable<Result<Predicate, Rejected>> {
+        admitted!(self.work());
+        if depth >= self.limits.depth {
+            return Ok(Err(Rejected::Limit));
+        }
+        let checked = match predicate {
+            Predicate::True | Predicate::False => predicate.clone(),
+            Predicate::Term(t) => {
+                admitted!(self.check_body(t, parameters, seen, dependencies, false));
+                predicate.clone()
+            }
+            Predicate::Equals(a, b) => {
+                admitted!(self.check_body(a, parameters, seen, dependencies, false));
+                admitted!(self.check_body(b, parameters, seen, dependencies, false));
+                predicate.clone()
+            }
+            Predicate::Not(p) => Predicate::Not(Arc::new(admitted!(self.check_guard(
+                p,
+                parameters,
+                seen,
+                dependencies,
+                depth + 1
+            )))),
+            Predicate::And(parts) | Predicate::Or(parts) => {
+                if parts.len() > self.remaining {
+                    return Ok(Err(Rejected::Limit));
+                }
+                let mut checked = Vec::new();
+                for part in parts.iter() {
+                    checked.push(admitted!(self.check_guard(
+                        part,
+                        parameters,
+                        seen,
+                        dependencies,
+                        depth + 1
+                    )));
+                }
+                if matches!(predicate, Predicate::And(_)) {
+                    Predicate::And(checked.into())
+                } else {
+                    Predicate::Or(checked.into())
+                }
+            }
+            Predicate::Ceil(call) | Predicate::Defined(call) => {
+                // A nominally partial helper may have a complete, globally defined source
+                // graph. This permits that graph as a partition test, not a partial guard.
+                // Checking the whole call also retains global definedness of every argument.
+                admitted!(self.check_body(call, parameters, seen, dependencies, false));
+                let summary = admitted!(self.admit(call));
+                if !summary.declared_total && !summary.domain_total {
+                    return Ok(Err(Rejected::Partial));
+                }
+                dependencies.insert(summary.key.clone());
+                Predicate::True
+            }
+            Predicate::Floor(_)
+            | Predicate::In(..)
+            | Predicate::Implies(..)
+            | Predicate::Iff(..)
+            | Predicate::Exists(..)
+            | Predicate::Forall(..)
+            | Predicate::Absent(_) => return Ok(Err(Rejected::Unsupported)),
+        };
+        Ok(Ok(crate::simplify::normalize_predicate(checked)))
     }
 
     fn partition(

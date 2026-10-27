@@ -362,6 +362,12 @@ impl Planner<'_> {
         else {
             return Ok(None);
         };
+        // Preserve the paired scalar value/domain reading until this profile has a checked
+        // word-domain lowering. In particular, a total helper's opaque fallback must never
+        // be replaced by its partial source body outside the derived safe region.
+        if !source.domain_total {
+            return Ok(None);
+        }
         let TermKind::Application { arguments, .. } = call.kind() else {
             unreachable!()
         };

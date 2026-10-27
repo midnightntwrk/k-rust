@@ -47,9 +47,16 @@ impl TranslationState {
             return Ok(SExpr::atom("true"));
         }
         let original = Predicate::Ceil(term.clone());
-        let Some(plan) = self.domains.get(term).cloned() else {
+        #[cfg(any(feature = "z3", test))]
+        let summary = super::summary::reading(&self.summaries, term)
+            .cloned()
+            .filter(|_| self.eligible_operand(term));
+        #[cfg(not(any(feature = "z3", test)))]
+        let summary: Option<()> = None;
+        let plan = self.domains.get(term).cloned();
+        if plan.is_none() && summary.is_none() {
             return Ok(self.abstract_predicate(&original));
-        };
+        }
         let scope = self
             .shared_domains
             .as_mut()
@@ -63,6 +70,11 @@ impl TranslationState {
             return Ok(self.abstract_predicate(&original));
         }
         let result = (|| {
+            #[cfg(any(feature = "z3", test))]
+            if let Some(reading) = summary {
+                return self.translate_summary_domain(term, &reading);
+            }
+            let plan = plan.expect("a source plan or an admitted summary");
             let mut parts = Vec::new();
             for predicate in plan.iter() {
                 if *predicate == original {
@@ -94,7 +106,11 @@ impl TranslationState {
                 let fact = SExpr::application(
                     "=>",
                     vec![
-                        SExpr::application("and", argument_domains),
+                        if argument_domains.is_empty() {
+                            SExpr::atom("true")
+                        } else {
+                            SExpr::application("and", argument_domains)
+                        },
                         SExpr::application("=", vec![head, value.clone()]),
                     ],
                 );
@@ -134,6 +150,42 @@ impl TranslationState {
         scope.bindings.push((name, value));
         scope.values.insert(term.clone(), reference.clone());
         Ok(reference)
+    }
+
+    #[cfg(any(feature = "z3", test))]
+    fn translate_summary_domain(
+        &mut self,
+        term: &Term,
+        reading: &super::summary::Reading,
+    ) -> Result<SExpr, TranslationError> {
+        let TermKind::Application { arguments, .. } = term.kind() else {
+            unreachable!()
+        };
+        let mut domains = Vec::new();
+        for argument in arguments {
+            domains.push(self.translate_domain(argument)?);
+        }
+        if !reading.summary.declared_total
+            && let Some(domain_name) = &reading.domain_name
+        {
+            self.approximate(reading.exactness);
+            let arguments = arguments
+                .iter()
+                .zip(&reading.summary.key.static_arguments)
+                .filter(|(_, fixed)| fixed.is_none())
+                .map(|(argument, _)| self.translate_term(argument))
+                .collect::<Result<Vec<_>, _>>()?;
+            domains.push(if arguments.is_empty() {
+                SExpr::atom(domain_name.clone())
+            } else {
+                SExpr::application(domain_name.clone(), arguments)
+            });
+        }
+        Ok(if domains.is_empty() {
+            SExpr::atom("true")
+        } else {
+            SExpr::application("and", domains)
+        })
     }
 
     fn translate_domain_head(&mut self, term: &Term) -> Result<SExpr, TranslationError> {

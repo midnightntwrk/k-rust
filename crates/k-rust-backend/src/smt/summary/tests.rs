@@ -89,8 +89,12 @@ fn equation(lhs: &str, rhs: &str, guard: Option<&str>, attrs: &str) -> String {
         && let Pattern::Application { symbol, arguments } = &parse_pattern(&lhs).unwrap()
     {
         let sorts = match symbol.name.as_str() {
-            "bit" => vec!["SortBool"],
+            "bit" | "testBit" => vec!["SortBool"],
             "twoBits" => vec!["SortBool", "SortBool"],
+            "choose" | "chooseBool" | "nested" | "totalChoose" | "strictChoose" => {
+                vec!["SortBool", "SortInt", "SortInt"]
+            }
+            "ignore" => vec!["SortInt"],
             "dispatch" => vec!["SortOp", "SortInt"],
             "magnitude" | "outer" => vec!["SortInt"],
             other => panic!("fixture signature for {other}"),
@@ -308,11 +312,14 @@ fn canonical_primitive_domains_discharge_safe_bodies_without_using_branch_guards
             .unwrap()
             .is_ok()
     );
-    assert_eq!(
-        Catalog::new(&d)
-            .admit(&term(&d, "magnitude{}(X:SortInt{})"))
-            .unwrap(),
-        Err(Rejected::Partial)
+    let guarded = Catalog::new(&d)
+        .admit(&term(&d, "magnitude{}(X:SortInt{})"))
+        .unwrap()
+        .unwrap();
+    assert!(guarded.declared_total);
+    assert!(
+        !guarded.domain_total,
+        "the nonzero caller/branch guard is not global totality metadata"
     );
 }
 
@@ -1116,4 +1123,393 @@ fn query_emission_cancellation_propagates_and_does_not_poison_source_ownership()
     .unwrap()
     .unwrap();
     assert_eq!(state.summaries.len(), 1);
+}
+
+fn partial_source() -> String {
+    let declarations = r#"
+      symbol choose{}(SortBool{},SortInt{},SortInt{}) : SortInt{} [function{}()]
+      symbol chooseBool{}(SortBool{},SortInt{},SortInt{}) : SortBool{} [function{}()]
+      symbol nested{}(SortBool{},SortInt{},SortInt{}) : SortInt{} [function{}()]
+      symbol totalChoose{}(SortBool{},SortInt{},SortInt{}) : SortInt{} [function{}(),total{}()]
+      symbol strictChoose{}(SortBool{},SortInt{},SortInt{}) : SortInt{} [function{}()]
+      symbol ignore{}(SortInt{}) : SortInt{} [function{}()]
+      hooked-symbol select{}(SortBool{},SortInt{},SortInt{}) : SortInt{}
+        [function{}(),total{}(),hook{}("KEQUAL.ite"),smt-hook{}("ite")]
+      hooked-symbol ne{}(SortInt{},SortInt{}) : SortBool{}
+        [function{}(),total{}(),hook{}("INT.ne"),smt-hook{}("distinct")]
+      axiom{R} \implies{R}(\top{R}(),\equals{R,R}(
+        \ceil{SortInt{},R}(ediv{}(I:SortInt{},D:SortInt{})),
+        \and{R}(\equals{SortBool{},R}(ne{}(D:SortInt{},\dv{SortInt{}}("0")),\dv{SortBool{}}("true")),\top{R}()))) []
+    "#;
+    let mut rows = vec![declarations.to_owned()];
+    for head in ["choose", "totalChoose"] {
+        rows.push(equation(
+            &format!("{head}{{}}({},X:SortInt{{}},Y:SortInt{{}})", boolv(true)),
+            "ediv{}(X:SortInt{},Y:SortInt{})",
+            None,
+            "",
+        ));
+        rows.push(equation(
+            &format!("{head}{{}}({},X:SortInt{{}},Y:SortInt{{}})", boolv(false)),
+            &int(0),
+            None,
+            "",
+        ));
+    }
+    for (b, body) in [
+        (
+            true,
+            format!("ge{{}}(ediv{{}}(X:SortInt{{}},Y:SortInt{{}}),{})", int(0)),
+        ),
+        (false, boolv(false)),
+    ] {
+        rows.push(
+            equation(
+                &format!("chooseBool{{}}({},X:SortInt{{}},Y:SortInt{{}})", boolv(b)),
+                &body,
+                None,
+                "",
+            )
+            .replace("\\equals{SortInt{},R}", "\\equals{SortBool{},R}")
+            .replace("\\and{SortInt{}}", "\\and{SortBool{}}")
+            .replace("\\top{SortInt{}}", "\\top{SortBool{}}"),
+        );
+    }
+    rows.push(equation("ignore{}(X:SortInt{})", &int(0), None, ""));
+    rows.push(equation(
+        "nested{}(B:SortBool{},X:SortInt{},Y:SortInt{})",
+        "choose{}(B:SortBool{},ediv{}(X:SortInt{},Y:SortInt{}),Y:SortInt{})",
+        None,
+        "",
+    ));
+    rows.push(equation(
+        "strictChoose{}(B:SortBool{},X:SortInt{},Y:SortInt{})",
+        &format!(
+            "select{{}}(B:SortBool{{}},ediv{{}}(X:SortInt{{}},Y:SortInt{{}}),{})",
+            int(0)
+        ),
+        None,
+        "",
+    ));
+    source(&rows.join("\n"))
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn partial_helper_domains_follow_the_selected_source_branch_and_keep_every_call_argument() {
+    use crate::{
+        smt::{SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+    };
+    let d = BackendDefinition::internalize(&parse_definition(&partial_source()).unwrap(), "MAIN")
+        .unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
+    let call = |head: &str, b: bool, x: i64, y: i64| {
+        term(
+            &d,
+            &format!("{head}{{}}({},{},{})", boolv(b), int(x), int(y)),
+        )
+    };
+    for (value, defined) in [
+        (call("choose", false, 6, 0), true),
+        (call("choose", true, 6, 0), false),
+        (call("choose", true, 6, 2), true),
+        (call("strictChoose", false, 6, 0), false),
+        (call("nested", false, 6, 0), false),
+        (call("nested", true, 8, 2), true),
+        (
+            term(
+                &d,
+                &format!(
+                    "ignore{{}}(choose{{}}({},{},{}))",
+                    boolv(true),
+                    int(6),
+                    int(0)
+                ),
+            ),
+            false,
+        ),
+    ] {
+        let domain = Predicate::Ceil(value.clone());
+        let expected = if defined {
+            domain
+        } else {
+            Predicate::Not(Arc::new(domain))
+        };
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), &[expected]),
+            Ok(Ok(Validity::Valid)),
+            "{value:?}"
+        );
+    }
+    for (value, result) in [
+        (call("choose", false, 6, 0), 0),
+        (call("choose", true, 6, 2), 3),
+        (call("nested", true, 8, 2), 2),
+    ] {
+        assert_eq!(
+            solver.check_predicates(
+                &[],
+                &Substitution::new(),
+                &[Predicate::Equals(value, term(&d, &int(result)))]
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+    }
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn total_helper_declarations_keep_totality_and_an_opaque_value_outside_the_source_safe_region() {
+    use crate::{
+        smt::{Exactness, SmtPrelude, SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+    };
+    let d = BackendDefinition::internalize(&parse_definition(&partial_source()).unwrap(), "MAIN")
+        .unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
+    let call = term(
+        &d,
+        &format!("totalChoose{{}}({},{},{})", boolv(true), int(6), int(0)),
+    );
+    assert_eq!(
+        solver.check_predicates(&[], &Substitution::new(), &[Predicate::Ceil(call.clone())]),
+        Ok(Ok(Validity::Valid))
+    );
+    let checked = [Predicate::Equals(call, term(&d, &int(99)))];
+    assert_eq!(
+        solver.check_predicates(&[], &Substitution::new(), &checked),
+        Ok(Ok(Validity::Contingent))
+    );
+    let query = SmtPrelude::from_definition(&d)
+        .unwrap()
+        .query(&[], &Substitution::new(), &checked, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(query.exactness(), Exactness::Approximate);
+    assert!(query.model_mappings().is_none());
+    let safe = term(
+        &d,
+        &format!("totalChoose{{}}({},{},{})", boolv(true), int(6), int(2)),
+    );
+    assert_eq!(
+        solver.check_predicates(
+            &[],
+            &Substitution::new(),
+            &[Predicate::Equals(safe, term(&d, &int(3)))]
+        ),
+        Ok(Ok(Validity::Valid))
+    );
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn partial_helper_mutations_and_explicit_domain_rows_keep_their_actual_source_meaning() {
+    use crate::{
+        smt::{SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+    };
+    let baseline = partial_source();
+    let changed = baseline.replace(
+        "ediv{}(X:SortInt{},Y:SortInt{})",
+        &format!(
+            "ediv{{}}(X:SortInt{{}},plus{{}}(Y:SortInt{{}},{}) )",
+            int(1)
+        ),
+    );
+    for (source, expected, defined_at_zero) in [(&baseline, 3, false), (&changed, 2, true)] {
+        let d = BackendDefinition::internalize(&parse_definition(source).unwrap(), "MAIN").unwrap();
+        let solver = Z3Solver::new(&d).unwrap();
+        let value = term(
+            &d,
+            &format!("choose{{}}({},{},{})", boolv(true), int(6), int(2)),
+        );
+        assert_eq!(
+            solver.check_predicates(
+                &[],
+                &Substitution::new(),
+                &[Predicate::Equals(value, term(&d, &int(expected)))]
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        let domain = Predicate::Ceil(term(
+            &d,
+            &format!("choose{{}}({},{},{})", boolv(true), int(6), int(0)),
+        ));
+        let domain = if defined_at_zero {
+            domain
+        } else {
+            Predicate::Not(Arc::new(domain))
+        };
+        assert_eq!(
+            solver.check_predicates(&[], &Substitution::new(), &[domain]),
+            Ok(Ok(Validity::Valid))
+        );
+    }
+    let explicit = baseline.replace("endmodule []", "axiom{R} \\implies{R}(\\top{R}(),\\equals{R,R}(\\ceil{SortInt{},R}(choose{}(B:SortBool{},X:SortInt{},Y:SortInt{})),\\bottom{R}())) []\nendmodule []");
+    let d = BackendDefinition::internalize(&parse_definition(&explicit).unwrap(), "MAIN").unwrap();
+    assert_eq!(
+        Catalog::new(&d)
+            .admit(&term(&d, "choose{}(B:SortBool{},X:SortInt{},Y:SortInt{})"))
+            .unwrap(),
+        Err(Rejected::Unsupported)
+    );
+}
+
+#[test]
+fn an_admitted_partial_body_cannot_make_the_same_expression_a_total_partition_test() {
+    let quotient = format!("ediv{{}}({},X:SortInt{{}})", int(1));
+    let guard = format!("lt{{}}({},{quotient})", int(0));
+    let rows = [
+        equation("magnitude{}(X:SortInt{})", &quotient, Some(&guard), ""),
+        equation(
+            "magnitude{}(X:SortInt{})",
+            &int(0),
+            Some(&format!("not{{}}({guard})")),
+            "",
+        ),
+    ]
+    .join("\n");
+    let source = partial_source().replace("endmodule []", &format!("{rows}\nendmodule []"));
+    let d = BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN").unwrap();
+    assert!(
+        Catalog::new(&d)
+            .admit(&term(&d, "magnitude{}(X:SortInt{})"))
+            .unwrap()
+            .is_err()
+    );
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn a_source_decided_nullary_partial_domain_needs_no_empty_boolean_application() {
+    use crate::{
+        smt::{SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+    };
+    let d = definition(
+        r#"
+      symbol zero{}() : SortInt{} [function{}()]
+      axiom{R} \implies{R}(\top{R}(),\equals{R,R}(\ceil{SortInt{},R}(zero{}()),\bottom{R}())) []
+    "#,
+    );
+    assert_eq!(
+        Z3Solver::new(&d).unwrap().check_predicates(
+            &[],
+            &Substitution::new(),
+            &[Predicate::Not(Arc::new(Predicate::Ceil(term(
+                &d, "zero{}()"
+            ))))]
+        ),
+        Ok(Ok(Validity::Valid))
+    );
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn a_globally_defined_partial_helper_can_supply_a_total_partition_test() {
+    use crate::{
+        smt::{SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+    };
+    let mut rows = vec!["symbol testBit{}(SortBool{}) : SortBool{} [function{}()]".to_owned()];
+    for b in [false, true] {
+        rows.push(
+            equation(&format!("testBit{{}}({})", boolv(b)), &boolv(b), None, "")
+                .replace("\\equals{SortInt{},R}", "\\equals{SortBool{},R}")
+                .replace("\\and{SortInt{}}", "\\and{SortBool{}}")
+                .replace("\\top{SortInt{}}", "\\top{SortBool{}}"),
+        );
+    }
+    let guard = format!("testBit{{}}(ge{{}}(X:SortInt{{}},{}) )", int(0));
+    rows.push(equation(
+        "magnitude{}(X:SortInt{})",
+        &int(7),
+        Some(&guard),
+        "",
+    ));
+    rows.push(equation(
+        "magnitude{}(X:SortInt{})",
+        &int(9),
+        Some(&format!("not{{}}({guard})")),
+        "",
+    ));
+    let rows = rows.join("\n");
+    let raw_equal = format!(
+        r"\equals{{SortBool{{}},R}}({guard},testBit{{}}({}))",
+        boolv(true)
+    );
+    let raw = rows
+        .replace(
+            &format!(r"\equals{{SortBool{{}},R}}({guard},{})", boolv(true)),
+            &raw_equal,
+        )
+        .replace(
+            &format!(
+                r"\equals{{SortBool{{}},R}}(not{{}}({guard}),{})",
+                boolv(true)
+            ),
+            &format!(r"\not{{R}}({raw_equal})"),
+        );
+    for source in [rows, raw] {
+        let d = definition(&source);
+        let summary = Catalog::new(&d)
+            .admit(&term(&d, "magnitude{}(X:SortInt{})"))
+            .unwrap()
+            .unwrap();
+        assert!(summary.domain_total);
+        let solver = Z3Solver::new(&d).unwrap();
+        for (x, result) in [(-1, 9), (0, 7), (1, 7)] {
+            assert_eq!(
+                solver.check_predicates(
+                    &[],
+                    &Substitution::new(),
+                    &[Predicate::Equals(
+                        term(&d, &format!("magnitude{{}}({})", int(x))),
+                        term(&d, &int(result))
+                    )]
+                ),
+                Ok(Ok(Validity::Valid))
+            );
+        }
+    }
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn a_partial_boolean_summary_keeps_false_values_distinct_from_false_domains() {
+    use crate::{
+        smt::{SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+    };
+    let d = BackendDefinition::internalize(&parse_definition(&partial_source()).unwrap(), "MAIN")
+        .unwrap();
+    let solver = Z3Solver::new(&d).unwrap();
+    let defined_false = term(
+        &d,
+        &format!("chooseBool{{}}({},{},{})", boolv(false), int(6), int(0)),
+    );
+    assert_eq!(
+        solver.check_predicates(
+            &[],
+            &Substitution::new(),
+            &[
+                Predicate::Ceil(defined_false.clone()),
+                Predicate::Not(Arc::new(Predicate::Term(defined_false)))
+            ]
+        ),
+        Ok(Ok(Validity::Valid))
+    );
+    let undefined = term(
+        &d,
+        &format!("chooseBool{{}}({},{},{})", boolv(true), int(6), int(0)),
+    );
+    assert_eq!(
+        solver.check_predicates(
+            &[],
+            &Substitution::new(),
+            &[Predicate::Not(Arc::new(Predicate::Ceil(undefined)))]
+        ),
+        Ok(Ok(Validity::Valid))
+    );
 }

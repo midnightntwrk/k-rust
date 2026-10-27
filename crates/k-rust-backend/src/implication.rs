@@ -5555,8 +5555,8 @@ mod tests {
     }
 
     /// `pair(X, 1) ∧ h(X) <=Int 0 ∧ 1 <=Int X`, where the equation `h(X) = X` makes the
-    /// constraints contradictory, has no instance; `h` is not declared total, so source-summary
-    /// admission refuses it. The solver answers `X <=Int 5` contingent on the knowledge as
+    /// constraints contradictory, has no instance; `h` has a prioritized simplification row,
+    /// which source-summary admission refuses. The solver answers `X <=Int 5` contingent on the knowledge as
     /// written. The check's refutation by simplification decides `knowledge ∧ ¬(X <=Int 5)`
     /// after evaluating `h`, finds it contradictory and so shows the consequent to hold: a
     /// contradiction of the knowledge that only the simplifier exposes is found before a
@@ -5573,7 +5573,7 @@ mod tests {
                         h{}(X:SortInt{}),
                         \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())
                     )
-                ) [label{}("identity-h"), simplification{}()]"#,
+                ) [label{}("identity-h"), simplification{}("40")]"#,
         );
         let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
         let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);

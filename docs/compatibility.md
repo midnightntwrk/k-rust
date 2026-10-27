@@ -3087,14 +3087,20 @@ No application-specific axiom or execution step is added by a solver reading.
 Native definition-aware queries may derive an `Int` or `Bool` function reading from the actual loaded source equations.
 Admission considers every offered function and simplification row, including wildcard rows, and refuses an obstructing predicate equation or undecided static case.
 The admitted cases are an unrestricted variable equation, exhaustive Boolean literal cases, or supported complementary pure total guards, specialized at known constructor arguments.
-Every guard and branch must be defined for all defined scalar formals; a branch-local precondition does not justify a partial operation in its body.
+Partition tests must be defined for all defined scalar formals; a complete source-derived helper whose domain is globally true may supply such a test even when its declaration is partial.
+Branch bodies may be partial: each leaf retains its canonical source domain, and a decision has the selected branch's domain under its total test.
+This logical decision graph does not make a strict K conditional lazy, and every call retains all original argument domains, including ignored arguments.
 Admission refuses effects, binders, unbound results, unsupported priorities and restrictions, conflicting or incomplete cases, and recursive specialization graphs.
 A `total` declaration alone does not supply a function body or establish coverage.
+Partial helpers use the domain derived from their complete source decisions; separate offered ceil equations prevent this specialized domain derivation.
+Declared-total helpers retain totality: their source value reading is guarded by its safe region, with an opaque total value elsewhere.
+Caller bounds and branch guards never become global totality metadata, and the existing contradicted-total reporting remains in force.
 
 Admitted functions share query-local scalar definitions and bounded word variants over one immutable snapshot of the loaded definition.
 A changed definition, including an admitted kink mutant, supplies its own source snapshot.
 These are derived readings of source equations, not trusted application lemmas, semantic execution steps, or fabricated coverage events.
 The SMT emitter uses `define-fun-rec` to keep acyclic helper applications shared during solver loading; this declaration does not admit recursive K functions.
+Helpers with residual branch domains retain the paired scalar reading; the word planner currently declines their specialized word variants rather than dropping a domain or a declared-total fallback.
 
 The word planner may read a complete bounded `Int` expression as bit-vector arithmetic with an explicit full-value or projection contract.
 It derives operand intervals, widens arithmetic intermediates and reconciles signs rather than assigning a global machine width to `Int`.

@@ -18,7 +18,7 @@ use crate::{
     },
     stop::{self, Stoppable},
     substitution::Substitution,
-    term::{FunctionType, SymbolType, Term, TermKind},
+    term::{SymbolType, Term, TermKind},
 };
 
 const WORK: usize = 16_384;
@@ -88,7 +88,9 @@ fn calls<'a>(
         remaining -= 1;
         match node {
             Pending::Predicate(predicate) => match predicate {
-                Predicate::Term(term) => pending.push(Pending::Term(term)),
+                Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Defined(term) => {
+                    pending.push(Pending::Term(term))
+                }
                 Predicate::Equals(a, b) => pending.extend([Pending::Term(a), Pending::Term(b)]),
                 Predicate::Not(p) | Predicate::Forall(_, p) | Predicate::Exists(_, p) => {
                     pending.push(Pending::Predicate(p))
@@ -105,8 +107,6 @@ fn calls<'a>(
                 // These atoms do not translate their operand values.
                 Predicate::True
                 | Predicate::False
-                | Predicate::Ceil(_)
-                | Predicate::Defined(_)
                 | Predicate::Floor(_)
                 | Predicate::In(..)
                 | Predicate::Absent(_) => {}
@@ -124,8 +124,7 @@ fn calls<'a>(
                         }
                         if symbol.attributes.hook.is_none()
                             && symbol.attributes.smt.is_none()
-                            && symbol.attributes.symbol_type
-                                == SymbolType::Function(FunctionType::Total)
+                            && matches!(symbol.attributes.symbol_type, SymbolType::Function(_))
                         {
                             candidates.push(term);
                         }
@@ -147,7 +146,8 @@ fn calls<'a>(
 
 struct Body<'a> {
     state: &'a mut TranslationState,
-    decisions: FxHashMap<*const Decision, SExpr>,
+    decisions: FxHashMap<*const Decision, (SExpr, SExpr)>,
+    domains: &'a std::collections::BTreeMap<Term, Arc<[Predicate]>>,
     bindings: Vec<(String, SExpr)>,
     remaining: &'a mut usize,
 }
@@ -157,7 +157,7 @@ impl Body<'_> {
         &mut self,
         body: &Arc<Decision>,
         depth: usize,
-    ) -> Stoppable<Result<Option<SExpr>, TranslationError>> {
+    ) -> Stoppable<Result<Option<(SExpr, SExpr)>, TranslationError>> {
         stop::check()?;
         if depth >= 128 || *self.remaining == 0 {
             return Ok(Ok(None));
@@ -167,7 +167,16 @@ impl Body<'_> {
             return Ok(Ok(Some(value.clone())));
         }
         let value = match body.as_ref() {
-            Decision::Value(term) => self.state.translate_term(term),
+            Decision::Value(term) => (|| {
+                let value = self.state.translate_term(term)?;
+                let domain = if self.domains[term].is_empty() {
+                    SExpr::atom("true")
+                } else {
+                    self.state
+                        .translate_predicate(&Predicate::And(self.domains[term].clone()))?
+                };
+                Ok((value, domain))
+            })(),
             Decision::If { test, yes, no } => {
                 let test = match test {
                     Atom::Bool(term) => self.state.translate_term(term),
@@ -199,7 +208,10 @@ impl Body<'_> {
                     Ok(None) => return Ok(Ok(None)),
                     Err(error) => return Ok(Err(error)),
                 };
-                Ok(SExpr::application("ite", vec![test, yes, no]))
+                Ok((
+                    SExpr::application("ite", vec![test.clone(), yes.0, no.0]),
+                    SExpr::application("ite", vec![test, yes.1, no.1]),
+                ))
             }
         };
         let value = match value {
@@ -207,8 +219,10 @@ impl Body<'_> {
             Err(error) => return Ok(Err(error)),
         };
         let name = self.state.fresh_name();
-        let reference = SExpr::atom(name.clone());
-        self.bindings.push((name, value));
+        let domain_name = self.state.fresh_name();
+        let reference = (SExpr::atom(name.clone()), SExpr::atom(domain_name.clone()));
+        self.bindings.push((name, value.0));
+        self.bindings.push((domain_name, value.1));
         self.decisions.insert(Arc::as_ptr(body), reference.clone());
         Ok(Ok(Some(reference)))
     }
@@ -216,11 +230,24 @@ impl Body<'_> {
 
 fn emit(
     summary: Arc<Summary>,
+    definition: &BackendDefinition,
     state: &mut TranslationState,
     remaining: &mut usize,
     text: &mut usize,
 ) -> Stoppable<Result<bool, TranslationError>> {
     stop::check()?;
+    if !summary.domain_total {
+        // Domain graphs also observe strict arguments of nested helper calls. Their source
+        // terms were not present in the original caller query, so prepare those canonical
+        // child-domain plans before translating the shared body under its formal parameters.
+        let domains = summary
+            .domains
+            .keys()
+            .cloned()
+            .map(Predicate::Ceil)
+            .collect::<Vec<_>>();
+        super::super::functional::prepare(definition, state, &[], &Substitution::new(), &domains)?;
+    }
     let previous_exactness = state.exactness;
     state.exactness = Exactness::Exact;
     let previous_bound = state.bound_variables.len();
@@ -242,11 +269,22 @@ fn emit(
     let mut body = Body {
         state,
         decisions: FxHashMap::default(),
+        domains: &summary.domains,
         bindings: Vec::new(),
         remaining,
     };
     let result = body.decision(&summary.body, 0)?;
     let decision_bindings = body.bindings;
+    let fallback = if summary.declared_total && !summary.domain_total {
+        // The current summary is not installed yet: this is the ordinary pure total UF,
+        // not a recursive use of the source body outside its justified safe region.
+        match state.translate_term(&summary.formal) {
+            Ok(value) => Some(value),
+            Err(error) => return Ok(Err(error)),
+        }
+    } else {
+        None
+    };
     let scope = state.shared_terms.take().expect("summary body scope");
     state.bound_variables.truncate(previous_bound);
     let exactness = state.exactness;
@@ -256,15 +294,21 @@ fn emit(
         Ok(None) => return Ok(Ok(false)),
         Err(error) => return Ok(Err(error)),
     };
-    let result = word::scalar_bindings(
-        scope
-            .bindings
-            .into_iter()
-            .chain(decision_bindings)
-            .collect(),
-        result,
-    )?;
+    let (value, domain) = result;
+    let value = if let Some(fallback) = fallback {
+        SExpr::application("ite", vec![domain.clone(), value, fallback])
+    } else {
+        value
+    };
+    let bindings = scope
+        .bindings
+        .into_iter()
+        .chain(decision_bindings)
+        .collect::<Vec<_>>();
+    let value = word::scalar_bindings(bindings.clone(), value)?;
+    let domain = word::scalar_bindings(bindings, domain)?;
     let name = state.fresh_name();
+    let domain_name = (!summary.domain_total).then(|| state.fresh_name());
     let sort = match prelude_smt_sort(&summary.key.result) {
         Ok(sort) => sort,
         Err(error) => return Ok(Err(error)),
@@ -277,20 +321,40 @@ fn emit(
         "define-fun-rec",
         vec![
             SExpr::atom(name.clone()),
-            SExpr::List(parameters),
+            SExpr::List(parameters.clone()),
             SExpr::atom(sort),
-            result,
+            value,
         ],
     );
+    let domain_definition = domain_name.as_ref().map(|name| {
+        SExpr::application(
+            "define-fun-rec",
+            vec![
+                SExpr::atom(name.clone()),
+                SExpr::List(parameters),
+                SExpr::atom("Bool"),
+                domain,
+            ],
+        )
+    });
     if !word::fits_text(&definition, text)? {
         return Ok(Ok(false));
     }
+    if let Some(domain) = &domain_definition
+        && !word::fits_text(domain, text)?
+    {
+        return Ok(Ok(false));
+    }
     state.derived_definitions.push(definition.to_string());
+    if let Some(domain) = domain_definition {
+        state.derived_definitions.push(domain.to_string());
+    }
     state.summaries.insert(
         summary.key.clone(),
         Reading {
             summary,
             name,
+            domain_name,
             exactness,
         },
     );
@@ -339,7 +403,7 @@ pub(in crate::smt) fn prepare(
             break;
         };
         let summary = pending.remove(&key).expect("ready summary");
-        match emit(summary, state, &mut remaining, &mut text)? {
+        match emit(summary, &source.0, state, &mut remaining, &mut text)? {
             Ok(true) => {}
             Ok(false) => break,
             Err(error) => return Ok(Err(error)),
