@@ -1705,6 +1705,7 @@ fn apply_claim(
         } => {
             let recovered = match recover_indeterminate_match(
                 definition,
+                &claim.lhs.term.attributes().variables,
                 substitution,
                 remainder,
                 &subject.constraints,

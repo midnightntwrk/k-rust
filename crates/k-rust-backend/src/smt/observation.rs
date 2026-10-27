@@ -7,6 +7,43 @@ use super::{SExpr, TranslationError, TranslationState};
 use crate::{observation::reading::Reading, rule::Predicate, term::Term};
 
 impl TranslationState {
+    /// Forward congruence of the checked source map roles, retaining the original
+    /// disjoint-concatenation domain. This does not assert injectivity or extensionality.
+    pub(super) fn translate_map(
+        &mut self,
+        collection: &Arc<crate::term::MapDefinition>,
+        entries: &crate::term::Items<(Term, Term)>,
+        rest: &Option<Term>,
+    ) -> Result<SExpr, TranslationError> {
+        self.approximate(super::Exactness::Approximate);
+        let sort = crate::term::Sort::simple(collection.map_sort.clone());
+        let role = |name: crate::term::Name, arguments| super::CongruenceHead::Application {
+            name,
+            sorts: vec![],
+            arguments,
+            result: sort,
+        };
+        let unit = self.congruence_name(role(collection.symbols.unit.clone(), vec![]));
+        let item = self.congruence_name(role(
+            collection.symbols.element.clone(),
+            vec![collection.key_sort, collection.value_sort],
+        ));
+        let concat =
+            self.congruence_name(role(collection.symbols.concat.clone(), vec![sort, sort]));
+        let mut value = match rest {
+            Some(base) => self.translate_term(base)?,
+            None => SExpr::atom(unit),
+        };
+        for (key, entry) in entries.iter().rev() {
+            let entry = SExpr::application(
+                item.clone(),
+                vec![self.translate_term(key)?, self.translate_term(entry)?],
+            );
+            value = SExpr::application(concat.clone(), vec![entry, value]);
+        }
+        Ok(value)
+    }
+
     /// Forward congruence of the actual source list roles. No injectivity or general
     /// sequence theory is asserted; original list domains remain separately required.
     pub(super) fn translate_list(
@@ -321,6 +358,11 @@ pub(super) fn prepare(
                         .filter(|p| **p != Predicate::Ceil(term.clone()))
                         .cloned(),
                 );
+            }
+            if let Some(ops) = definition.map_operations(&term.sort()) {
+                state
+                    .map_congruence
+                    .insert(term.sort(), ops.collection.clone());
             }
             if let Some(ops) = definition.list_operations(&term.sort()) {
                 state
@@ -865,6 +907,58 @@ mod tests {
             .check_predicates(known, &Substitution::new(), &[checked])
             .unwrap()
             .unwrap()
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn explicit_map_contexts_preserve_equal_computed_remainders_without_base_extensionality() {
+        use super::super::Validity;
+        let text = source().replace(
+            "endmodule",
+            "symbol context{}(SortMap{}) : SortInt{} [function{}()] endmodule",
+        );
+        let definition = definition(&text);
+        let left_rest = term(&definition, "remove{}(M:SortMap{},K:SortInt{})");
+        let right_rest = term(&definition, "remove{}(N:SortMap{},K:SortInt{})");
+        let a = term(
+            &definition,
+            "context{}(concat{}(item{}(K:SortInt{},V:SortInt{}),remove{}(M:SortMap{},K:SortInt{})))",
+        );
+        let b = term(
+            &definition,
+            "context{}(concat{}(item{}(K:SortInt{},V:SortInt{}),remove{}(N:SortMap{},K:SortInt{})))",
+        );
+        let known = [
+            Predicate::Equals(left_rest, right_rest),
+            Predicate::Ceil(a.clone()),
+        ];
+        assert_eq!(
+            check(&definition, &known, Predicate::Equals(a.clone(), b.clone())),
+            Validity::Valid
+        );
+        assert_eq!(
+            check(&definition, &known, Predicate::Ceil(b.clone())),
+            Validity::Valid
+        );
+        assert_ne!(
+            check(
+                &definition,
+                &[Predicate::Ceil(a.clone())],
+                Predicate::Equals(a, b)
+            ),
+            Validity::Valid
+        );
+        assert_ne!(
+            check(
+                &definition,
+                &known,
+                Predicate::Equals(
+                    term(&definition, "M:SortMap{}"),
+                    term(&definition, "N:SortMap{}")
+                )
+            ),
+            Validity::Valid
+        );
     }
 
     #[cfg(feature = "z3")]

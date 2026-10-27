@@ -953,6 +953,7 @@ fn recover_by_simplification(
 ) -> Phase<MatchResult> {
     let recovered = match recover_indeterminate_match(
         context.definition,
+        &context.rule.lhs.attributes().variables,
         substitution,
         remainder,
         inherited_knowledge,

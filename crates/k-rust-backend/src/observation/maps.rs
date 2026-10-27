@@ -402,6 +402,42 @@ impl Operations {
             ))
         })
     }
+
+    /// Admitted declarations of one primitive observe the same stored key. Normalize
+    /// only when the actual source key can be read at this collection's storage rank;
+    /// changed/effectful heads and incompatible ranks retain their conservative reading.
+    pub(super) fn canonical_observation(
+        &self,
+        definition: &BackendDefinition,
+        source: &Term,
+    ) -> Option<Term> {
+        let TermKind::Application {
+            symbol, arguments, ..
+        } = source.kind()
+        else {
+            return None;
+        };
+        let hook = symbol.attributes.hook.as_deref()?;
+        if !self.admits(source, hook) {
+            return None;
+        }
+        let canonical = match (hook, arguments.as_slice()) {
+            ("MAP.lookup", [map, key]) if source.sort() == self.collection.value_sort => {
+                let key = read_at(definition, key, &self.collection.key_sort)?;
+                self.lookup(definition, map.clone(), &key)?
+            }
+            ("MAP.in_keys", [key, map])
+                if source
+                    .sort()
+                    .is_builtin(k_rust_kore::names::BuiltinSort::Bool) =>
+            {
+                let key = read_at(definition, key, &self.collection.key_sort)?;
+                self.member(definition, map.clone(), &key)?
+            }
+            _ => return None,
+        };
+        (canonical != *source).then_some(canonical)
+    }
 }
 
 fn closed_sort(sort: &k_rust_kore::kore::ast::Sort, depth: usize) -> Option<Sort> {

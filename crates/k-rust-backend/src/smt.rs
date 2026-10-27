@@ -361,6 +361,7 @@ pub struct TranslationState {
     observation_fact_seen: BTreeSet<(Term, Vec<String>)>,
     active_observations: BTreeSet<Term>,
     list_congruence: BTreeMap<Sort, Arc<crate::term::ListDefinition>>,
+    map_congruence: BTreeMap<Sort, Arc<crate::term::MapDefinition>>,
     summary_congruence: BTreeSet<CongruenceHead>,
     #[cfg(any(feature = "z3", test))]
     active_summary_links: BTreeSet<Term>,
@@ -410,6 +411,7 @@ impl TranslationState {
             observation_fact_seen: BTreeSet::new(),
             active_observations: BTreeSet::new(),
             list_congruence: BTreeMap::new(),
+            map_congruence: BTreeMap::new(),
             summary_congruence: BTreeSet::new(),
             #[cfg(any(feature = "z3", test))]
             active_summary_links: BTreeSet::new(),
@@ -722,6 +724,20 @@ impl TranslationState {
                 && self.eligible_operand(term) =>
             {
                 self.translate_list(definition, heads, rest)
+            }
+            TermKind::Map {
+                definition,
+                entries,
+                rest,
+            } if self.map_congruence.get(&term.sort()) == Some(definition)
+                && entries.len() <= 128
+                && entries.iter().all(|(key, value)| {
+                    key.sort() == definition.key_sort && value.sort() == definition.value_sort
+                })
+                && rest.as_ref().is_none_or(|base| base.sort() == term.sort())
+                && self.eligible_operand(term) =>
+            {
+                self.translate_map(definition, entries, rest)
             }
             TermKind::DomainValue { .. }
             | TermKind::Map { .. }
