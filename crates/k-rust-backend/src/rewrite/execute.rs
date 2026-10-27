@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "backend.rewrite.execute"
 //! name = "depth-first exploration of a rewrite tree"
-//! sites = ["execute_using", "Execution::run", "Execution::expand", "Execution::merged", "commit_applied", "ExecutionState::leaf", "merge_equal_final_leaves", "enqueue_execution_states"]
-//! variable = "d = maximum depth; b = maximum breadth; L = final leaves"
+//! sites = ["execute_using", "Execution::run", "Execution::expand", "Execution::merged", "commit_applied", "ExecutionState::leaf", "merge_equal_final_leaves", "enqueue_execution_states", "Execution::match_state"]
+//! variable = "s = states the selected strategy would take from pending without max_work; d = maximum rewrite depth; L = final leaves; K = recorded arrivals in one depth/shape-hash bucket; J = diagnostic entries compared by one absorption test"
 //! counters = ["RewriteSteps", "ExecutionStatesMerged"]
 //! span = "per problem"
 //! invariant = "pending holds unexpanded states of depth <= max_depth, their depths non-increasing from front to back; leaves only grows; work counts the states taken from pending, at most max_work. A state-set run that explores every branch records a state in its merge table only once the state's expansion completed without a stop, and keeps no depth below the back of pending. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
@@ -15,7 +15,7 @@
 //!
 //! [[cost]]
 //! mode = "bounded execution"
-//! bound = "O(min(states, max_work)), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
+//! bound = "O(min(s, max_work)) state pops, plus initialization and callee work below; max_depth limits rewrite depth and max_breadth limits the queued frontier, not the per-state branching factor, so neither gives a b^d total-state bound (remainders can also be queued at the same depth). Exploration is unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
 //!
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
@@ -23,7 +23,15 @@
 //!
 //! [[cost]]
 //! mode = "state-set exploration merge (Execution::merged)"
-//! bound = "one expansion per distinct (depth, RequestNames::state_key, effects, observed console, console availability) class, times the maximal diagnostic sets recorded for it (one set unless converging paths carry incomparable diagnostics); one E2/E3 simplification per arriving state; nothing computed from a state while it is alone at its depth; once a second state arrives there, one RequestNames::shape_hash per state of the depth (linear in its nodes that hold variables), and one RequestNames::state_key per state whose hash another state of the depth shares, each computed once; the effects and consoles of two arrivals are compared by fingerprint in O(1) and then back to their shared history; memory: the states recorded at depths not below the shallowest pending state, each a record of about 300 bytes (64-bit) and a copy of its constraint list, holding its term by its shared nodes, not a copy, so the sum of the recorded constraint-list lengths: quadratic in path length when the path condition grows by a conjunct per step"
+//! bound = "one expansion per distinct (depth, RequestNames::state_key, effects, observed console, console availability) class, times the maximal diagnostic sets recorded for it (one set unless converging paths carry incomparable diagnostics); one E2/E3 simplification per arriving state; nothing computed from a state while it is alone at its depth; once a second state arrives there, one RequestNames::shape_hash per state of the depth (linear in its nodes that hold variables), and one RequestNames::state_key per state whose hash another state of the depth shares, each computed once; each arriving state scans up to K recorded arrivals of its depth/shape hash, O(K) absorption tests and O(K^2) across K non-absorbing arrivals, including incomparable diagnostic histories without a hash collision; each test charges diagnostic subset comparisons over J, structural key equality and shared-history comparisons; the effects and consoles of two arrivals are compared by fingerprint in O(1) and then back to their shared history; memory: the states recorded at depths not below the shallowest pending state, each a record of about 300 bytes (64-bit) and a copy of its constraint list, holding its term by its shared nodes, not a copy, so the sum of the recorded constraint-list lengths: quadratic in path length when the path condition grows by a conjunct per step"
+//!
+//! [[cost]]
+//! mode = "reached-state matching (match_states)"
+//! bound = "only for eligible reached states until a clean reach without a term conjunction: one isolated leaf-form normalization when constraints remain, one target-disjunction match in Execution mode and, when proof_agreement requires and the first answer decided, one in Proof mode, plus ground_defined for a proposed reach. Each match pays backend.search.patterns, including simplification/solver work. Absorbed arrivals reuse the stored verdict. At most five state summaries are retained, with their configurations and prefix diagnostics; isolation stays on the step clock."
+//!
+//! [[cost]]
+//! mode = "condition recording (collect_conditions)"
+//! bound = "per entry of a selected rule: collect/sort the condition-read bindings, clone path/match knowledge and hash/compare the EntryKey, even for a duplicate or capped entry; per admitted record, one isolated bottom-up evaluation of its condition with NoSolver, substitutions and capped output-value checks; at most the configured record limit per rule, with record_polls per evaluation and max_value_size per stored value. Polls do not bound the byte cost of bigint hooks or intermediate terms. This extra evaluation is off the step clock but costs wall time (coverage::conditions)."
 //!
 //! [[cost]]
 //! mode = "trace storage"
@@ -43,8 +51,8 @@
 //! ```
 //!
 //! Depth-first exploration of the rewrite tree (stack discipline) with a per-state pipeline and
-//! an equal-leaf merge; the result covers every path up to the bound: O(states) steps, states <=
-//! branching^depth bounded by `max_depth` and `max_breadth`, each state one term simplification,
+//! an equal-leaf merge; the result covers paths until the configured depth, frontier or work
+//! limit. The card counts state pops separately from their callee work: each state one term simplification,
 //! one predicate pass, and one rewrite step; `Counter::RewriteSteps`. A state-set run that explores
 //! every branch also merges each state equal at its depth to a recorded one
 //! (`exploration_merge`), so its states are the distinct states of each depth;

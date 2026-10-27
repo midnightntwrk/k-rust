@@ -187,6 +187,11 @@ enum Atom {
 /// Whether the conjuncts are contradictory by the rules of the module documentation, the domain
 /// kinds of their sorts and the membership predicates read in `definition`.
 #[cfg(test)]
+/// ```toml algorithm-site
+/// id = "backend.confluence.critical_pairs"
+/// role = "part"
+/// sites = ["contradictory", "contradictory_in", "contradictory_without_cases", "memberships", "literal_values", "equalities_with_bounds", "impl Classes", "impl Differences"]
+/// ```
 pub(super) fn contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
     contradictory_in(definition, &memberships(definition), conjuncts)
 }

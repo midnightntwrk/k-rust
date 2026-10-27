@@ -2,6 +2,9 @@
 
 Algorithm cards are the source declarations from which the workspace algorithm graph is generated.
 They live beside the implementation they describe; this document defines their syntax and validation contract.
+The current graph scans Rust source under root `crates/*/src`, not every Cargo workspace member.
+`krs/crates`, `kink/crates` and `k2lean/crates` are outside this scanner and its source-site/type resolution; a card there is not discovered.
+The generated artifacts describe the k-rust implementation in that scope, not complete project-wide algorithm coverage.
 The generated [algorithm map](algorithm-map.md) renders the whole graph in one document and is the starting point for work that spans algorithms.
 
 ## Fences and primary cards
@@ -19,7 +22,7 @@ counters = ["MatchingProblems", "MatchingPairs"]
 
 [[cost]]
 mode = "one matching problem"
-bound = "O(p x a)"
+bound = "O(p x a) decomposition work, plus binding/substitution, structural comparison and instance-normality scan costs"
 ```
 
 Every primary card must contain:
@@ -31,6 +34,10 @@ Every primary card must contain:
 
 The `mode` distinguishes costs of the same algorithm, including fast and slow paths, collection kinds, and retry modes.
 When a bound names a variable, the card must define it in `variable`.
+A cost must identify its work unit: node visits, comparisons, allocations, bytes, or calls to a named procedure.
+A call-count bound must also account for its callees' work; matching, simplification, solver queries and bigint operations are not constant-time steps.
+Costs must distinguish written inputs from growing intermediate terms and expanded output, and state option-dependent work and memo lifetimes.
+A source-card freshness pass validates declarations and generated artifacts; it does not establish these semantic bounds or complete algorithm coverage.
 A card with measurement counters uses `counters = ["CounterVariant", ...]`, with variant names from `Counter::ALL`.
 A card without a dedicated counter must use `counters = []` and state the reason in `no_counter`.
 
@@ -381,7 +388,7 @@ files = [
   "crates/k-rust-backend/src/builtin/string.rs",
 ]
 classification = "responsibility-only"
-reason = "bounded namespace hook implementations dispatched by builtin.rs; they do not share one algorithm identity. The collection hooks (list.rs, map.rs, set.rs) are each a few operations of the persistent tree that holds their arguments' items, backend.term.chunked, and each module head states its hooks' costs in the items n of the collection"
+reason = "namespace hook dispatch and local operations dispatched by builtin.rs; they do not share one algorithm identity. Float root rounding and arbitrary-format canonicalization have their own cards in builtin/float/root.rs and builtin/float/canonical.rs. The collection hooks (list.rs, map.rs, set.rs) are each a few operations of the persistent tree that holds their arguments' items, backend.term.chunked, and each module head states its hooks' costs in the items n of the collection"
 
 [[without_primary_card]]
 files = ["crates/k-rust-backend/src/externalize.rs", "crates/k-rust-backend/src/verify.rs"]
@@ -537,11 +544,6 @@ call = "resolve_condition_conjunctions"
 file = "crates/k-rust/src/kompile/ml_constructs.rs"
 reason = "chooses each conjunction that strictness, heating and cooling added to a condition on the condition after macro expansion; one pass over the sentences that hold a pending conjunction"
 
-[[phase_only_stage]]
-stage = "check matching-logic positions"
-call = "check_ml_positions"
-file = "crates/k-rust/src/definition/checks/ml_positions.rs"
-reason = "judges each matching-logic construct by the context of its position on the sentences with their macros and aliases expanded, for the Rust target; one walk over the sentences of every module, plus a search for a rewrite in the subterm of each application on the part of a rewrite rule its sides share, so a rule body of n nodes whose shared part has depth h costs O(n x h)"
 
 [[phase_only_stage]]
 stage = "lower term conjunctions"

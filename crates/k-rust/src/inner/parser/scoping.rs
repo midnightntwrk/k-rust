@@ -1,3 +1,29 @@
+//! ```toml algorithm
+//! id = "parser.inference.scope_binders"
+//! name = "scope-sensitive alpha-renaming before sort inference and restoration"
+//! sites = ["Grammar::scope_binders", "Grammar::binding", "Grammar::pattern_variables", "Grammar::collect_identities", "Grammar::rename_binders", "Minter::new", "Minter::mint", "Renaming::restore_term", "Renaming::restore_text", "Renaming::restore_error", "forest_texts", "rebuilt"]
+//! variable = "K = distinct (packed node, scope) states visited, summed over input forests; E = their child edges; h = maximum scope length; V = variable/binder identities; R = renamed binders; T = reserved source text bytes; c = fresh-name candidates tried; N = restored tree nodes; B = restored error bytes; l = largest renamed spelling length"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+//! span = "none"
+//! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
+//! produces = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "scoped packed forest" }]
+//! invariant = "A packed node is memoized together with its lexical scope; binders are identified by source span across forest alternatives, fresh spellings occur in no reserved source text, and restoration replaces only minted spellings."
+//! tests = ["crates/k-rust/src/inner/parser/scoping.rs"]
+//!
+//! [[cost]]
+//! mode = "scope analysis and renaming"
+//! bound = "O((K + E) x (h + 1)) scope copying/hashing and environment scans, plus ordered identity-set operations, binding-pattern discovery walks and rebuilding/ordering of changed ambiguities; memoization keys include the scope, so K is not bounded by distinct packed nodes alone. No conflicting binder returns the original forests without minting or rebuilding."
+//!
+//! [[cost]]
+//! mode = "fresh names"
+//! bound = "one forest_texts reservation walk per input forest (shared nodes visited once per forest), then c reservation attempts and checks of each candidate's plain and Debug spellings against source texts, with substring-search and spelling costs charged; source texts total T bytes, and c is not just R"
+//!
+//! [[cost]]
+//! mode = "restoration"
+//! bound = "restore_term visits N tree nodes with an ordered lookup among R renamed names at each variable and copies written spellings; restore_text builds and length-sorts 2R spellings, then tries up to 2R prefixes of length at most l per scanned character, O(B x R x l) prefix work, plus spelling construction and output bytes; text with neither marker returns after the marker searches"
+//! ```
+//!
 //! Scoped binders for sort inference.
 //!
 //! A quantifier `#Exists X . P` or `#Forall X . P` binds the variables of its binder in its body

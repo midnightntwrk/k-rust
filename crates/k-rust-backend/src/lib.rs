@@ -5,6 +5,7 @@ mod collection_role;
 mod instance_normal;
 mod ite;
 pub mod nesting;
+mod observation;
 mod priority_conjunct;
 mod verify;
 

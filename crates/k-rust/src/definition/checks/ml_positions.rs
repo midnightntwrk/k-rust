@@ -1,3 +1,18 @@
+//! ```toml algorithm
+//! id = "definition.checks.ml_positions"
+//! name = "context-sensitive checking of matching-logic construct positions"
+//! sites = ["check_ml_construct_positions", "search_pattern_diagnostics", "equation_diagnostics", "position_diagnostics", "Walk", "holds_rewrite", "bindings", "unequally_bound_result_variables", "conjunction_without_reading"]
+//! variable = "n = sentence term nodes; h = maximum depth of the shared part of a rewrite rule; v = variable identities and binding-set entries processed; d = diagnostics; C = label/catalog comparisons and caller-provided affects_value queries"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+//! span = "none"
+//! tests = ["crates/k-rust/src/definition/checks/ml_positions.rs"]
+//!
+//! [[cost]]
+//! mode = "sentences or search target"
+//! bound = "the context walk and its structural helper walks, including O(n x (h + 1)) rewrite-search visits in a shared rule body, plus ordered binding-set work over v, C, and diagnostic construction/sorting; the caller supplies catalogs and, on expanded/search routes, the value-effect classifier. This is a visit bound, not a constant-byte bound on names or rendered diagnostics"
+//! ```
+//!
 //! This definition check walks module sentences and terms once, and searches the subterm of each application on the part of a rewrite rule its sides share for a rewrite, so a rule body of n nodes whose shared part has depth h costs O(n x h); callers supply derived catalogs and no dedicated counter is recorded.
 //!
 //! Matching-logic constructs at positions that state no meaning k-rust reads, refused at compile

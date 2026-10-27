@@ -583,6 +583,14 @@ fn trusted_claims_are_pinned() {
 /// "Run coverage" and the "State matches" section after "Work budget" add 42 lines between 2279
 /// and 2833, which move the definedness-faithful passage down 42 to 2875-2876, byte-identical:
 /// only its lines, and `TRUSTED_CLAIMS`' citations of them, are re-pinned.
+// WORD-03 also reviews the SMT-03 congruence paragraph: a K valuation extends to the
+// query-local UF interpretation of a pure total context. No constructor injectivity or
+// model exactness follows. The trusted hook/lemma/prelude sentence is unchanged; the old
+// following abstraction sentence is now two sentences. Pin that reviewed three-line passage.
+// The total and coverage passages are byte-identical and moved by the added scalar/map docs.
+// WORD-03: both SMT passages remain byte-identical after domains/literal/helper/word
+// emission changes; their SHA-256 pins are unchanged. Source-derived functions are readings
+// of admitted source equations, not new user smt-lemma assumptions. Re-pin only their lines.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     (
         "docs/compatibility.md",
@@ -634,21 +642,21 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     ),
     (
         "docs/compatibility.md",
-        1641,
-        1651,
+        1658,
+        1668,
         "1c61218ca52c52d4e182fd7c3b475ebd3129ff57d44c41bb280f022eff21fb32",
     ),
     (
         "docs/compatibility.md",
-        2279,
-        2279,
+        2296,
+        2296,
         "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
     ),
     (
         "docs/compatibility.md",
-        2875,
-        2876,
-        "a7acad142464656d166719394614b9f7f621cc98c7470fa539a0e208ebf74c82",
+        2942,
+        2944,
+        "f6903f637e690922ed6a2cd8af2171ab7a1b0c9dfe9315004e6a1fc7955cac9f",
     ),
     (
         "docs/backend-port.md",
@@ -670,14 +678,14 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     ),
     (
         "crates/k-rust-backend/src/smt.rs",
-        207,
-        207,
+        223,
+        223,
         "1caeb7f3044a3c36838e03391db8bd8d4a3d57a57c386b6479dd73af441d909c",
     ),
     (
         "crates/k-rust-backend/src/smt.rs",
-        1214,
-        1225,
+        1520,
+        1531,
         "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
     ),
     (

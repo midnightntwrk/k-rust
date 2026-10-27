@@ -439,6 +439,11 @@ pub(super) fn recording() -> bool {
 /// path and match conditions `knowledge`, when the open collection names the rule: P11 of a rule
 /// attempt calls it where it notes the rule matched (`super::records_conditions` first). The
 /// attempt then reports its verdict ([`verdict`]).
+/// ```toml algorithm-site
+/// id = "backend.rewrite.execute"
+/// role = "part"
+/// sites = ["record", "impl Sink", "impl Evaluation", "exceeds"]
+/// ```
 pub(crate) fn record(
     definition: &BackendDefinition,
     rule: &RewriteRule,

@@ -30,6 +30,11 @@ struct TraceNode {
     parent: Option<Rc<TraceNode>>,
 }
 
+/// ```toml algorithm-site
+/// id = "backend.rewrite.execute"
+/// role = "part"
+/// sites = ["PathTrace", "PathTrace::push", "PathTrace::clear", "PathTrace::last_rewrite", "PathTrace::into_vec", "TraceNode::drop"]
+/// ```
 impl PathTrace {
     /// Append `entry` to this path only; paths sharing the earlier entries do not see it.
     pub(super) fn push(&mut self, entry: TraceEntry) {

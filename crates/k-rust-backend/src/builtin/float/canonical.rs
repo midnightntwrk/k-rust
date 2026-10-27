@@ -1,3 +1,26 @@
+//! ```toml algorithm
+//! id = "backend.float.canonical"
+//! name = "exact Float literal rounding and canonical decimal encoding"
+//! sites = ["canonical_float_text", "float_canonical_bits_estimate", "Literal::parse", "Magnitude::parse", "Other::plan", "Other::remote", "Other::range", "Plan::text", "dyadic", "round", "exact_decimal"]
+//! variable = "B = input bytes; O = output bytes; e = decimal input exponent; q = rounded binary quantum; w = largest bigint operand size in bits; A(w) = cost bound for a bigint arithmetic operation at that size; D(w) = bigint decimal parsing/formatting cost"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+//! span = "none"
+//! tests = ["crates/k-rust-backend/src/builtin/float/canonical/tests.rs"]
+//!
+//! [[cost]]
+//! mode = "binary32 or binary64"
+//! bound = "lexical/suffix parsing plus Rust's correctly rounded native float parser and canonical formatter; input cost depends on B, even though the result format is fixed"
+//!
+//! [[cost]]
+//! mode = "other format admitted by the size estimate"
+//! bound = "O(B + O) text work plus bigint parsing/formatting D(w), estimate/range arithmetic, a constant number of divisions/shifts for rounding, and powers of 5 or 10 requiring O(log(2 + |e|) + log(2 + |q|)) multiplications by exponentiation by squaring, each charged A(w). The estimate bounds the expensive exact significand arithmetic by MAX_FLOAT_CANONICAL_BITS; suffix and exponent fields still require input-sized parsing."
+//!
+//! [[cost]]
+//! mode = "refusal or remote/special literal"
+//! bound = "lexical and suffix/magnitude analysis and Other::plan before expensive exact conversion; zero format fields name no element, fields of one are uncomputed, and a plan beyond MAX_FLOAT_CANONICAL_BITS is refused. The estimator does not perform Plan::text's rounding or decimal expansion"
+//! ```
+//!
 //! The canonical text of a `Float` domain value: one text per value, in every format.
 //!
 //! A Float literal's mantissa and exponent name a rational number, rounded to nearest

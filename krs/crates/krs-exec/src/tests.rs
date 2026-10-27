@@ -404,3 +404,85 @@ fn a_run_is_undefined_only_when_every_leaf_is() {
         "a run must end in exactly one state; the backend returned 2 defined states"
     );
 }
+
+#[test]
+fn proof_reports_keep_empty_success_and_render_its_contradiction_terms_as_kast() {
+    use k_rust::{
+        builtin::embedded,
+        definition::CheckMode,
+        kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+        outer::{LoadOptions, ResolvedSource, load_with_options},
+    };
+    let source = r"
+module EMPTY-EVIDENCE
+  imports INT
+  syntax Int ::= bad(Int) [function, total]
+  configuration <k> $PGM:K </k> <n> 0 </n>
+  rule [bad-equation]: bad(X:Int) => X /Int 0
+endmodule
+module EMPTY-EVIDENCE-SPEC
+  imports EMPTY-EVIDENCE
+  claim [empty]: <k> .K </k> <n> bad(0) => 0 </n>
+endmodule
+";
+    let mut resolver =
+        |_: &str, path: &str| embedded(path).ok_or_else(|| format!("missing builtin {path}"));
+    let loaded = load_with_options(
+        ResolvedSource::new("empty.k", source),
+        "EMPTY-EVIDENCE-SPEC",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            configuration_module: Some("EMPTY-EVIDENCE".into()),
+            ..CompilationBackend::Rust.load_options()
+        },
+    )
+    .unwrap();
+    let compiled = compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend: CompilationBackend::Rust,
+            default_claims_to_all_path: true,
+            check_mode: CheckMode::Proof {
+                definition_module: "EMPTY-EVIDENCE".into(),
+            },
+            ..CompileOptions::default()
+        },
+    )
+    .unwrap();
+    let mut backend = Backend::new(
+        &compiled.definition_kore,
+        "EMPTY-EVIDENCE-SPEC",
+        BackendOptions::default(),
+    )
+    .unwrap();
+    let hooks = result_sort_hooks(&mut backend).unwrap();
+    let claims = vec![super::ClaimInfo {
+        label: "EMPTY-EVIDENCE-SPEC.empty".into(),
+        module: "EMPTY-EVIDENCE-SPEC".into(),
+        modality: super::Modality::AllPath,
+        origin: None,
+        trusted: false,
+        backend_label: "EMPTY-EVIDENCE-SPEC.empty".into(),
+    }];
+    let reports = super::prove_claims(
+        &mut backend,
+        &hooks,
+        &claims,
+        &super::ProveOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(reports[0].verdict, super::Verdict::Proven);
+    assert!(reports[0].trusted_claims.is_empty());
+    assert!(reports[0].leaves[0].vacuous);
+    assert!(!reports[0].leaves[0].certified);
+    let json = serde_json::to_value(&reports[0]).unwrap();
+    assert_eq!(
+        json["leaves"][0]["contradicted_total"]["application"]["format"],
+        "KAST"
+    );
+    assert_eq!(
+        json["leaves"][0]["contradicted_total"]["undefined"]["format"],
+        "KAST"
+    );
+}

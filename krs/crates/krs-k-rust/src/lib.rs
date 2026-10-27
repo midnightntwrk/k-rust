@@ -417,8 +417,9 @@ pub fn compile_definition_with_context_timed(
 
 /// Compile the proof definition of one author spec module (KF-041), as
 /// `kprove --spec-module` reads it: the spec module is the main module, and
-/// the definition's main module is checked as the definition (no claims, and
-/// the spec module adds no syntax beyond tokens).
+/// the definition's main module is checked as the definition. Catalog-derived builtin
+/// dependencies of the selected specification are loaded into that definition context;
+/// authored specification modules still add no semantic rules or syntax beyond tokens.
 ///
 /// # Errors
 ///

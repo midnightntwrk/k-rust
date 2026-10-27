@@ -39,6 +39,126 @@ fn facts(side: &ValidatedDefinition) -> DataFacts {
     DataFacts::of(&loaded_definition(side).unwrap(), &[])
 }
 
+#[cfg(feature = "z3")]
+#[test]
+fn an_admitted_mutant_never_reuses_the_baselines_source_summary() {
+    use k_rust::{
+        backend::{Backend, BackendOptions},
+        builtin,
+        outer::ResolvedSource,
+    };
+    use k_rust_backend::{rule::Predicate, smt::Validity, substitution::Substitution};
+    use kink_patch::Baseline;
+
+    on_a_big_stack(|| {
+        let source = r#"
+            module SUMMARY-MUTANT-SYNTAX
+              imports BOOL-SYNTAX
+              syntax Prog ::= "go"
+              syntax Int ::= bit(Bool) [function, total, symbol(bit)]
+            endmodule
+            module SUMMARY-MUTANT
+              imports SUMMARY-MUTANT-SYNTAX
+              imports INT
+              imports BOOL
+              configuration <k> $PGM:Prog </k>
+              rule [off]: bit(false) => 0
+              rule [on]: bit(true) => 1
+            endmodule
+        "#;
+        let baseline = Baseline::load(
+            ResolvedSource::new("summary-mutant.k", source),
+            "SUMMARY-MUTANT",
+            None,
+            &mut |_: &str, required: &str| {
+                builtin::embedded(required).ok_or_else(|| format!("not embedded: {required}"))
+            },
+            &support::options(),
+        )
+        .unwrap();
+        let validator = NativeValidator::bind(baseline, CompileOptions::default());
+        let compiled = validator.compile_baseline().unwrap();
+        let baseline = validator.baseline();
+        let at = TermRef::new(support::rule(baseline, "SUMMARY-MUTANT.off"), [0, 1]);
+        let expected = baseline.term(&at).unwrap().clone();
+        assert!(matches!(expected.unannotated(), Term::Token { token, .. } if token == "0"));
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            at,
+            expected,
+            replacement: Term::Token {
+                token: "2".into(),
+                sort: Sort::new("Int"),
+            },
+        }])
+        .unwrap();
+        let support = ClaimSupport::new(baseline);
+        let withdrawal = support.withdraw(baseline, &patch).unwrap();
+        let mutant = validator
+            .validate(withdrawal.patch().expect("withdraw edited total"))
+            .unwrap();
+        let effect = support.effect(baseline, &patch).unwrap();
+        admit_mutant(
+            &CompiledEquations::of(&compiled).unwrap(),
+            &facts(&compiled),
+            &mutant,
+            &effect,
+        )
+        .unwrap();
+        assert_ne!(compiled.kore_sha256(), mutant.kore_sha256());
+
+        let query = |side: &ValidatedDefinition| {
+            let mut backend = Backend::new(
+                &side.artifacts().definition_kore,
+                "SUMMARY-MUTANT",
+                BackendOptions::default(),
+            )
+            .unwrap();
+            backend
+                .with_solver(None, |definition, solver| {
+                    let internal = |text| {
+                        definition
+                            .admit_unverified(
+                                &k_rust::kore::parser::parse_pattern(text).unwrap(),
+                                &[],
+                            )
+                            .internalize_term()
+                            .unwrap()
+                    };
+                    let application = internal("Lblbit{}(\\dv{SortBool{}}(\"false\"))");
+                    let zero = internal("\\dv{SortInt{}}(\"0\")");
+                    let answer = solver
+                        .check_predicates(
+                            &[],
+                            &Substitution::new(),
+                            &[Predicate::Equals(application.clone(), zero)],
+                        )
+                        .unwrap()
+                        .unwrap();
+                    let simplified = k_rust_backend::simplify::simplify(
+                        definition,
+                        &application,
+                        k_rust_backend::simplify::SimplificationOptions::default(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                    Ok::<_, k_rust::backend::BackendError>((answer, simplified.term))
+                })
+                .unwrap()
+        };
+        let (original, original_value) = query(&compiled);
+        assert_eq!(original, Validity::Valid);
+        let (changed, changed_value) = query(&mutant);
+        assert_ne!(
+            changed,
+            Validity::Valid,
+            "withdrawn total must reject source-summary admission"
+        );
+        assert_ne!(original_value, changed_value);
+        // Query the baseline again after the mutant, exercising both ownership directions.
+        assert_eq!(query(&compiled).0, Validity::Valid);
+    });
+}
+
 fn nomatch() -> NativeValidator {
     r0c("nomatch")
 }
@@ -269,6 +389,10 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// it) above the passage, which moves down 6 to 2932-2962, byte-identical (`3b520509`): only its
 /// lines are re-pinned.
 ///
+/// Definition-condition equality repair: the internal definedness-error conversion above
+/// the source passage moves its lines. The passage is now 2935-2965 byte-identically;
+/// its digest and kink's conservative condition-equality exclusion stay unchanged.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -293,8 +417,8 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
-        2932,
-        2962,
+        2935,
+        2965,
         "3b5205091a3683ba0d694b1a136cef303abb250984fce1be15d3710769e4ffbe",
     ),
 ];
@@ -414,7 +538,9 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// condition 4), and the contract's `refuted` and `joined` points stated together (models of the
 /// axioms read as true; steps of `R ∪ W` in `M+`); re-pinned by digest of the merged file: ->
 /// `60e618a0`.
-const CONFLUENCE_RS: &str = "60e618a0aa3039ce0c85d09441acb6595c5d4a2d7d1b1bb2efa8208f2257da9d";
+/// Algorithm-card refresh 8ff88a783 adds only the `produces` metadata line naming
+/// `ValueClaims`; removing that line recovers the previous pinned bytes exactly.
+const CONFLUENCE_RS: &str = "7fb6bdb457e5204a9042564844e68384c337f5b8f799e88e4dbc1ee94bb580d5";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

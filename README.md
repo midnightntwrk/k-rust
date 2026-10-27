@@ -475,20 +475,23 @@ module rather than the specification module. `kprove` handles one-path and all-p
 trusted claims, guarded claim circularities,
 branching semantic rules, breadth-first or depth-first traversal, depth bounds, and Z3-backed side
 conditions entirely in process. A specification can `requires` and import its semantics definition
-in the normal K source layout. The reference stuck-state heuristic is enabled by default; pass
-`--disable-stuck-check` to continue rewriting after destination terms match but their side
-conditions do not. When the side conditions, or the equalities that matching the destination term
-leaves (`st(X)` against `st(0)`), hold on part of a state and fail on a non-empty part, the covered
-part is closed and the rest continues rewriting in either mode; if it cannot move, it is a stuck
-leaf that carries the failing condition. When the solver cannot decide them, the state
-continues rewriting and, if it cannot move, ends indeterminate.
+in the normal K source layout.
+A currently false destination condition leaves execution open: the proof continues until it reaches the destination, establishes a terminal refutation, applies a justified circularity, or meets a bound or undecided operation.
+If only part of the current state meets the destination, that part closes and the uncovered part continues.
+The former `--disable-stuck-check` option and `stuckCheck` request field have been removed; ordinary continuation is the single policy.
+
+Claims have weak reachability meaning: guarded circularities may prove a claim about an infinite execution that never reaches its destination.
+A successful proof therefore establishes partial correctness and does not certify termination or finite reachability.
+The API's default circularities are the selected claim and trusted claims; `ProveRequest { circularities: Some(vec![]), .. }` asks for exploration without them.
+The CLI supplies all claims selected for its proof group as mutual guarded circularities; KRS's per-claim proof route uses the API default.
+See [Weak reachability and continuation](docs/compatibility.md#weak-reachability-and-continuation) for the exact distinction and checked countdown/cycle examples.
 `--save-proofs` reuses a proven all-path claim for the same one-path body, but does not reuse a one-path proof for an all-path claim.
 A claim whose left-hand side is a disjunction (`(A #Or B) => C`) holds only if it holds for each disjunct: `kprove` proves and reports each disjunct on its own line, `claim <label> (disjunct <i> of <n>): <verdict>`, selects all of them by the claim's label, and counts and saves the claim as proven only when every disjunct is proven.
 A saved proof is a verdict, so `kprove` saves and reuses only proofs that stand on their own: a claim is saved once every disjunct is proven, under an id that names one claim body (a claim written in KORE with no `UNIQUE'Unds'ID`, or with another claim's label, is proven but never saved or reused), and only from a run in which every claim is proven, saved or trusted, since each claim of a run is a circularity of the others' proofs; otherwise the run's new proofs are not saved, and `kprove` names them.
 A saved proof file carries the format marker `kRustSavedProofsV2` and the SHA-256 digest of what its proofs were made under (`kRustSavedProofsDefinition`).
 The digest covers the compiled definition: every declaration and axiom of the compiled KORE, lemmas of the specification module included, in any order, with their attributes, which name the source file and line of each sentence, so moving a file or a sentence within it gives another digest; it leaves out the claims and the specification module's name, so a claim proven under one specification module is reused under another whose sentences come from the same files at the same positions.
 It covers as well the assumptions of the run that change what a proof certifies: every claim the run trusts (by `[trusted]` or `--trusted`), the text of the `--smt-prelude`, and `--allow-vacuous`; and it names the reading k-rust gives a claim's KORE, so a proof saved by a k-rust that decided a claim's constraints as written, without their definedness, is not reused (docs/compatibility.md, "Undefined instances of the initial configuration").
-The bounds (`--depth`, `--breadth`, `--min-depth`, `--max-counterexamples`, `--max-simplification-iterations`, `--set-step-timeout`, `--moving-average`, the SMT timeout and retry limit), the search order (`--graph-search`) and `--disable-stuck-check` decide only whether a proof is found, and `--claim` and `--exclude` only which claims the run proves, whose proofs a saved file records claim by claim; none of them is bound.
+The bounds (`--depth`, `--breadth`, `--min-depth`, `--max-counterexamples`, `--max-simplification-iterations`, `--set-step-timeout`, `--moving-average`, the SMT timeout and retry limit), the search order (`--graph-search`) decide only whether a proof is found, and `--claim` and `--exclude` only which claims the run proves, whose proofs a saved file records claim by claim; none of them is bound.
 A file made under another digest is not reused, with a warning, and is rewritten. A file in another format (the earlier `kRustModalitySafeProofsV1`, one without a marker, or a later format) is rejected with a message that names it; remove the file and rerun `kprove` to regenerate it.
 
 Each selected claim prints `claim <label>: <verdict>`, followed by its unproven leaves, each as
@@ -513,7 +516,7 @@ detail in words when it has one, then its configuration:
   follows one collection match, and each rewrites to one term over its left-hand side's variables
   (no `?X` and no disjunction).
 - `failed`: the proof stopped at a leaf outside the destination that it did not continue (an
-  uncertified stuck leaf, such as a stuck-check stop or a leaf whose non-emptiness rests on an
+  uncertified stuck leaf, such as a leaf whose non-emptiness rests on an
   abstracted SMT query), or at an empty leaf that the vacuity policy rejects (`trivial`, `vacuous`).
   It does not show the claim false. A `trivial` leaf holds the instances whose step is undefined: a
   rule applies to them, but its result is empty there (a refuted or undecided `ensures`, or an

@@ -77,6 +77,11 @@ pub(super) enum Lookup {
     Miss(Canonical),
 }
 
+/// ```toml algorithm-site
+/// id = "backend.confluence.critical_pairs"
+/// role = "part"
+/// sites = ["Memo", "Canonical", "impl Memo", "impl Canonical", "first_occurrences", "rename"]
+/// ```
 impl Memo {
     pub(super) fn lookup(&self, predicate: &Predicate) -> Lookup {
         let canonical = Canonical::of(predicate);

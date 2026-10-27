@@ -24,6 +24,10 @@ KRust.SubsortEncoding.new_equiv
 KRust.SubsortEncoding.not_holds_false
 KRust.SubsortEncoding.old_holds
 KRust.SubsortEncoding.upset_code_iff
+KRust.SubstitutionSaturation.replay_eq
+KRust.SubstitutionSaturation.restore_eq
+KRust.SubstitutionSaturation.saturation_eq
+KRust.SubstitutionSaturation.sweep_eq
 KRust.SynthAttr.any_iff_foldr
 KRust.SynthAttr.fold_rel
 KRust.SynthAttr.foldr_satAdd

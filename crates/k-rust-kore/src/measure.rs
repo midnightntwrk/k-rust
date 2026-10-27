@@ -298,6 +298,24 @@ algorithms! {
     KorePatternSource => "kore.pattern.source",
     /// KORE JSON encoding from a pattern source.
     KoreJsonEncodeSource => "kore.json.encode_source",
+    /// Memoized sufficient test of instance normality by equation exclusion.
+    BackendInstanceNormal => "backend.normality.scan",
+    /// Reuse of a rule refutation on subjects with the same observed regions.
+    BackendRewriteRefutationMemo => "backend.rewrite.refutation_memo",
+    /// Full confluence analysis and data-head classification.
+    BackendDataHeads => "backend.data.heads",
+    /// Ground data-term classification with instance-normal evidence.
+    BackendDataTerm => "backend.data.term",
+    /// Bounded ground search for two different results of a critical pair.
+    BackendDataGroundInstance => "backend.data.ground_instance",
+    /// Correctly rounded IEEE rootn by adaptive logarithm comparisons.
+    BackendFloatRoot => "backend.float.root",
+    /// Exact Float literal rounding and canonical decimal output.
+    BackendFloatCanonical => "backend.float.canonical",
+    /// Scope-sensitive alpha-renaming before sort inference and restoration.
+    ParserInferenceScopeBinders => "parser.inference.scope_binders",
+    /// Context-sensitive checking of matching-logic construct positions.
+    DefinitionCheckMlPositions => "definition.checks.ml_positions",
 }
 
 /// An entered tracing span for one algorithm invocation.

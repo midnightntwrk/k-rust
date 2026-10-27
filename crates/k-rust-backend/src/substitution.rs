@@ -9,7 +9,7 @@
 //!
 //! [[cost]]
 //! mode = "one term"
-//! bound = "O(t x v log s), with O(1) skipping of variable-free subterms"
+//! bound = "per entered subterm, the variable-set meet test probes the smaller of its variables and the s substitution keys in the larger ordered set, at most O(min(v, s) x log(v + s + 1)) variable comparisons; plus variable binding lookups, the visited term nodes and reconstruction/attribute costs. Variable-free subtrees skip in O(1); collection traversal/rebuild work is stated separately below. This is not a bound linear in written term size alone."
 //!
 //! [[cost]]
 //! mode = "the items of a map, set or list of n items (rebuild_where, map_where)"
@@ -23,26 +23,30 @@
 //! ```toml algorithm
 //! id = "backend.substitution.extract"
 //! name = "substitution extraction with strongly connected component cycle breaking"
-//! sites = ["extract_substitution_with", "extract_substitution", "extract_substitution_for"]
-//! variable = "r = cycles broken; V and E = dependency-graph vertices and edges; s = binding count; t = term size"
+//! sites = ["extract_substitution_with", "extract_substitution", "extract_substitution_for", "saturate_with"]
+//! variable = "c = input constraints; r = graph-build/SCC rounds, including the final acyclic round; V = candidate bindings before cycle removal; A = variable references in candidate values, including references to unbound variables; E = dependency edges, at most A; s = surviving bindings; t = largest intermediate term size; v = largest visited subterm variable count"
 //! counters = []
 //! no_counter = "substitution extraction has no dedicated counter"
 //! span = "per call"
 //! produces = [{ type = "k_rust_backend::substitution::Substitution", role = "extracted substitution" }]
+//! invariant = "During saturation, the round snapshot is restored before each binding; the callback sees exactly the previous round with its own key removed. SCC acyclicity is needed for convergence, not for remove/restore equivalence."
+//! tests = ["crates/k-rust-backend/src/substitution/saturation_tests.rs", "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"]
+//! lean = ["KRust.SubstitutionSaturation.sweep_eq", "KRust.SubstitutionSaturation.saturation_eq", "KRust.SubstitutionSaturation.replay_eq"]
 //!
 //! [[cost]]
 //! mode = "cycle breaking"
-//! bound = "O(r x (V + E))"
+//! bound = "empty constraints return in O(1); otherwise classify c constraints into ordered binding buckets, charging the binding extractor's term/injection/sort work; then r graph rounds, at most V + 1. Each round builds ordered candidate indexes and checks A value-variable references, O((V + A) log(V + 1)) key comparisons, runs Kosaraju in O(V + E), and removes the least variable of each cyclic SCC with ordered-set operations. r includes a graph build even when no cycle is broken."
 //!
 //! [[cost]]
 //! mode = "saturation"
-//! bound = "O(s^2 x (s + t))"
+//! bound = "at most s rounds of s substitutions at the current intermediate size, each charged backend.substitution.apply, plus O(s^2) binding/term-handle copies from one snapshot clone per round and restoring each removed key, O(s^2 log(s + 1)) key comparisons for removals/restorations, and structural equality when checking convergence; filter c remaining constraints through the selected-index set afterwards. t can exceed input term size."
 //! ```
 //!
-//! Simultaneous substitution with attribute-guided skipping, O(t) per term with O(1) skip of
-//! variable-free subterms, and substitution extraction by Kosaraju SCC cycle breaking (petgraph,
-//! the least variable of each cycle kept as an equality), O(r x (V + E)) for r cycles broken,
-//! then saturation bounded by the binding count, O(s^2 x (s + t)); no counter of its own,
+//! Simultaneous substitution with attribute-guided skipping and ordered variable lookups, with
+//! O(1) skipping of variable-free subterms. Extraction rebuilds the dependency graph and uses
+//! Kosaraju SCC cycle breaking (petgraph), retaining the least variable of each cycle as an
+//! equality, then saturates within the binding count; the cards charge graph construction,
+//! one map copy per round, removal/restoration and substitutions at intermediate sizes. No counter of its own,
 //! `Counter::TermConstructed` indirectly.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -264,20 +268,8 @@ fn extract_substitution_with(
         .iter()
         .map(|(variable, (_, value))| (variable.clone(), value.clone()))
         .collect::<Substitution>();
-    // The candidate graph is acyclic after the loop above, so saturation converges within
-    // `substitution.len()` rounds; the `break` fires as soon as a round changes nothing.
-    // Invariant: after round i, no value contains a bound variable at dependency distance <= i.
-    for _ in 0..substitution.len() {
-        let previous = substitution.clone();
-        for (variable, value) in &previous {
-            let mut others = previous.clone();
-            others.remove(variable);
-            substitution.insert(variable.clone(), substitute(value, &others));
-        }
-        if substitution == previous {
-            break;
-        }
-    }
+    // SCC breaking above makes the candidates acyclic, so the bounded saturation converges.
+    saturate_with(&mut substitution, substitute);
 
     let selected = candidates
         .values()
@@ -290,6 +282,33 @@ fn extract_substitution_with(
         .map(|(_, predicate)| predicate.clone())
         .collect();
     (substitution, remaining)
+}
+
+/// Saturate with simultaneous rounds, preserving the previous round's bindings at every call.
+///
+/// Removing and then restoring one entry gives `apply` exactly the map that clone-and-remove
+/// gave it, with one map clone per round. This is valid for any callback result; the optimization
+/// does not rely on SCC acyclicity. The caller's acyclicity establishes saturation's convergence.
+/// `KRust.SubstitutionSaturation.saturation_eq` proves the complete call schedule and result.
+pub(crate) fn saturate_with(
+    substitution: &mut Substitution,
+    mut apply: impl FnMut(&Term, &Substitution) -> Term,
+) {
+    for _ in 0..substitution.len() {
+        let mut previous = substitution.clone();
+        // Invariant: previous is the unchanged round snapshot at each iteration boundary.
+        // Both maps retain the same keys, in the same order, throughout this round.
+        for (variable, value) in substitution.iter_mut() {
+            let old_value = previous
+                .remove(variable)
+                .expect("the round snapshot has every substitution key");
+            *value = apply(&old_value, &previous);
+            previous.insert(variable.clone(), old_value);
+        }
+        if *substitution == previous {
+            break;
+        }
+    }
 }
 
 /// Extract substitutions whose keys are restricted to `bindable` variables.
@@ -795,3 +814,6 @@ mod tests {
         assert_eq!(remaining, constraints);
     }
 }
+
+#[cfg(test)]
+pub(crate) mod saturation_tests;

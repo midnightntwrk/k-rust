@@ -228,6 +228,9 @@ impl ConsoleReach {
         let theories = [
             definition.function_theory(),
             definition.simplification_theory(),
+            // A partial function's existence can itself demand an effect through its
+            // domain equations. Pure value/domain readings must exclude that dependency.
+            definition.ceil_theory(),
         ];
         for (index, groups) in theories.into_iter().flatten() {
             for rule in groups.values().flatten() {
@@ -294,6 +297,83 @@ impl ConsoleReach {
     pub(crate) fn symbol_names(&self) -> Option<std::collections::BTreeSet<String>> {
         (!self.unindexed).then(|| self.symbols.iter().map(|name| name.to_string()).collect())
     }
+}
+
+/// Whether every distinct node denotes at most one value and cannot perform an effect.
+/// Unlike a tree walk, this visits a shared operand DAG once. Partial functions are admitted:
+/// the consuming hook retains their definedness through its original strict arguments.
+///
+/// ```toml algorithm-site
+/// id = "backend.simplify.term"
+/// role = "part"
+/// sites = ["pure_functional_term"]
+/// ```
+pub(crate) fn pure_functional_term(definition: &BackendDefinition, term: &Term) -> bool {
+    let reach = definition.console_reach();
+    if reach.unindexed {
+        return false;
+    }
+    let mut seen = rustc_hash::FxHashSet::default();
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if !seen.insert(term.clone()) {
+            continue;
+        }
+        if !crate::rewrite::functional_pattern_node(term) {
+            return false;
+        }
+        if let TermKind::Application { symbol, .. } = term.kind()
+            && (symbol.attributes.binder
+                || symbol.attributes.macro_or_alias
+                || reach.may_reach(symbol))
+        {
+            return false;
+        }
+        pending.extend(children(term));
+    }
+    true
+}
+
+/// Whether every root is a functional pattern without console effects, with the same
+/// eligibility as `is_functional_pattern(root) && !holds_console_effect(definition, root)`.
+/// Literal candidates use this at application time, where stops can propagate. The visited
+/// set spans all roots, so shared subterms and shared remainder subjects are scanned once.
+/// Unlike `pure_functional_term`, this does not add binder or macro/alias exclusions.
+///
+/// ```toml algorithm-site
+/// id = "backend.simplify.term"
+/// role = "part"
+/// sites = ["functional_without_console_effects"]
+/// ```
+pub(crate) fn functional_without_console_effects<'a>(
+    definition: &BackendDefinition,
+    roots: impl IntoIterator<Item = &'a Term>,
+) -> Stoppable<bool> {
+    let reach = definition.console_reach();
+    if reach.unindexed {
+        return Ok(false);
+    }
+    let mut seen = rustc_hash::FxHashSet::default();
+    let mut pending: Vec<_> = roots.into_iter().collect();
+    while let Some(term) = pending.pop() {
+        if !seen.insert(term) {
+            continue;
+        }
+        crate::stop::check()?;
+        if !crate::rewrite::functional_pattern_node(term) {
+            return Ok(false);
+        }
+        // Constructor-likeness is hereditary; the old effect scan skips these subtrees.
+        // Functionality still has to be checked, including element versus set variables.
+        if !term.attributes().constructor_like
+            && let TermKind::Application { symbol, .. } = term.kind()
+            && reach.may_reach(symbol)
+        {
+            return Ok(false);
+        }
+        pending.extend(children(term));
+    }
+    Ok(true)
 }
 
 /// Whether `term` holds an application that may perform a console effect when it is
@@ -1221,7 +1301,7 @@ fn ceil_equation_decision(
     let (rule, instances) = equation_instances(definition, rule, term, &[]);
     let instances = match instances {
         EquationInstances::NotMatched(_) => return Ok(None),
-        EquationInstances::Undecided => {
+        EquationInstances::Undecided | EquationInstances::LiteralCandidate(_) => {
             // The matching is undecided: the equation competed here (`crate::coverage`).
             crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(None);
@@ -1445,7 +1525,7 @@ fn select_single_step(
             let (renamed, instances) = equation_instances(definition, rule, term, &[]);
             match instances {
                 EquationInstances::NotMatched(_) => {}
-                EquationInstances::Undecided => {
+                EquationInstances::Undecided | EquationInstances::LiteralCandidate(_) => {
                     // An undecided matching counts as a match of its left-hand side.
                     crate::coverage::note_offered(&rule.attributes.unique_id);
                     return Ok(None);

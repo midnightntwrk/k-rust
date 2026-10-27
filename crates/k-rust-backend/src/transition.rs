@@ -235,6 +235,11 @@ pub(crate) struct ConsoleFingerprint {
     digest: RunningDigest,
 }
 
+/// ```toml algorithm-site
+/// id = "backend.rewrite.execute"
+/// role = "part"
+/// sites = ["ExecutionIoState", "EffectJournal", "SharedLog", "RunningDigest", "ExecutionIoState::new", "ExecutionIoState::observable", "ExecutionIoState::observable_fingerprint", "ExecutionIoState::observed_alike", "ExecutionIoState::append", "EffectJournal::commit", "EffectJournal::into_committed", "EffectJournal::fingerprint", "EffectJournal::eq", "SharedLog::clone", "SharedLog::push", "SharedLog::to_vec", "SharedLog::into_vec", "SharedLog::eq", "LogNode::drop", "RunningDigest::fold", "RunningDigest::fold_marker", "RunningDigest::fold_bytes", "RunningDigest::fold_effect", "PatternDigest::of"]
+/// ```
 impl ExecutionIoState {
     pub fn new(input: impl Into<Arc<[u8]>>) -> Self {
         Self {

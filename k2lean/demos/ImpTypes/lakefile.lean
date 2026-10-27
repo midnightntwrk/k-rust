@@ -7,8 +7,8 @@ package «ImpTypes» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
 require KPrelude from "../../lean/prelude"
-require «KImp» from "../../generated/kimp-ps"
-require «KImpTypes» from "../../generated/imptypes-ps"
+require «KImp» from "../../generated/kimp"
+require «KImpTypes» from "../../generated/imptypes"
 
 @[default_target]
 lean_lib ImpTypes

@@ -309,6 +309,10 @@ impl Display for AtSort<'_, ProofIndeterminateReason> {
 impl Display for SimplificationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnstatedDefinedness { reason } => write!(
+                formatter,
+                "condition has no faithful definedness form: {reason}"
+            ),
             Self::Builtin(error) => write!(formatter, "{error}"),
             Self::DisjunctiveResult {
                 rule_id,
@@ -366,6 +370,7 @@ impl Display for AtSort<'_, SimplificationError> {
                 pretty_predicate(predicate, self.sort)
             ),
             SimplificationError::Builtin(_)
+            | SimplificationError::UnstatedDefinedness { .. }
             | SimplificationError::DisjunctiveResult { .. }
             | SimplificationError::Smt { .. }
             | SimplificationError::InvalidBuiltinResultSymbol { .. } => {

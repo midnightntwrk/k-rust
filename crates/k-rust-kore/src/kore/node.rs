@@ -2,14 +2,14 @@
 //! id = "kore.pattern.source"
 //! name = "node-at-a-time reading of KORE patterns: order, flattening, and materialization"
 //! sites = ["PatternNode::split", "PatternNode::fill", "PatternNode::into_pattern", "PatternNode::discriminant", "PatternNode::compare_scalars", "compare", "flatten_at", "materialize"]
-//! variable = "p = pattern nodes the operation reaches"
+//! variable = "p = pattern nodes the operation reaches; C = work of scalar field comparison/cloning, including sort nodes and string/name bytes; F = cost of acquiring those PatternSource nodes, including source-handle cloning"
 //! counters = []
 //! no_counter = "reading a pattern source has no dedicated counter"
 //! span = "none"
 //!
 //! [[cost]]
 //! mode = "one comparison, flattening, or materialization"
-//! bound = "O(p)"
+//! bound = "O(p) pattern-node operations plus C and F; comparison stops at its first differing scalar or child, flattening reads the connective spine and each returned operand root without traversing other descendants, and materialization owns the expanded scalar fields. Pattern-node count alone does not bound payload bytes or sort-tree size."
 //! ```
 //!
 //! A [`PatternSource`] yields a pattern one node at a time: [`PatternSource::node`] returns the

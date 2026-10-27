@@ -1,3 +1,25 @@
+//! ```toml algorithm
+//! id = "backend.normality.scan"
+//! name = "memoized instance-normality scan by conservative equation exclusion"
+//! sites = ["BackendDefinition::instance_normal", "BackendDefinition::instance_normal_memoized", "BackendDefinition::instance_normal_uncached", "BackendDefinition::excluded", "BackendDefinition::matching_refutes", "with_scan_memo", "ScanScope", "may_unify", "SyntacticUnifier"]
+//! variable = "D = distinct terms completed in one outer scan memo; E = immediate-child edges visited; Q = candidate equations examined; P = syntactic unifier pairs popped; B = variable-binding links followed by resolve and occurs, counting repeated visits; V = variable references inspected by occurs; C = structural equality, sort, root-classification and variable-set comparison work"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+//! span = "none"
+//! invariant = "A token is returned only after the term's shape, its immediate subterms, admitted value claims and complete candidate-equation exclusion justify instance normality; a refusal proves no non-normality. Nested scans share only the current outer scope's memo."
+//! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }, { type = "k_rust_backend::confluence::ValueClaims", role = "checked value claims" }]
+//! produces = [{ type = "k_rust_backend::instance_normal::token::InstanceNormal", role = "instance-normal evidence" }]
+//! tests = ["crates/k-rust-backend/src/instance_normal.rs"]
+//!
+//! [[cost]]
+//! mode = "one outer scan or with_scan_memo scope"
+//! bound = "O(D + E + Q + P + B + V) expected hash-table operations, plus C and the cost of each nested equation match that matching_refutes asks; a memo hit avoids deciding that term again. The memo is cleared when the outermost scope exits; separate scopes can repeat the scan."
+//!
+//! [[cost]]
+//! mode = "equation exclusion"
+//! bound = "one syntactic unifiability test per candidate, then at most one Evaluate-mode match when syntactic unifiability remains possible and the variable sets are disjoint; the test follows bindings without path compression and its occurs walk can revisit a dependency, so B and V are traversal counts, not distinct-variable counts"
+//! ```
+//!
 //! Instance normality: whether every instance of a term is a normal form of the equations.
 //!
 //! A production with `anywhere` equations (an anywhere rule or an overload equation) is not a

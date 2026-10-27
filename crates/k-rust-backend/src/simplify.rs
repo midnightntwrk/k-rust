@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts"]
+//! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts", "literal_candidate", "apply_literal_equation_instance", "classify_equation_instance", "apply_prepared_equation_instance"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node; n = items of a collection; u = items of a collection the summaries admit"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
@@ -14,6 +14,14 @@
 //! [[cost]]
 //! mode = "the items of a map, set or list of n items (simplify_children)"
 //! bound = "O(u log n) nodes for the u items that are not evaluated or mention a variable the path condition binds, found by the items' summaries; every item when the path condition replaces terms, which no summary locates"
+//!
+//! [[cost]]
+//! mode = "selected symbolic primitive identity after concrete evaluation declines"
+//! bound = "constant root/rank checks and at most two scans of the k explicit key facts for a map law, then one memoized iterative walk of the distinct operand DAG nodes for functional purity; no solver calls. Every reduction removes an operation. Reducing a chain of n writes can scan O(n squared) nodes across its reductions; strict argument obligations use the existing hook_argument_definedness path."
+//!
+//! [[cost]]
+//! mode = "literal equation candidate"
+//! bound = "matching records forced literal equalities without scanning their subjects; only term-equation application checks functionality and effects, in one iterative memoized walk of the distinct nodes and edges across all candidate subjects, polling cancellation/deadlines once per distinct node. No solver call is needed for eligibility; deciding the equalities uses the ordinary condition path."
 //!
 //! [[cost]]
 //! mode = "rule condition"
@@ -96,7 +104,7 @@ use crate::{
     },
     condition::{
         Condition, Conjunct, ConsumedDefinedness, DecidedEquation, DeferredVariables,
-        EquationInstance, InstantiatedCondition, MatchedEquation,
+        EquationInstance, InstantiatedCondition, MatchSolution, MatchedEquation,
     },
     deferred::{
         DeferredDecision, DeferredOutcome, Folded, ShortCircuit, bool_literal,
@@ -322,6 +330,10 @@ pub(crate) struct PatternSimplification {
 /// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SimplificationError {
+    /// The condition cannot be stated faithfully for simplification or solver decisions.
+    UnstatedDefinedness {
+        reason: String,
+    },
     Builtin(BuiltinError),
     DisjunctiveResult {
         rule_id: String,
@@ -1705,6 +1717,7 @@ fn record_rule_condition_failure(rule: &RuleAttributes, failure: SimplificationE
         failure @ (SimplificationError::Smt { .. }
         | SimplificationError::SmtPredicate { .. }
         | SimplificationError::Builtin(..)
+        | SimplificationError::UnstatedDefinedness { .. }
         | SimplificationError::DisjunctiveResult { .. }
         | SimplificationError::InvalidBuiltinResultSymbol { .. }) => {
             diagnostic::emit(BackendDiagnostic::RuleConditionFailed {
@@ -3091,7 +3104,7 @@ fn apply_ceil_equation(
     let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
     let instances = match instances {
         EquationInstances::NotMatched(_) => return Ok(EquationAttempt::NotApplicable(())),
-        EquationInstances::Undecided => {
+        EquationInstances::Undecided | EquationInstances::LiteralCandidate(_) => {
             // The matching is undecided: the equation competed here (`crate::coverage`).
             crate::coverage::note_offered(&rule.attributes.unique_id);
             return Ok(EquationAttempt::Indeterminate(
@@ -5589,7 +5602,7 @@ fn matches_top_equation(
             let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
             let instances = match instances {
                 EquationInstances::NotMatched(_) => continue,
-                EquationInstances::Undecided => {
+                EquationInstances::Undecided | EquationInstances::LiteralCandidate(_) => {
                     // The matching is undecided: the lemma competed here (`crate::coverage`).
                     crate::coverage::note_offered(&rule.attributes.unique_id);
                     continue;
@@ -5936,7 +5949,20 @@ fn simplify_other_children(
                     accumulated.top_equation(rule_id, obligations);
                     retained
                 }
-                None => Term::and(child(left)?, child(right)?),
+                None => {
+                    // Matching-logic intersection is idempotent. Normalize both operands
+                    // first: their evaluation and accumulated definedness obligations must
+                    // survive even when the resulting patterns coincide (as for an alias
+                    // substituted with the very literal it matches).
+                    let left = child(left)?;
+                    let right = child(right)?;
+                    if left == right {
+                        children_unchanged.set(false);
+                        left
+                    } else {
+                        Term::and(left, right)
+                    }
+                }
             }
         }
         // `KEQUAL.ite`, `BOOL.andThen` and `BOOL.orElse`: the deciding operand first, then only
@@ -6316,6 +6342,13 @@ fn simplify_root(
         None => evaluate_builtin(term, definition),
     }?
     .map_err(SimplificationError::Builtin)?;
+    // Concrete domain/resource decisions take precedence. These symbolic identities use the
+    // same hook result path, including the definedness of every original strict argument.
+    let builtin = if builtin == BuiltinResult::NotApplicable {
+        crate::builtin::reduce_symbolic(definition, term, known_predicates)
+    } else {
+        builtin
+    };
     // Outside an execution the entry leaves a value the definition leaves to the
     // implementation unevaluated, as `Unsupported`, so that no normal-form certificate is
     // recorded for it below (`builtin::evaluate_declared`).
@@ -8006,29 +8039,20 @@ fn apply_equation(
     }
     let instances = match instances {
         EquationInstances::NotMatched(failed) => return Ok(EquationAttempt::NotApplicable(failed)),
+        EquationInstances::LiteralCandidate(literal) => {
+            return apply_literal_equation_instance(
+                definition,
+                &rule,
+                term,
+                literal,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+                set_aside,
+            );
+        }
         EquationInstances::Undecided => {
-            // Where a lower function group follows, an equation whose matching is undecided
-            // only at literals facing subject terms is refuted when the path condition refutes
-            // those equalities with its `requires` (`literal_instance`). Otherwise it is
-            // undecided as before, the held and the undecided case alike: neither may let a
-            // lower group apply.
-            if set_aside == SetAsideRequires::Decide
-                && let Some((substitution, equalities)) = literal_instance(definition, &rule, term)
-                && let EquationAttempt::ContextDependent =
-                    decide_unused_instance::<Simplification, MatchFailed>(
-                        definition,
-                        &rule,
-                        term,
-                        substitution,
-                        equalities,
-                        known_predicates,
-                        options,
-                        active_conditions,
-                        solver,
-                    )?
-            {
-                return Ok(EquationAttempt::ContextDependent);
-            }
             return Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate,
             ));
@@ -8083,7 +8107,7 @@ fn apply_equation(
     })
 }
 
-/// The instance of `rule` at `term` when matching its left-hand side left undecided only pairs of
+/// A candidate instance when matching the left-hand side left undecided only pairs of
 /// a literal of the pattern and a subject term of the literal's sort (`decode(118)` against
 /// `decode(Op)`), with every binding forced: its substitution, and the equalities of those
 /// subject terms with their literals.
@@ -8091,55 +8115,133 @@ fn apply_equation(
 /// The left-hand side denotes, under the substitution, the subject exactly where each such
 /// subject term equals its literal: every other pair was decided by bindings that are forced,
 /// and a literal denotes one value, which a subject term matches exactly where it has that
-/// value. An equality `t = v` with a value `v` is false where `t` is undefined, so the equalities
-/// state the subject terms' definedness as well, and are exact for a pure subject term of any
-/// kind. Such an instance is read as a conditional instance ([`Instance::Conditional`]) is, with
-/// subject terms in place of subject variables. `None` for any other undecided matching.
-fn literal_instance(
-    definition: &BackendDefinition,
+/// value, provided each subject is functional and has no console effects. That eligibility
+/// is checked only by term-equation application, with a stoppable DAG walk, before the
+/// equalities can be used. Other equation consumers keep this candidate undecided without
+/// scanning the subjects. `None` for any other undecided matching.
+fn literal_candidate(
     rule: &RewriteRule,
-    term: &Term,
-) -> Option<(Substitution, Vec<Predicate>)> {
-    let (matched, bindings) = match_equation_in_definition(
-        definition,
-        &rule.lhs,
-        term,
-        &rule.computed_attributes.unread_map_frames,
-    );
-    let MatchResult::Indeterminate {
-        substitution,
-        remainder,
-    } = matched
-    else {
-        return None;
-    };
+    bindings: Bindings,
+    substitution: &Substitution,
+    remainder: &[(Term, Term)],
+) -> Option<MatchSolution> {
     let lhs_variables = &rule.lhs.attributes().variables;
     if bindings != Bindings::Forced
         || substitution
             .keys()
             .any(|variable| !lhs_variables.contains(variable))
-        || binds_element_variable_to_set_pattern(&substitution)
+        || binds_element_variable_to_set_pattern(substitution)
     {
         return None;
     }
     let equalities = remainder
-        .into_iter()
+        .iter()
         .map(|(pattern, subject)| {
             let TermKind::DomainValue { sort, .. } = pattern.kind() else {
                 return None;
             };
-            // A constraint never holds an impure application (`crate::deferred`).
-            let comparable = match subject.kind() {
-                TermKind::Variable(variable) => variable.kind == VariableKind::Element,
-                TermKind::Application { .. } => {
-                    crate::deferred::impure_outcome(definition, &subject).is_none()
-                }
-                _ => false,
-            };
-            (comparable && subject.sort() == *sort).then(|| Predicate::Equals(subject, pattern))
+            let comparable = matches!(
+                subject.kind(),
+                TermKind::Variable(_) | TermKind::Application { .. }
+            );
+            (comparable && subject.sort() == *sort)
+                .then(|| Predicate::Equals(subject.clone(), pattern.clone()))
         })
         .collect::<Option<Vec<_>>>()?;
-    (!equalities.is_empty()).then_some((substitution, equalities))
+    (!equalities.is_empty()).then(|| MatchSolution::from_parts(substitution.clone(), equalities))
+}
+
+/// A forced literal remainder is an applicability condition, never a fact to assume or an
+/// open result constraint. Only a fully established augmented condition admits the equation.
+#[allow(clippy::too_many_arguments)]
+fn apply_literal_equation_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    literal: MatchSolution,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    set_aside: SetAsideRequires,
+) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
+    let (substitution, equalities) = literal.into_parts();
+    let subjects = equalities.iter().map(|equality| {
+        let Predicate::Equals(subject, _) = equality else {
+            unreachable!("literal candidates contain only equalities");
+        };
+        subject
+    });
+    if !crate::deferred::functional_without_console_effects(definition, subjects)? {
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::ImplicationIndeterminate,
+        ));
+    }
+    // SMT-hook heads already have a solver reading. Contextual equation rewrites of
+    // those heads can erase Boolean guard terms still needed by surrounding
+    // definedness checks. Preserve their previous refutation-only path; this recovery
+    // adds the missing table behavior of heads without a theory-operation mapping.
+    if matches!(term.kind(), TermKind::Application { symbol, .. }
+        if matches!(symbol.attributes.smt, Some(crate::smt::SmtType::Hook(_))))
+    {
+        if set_aside == SetAsideRequires::Decide
+            && let EquationAttempt::ContextDependent =
+                decide_unused_instance::<Simplification, MatchFailed>(
+                    definition,
+                    rule,
+                    term,
+                    substitution,
+                    equalities,
+                    known_predicates,
+                    options,
+                    active_conditions,
+                    solver,
+                )?
+        {
+            return Ok(EquationAttempt::ContextDependent);
+        }
+        return Ok(EquationAttempt::Indeterminate(
+            ConditionIndeterminacy::ImplicationIndeterminate,
+        ));
+    }
+    match classify_equation_instance(rule, term, substitution, Bindings::Forced) {
+        Instance::Usable(substitution) => {
+            let condition = Condition::new(
+                equalities
+                    .into_iter()
+                    .chain(rule.requires.iter().cloned())
+                    .collect(),
+            );
+            let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
+                .map_err(SimplificationError::from)?;
+            let instance = EquationInstance::new(definition, &condition, substitution, consumed)
+                .map_err(SimplificationError::from)?;
+            apply_prepared_equation_instance(
+                definition,
+                rule,
+                term,
+                instance,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )
+        }
+        Instance::SetAside(substitution) if set_aside == SetAsideRequires::Decide => {
+            decide_unused_instance(
+                definition,
+                rule,
+                term,
+                substitution,
+                equalities,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )
+        }
+        instance => instance.attempt(|_| unreachable!("usable literal instance handled above")),
+    }
 }
 
 /// The instance of `rule` under the bindings of `substitution` to its left-hand side's
@@ -8241,6 +8343,10 @@ pub(crate) enum EquationInstances {
     /// only suffices ([`Bindings::Sufficient`]), the decided instances come first and the last
     /// one is [`Instance::Undecided`].
     Matched(Vec<Instance>),
+    /// Matching is undecided only at forced literal pairs. Functionality and absence of
+    /// console effects are not checked yet: only term-equation application scans these
+    /// subjects and may establish their equalities. All other consumers keep this undecided.
+    LiteralCandidate(MatchSolution),
 }
 
 /// One matching of an equation's left-hand side against a subject, as the checks every use of
@@ -8349,26 +8455,35 @@ pub(crate) fn equation_instances<'r>(
         MatchResult::Indeterminate {
             substitution,
             remainder,
-        } => match match_collection_remainders_all_in_definition(
-            MatchMode::Evaluate,
-            definition,
-            substitution,
-            &remainder,
-            // Each decided matching is an instance of the equation by itself.
-            DecidedSolutions::Keep,
-        ) {
-            CollectionMatches::Solutions(solutions) => solutions,
-            CollectionMatches::NoSolution(failed) => {
-                return (rule, EquationInstances::NotMatched(failed));
+        } => {
+            let literal = literal_candidate(&rule, bindings, &substitution, &remainder);
+            match match_collection_remainders_all_in_definition(
+                MatchMode::Evaluate,
+                definition,
+                substitution,
+                &remainder,
+                // Each decided matching is an instance of the equation by itself.
+                DecidedSolutions::Keep,
+            ) {
+                CollectionMatches::Solutions(solutions) => solutions,
+                CollectionMatches::NoSolution(failed) => {
+                    return (rule, EquationInstances::NotMatched(failed));
+                }
+                CollectionMatches::Undecided(solutions) if solutions.is_empty() => {
+                    return (
+                        rule,
+                        literal.map_or(
+                            EquationInstances::Undecided,
+                            EquationInstances::LiteralCandidate,
+                        ),
+                    );
+                }
+                CollectionMatches::Undecided(solutions) => {
+                    undecided = true;
+                    solutions
+                }
             }
-            CollectionMatches::Undecided(solutions) if solutions.is_empty() => {
-                return (rule, EquationInstances::Undecided);
-            }
-            CollectionMatches::Undecided(solutions) => {
-                undecided = true;
-                solutions
-            }
-        },
+        }
         MatchResult::Success(substitution) => vec![(substitution, bindings)],
     };
     let undecided = undecided
@@ -8378,39 +8493,47 @@ pub(crate) fn equation_instances<'r>(
     let instances = substitutions
         .into_iter()
         .map(|(substitution, collection_bindings)| {
-            if substitution
-                .keys()
-                .any(|variable| !rule.lhs.attributes().variables.contains(variable))
-            {
-                // The equalities are exact only if every binding of the match is forced, the
-                // top-level match's as well as the collection solver's: a binding that only
-                // suffices may have fixed the term a later key was compared under. A binding of
-                // an element variable to a set pattern does not justify the instance either.
-                if bindings.max(collection_bindings) == Bindings::Forced
-                    && !binds_element_variable_to_set_pattern(&substitution)
-                {
-                    Instance::Conditional(substitution)
-                } else {
-                    Instance::Unused
-                }
-            } else if matches!(rule.rhs, RuleRhs::Predicates(_))
-                && binds_element_variable_to_its_subject(&substitution, term)
-            {
-                Instance::Unused
-            } else if binds_element_variable_to_set_pattern(&substitution) {
-                // Before the attributes: the binding does not justify the instance, so its
-                // `requires` decides nothing about the subject, whether or not an attribute would
-                // set it aside.
-                Instance::NonFunctionalBinding
-            } else if check_concreteness(&rule, &substitution).is_some() {
-                Instance::SetAside(substitution)
-            } else {
-                Instance::Usable(substitution)
-            }
+            classify_equation_instance(&rule, term, substitution, bindings.max(collection_bindings))
         })
         .chain(undecided.then_some(Instance::Undecided))
         .collect();
     (rule, EquationInstances::Matched(instances))
+}
+
+/// Classify ordinary and literal-recovered bindings under the same restrictions.
+fn classify_equation_instance(
+    rule: &RewriteRule,
+    term: &Term,
+    substitution: Substitution,
+    bindings: Bindings,
+) -> Instance {
+    if substitution
+        .keys()
+        .any(|variable| !rule.lhs.attributes().variables.contains(variable))
+    {
+        // The equalities are exact only if every binding of the match is forced, the
+        // top-level match's as well as the collection solver's: a binding that only
+        // suffices may have fixed the term a later key was compared under. A binding of
+        // an element variable to a set pattern does not justify the instance either.
+        if bindings == Bindings::Forced && !binds_element_variable_to_set_pattern(&substitution) {
+            Instance::Conditional(substitution)
+        } else {
+            Instance::Unused
+        }
+    } else if matches!(rule.rhs, RuleRhs::Predicates(_))
+        && binds_element_variable_to_its_subject(&substitution, term)
+    {
+        Instance::Unused
+    } else if binds_element_variable_to_set_pattern(&substitution) {
+        // Before the attributes: the binding does not justify the instance, so its
+        // `requires` decides nothing about the subject, whether or not an attribute would
+        // set it aside.
+        Instance::NonFunctionalBinding
+    } else if check_concreteness(rule, &substitution).is_some() {
+        Instance::SetAside(substitution)
+    } else {
+        Instance::Usable(substitution)
+    }
 }
 
 /// Apply the instance of `rule` under `substitution`, one matching of its left-hand side against
@@ -8430,6 +8553,29 @@ fn apply_equation_instance(
         .map_err(SimplificationError::from)?;
     let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed)
         .map_err(SimplificationError::from)?;
+    apply_prepared_equation_instance(
+        definition,
+        rule,
+        term,
+        instance,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_prepared_equation_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    instance: EquationInstance,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
     // `R[t]` holds on that element: both sides are empty when `t` is, and equal to `rhs[t]`
@@ -8861,6 +9007,51 @@ mod tests {
         .expect("definedness definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN")
             .expect("definedness definition should internalize")
+    }
+
+    #[test]
+    fn intersection_idempotence_normalizes_aliases_without_losing_obligations() {
+        let definition = definedness_definition();
+        for source in [r#"\dv{SortS{}}("expected")"#, "partial{}(Y:SortS{})"] {
+            let operand = term(&definition, source);
+            let result = unstopped(simplify(
+                &definition,
+                &Term::and(operand.clone(), operand.clone()),
+                SimplificationOptions::default(),
+            ))
+            .unwrap();
+            assert_eq!(result.term, operand);
+        }
+
+        // Both sides become the same literal, but evaluating the left side has an
+        // open obligation. Intersection idempotence must not erase it.
+        let result = unstopped(simplify(
+            &definition,
+            &Term::and(
+                term(&definition, "discard{}(partial{}(Y:SortS{}))"),
+                term(&definition, r#"\dv{SortS{}}("done")"#),
+            ),
+            SimplificationOptions::default(),
+        ))
+        .unwrap();
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
+        assert_eq!(
+            result.constraints(),
+            vec![Predicate::Ceil(term(&definition, "partial{}(Y:SortS{})"))]
+        );
+
+        // An alias under a function must expose the constructor needed by its rule.
+        let result = unstopped(simplify(
+            &definition,
+            &term(
+                &definition,
+                r#"guarded{}(\and{SortS{}}(\dv{SortS{}}("expected"), \dv{SortS{}}("expected")))"#,
+            ),
+            SimplificationOptions::default(),
+        ))
+        .unwrap();
+        assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
+        assert!(result.constraints().is_empty());
     }
 
     #[test]
@@ -10478,5 +10669,195 @@ mod tests {
             membership(k, &open, true),
             vec![Predicate::Term(open_membership)]
         );
+    }
+}
+
+#[cfg(test)]
+mod literal_admission_tests {
+    use super::*;
+    use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+    fn definition() -> BackendDefinition {
+        let syntax = parse_definition(r#"[]
+        module MAIN
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            symbol pair{}(SortBool{}, SortBool{}) : SortBool{} [function{}(), total{}()]
+            symbol partial{}(SortBool{}) : SortBool{} [function{}()]
+            symbol effect{}(SortBool{}) : SortBool{} [function{}(), total{}(), impure{}()]
+            symbol table{}(SortBool{}) : SortBool{} [function{}(), total{}()]
+            axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(A:SortBool{}, \dv{SortBool{}}("true")), \top{R}())), \equals{SortBool{}, R}(table{}(A:SortBool{}), \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}()))) [label{}("table-true")]
+        endmodule []"#).unwrap();
+        BackendDefinition::internalize(&syntax, "MAIN").unwrap()
+    }
+
+    fn parse(definition: &BackendDefinition, source: &str) -> Term {
+        definition
+            .internalize_term(&parse_pattern(source).unwrap(), &[])
+            .unwrap()
+    }
+
+    fn dag(definition: &BackendDefinition, depth: usize) -> Term {
+        let mut term = parse(definition, "X:SortBool{}");
+        for _ in 0..depth {
+            term = Term::application(
+                definition.symbols()["pair"].clone(),
+                vec![],
+                vec![term.clone(), term],
+            );
+        }
+        term
+    }
+
+    #[test]
+    fn literal_admission_scans_distinct_nodes_across_subjects_and_propagates_stops() {
+        use crate::{
+            deferred::functional_without_console_effects,
+            stop::{StopCause, with_poll_budget},
+            timeout::StepTimeoutMode,
+        };
+        let definition = definition();
+        let depth = 64;
+        let term = dag(&definition, depth);
+        let mode = StepTimeoutMode::Manual(std::time::Duration::from_secs(1));
+        // One poll per distinct node, including the variable; repeated roots share the scan.
+        let (result, record) = with_poll_budget((depth + 1) as u64, mode, || {
+            functional_without_console_effects(&definition, [&term, &term]).unwrap()
+        });
+        assert!(result);
+        assert!(!record.any());
+        let (cause, record) = with_poll_budget(depth as u64, mode, || {
+            functional_without_console_effects(&definition, [&term])
+                .unwrap_err()
+                .into_cause()
+        });
+        assert_eq!(cause, StopCause::Deadline(mode));
+        assert!(record.budget_exhausted);
+    }
+
+    #[test]
+    fn literal_admission_retains_functionality_and_effect_eligibility() {
+        let definition = definition();
+        for subject in [
+            "X:SortBool{}",
+            "@S:SortBool{}",
+            "pair{}(X:SortBool{}, X:SortBool{})",
+            "partial{}(X:SortBool{})",
+            "effect{}(X:SortBool{})",
+            "pair{}(X:SortBool{}, effect{}(X:SortBool{}))",
+            r#"\dv{SortBool{}}("true")"#,
+            r"\and{SortBool{}}(X:SortBool{}, Y:SortBool{})",
+        ] {
+            let subject = parse(&definition, subject);
+            let before = crate::rewrite::is_functional_pattern(&subject)
+                && !crate::deferred::holds_console_effect(&definition, &subject);
+            let after =
+                crate::deferred::functional_without_console_effects(&definition, [&subject])
+                    .unwrap();
+            assert_eq!(before, after, "{subject:?}");
+        }
+    }
+
+    #[test]
+    fn literal_candidate_is_lazy_and_application_propagates_cancellation() {
+        use crate::{
+            stop::{CancellationToken, StopCause, with_poll_budget},
+            timeout::StepTimeoutMode,
+        };
+        let definition = definition();
+        let subject = Term::application(
+            definition.symbols()["table"].clone(),
+            vec![],
+            vec![dag(&definition, 64)],
+        );
+        let rule = definition
+            .function_theory()
+            .values()
+            .flat_map(|groups| groups.values())
+            .flatten()
+            .next()
+            .unwrap();
+        let mode = StepTimeoutMode::Manual(std::time::Duration::from_secs(1));
+        let ((rule, candidate), record) = with_poll_budget(0, mode, || {
+            equation_instances(&definition, rule, &subject, &[])
+        });
+        assert!(
+            !record.any(),
+            "matching must not scan a literal candidate's subject"
+        );
+        let EquationInstances::LiteralCandidate(candidate) = candidate else {
+            panic!("expected literal candidate")
+        };
+        let token = CancellationToken::new();
+        token.cancel();
+        let cause = token.scope(|| {
+            match apply_literal_equation_instance(
+                &definition,
+                &rule,
+                &subject,
+                candidate,
+                &[],
+                SimplificationOptions::default(),
+                &BTreeSet::new(),
+                &NoSolver,
+                SetAsideRequires::Unused,
+            ) {
+                Err(Unwind::Stop(stop)) => stop.into_cause(),
+                Err(Unwind::Fail(failure)) => panic!("unexpected failure: {failure:?}"),
+                Ok(_) => panic!("cancelled admission must propagate a stop"),
+            }
+        });
+        assert_eq!(cause, StopCause::Cancelled);
+    }
+
+    #[test]
+    fn literal_dag_public_simplification_retains_unknown_conditions() {
+        let definition = definition();
+        let subject = Term::application(
+            definition.symbols()["table"].clone(),
+            vec![],
+            vec![dag(&definition, 12)],
+        );
+        let result = simplify_with_solver(
+            &definition,
+            &subject,
+            &[],
+            SimplificationOptions {
+                max_iterations: 1,
+                ..SimplificationOptions::default()
+            },
+            &NoSolver,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(result.term, subject);
+        assert!(result.constraints().is_empty());
+    }
+
+    #[test]
+    fn literal_dag_public_simplification_observes_request_bounds() {
+        use crate::{
+            stop::{CancellationToken, StopCause, with_poll_budget},
+            timeout::StepTimeoutMode,
+        };
+        let definition = definition();
+        let subject = Term::application(
+            definition.symbols()["table"].clone(),
+            vec![],
+            vec![dag(&definition, 64)],
+        );
+        let mode = StepTimeoutMode::Manual(std::time::Duration::from_secs(1));
+        let options = SimplificationOptions {
+            max_iterations: 1,
+            ..SimplificationOptions::default()
+        };
+        let (result, record) = with_poll_budget(256, mode, || {
+            simplify_with_solver(&definition, &subject, &[], options, &NoSolver)
+        });
+        assert_eq!(result.unwrap_err().into_cause(), StopCause::Deadline(mode));
+        assert!(record.budget_exhausted);
+        let token = CancellationToken::new();
+        token.cancel();
+        let result =
+            token.scope(|| simplify_with_solver(&definition, &subject, &[], options, &NoSolver));
+        assert_eq!(result.unwrap_err().into_cause(), StopCause::Cancelled);
     }
 }

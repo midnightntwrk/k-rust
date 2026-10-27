@@ -1,20 +1,21 @@
 //! ```toml algorithm
 //! id = "backend.unification.syntactic"
 //! name = "syntactic first-order unification with eager substitution composition"
-//! sites = ["unify_term_pairs", "Unifier::run", "Unifier::unify_one"]
-//! variable = "n = pairs; s = bindings; t = term size"
+//! sites = ["unify_term_pairs", "Unifier::run", "Unifier::unify_one", "Unifier::classify", "Unifier::bind"]
+//! variable = "n = pairs popped, including decompositions; s = largest substitution binding count; t = largest intermediate term size, not only the written inputs"
 //! counters = ["UnificationProblems"]
 //! span = "per problem"
+//! consumes = [{ type = "k_rust_backend::instance_normal::token::InstanceNormal", role = "instance-normal evidence" }]
 //! produces = [{ type = "k_rust_backend::unification::UnificationResult", role = "unification result" }]
 //!
 //! [[cost]]
 //! mode = "symbolic KORE terms"
-//! bound = "O(n x s x t)"
+//! bound = "n pair pops, each substituting both sides with backend.substitution.apply before comparison/decomposition; each new binding composes the current substitution, up to s substitutions, and checks occurrence/rigidity. Residual equations and unsupported pairs are substituted once more on output. Add structural/sort comparisons and backend.normality.scan for the equation-head applications Unifier::classify asks about; unlike SubjectNormalForms, the unifier has no per-problem normality memo spanning its separate scan calls."
 //! ```
 //!
 //! Syntactic first-order unification (Robinson / Martelli-Montanari work queue with eager
-//! composition) for symbolic KORE terms: O(n x s x t) for n pairs, s bindings, and term size t,
-//! since each pop re-substitutes both sides and each bind composes the whole substitution; a
+//! composition) for symbolic KORE terms: each pop re-substitutes both sides and each bind
+//! composes the whole substitution, with the callee costs and normality scans on the card; a
 //! variable cycle through free constructors and injections only is bottom, and any other cycle
 //! stays an equation; `Counter::UnificationProblems`.
 //!

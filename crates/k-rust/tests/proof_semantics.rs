@@ -296,10 +296,18 @@ fn a_claim_fails_on_the_instances_a_rule_leaves_undefined() {
                 .any(|leaf| leaf.outcome == ProofLeafOutcomeOutput::Trivial),
             "{claim}: {result:?}"
         );
-        assert_eq!(
-            status(claim, true).status,
-            "proven",
-            "{claim} allowing vacuous results"
+        let allowed = status(claim, true);
+        assert_eq!(allowed.status, "proven", "{claim} allowing vacuous results");
+        assert!(
+            allowed.leaves.iter().any(|leaf| leaf.vacuous),
+            "{claim}: {allowed:?}"
+        );
+        assert!(
+            allowed
+                .leaves
+                .iter()
+                .filter(|leaf| leaf.vacuous)
+                .all(|leaf| leaf.outcome == ProofLeafOutcomeOutput::Proven && !leaf.certified)
         );
     }
     for claim in [
@@ -3180,4 +3188,586 @@ fn a_claim_with_an_equality_reading_a_term_as_a_predicate_is_refused() {
             "{claim}: {refused}"
         );
     }
+}
+
+/// Both-empty matching-logic equality enables the rule; its negation must not enable it.
+/// In particular `negative-zero` used to be falsely proven by totalizing division in the guard.
+/// The same condition meaning is required for rewrite ensures and equation applicability.
+#[test]
+fn partial_equalities_in_definition_conditions_preserve_both_empty_instances() {
+    let kore = compile(
+        proof_sources::PARTIAL_EQUALITY_CONDITIONS,
+        "PARTIAL-CONDITIONS-SPEC",
+        "PARTIAL-CONDITIONS",
+    );
+    for (label, expected) in [
+        ("positive-zero", "proven"),
+        ("negative-zero", "disproved"),
+        ("positive-nonzero", "disproved"),
+        ("negative-nonzero", "proven"),
+        ("symbolic-zero", "proven"),
+        ("symbolic-negative-zero", "disproved"),
+        ("symbolic-negative-nonzero", "proven"),
+        ("object-bool-zero", "disproved"),
+        ("ensured-zero", "proven"),
+        ("negative-ensured-zero", "failed"),
+        ("ensured-nonzero", "failed"),
+        ("negative-ensured-nonzero", "proven"),
+        ("equation-zero", "proven"),
+        ("equation-nonzero", "proven"),
+    ] {
+        let result = prove(
+            &kore,
+            "PARTIAL-CONDITIONS-SPEC",
+            &format!("PARTIAL-CONDITIONS-SPEC.{label}"),
+            ProveRequest {
+                max_depth: Some(4),
+                ..ProveRequest::default()
+            },
+        );
+        assert_eq!(result.status, expected, "{label}: {:?}", result.leaves);
+    }
+}
+
+/// Claims proven under the old definition-condition reading can be false even when their
+/// own constraints are unchanged, so the correction must also invalidate saved proofs.
+#[test]
+fn partial_condition_correction_invalidates_saved_proofs_from_the_previous_reading() {
+    use k_rust::backend::proving::{
+        ProofAssumptions, saved_proofs_digest, saved_proofs_digest_under_reading,
+    };
+    let kore = compile(
+        proof_sources::PARTIAL_EQUALITY_CONDITIONS,
+        "PARTIAL-CONDITIONS-SPEC",
+        "PARTIAL-CONDITIONS",
+    );
+    let definition = k_rust::kore::parser::parse_definition(&kore).unwrap();
+    let trusted = std::collections::BTreeSet::new();
+    let assumptions = ProofAssumptions {
+        trusted: &trusted,
+        smt_prelude: None,
+        allow_vacuous: false,
+    };
+    let previous = saved_proofs_digest_under_reading(
+        &definition,
+        "PARTIAL-CONDITIONS-SPEC",
+        &assumptions,
+        Some("claim-predicates-as-written-2"),
+    );
+    let current = saved_proofs_digest(&definition, "PARTIAL-CONDITIONS-SPEC", &assumptions);
+    assert_ne!(current, previous);
+}
+
+/// Value readings must not discard the domain of an untaken strict branch or of a consumed
+/// operand. The source state is nonempty even when the destination is undefined.
+#[test]
+fn primitive_integer_domains_and_signed_literal_values_compose_in_claims() {
+    let kore = compile(
+        r#"
+module INTEGER-DOMAINS
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:K </k> <v> 0 </v>
+endmodule
+module INTEGER-DOMAINS-SPEC
+  imports INTEGER-DOMAINS
+  claim [safe-ediv]: <k> .K </k> <v> V:Int => (#if false #then V divInt 32 #else V #fi) </v>
+  claim [safe-negative-ediv]: <k> .K </k> <v> V:Int => (#if false #then V divInt -32 #else V #fi) </v>
+  claim [safe-symbolic-ediv]: <k> .K </k> <v> V:Int => (#if false #then V divInt D:Int #else V #fi) </v> requires D =/=Int 0
+  claim [safe-range]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, 4, 1) #else V #fi) </v>
+  claim [safe-zero-range]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, 4, 0) #else V #fi) </v>
+  claim [safe-symbolic-range]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, O:Int, L:Int) #else V #fi) </v> requires O >=Int 0 andBool L >=Int 0
+  claim [undefined-ediv]: <k> .K </k> <v> V:Int => (#if false #then V divInt 0 #else V #fi) </v>
+  claim [undefined-offset]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, -1, 1) #else V #fi) </v>
+  claim [undefined-length]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(V, 0, -1) #else V #fi) </v>
+  claim [undefined-operand]: <k> .K </k> <v> V:Int => (#if false #then bitRangeInt(1 divInt 0, 4, 0) #else V #fi) </v>
+  claim [signed-shift]: <k> .K </k> <v> V:Int <<Int 4 => V *Int 16 </v>
+  claim [shifted-mask]: <k> .K </k> <v> V:Int &Int 128 => ((V divInt 128) modInt 2) *Int 128 </v>
+  claim [signed-mask-or]: <k> .K </k> <v> V:Int |Int 255 => (V divInt 256) *Int 256 +Int 255 </v>
+  claim [signed-mask-xor]: <k> .K </k> <v> V:Int xorInt 255 => (V divInt 256) *Int 256 +Int (255 -Int (V modInt 256)) </v>
+  claim [wrong-shift]: <k> .K </k> <v> 3 <<Int 1 => 5 </v>
+endmodule
+"#,
+        "INTEGER-DOMAINS-SPEC",
+        "INTEGER-DOMAINS",
+    );
+    for (claim, expected) in [
+        ("safe-ediv", "proven"),
+        ("safe-negative-ediv", "proven"),
+        ("safe-symbolic-ediv", "proven"),
+        ("safe-range", "proven"),
+        ("safe-zero-range", "proven"),
+        ("safe-symbolic-range", "proven"),
+        ("undefined-ediv", "disproved"),
+        ("undefined-offset", "disproved"),
+        ("undefined-length", "disproved"),
+        ("undefined-operand", "disproved"),
+        ("signed-shift", "proven"),
+        ("shifted-mask", "proven"),
+        ("signed-mask-or", "proven"),
+        ("signed-mask-xor", "proven"),
+        ("wrong-shift", "disproved"),
+    ] {
+        let result = prove(
+            &kore,
+            "INTEGER-DOMAINS-SPEC",
+            &format!("INTEGER-DOMAINS-SPEC.{claim}"),
+            ProveRequest::default(),
+        );
+        assert_eq!(result.status, expected, "{claim}: {result:#?}");
+        assert!(result.leaves.iter().all(|leaf| !leaf.vacuous), "{claim}");
+        if expected == "disproved" {
+            assert!(result.leaves.iter().any(|leaf| leaf.certified), "{claim}");
+        }
+    }
+}
+
+/// Literal applicability is established as a complete condition, with no input narrowing.
+/// Reusing the backend across differently constrained claims also checks contextual cache use.
+#[test]
+fn literal_equation_rows_apply_only_when_the_complete_condition_is_established() {
+    let kore = compile(
+        proof_sources::LITERAL_EQUATION_CONDITIONS,
+        "LITERAL-CONDITIONS-SPEC",
+        "LITERAL-CONDITIONS",
+    );
+    let mut backend =
+        Backend::new(&kore, "LITERAL-CONDITIONS-SPEC", BackendOptions::default()).unwrap();
+    for (label, proven) in [
+        ("true-row", true),
+        ("false-row", true),
+        ("unknown-row", false),
+        ("wrong-row", false),
+        ("arithmetic-row", true),
+        ("guarded-control", true),
+        ("several-literals", true),
+        ("unknown-guard", false),
+        ("refuted-literal", false),
+        ("preferred-held", true),
+        ("preferred-refuted", true),
+        ("preferred-unknown", false),
+        ("concrete-rejected", false),
+        ("symbolic-rejected", false),
+        ("recursive-guard", false),
+        ("partial-operand", true),
+        ("false-row", true),
+        ("true-row", true),
+    ] {
+        let result = backend
+            .prove(ProveRequest {
+                claim: Some(format!("LITERAL-CONDITIONS-SPEC.{label}")),
+                max_depth: Some(4),
+                ..ProveRequest::default()
+            })
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
+        assert_eq!(
+            result.status == "proven",
+            proven,
+            "{label}: {} {:?}",
+            result.status,
+            result.leaves
+        );
+    }
+}
+
+/// Equality travels forward through supported contexts without asserting their inverse laws.
+/// The same state frame must be retained, and negative truncation is not floor division.
+#[test]
+fn scalar_equalities_compose_through_pure_functions_injections_and_symbolic_writes() {
+    let kore = compile(
+        proof_sources::CONTEXTUAL_SCALAR_EQUALITIES,
+        "CONTEXTUAL-EQUALITY-SPEC",
+        "CONTEXTUAL-EQUALITY",
+    );
+    let mut backend =
+        Backend::new(&kore, "CONTEXTUAL-EQUALITY-SPEC", BackendOptions::default()).unwrap();
+    for (label, proven) in [
+        ("opaque", true),
+        ("named", true),
+        ("map-write", true),
+        ("map-chain", true),
+        ("wrong-value", false),
+        ("wrong-frame", false),
+        ("different-heads", false),
+        // The initial state supplies the application's domain; equal arguments must
+        // transport it to the target as well as preserving the value.
+        ("opaque-partial", true),
+        ("overwritten-not-injective", true),
+        ("overwrite-does-not-equate-values", false),
+        ("overwrite-retains-definedness", false),
+        ("xor-retains-definedness", false),
+        ("negative-truncation", false),
+    ] {
+        let result = backend
+            .prove(ProveRequest {
+                claim: Some(format!("CONTEXTUAL-EQUALITY-SPEC.{label}")),
+                max_depth: Some(4),
+                ..ProveRequest::default()
+            })
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
+        assert_eq!(
+            result.status == "proven",
+            proven,
+            "{label}: {} {:?}",
+            result.status,
+            result.leaves
+        );
+        if label == "overwritten-not-injective" {
+            assert_ne!(
+                result.status, "disproved",
+                "a true map law is not refuted by different UF arguments"
+            );
+        }
+        if label == "opaque-partial" {
+            assert!(
+                result
+                    .leaves
+                    .iter()
+                    .all(|leaf| !leaf.vacuous && leaf.claim_steps.is_empty())
+            );
+        }
+    }
+}
+
+#[test]
+fn weak_claims_continue_after_a_false_current_target_without_asserting_termination() {
+    let kore = compile(
+        proof_sources::WEAK_CLAIM_CONTINUATION,
+        "WEAK-CONTINUATION-SPEC",
+        "WEAK-CONTINUATION",
+    );
+    for (label, depth, circularities, expected) in [
+        ("later-target", 2, None, "proven"),
+        ("partially-covered", 2, None, "proven"),
+        ("terminal-false", 2, None, "disproved"),
+        ("countdown", 4, None, "proven"),
+        ("finite-countdown", 4, Some(Vec::new()), "proven"),
+        ("finite-countdown", 3, Some(Vec::new()), "depth-bound"),
+        ("cycle", 2, None, "proven"),
+        ("cycle", 2, Some(Vec::new()), "depth-bound"),
+        ("cycle", 0, None, "depth-bound"),
+        ("false-at-terminal", 2, None, "disproved"),
+    ] {
+        let result = prove(
+            &kore,
+            "WEAK-CONTINUATION-SPEC",
+            &format!("WEAK-CONTINUATION-SPEC.{label}"),
+            ProveRequest {
+                max_depth: Some(depth),
+                circularities,
+                ..ProveRequest::default()
+            },
+        );
+        assert_eq!(
+            result.status, expected,
+            "{label}, depth {depth}: {result:?}"
+        );
+        if label == "cycle" && expected == "proven" {
+            assert!(result.leaves.iter().all(|leaf| leaf.depth >= 1));
+            assert!(
+                result
+                    .leaves
+                    .iter()
+                    .any(|leaf| leaf.claim_steps.iter().any(|step| {
+                        step.kind == "claim"
+                            && step.depth >= 1
+                            && step.label.as_deref() == Some("WEAK-CONTINUATION-SPEC.cycle")
+                    }))
+            );
+            assert!(result.trusted_claims.is_empty());
+        }
+        if expected == "disproved" {
+            assert!(result.leaves.iter().any(|leaf| leaf.certified));
+        }
+        if expected == "depth-bound" {
+            assert!(result.leaves.iter().all(|leaf| !leaf.certified));
+        }
+    }
+}
+
+#[test]
+fn proof_results_keep_the_assumptions_and_contradiction_behind_an_empty_leaf() {
+    let source = r#"
+module PROOF-EVIDENCE
+  imports INT
+  syntax Int ::= bad(Int) [function, total]
+  syntax KItem ::= go() | done()
+  configuration <k> $PGM:K </k> <n> 0 </n>
+  rule [bad-equation]: bad(X:Int) => X /Int 0
+endmodule
+module PROOF-EVIDENCE-SPEC
+  imports PROOF-EVIDENCE
+  claim [empty]: <k> .K </k> <n> bad(0) => 0 </n>
+  claim [assumed]: <k> go() => done() </k> [trusted]
+endmodule
+"#;
+    let kore = compile(source, "PROOF-EVIDENCE-SPEC", "PROOF-EVIDENCE");
+    let mut backend =
+        Backend::new(&kore, "PROOF-EVIDENCE-SPEC", BackendOptions::default()).unwrap();
+    let request = ProveRequest {
+        claim: Some("PROOF-EVIDENCE-SPEC.empty".into()),
+        allow_vacuous: true,
+        ..ProveRequest::default()
+    };
+    let result = backend.prove(request.clone()).unwrap();
+    assert_eq!(result.status, "proven");
+    assert_eq!(result.trusted_claims, ["PROOF-EVIDENCE-SPEC.assumed"]);
+    let leaf = result
+        .leaves
+        .iter()
+        .find(|leaf| leaf.contradicted_total.is_some())
+        .unwrap_or_else(|| {
+            panic!("the empty leaf must retain its declaration contradiction: {result:?}")
+        });
+    assert_eq!(leaf.outcome, ProofLeafOutcomeOutput::Proven);
+    assert!(leaf.vacuous);
+    assert!(!leaf.certified);
+    assert!(leaf.claim_steps.is_empty());
+    let record = leaf.contradicted_total.as_ref().unwrap();
+    assert!(
+        record
+            .rule_label
+            .as_deref()
+            .unwrap()
+            .contains("bad-equation")
+    );
+    assert!(record.k_label.as_deref().unwrap().contains("bad"));
+    let raw: serde_json::Value =
+        serde_json::from_str(&backend.prove_json(request).unwrap()).unwrap();
+    assert!(
+        raw["leaves"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|leaf| leaf.get("contradictedTotal").is_some())
+    );
+    let assumed = backend
+        .prove(ProveRequest {
+            claim: Some("PROOF-EVIDENCE-SPEC.assumed".into()),
+            ..ProveRequest::default()
+        })
+        .unwrap();
+    assert_eq!(assumed.leaves[0].outcome, ProofLeafOutcomeOutput::Trusted);
+    assert_eq!(assumed.trusted_claims, ["PROOF-EVIDENCE-SPEC.assumed"]);
+}
+
+/// These independent arithmetic targets exercise word planning after real K compilation,
+/// definedness simplification, implication checking and the public proof facade.
+#[test]
+fn bounded_word_values_compose_with_independent_arithmetic_claims() {
+    let mut source = String::from(
+        r#"
+module WORD-EXPRESSIONS
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:K </k> <v> 0 </v>
+endmodule
+module WORD-EXPRESSIONS-SPEC
+  imports WORD-EXPRESSIONS
+"#,
+    );
+    let mut labels = Vec::new();
+    for width in [8, 16] {
+        let bound = 1_i64 << width;
+        let mut digits = "0".to_owned();
+        for bit in 0..width {
+            let p = 1_i64 << bit;
+            digits = format!(
+                "({digits} +Int (#if ((X divInt {p}) modInt 2) >Int 0 orBool ((Y divInt {p}) modInt 2) >Int 0 #then {p} #else 0 #fi))"
+            );
+        }
+        for (name, left, right) in [
+            (
+                "zero",
+                "(#if (X |Int Y) ==Int 0 #then 1 #else 0 #fi)".to_owned(),
+                "(#if X ==Int 0 andBool Y ==Int 0 #then 1 #else 0 #fi)".to_owned(),
+            ),
+            (
+                "sum",
+                "X +Int Y".to_owned(),
+                "(X |Int Y) +Int (X &Int Y)".to_owned(),
+            ),
+            (
+                "xor",
+                "X xorInt Y".to_owned(),
+                "(X +Int Y) -Int (2 *Int (X &Int Y))".to_owned(),
+            ),
+            (
+                "rotate",
+                format!(
+                    "(((X <<Int 1) modInt {bound}) |Int (X divInt {}))",
+                    bound / 2
+                ),
+                format!(
+                    "(2 *Int (X modInt {})) +Int (X divInt {})",
+                    bound / 2,
+                    bound / 2
+                ),
+            ),
+            ("digits", "X |Int Y".to_owned(), digits),
+        ] {
+            let label = format!("{name}-{width}");
+            source.push_str(&format!("claim [{label}]: <k> .K </k> <v> {left} => {right} </v> requires X:Int >=Int 0 andBool X <Int {bound} andBool Y:Int >=Int 0 andBool Y <Int {bound}\n"));
+            labels.push(label);
+        }
+    }
+    source.push_str("endmodule\n");
+    let kore = compile(&source, "WORD-EXPRESSIONS-SPEC", "WORD-EXPRESSIONS");
+    for label in labels {
+        let result = prove(
+            &kore,
+            "WORD-EXPRESSIONS-SPEC",
+            &format!("WORD-EXPRESSIONS-SPEC.{label}"),
+            ProveRequest::default(),
+        );
+        assert_eq!(result.status, "proven", "{label}: {:?}", leaf_text(&result));
+        assert!(result.leaves.iter().all(|leaf| !leaf.vacuous), "{label}");
+    }
+}
+
+/// Finite helper meanings must compose with computed Boolean inputs and word arithmetic,
+/// while strict domains of unused actual operands remain part of the original K claim.
+#[test]
+fn source_derived_scalar_helpers_compose_without_rewriting_authored_claims() {
+    let kore = compile(
+        r#"
+module SCALAR-HELPERS
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> $PGM:K </k> <v> 0 </v> <arg> 0 </arg> <b> false </b>
+  syntax Int ::= flag(Bool) [function,total]
+  rule flag(true) => 1
+  rule flag(false) => 0
+  syntax Bool ::= atLeast(Int,Int) [function,total]
+  rule atLeast(X,Y) => X >Int Y orElseBool X ==Int Y
+  syntax Int ::= packed(Bool,Bool,Bool,Bool) [function,total]
+  rule packed(Z,N,H,C) => 128 *Int flag(Z) +Int 64 *Int flag(N) +Int 32 *Int flag(H) +Int 16 *Int flag(C)
+  syntax Int ::= signedByte(Int) [function,total]
+  rule signedByte(X) => X requires X <Int 128
+  rule signedByte(X) => X -Int 256 requires X >=Int 128
+  syntax Int ::= erase(Int,Bool) [function,total]
+  rule erase(_,true) => 0
+  rule erase(_,false) => 0
+endmodule
+module SCALAR-HELPERS-SPEC
+  imports SCALAR-HELPERS
+  claim [computed-flag]: <k> .K </k> <v> flag((X:Int |Int Y:Int) ==Int 0) => (#if X ==Int 0 andBool Y ==Int 0 #then 1 #else 0 #fi) </v>
+    requires (X >=Int 0 andThenBool X <Int 256) andThenBool (Y >=Int 0 andThenBool Y <Int 256)
+  claim [packed-add]: <k> .K </k>
+    <v> packed(((X:Int +Int Y:Int) modInt 256) ==Int 0,false,((X &Int 15) +Int (Y &Int 15)) >Int 15,atLeast(X +Int Y,256))
+      => (#if ((X +Int Y) modInt 256) ==Int 0 #then 128 #else 0 #fi)
+         +Int (#if ((X modInt 16) +Int (Y modInt 16)) >=Int 16 #then 32 #else 0 #fi)
+         +Int (#if (X +Int Y) >=Int 256 #then 16 #else 0 #fi) </v>
+    requires X >=Int 0 andBool X <Int 256 andBool Y >=Int 0 andBool Y <Int 256
+  claim [signed-branch]: <k> .K </k> <v> signedByte(X:Int) => (#if X <Int 128 #then X #else X -Int 256 #fi) </v>
+    requires X >=Int 0 andBool X <Int 256
+  claim [safe-unused]: <k> .K </k> <v> 0 => erase(X:Int,B:Bool) </v> <arg> X </arg> <b> B </b>
+  claim [undefined-unused]: <k> .K </k> <v> 0 => erase(1 divInt 0,B:Bool) </v> <b> B </b>
+  claim [wrong-packed]: <k> .K </k> <v> packed(false,false,false,true) => 0 </v>
+  claim [discarded-short-or]: <k> .K </k> <v> 1 => flag(true orElseBool ((X:Int divInt 0) ==Int 1)) </v> <arg> X </arg>
+  claim [undefined-short-or]: <k> .K </k> <v> 1 => flag(false orElseBool ((X:Int divInt 0) ==Int 1)) </v> <arg> X </arg>
+  claim [discarded-short-and]: <k> .K </k> <v> 0 => flag(false andThenBool ((X:Int divInt 0) ==Int 1)) </v> <arg> X </arg>
+  claim [undefined-short-and]: <k> .K </k> <v> 0 => flag(true andThenBool ((X:Int divInt 0) ==Int 1)) </v> <arg> X </arg>
+endmodule
+"#,
+        "SCALAR-HELPERS-SPEC",
+        "SCALAR-HELPERS",
+    );
+    for (label, expected) in [
+        ("computed-flag", "proven"),
+        ("packed-add", "proven"),
+        ("signed-branch", "proven"),
+        ("safe-unused", "proven"),
+        ("undefined-unused", "disproved"),
+        ("wrong-packed", "disproved"),
+        ("discarded-short-or", "disproved"),
+        ("undefined-short-or", "disproved"),
+        ("discarded-short-and", "disproved"),
+        ("undefined-short-and", "disproved"),
+    ] {
+        let result = prove(
+            &kore,
+            "SCALAR-HELPERS-SPEC",
+            &format!("SCALAR-HELPERS-SPEC.{label}"),
+            ProveRequest::default(),
+        );
+        assert_eq!(result.status, expected, "{label}: {:?}", leaf_text(&result));
+        assert!(result.leaves.iter().all(|leaf| !leaf.vacuous), "{label}");
+        if expected == "disproved" {
+            assert!(result.leaves.iter().any(|leaf| leaf.certified), "{label}");
+        }
+    }
+}
+
+/// Sort projection contracts are statements of the compiled semantics, including their actual
+/// K-sequence embedding. An image-domain precondition justifies reconstruction; a wrong sort
+/// has an empty initial state, and must be identified as such.
+#[test]
+fn compiled_sort_projections_state_exact_domains_and_conditional_reconstruction() {
+    const SOURCE: &str = r#"
+module SELECTOR
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:K </k> <v> .K </v>
+endmodule
+module SELECTOR-SPEC
+  imports SELECTOR
+  claim [inverse]: <k> .K </k> <v> X:K => {X}:>Int </v>
+    requires 0 <=Int {X}:>Int andBool {X}:>Int <Int 256
+  claim [wrong-type]: <k> .K </k> <v> true => 7 </v>
+    requires 0 <=Int {true}:>Int
+  claim [valid-image]: <k> .K </k> <v> 7 => {7}:>Int </v>
+  claim [wrong-inverse]: <k> .K </k> <v> X:K => {X}:>Int +Int 1 </v>
+    requires {X}:>Int ==Int 7
+endmodule
+"#;
+    let kore = compile(SOURCE, "SELECTOR-SPEC", "SELECTOR");
+    assert!(kore.contains(".selector-domain"));
+    assert!(kore.contains(".selector-inverse"));
+    for label in ["inverse", "valid-image", "wrong-type"] {
+        let result = prove(
+            &kore,
+            "SELECTOR-SPEC",
+            &format!("SELECTOR-SPEC.{label}"),
+            ProveRequest::default(),
+        );
+        assert_eq!(result.status, "proven", "{label}: {result:#?}");
+        assert_eq!(
+            result.leaves.iter().filter(|leaf| leaf.vacuous).count(),
+            usize::from(label == "wrong-type")
+        );
+        assert!(result.leaves.iter().all(|leaf| leaf.claim_steps.is_empty()));
+    }
+    let wrong = prove(
+        &kore,
+        "SELECTOR-SPEC",
+        "SELECTOR-SPEC.wrong-inverse",
+        ProveRequest::default(),
+    );
+    assert_ne!(wrong.status, "proven", "{wrong:#?}");
+    assert!(wrong.leaves.iter().all(|leaf| !leaf.vacuous));
+
+    // An authored additional row changes this projection's implementation. It must not
+    // inherit an exact compiler domain that contradicts the supplied row.
+    let overridden = SOURCE.replace(
+        "  configuration <k> $PGM:K </k> <v> .K </v>",
+        "  configuration <k> $PGM:K </k> <v> .K </v>\n  rule {true}:>Int => 0 [simplification]",
+    );
+    let overridden = compile(&overridden, "SELECTOR-SPEC", "SELECTOR");
+    let syntax = k_rust::kore::parser::parse_definition(&overridden).unwrap();
+    assert!(
+        !syntax
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .any(|sentence| {
+                matches!(sentence, k_rust::kore::ast::Sentence::Axiom { pattern, attributes, .. }
+            if attributes.string(k_rust::names::KoreAttribute::UniqueId).unwrap()
+                .is_some_and(|id| id.ends_with(".selector-domain"))
+                && pattern.to_string().contains("Lblproject'Coln'Int"))
+            })
+    );
 }

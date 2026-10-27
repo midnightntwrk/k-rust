@@ -276,6 +276,109 @@ fn a_query_solves_the_nonlinear_guard_of_c7() {
     assert_eq!(work, solve.totals.work);
 }
 
+/// Source-derived finite helpers and bounded words must produce only a candidate;
+/// an ordinary fresh execution independently confirms that the target fires.
+#[test]
+fn a_source_helper_word_candidate_replays_on_a_fresh_backend() {
+    let definition = Arc::new(crate::support::compile_source(
+        "word-solve.k",
+        r#"
+        module WORD-SOLVE-SYNTAX
+          imports INT-SYNTAX
+          syntax Pgm ::= "probe" "(" Int "," Int ")"
+        endmodule
+        module WORD-SOLVE
+          imports WORD-SOLVE-SYNTAX
+          imports INT
+          imports BOOL
+          configuration <k> $PGM:Pgm </k>
+          syntax Int ::= mix(Bool, Int, Int) [function, total]
+          rule mix(true, X, Y) => X xorInt Y
+          rule mix(false, X, Y) => X +Int Y
+          rule [hit]: <k> probe(X, Y) => .K </k>
+            requires 0 <=Int X andBool X <Int 256 andBool
+                     0 <=Int Y andBool Y <Int 256 andBool
+                     mix(true, X, Y) ==Int 42
+        endmodule
+    "#,
+        "WORD-SOLVE",
+    ));
+    let mut spec = maze_spec(8, 9, "WORD-SOLVE.hit");
+    spec.definitions.baseline = definition.clone();
+    spec.program = ProgramInput::Source(ProgramSource {
+        program: Some(ProgramText {
+            name: "word.pgm".into(),
+            text: "probe(0, 7)".into(),
+            start_sort: "Pgm".into(),
+        }),
+        config_vars: Vec::new(),
+    });
+    spec.holes = vec![HoleDecl {
+        name: "X".into(),
+        sort: "Int".into(),
+        location: HoleLocation::Span(SpanAddress {
+            program: "word.pgm".into(),
+            line: None,
+            column: None,
+            find: "probe(0,".into(),
+            literal: "0".into(),
+        }),
+        constraints: Constraints {
+            range: Some(IntRange {
+                min: Some(0.into()),
+                max: Some(255.into()),
+            }),
+            ..Constraints::default()
+        },
+        allow_refused_sort: false,
+    }];
+    let options = spec.options.clone();
+    let bounds = spec.bounds;
+    let builder = crate::engine::configuration_builder(spec).unwrap();
+    let fresh = || {
+        let crate::BackendRoute::SourceExecution {
+            execution_rewrite_order,
+        } = &definition.route
+        else {
+            panic!("compiled source route")
+        };
+        let internal = Backend::internalize_source_definition(
+            &definition.kore,
+            &definition.main_module,
+            execution_rewrite_order,
+        )
+        .unwrap();
+        Backend::from_internalized(internal, BackendOptions::default()).unwrap()
+    };
+    let rule = fresh()
+        .rule_catalog(None)
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.label.as_deref() == Some("WORD-SOLVE.hit"))
+        .unwrap()
+        .id;
+    let original = builder.configuration(&[int(0)], &[]).unwrap();
+    let mut initial_request = ExecuteRequest::new(original);
+    initial_request.collect_coverage = true;
+    let initial = fresh().execute(initial_request).unwrap();
+    assert!(!initial.coverage.unwrap().applied.contains(&rule));
+    let mut solve = SolveProposer::new(builder, options, bounds, None, None);
+    let candidate = solve
+        .ask(&Query {
+            rule: rule.clone(),
+            values: vec![int(0)],
+            symbolic: vec![0],
+            work: 0,
+        })
+        .unwrap_or_else(|| panic!("source helper candidate: {:?}", solve.totals));
+    assert_eq!(candidate, vec![int(45)]);
+    let configuration = solve.builder.configuration(&candidate, &[]).unwrap();
+    let mut request = ExecuteRequest::new(configuration);
+    request.collect_coverage = true;
+    let replay = fresh().execute(request).unwrap();
+    assert!(replay.coverage.unwrap().applied.contains(&rule));
+}
+
 /// A declared range is conjoined: with `H <= 1000` no factorization is left, with `H` in
 /// `1009 ..= 1009` the model keeps it.
 #[test]

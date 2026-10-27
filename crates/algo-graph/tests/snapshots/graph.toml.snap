@@ -1605,6 +1605,46 @@ symbol = "SortReach::heads"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/conditions.rs"
+symbol = "contradictory"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/conditions.rs"
+symbol = "contradictory_in"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/conditions.rs"
+symbol = "contradictory_without_cases"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/conditions.rs"
+symbol = "memberships"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/conditions.rs"
+symbol = "literal_values"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/conditions.rs"
+symbol = "equalities_with_bounds"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/conditions.rs"
+symbol = "impl Classes"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/conditions.rs"
+symbol = "impl Differences"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/confluence/join.rs"
 symbol = "join"
 
@@ -1625,6 +1665,71 @@ symbol = "Join::split"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/memo.rs"
+symbol = "Memo"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/memo.rs"
+symbol = "Canonical"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/memo.rs"
+symbol = "impl Memo"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/memo.rs"
+symbol = "impl Canonical"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/memo.rs"
+symbol = "first_occurrences"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/memo.rs"
+symbol = "rename"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/symbols.rs"
+symbol = "Sorts"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/symbols.rs"
+symbol = "Class"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/symbols.rs"
+symbol = "impl Sorts"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/symbols.rs"
+symbol = "impl Class"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/symbols.rs"
+symbol = "covered_sorts"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/symbols.rs"
+symbol = "least_sorts"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/symbols.rs"
+symbol = "fixed_carrier"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/confluence/unify.rs"
 symbol = "Unifier::unify_all"
 
@@ -1632,6 +1737,56 @@ symbol = "Unifier::unify_all"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/confluence/unify.rs"
 symbol = "Unifier::step"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "settle"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "pair_key"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "witness_rule"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "head"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "differences"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "canonical"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "adopted"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "heads_untainted"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "adopted_unvalidated"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence/witness.rs"
+symbol = "only_at_their_pairs"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1647,6 +1802,16 @@ symbol = "Context::classify"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/confluence.rs"
 symbol = "Context::conditions"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::value_claims_in_scope"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definition.rs"
+symbol = "BackendDefinition::value_claims_checked"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1666,6 +1831,172 @@ symbol = "Context::unify_relaxed"
 [[node.cost]]
 mode = "one definition (check)"
 bound = "one pass over the e equations for the rows of the constructor and overload preconditions and for the per-equation reports, each one walk of the equation's left-hand side; nothing more when no equation head or overloaded symbol can be tainted; otherwise one relevance pass over the closure's edges, visiting each equation once and marking each symbol once, with one memoized sort-reach walk per variable sort; for the self pairs of left-hand sides that may match one subject in several ways, one fixpoint per equation over its left-hand side's positions of at most as many rounds as it has variables, then p unifications of at most b branch states each, each equation renamed apart once, every branch step one substitution of O(t); per overlap one predicate simplification of the two requires and a join of at most c cases, each normalizing two sides by at most s steps, every step one match against each equation offered at the redex and one unification per equation not shown to apply; every condition first renamed canonically in O(t) and one memo lookup, its key simplified only when no earlier condition of the check renamed to it, and simplified as written instead when that key's answer could not be renamed back (twice at the key's first occurrence, once at every later one); then one closure pass per non-joined pair and one over all of them, on the closure built for relevance, each visiting an equation once and pushing a symbol once, with one memoized sort-reach walk per variable sort; when the first pass proposes witness equations (`witness.rs`), one more join per proposing overlap and one unification per two proposals, then at most three more passes of this bound (the full check's two and the load's second)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.data.ground_instance"
+provenance = "declared"
+area = "backend"
+name = "bounded ground critical-pair witness search"
+variable = "V = variables of the overlap, sides and conditions; C = at most CANDIDATES terms per sort/depth; A = assignments tried, at most min(INSTANCES, C^V); S = distinct sort/depth candidate requests; R = equations selected by an application/priority check"
+no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendDataGroundInstance"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::ground_instance"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::try_assignment"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::candidates"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::compute_candidates"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::applies"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::matches"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::value"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::reading"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "Search::stuck"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "budgeted"
+
+[[node.cost]]
+mode = "one Search"
+bound = "one scan of the definition's classified axioms to collect non-executable heads; candidate vectors are memoized by (sort, depth), depth at most DEPTH, with at most CANDIDATES results each; each new request scans definition symbols, sorts matching constructor candidates, and visits their argument/subsort dependencies, including failed candidates"
+
+[[node.cost]]
+mode = "one pair"
+bound = "collect V variables and their candidate vectors, then at most A assignments; per assignment substitute overlap, sides and conditions, check collection shape and both equations' applicability including higher priorities, and evaluate conditions/reducts and stuckness as needed, scanning R selected equations per such check. Each budgeted evaluation has EVALUATION_POLLS and EVALUATION_ITERATIONS limits; these bound polls/iterations, not the byte cost of a poll, substitution, builtin, comparison or intermediate term. Failure to find a witness leaves the finding undecided"
+
+[[node]]
+kind = "algorithm"
+id = "backend.data.heads"
+provenance = "declared"
+area = "backend"
+name = "data-head classification from a full critical-pair verdict"
+variable = "S = symbols; F = findings; H = data heads; W = nodes of equations examined for canonical overload shape"
+no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendDataHeads"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "BackendDefinition::data_heads"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "BackendDefinition::data_heads"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "BackendDefinition::data_heads_assuming"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "BackendDefinition::data_head_names"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "canonical_overload_equation"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "confluence_findings"
+
+[[node.cost]]
+mode = "data_heads"
+bound = "one clone of the definition with value claims withheld and one backend.confluence.critical_pairs check in All scope, then one shared Search initialization and one backend.data.ground_instance search per pair finding, and, only with no finding, S symbol classifications with ordered theory/claim lookups, equation scans and O(W) shape/variable checks; inserting H admitted names costs O(H log(H + 1)) name comparisons"
+
+[[node.cost]]
+mode = "data_heads_assuming"
+bound = "F finding classifications plus the caller's assumed predicate, cloning of the retained/moved findings and witness handles, then one data_head_names pass if no finding remains; decided findings cannot be assumed away"
+
+[[node]]
+kind = "algorithm"
+id = "backend.data.term"
+provenance = "declared"
+area = "backend"
+name = "ground data-term classification with normality evidence"
+variable = "N = expanded term nodes reached outside constructor_like subtrees; H = admitted data heads; C = structural work of adjacent key/element equality comparisons"
+no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendDataTerm"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "BackendDefinition::is_data"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "BackendDefinition::is_data"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "BackendDefinition::is_data_walk"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "BackendDefinition::built_from_data"
+
+[[node.cost]]
+mode = "one term"
+bound = "O(N) worklist visits, O(log(H + 1)) name comparisons per equation-head node, plus C and backend.normality.scan for the normality questions in one shared with_scan_memo scope; a constructor_like subtree is accepted in O(1), and a verdict with findings is refused in O(1). The walk itself does not memoize shared nodes."
 
 [[node]]
 kind = "algorithm"
@@ -1773,6 +2104,11 @@ symbol = "request_definedness"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "faithful_conditions"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
 symbol = "faithful_equalities"
 
 [[node.sites]]
@@ -1843,7 +2179,7 @@ id = "backend.definition.internalize"
 provenance = "declared"
 area = "backend"
 name = "KORE definition validation and internalization"
-variable = "d = definition sentences and pattern nodes; a = axioms and claims of the modules the main module reaches, each module counted once"
+variable = "d = definition sentences and pattern nodes; a = axioms and claims of the modules the main module reaches, each module counted once; r = ground terms recorded by record_pattern_tokens"
 no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed, and through definedness discharge MatchingProblems, MatchingPairs and SimplifyInvocations, are bumped by callees"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -1906,7 +2242,7 @@ symbol = "internalize_axiom"
 
 [[node.cost]]
 mode = "one definition load"
-bound = '''O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus one walk of each predicate simplification lemma's left-hand side bringing it to its written form (simplify::written_lemma_left_side, one ceil_term call per atom of each conjunction that holds a \ceil, deferred, membership, absence or negation conjunct), plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)'''
+bound = '''O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus one walk of each predicate simplification lemma's left-hand side bringing it to its written form (simplify::written_lemma_left_side, one ceil_term call per atom of each conjunction that holds a \ceil, deferred, membership, absence or negation conjunct), plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure, one backend.confluence.critical_pairs check in Gate scope (including its witness rechecks), and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)'''
 
 [[node.cost]]
 mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -1956,6 +2292,150 @@ symbol = "stream_buffer"
 [[node.cost]]
 mode = "one final leaf"
 bound = "O(d + l + b * h) term visits and buffer copies; only stream-cell paths are externalized"
+
+[[node]]
+kind = "algorithm"
+id = "backend.float.canonical"
+provenance = "declared"
+area = "backend"
+name = "exact Float literal rounding and canonical decimal encoding"
+variable = "B = input bytes; O = output bytes; e = decimal input exponent; q = rounded binary quantum; w = largest bigint operand size in bits; A(w) = cost bound for a bigint arithmetic operation at that size; D(w) = bigint decimal parsing/formatting cost"
+no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendFloatCanonical"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "canonical_float_text"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "canonical_float_text"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "float_canonical_bits_estimate"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "Literal::parse"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "Magnitude::parse"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "Other::plan"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "Other::remote"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "Other::range"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "Plan::text"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "dyadic"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "round"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical.rs"
+symbol = "exact_decimal"
+
+[[node.cost]]
+mode = "binary32 or binary64"
+bound = "lexical/suffix parsing plus Rust's correctly rounded native float parser and canonical formatter; input cost depends on B, even though the result format is fixed"
+
+[[node.cost]]
+mode = "other format admitted by the size estimate"
+bound = "O(B + O) text work plus bigint parsing/formatting D(w), estimate/range arithmetic, a constant number of divisions/shifts for rounding, and powers of 5 or 10 requiring O(log(2 + |e|) + log(2 + |q|)) multiplications by exponentiation by squaring, each charged A(w). The estimate bounds the expensive exact significand arithmetic by MAX_FLOAT_CANONICAL_BITS; suffix and exponent fields still require input-sized parsing."
+
+[[node.cost]]
+mode = "refusal or remote/special literal"
+bound = "lexical and suffix/magnitude analysis and Other::plan before expensive exact conversion; zero format fields name no element, fields of one are uncomputed, and a plan beyond MAX_FLOAT_CANONICAL_BITS is refused. The estimator does not perform Plan::text's rounding or decimal expansion"
+
+[[node]]
+kind = "algorithm"
+id = "backend.float.root"
+provenance = "declared"
+area = "backend"
+name = "correctly rounded IEEE rootn by binary search and adaptive logarithms"
+variable = "f = bit width of the IEEE format, at most 64; w = an attempted fixed-point precision; W = largest precision reached; A(w) = upper bound on one bigint arithmetic operation on O(w + f + 66)-bit operands"
+no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendFloatRoot"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/root.rs"
+symbol = "positive_root_bits"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/root.rs"
+symbol = "positive_root_bits"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/root.rs"
+symbol = "special_root"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/root.rs"
+symbol = "native_degree"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/root.rs"
+symbol = "Comparison::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/root.rs"
+symbol = "Comparison::root_exceeds"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/root.rs"
+symbol = "log2_fixed"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/root.rs"
+symbol = "ln_ratio"
+
+[[node.cost]]
+mode = "positive finite root, non-native degree"
+bound = "at most f binary-search comparisons; each comparison at precision w uses O(w) bigint operations in the logarithm series, each charged A(w). Precision doubles on inconclusive comparisons and is retained for later ones; a conservative bound is O(f x sum over attempted precision levels w of w x A(w)), with O(W + f) live bigint bits. No precision-independent running-time bound is asserted."
+
+[[node.cost]]
+mode = "special or very large degree"
+bound = "fixed-format special-case handling; positive_root_bits returns the bit pattern for 1 before logarithms when the degree magnitude exceeds DEGREE_ROUNDING_TO_ONE_BITS (66). Input degree parsing and the caller's IEEE native operations are outside this procedure"
 
 [[node]]
 kind = "algorithm"
@@ -2149,9 +2629,18 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/implication.rs"
 symbol = "eliminate_existential_witnesses"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
+symbol = "check_negated_consequent"
+
 [[node.cost]]
 mode = "one consequent (check_established)"
 bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to four is_sat queries (the third, after one simplification of the antecedent's knowledge, only when a matched consequent is refuted, undecided or unprepared, empty_unless_consistent; the fourth only when the complete policy grades a failing part, grade_outside), and, when the complete policy grades a term mismatch it shows no instance outside of, one more simplification of the antecedent's knowledge and up to two more is_sat queries (antecedent_is_empty)"
+
+[[node.cost]]
+mode = "negated consequent (check_negated_consequent)"
+bound = "internalize the admitted negated argument and rename the two sides apart, then one backend.unification.syntactic problem. Bottom or Unsupported returns immediately. Otherwise substitute the common-instance constraints and state definedness of both sides, unifier constraints, binding values and the common term, with Vec::contains deduplication; ask Counterexample::common, then, if it gives none, at most one direct is_sat and one knowledge_is_contradictory simplification/check. Callee work and intermediate/output sizes are charged, not unit-cost solver queries."
 
 [[node.cost]]
 mode = "several consequents (check_disjunctive_implication_with_existentials)"
@@ -2349,6 +2838,11 @@ symbol = "Matcher::match_lists"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/matching/mod.rs"
+symbol = "SubjectNormalForms"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/apply.rs"
 symbol = "initial_match"
 
@@ -2364,7 +2858,7 @@ symbol = "match_with_settled_evidence"
 
 [[node.cost]]
 mode = "one matching problem"
-bound = "O(p x (a + s x t))"
+bound = "O(p x a) decomposition work plus the substitution operations at bindings (backend.substitution.apply), structural/sort comparisons and backend.normality.scan for equation-head evidence; SubjectNormalForms remembers each term's normality answer within this matching problem, while the scan's own memo lasts for its outer scope. Collection modes below count item searches/cuts separately."
 
 [[node.cost]]
 mode = "a map or set pattern against a subject without rest (match_maps, match_sets): its items found and its rest bound"
@@ -2373,6 +2867,97 @@ bound = "O(k log n): one search per pattern item and one removal per found item,
 [[node.cost]]
 mode = "a list pattern's items at either end (match_lists)"
 bound = "O(k + log n): k item pairs and one cut of the longer side"
+
+[[node]]
+kind = "algorithm"
+id = "backend.normality.scan"
+provenance = "declared"
+area = "backend"
+name = "memoized instance-normality scan by conservative equation exclusion"
+variable = "D = distinct terms completed in one outer scan memo; E = immediate-child edges visited; Q = candidate equations examined; P = syntactic unifier pairs popped; B = variable-binding links followed by resolve and occurs, counting repeated visits; V = variable references inspected by occurs; C = structural equality, sort, root-classification and variable-set comparison work"
+invariant = "A token is returned only after the term's shape, its immediate subterms, admitted value claims and complete candidate-equation exclusion justify instance normality; a refusal proves no non-normality. Nested scans share only the current outer scope's memo."
+no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendInstanceNormal"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "BackendDefinition::instance_normal"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal/token.rs"
+symbol = "InstanceNormal"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal/token.rs"
+symbol = "impl InstanceNormal"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal/token.rs"
+symbol = "NormalSubterms::of"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal/token.rs"
+symbol = "NoEquationReaches::scan"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "BackendDefinition::instance_normal"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "BackendDefinition::instance_normal_memoized"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "BackendDefinition::instance_normal_uncached"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "BackendDefinition::excluded"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "BackendDefinition::matching_refutes"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "with_scan_memo"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "ScanScope"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "may_unify"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "SyntacticUnifier"
+
+[[node.cost]]
+mode = "one outer scan or with_scan_memo scope"
+bound = "O(D + E + Q + P + B + V) expected hash-table operations, plus C and the cost of each nested equation match that matching_refutes asks; a memo hit avoids deciding that term again. The memo is cleared when the outermost scope exits; separate scopes can repeat the scan."
+
+[[node.cost]]
+mode = "equation exclusion"
+bound = "one syntactic unifiability test per candidate, then at most one Evaluate-mode match when syntactic unifiability remains possible and the variable sets are disjoint; the test follows bindings without path compression and its occurs walk can revisit a dependency, so B and V are traversal counts, not distinct-variable counts"
 
 [[node]]
 kind = "algorithm"
@@ -2389,6 +2974,11 @@ registry_name = "BackendProofSearch"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/proof.rs"
 symbol = "prove_claim"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/mod.rs"
+symbol = "Backend::prove_using"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -2415,9 +3005,23 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/proof.rs"
 symbol = "stuck_leaf"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "ProofLeaf::proven_vacuously"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "ProofLeaf::with_contradicted_total"
+
 [[node.cost]]
 mode = "one proof"
-bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
+bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus one terminal-instance certification attempt at each refuted current target on a certifiable trace and for each Stuck leaf (stuck_leaf), each up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
+
+[[node.cost]]
+mode = "facade evidence projection"
+bound = "one scan of each retained leaf trace to select actual claim applications, one sorted set of the available trusted reachability labels, and encoding of a contradicted-total record only where the core retained one; no solver query or rerun"
 
 [[node]]
 kind = "algorithm"
@@ -2479,7 +3083,7 @@ id = "backend.rewrite.execute"
 provenance = "declared"
 area = "backend"
 name = "depth-first exploration of a rewrite tree"
-variable = "d = maximum depth; b = maximum breadth; L = final leaves"
+variable = "s = states the selected strategy would take from pending without max_work; d = maximum rewrite depth; L = final leaves; K = recorded arrivals in one depth/shape-hash bucket; J = diagnostic entries compared by one absorption test"
 invariant = "pending holds unexpanded states of depth <= max_depth, their depths non-increasing from front to back; leaves only grows; work counts the states taken from pending, at most max_work. A state-set run that explores every branch records a state in its merge table only once the state's expansion completed without a stop, and keeps no depth below the back of pending. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
 span = "per problem"
 table = "Algorithm::ALL"
@@ -2494,6 +3098,26 @@ symbol = "execute_using"
 crate = "k-rust"
 file = "crates/k-rust/src/backend/mod.rs"
 symbol = "Backend::execute_using"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/coverage/conditions.rs"
+symbol = "record"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/coverage/conditions.rs"
+symbol = "impl Sink"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/coverage/conditions.rs"
+symbol = "impl Evaluation"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/coverage/conditions.rs"
+symbol = "exceeds"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -2535,9 +3159,214 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/execute.rs"
 symbol = "enqueue_execution_states"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "Execution::match_state"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/exploration_merge.rs"
+symbol = "ExplorationMerge"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/exploration_merge.rs"
+symbol = "Arrival"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/exploration_merge.rs"
+symbol = "Depth"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/exploration_merge.rs"
+symbol = "impl ExplorationMerge"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/exploration_merge.rs"
+symbol = "Arrival::absorbed_by"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/exploration_merge.rs"
+symbol = "Arrival::key"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/exploration_merge.rs"
+symbol = "push"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/path_trace.rs"
+symbol = "PathTrace"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/path_trace.rs"
+symbol = "PathTrace::push"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/path_trace.rs"
+symbol = "PathTrace::clear"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/path_trace.rs"
+symbol = "PathTrace::last_rewrite"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/path_trace.rs"
+symbol = "PathTrace::into_vec"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/path_trace.rs"
+symbol = "TraceNode::drop"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/state_match.rs"
+symbol = "StateMatcher"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/state_match.rs"
+symbol = "StateMatchOptions"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/state_match.rs"
+symbol = "impl StateMatcher"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "ExecutionIoState"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "EffectJournal"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "SharedLog"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "RunningDigest"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "ExecutionIoState::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "ExecutionIoState::observable"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "ExecutionIoState::observable_fingerprint"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "ExecutionIoState::observed_alike"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "ExecutionIoState::append"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "EffectJournal::commit"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "EffectJournal::into_committed"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "EffectJournal::fingerprint"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "EffectJournal::eq"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "SharedLog::clone"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "SharedLog::push"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "SharedLog::to_vec"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "SharedLog::into_vec"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "SharedLog::eq"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "LogNode::drop"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "RunningDigest::fold"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "RunningDigest::fold_marker"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "RunningDigest::fold_bytes"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "RunningDigest::fold_effect"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/transition.rs"
+symbol = "PatternDigest::of"
+
 [[node.cost]]
 mode = "bounded execution"
-bound = "O(min(states, max_work)), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
+bound = "O(min(s, max_work)) state pops, plus initialization and callee work below; max_depth limits rewrite depth and max_breadth limits the queued frontier, not the per-state branching factor, so neither gives a b^d total-state bound (remainders can also be queued at the same depth). Exploration is unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
 
 [[node.cost]]
 mode = "final leaf merge (merge_equal_final_leaves)"
@@ -2545,7 +3374,15 @@ bound = "nothing with fewer than two leaves carrying a configuration; otherwise 
 
 [[node.cost]]
 mode = "state-set exploration merge (Execution::merged)"
-bound = "one expansion per distinct (depth, RequestNames::state_key, effects, observed console, console availability) class, times the maximal diagnostic sets recorded for it (one set unless converging paths carry incomparable diagnostics); one E2/E3 simplification per arriving state; nothing computed from a state while it is alone at its depth; once a second state arrives there, one RequestNames::shape_hash per state of the depth (linear in its nodes that hold variables), and one RequestNames::state_key per state whose hash another state of the depth shares, each computed once; the effects and consoles of two arrivals are compared by fingerprint in O(1) and then back to their shared history; memory: the states recorded at depths not below the shallowest pending state, each a record of about 300 bytes (64-bit) and a copy of its constraint list, holding its term by its shared nodes, not a copy, so the sum of the recorded constraint-list lengths: quadratic in path length when the path condition grows by a conjunct per step"
+bound = "one expansion per distinct (depth, RequestNames::state_key, effects, observed console, console availability) class, times the maximal diagnostic sets recorded for it (one set unless converging paths carry incomparable diagnostics); one E2/E3 simplification per arriving state; nothing computed from a state while it is alone at its depth; once a second state arrives there, one RequestNames::shape_hash per state of the depth (linear in its nodes that hold variables), and one RequestNames::state_key per state whose hash another state of the depth shares, each computed once; each arriving state scans up to K recorded arrivals of its depth/shape hash, O(K) absorption tests and O(K^2) across K non-absorbing arrivals, including incomparable diagnostic histories without a hash collision; each test charges diagnostic subset comparisons over J, structural key equality and shared-history comparisons; the effects and consoles of two arrivals are compared by fingerprint in O(1) and then back to their shared history; memory: the states recorded at depths not below the shallowest pending state, each a record of about 300 bytes (64-bit) and a copy of its constraint list, holding its term by its shared nodes, not a copy, so the sum of the recorded constraint-list lengths: quadratic in path length when the path condition grows by a conjunct per step"
+
+[[node.cost]]
+mode = "reached-state matching (match_states)"
+bound = "only for eligible reached states until a clean reach without a term conjunction: one isolated leaf-form normalization when constraints remain, one target-disjunction match in Execution mode and, when proof_agreement requires and the first answer decided, one in Proof mode, plus ground_defined for a proposed reach. Each match pays backend.search.patterns, including simplification/solver work. Absorbed arrivals reuse the stored verdict. At most five state summaries are retained, with their configurations and prefix diagnostics; isolation stays on the step clock."
+
+[[node.cost]]
+mode = "condition recording (collect_conditions)"
+bound = "per entry of a selected rule: collect/sort the condition-read bindings, clone path/match knowledge and hash/compare the EntryKey, even for a duplicate or capped entry; per admitted record, one isolated bottom-up evaluation of its condition with NoSolver, substitutions and capped output-value checks; at most the configured record limit per rule, with record_polls per evaluation and max_value_size per stored value. Polls do not bound the byte cost of bigint hooks or intermediate terms. This extra evaluation is off the step clock but costs wall time (coverage::conditions)."
 
 [[node.cost]]
 mode = "trace storage"
@@ -2651,6 +3488,77 @@ bound = "each strategy either declines or returns matches with an empty or stric
 [[node.cost]]
 mode = "symbolic map key"
 bound = "O(n^k)"
+
+[[node]]
+kind = "algorithm"
+id = "backend.rewrite.refutation_memo"
+provenance = "declared"
+area = "backend"
+name = "rule-refutation memoization by agreement on the subject regions read"
+variable = "R = rules with a slot; L = left-hand-side and requires nodes examined when constructing a rule's read plan; V = distinct variables of that plan; K = constructor-skeleton pairs read when comparing two eligible subjects"
+invariant = "Only eligible ground, ceil_free, unconstrained subjects and direct initial-match or requires refutations without diagnostics, path facts, recovery or re-entry are remembered. Agreement on the recorded read regions preserves that refutation; the request fixes the definition, solver and options."
+no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendRewriteRefutationMemo"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "RefutationMemo::apply_rule"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "RefutationMemo::apply_rule"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "RefutationMemo::eligible"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "RefutationMemo::refutes"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "RefutationMemo::record"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "RefutationMemo"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "ReadPlan"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "ReadPlan::of"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "count_variables"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "same_reads"
+
+[[node.cost]]
+mode = "eligible attempt"
+bound = "one expected O(1) rule-address lookup, then O(K) skeleton pairs and ordered membership tests in the V read variables, stopping at the first differing read; all other subject regions are compared by allocation identity. A miss pays the ordinary backend.rewrite.apply cost."
+
+[[node.cost]]
+mode = "first recorded refutation and storage"
+bound = "one read-plan construction per rule slot: walks of the left-hand side and requires, ordered variable counting and read-set operations, plus impure-symbol checks; one term handle stored per eligible rule, O(R) slots and the plans' variable sets, retaining the shared term nodes those handles reach"
 
 [[node]]
 kind = "algorithm"
@@ -3186,6 +4094,36 @@ symbol = "simplify_with_optional_execution"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/symbolic.rs"
+symbol = "reduce"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/symbolic.rs"
+symbol = "scalar"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/symbolic.rs"
+symbol = "map"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/symbolic.rs"
+symbol = "key_fact"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/deferred.rs"
+symbol = "pure_functional_term"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/deferred.rs"
+symbol = "functional_without_console_effects"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/diagnostic.rs"
 symbol = "retract_dropped"
 
@@ -3272,6 +4210,26 @@ symbol = "apply_theory_noting_cuts"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "literal_candidate"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "apply_literal_equation_instance"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "classify_equation_instance"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "apply_prepared_equation_instance"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "apply_equation"
 
 [[node.sites]]
@@ -3291,6 +4249,14 @@ bound = "O(r x |t| x c), with the rounds that are not determined ground function
 [[node.cost]]
 mode = "the items of a map, set or list of n items (simplify_children)"
 bound = "O(u log n) nodes for the u items that are not evaluated or mention a variable the path condition binds, found by the items' summaries; every item when the path condition replaces terms, which no summary locates"
+
+[[node.cost]]
+mode = "selected symbolic primitive identity after concrete evaluation declines"
+bound = "constant root/rank checks and at most two scans of the k explicit key facts for a map law, then one memoized iterative walk of the distinct operand DAG nodes for functional purity; no solver calls. Every reduction removes an operation. Reducing a chain of n writes can scan O(n squared) nodes across its reductions; strict argument obligations use the existing hook_argument_definedness path."
+
+[[node.cost]]
+mode = "literal equation candidate"
+bound = "matching records forced literal equalities without scanning their subjects; only term-equation application checks functionality and effects, in one iterative memoized walk of the distinct nodes and edges across all candidate subjects, polling cancellation/deadlines once per distinct node. No solver call is needed for eligibility; deciding the equalities uses the ordinary condition path."
 
 [[node.cost]]
 mode = "rule condition"
@@ -3438,7 +4404,7 @@ symbol = "compose"
 
 [[node.cost]]
 mode = "one term"
-bound = "O(t x v log s), with O(1) skipping of variable-free subterms"
+bound = "per entered subterm, the variable-set meet test probes the smaller of its variables and the s substitution keys in the larger ordered set, at most O(min(v, s) x log(v + s + 1)) variable comparisons; plus variable binding lookups, the visited term nodes and reconstruction/attribute costs. Variable-free subtrees skip in O(1); collection traversal/rebuild work is stated separately below. This is not a bound linear in written term size alone."
 
 [[node.cost]]
 mode = "the items of a map, set or list of n items (rebuild_where, map_where)"
@@ -3454,11 +4420,17 @@ id = "backend.substitution.extract"
 provenance = "declared"
 area = "backend"
 name = "substitution extraction with strongly connected component cycle breaking"
-variable = "r = cycles broken; V and E = dependency-graph vertices and edges; s = binding count; t = term size"
+variable = "c = input constraints; r = graph-build/SCC rounds, including the final acyclic round; V = candidate bindings before cycle removal; A = variable references in candidate values, including references to unbound variables; E = dependency edges, at most A; s = surviving bindings; t = largest intermediate term size; v = largest visited subterm variable count"
+invariant = "During saturation, the round snapshot is restored before each binding; the callback sees exactly the previous round with its own key removed. SCC acyclicity is needed for convergence, not for remove/restore equivalence."
 no_counter = "substitution extraction has no dedicated counter"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendSubstitutionExtract"
+lean = [
+    "KRust.SubstitutionSaturation.sweep_eq",
+    "KRust.SubstitutionSaturation.saturation_eq",
+    "KRust.SubstitutionSaturation.replay_eq",
+]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -3480,13 +4452,18 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/substitution.rs"
 symbol = "extract_substitution_for"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution.rs"
+symbol = "saturate_with"
+
 [[node.cost]]
 mode = "cycle breaking"
-bound = "O(r x (V + E))"
+bound = "empty constraints return in O(1); otherwise classify c constraints into ordered binding buckets, charging the binding extractor's term/injection/sort work; then r graph rounds, at most V + 1. Each round builds ordered candidate indexes and checks A value-variable references, O((V + A) log(V + 1)) key comparisons, runs Kosaraju in O(V + E), and removes the least variable of each cyclic SCC with ordered-set operations. r includes a graph build even when no cycle is broken."
 
 [[node.cost]]
 mode = "saturation"
-bound = "O(s^2 x (s + t))"
+bound = "at most s rounds of s substitutions at the current intermediate size, each charged backend.substitution.apply, plus O(s^2) binding/term-handle copies from one snapshot clone per round and restoring each removed key, O(s^2 log(s + 1)) key comparisons for removals/restorations, and structural equality when checking convergence; filter c remaining constraints through the selected-index set afterwards. t can exceed input term size."
 
 [[node]]
 kind = "algorithm"
@@ -3833,7 +4810,7 @@ id = "backend.unification.syntactic"
 provenance = "declared"
 area = "backend"
 name = "syntactic first-order unification with eager substitution composition"
-variable = "n = pairs; s = bindings; t = term size"
+variable = "n = pairs popped, including decompositions; s = largest substitution binding count; t = largest intermediate term size, not only the written inputs"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendUnificationSyntactic"
@@ -3858,9 +4835,19 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/unification.rs"
 symbol = "Unifier::unify_one"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/unification.rs"
+symbol = "Unifier::classify"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/unification.rs"
+symbol = "Unifier::bind"
+
 [[node.cost]]
 mode = "symbolic KORE terms"
-bound = "O(n x s x t)"
+bound = "n pair pops, each substituting both sides with backend.substitution.apply before comparison/decomposition; each new binding composes the current substitution, up to s substitutions, and checks occurrence/rigidity. Residual equations and unsupported pairs are substituted once more on output. Add structural/sort comparisons and backend.normality.scan for the equation-head applications Unifier::classify asks about; unlike SubjectNormalForms, the unifier has no per-problem normality memo spanning its separate scan calls."
 
 [[node]]
 kind = "phase"
@@ -4020,6 +5007,90 @@ symbol = "PassInput::resolved_raw"
 
 [[node]]
 kind = "observation"
+id = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
+symbol = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/builtin/float/root.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/builtin/float/root.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/float/root.rs"
+symbol = "crates/k-rust-backend/src/builtin/float/root.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/data_term.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/data_term.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "crates/k-rust-backend/src/data_term.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/data_term/instance/tests.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/data_term/instance/tests.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance/tests.rs"
+symbol = "crates/k-rust-backend/src/data_term/instance/tests.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/instance_normal.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/instance_normal.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal.rs"
+symbol = "crates/k-rust-backend/src/instance_normal.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+symbol = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+symbol = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+
+[[node]]
+kind = "observation"
 id = "crates/k-rust-backend/src/term/chunked/tests.rs"
 provenance = "declared"
 area = "backend"
@@ -4056,6 +5127,18 @@ symbol = "crates/k-rust-backend/src/tests/definedness.rs"
 
 [[node]]
 kind = "observation"
+id = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
+symbol = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
+
+[[node]]
+kind = "observation"
 id = "crates/k-rust-backend/tests/backend/term_order.rs"
 provenance = "declared"
 area = "backend"
@@ -4077,6 +5160,30 @@ name = "crates/k-rust-backend/tests/size_weighted_growth.rs"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/tests/size_weighted_growth.rs"
 symbol = "crates/k-rust-backend/tests/size_weighted_growth.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust/src/definition/checks/ml_positions.rs"
+provenance = "declared"
+area = "definition"
+name = "crates/k-rust/src/definition/checks/ml_positions.rs"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "crates/k-rust/src/definition/checks/ml_positions.rs"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust/src/inner/parser/scoping.rs"
+provenance = "declared"
+area = "parser"
+name = "crates/k-rust/src/inner/parser/scoping.rs"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "crates/k-rust/src/inner/parser/scoping.rs"
 
 [[node]]
 kind = "observation"
@@ -4273,11 +5380,92 @@ bound = "O(V log V)"
 
 [[node]]
 kind = "algorithm"
+id = "definition.checks.ml_positions"
+provenance = "declared"
+area = "definition"
+name = "context-sensitive checking of matching-logic construct positions"
+variable = "n = sentence term nodes; h = maximum depth of the shared part of a rewrite rule; v = variable identities and binding-set entries processed; d = diagnostics; C = label/catalog comparisons and caller-provided affects_value queries"
+no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "DefinitionCheckMlPositions"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "check_ml_construct_positions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "check_ml_construct_positions"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "search_pattern_diagnostics"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "equation_diagnostics"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "position_diagnostics"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "Walk"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "holds_rewrite"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "bindings"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "unequally_bound_result_variables"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks/ml_positions.rs"
+symbol = "conjunction_without_reading"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks.rs"
+symbol = "check_ml_construct_positions_in_definition"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/checks.rs"
+symbol = "search_pattern_position_diagnostics"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "check_ml_positions"
+
+[[node.cost]]
+mode = "sentences or search target"
+bound = "the context walk and its structural helper walks, including O(n x (h + 1)) rewrite-search visits in a shared rule body, plus ordered binding-set work over v, C, and diagnostic construction/sorting; the caller supplies catalogs and, on expanded/search routes, the value-effect classifier. This is a visit bound, not a constant-byte bound on names or rendered diagnostics"
+
+[[node]]
+kind = "algorithm"
 id = "definition.checks.run"
 provenance = "declared"
 area = "definition"
 name = "structural checking of resolved definitions"
-variable = "M = modules; S = visited sentences and terms; P = visible parametric token declarations"
+variable = "M = modules; S = visited sentences and terms; P = visible parametric token declarations; h = maximum shared rule-body depth"
 no_counter = "structural definition checks have no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "DefinitionChecksRun"
@@ -4299,7 +5487,7 @@ symbol = "check_module_with_options"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(M x (S x (P + 1) + catalog work))"
+bound = "the per-module structural/token work O(M x S x (P + 1)) plus forced catalogs and the other composed checks, including definition.checks.ml_positions on Rust-target sentences with O(S x (h + 1)) rewrite-search visits per module and its binding/diagnostic costs; compiled-view checks and final diagnostic sorting are charged separately, not hidden as constant-time sentence visits"
 
 [[node]]
 kind = "algorithm"
@@ -5484,6 +6672,20 @@ symbol = "PackedTerm"
 
 [[node]]
 kind = "representation"
+id = "k_rust::inner::parser::forest::PackedTerm [scoped packed forest]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::inner::parser::forest::PackedTerm"
+type_path = "k_rust::inner::parser::forest::PackedTerm"
+role = "scoped packed forest"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/forest.rs"
+symbol = "PackedTerm"
+
+[[node]]
+kind = "representation"
 id = "k_rust::inner::parser::forest::PackedTerm [sorted forest]"
 provenance = "declared"
 area = "kompile"
@@ -5582,6 +6784,48 @@ symbol = "ReachabilityClaim"
 
 [[node]]
 kind = "representation"
+id = "k_rust_backend::confluence::ValueClaims [checked value claims]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::confluence::ValueClaims"
+type_path = "k_rust_backend::confluence::ValueClaims"
+role = "checked value claims"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/confluence.rs"
+symbol = "ValueClaims"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::data_term::DataHeads [data-head verdict]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::data_term::DataHeads"
+type_path = "k_rust_backend::data_term::DataHeads"
+role = "data-head verdict"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term.rs"
+symbol = "DataHeads"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::data_term::instance::GroundInstance [ground critical-pair witness]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::data_term::instance::GroundInstance"
+type_path = "k_rust_backend::data_term::instance::GroundInstance"
+role = "ground critical-pair witness"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/data_term/instance.rs"
+symbol = "GroundInstance"
+
+[[node]]
+kind = "representation"
 id = "k_rust_backend::definition::BackendDefinition [internalized theory]"
 provenance = "declared"
 area = "backend"
@@ -5593,6 +6837,20 @@ role = "internalized theory"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definition.rs"
 symbol = "BackendDefinition"
+
+[[node]]
+kind = "representation"
+id = "k_rust_backend::instance_normal::token::InstanceNormal [instance-normal evidence]"
+provenance = "declared"
+area = "backend"
+name = "k_rust_backend::instance_normal::token::InstanceNormal"
+type_path = "k_rust_backend::instance_normal::token::InstanceNormal"
+role = "instance-normal evidence"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/instance_normal/token.rs"
+symbol = "InstanceNormal"
 
 [[node]]
 kind = "representation"
@@ -6752,7 +8010,7 @@ id = "kore.json.encode_source"
 provenance = "declared"
 area = "kore"
 name = "encode KORE JSON from a pattern source"
-variable = "p = expanded KORE pattern nodes"
+variable = "p = expanded KORE pattern nodes; s = expanded sort nodes in emitted fields; B = string/name payload bytes processed; O = output bytes; h = traversal depth. Source-node acquisition is charged separately when PatternSource::node is not constant-time."
 no_counter = "observation JSON counts are recorded by its backend caller"
 table = "Algorithm::ALL"
 registry_name = "KoreJsonEncodeSource"
@@ -6779,11 +8037,11 @@ symbol = "pattern_fields"
 
 [[node.cost]]
 mode = "one JSON value"
-bound = "O(p) source reads and JSON nodes; the returned JSON value has O(p) space"
+bound = "O(p + s + B) codec work and returned JSON-value space, plus the cost of acquiring p PatternSource nodes; sorts and string/name payloads are copied into the owned JSON tree. Pending tasks retain siblings and fields along depth h; expanded output counts shared occurrences separately."
 
 [[node.cost]]
 mode = "one compact JSON string"
-bound = "O(p) source reads and output bytes; the stack follows source depth and the returned string holds output bytes"
+bound = "O(p + s + B + O) codec work plus the cost of acquiring p PatternSource nodes; O(O) returned-string space plus pending task/source storage along the traversal frontier (including child/sort vectors), not the complete JSON value. A one-node string can have arbitrarily many payload/output bytes."
 
 [[node]]
 kind = "algorithm"
@@ -6791,7 +8049,7 @@ id = "kore.pattern.source"
 provenance = "declared"
 area = "kore"
 name = "node-at-a-time reading of KORE patterns: order, flattening, and materialization"
-variable = "p = pattern nodes the operation reaches"
+variable = "p = pattern nodes the operation reaches; C = work of scalar field comparison/cloning, including sort nodes and string/name bytes; F = cost of acquiring those PatternSource nodes, including source-handle cloning"
 no_counter = "reading a pattern source has no dedicated counter"
 span = "none"
 table = "Algorithm::ALL"
@@ -6844,7 +8102,7 @@ symbol = "materialize"
 
 [[node.cost]]
 mode = "one comparison, flattening, or materialization"
-bound = "O(p)"
+bound = "O(p) pattern-node operations plus C and F; comparison stops at its first differing scalar or child, flattening reads the connective spine and each returned operand root without traversing other descendants, and materialization owns the expanded scalar fields. Pattern-node count alone does not bound payload bytes or sort-tree size."
 
 [[node]]
 kind = "algorithm"
@@ -8049,7 +9307,7 @@ bound = "O(B + s) chart allocation (one chart per input byte, one prediction mar
 
 [[node.cost]]
 mode = "one parse attempt (parse_attempt)"
-bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, inference, then one lowering session over the inferred forest or tree, lower_inferred_session: resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor_packed, resolve_ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
+bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_readings, parser.inference.scope_binders before inference and restoration of retained terms/rejections afterwards, inference, then one lowering session over the inferred forest or tree, lower_inferred_session: resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor_packed, resolve_ambiguity); when inference rejects every reading the structural choice kept after it removed some, infer_without_structural_preference infers over every admitted reading once more, and once per part of each position where their ranks differ until one has two well-sorted parts, which no card carries yet"
 
 [[node.cost]]
 mode = "one failed parse attempt whose recognition removed a derivation for a priority or associativity violation (explain_violation)"
@@ -8552,6 +9810,96 @@ bound = "O(I x a x W^2 x V x S/64) for the typings of every instance, O(W^2 x V)
 [[node.cost]]
 mode = "variable realization"
 bound = "O((V + E) x S) for the concrete bounds every variable reaches (one strongly-connected-component pass per direction), plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
+
+[[node]]
+kind = "algorithm"
+id = "parser.inference.scope_binders"
+provenance = "declared"
+area = "parser"
+name = "scope-sensitive alpha-renaming before sort inference and restoration"
+variable = "K = distinct (packed node, scope) states visited, summed over input forests; E = their child edges; h = maximum scope length; V = variable/binder identities; R = renamed binders; T = reserved source text bytes; c = fresh-name candidates tried; N = restored tree nodes; B = restored error bytes; l = largest renamed spelling length"
+invariant = "A packed node is memoized together with its lexical scope; binders are identified by source span across forest alternatives, fresh spellings occur in no reserved source text, and restoration replaces only minted spellings."
+no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "ParserInferenceScopeBinders"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Grammar::scope_binders"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Grammar::scope_binders"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Grammar::binding"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Grammar::pattern_variables"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Grammar::collect_identities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Grammar::rename_binders"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Minter::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Minter::mint"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Renaming::restore_term"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Renaming::restore_text"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "Renaming::restore_error"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "forest_texts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/scoping.rs"
+symbol = "rebuilt"
+
+[[node.cost]]
+mode = "scope analysis and renaming"
+bound = "O((K + E) x (h + 1)) scope copying/hashing and environment scans, plus ordered identity-set operations, binding-pattern discovery walks and rebuilding/ordering of changed ambiguities; memoization keys include the scope, so K is not bounded by distinct packed nodes alone. No conflicting binder returns the original forests without minting or rebuilding."
+
+[[node.cost]]
+mode = "fresh names"
+bound = "one forest_texts reservation walk per input forest (shared nodes visited once per forest), then c reservation attempts and checks of each candidate's plain and Debug spellings against source texts, with substring-search and spelling costs charged; source texts total T bytes, and c is not just R"
+
+[[node.cost]]
+mode = "restoration"
+bound = "restore_term visits N tree nodes with an ordered lookup among R renamed names at each variable and copies written spellings; restore_text builds and length-sorts 2R spellings, then tries up to 2R prefixes of length at most l per scanned character, O(B x R x l) prefix work, plus spelling construction and output bytes; text with neither marker returns after the marker searches"
 
 [[node]]
 kind = "algorithm"
@@ -9954,9 +11302,81 @@ to = "ConfluenceUnifierBranches"
 provenance = "declared"
 
 [[edge]]
+kind = "produces"
+from = "backend.confluence.critical_pairs"
+to = "k_rust_backend::confluence::ValueClaims [checked value claims]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.data.ground_instance"
+to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.data.ground_instance"
+to = "crates/k-rust-backend/src/data_term/instance/tests.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.data.ground_instance"
+to = "k_rust_backend::data_term::instance::GroundInstance [ground critical-pair witness]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.data.heads"
+to = "k_rust_backend::confluence::ValueClaims [checked value claims]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.data.heads"
+to = "k_rust_backend::data_term::instance::GroundInstance [ground critical-pair witness]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.data.heads"
+to = "crates/k-rust-backend/src/data_term.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.data.heads"
+to = "k_rust_backend::data_term::DataHeads [data-head verdict]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.data.term"
+to = "k_rust_backend::data_term::DataHeads [data-head verdict]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.data.term"
+to = "k_rust_backend::instance_normal::token::InstanceNormal [instance-normal evidence]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.data.term"
+to = "crates/k-rust-backend/src/data_term.rs"
+provenance = "declared"
+
+[[edge]]
 kind = "consumes"
 from = "backend.definedness.discharge"
 to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.definition.internalize"
+to = "k_rust_backend::confluence::ValueClaims [checked value claims]"
 provenance = "declared"
 
 [[edge]]
@@ -9990,6 +11410,18 @@ to = "k_rust_backend::term::Term [internalized term]"
 provenance = "declared"
 
 [[edge]]
+kind = "measured-by"
+from = "backend.float.canonical"
+to = "crates/k-rust-backend/src/builtin/float/canonical/tests.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.float.root"
+to = "crates/k-rust-backend/src/builtin/float/root.rs"
+provenance = "declared"
+
+[[edge]]
 kind = "consumes"
 from = "backend.implication.check"
 to = "k_rust_backend::matching::MatchResult [match result]"
@@ -9999,6 +11431,12 @@ provenance = "declared"
 kind = "consumes"
 from = "backend.implication.check"
 to = "k_rust_backend::substitution::Substitution [extracted substitution]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.implication.check"
+to = "k_rust_backend::unification::UnificationResult [unification result]"
 provenance = "declared"
 
 [[edge]]
@@ -10034,6 +11472,12 @@ provenance = "declared"
 [[edge]]
 kind = "consumes"
 from = "backend.matching.syntactic"
+to = "k_rust_backend::instance_normal::token::InstanceNormal [instance-normal evidence]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.matching.syntactic"
 to = "k_rust_backend::matching::collections::CollectionSolution [collection solution]"
 provenance = "declared"
 
@@ -10053,6 +11497,30 @@ provenance = "declared"
 kind = "produces"
 from = "backend.matching.syntactic"
 to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.normality.scan"
+to = "k_rust_backend::confluence::ValueClaims [checked value claims]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "backend.normality.scan"
+to = "k_rust_backend::matching::MatchResult [match result]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.normality.scan"
+to = "crates/k-rust-backend/src/instance_normal.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "backend.normality.scan"
+to = "k_rust_backend::instance_normal::token::InstanceNormal [instance-normal evidence]"
 provenance = "declared"
 
 [[edge]]
@@ -10191,6 +11659,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.rewrite.recover"
 to = "RewriteIndeterminateRecoveries"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.refutation_memo"
+to = "crates/k-rust-backend/src/rewrite/refutation_memo.rs"
 provenance = "declared"
 
 [[edge]]
@@ -10368,6 +11842,18 @@ to = "SmtSolverRuns"
 provenance = "declared"
 
 [[edge]]
+kind = "measured-by"
+from = "backend.substitution.extract"
+to = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.substitution.extract"
+to = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
+provenance = "declared"
+
+[[edge]]
 kind = "produces"
 from = "backend.substitution.extract"
 to = "k_rust_backend::substitution::Substitution [extracted substitution]"
@@ -10398,6 +11884,12 @@ to = "crates/k-rust-backend/tests/size_weighted_growth.rs"
 provenance = "declared"
 
 [[edge]]
+kind = "consumes"
+from = "backend.unification.syntactic"
+to = "k_rust_backend::instance_normal::token::InstanceNormal [instance-normal evidence]"
+provenance = "declared"
+
+[[edge]]
 kind = "measured-by"
 from = "backend.unification.syntactic"
 to = "UnificationProblems"
@@ -10408,6 +11900,12 @@ kind = "produces"
 from = "backend.unification.syntactic"
 to = "k_rust_backend::unification::UnificationResult [unification result]"
 provenance = "declared"
+
+[[edge]]
+kind = "contains"
+from = "check matching-logic positions"
+to = "definition.checks.ml_positions"
+provenance = "derived"
 
 [[edge]]
 kind = "follows"
@@ -10544,6 +12042,12 @@ provenance = "declared"
 kind = "produces"
 from = "definition.catalog.sort"
 to = "k_rust::definition::SortCatalog<'a> [sort lookup]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "definition.checks.ml_positions"
+to = "crates/k-rust/src/definition/checks/ml_positions.rs"
 provenance = "declared"
 
 [[edge]]
@@ -11354,6 +12858,12 @@ to = "k_rust::inner::parser::forest::PackedTerm [packed forest]"
 provenance = "declared"
 
 [[edge]]
+kind = "consumes"
+from = "parser.inference.portable"
+to = "k_rust::inner::parser::forest::PackedTerm [scoped packed forest]"
+provenance = "declared"
+
+[[edge]]
 kind = "falls-back-to"
 from = "parser.inference.portable"
 to = "parser.inference.z3"
@@ -11374,8 +12884,32 @@ provenance = "declared"
 
 [[edge]]
 kind = "consumes"
+from = "parser.inference.scope_binders"
+to = "k_rust::inner::parser::forest::PackedTerm [packed forest]"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "parser.inference.scope_binders"
+to = "crates/k-rust/src/inner/parser/scoping.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "produces"
+from = "parser.inference.scope_binders"
+to = "k_rust::inner::parser::forest::PackedTerm [scoped packed forest]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
 from = "parser.inference.z3"
 to = "k_rust::inner::parser::forest::PackedTerm [packed forest]"
+provenance = "declared"
+
+[[edge]]
+kind = "consumes"
+from = "parser.inference.z3"
+to = "k_rust::inner::parser::forest::PackedTerm [scoped packed forest]"
 provenance = "declared"
 
 [[edge]]

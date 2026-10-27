@@ -127,6 +127,11 @@ pub(super) struct ExplorationMerge {
     len: usize,
 }
 
+/// ```toml algorithm-site
+/// id = "backend.rewrite.execute"
+/// role = "part"
+/// sites = ["ExplorationMerge", "Arrival", "Depth", "impl ExplorationMerge", "Arrival::absorbed_by", "Arrival::key", "push"]
+/// ```
 impl ExplorationMerge {
     pub(super) fn is_empty(&self) -> bool {
         self.len == 0

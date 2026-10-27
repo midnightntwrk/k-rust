@@ -1,3 +1,40 @@
+//! ```toml algorithm
+//! id = "backend.data.term"
+//! name = "ground data-term classification with normality evidence"
+//! sites = ["BackendDefinition::is_data", "BackendDefinition::is_data_walk", "BackendDefinition::built_from_data"]
+//! variable = "N = expanded term nodes reached outside constructor_like subtrees; H = admitted data heads; C = structural work of adjacent key/element equality comparisons"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+//! span = "none"
+//! consumes = [{ type = "k_rust_backend::data_term::DataHeads", role = "data-head verdict" }, { type = "k_rust_backend::instance_normal::token::InstanceNormal", role = "instance-normal evidence" }]
+//! tests = ["crates/k-rust-backend/src/data_term.rs"]
+//!
+//! [[cost]]
+//! mode = "one term"
+//! bound = "O(N) worklist visits, O(log(H + 1)) name comparisons per equation-head node, plus C and backend.normality.scan for the normality questions in one shared with_scan_memo scope; a constructor_like subtree is accepted in O(1), and a verdict with findings is refused in O(1). The walk itself does not memoize shared nodes."
+//! ```
+//!
+//! ```toml algorithm
+//! id = "backend.data.heads"
+//! name = "data-head classification from a full critical-pair verdict"
+//! sites = ["BackendDefinition::data_heads", "BackendDefinition::data_heads_assuming", "BackendDefinition::data_head_names", "canonical_overload_equation", "confluence_findings"]
+//! variable = "S = symbols; F = findings; H = data heads; W = nodes of equations examined for canonical overload shape"
+//! counters = []
+//! no_counter = "This procedure has no dedicated counter; its callees retain their own measurements."
+//! span = "none"
+//! consumes = [{ type = "k_rust_backend::confluence::ValueClaims", role = "checked value claims" }, { type = "k_rust_backend::data_term::instance::GroundInstance", role = "ground critical-pair witness" }]
+//! produces = [{ type = "k_rust_backend::data_term::DataHeads", role = "data-head verdict" }]
+//! tests = ["crates/k-rust-backend/src/data_term.rs"]
+//!
+//! [[cost]]
+//! mode = "data_heads"
+//! bound = "one clone of the definition with value claims withheld and one backend.confluence.critical_pairs check in All scope, then one shared Search initialization and one backend.data.ground_instance search per pair finding, and, only with no finding, S symbol classifications with ordered theory/claim lookups, equation scans and O(W) shape/variable checks; inserting H admitted names costs O(H log(H + 1)) name comparisons"
+//!
+//! [[cost]]
+//! mode = "data_heads_assuming"
+//! bound = "F finding classifications plus the caller's assumed predicate, cloning of the retained/moved findings and witness handles, then one data_head_names pass if no finding remains; decided findings cannot be assumed away"
+//! ```
+//!
 //! Data terms: ground terms whose meaning in a definition is fixed by its constructors and by
 //! the normal forms of its equations alone, so that two different data terms denote different
 //! values of the definition. A client comparing ends of two definitions (a differential test) compares only

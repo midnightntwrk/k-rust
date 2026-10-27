@@ -33,7 +33,8 @@
 //! a macro or alias head is a rule of the function that head expands to. A macro label can enter
 //! a closure; a caller that needs function labels only keeps those.
 //!
-//! Graph construction visits the rule catalog once; closure is O(V + E). No dedicated counter.
+//! Graph construction visits the rule catalog once; closure visits vertices/edges with the
+//! ordered membership costs on its card. No dedicated counter.
 
 use std::collections::{BTreeMap, BTreeSet};
 

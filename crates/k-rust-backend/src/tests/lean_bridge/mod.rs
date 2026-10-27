@@ -11,5 +11,6 @@
 
 mod attributes;
 pub(crate) mod generators;
+mod substitution;
 mod term_json;
 mod walks;

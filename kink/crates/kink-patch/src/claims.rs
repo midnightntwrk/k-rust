@@ -143,12 +143,12 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "smt-hook",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2875; backend-port.md 316; k-rust-backend/src/smt.rs 207",
+        citation: "compatibility.md 2942; backend-port.md 316; k-rust-backend/src/smt.rs 223",
     },
     TrustedClaim {
         claim: "smtlib",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2875-2876; k-rust-backend/src/smt.rs 207",
+        citation: "compatibility.md 2942-2944; k-rust-backend/src/smt.rs 223",
     },
     TrustedClaim {
         claim: "preserves-definedness",
@@ -158,7 +158,7 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "smt-lemma",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2875; backend-port.md 316; k-rust-backend/src/smt.rs 207, 1214-1225",
+        citation: "compatibility.md 2942; backend-port.md 316; k-rust-backend/src/smt.rs 223, 1520-1531",
     },
     TrustedClaim {
         claim: "simplification",

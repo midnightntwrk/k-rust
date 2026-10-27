@@ -257,6 +257,11 @@ fn text(term: &Term) -> String {
 /// their right-hand sides differ at a unifier (or whose unification is undecided) dropped with
 /// that other; one at an index with a group at [`WITNESS_PRIORITY`] dropped; the rest ordered by
 /// index, then by text, each made an executable equation of that priority.
+/// ```toml algorithm-site
+/// id = "backend.confluence.critical_pairs"
+/// role = "part"
+/// sites = ["settle", "pair_key", "witness_rule", "head", "differences", "canonical", "adopted", "heads_untainted", "adopted_unvalidated", "only_at_their_pairs"]
+/// ```
 pub(super) fn settle(context: &mut Context<'_>, proposals: Vec<Proposal>) -> Witnesses {
     let proposed = proposals.len();
     // Canonical proposals, merged, each with its proposing pairs and origins.

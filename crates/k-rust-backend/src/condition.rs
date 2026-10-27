@@ -6,7 +6,8 @@
 //! predicate over the subject's instances, and a term in it denotes `\bottom` on an instance
 //! where it is undefined: a K Boolean atom `b` means `\equals(b, true)`, which is `\bottom`
 //! wherever `b` is, so `φσ` equals `φσ` with the definedness of each such atom stated
-//! (`definedness::condition_definedness`).
+//! (`definedness::condition_definedness`). An equality of two possibly undefined terms also
+//! keeps the case where both denote nothing (`definedness::faithful_conditions`).
 //!
 //! A [`Condition`] has no `&[Predicate]` view, so it cannot be substituted as a predicate list.
 //! Its only instance is an `InstantiatedCondition`, whose predicates leave only with that
@@ -28,7 +29,9 @@ use std::{cell::Cell, collections::BTreeSet};
 
 use crate::{
     deferred::{DeferredOutcome, deferred_obligations, deferred_positions},
-    definedness::{ceil_term, condition_definedness},
+    definedness::{
+        PredicateDefinednessFailure, ceil_term, condition_definedness, faithful_conditions,
+    },
     definition::BackendDefinition,
     diagnostic,
     rewrite::{Truth, alpha_normal, predicates_truth, substitute_predicates},
@@ -169,14 +172,17 @@ impl InstantiatedCondition {
     }
 
     /// The instance with the definedness of its terms stated
-    /// (`definedness::condition_definedness`), an equivalent predicate; an obligation in `known`
+    /// (`definedness::faithful_conditions` and `definedness::condition_definedness`), an
+    /// equivalent predicate; an obligation in `known`
     /// is not restated.
     pub(crate) fn with_definedness(
         self,
         definition: &BackendDefinition,
         known: &[Predicate],
-    ) -> Result<Vec<Predicate>, DeferredOutcome> {
-        condition_definedness(definition, self.0, known)
+    ) -> Result<Vec<Predicate>, PredicateDefinednessFailure> {
+        let faithful = faithful_conditions(definition, self.0)?;
+        condition_definedness(definition, faithful, known)
+            .map_err(PredicateDefinednessFailure::Deferred)
     }
 
     /// Simplify the instance with the definedness of its Boolean terms explicit
@@ -185,15 +191,17 @@ impl InstantiatedCondition {
     /// `simplify(conditions, known, first_attempt)` simplifies under `known`; `definedness_known`
     /// are the predicates the stated obligations are deduplicated against (a superset of `known`).
     ///
-    /// A condition without free variables is first simplified as it is, under no known predicate.
+    /// Equality is first stated faithfully, including its both-empty case, before any
+    /// simplification can decide or query a solver. A condition without free variables is
+    /// then first simplified under no known predicate.
     /// If that decides it syntactically (`true` or `false`), the decision is exact and is returned.
     /// The simplifier evaluates a variable-free condition innermost first, and every step it takes
     /// is an equivalence that keeps the definedness of what it consumes: a builtin hook returns its
     /// arguments' obligations with its value, an equation carries the definedness of the terms it
     /// binds and decides its own requires with their definedness stated, and a partial function
     /// with no applicable equation stays an application, whose obligation keeps the atom from being
-    /// `true` or `false`. So a `true` means every partial subterm evaluated to a value and is
-    /// defined, and a `false` refutes the condition with or without the obligations. With no known
+    /// `true` or `false` without resolving its domain. Equality already states that domain
+    /// explicitly, including both-empty operands. A decided result is therefore exact. With no known
     /// predicate the decision rests on evaluation alone, never on an assumption about a term the
     /// evaluation left unevaluated. The solver sees nothing in this attempt except equation
     /// conditions whose definedness is explicit. Every other outcome, a symbolic condition, and a
@@ -214,7 +222,10 @@ impl InstantiatedCondition {
             bool,
         ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>>,
     ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
-        let conditions = self.0;
+        let conditions = match faithful_conditions(definition, self.0) {
+            Ok(conditions) => conditions,
+            Err(failure) => return Ok(Err(failure.into())),
+        };
         let mut ceil_free = true;
         let mut ground = true;
         for condition in &conditions {

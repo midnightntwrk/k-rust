@@ -127,7 +127,7 @@ pub struct ContradictedTotalOutput<K = Value> {
     pub undefined: K,
 }
 
-fn contradicted_total_output<K: WireKore>(
+pub(super) fn contradicted_total_output<K: WireKore>(
     contradicted: &ContradictedTotal,
 ) -> Result<ContradictedTotalOutput<K>, BackendError> {
     Ok(ContradictedTotalOutput {
@@ -801,6 +801,10 @@ pub enum SatisfiabilityOutput<K = Value> {
 )]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub enum SearchFailureOutput<K = Value> {
+    /// A definition condition has no solver-faithful definedness form.
+    UnstatedDefinedness {
+        reason: String,
+    },
     StackExhausted,
     /// A macro or alias survived preprocessing, so the state is not executable.
     SurvivingMacroOrAlias {
@@ -1733,6 +1737,9 @@ fn simplification_failure_output<K: WireKore>(
     result_sort: &Sort,
 ) -> Result<SearchFailureOutput<K>, BackendError> {
     Ok(match error {
+        SimplificationError::UnstatedDefinedness { reason } => {
+            SearchFailureOutput::UnstatedDefinedness { reason }
+        }
         SimplificationError::Builtin(error) => SearchFailureOutput::Builtin {
             error: builtin_failure_output(error)?,
         },
@@ -2542,6 +2549,12 @@ mod tests {
     fn every_search_failure_has_a_solver_availability_projection() {
         let cases = [
             (SearchFailureOutput::StackExhausted, false),
+            (
+                SearchFailureOutput::UnstatedDefinedness {
+                    reason: "term conjunction".into(),
+                },
+                false,
+            ),
             (
                 SearchFailureOutput::SurvivingMacroOrAlias { symbol: "m".into() },
                 false,

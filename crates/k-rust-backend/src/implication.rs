@@ -4,13 +4,14 @@
 //! sites = ["check_established", "check_implication", "check_implication_with_existentials",
 //!     "check_implication_with_existentials_and_options",
 //!     "check_implication_with_existentials_complete",
-//!     "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses"]
+//!     "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses", "check_negated_consequent"]
 //! variable = "r = antecedent simplification rounds; c = consequents"
 //! counters = ["SmtQueries"]
 //! span = "per problem"
 //! consumes = [
 //!   { type = "k_rust_backend::matching::MatchResult", role = "match result" },
 //!   { type = "k_rust_backend::substitution::Substitution", role = "extracted substitution" },
+//!   { type = "k_rust_backend::unification::UnificationResult", role = "unification result" },
 //! ]
 //!
 //! [[cost]]
@@ -23,6 +24,10 @@
 //! policy grades a failing part, grade_outside), and, when the complete policy grades a term \
 //! mismatch it shows no instance outside of, one more simplification of the antecedent's \
 //! knowledge and up to two more is_sat queries (antecedent_is_empty)"""
+//!
+//! [[cost]]
+//! mode = "negated consequent (check_negated_consequent)"
+//! bound = "internalize the admitted negated argument and rename the two sides apart, then one backend.unification.syntactic problem. Bottom or Unsupported returns immediately. Otherwise substitute the common-instance constraints and state definedness of both sides, unifier constraints, binding values and the common term, with Vec::contains deduplication; ask Counterexample::common, then, if it gives none, at most one direct is_sat and one knowledge_is_contradictory simplification/check. Callee work and intermediate/output sizes are charged, not unit-cost solver queries."
 //!
 //! [[cost]]
 //! mode = "several consequents (check_disjunctive_implication_with_existentials)"
@@ -389,7 +394,7 @@ pub fn check_negated_consequent(
                 .with_definedness(definition, &conjunction.constraints)?,
         );
         stated.extend(definedness);
-        Ok::<_, crate::deferred::DeferredOutcome>(stated)
+        Ok::<_, crate::definedness::PredicateDefinednessFailure>(stated)
     })();
     let Ok(stated) = stated else {
         return Ok(Ok(ImplicationVerdict::Indeterminate { outside: None }));
@@ -2091,7 +2096,7 @@ fn consequent_obligations(
     knowledge: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Stoppable<Result<PreparedConsequent, crate::deferred::DeferredOutcome>> {
+) -> Stoppable<Result<PreparedConsequent, SimplificationError>> {
     let (substitution, remainder, solved_constraints) = solve_collection_remainder_pairs(
         definition,
         substitution,
@@ -2521,11 +2526,17 @@ fn subject_collection_form(
         CollectionMetadata::Map(map) => {
             hooked(subject, "MAP.update")?;
             let map_sort = Sort::simple(map.map_sort.clone());
-            let remove = declared("MAP.remove", &[map_sort, map.key_sort])?;
+            let operations = definition.map_operations(&map_sort)?;
+            if &operations.collection != map {
+                return None;
+            }
             let mut keys = Vec::new();
             let mut entries = Vec::new();
             let mut base = subject.clone();
             while let Some((_, arguments)) = hooked(&base, "MAP.update") {
+                if !operations.admits(&base, "MAP.update") {
+                    break;
+                }
                 let [inner, key, value] = arguments.as_slice() else {
                     break;
                 };
@@ -2550,9 +2561,9 @@ fn subject_collection_form(
             if entries.is_empty() {
                 return None;
             }
-            let rest = keys.into_iter().fold(base, |rest, key| {
-                Term::application(remove.clone(), Vec::new(), vec![rest, key])
-            });
+            let rest = keys
+                .into_iter()
+                .try_fold(base, |rest, key| operations.remove(definition, rest, &key))?;
             Some(Term::map(map.clone(), entries, Some(rest)))
         }
         CollectionMetadata::Set(set) => {
@@ -5550,8 +5561,8 @@ mod tests {
     }
 
     /// `pair(X, 1) ∧ h(X) <=Int 0 ∧ 1 <=Int X`, where the equation `h(X) = X` makes the
-    /// constraints contradictory, has no instance; the solver, reading `h` as an uninterpreted
-    /// function, answers its consequent condition `X <=Int 5` contingent on the knowledge as
+    /// constraints contradictory, has no instance; `h` has a prioritized simplification row,
+    /// which source-summary admission refuses. The solver answers `X <=Int 5` contingent on the knowledge as
     /// written. The check's refutation by simplification decides `knowledge ∧ ¬(X <=Int 5)`
     /// after evaluating `h`, finds it contradictory and so shows the consequent to hold: a
     /// contradiction of the knowledge that only the simplifier exposes is found before a
@@ -5561,14 +5572,14 @@ mod tests {
     #[test]
     fn an_antecedent_contradictory_only_once_simplified_is_covered_before_it_is_contingent() {
         let definition = partial_definition_with(
-            r#"symbol h{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            r#"symbol h{}(SortInt{}) : SortInt{} [function{}()]
                 axiom{R} \implies{R}(
                     \top{R}(),
                     \equals{SortInt{}, R}(
                         h{}(X:SortInt{}),
                         \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())
                     )
-                ) [label{}("identity-h"), simplification{}()]"#,
+                ) [label{}("identity-h"), simplification{}("40")]"#,
         );
         let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
         let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);

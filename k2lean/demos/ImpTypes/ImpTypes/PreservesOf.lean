@@ -12,12 +12,18 @@ import KPrelude.InvColl
 `KImp.Step.Case.«CALC.var» (WTc envTy G)` and `KImp.Step.Case.«CALC.assign» (WTc envTy G)`, and
 proves the other 77 rules with `k2l_preserve`. The goal that `k2l_preserve` leaves for a rule is
 that rule's `Step.Case` with the rule's variables and side conditions introduced, so each
-residual case is closed by applying its hypothesis. -/
+residual case is closed by applying its hypothesis.
+
+The two proofs by `k2l_preserve` cover 79 rules, and their elaboration after the tactic counts
+every rule's heartbeats, so they have no bound of their own (`maxHeartbeats 0`) and bound each
+rule by `k2l.preserve.maxHeartbeats` (`KPrelude.InvTactic`, *Heartbeats*). -/
 
 namespace ImpTypesPreservesOf
 
 open KPrelude ImpTypes
 
+set_option maxHeartbeats 0 in
+set_option k2l.preserve.maxHeartbeats 200000 in
 /-- The runtime typing is preserved by every rule, given the two store rules' cases of
 `Step.preserves_of`; the other 77 rules by `k2l_preserve`. -/
 theorem wtc_preserved_of (G : TEnv)
@@ -31,6 +37,8 @@ theorem wtc_preserved_of (G : TEnv)
 theorem wtc_preserved (G : TEnv) : Preserved KImp.Step (WTc envTy G) :=
   wtc_preserved_of G (hand.«CALC.var» G) (hand.«CALC.assign» G)
 
+set_option maxHeartbeats 0 in
+set_option k2l.preserve.maxHeartbeats 200000 in
 /-- The direct form: `apply Step.preserves_of` leaves one goal `Step.Case.r (WTc envTy G)` per
 rule, `k2l_preserve` in its per-case mode closes 77 of them, and the two store rules remain as
 goals tagged by their rules, with the rules' variables introduced. -/

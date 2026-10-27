@@ -2,13 +2,14 @@
 //! id = "backend.definition.internalize"
 //! name = "KORE definition validation and internalization"
 //! sites = ["BackendDefinition::internalize", "BackendDefinition::internalize_with_added", "BackendDefinition::internalize_for_source_execution", "BackendDefinition::internalize_canonical", "BackendDefinition::internalize_term", "BackendDefinition::internalize_pattern", "visit_module"]
-//! variable = "d = definition sentences and pattern nodes; a = axioms and claims of the modules the main module reaches, each module counted once"
+//! variable = "d = definition sentences and pattern nodes; a = axioms and claims of the modules the main module reaches, each module counted once; r = ground terms recorded by record_pattern_tokens"
 //! counters = []
 //! no_counter = "the internalize phase of kprove timings measures the whole boundary; TermConstructed, and through definedness discharge MatchingProblems, MatchingPairs and SimplifyInvocations, are bumped by callees"
 //! span = "per problem"
 //! consumes = [
 //!   { type = "k_rust_kore::kore::ast::Definition", role = "compiled definition" },
 //!   { type = "k_rust_kore::kore::ast::Pattern", role = "converted term" },
+//!   { type = "k_rust_backend::confluence::ValueClaims", role = "checked value claims" },
 //! ]
 //! produces = [
 //!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
@@ -19,7 +20,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus one walk of each predicate simplification lemma's left-hand side bringing it to its written form (simplify::written_lemma_left_side, one ceil_term call per atom of each conjunction that holds a \\ceil, deferred, membership, absence or negation conjunct), plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus one walk of each predicate simplification lemma's left-hand side bringing it to its written form (simplify::written_lemma_left_side, one ceil_term call per atom of each conjunction that holds a \\ceil, deferred, membership, absence or negation conjunct), plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure, one backend.confluence.critical_pairs check in Gate scope (including its witness rechecks), and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)"
 //!
 //! [[cost]]
 //! mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -1125,6 +1126,9 @@ pub struct BackendDefinition {
     /// computed by `internalize` once the theories are complete; read by
     /// [`Self::console_reach`].
     console_reach: crate::deferred::ConsoleReach,
+    pub(crate) selector_contracts: OnceLock<crate::observation::Selectors>,
+    pub(crate) map_observations: OnceLock<BTreeMap<Sort, crate::observation::maps::Operations>>,
+    pub(crate) product_observations: OnceLock<crate::observation::products::Products>,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// [`domain_kind_in`] of the sorts table at each builtin sort, in the order of
     /// `BuiltinSort::ALL`, computed once at load: [`Self::domain_kind`] answers from it for a
@@ -1510,14 +1514,16 @@ pub enum UnstatedDefinedness {
     RefusedReading(Box<RulePatternError>),
 }
 
-impl From<crate::definedness::RequestDefinednessFailure> for UnstatedDefinedness {
-    fn from(failure: crate::definedness::RequestDefinednessFailure) -> Self {
+impl From<crate::definedness::PredicateDefinednessFailure> for UnstatedDefinedness {
+    fn from(failure: crate::definedness::PredicateDefinednessFailure) -> Self {
         match failure {
-            crate::definedness::RequestDefinednessFailure::Deferred(outcome) => Self::Impure {
+            crate::definedness::PredicateDefinednessFailure::Deferred(outcome) => Self::Impure {
                 hook: outcome.hook().to_owned(),
                 detail: outcome.reason().to_string(),
             },
-            crate::definedness::RequestDefinednessFailure::TermConjunction => Self::TermConjunction,
+            crate::definedness::PredicateDefinednessFailure::TermConjunction => {
+                Self::TermConjunction
+            }
         }
     }
 }
@@ -1928,6 +1934,9 @@ impl Drop for BackendDefinition {
             std::mem::take(&mut self.ceil_theory),
             std::mem::take(&mut self.finite_sort_constructors),
             std::mem::take(&mut self.inhabited_sorts),
+            std::mem::take(&mut self.selector_contracts),
+            std::mem::take(&mut self.map_observations),
+            std::mem::take(&mut self.product_observations),
         );
         // A refusal drops the parts here, on the current stack. Only a definition deeper than
         // any segment holds is refused, and only a thread with more stack than that loads one.
@@ -2764,6 +2773,9 @@ impl BackendDefinition {
             value_productions,
             impure_symbols,
             console_reach: crate::deferred::ConsoleReach::default(),
+            selector_contracts: OnceLock::new(),
+            map_observations: OnceLock::new(),
+            product_observations: OnceLock::new(),
             finite_sort_constructors: BTreeMap::new(),
             builtin_domain_kinds,
             kvar_sorts: OnceLock::new(),
@@ -2966,6 +2978,12 @@ impl BackendDefinition {
     /// off ([`crate::confluence::ConditionMemo`]; every load runs it on), for the tests that show
     /// the memo changes no verdict and no count but the simplifier's calls.
     #[must_use]
+    ///
+    /// ```toml algorithm-site
+    /// id = "backend.confluence.critical_pairs"
+    /// role = "part"
+    /// sites = ["BackendDefinition::value_claims_in_scope", "BackendDefinition::value_claims_checked"]
+    /// ```
     pub fn value_claims_checked(
         &self,
         scope: crate::confluence::CheckScope,
@@ -3102,6 +3120,14 @@ impl BackendDefinition {
     /// that root, which no listed constructor head covers.
     pub(crate) fn finite_constructor_heads(&self, sort: &Sort) -> Option<&FiniteConstructorDomain> {
         self.finite_sort_constructors.get(sort)
+    }
+
+    /// Actual closed instances whose complete source no-junk domain has one head.
+    pub(crate) fn sole_constructor_heads(&self) -> impl Iterator<Item = (Sort, &ConstructorHead)> {
+        self.finite_sort_constructors
+            .iter()
+            .filter(|(_, domain)| domain.heads.len() == 1)
+            .map(|(sort, domain)| (*sort, domain.heads.first().expect("one head")))
     }
 
     pub(crate) fn internalize_term(

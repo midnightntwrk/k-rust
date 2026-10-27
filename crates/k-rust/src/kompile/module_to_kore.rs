@@ -32,6 +32,7 @@ pub(super) use equations::predicate_at;
 mod binders;
 mod equations;
 mod roles;
+mod selectors;
 
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 use super::invariants::emitted::{EmittedTheory, emitted_from};
@@ -950,6 +951,13 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
             modules.semantics.sentences.push(emitted);
         }
         emitted_sources.push(rule.attributes().clone());
+        for (contract, source) in selectors::contracts(rule, &emission_context)? {
+            check_variable_sorts(&contract, &|| describe_source_sentence(rule))?;
+            #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+            check_emitted_rule(&semantics_theory, &contract, rule);
+            modules.semantics.sentences.push(contract);
+            emitted_sources.push(source);
+        }
     }
     for claim in specification_claims(
         definition,

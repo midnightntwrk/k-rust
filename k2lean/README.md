@@ -130,6 +130,7 @@ target/release/k2lean noninterference --kore A/definition.kore --name A --ns ANI
 | option | does |
 |---|---|
 | `relate --per-sort-terms true` | the two libraries are in the per-sort universe (`gen --per-sort-terms`); by default they are in the arity-indexed one and the translation is one function over `A`'s term family (`docs/design.md`, §3.2); `--arity-terms true`, the former opt-in, changes nothing |
+| `soundness --per-sort-terms true` | the two libraries are in the per-sort universe (`gen --per-sort-terms`); by default `Typing.lean` and `Soundness.lean` are written for the arity-indexed one (`docs/design.md`, §3.3) |
 | `relate --per-rule true` | when not every rule pairs: one simulation lemma per pair of corresponding rules (`fwd.r`, `bwd.r`) instead of the bisimulation |
 | `relate --split true` | the bisimulation in one module per simulation (`OUT/Base.lean`, `AppFwd`, `AppBwd`, `Forward`, `Backward`, imported by `OUT.lean`), so that Lean builds them in separate processes: for definitions of SIMPLE's size |
 | `refine --open FILE` | the case parts the hand module proves (`KIND RULE`, `KIND` one of `fwd_tr`, `fwd_x`, `bwd_tr`, `bwd_x`); `--hand-module` (default `NS.Relation`), `--extra`, `--measure-a`, `--measure-b` name what it supplies (default `X`, `μ`, `ν`) |

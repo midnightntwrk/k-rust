@@ -24,6 +24,9 @@ mod result_collection;
 mod set;
 mod string;
 mod substitution;
+mod symbolic;
+
+pub(crate) use symbolic::reduce as reduce_symbolic;
 
 pub use crate::collection_role::{
     CollectionKind, CollectionRole, RoleDeclaration, misfit as collection_role_misfit,
@@ -2245,7 +2248,7 @@ fn k_sequence_injection(term: &Term) -> Option<&Term> {
     .then_some(first)
 }
 
-fn read_bool(term: &Term) -> Option<bool> {
+pub(super) fn read_bool(term: &Term) -> Option<bool> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
     };

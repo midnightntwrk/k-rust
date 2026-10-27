@@ -15,7 +15,7 @@ kore_soundness() {
 
 name_soundness() {
   case $1 in
-    imptypes|imptypes-ps) echo KImpTypes ;;
+    imptypes) echo KImpTypes ;;
     kexpr) echo KExpr ;;
     exprtypes) echo KExprTypes ;;
     *) return 1 ;;
@@ -27,17 +27,13 @@ gen_soundness() {
     imptypes) GEN_ARGS=(--kore "$(kore_dir imp-typing)/definition.kore" --runtime "$(kore_dir imp-typing)/runtime.json"
             --out "$o" --name KImpTypes --prelude ../../lean/prelude
             --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,wt") ;;
-    # imptypes in the per-sort encoding, for ImpTypes: `soundness` writes Typing.lean per-sort
-    imptypes-ps) GEN_ARGS=(--kore "$(kore_dir imp-typing)/definition.kore" --runtime "$(kore_dir imp-typing)/runtime.json"
-            --out "$o" --name KImpTypes --prelude ../../lean/prelude
-            --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,wt" --per-sort-terms) ;;
-    # EXPR and its checker, per-sort as imptypes-ps, for ExprTypes
+    # EXPR and its checker, for ExprTypes
     kexpr) GEN_ARGS=(--kore "$(kore_dir expr)/definition.kore" --runtime "$(kore_dir expr)/runtime.json"
             --out "$o" --name KExpr --prelude ../../lean/prelude
-            --open-obligations "$o/open-obligations.txt" --per-sort-terms) ;;
+            --open-obligations "$o/open-obligations.txt") ;;
     exprtypes) GEN_ARGS=(--kore "$(kore_dir expr-typing)/definition.kore" --runtime "$(kore_dir expr-typing)/runtime.json"
             --out "$o" --name KExprTypes --prelude ../../lean/prelude
-            --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf" --per-sort-terms) ;;
+            --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf") ;;
     *) return 1 ;;
   esac
   return 0
@@ -46,9 +42,9 @@ gen_soundness() {
 # ImpTypes: `Tr.lean`, kimp to the type checker, translating programs (`--roots`)
 relate_soundness() {
   case $1 in
-    ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr" --per-sort-terms true) ;;
+    ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr") ;;
     ExprTypes) na=KExpr ka=$(kore_dir expr) nb=KExprTypes kd=$(kore_dir expr-typing)
-               extra=(--roots "SortExpr" --per-sort-terms true) ;;
+               extra=(--roots "SortExpr") ;;
     *) return 1 ;;
   esac
 }
@@ -76,7 +72,6 @@ libs_soundness() {
 gate_soundness() {
   kc kimp
   runs lib imptypes && kc imp-typing && lib imptypes KImpTypes
-  runs lib imptypes-ps && kc imp-typing && lib imptypes-ps KImpTypes
   if runs demo ImpTypes; then
     phase "demo ImpTypes"
     kc imp-typing && rel ImpTypes

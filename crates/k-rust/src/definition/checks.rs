@@ -2,17 +2,18 @@
 //! id = "definition.checks.run"
 //! name = "structural checking of resolved definitions"
 //! sites = ["check_definition_with_options", "check_module_with_options"]
-//! variable = "M = modules; S = visited sentences and terms; P = visible parametric token declarations"
+//! variable = "M = modules; S = visited sentences and terms; P = visible parametric token declarations; h = maximum shared rule-body depth"
 //! counters = []
 //! no_counter = "structural definition checks have no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(M x (S x (P + 1) + catalog work))"
+//! bound = "the per-module structural/token work O(M x S x (P + 1)) plus forced catalogs and the other composed checks, including definition.checks.ml_positions on Rust-target sentences with O(S x (h + 1)) rewrite-search visits per module and its binding/diagnostic costs; compiled-view checks and final diagnostic sorting are charged separately, not hidden as constant-time sentence visits"
 //! ```
 //!
 //! Structural definition checking composes per-module checks over resolved catalogs.
-//! Complexity: O(M(S(P + 1) + catalog work)) over modules and their sentences.
+//! Costs compose the token/structural passes, forced catalogs, depth-dependent ML-position
+//! checks and diagnostic work as stated on the card.
 //! Token admission can match each token against visible parametric token declarations; no dedicated counter.
 //!
 //! Each check reads the sentences of one module and reports diagnostics; none changes them.
@@ -217,6 +218,12 @@ fn check_module_with_options_and_catalog(
 /// form of the claim keeps the alias's pattern. For the Rust target, an application inside a
 /// predicate operand that applies an effect (directly, or through a function all of whose
 /// equations apply one) is refused, judged by the same productions and equations.
+///
+/// ```toml algorithm-site
+/// id = "definition.checks.ml_positions"
+/// role = "part"
+/// sites = ["check_ml_construct_positions_in_definition", "search_pattern_position_diagnostics"]
+/// ```
 pub(crate) fn check_ml_construct_positions_in_definition(
     definition: &ResolvedDefinition,
     compiled: &crate::definition::Definition,

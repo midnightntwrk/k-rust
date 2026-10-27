@@ -10,7 +10,7 @@
 //!     "Encoding::read_model", "or_all"]
 //! variable = "H = sort heads; G = ground sorts; N = term nodes (of an inferred packed forest, its nodes, each encoded and given each model once per expected sort and cast context it is reached at, never once per tree); M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = parameter vectors enumerated for one maximal typing, at most 256, of which the admissible ones are kept; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing; F = formal parameters of the term"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
-//! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
+//! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }, { type = "k_rust::inner::parser::forest::PackedTerm", role = "scoped packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "sorted forest" }, { type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //! span = "per problem"
 //! lean = ["KRust.SubsortEncoding.new_equiv", "KRust.MaximalModels.maximal_models_spec", "KRust.MaximalModels.runs_agree_up_to_pref", "KRust.MaximalModels.runs_agree_candidates"]

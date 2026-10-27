@@ -143,6 +143,11 @@ pub(crate) struct Sorts {
     covered: FxHashMap<Sort, Vec<Name>>,
 }
 
+/// ```toml algorithm-site
+/// id = "backend.confluence.critical_pairs"
+/// role = "part"
+/// sites = ["Sorts", "Class", "impl Sorts", "impl Class", "covered_sorts", "least_sorts", "fixed_carrier"]
+/// ```
 impl Sorts {
     pub(crate) fn of(definition: &BackendDefinition) -> Self {
         let symbols = definition

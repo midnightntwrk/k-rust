@@ -137,7 +137,7 @@ pub struct ProveOptions {
     pub module: Option<String>,
     /// Claim labels, resolved by exact match or unique `.`-suffix; empty selects every claim.
     pub claims: Vec<String>,
-    /// At most this many rewrite steps on any proof path.
+    /// At most this many proof transitions, counting semantic rewrites and applied claims.
     pub depth: Option<u64>,
 }
 
@@ -1302,6 +1302,7 @@ fn prove_claims(
         };
         let mut verdict = Verdict::Proven;
         let mut leaves = Vec::new();
+        let mut trusted_claims = std::collections::BTreeSet::new();
         for selector in selectors {
             let result = backend.prove(ProveRequest {
                 claim: Some(selector),
@@ -1312,12 +1313,31 @@ fn prove_claims(
                 ExecError::Result(format!("unknown proof status `{}`", result.status))
             })?;
             verdict = verdict.weakest(disjunct);
+            trusted_claims.extend(result.trusted_claims);
             for leaf in &result.leaves {
                 leaves.push(ProofLeaf {
                     state: term(&leaf.state, sort_hooks)?,
                     depth: leaf.depth,
                     outcome: leaf.outcome.name().to_owned(),
                     detail: leaf.detail.clone(),
+                    certified: leaf.certified,
+                    vacuous: leaf.vacuous,
+                    claim_steps: leaf.claim_steps.clone(),
+                    contradicted_total: leaf
+                        .contradicted_total
+                        .as_ref()
+                        .map(|record| {
+                            Ok::<_, ExecError>(k_rust::backend::ContradictedTotalOutput {
+                                symbol: record.symbol.clone(),
+                                k_label: record.k_label.clone(),
+                                rule_id: record.rule_id.clone(),
+                                rule_label: record.rule_label.clone(),
+                                origin: record.origin.clone(),
+                                application: term(&record.application, sort_hooks)?,
+                                undefined: term(&record.undefined, sort_hooks)?,
+                            })
+                        })
+                        .transpose()?,
                 });
             }
         }
@@ -1331,6 +1351,7 @@ fn prove_claims(
             modality: claim.modality,
             origin: claim.origin,
             verdict,
+            trusted_claims: trusted_claims.into_iter().collect(),
             leaves,
         });
     }

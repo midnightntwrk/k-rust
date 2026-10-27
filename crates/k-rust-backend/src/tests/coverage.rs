@@ -1880,6 +1880,9 @@ fn every_priority_group_selection_offers_what_it_never_tries() {
         // The data heads' H3 (`data_term`): whether a ceil equation is offered at a head's index
         // at all, read once per definition; it tries none.
         ("data_term.rs", "data_head_names"),
+        // Source-summary admission reads every offered equation to derive a query
+        // interpretation. It executes none and must not fabricate rule coverage.
+        ("smt/summary.rs", "compile"),
         // The former lazy step, a differential-test oracle compiled only in tests.
         ("rewrite/step.rs", "rewrite_step_all_first_group_for_tests"),
     ];

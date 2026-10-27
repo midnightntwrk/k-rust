@@ -49,6 +49,11 @@ struct NoEquationReaches<'t> {
     subject: &'t Term,
 }
 
+/// ```toml algorithm-site
+/// id = "backend.normality.scan"
+/// role = "part"
+/// sites = ["InstanceNormal", "impl InstanceNormal", "NormalSubterms::of", "NoEquationReaches::scan"]
+/// ```
 impl InstanceNormal {
     /// Whether every instance of `term` is a normal form (the parent module states the rules).
     /// `subterm` answers for each immediate subterm of `term`. `excluded` tests one candidate

@@ -281,3 +281,168 @@ pub const TERM_READ_AS_PREDICATE_CLAIMS: &str = r#"
       weakAlwaysFinally{SortGeneratedTopCell{}}(\exists{SortGeneratedTopCell{}}(Var'QuesUnds'Gen1:SortInt{}, \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortRes{}, SortKItem{}}(Lblw3{}(VarX:SortInt{}, VarY:SortInt{}, VarZ:SortInt{})), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{})), \bottom{SortGeneratedTopCell{}}()))))
     [UNIQUE'Unds'ID{}("hand-lhseqtop"), label{}("HAND.lhseqtop")]
 "#;
+
+/// Definition conditions compare partial terms by their matching-logic denotations.
+/// The positive equality below holds exactly at a zero divisor; its negation holds exactly
+/// at a nonzero divisor. The initial commands themselves are defined in either region.
+pub const PARTIAL_EQUALITY_CONDITIONS: &str = r#"
+module PARTIAL-CONDITIONS
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Cmd ::= positive(Int, Int) | negative(Int, Int) | objectBool(Int, Int)
+               | ensured(Int, Int) | negativeEnsured(Int, Int) | "hit"
+  syntax Int ::= selected(Int, Int) [function, total]
+  rule selected(X:Int, D:Int) => 7 requires {X /Int D #Equals (X /Int D) +Int 1}
+  rule selected(X:Int, D:Int) => 9 requires #Not({X /Int D #Equals (X /Int D) +Int 1})
+  rule <k> positive(X:Int, D:Int) => hit </k>
+    requires {X /Int D #Equals (X /Int D) +Int 1}
+  rule <k> negative(X:Int, D:Int) => hit </k>
+    requires #Not({X /Int D #Equals (X /Int D) +Int 1})
+  rule <k> objectBool(X:Int, D:Int) => hit </k>
+    requires X /Int D ==Int (X /Int D) +Int 1
+  rule <k> ensured(X:Int, D:Int) => hit </k>
+    ensures {X /Int D #Equals (X /Int D) +Int 1}
+  rule <k> negativeEnsured(X:Int, D:Int) => hit </k>
+    ensures #Not({X /Int D #Equals (X /Int D) +Int 1})
+  configuration <T> <k> $PGM:K </k> <v> .K </v> </T>
+endmodule
+module PARTIAL-CONDITIONS-SPEC
+  imports PARTIAL-CONDITIONS
+  claim [positive-zero]: <k> positive(1, 0) => hit </k>
+  claim [negative-zero]: <k> negative(1, 0) => hit </k>
+  claim [positive-nonzero]: <k> positive(1, 1) => hit </k>
+  claim [negative-nonzero]: <k> negative(1, 1) => hit </k>
+  claim [symbolic-zero]: <k> positive(X:Int, D:Int) => hit </k> requires D ==Int 0
+  claim [symbolic-negative-zero]: <k> negative(X:Int, D:Int) => hit </k> requires D ==Int 0
+  claim [symbolic-negative-nonzero]: <k> negative(X:Int, D:Int) => hit </k> requires D =/=Int 0
+  claim [object-bool-zero]: <k> objectBool(1, 0) => hit </k>
+  claim [ensured-zero]: <k> ensured(1, 0) => hit </k>
+  claim [negative-ensured-zero]: <k> negativeEnsured(1, 0) => hit </k>
+  claim [ensured-nonzero]: <k> ensured(1, 1) => hit </k>
+  claim [negative-ensured-nonzero]: <k> negativeEnsured(1, 1) => hit </k>
+  claim [equation-zero]: <k> .K </k> <v> selected(X:Int, D:Int) => 7 </v> requires D ==Int 0
+  claim [equation-nonzero]: <k> .K </k> <v> selected(X:Int, D:Int) => 9 </v> requires D =/=Int 0
+endmodule
+"#;
+
+/// Literal rows and guarded rows describe the same value on established input regions.
+/// Unknown matches, rejected attributes and recursive guards must not select a value.
+pub const LITERAL_EQUATION_CONDITIONS: &str = r#"
+module LITERAL-CONDITIONS
+  imports INT
+  imports BOOL
+  syntax Int ::= bitValue(Bool) [function, total]
+               | guardedBit(Bool) [function, total]
+               | code(Int, Bool, Int) [function, total]
+               | preferred(Bool) [function, total]
+               | concreteRow(Int, Bool) [function, total]
+               | symbolicRow(Int, Bool) [function, total]
+               | circularRow(Int, Bool) [function, total]
+  rule bitValue(true) => 1
+  rule bitValue(false) => 0
+  rule guardedBit(B:Bool) => 1 requires B
+  rule guardedBit(B:Bool) => 0 requires notBool B
+  rule code(7, true, X:Int) => X +Int 1 requires X >Int 0
+  rule preferred(true) => 1 [priority(40)]
+  rule preferred(B:Bool) => 2 [owise]
+  rule concreteRow(X:Int, true) => X +Int 1 [concrete]
+  rule symbolicRow(X:Int, true) => X +Int 1 [symbolic]
+  rule circularRow(X:Int, true) => 1 requires circularRow(X, true) ==Int 1
+  configuration <T> <k> $PGM:K </k> <v> .K </v> </T>
+endmodule
+module LITERAL-CONDITIONS-SPEC
+  imports LITERAL-CONDITIONS
+  claim [true-row]: <k> .K </k> <v> bitValue(B:Bool) => 1 </v> requires B
+  claim [false-row]: <k> .K </k> <v> bitValue(B:Bool) => 0 </v> requires notBool B
+  claim [wrong-row]: <k> .K </k> <v> bitValue(B:Bool) => 1 </v> requires notBool B
+  claim [unknown-row]: <k> .K </k> <v> bitValue(B:Bool) => 1 </v>
+  claim [arithmetic-row]: <k> .K </k> <v> bitValue(X:Int <Int 256) => 1 </v>
+    requires 0 <=Int X andBool X <Int 256
+  claim [guarded-control]: <k> .K </k> <v> guardedBit(X:Int <Int 256) => 1 </v>
+    requires 0 <=Int X andBool X <Int 256
+  claim [several-literals]: <k> .K </k> <v> code(N:Int, B:Bool, X:Int) => X +Int 1 </v>
+    requires N ==Int 7 andBool B andBool X >Int 0
+  claim [unknown-guard]: <k> .K </k> <v> code(N:Int, B:Bool, X:Int) => X +Int 1 </v>
+    requires N ==Int 7 andBool B
+  claim [refuted-literal]: <k> .K </k> <v> code(N:Int, B:Bool, X:Int) => X +Int 1 </v>
+    requires N ==Int 8 andBool B andBool X >Int 0
+  claim [preferred-held]: <k> .K </k> <v> preferred(B:Bool) => 1 </v> requires B
+  claim [preferred-refuted]: <k> .K </k> <v> preferred(B:Bool) => 2 </v> requires notBool B
+  claim [preferred-unknown]: <k> .K </k> <v> preferred(B:Bool) => 2 </v>
+  claim [concrete-rejected]: <k> .K </k> <v> concreteRow(X:Int, B:Bool) => X +Int 1 </v> requires B
+  claim [symbolic-rejected]: <k> .K </k> <v> symbolicRow(3, B:Bool) => 4 </v> requires B
+  claim [recursive-guard]: <k> .K </k> <v> circularRow(X:Int, B:Bool) => 1 </v> requires B
+  claim [partial-operand]: <k> .K </k> <v> bitValue((1 /Int X:Int) <Int 256) => 1 </v> requires X >Int 1
+endmodule
+"#;
+
+/// Independent scalar identities stay available through opaque total functions and map writes.
+/// No function-behavior, map-extensionality or injection-injectivity axiom is supplied.
+pub const CONTEXTUAL_SCALAR_EQUALITIES: &str = r#"
+module CONTEXTUAL-EQUALITY
+  imports INT
+  imports BOOL
+  imports MAP
+  syntax Int ::= opaque(Int) [function, total]
+               | opaquePartial(Int) [function]
+               | named(Int) [function, total, smtlib(contextualNamed)]
+  configuration <T> <k> $PGM:K </k> <v> .K </v> <m> .Map </m> </T>
+endmodule
+module CONTEXTUAL-EQUALITY-SPEC
+  imports CONTEXTUAL-EQUALITY
+  claim [opaque]: <k> .K </k> <v> opaque(X:Int >>Int 8) => opaque(X /Int 256) </v>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [named]: <k> .K </k> <v> named(X:Int >>Int 8) => named(X /Int 256) </v>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [map-write]: <k> .K </k> <m> M:Map [0 <- X:Int >>Int 8] => M [0 <- X /Int 256] </m>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [map-chain]: <k> .K </k>
+    <m> M:Map [0 <- X:Int >>Int 8] [1 <- X %Int 256]
+       => M [0 <- X /Int 256] [1 <- X -Int (X /Int 256) *Int 256] </m>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [wrong-value]: <k> .K </k> <m> M:Map [0 <- X:Int >>Int 8] => M [0 <- 1] </m>
+    requires 0 <=Int X andBool X <Int 256
+  claim [wrong-frame]: <k> .K </k> <m> M:Map [0 <- X:Int >>Int 8] => .Map [0 <- X /Int 256] </m>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [different-heads]: <k> .K </k> <v> opaque(X:Int) => named(X) </v>
+  claim [opaque-partial]: <k> .K </k> <v> opaquePartial(X:Int >>Int 8) => opaquePartial(X /Int 256) </v>
+    requires 0 <=Int X andBool X <Int 65536
+  claim [overwritten-not-injective]: <k> .K </k>
+    <m> M:Map [0 <- X:Int] [0 <- 7] => M [0 <- X +Int 1] [0 <- 7] </m>
+  claim [overwrite-does-not-equate-values]: <k> .K </k> <v> X:Int ~> Y:Int </v>
+    <m> M:Map [0 <- X] [0 <- 7] => M [0 <- Y] [0 <- 7] </m>
+    ensures X ==Int Y
+  claim [overwrite-retains-definedness]: <k> .K </k> <v> X:Int </v>
+    <m> M:Map [0 <- 7] => M [0 <- opaquePartial(X)] [0 <- 7] </m>
+  claim [xor-retains-definedness]: <k> .K </k> <v> X:Int ~> 0 => X ~> (opaquePartial(X) xorInt opaquePartial(X)) </v>
+  claim [negative-truncation]: <k> .K </k> <v> opaque(X:Int >>Int 8) => opaque(X /Int 256) </v>
+    requires -256 <Int X andBool X <Int 0
+endmodule
+"#;
+
+/// The current target is a proof obligation, not an execution cutpoint. Weak circular
+/// proofs can close an infinite cycle, while finite terminal violations remain false.
+pub const WEAK_CLAIM_CONTINUATION: &str = r#"
+module WEAK-CONTINUATION
+  imports INT
+  imports BOOL
+  syntax KItem ::= tick() | count(Int) | spin() | done(Int)
+  configuration <k> $PGM:K </k> <n> 0 </n>
+  rule <k> tick() </k> <n> 0 => 1 </n>
+  rule <k> count(0) => done(0) ... </k>
+  rule <k> count(N:Int) => count(N -Int 1) ... </k> requires N >Int 0
+  rule <k> spin() => spin() ... </k>
+endmodule
+module WEAK-CONTINUATION-SPEC
+  imports WEAK-CONTINUATION
+  claim [later-target]: <k> tick() </k> <n> 0 => ?M:Int </n> ensures ?M ==Int 1
+  claim [partially-covered]: <k> tick() </k> <n> N:Int => ?M:Int </n>
+    requires 0 <=Int N andBool N <=Int 1 ensures ?M ==Int 1
+  claim [terminal-false]: <k> tick() </k> <n> 0 => ?M:Int </n> ensures ?M ==Int 2
+  claim [countdown]: <k> count(N:Int) => done(0) </k> requires N >=Int 0
+  claim [finite-countdown]: <k> count(3) => done(0) </k>
+  claim [cycle]: <k> spin() => done(0) </k>
+  claim [false-at-terminal]: <k> done(0) => done(1) </k>
+endmodule
+"#;

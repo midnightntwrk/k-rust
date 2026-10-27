@@ -23,7 +23,7 @@
 //! ```
 //!
 //! Finite partial orders use Kahn topological sorting, reverse-order transitive closure, and set-intersection bounds.
-//! Construction is O(V + E + closure); `Counter::KompilePartialOrdersBuilt` measures builds and
+//! Construction counts ordered-map/set operations and inherited closure entries as stated on the card; `Counter::KompilePartialOrdersBuilt` measures builds and
 //! `Counter::KompileOrderQueries` the `less_than` queries, through which `less_than_eq` (on
 //! distinct operands), `greater_than`, `in_some_relation`, the bound filters and
 //! `minimal`/`maximal` answer; direct closure reads (`relations_from`, `directly_less_than`,
