@@ -532,6 +532,15 @@ fn equality_demands(
             break;
         }
         *remaining -= 1;
+        if (a.sort().is_builtin(k_rust_kore::names::BuiltinSort::Int)
+            || a.sort().is_builtin(k_rust_kore::names::BuiltinSort::Bool))
+            && state.eligible_operand(&a)
+            && state.eligible_operand(&b)
+        {
+            state
+                .word_demands
+                .insert(Predicate::Equals(a.clone(), b.clone()));
+        }
         if let Some(fact) = builder.map_equality(&a, &b)? {
             predicates.push(fact.clone());
             state
@@ -552,19 +561,11 @@ fn equality_demands(
                     sort_arguments: sy,
                     arguments: ay,
                 },
-            ) if x == y
-                && sx == sy
-                && ax.len() == ay.len()
-                && !matches!(
-                    x.attributes.hook.as_deref(),
-                    Some("MAP.update" | "MAP.remove")
-                ) =>
-            {
-                ax.iter()
-                    .zip(ay)
-                    .map(|(x, y)| (x.clone(), y.clone()))
-                    .collect::<Vec<_>>()
-            }
+            ) if x == y && sx == sy && ax.len() == ay.len() => ax
+                .iter()
+                .zip(ay)
+                .map(|(x, y)| (x.clone(), y.clone()))
+                .collect::<Vec<_>>(),
             (
                 TermKind::Injection {
                     source: sx,
@@ -583,6 +584,61 @@ fn equality_demands(
             break;
         }
         pending.extend(children);
+        // Readings select further primitive law instances, never assumptions that
+        // corresponding leaves are equal. The shared pair set/budget bounds their
+        // finite cross-product and no key-alias partition is searched.
+        fn leaves(
+            reading: &Arc<Reading>,
+            remaining: &mut usize,
+        ) -> crate::stop::Stoppable<Vec<Term>> {
+            let mut pending = vec![reading.clone()];
+            let mut seen = std::collections::BTreeSet::new();
+            let mut result = std::collections::BTreeSet::new();
+            while let Some(reading) = pending.pop() {
+                crate::stop::check()?;
+                if *remaining == 0 {
+                    break;
+                }
+                if !seen.insert(Arc::as_ptr(&reading) as usize) {
+                    continue;
+                }
+                *remaining -= 1;
+                match reading.as_ref() {
+                    Reading::Leaf(term) => {
+                        result.insert(term.clone());
+                    }
+                    Reading::Missing => {}
+                    Reading::If { yes, no, .. } => pending.extend([yes.clone(), no.clone()]),
+                }
+            }
+            Ok(result.into_iter().collect())
+        }
+        let left = match builder.of(&a)? {
+            Some(reading) => leaves(&reading, remaining)?,
+            None => vec![a.clone()],
+        };
+        let right = match builder.of(&b)? {
+            Some(reading) => leaves(&reading, remaining)?,
+            None => vec![b.clone()],
+        };
+        if left.len().saturating_mul(right.len()) > *remaining {
+            continue;
+        }
+        for left in &left {
+            for right in &right {
+                if *left != a || *right != b {
+                    let pair = if left < right {
+                        (left.clone(), right.clone())
+                    } else {
+                        (right.clone(), left.clone())
+                    };
+                    if !seen.contains(&pair) && *remaining > 0 {
+                        *remaining -= 1;
+                        pending.push((left.clone(), right.clone()));
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }

@@ -159,12 +159,147 @@ fn bounded_partial_scalar_observations_are_guarded_inputs_and_effects_stay_out()
     }
 }
 
+#[cfg(feature = "z3")]
+#[test]
+fn word_meanings_compose_through_map_only_and_opaque_targets_without_assuming_equality() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    let source = definition_source().replace(
+        "endmodule",
+        r#"hooked-sort SortMap{} [hook{}("MAP.Map"),unit{}(unit{}()),element{}(item{}()),concat{}(concat{}())]
+        hooked-symbol unit{}() : SortMap{} [function{}(),total{}(),hook{}("MAP.unit")]
+        hooked-symbol item{}(SortInt{},SortInt{}) : SortMap{} [function{}(),total{}(),hook{}("MAP.element")]
+        hooked-symbol concat{}(SortMap{},SortMap{}) : SortMap{} [function{}(),hook{}("MAP.concat"),assoc{}(),comm{}()]
+        hooked-symbol put{}(SortMap{},SortInt{},SortInt{}) : SortMap{} [function{}(),total{}(),hook{}("MAP.update")]
+        symbol opaque{}(SortMap{}) : SortInt{} [function{}(),total{}()]
+        endmodule"#,
+    );
+    let d = BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN").unwrap();
+    let v = var("V");
+    let known = limits(&d, std::slice::from_ref(&v), 0, 256);
+    let actual = binary(
+        &d,
+        "or",
+        binary(&d, "and", binary(&d, "shl", v.clone(), int(4)), int(240)),
+        binary(&d, "shr", v.clone(), int(4)),
+    );
+    let expected = binary(
+        &d,
+        "add",
+        binary(&d, "mul", binary(&d, "mod", v.clone(), int(16)), int(16)),
+        binary(&d, "div", v, int(16)),
+    );
+    let m = Term::variable(Variable::new("M", Sort::simple("SortMap")));
+    let update = |value| call(&d, "put", vec![m.clone(), int(0), value]);
+    let solver = Z3Solver::new(&d).unwrap();
+    for wrapped in [false, true] {
+        for wrong in [false, true] {
+            let mut left = update(actual.clone());
+            let value = if wrong {
+                binary(&d, "add", expected.clone(), int(1))
+            } else {
+                expected.clone()
+            };
+            // This raw definition has no primitive ceil equations. Supply the
+            // defined-operand premise explicitly, as the authoring route derives it.
+            let mut known = known.clone();
+            known.extend([
+                Predicate::Ceil(actual.clone()),
+                Predicate::Ceil(value.clone()),
+            ]);
+            let mut right = update(value);
+            if wrapped {
+                left = call(&d, "opaque", vec![left]);
+                right = call(&d, "opaque", vec![right]);
+            }
+            let checked = Predicate::Equals(left, right);
+            let q = query(&d, &known, std::slice::from_ref(&checked));
+            assert!(q.base().contains("bvor"));
+            assert!(q.model_mappings().is_none());
+            let result = solver
+                .check_predicates(&known, &Substitution::new(), &[checked])
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                result == Validity::Valid,
+                !wrong,
+                "wrapped={wrapped}, wrong={wrong}"
+            );
+        }
+    }
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn compound_boolean_word_guards_reuse_source_constructor_decisions_and_refuse_effects() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    for effect in [false, true] {
+        let source = definition_source().replace(
+            "endmodule",
+            &format!(
+                r#"sort SortCondition{{}} []
+                symbol zero{{}}() : SortCondition{{}} [constructor{{}}()]
+                symbol carry{{}}() : SortCondition{{}} [constructor{{}}()]
+                hooked-symbol eq{{}}(SortCondition{{}},SortCondition{{}}) : SortBool{{}} [function{{}}(),total{{}}(),hook{{}}("KEQUAL.eq")]
+                hooked-symbol andThen{{}}(SortBool{{}},SortBool{{}}) : SortBool{{}} [function{{}}(),total{{}}(),hook{{}}("BOOL.andThen")]
+                hooked-symbol orElse{{}}(SortBool{{}},SortBool{{}}) : SortBool{{}} [function{{}}(),total{{}}(),hook{{}}("BOOL.orElse")]
+                symbol observed{{}}(SortInt{{}}) : SortBool{{}} [function{{}}(),total{{}}(){effect}]
+                endmodule"#,
+                effect = if effect { ",impure{}()" } else { "" },
+            ),
+        );
+        let d =
+            BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN").unwrap();
+        let v = var("V");
+        let mask = var("Mask");
+        let mut known = limits(&d, std::slice::from_ref(&v), 128, 256);
+        known.extend(limits(&d, std::slice::from_ref(&mask), 128, 129));
+        let flag = binary(&d, "lt", binary(&d, "and", v.clone(), mask), int(1));
+        let constructor_case = call(
+            &d,
+            "eq",
+            vec![call(&d, "zero", vec![]), call(&d, "carry", vec![])],
+        );
+        let checked = Predicate::Equals(
+            call(
+                &d,
+                "orElse",
+                vec![
+                    flag,
+                    call(
+                        &d,
+                        "andThen",
+                        vec![constructor_case, call(&d, "observed", vec![v])],
+                    ),
+                ],
+            ),
+            Term::bool(false),
+        );
+        let Predicate::Equals(value, _) = &checked else {
+            unreachable!()
+        };
+        known.push(Predicate::Ceil(value.clone()));
+        let q = query(&d, &known, std::slice::from_ref(&checked));
+        assert_eq!(
+            q.base().contains("bvand") || q.checked().to_string().contains("bvand"),
+            !effect
+        );
+        assert!(q.model_mappings().is_none());
+        let result = Z3Solver::new(&d)
+            .unwrap()
+            .check_predicates(&known, &Substitution::new(), &[checked])
+            .unwrap()
+            .unwrap();
+        assert_eq!(result == Validity::Valid, !effect);
+    }
+}
+
 fn plan(term: &Term, known: &[Predicate]) -> Option<Plan> {
     let mut remaining = WORK_LIMIT;
     let bounds = bounds(known, &mut remaining).unwrap();
     let mut planner = Planner {
         bounds: &bounds,
         registry: None,
+        opaque_boolean_inputs: true,
         remaining: &mut remaining,
         memo: FxHashMap::default(),
         decisions: FxHashMap::default(),
@@ -295,6 +430,7 @@ fn signed_and_projected_values_agree_with_actual_native_hooks() {
             let mut planner = Planner {
                 bounds: &ranges,
                 registry: None,
+                opaque_boolean_inputs: true,
                 remaining: &mut remaining,
                 memo: FxHashMap::default(),
                 decisions: FxHashMap::default(),
@@ -347,6 +483,10 @@ fn same_width_profiles_keep_exact_guards_and_shared_dags_stay_small() {
     let claim = Predicate::Equals(diamond.clone(), diamond);
     let built = query(&d, &limits(&d, &[x, y], 0, 256), &[claim]);
     assert!(built.checked().to_string().len() < 15_000);
+    // Include the source-domain links: sharing only the checked value leaves
+    // those links capable of expanding the same diamond into a huge tree.
+    let bytes = built.base().len() + built.checked().to_string().len();
+    assert!(bytes < 100_000, "shared query bytes: {bytes}");
 }
 
 #[cfg(feature = "z3")]

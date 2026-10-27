@@ -150,6 +150,52 @@ impl<'a> Builder<'a> {
                     .flatten()
             })
             .map(|value| Arc::new(Reading::Leaf(value)));
+        if result.is_none()
+            && self.definition.domain_kind(&term.sort()) == Some(crate::term::DomainKind::Bool)
+            && let TermKind::Application {
+                symbol, arguments, ..
+            } = term.kind()
+            && matches!(
+                symbol.attributes.head_role(),
+                HeadRole::Function { declared: true, .. }
+            )
+        {
+            match (symbol.attributes.hook.as_deref(), arguments.as_slice()) {
+                (Some("BOOL.and" | "BOOL.andThen"), [left, right])
+                    if symbol.attributes.smt.is_none()
+                        && left.sort() == term.sort()
+                        && right.sort() == term.sort() =>
+                {
+                    result = Some(choice(
+                        Predicate::Term(left.clone()),
+                        Arc::new(Reading::Leaf(right.clone())),
+                        Arc::new(Reading::Leaf(Term::bool(false))),
+                    ));
+                }
+                (Some("BOOL.or" | "BOOL.orElse"), [left, right])
+                    if symbol.attributes.smt.is_none()
+                        && left.sort() == term.sort()
+                        && right.sort() == term.sort() =>
+                {
+                    result = Some(choice(
+                        Predicate::Term(left.clone()),
+                        Arc::new(Reading::Leaf(Term::bool(true))),
+                        Arc::new(Reading::Leaf(right.clone())),
+                    ));
+                }
+                (Some("KEQUAL.eq" | "KEQUAL.ne"), [_, _]) => {
+                    // Reuse the definition-aware builtin's existing constructor,
+                    // injection and normal-form evidence; do not invent inverse laws.
+                    if let Ok(crate::builtin::BuiltinResult::Value(value)) =
+                        crate::builtin::evaluate_in_definition(term, self.definition)?
+                        && value.sort() == term.sort()
+                    {
+                        result = Some(Arc::new(Reading::Leaf(value)));
+                    }
+                }
+                _ => {}
+            }
+        }
         if result.is_none() {
             let sort = match term.kind() {
                 TermKind::Application { arguments, .. } => arguments.first().map(Term::sort),

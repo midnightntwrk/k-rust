@@ -380,6 +380,7 @@ pub struct TranslationState {
     eligible_operands: FxHashMap<Term, bool>,
     shared_terms: Option<SharedTerms>,
     word_predicates: BTreeMap<Predicate, SExpr>,
+    word_demands: BTreeSet<Predicate>,
     #[cfg(any(feature = "z3", test))]
     summaries: BTreeMap<summary::Key, summary::Reading>,
     derived_definitions: Vec<String>,
@@ -432,6 +433,7 @@ impl TranslationState {
             eligible_operands: FxHashMap::default(),
             shared_terms: None,
             word_predicates: BTreeMap::new(),
+            word_demands: BTreeSet::new(),
             #[cfg(any(feature = "z3", test))]
             summaries: BTreeMap::new(),
             derived_definitions: Vec::new(),
@@ -930,13 +932,10 @@ impl TranslationState {
         predicate: &Predicate,
     ) -> Result<SExpr, TranslationError> {
         let root = self.shared_domains.is_none();
-        // Observation value equations can derive domains while a value is translated.
-        // Give their shared values the predicate's lifetime: domain lets may read them.
-        let value_root = root
-            && self.shared_terms.is_none()
-            && (!self.observations.is_empty()
-                || !self.observation_facts.is_empty()
-                || !self.summary_congruence.is_empty());
+        // Source domain links may read exact value operands too. Keep one lexical
+        // value scope for every definition-aware predicate so those links preserve
+        // shared input DAGs and their domain lets can refer to the value bindings.
+        let value_root = root && self.shared_terms.is_none() && self.congruence.is_some();
         if value_root {
             self.shared_terms = Some(SharedTerms::default());
         }
