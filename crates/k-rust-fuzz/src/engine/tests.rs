@@ -1133,6 +1133,103 @@ fn an_abort_ends_the_campaign() {
     assert_eq!(report.totals.cases, 2);
 }
 
+/// FZ-REPLAY-WHOLE fix round S-C: a confirmation the clock stopped is no engine defect; the
+/// candidate's case is outside the determinism contract (another run may confirm it and end the
+/// campaign there), so it is the first case a re-run may differ at.
+#[test]
+fn a_confirmation_outside_the_contract_puts_its_case_outside_the_contract() {
+    let mut runner = Scripted::new(
+        |values| {
+            if as_int(&values[0]) == 2 {
+                hit(values, 10, "end-2")
+            } else {
+                run(OutcomeClass::Miss, 10)
+            }
+        },
+        |_| {
+            let mut stopped = run(OutcomeClass::Timeout, 3);
+            stopped.outside_determinism = true;
+            Ok(stopped)
+        },
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(4),
+        None,
+    );
+    assert!(report.witness().is_none());
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    assert_eq!(report.totals.unconfirmed, 1);
+    assert_eq!(report.totals.outside_determinism, 1);
+    assert_eq!(report.totals.first_outside_determinism, Some(1));
+    assert_eq!(report.totals.classes.get(&OutcomeClass::Timeout), Some(&1));
+}
+
+/// Counts up from 1, and reports one run outside the determinism contract once it has made
+/// `after` proposals, as the solve proposer does when the clock stops its symbolic run.
+struct OutsideAfter {
+    calls: u32,
+    after: u32,
+}
+
+impl Proposer for OutsideAfter {
+    fn kind(&self) -> ProposerKind {
+        ProposerKind::Blind
+    }
+
+    fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
+        self.calls += 1;
+        Some(Proposal::plain(
+            Origin::Scheduled(ProposerKind::Blind),
+            vec![int(i64::from(self.calls))],
+        ))
+    }
+
+    fn observe(&mut self, _proposal: &Proposal, _observation: &Observation, _interesting: bool) {}
+
+    fn outside_determinism(&self) -> u64 {
+        u64::from(self.calls >= self.after)
+    }
+}
+
+/// FZ-REPLAY-WHOLE fix round S-C: a proposer's run outside the contract (the solve proposer's
+/// symbolic run a clock or a stack stop ended) decides the case it proposes, so the first case
+/// a re-run may differ at is that case, even when no case run is outside the contract. (A real
+/// solve run is stopped only by the clock, a cancellation or a stack stop, which no test can
+/// provoke at a chosen run; the loop reads the count every proposer reports.)
+#[test]
+fn a_proposer_run_outside_the_contract_sets_the_first_case_a_re_run_may_differ_at() {
+    let mut runner = Scripted::new(|_| run(OutcomeClass::Miss, 1), |_| unreachable!());
+    let mut schedule = Schedule::new(
+        1,
+        Vec::new(),
+        vec![(
+            1,
+            Box::new(OutsideAfter { calls: 0, after: 3 }) as Box<dyn Proposer>,
+        )],
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Cases(5),
+        None,
+    );
+    assert_eq!(report.totals.outside_determinism, 0);
+    assert_eq!(report.totals.first_outside_determinism, Some(2));
+    let statement = &report.no_witness().expect("no witness").statement;
+    assert!(
+        statement.contains("reproduces this report only up to case 2"),
+        "{statement}"
+    );
+}
+
 #[test]
 fn cases_outside_the_determinism_contract_are_counted_and_add_no_coverage() {
     let mut runner = Scripted::new(
@@ -1649,8 +1746,9 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
         "2 candidates reached the target but were not confirmed",
         "1 case was outside the determinism contract",
         // FZ-REPLAY-WHOLE S3: what that means for a re-run.
-        "the first being case 6: such a case may end otherwise on another run",
-        "reproduces this report only up to that case and may differ from it on",
+        "such a case may end otherwise on another run",
+        "reproduces this report only up to case 6, the first case outside the contract or \
+         proposed after such a solve run, and may differ from it on",
         "followed up to the bounds below (all-paths mode)",
         "1 case stopped at max-depth 9",
     ] {

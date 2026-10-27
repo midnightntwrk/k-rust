@@ -1211,9 +1211,11 @@ pub struct Totals {
     /// otherwise. The schedule, the guided proposers and the budget observe every case, so a
     /// re-run with the same inputs may differ from the first of them on.
     pub outside_determinism: u64,
-    /// The first case outside the determinism contract, counted from 0; absent when there is
-    /// none. A re-run with the same inputs reproduces this report's cases before it, and may
-    /// differ from it on (FZ-REPLAY-WHOLE S3).
+    /// The first case a re-run with the same inputs may differ at, counted from 0: the first
+    /// case outside the determinism contract, or the first case proposed after a solve run
+    /// outside it ([`SolveTotals::outside_determinism`], which decides what the solve proposer
+    /// proposes), whichever comes first; absent when there is neither. A re-run reproduces this
+    /// report's cases before it, and may differ from it on (FZ-REPLAY-WHOLE S3, fix round S-C).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_outside_determinism: Option<u64>,
     /// Candidates that reached the target but were not confirmed: the confirmation failed,

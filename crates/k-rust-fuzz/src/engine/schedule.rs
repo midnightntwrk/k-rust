@@ -233,6 +233,15 @@ impl Schedule {
         std::mem::take(&mut self.extra_work)
     }
 
+    /// How many of the scheduled proposers' runs outside cases were outside the determinism
+    /// contract so far ([`Proposer::outside_determinism`]).
+    pub(crate) fn outside_determinism(&self) -> u64 {
+        self.slots
+            .iter()
+            .map(|slot| slot.proposer.outside_determinism())
+            .sum()
+    }
+
     /// Add every scheduled proposer's own counts to `totals` ([`Proposer::contribute`]).
     pub(crate) fn contribute(&self, totals: &mut crate::report::Totals) {
         for slot in &self.slots {

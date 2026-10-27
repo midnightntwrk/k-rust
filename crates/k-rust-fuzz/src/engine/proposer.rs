@@ -219,6 +219,15 @@ pub(crate) trait Proposer {
     /// Add the proposer's own counts to the report's totals (the solve proposer's
     /// `crate::report::SolveTotals`); nothing by default.
     fn contribute(&self, _totals: &mut crate::report::Totals) {}
+
+    /// How many of the proposer's own runs outside cases were outside the determinism contract
+    /// so far (the solve proposer's symbolic runs a stack stop, the per-case safety limit or a
+    /// cancellation ended): such a run decides what the proposer proposes, so a re-run may
+    /// propose otherwise from the case it was made for on (`Totals::first_outside_determinism`,
+    /// FZ-REPLAY-WHOLE fix round S-C); 0 by default.
+    fn outside_determinism(&self) -> u64 {
+        0
+    }
 }
 
 /// Blind sampling (ARCHITECTURE 8.2): one draw from every hole's generator, in hole order, from

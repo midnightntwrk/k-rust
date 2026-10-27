@@ -786,25 +786,29 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
     text
 }
 
-/// For a report with a witness, how many cases were outside the determinism contract and the
-/// first of them, from which a re-run may differ (FZ-REPLAY-WHOLE S3); a report without a witness
-/// says it in its statement.
+/// For a report with a witness, how many cases and solve runs were outside the determinism
+/// contract and the first case a re-run may differ at (FZ-REPLAY-WHOLE S3, S-C); a report without
+/// a witness says it in its statement.
 fn write_outside_determinism(text: &mut String, report: &FuzzReport) {
     use std::fmt::Write as _;
-    if report.witness().is_none() || report.totals.outside_determinism == 0 {
+    let Some(first) = report.totals.first_outside_determinism else {
+        return;
+    };
+    if report.witness().is_none() {
         return;
     }
-    let count = report.totals.outside_determinism;
+    let cases = report.totals.outside_determinism;
+    let runs = report
+        .totals
+        .solve
+        .as_ref()
+        .map_or(0, |solve| solve.outside_determinism);
     let _ = writeln!(
         text,
-        "outside the determinism contract: {count} {}{}: a re-run with the same inputs may differ \
-         from that case on",
-        if count == 1 { "case" } else { "cases" },
-        report
-            .totals
-            .first_outside_determinism
-            .map(|case| format!(", the first being case {case}"))
-            .unwrap_or_default()
+        "outside the determinism contract: {cases} {}, {runs} solve {}: a re-run with the same \
+         inputs may differ from case {first} on",
+        if cases == 1 { "case" } else { "cases" },
+        if runs == 1 { "run" } else { "runs" },
     );
 }
 

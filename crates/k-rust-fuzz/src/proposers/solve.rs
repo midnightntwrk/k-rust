@@ -956,6 +956,10 @@ impl Proposer for SolveProposer {
         totals.solve = Some(self.totals.clone());
     }
 
+    fn outside_determinism(&self) -> u64 {
+        self.totals.outside_determinism
+    }
+
     fn propose(&mut self, _context: &mut ProposalContext<'_>) -> Option<Proposal> {
         let query = self.ready.take()?;
         let key = query.key();

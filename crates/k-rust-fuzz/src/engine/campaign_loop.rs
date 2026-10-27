@@ -355,6 +355,16 @@ pub(crate) fn run_loop_filtered(
         let Some(proposal) = proposal else {
             break Ending::Exhausted;
         };
+        // A proposer's run outside the contract (a solve run the clock or the stack stopped)
+        // decided this proposal, so a re-run may differ from this case on (S-C).
+        let proposers_outside = schedule.outside_determinism();
+        if proposers_outside > state.proposers_outside {
+            state.proposers_outside = proposers_outside;
+            state
+                .totals
+                .first_outside_determinism
+                .get_or_insert(state.totals.cases);
+        }
         // An assignment of a finite domain runs at most once (FZ-POLISH N-T1).
         let mut proposal = state.unrepeated(settings, proposal);
         let case = state.totals.cases;
@@ -526,6 +536,18 @@ pub(crate) fn run_loop_filtered(
                     state.defect(Some(case), description);
                     class = OutcomeClass::Unsupported;
                     run.unjudged = Some(UnjudgedReason::Unconfirmed);
+                }
+                Confirmed::Outside => {
+                    // Another run may confirm it: a clock-dependent case, as a cancelled
+                    // confirmation's is, which can change every later case.
+                    state.unconfirmed(
+                        case,
+                        &proposal.values,
+                        "ran outside the determinism contract",
+                    );
+                    class = OutcomeClass::Timeout;
+                    run.outside_determinism = true;
+                    run.unjudged = None;
                 }
                 Confirmed::Aborted(abort) => {
                     // The fresh backend failed as every run would: the campaign aborts, and the
@@ -1022,6 +1044,9 @@ fn repair_candidate(
             );
             Candidate::Not
         }
+        // A repair candidate is no case: its run outside the contract decides only whether the
+        // repair is kept.
+        Confirmed::Outside => Candidate::Not,
     }
 }
 
@@ -1601,6 +1626,11 @@ enum Confirmed {
     Cancelled,
     /// It failed or disagreed: an engine defect, described.
     Disagrees(String),
+    /// It did not hit, and its run was outside the determinism contract (a clock, a solver
+    /// `unknown`, a stack stop or an allowance refusal, or a stack segment the host refused): no
+    /// engine defect, and the case is outside the contract, since another run may confirm it
+    /// (FZ-REPLAY-WHOLE fix round S-C).
+    Outside,
     /// It aborted as every run would (a failed solver prelude on the fresh backend), or the
     /// client's observer panicked; why.
     Aborted(Abort),
@@ -1679,7 +1709,7 @@ fn confirm(
                 record.message
             );
             if crash::is_stack_mapping_refusal(&record.message) {
-                return (Confirmed::Disagrees(description), None, true);
+                return (Confirmed::Outside, None, true);
             }
             let crash = CaseCrash::engine(record.message, record.location, is_cancelled(cancel));
             return (
@@ -1730,6 +1760,10 @@ fn confirm(
                     "the case reached the target, but its confirmation classed it `{}`",
                     confirmation.class.name()
                 )),
+            };
+            let confirmed = match confirmed {
+                Confirmed::Disagrees(_) if confirmation.outside_determinism => Confirmed::Outside,
+                confirmed => confirmed,
             };
             (confirmed, crash, false)
         }
@@ -1927,6 +1961,9 @@ fn finish_witness(
                     );
                     Verdict::Miss
                 }
+                // A shrink candidate is no case: its run outside the contract decides only how
+                // far the witness shrinks.
+                Confirmed::Outside => Verdict::Miss,
             }
         };
         shrink(&values, trees, &settings.constraints, &mut test)
@@ -2144,6 +2181,9 @@ pub(crate) struct Diverging {
 struct State {
     budget: Budget,
     totals: Totals,
+    /// The proposers' runs outside the determinism contract seen so far
+    /// ([`Schedule::outside_determinism`]).
+    proposers_outside: u64,
     /// The canonical JSON of each assignment of [`LoopSettings::domain`] that was tried.
     assignments: BTreeSet<String>,
     /// The seeded permutation of the domain's assignment indices, made on the first repeat,
@@ -2191,6 +2231,7 @@ impl State {
                 case_sequence_digest: digest_hex(b""),
                 ..Totals::default()
             },
+            proposers_outside: 0,
             assignments: BTreeSet::new(),
             order: None,
             next_untried: 0,
@@ -2968,19 +3009,14 @@ pub(crate) fn no_witness(
         write!(
             text,
             " {} outside the determinism contract (a clock, a solver `unknown`, a stop for lack of \
-             stack or an allowance refusal decided {}){}: such a case may end otherwise on another \
-             run, and every later case depends on the cases before it, so a re-run with the same \
-             inputs reproduces this report only up to that case and may differ from it on.",
+             stack or an allowance refusal decided {}): such a case may end otherwise on another \
+             run.",
             plural_were(totals.outside_determinism),
             if totals.outside_determinism == 1 {
                 "it"
             } else {
                 "them"
             },
-            totals
-                .first_outside_determinism
-                .map(|case| format!(", the first being case {case}"))
-                .unwrap_or_default()
         )
         .expect("writing to a String");
     }
@@ -3000,6 +3036,15 @@ pub(crate) fn no_witness(
             } else {
                 "were"
             }
+        )
+        .expect("writing to a String");
+    }
+    if let Some(case) = totals.first_outside_determinism {
+        write!(
+            text,
+            " Every case depends on the cases before it, so a re-run with the same inputs \
+             reproduces this report only up to case {case}, the first case outside the contract or \
+             proposed after such a solve run, and may differ from it on."
         )
         .expect("writing to a String");
     }
