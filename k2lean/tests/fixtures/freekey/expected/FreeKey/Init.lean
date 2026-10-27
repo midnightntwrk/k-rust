@@ -12,6 +12,6 @@ open KPrelude
 
 /-- The initial configuration for the configuration variables `$PGM`. -/
 def init (pgm : SortPgm) : SortGeneratedTopCell :=
-  SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm pgm) SortK.dotk)) (SortMCell.«<m>» KPrelude.MapHook.unit) (SortWorkersCell.«<workers>» KPrelude.MapHook.unit)) (SortGeneratedCounterCell.«<generatedCounter>» (0 : Int))
+  SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm pgm) SortK.dotk)) (SortMCell.«<m>» KPrelude.MapHook.unit) (SortWorkersCell.«<workers>» KPrelude.MapHook.unit) (SortJobsCell.«<jobs>» KPrelude.MapHook.unit)) (SortGeneratedCounterCell.«<generatedCounter>» (0 : Int))
 
 end FreeKey

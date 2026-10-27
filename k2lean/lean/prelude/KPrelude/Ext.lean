@@ -1,3 +1,4 @@
+import Lean
 import KPrelude.LeafEq
 import KPrelude.Coll
 import KPrelude.Hooks
@@ -180,17 +181,42 @@ def firstNonempty {β : Type} : List (List β) → List β
   | [] :: ls => firstNonempty ls
   | (a :: t) :: _ => a :: t
 
+open Lean Meta Elab Tactic in
+/-- Close the goal by a hypothesis `∀ xs, a₁ = x₁ → … → aₙ = xₙ → False` (or ending in `¬ aₙ = xₙ`)
+whose equations all hold by reflexivity once the bound variables are instantiated. `split` on a
+`match` with a fallback arm leaves one in the fallback's case: the earlier arm does not match, which
+is false when the scrutinee is that arm's pattern. `simp_all` does not use it when each equation
+comes after all the binders (a cell of five or more cells, each bound by its own variable). -/
+elab "k2l_no_arm" : tactic => liftMetaFinishingTactic fun g => g.withContext do
+  for d in (← getLCtx) do
+    if d.isImplementationDetail then continue
+    unless (← instantiateMVars d.type).isForall do continue
+    let pf? ← withNewMCtxDepth do
+      let (args, _, concl) ← forallMetaTelescopeReducing d.type
+      unless concl.isConstOf ``False do return none
+      for a in args do
+        let some (_, lhs, _) := (← instantiateMVars (← inferType a)).eq? | continue
+        unless (← isDefEq a (← mkEqRefl lhs)) do return none
+      let pf ← instantiateMVars (mkAppN d.toExpr args)
+      if (← hasAssignableMVar pf) then return none
+      return some pf
+    if let some pf := pf? then
+      g.assign (← mkFalseElim (← g.getType) pf)
+      return
+  throwError "k2l_no_arm: no hypothesis refutes the case"
+
 /-- The first instance of a function equation is the value of the equation's matcher
 (`F.instN_head`): the instance list (`MapHook.chooseAll`, on the left) and the matcher
 (`MapHook.chooseFirst`) are the same steps, so each `match` and `if` is split on the left, and
-the right one reduces or is refuted by the left one's hypotheses. -/
+the right one reduces or is refuted by the left one's hypotheses (`k2l_no_arm` for a fallback
+arm's). -/
 macro "k2l_inst_head" : tactic => `(tactic| (
   repeat' (first
     | rfl
     | (apply KPrelude.MapHook.head?_chooseAll; intro _ _ _)
     | dsimp only
     | split)
-  all_goals simp_all))
+  all_goals first | k2l_no_arm | simp_all))
 
 /-! ## More `MAP` hooks -/
 

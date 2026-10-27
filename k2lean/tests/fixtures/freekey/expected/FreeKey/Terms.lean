@@ -78,6 +78,22 @@ inductive SortCntCellOpt where
   | inj_CntCellOpt (a0 : SortCntCellOpt.Own)
 inductive SortCntCellOpt.Own where
   | noCntCell
+inductive SortCtlCell where
+  | «<ctl>» (a0 : SortLoCell) (a1 : SortHiCell)
+inductive SortCtlCellFragment where
+  | «<ctl>-fragment» (a0 : SortLoCellOpt) (a1 : SortHiCellOpt)
+inductive SortCtlCellOpt where
+  | inj_CtlCell (a0 : SortCtlCell)
+  | inj_CtlCellOpt (a0 : SortCtlCellOpt.Own)
+inductive SortCtlCellOpt.Own where
+  | noCtlCell
+inductive SortDoneCell where
+  | «<done>» (a0 : SortBool)
+inductive SortDoneCellOpt where
+  | inj_DoneCell (a0 : SortDoneCell)
+  | inj_DoneCellOpt (a0 : SortDoneCellOpt.Own)
+inductive SortDoneCellOpt.Own where
+  | noDoneCell
 inductive SortGeneratedCounterCell where
   | «<generatedCounter>» (a0 : SortInt)
 inductive SortGeneratedCounterCellOpt where
@@ -89,6 +105,36 @@ inductive SortGeneratedTopCell where
   | «<generatedTop>» (a0 : SortTCell) (a1 : SortGeneratedCounterCell)
 inductive SortGeneratedTopCellFragment where
   | «<generatedTop>-fragment» (a0 : SortTCellOpt) (a1 : SortGeneratedCounterCellOpt)
+inductive SortHiCell where
+  | «<hi>» (a0 : SortInt)
+inductive SortHiCellOpt where
+  | inj_HiCell (a0 : SortHiCell)
+  | inj_HiCellOpt (a0 : SortHiCellOpt.Own)
+inductive SortHiCellOpt.Own where
+  | noHiCell
+inductive SortJidCell where
+  | «<jid>» (a0 : SortInt)
+inductive SortJidCellOpt where
+  | inj_JidCell (a0 : SortJidCell)
+  | inj_JidCellOpt (a0 : SortJidCellOpt.Own)
+inductive SortJidCellOpt.Own where
+  | noJidCell
+inductive SortJobCell where
+  | «<job>» (a0 : SortJidCell) (a1 : SortOwnerCell) (a2 : SortPrioCell) (a3 : SortCtlCell) (a4 : SortDoneCell)
+inductive SortJobCellFragment where
+  | «<job>-fragment» (a0 : SortJidCellOpt) (a1 : SortOwnerCellOpt) (a2 : SortPrioCellOpt) (a3 : SortCtlCellOpt) (a4 : SortDoneCellOpt)
+inductive SortJobCellMap where
+  | nil
+  | cons (a0 : SortJidCell) (a1 : SortJobCell) (a2 : SortJobCellMap)
+inductive SortJobsCell where
+  | «<jobs>» (a0 : SortJobCellMap)
+inductive SortJobsCellFragment where
+  | «<jobs>-fragment» (a0 : SortJobCellMap)
+inductive SortJobsCellOpt where
+  | inj_JobsCell (a0 : SortJobsCell)
+  | inj_JobsCellOpt (a0 : SortJobsCellOpt.Own)
+inductive SortJobsCellOpt.Own where
+  | noJobsCell
 inductive SortK where
   | dotk
   | kseq (a0 : SortKItem) (a1 : SortK)
@@ -103,20 +149,41 @@ inductive SortKItem where
   | inj_Bool (a0 : SortBool)
   | inj_CntCell (a0 : SortCntCell)
   | inj_CntCellOpt (a0 : SortCntCellOpt.Own)
+  | inj_CtlCell (a0 : SortCtlCell)
+  | inj_CtlCellFragment (a0 : SortCtlCellFragment)
+  | inj_CtlCellOpt (a0 : SortCtlCellOpt.Own)
+  | inj_DoneCell (a0 : SortDoneCell)
+  | inj_DoneCellOpt (a0 : SortDoneCellOpt.Own)
   | inj_GeneratedCounterCell (a0 : SortGeneratedCounterCell)
   | inj_GeneratedCounterCellOpt (a0 : SortGeneratedCounterCellOpt.Own)
   | inj_GeneratedTopCell (a0 : SortGeneratedTopCell)
   | inj_GeneratedTopCellFragment (a0 : SortGeneratedTopCellFragment)
+  | inj_HiCell (a0 : SortHiCell)
+  | inj_HiCellOpt (a0 : SortHiCellOpt.Own)
   | inj_Int (a0 : SortInt)
+  | inj_JidCell (a0 : SortJidCell)
+  | inj_JidCellOpt (a0 : SortJidCellOpt.Own)
+  | inj_JobCell (a0 : SortJobCell)
+  | inj_JobCellFragment (a0 : SortJobCellFragment)
+  | inj_JobCellMap (a0 : SortJobCellMap)
+  | inj_JobsCell (a0 : SortJobsCell)
+  | inj_JobsCellFragment (a0 : SortJobsCellFragment)
+  | inj_JobsCellOpt (a0 : SortJobsCellOpt.Own)
   | inj_KCell (a0 : SortKCell)
   | inj_KCellOpt (a0 : SortKCellOpt.Own)
   | inj_KConfigVar (a0 : SortKConfigVar)
   | inj_KItem (a0 : SortKItem.Own)
   | inj_List (a0 : SortList)
+  | inj_LoCell (a0 : SortLoCell)
+  | inj_LoCellOpt (a0 : SortLoCellOpt.Own)
   | inj_MCell (a0 : SortMCell)
   | inj_MCellOpt (a0 : SortMCellOpt.Own)
   | inj_Map (a0 : SortMap)
+  | inj_OwnerCell (a0 : SortOwnerCell)
+  | inj_OwnerCellOpt (a0 : SortOwnerCellOpt.Own)
   | inj_Pgm (a0 : SortPgm)
+  | inj_PrioCell (a0 : SortPrioCell)
+  | inj_PrioCellOpt (a0 : SortPrioCellOpt.Own)
   | inj_Set (a0 : SortSet)
   | inj_TCell (a0 : SortTCell)
   | inj_TCellFragment (a0 : SortTCellFragment)
@@ -134,6 +201,13 @@ inductive SortKItem.Own where
 inductive SortList where
   | nil
   | cons (a0 : SortKItem) (a1 : SortList)
+inductive SortLoCell where
+  | «<lo>» (a0 : SortInt)
+inductive SortLoCellOpt where
+  | inj_LoCell (a0 : SortLoCell)
+  | inj_LoCellOpt (a0 : SortLoCellOpt.Own)
+inductive SortLoCellOpt.Own where
+  | noLoCell
 inductive SortMCell where
   | «<m>» (a0 : SortMap)
 inductive SortMCellOpt where
@@ -144,17 +218,32 @@ inductive SortMCellOpt.Own where
 inductive SortMap where
   | nil
   | cons (a0 : SortKItem) (a1 : SortKItem) (a2 : SortMap)
+inductive SortOwnerCell where
+  | «<owner>» (a0 : SortInt)
+inductive SortOwnerCellOpt where
+  | inj_OwnerCell (a0 : SortOwnerCell)
+  | inj_OwnerCellOpt (a0 : SortOwnerCellOpt.Own)
+inductive SortOwnerCellOpt.Own where
+  | noOwnerCell
 inductive SortPgm where
   | check
   | go
   | go2
+  | go3
+inductive SortPrioCell where
+  | «<prio>» (a0 : SortInt)
+inductive SortPrioCellOpt where
+  | inj_PrioCell (a0 : SortPrioCell)
+  | inj_PrioCellOpt (a0 : SortPrioCellOpt.Own)
+inductive SortPrioCellOpt.Own where
+  | noPrioCell
 inductive SortSet where
   | nil
   | cons (a0 : SortKItem) (a1 : SortSet)
 inductive SortTCell where
-  | «<T>» (a0 : SortKCell) (a1 : SortMCell) (a2 : SortWorkersCell)
+  | «<T>» (a0 : SortKCell) (a1 : SortMCell) (a2 : SortWorkersCell) (a3 : SortJobsCell)
 inductive SortTCellFragment where
-  | «<T>-fragment» (a0 : SortKCellOpt) (a1 : SortMCellOpt) (a2 : SortWorkersCellOpt)
+  | «<T>-fragment» (a0 : SortKCellOpt) (a1 : SortMCellOpt) (a2 : SortWorkersCellOpt) (a3 : SortJobsCellOpt)
 inductive SortTCellOpt where
   | inj_TCell (a0 : SortTCell)
   | inj_TCellOpt (a0 : SortTCellOpt.Own)
@@ -195,6 +284,22 @@ def ser_SortCntCellOpt : SortCntCellOpt → List Tok
   | .inj_CntCellOpt a0 => .c 1 :: ser_SortCntCellOpt_Own a0
 def ser_SortCntCellOpt_Own : SortCntCellOpt.Own → List Tok
   | .noCntCell  => [.c 0]
+def ser_SortCtlCell : SortCtlCell → List Tok
+  | .«<ctl>» a0 a1 => .c 0 :: (ser_SortLoCell a0 ++ ser_SortHiCell a1)
+def ser_SortCtlCellFragment : SortCtlCellFragment → List Tok
+  | .«<ctl>-fragment» a0 a1 => .c 0 :: (ser_SortLoCellOpt a0 ++ ser_SortHiCellOpt a1)
+def ser_SortCtlCellOpt : SortCtlCellOpt → List Tok
+  | .inj_CtlCell a0 => .c 0 :: ser_SortCtlCell a0
+  | .inj_CtlCellOpt a0 => .c 1 :: ser_SortCtlCellOpt_Own a0
+def ser_SortCtlCellOpt_Own : SortCtlCellOpt.Own → List Tok
+  | .noCtlCell  => [.c 0]
+def ser_SortDoneCell : SortDoneCell → List Tok
+  | .«<done>» a0 => .c 0 :: ser_SortBool a0
+def ser_SortDoneCellOpt : SortDoneCellOpt → List Tok
+  | .inj_DoneCell a0 => .c 0 :: ser_SortDoneCell a0
+  | .inj_DoneCellOpt a0 => .c 1 :: ser_SortDoneCellOpt_Own a0
+def ser_SortDoneCellOpt_Own : SortDoneCellOpt.Own → List Tok
+  | .noDoneCell  => [.c 0]
 def ser_SortGeneratedCounterCell : SortGeneratedCounterCell → List Tok
   | .«<generatedCounter>» a0 => .c 0 :: ser_SortInt a0
 def ser_SortGeneratedCounterCellOpt : SortGeneratedCounterCellOpt → List Tok
@@ -206,6 +311,36 @@ def ser_SortGeneratedTopCell : SortGeneratedTopCell → List Tok
   | .«<generatedTop>» a0 a1 => .c 0 :: (ser_SortTCell a0 ++ ser_SortGeneratedCounterCell a1)
 def ser_SortGeneratedTopCellFragment : SortGeneratedTopCellFragment → List Tok
   | .«<generatedTop>-fragment» a0 a1 => .c 0 :: (ser_SortTCellOpt a0 ++ ser_SortGeneratedCounterCellOpt a1)
+def ser_SortHiCell : SortHiCell → List Tok
+  | .«<hi>» a0 => .c 0 :: ser_SortInt a0
+def ser_SortHiCellOpt : SortHiCellOpt → List Tok
+  | .inj_HiCell a0 => .c 0 :: ser_SortHiCell a0
+  | .inj_HiCellOpt a0 => .c 1 :: ser_SortHiCellOpt_Own a0
+def ser_SortHiCellOpt_Own : SortHiCellOpt.Own → List Tok
+  | .noHiCell  => [.c 0]
+def ser_SortJidCell : SortJidCell → List Tok
+  | .«<jid>» a0 => .c 0 :: ser_SortInt a0
+def ser_SortJidCellOpt : SortJidCellOpt → List Tok
+  | .inj_JidCell a0 => .c 0 :: ser_SortJidCell a0
+  | .inj_JidCellOpt a0 => .c 1 :: ser_SortJidCellOpt_Own a0
+def ser_SortJidCellOpt_Own : SortJidCellOpt.Own → List Tok
+  | .noJidCell  => [.c 0]
+def ser_SortJobCell : SortJobCell → List Tok
+  | .«<job>» a0 a1 a2 a3 a4 => .c 0 :: (ser_SortJidCell a0 ++ (ser_SortOwnerCell a1 ++ (ser_SortPrioCell a2 ++ (ser_SortCtlCell a3 ++ ser_SortDoneCell a4))))
+def ser_SortJobCellFragment : SortJobCellFragment → List Tok
+  | .«<job>-fragment» a0 a1 a2 a3 a4 => .c 0 :: (ser_SortJidCellOpt a0 ++ (ser_SortOwnerCellOpt a1 ++ (ser_SortPrioCellOpt a2 ++ (ser_SortCtlCellOpt a3 ++ ser_SortDoneCellOpt a4))))
+def ser_SortJobCellMap : SortJobCellMap → List Tok
+  | .nil  => [.c 0]
+  | .cons a0 a1 a2 => .c 1 :: (ser_SortJidCell a0 ++ (ser_SortJobCell a1 ++ ser_SortJobCellMap a2))
+def ser_SortJobsCell : SortJobsCell → List Tok
+  | .«<jobs>» a0 => .c 0 :: ser_SortJobCellMap a0
+def ser_SortJobsCellFragment : SortJobsCellFragment → List Tok
+  | .«<jobs>-fragment» a0 => .c 0 :: ser_SortJobCellMap a0
+def ser_SortJobsCellOpt : SortJobsCellOpt → List Tok
+  | .inj_JobsCell a0 => .c 0 :: ser_SortJobsCell a0
+  | .inj_JobsCellOpt a0 => .c 1 :: ser_SortJobsCellOpt_Own a0
+def ser_SortJobsCellOpt_Own : SortJobsCellOpt.Own → List Tok
+  | .noJobsCell  => [.c 0]
 def ser_SortK : SortK → List Tok
   | .dotk  => [.c 0]
   | .kseq a0 a1 => .c 1 :: (ser_SortKItem a0 ++ ser_SortK a1)
@@ -220,37 +355,65 @@ def ser_SortKItem : SortKItem → List Tok
   | .inj_Bool a0 => .c 0 :: ser_SortBool a0
   | .inj_CntCell a0 => .c 1 :: ser_SortCntCell a0
   | .inj_CntCellOpt a0 => .c 2 :: ser_SortCntCellOpt_Own a0
-  | .inj_GeneratedCounterCell a0 => .c 3 :: ser_SortGeneratedCounterCell a0
-  | .inj_GeneratedCounterCellOpt a0 => .c 4 :: ser_SortGeneratedCounterCellOpt_Own a0
-  | .inj_GeneratedTopCell a0 => .c 5 :: ser_SortGeneratedTopCell a0
-  | .inj_GeneratedTopCellFragment a0 => .c 6 :: ser_SortGeneratedTopCellFragment a0
-  | .inj_Int a0 => .c 7 :: ser_SortInt a0
-  | .inj_KCell a0 => .c 8 :: ser_SortKCell a0
-  | .inj_KCellOpt a0 => .c 9 :: ser_SortKCellOpt_Own a0
-  | .inj_KConfigVar a0 => .c 10 :: ser_SortKConfigVar a0
-  | .inj_KItem a0 => .c 11 :: ser_SortKItem_Own a0
-  | .inj_List a0 => .c 12 :: ser_SortList a0
-  | .inj_MCell a0 => .c 13 :: ser_SortMCell a0
-  | .inj_MCellOpt a0 => .c 14 :: ser_SortMCellOpt_Own a0
-  | .inj_Map a0 => .c 15 :: ser_SortMap a0
-  | .inj_Pgm a0 => .c 16 :: ser_SortPgm a0
-  | .inj_Set a0 => .c 17 :: ser_SortSet a0
-  | .inj_TCell a0 => .c 18 :: ser_SortTCell a0
-  | .inj_TCellFragment a0 => .c 19 :: ser_SortTCellFragment a0
-  | .inj_TCellOpt a0 => .c 20 :: ser_SortTCellOpt_Own a0
-  | .inj_WidCell a0 => .c 21 :: ser_SortWidCell a0
-  | .inj_WidCellOpt a0 => .c 22 :: ser_SortWidCellOpt_Own a0
-  | .inj_WorkerCell a0 => .c 23 :: ser_SortWorkerCell a0
-  | .inj_WorkerCellFragment a0 => .c 24 :: ser_SortWorkerCellFragment a0
-  | .inj_WorkerCellMap a0 => .c 25 :: ser_SortWorkerCellMap a0
-  | .inj_WorkersCell a0 => .c 26 :: ser_SortWorkersCell a0
-  | .inj_WorkersCellFragment a0 => .c 27 :: ser_SortWorkersCellFragment a0
-  | .inj_WorkersCellOpt a0 => .c 28 :: ser_SortWorkersCellOpt_Own a0
+  | .inj_CtlCell a0 => .c 3 :: ser_SortCtlCell a0
+  | .inj_CtlCellFragment a0 => .c 4 :: ser_SortCtlCellFragment a0
+  | .inj_CtlCellOpt a0 => .c 5 :: ser_SortCtlCellOpt_Own a0
+  | .inj_DoneCell a0 => .c 6 :: ser_SortDoneCell a0
+  | .inj_DoneCellOpt a0 => .c 7 :: ser_SortDoneCellOpt_Own a0
+  | .inj_GeneratedCounterCell a0 => .c 8 :: ser_SortGeneratedCounterCell a0
+  | .inj_GeneratedCounterCellOpt a0 => .c 9 :: ser_SortGeneratedCounterCellOpt_Own a0
+  | .inj_GeneratedTopCell a0 => .c 10 :: ser_SortGeneratedTopCell a0
+  | .inj_GeneratedTopCellFragment a0 => .c 11 :: ser_SortGeneratedTopCellFragment a0
+  | .inj_HiCell a0 => .c 12 :: ser_SortHiCell a0
+  | .inj_HiCellOpt a0 => .c 13 :: ser_SortHiCellOpt_Own a0
+  | .inj_Int a0 => .c 14 :: ser_SortInt a0
+  | .inj_JidCell a0 => .c 15 :: ser_SortJidCell a0
+  | .inj_JidCellOpt a0 => .c 16 :: ser_SortJidCellOpt_Own a0
+  | .inj_JobCell a0 => .c 17 :: ser_SortJobCell a0
+  | .inj_JobCellFragment a0 => .c 18 :: ser_SortJobCellFragment a0
+  | .inj_JobCellMap a0 => .c 19 :: ser_SortJobCellMap a0
+  | .inj_JobsCell a0 => .c 20 :: ser_SortJobsCell a0
+  | .inj_JobsCellFragment a0 => .c 21 :: ser_SortJobsCellFragment a0
+  | .inj_JobsCellOpt a0 => .c 22 :: ser_SortJobsCellOpt_Own a0
+  | .inj_KCell a0 => .c 23 :: ser_SortKCell a0
+  | .inj_KCellOpt a0 => .c 24 :: ser_SortKCellOpt_Own a0
+  | .inj_KConfigVar a0 => .c 25 :: ser_SortKConfigVar a0
+  | .inj_KItem a0 => .c 26 :: ser_SortKItem_Own a0
+  | .inj_List a0 => .c 27 :: ser_SortList a0
+  | .inj_LoCell a0 => .c 28 :: ser_SortLoCell a0
+  | .inj_LoCellOpt a0 => .c 29 :: ser_SortLoCellOpt_Own a0
+  | .inj_MCell a0 => .c 30 :: ser_SortMCell a0
+  | .inj_MCellOpt a0 => .c 31 :: ser_SortMCellOpt_Own a0
+  | .inj_Map a0 => .c 32 :: ser_SortMap a0
+  | .inj_OwnerCell a0 => .c 33 :: ser_SortOwnerCell a0
+  | .inj_OwnerCellOpt a0 => .c 34 :: ser_SortOwnerCellOpt_Own a0
+  | .inj_Pgm a0 => .c 35 :: ser_SortPgm a0
+  | .inj_PrioCell a0 => .c 36 :: ser_SortPrioCell a0
+  | .inj_PrioCellOpt a0 => .c 37 :: ser_SortPrioCellOpt_Own a0
+  | .inj_Set a0 => .c 38 :: ser_SortSet a0
+  | .inj_TCell a0 => .c 39 :: ser_SortTCell a0
+  | .inj_TCellFragment a0 => .c 40 :: ser_SortTCellFragment a0
+  | .inj_TCellOpt a0 => .c 41 :: ser_SortTCellOpt_Own a0
+  | .inj_WidCell a0 => .c 42 :: ser_SortWidCell a0
+  | .inj_WidCellOpt a0 => .c 43 :: ser_SortWidCellOpt_Own a0
+  | .inj_WorkerCell a0 => .c 44 :: ser_SortWorkerCell a0
+  | .inj_WorkerCellFragment a0 => .c 45 :: ser_SortWorkerCellFragment a0
+  | .inj_WorkerCellMap a0 => .c 46 :: ser_SortWorkerCellMap a0
+  | .inj_WorkersCell a0 => .c 47 :: ser_SortWorkersCell a0
+  | .inj_WorkersCellFragment a0 => .c 48 :: ser_SortWorkersCellFragment a0
+  | .inj_WorkersCellOpt a0 => .c 49 :: ser_SortWorkersCellOpt_Own a0
 def ser_SortKItem_Own : SortKItem.Own → List Tok
   | .«#KConfigValue» a0 => .c 0 :: ser_SortK a0
 def ser_SortList : SortList → List Tok
   | .nil  => [.c 0]
   | .cons a0 a1 => .c 1 :: (ser_SortKItem a0 ++ ser_SortList a1)
+def ser_SortLoCell : SortLoCell → List Tok
+  | .«<lo>» a0 => .c 0 :: ser_SortInt a0
+def ser_SortLoCellOpt : SortLoCellOpt → List Tok
+  | .inj_LoCell a0 => .c 0 :: ser_SortLoCell a0
+  | .inj_LoCellOpt a0 => .c 1 :: ser_SortLoCellOpt_Own a0
+def ser_SortLoCellOpt_Own : SortLoCellOpt.Own → List Tok
+  | .noLoCell  => [.c 0]
 def ser_SortMCell : SortMCell → List Tok
   | .«<m>» a0 => .c 0 :: ser_SortMap a0
 def ser_SortMCellOpt : SortMCellOpt → List Tok
@@ -261,17 +424,32 @@ def ser_SortMCellOpt_Own : SortMCellOpt.Own → List Tok
 def ser_SortMap : SortMap → List Tok
   | .nil  => [.c 0]
   | .cons a0 a1 a2 => .c 1 :: (ser_SortKItem a0 ++ (ser_SortKItem a1 ++ ser_SortMap a2))
+def ser_SortOwnerCell : SortOwnerCell → List Tok
+  | .«<owner>» a0 => .c 0 :: ser_SortInt a0
+def ser_SortOwnerCellOpt : SortOwnerCellOpt → List Tok
+  | .inj_OwnerCell a0 => .c 0 :: ser_SortOwnerCell a0
+  | .inj_OwnerCellOpt a0 => .c 1 :: ser_SortOwnerCellOpt_Own a0
+def ser_SortOwnerCellOpt_Own : SortOwnerCellOpt.Own → List Tok
+  | .noOwnerCell  => [.c 0]
 def ser_SortPgm : SortPgm → List Tok
   | .check  => [.c 0]
   | .go  => [.c 1]
   | .go2  => [.c 2]
+  | .go3  => [.c 3]
+def ser_SortPrioCell : SortPrioCell → List Tok
+  | .«<prio>» a0 => .c 0 :: ser_SortInt a0
+def ser_SortPrioCellOpt : SortPrioCellOpt → List Tok
+  | .inj_PrioCell a0 => .c 0 :: ser_SortPrioCell a0
+  | .inj_PrioCellOpt a0 => .c 1 :: ser_SortPrioCellOpt_Own a0
+def ser_SortPrioCellOpt_Own : SortPrioCellOpt.Own → List Tok
+  | .noPrioCell  => [.c 0]
 def ser_SortSet : SortSet → List Tok
   | .nil  => [.c 0]
   | .cons a0 a1 => .c 1 :: (ser_SortKItem a0 ++ ser_SortSet a1)
 def ser_SortTCell : SortTCell → List Tok
-  | .«<T>» a0 a1 a2 => .c 0 :: (ser_SortKCell a0 ++ (ser_SortMCell a1 ++ ser_SortWorkersCell a2))
+  | .«<T>» a0 a1 a2 a3 => .c 0 :: (ser_SortKCell a0 ++ (ser_SortMCell a1 ++ (ser_SortWorkersCell a2 ++ ser_SortJobsCell a3)))
 def ser_SortTCellFragment : SortTCellFragment → List Tok
-  | .«<T>-fragment» a0 a1 a2 => .c 0 :: (ser_SortKCellOpt a0 ++ (ser_SortMCellOpt a1 ++ ser_SortWorkersCellOpt a2))
+  | .«<T>-fragment» a0 a1 a2 a3 => .c 0 :: (ser_SortKCellOpt a0 ++ (ser_SortMCellOpt a1 ++ (ser_SortWorkersCellOpt a2 ++ ser_SortJobsCellOpt a3)))
 def ser_SortTCellOpt : SortTCellOpt → List Tok
   | .inj_TCell a0 => .c 0 :: ser_SortTCell a0
   | .inj_TCellOpt a0 => .c 1 :: ser_SortTCellOpt_Own a0
@@ -313,6 +491,29 @@ def dec_SortCntCellOpt : Nat → List Tok → Option (SortCntCellOpt × List Tok
 def dec_SortCntCellOpt_Own : Nat → List Tok → Option (SortCntCellOpt.Own × List Tok)
   | _ + 1, .c 0 :: t => pure (.noCntCell, t)
   | _, _ => none
+def dec_SortCtlCell : Nat → List Tok → Option (SortCtlCell × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortLoCell n t; let (a1, t) ← dec_SortHiCell n t; pure (.«<ctl>» a0 a1, t)
+  | _, _ => none
+def dec_SortCtlCellFragment : Nat → List Tok → Option (SortCtlCellFragment × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortLoCellOpt n t; let (a1, t) ← dec_SortHiCellOpt n t; pure (.«<ctl>-fragment» a0 a1, t)
+  | _, _ => none
+def dec_SortCtlCellOpt : Nat → List Tok → Option (SortCtlCellOpt × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortCtlCell n t; pure (.inj_CtlCell a0, t)
+  | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortCtlCellOpt_Own n t; pure (.inj_CtlCellOpt a0, t)
+  | _, _ => none
+def dec_SortCtlCellOpt_Own : Nat → List Tok → Option (SortCtlCellOpt.Own × List Tok)
+  | _ + 1, .c 0 :: t => pure (.noCtlCell, t)
+  | _, _ => none
+def dec_SortDoneCell : Nat → List Tok → Option (SortDoneCell × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortBool n t; pure (.«<done>» a0, t)
+  | _, _ => none
+def dec_SortDoneCellOpt : Nat → List Tok → Option (SortDoneCellOpt × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortDoneCell n t; pure (.inj_DoneCell a0, t)
+  | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortDoneCellOpt_Own n t; pure (.inj_DoneCellOpt a0, t)
+  | _, _ => none
+def dec_SortDoneCellOpt_Own : Nat → List Tok → Option (SortDoneCellOpt.Own × List Tok)
+  | _ + 1, .c 0 :: t => pure (.noDoneCell, t)
+  | _, _ => none
 def dec_SortGeneratedCounterCell : Nat → List Tok → Option (SortGeneratedCounterCell × List Tok)
   | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortInt n t; pure (.«<generatedCounter>» a0, t)
   | _, _ => none
@@ -328,6 +529,49 @@ def dec_SortGeneratedTopCell : Nat → List Tok → Option (SortGeneratedTopCell
   | _, _ => none
 def dec_SortGeneratedTopCellFragment : Nat → List Tok → Option (SortGeneratedTopCellFragment × List Tok)
   | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortTCellOpt n t; let (a1, t) ← dec_SortGeneratedCounterCellOpt n t; pure (.«<generatedTop>-fragment» a0 a1, t)
+  | _, _ => none
+def dec_SortHiCell : Nat → List Tok → Option (SortHiCell × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortInt n t; pure (.«<hi>» a0, t)
+  | _, _ => none
+def dec_SortHiCellOpt : Nat → List Tok → Option (SortHiCellOpt × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortHiCell n t; pure (.inj_HiCell a0, t)
+  | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortHiCellOpt_Own n t; pure (.inj_HiCellOpt a0, t)
+  | _, _ => none
+def dec_SortHiCellOpt_Own : Nat → List Tok → Option (SortHiCellOpt.Own × List Tok)
+  | _ + 1, .c 0 :: t => pure (.noHiCell, t)
+  | _, _ => none
+def dec_SortJidCell : Nat → List Tok → Option (SortJidCell × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortInt n t; pure (.«<jid>» a0, t)
+  | _, _ => none
+def dec_SortJidCellOpt : Nat → List Tok → Option (SortJidCellOpt × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortJidCell n t; pure (.inj_JidCell a0, t)
+  | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortJidCellOpt_Own n t; pure (.inj_JidCellOpt a0, t)
+  | _, _ => none
+def dec_SortJidCellOpt_Own : Nat → List Tok → Option (SortJidCellOpt.Own × List Tok)
+  | _ + 1, .c 0 :: t => pure (.noJidCell, t)
+  | _, _ => none
+def dec_SortJobCell : Nat → List Tok → Option (SortJobCell × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortJidCell n t; let (a1, t) ← dec_SortOwnerCell n t; let (a2, t) ← dec_SortPrioCell n t; let (a3, t) ← dec_SortCtlCell n t; let (a4, t) ← dec_SortDoneCell n t; pure (.«<job>» a0 a1 a2 a3 a4, t)
+  | _, _ => none
+def dec_SortJobCellFragment : Nat → List Tok → Option (SortJobCellFragment × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortJidCellOpt n t; let (a1, t) ← dec_SortOwnerCellOpt n t; let (a2, t) ← dec_SortPrioCellOpt n t; let (a3, t) ← dec_SortCtlCellOpt n t; let (a4, t) ← dec_SortDoneCellOpt n t; pure (.«<job>-fragment» a0 a1 a2 a3 a4, t)
+  | _, _ => none
+def dec_SortJobCellMap : Nat → List Tok → Option (SortJobCellMap × List Tok)
+  | _ + 1, .c 0 :: t => pure (.nil, t)
+  | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortJidCell n t; let (a1, t) ← dec_SortJobCell n t; let (a2, t) ← dec_SortJobCellMap n t; pure (.cons a0 a1 a2, t)
+  | _, _ => none
+def dec_SortJobsCell : Nat → List Tok → Option (SortJobsCell × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortJobCellMap n t; pure (.«<jobs>» a0, t)
+  | _, _ => none
+def dec_SortJobsCellFragment : Nat → List Tok → Option (SortJobsCellFragment × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortJobCellMap n t; pure (.«<jobs>-fragment» a0, t)
+  | _, _ => none
+def dec_SortJobsCellOpt : Nat → List Tok → Option (SortJobsCellOpt × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortJobsCell n t; pure (.inj_JobsCell a0, t)
+  | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortJobsCellOpt_Own n t; pure (.inj_JobsCellOpt a0, t)
+  | _, _ => none
+def dec_SortJobsCellOpt_Own : Nat → List Tok → Option (SortJobsCellOpt.Own × List Tok)
+  | _ + 1, .c 0 :: t => pure (.noJobsCell, t)
   | _, _ => none
 def dec_SortK : Nat → List Tok → Option (SortK × List Tok)
   | _ + 1, .c 0 :: t => pure (.dotk, t)
@@ -347,32 +591,53 @@ def dec_SortKItem : Nat → List Tok → Option (SortKItem × List Tok)
   | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortBool n t; pure (.inj_Bool a0, t)
   | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortCntCell n t; pure (.inj_CntCell a0, t)
   | n + 1, .c 2 :: t => do let (a0, t) ← dec_SortCntCellOpt_Own n t; pure (.inj_CntCellOpt a0, t)
-  | n + 1, .c 3 :: t => do let (a0, t) ← dec_SortGeneratedCounterCell n t; pure (.inj_GeneratedCounterCell a0, t)
-  | n + 1, .c 4 :: t => do let (a0, t) ← dec_SortGeneratedCounterCellOpt_Own n t; pure (.inj_GeneratedCounterCellOpt a0, t)
-  | n + 1, .c 5 :: t => do let (a0, t) ← dec_SortGeneratedTopCell n t; pure (.inj_GeneratedTopCell a0, t)
-  | n + 1, .c 6 :: t => do let (a0, t) ← dec_SortGeneratedTopCellFragment n t; pure (.inj_GeneratedTopCellFragment a0, t)
-  | n + 1, .c 7 :: t => do let (a0, t) ← dec_SortInt n t; pure (.inj_Int a0, t)
-  | n + 1, .c 8 :: t => do let (a0, t) ← dec_SortKCell n t; pure (.inj_KCell a0, t)
-  | n + 1, .c 9 :: t => do let (a0, t) ← dec_SortKCellOpt_Own n t; pure (.inj_KCellOpt a0, t)
-  | n + 1, .c 10 :: t => do let (a0, t) ← dec_SortKConfigVar n t; pure (.inj_KConfigVar a0, t)
-  | n + 1, .c 11 :: t => do let (a0, t) ← dec_SortKItem_Own n t; pure (.inj_KItem a0, t)
-  | n + 1, .c 12 :: t => do let (a0, t) ← dec_SortList n t; pure (.inj_List a0, t)
-  | n + 1, .c 13 :: t => do let (a0, t) ← dec_SortMCell n t; pure (.inj_MCell a0, t)
-  | n + 1, .c 14 :: t => do let (a0, t) ← dec_SortMCellOpt_Own n t; pure (.inj_MCellOpt a0, t)
-  | n + 1, .c 15 :: t => do let (a0, t) ← dec_SortMap n t; pure (.inj_Map a0, t)
-  | n + 1, .c 16 :: t => do let (a0, t) ← dec_SortPgm n t; pure (.inj_Pgm a0, t)
-  | n + 1, .c 17 :: t => do let (a0, t) ← dec_SortSet n t; pure (.inj_Set a0, t)
-  | n + 1, .c 18 :: t => do let (a0, t) ← dec_SortTCell n t; pure (.inj_TCell a0, t)
-  | n + 1, .c 19 :: t => do let (a0, t) ← dec_SortTCellFragment n t; pure (.inj_TCellFragment a0, t)
-  | n + 1, .c 20 :: t => do let (a0, t) ← dec_SortTCellOpt_Own n t; pure (.inj_TCellOpt a0, t)
-  | n + 1, .c 21 :: t => do let (a0, t) ← dec_SortWidCell n t; pure (.inj_WidCell a0, t)
-  | n + 1, .c 22 :: t => do let (a0, t) ← dec_SortWidCellOpt_Own n t; pure (.inj_WidCellOpt a0, t)
-  | n + 1, .c 23 :: t => do let (a0, t) ← dec_SortWorkerCell n t; pure (.inj_WorkerCell a0, t)
-  | n + 1, .c 24 :: t => do let (a0, t) ← dec_SortWorkerCellFragment n t; pure (.inj_WorkerCellFragment a0, t)
-  | n + 1, .c 25 :: t => do let (a0, t) ← dec_SortWorkerCellMap n t; pure (.inj_WorkerCellMap a0, t)
-  | n + 1, .c 26 :: t => do let (a0, t) ← dec_SortWorkersCell n t; pure (.inj_WorkersCell a0, t)
-  | n + 1, .c 27 :: t => do let (a0, t) ← dec_SortWorkersCellFragment n t; pure (.inj_WorkersCellFragment a0, t)
-  | n + 1, .c 28 :: t => do let (a0, t) ← dec_SortWorkersCellOpt_Own n t; pure (.inj_WorkersCellOpt a0, t)
+  | n + 1, .c 3 :: t => do let (a0, t) ← dec_SortCtlCell n t; pure (.inj_CtlCell a0, t)
+  | n + 1, .c 4 :: t => do let (a0, t) ← dec_SortCtlCellFragment n t; pure (.inj_CtlCellFragment a0, t)
+  | n + 1, .c 5 :: t => do let (a0, t) ← dec_SortCtlCellOpt_Own n t; pure (.inj_CtlCellOpt a0, t)
+  | n + 1, .c 6 :: t => do let (a0, t) ← dec_SortDoneCell n t; pure (.inj_DoneCell a0, t)
+  | n + 1, .c 7 :: t => do let (a0, t) ← dec_SortDoneCellOpt_Own n t; pure (.inj_DoneCellOpt a0, t)
+  | n + 1, .c 8 :: t => do let (a0, t) ← dec_SortGeneratedCounterCell n t; pure (.inj_GeneratedCounterCell a0, t)
+  | n + 1, .c 9 :: t => do let (a0, t) ← dec_SortGeneratedCounterCellOpt_Own n t; pure (.inj_GeneratedCounterCellOpt a0, t)
+  | n + 1, .c 10 :: t => do let (a0, t) ← dec_SortGeneratedTopCell n t; pure (.inj_GeneratedTopCell a0, t)
+  | n + 1, .c 11 :: t => do let (a0, t) ← dec_SortGeneratedTopCellFragment n t; pure (.inj_GeneratedTopCellFragment a0, t)
+  | n + 1, .c 12 :: t => do let (a0, t) ← dec_SortHiCell n t; pure (.inj_HiCell a0, t)
+  | n + 1, .c 13 :: t => do let (a0, t) ← dec_SortHiCellOpt_Own n t; pure (.inj_HiCellOpt a0, t)
+  | n + 1, .c 14 :: t => do let (a0, t) ← dec_SortInt n t; pure (.inj_Int a0, t)
+  | n + 1, .c 15 :: t => do let (a0, t) ← dec_SortJidCell n t; pure (.inj_JidCell a0, t)
+  | n + 1, .c 16 :: t => do let (a0, t) ← dec_SortJidCellOpt_Own n t; pure (.inj_JidCellOpt a0, t)
+  | n + 1, .c 17 :: t => do let (a0, t) ← dec_SortJobCell n t; pure (.inj_JobCell a0, t)
+  | n + 1, .c 18 :: t => do let (a0, t) ← dec_SortJobCellFragment n t; pure (.inj_JobCellFragment a0, t)
+  | n + 1, .c 19 :: t => do let (a0, t) ← dec_SortJobCellMap n t; pure (.inj_JobCellMap a0, t)
+  | n + 1, .c 20 :: t => do let (a0, t) ← dec_SortJobsCell n t; pure (.inj_JobsCell a0, t)
+  | n + 1, .c 21 :: t => do let (a0, t) ← dec_SortJobsCellFragment n t; pure (.inj_JobsCellFragment a0, t)
+  | n + 1, .c 22 :: t => do let (a0, t) ← dec_SortJobsCellOpt_Own n t; pure (.inj_JobsCellOpt a0, t)
+  | n + 1, .c 23 :: t => do let (a0, t) ← dec_SortKCell n t; pure (.inj_KCell a0, t)
+  | n + 1, .c 24 :: t => do let (a0, t) ← dec_SortKCellOpt_Own n t; pure (.inj_KCellOpt a0, t)
+  | n + 1, .c 25 :: t => do let (a0, t) ← dec_SortKConfigVar n t; pure (.inj_KConfigVar a0, t)
+  | n + 1, .c 26 :: t => do let (a0, t) ← dec_SortKItem_Own n t; pure (.inj_KItem a0, t)
+  | n + 1, .c 27 :: t => do let (a0, t) ← dec_SortList n t; pure (.inj_List a0, t)
+  | n + 1, .c 28 :: t => do let (a0, t) ← dec_SortLoCell n t; pure (.inj_LoCell a0, t)
+  | n + 1, .c 29 :: t => do let (a0, t) ← dec_SortLoCellOpt_Own n t; pure (.inj_LoCellOpt a0, t)
+  | n + 1, .c 30 :: t => do let (a0, t) ← dec_SortMCell n t; pure (.inj_MCell a0, t)
+  | n + 1, .c 31 :: t => do let (a0, t) ← dec_SortMCellOpt_Own n t; pure (.inj_MCellOpt a0, t)
+  | n + 1, .c 32 :: t => do let (a0, t) ← dec_SortMap n t; pure (.inj_Map a0, t)
+  | n + 1, .c 33 :: t => do let (a0, t) ← dec_SortOwnerCell n t; pure (.inj_OwnerCell a0, t)
+  | n + 1, .c 34 :: t => do let (a0, t) ← dec_SortOwnerCellOpt_Own n t; pure (.inj_OwnerCellOpt a0, t)
+  | n + 1, .c 35 :: t => do let (a0, t) ← dec_SortPgm n t; pure (.inj_Pgm a0, t)
+  | n + 1, .c 36 :: t => do let (a0, t) ← dec_SortPrioCell n t; pure (.inj_PrioCell a0, t)
+  | n + 1, .c 37 :: t => do let (a0, t) ← dec_SortPrioCellOpt_Own n t; pure (.inj_PrioCellOpt a0, t)
+  | n + 1, .c 38 :: t => do let (a0, t) ← dec_SortSet n t; pure (.inj_Set a0, t)
+  | n + 1, .c 39 :: t => do let (a0, t) ← dec_SortTCell n t; pure (.inj_TCell a0, t)
+  | n + 1, .c 40 :: t => do let (a0, t) ← dec_SortTCellFragment n t; pure (.inj_TCellFragment a0, t)
+  | n + 1, .c 41 :: t => do let (a0, t) ← dec_SortTCellOpt_Own n t; pure (.inj_TCellOpt a0, t)
+  | n + 1, .c 42 :: t => do let (a0, t) ← dec_SortWidCell n t; pure (.inj_WidCell a0, t)
+  | n + 1, .c 43 :: t => do let (a0, t) ← dec_SortWidCellOpt_Own n t; pure (.inj_WidCellOpt a0, t)
+  | n + 1, .c 44 :: t => do let (a0, t) ← dec_SortWorkerCell n t; pure (.inj_WorkerCell a0, t)
+  | n + 1, .c 45 :: t => do let (a0, t) ← dec_SortWorkerCellFragment n t; pure (.inj_WorkerCellFragment a0, t)
+  | n + 1, .c 46 :: t => do let (a0, t) ← dec_SortWorkerCellMap n t; pure (.inj_WorkerCellMap a0, t)
+  | n + 1, .c 47 :: t => do let (a0, t) ← dec_SortWorkersCell n t; pure (.inj_WorkersCell a0, t)
+  | n + 1, .c 48 :: t => do let (a0, t) ← dec_SortWorkersCellFragment n t; pure (.inj_WorkersCellFragment a0, t)
+  | n + 1, .c 49 :: t => do let (a0, t) ← dec_SortWorkersCellOpt_Own n t; pure (.inj_WorkersCellOpt a0, t)
   | _, _ => none
 def dec_SortKItem_Own : Nat → List Tok → Option (SortKItem.Own × List Tok)
   | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortK n t; pure (.«#KConfigValue» a0, t)
@@ -380,6 +645,16 @@ def dec_SortKItem_Own : Nat → List Tok → Option (SortKItem.Own × List Tok)
 def dec_SortList : Nat → List Tok → Option (SortList × List Tok)
   | _ + 1, .c 0 :: t => pure (.nil, t)
   | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortKItem n t; let (a1, t) ← dec_SortList n t; pure (.cons a0 a1, t)
+  | _, _ => none
+def dec_SortLoCell : Nat → List Tok → Option (SortLoCell × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortInt n t; pure (.«<lo>» a0, t)
+  | _, _ => none
+def dec_SortLoCellOpt : Nat → List Tok → Option (SortLoCellOpt × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortLoCell n t; pure (.inj_LoCell a0, t)
+  | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortLoCellOpt_Own n t; pure (.inj_LoCellOpt a0, t)
+  | _, _ => none
+def dec_SortLoCellOpt_Own : Nat → List Tok → Option (SortLoCellOpt.Own × List Tok)
+  | _ + 1, .c 0 :: t => pure (.noLoCell, t)
   | _, _ => none
 def dec_SortMCell : Nat → List Tok → Option (SortMCell × List Tok)
   | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortMap n t; pure (.«<m>» a0, t)
@@ -395,20 +670,41 @@ def dec_SortMap : Nat → List Tok → Option (SortMap × List Tok)
   | _ + 1, .c 0 :: t => pure (.nil, t)
   | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortKItem n t; let (a1, t) ← dec_SortKItem n t; let (a2, t) ← dec_SortMap n t; pure (.cons a0 a1 a2, t)
   | _, _ => none
+def dec_SortOwnerCell : Nat → List Tok → Option (SortOwnerCell × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortInt n t; pure (.«<owner>» a0, t)
+  | _, _ => none
+def dec_SortOwnerCellOpt : Nat → List Tok → Option (SortOwnerCellOpt × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortOwnerCell n t; pure (.inj_OwnerCell a0, t)
+  | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortOwnerCellOpt_Own n t; pure (.inj_OwnerCellOpt a0, t)
+  | _, _ => none
+def dec_SortOwnerCellOpt_Own : Nat → List Tok → Option (SortOwnerCellOpt.Own × List Tok)
+  | _ + 1, .c 0 :: t => pure (.noOwnerCell, t)
+  | _, _ => none
 def dec_SortPgm : Nat → List Tok → Option (SortPgm × List Tok)
   | _ + 1, .c 0 :: t => pure (.check, t)
   | _ + 1, .c 1 :: t => pure (.go, t)
   | _ + 1, .c 2 :: t => pure (.go2, t)
+  | _ + 1, .c 3 :: t => pure (.go3, t)
+  | _, _ => none
+def dec_SortPrioCell : Nat → List Tok → Option (SortPrioCell × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortInt n t; pure (.«<prio>» a0, t)
+  | _, _ => none
+def dec_SortPrioCellOpt : Nat → List Tok → Option (SortPrioCellOpt × List Tok)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortPrioCell n t; pure (.inj_PrioCell a0, t)
+  | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortPrioCellOpt_Own n t; pure (.inj_PrioCellOpt a0, t)
+  | _, _ => none
+def dec_SortPrioCellOpt_Own : Nat → List Tok → Option (SortPrioCellOpt.Own × List Tok)
+  | _ + 1, .c 0 :: t => pure (.noPrioCell, t)
   | _, _ => none
 def dec_SortSet : Nat → List Tok → Option (SortSet × List Tok)
   | _ + 1, .c 0 :: t => pure (.nil, t)
   | n + 1, .c 1 :: t => do let (a0, t) ← dec_SortKItem n t; let (a1, t) ← dec_SortSet n t; pure (.cons a0 a1, t)
   | _, _ => none
 def dec_SortTCell : Nat → List Tok → Option (SortTCell × List Tok)
-  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortKCell n t; let (a1, t) ← dec_SortMCell n t; let (a2, t) ← dec_SortWorkersCell n t; pure (.«<T>» a0 a1 a2, t)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortKCell n t; let (a1, t) ← dec_SortMCell n t; let (a2, t) ← dec_SortWorkersCell n t; let (a3, t) ← dec_SortJobsCell n t; pure (.«<T>» a0 a1 a2 a3, t)
   | _, _ => none
 def dec_SortTCellFragment : Nat → List Tok → Option (SortTCellFragment × List Tok)
-  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortKCellOpt n t; let (a1, t) ← dec_SortMCellOpt n t; let (a2, t) ← dec_SortWorkersCellOpt n t; pure (.«<T>-fragment» a0 a1 a2, t)
+  | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortKCellOpt n t; let (a1, t) ← dec_SortMCellOpt n t; let (a2, t) ← dec_SortWorkersCellOpt n t; let (a3, t) ← dec_SortJobsCellOpt n t; pure (.«<T>-fragment» a0 a1 a2 a3, t)
   | _, _ => none
 def dec_SortTCellOpt : Nat → List Tok → Option (SortTCellOpt × List Tok)
   | n + 1, .c 0 :: t => do let (a0, t) ← dec_SortTCell n t; pure (.inj_TCell a0, t)
@@ -481,6 +777,70 @@ theorem dec_ser_SortCntCellOpt_Own : (a : SortCntCellOpt.Own) → ∀ (r : List 
     match n with
     | 0 => simp [ser_SortCntCellOpt_Own] at h
     | n + 1 => simp [ser_SortCntCellOpt_Own, dec_SortCntCellOpt_Own]
+theorem dec_ser_SortCtlCell : (a : SortCtlCell) → ∀ (r : List Tok) (n : Nat), (ser_SortCtlCell a).length ≤ n →
+    dec_SortCtlCell n (ser_SortCtlCell a ++ r) = some (a, r)
+  | .«<ctl>» a0 a1, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortCtlCell] at h
+    | n + 1 =>
+      simp only [ser_SortCtlCell, List.length_cons, List.length_append] at h
+      simp only [ser_SortCtlCell, List.cons_append, List.append_assoc, dec_SortCtlCell, dec_ser_SortLoCell a0 _ n (by omega), dec_ser_SortHiCell a1 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortCtlCellFragment : (a : SortCtlCellFragment) → ∀ (r : List Tok) (n : Nat), (ser_SortCtlCellFragment a).length ≤ n →
+    dec_SortCtlCellFragment n (ser_SortCtlCellFragment a ++ r) = some (a, r)
+  | .«<ctl>-fragment» a0 a1, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortCtlCellFragment] at h
+    | n + 1 =>
+      simp only [ser_SortCtlCellFragment, List.length_cons, List.length_append] at h
+      simp only [ser_SortCtlCellFragment, List.cons_append, List.append_assoc, dec_SortCtlCellFragment, dec_ser_SortLoCellOpt a0 _ n (by omega), dec_ser_SortHiCellOpt a1 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortCtlCellOpt : (a : SortCtlCellOpt) → ∀ (r : List Tok) (n : Nat), (ser_SortCtlCellOpt a).length ≤ n →
+    dec_SortCtlCellOpt n (ser_SortCtlCellOpt a ++ r) = some (a, r)
+  | .inj_CtlCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortCtlCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortCtlCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortCtlCellOpt, List.cons_append, List.append_assoc, dec_SortCtlCellOpt, dec_ser_SortCtlCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_CtlCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortCtlCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortCtlCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortCtlCellOpt, List.cons_append, List.append_assoc, dec_SortCtlCellOpt, dec_ser_SortCtlCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortCtlCellOpt_Own : (a : SortCtlCellOpt.Own) → ∀ (r : List Tok) (n : Nat), (ser_SortCtlCellOpt_Own a).length ≤ n →
+    dec_SortCtlCellOpt_Own n (ser_SortCtlCellOpt_Own a ++ r) = some (a, r)
+  | .noCtlCell , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortCtlCellOpt_Own] at h
+    | n + 1 => simp [ser_SortCtlCellOpt_Own, dec_SortCtlCellOpt_Own]
+theorem dec_ser_SortDoneCell : (a : SortDoneCell) → ∀ (r : List Tok) (n : Nat), (ser_SortDoneCell a).length ≤ n →
+    dec_SortDoneCell n (ser_SortDoneCell a ++ r) = some (a, r)
+  | .«<done>» a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortDoneCell] at h
+    | n + 1 =>
+      simp only [ser_SortDoneCell, List.length_cons, List.length_append] at h
+      simp only [ser_SortDoneCell, List.cons_append, List.append_assoc, dec_SortDoneCell, dec_ser_SortBool a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortDoneCellOpt : (a : SortDoneCellOpt) → ∀ (r : List Tok) (n : Nat), (ser_SortDoneCellOpt a).length ≤ n →
+    dec_SortDoneCellOpt n (ser_SortDoneCellOpt a ++ r) = some (a, r)
+  | .inj_DoneCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortDoneCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortDoneCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortDoneCellOpt, List.cons_append, List.append_assoc, dec_SortDoneCellOpt, dec_ser_SortDoneCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_DoneCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortDoneCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortDoneCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortDoneCellOpt, List.cons_append, List.append_assoc, dec_SortDoneCellOpt, dec_ser_SortDoneCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortDoneCellOpt_Own : (a : SortDoneCellOpt.Own) → ∀ (r : List Tok) (n : Nat), (ser_SortDoneCellOpt_Own a).length ≤ n →
+    dec_SortDoneCellOpt_Own n (ser_SortDoneCellOpt_Own a ++ r) = some (a, r)
+  | .noDoneCell , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortDoneCellOpt_Own] at h
+    | n + 1 => simp [ser_SortDoneCellOpt_Own, dec_SortDoneCellOpt_Own]
 theorem dec_ser_SortGeneratedCounterCell : (a : SortGeneratedCounterCell) → ∀ (r : List Tok) (n : Nat), (ser_SortGeneratedCounterCell a).length ≤ n →
     dec_SortGeneratedCounterCell n (ser_SortGeneratedCounterCell a ++ r) = some (a, r)
   | .«<generatedCounter>» a0, r, n, h => by
@@ -525,6 +885,126 @@ theorem dec_ser_SortGeneratedTopCellFragment : (a : SortGeneratedTopCellFragment
     | n + 1 =>
       simp only [ser_SortGeneratedTopCellFragment, List.length_cons, List.length_append] at h
       simp only [ser_SortGeneratedTopCellFragment, List.cons_append, List.append_assoc, dec_SortGeneratedTopCellFragment, dec_ser_SortTCellOpt a0 _ n (by omega), dec_ser_SortGeneratedCounterCellOpt a1 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortHiCell : (a : SortHiCell) → ∀ (r : List Tok) (n : Nat), (ser_SortHiCell a).length ≤ n →
+    dec_SortHiCell n (ser_SortHiCell a ++ r) = some (a, r)
+  | .«<hi>» a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortHiCell] at h
+    | n + 1 =>
+      simp only [ser_SortHiCell, List.length_cons, List.length_append] at h
+      simp only [ser_SortHiCell, List.cons_append, List.append_assoc, dec_SortHiCell, dec_ser_SortInt a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortHiCellOpt : (a : SortHiCellOpt) → ∀ (r : List Tok) (n : Nat), (ser_SortHiCellOpt a).length ≤ n →
+    dec_SortHiCellOpt n (ser_SortHiCellOpt a ++ r) = some (a, r)
+  | .inj_HiCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortHiCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortHiCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortHiCellOpt, List.cons_append, List.append_assoc, dec_SortHiCellOpt, dec_ser_SortHiCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_HiCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortHiCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortHiCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortHiCellOpt, List.cons_append, List.append_assoc, dec_SortHiCellOpt, dec_ser_SortHiCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortHiCellOpt_Own : (a : SortHiCellOpt.Own) → ∀ (r : List Tok) (n : Nat), (ser_SortHiCellOpt_Own a).length ≤ n →
+    dec_SortHiCellOpt_Own n (ser_SortHiCellOpt_Own a ++ r) = some (a, r)
+  | .noHiCell , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortHiCellOpt_Own] at h
+    | n + 1 => simp [ser_SortHiCellOpt_Own, dec_SortHiCellOpt_Own]
+theorem dec_ser_SortJidCell : (a : SortJidCell) → ∀ (r : List Tok) (n : Nat), (ser_SortJidCell a).length ≤ n →
+    dec_SortJidCell n (ser_SortJidCell a ++ r) = some (a, r)
+  | .«<jid>» a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJidCell] at h
+    | n + 1 =>
+      simp only [ser_SortJidCell, List.length_cons, List.length_append] at h
+      simp only [ser_SortJidCell, List.cons_append, List.append_assoc, dec_SortJidCell, dec_ser_SortInt a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortJidCellOpt : (a : SortJidCellOpt) → ∀ (r : List Tok) (n : Nat), (ser_SortJidCellOpt a).length ≤ n →
+    dec_SortJidCellOpt n (ser_SortJidCellOpt a ++ r) = some (a, r)
+  | .inj_JidCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJidCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortJidCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortJidCellOpt, List.cons_append, List.append_assoc, dec_SortJidCellOpt, dec_ser_SortJidCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JidCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJidCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortJidCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortJidCellOpt, List.cons_append, List.append_assoc, dec_SortJidCellOpt, dec_ser_SortJidCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortJidCellOpt_Own : (a : SortJidCellOpt.Own) → ∀ (r : List Tok) (n : Nat), (ser_SortJidCellOpt_Own a).length ≤ n →
+    dec_SortJidCellOpt_Own n (ser_SortJidCellOpt_Own a ++ r) = some (a, r)
+  | .noJidCell , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJidCellOpt_Own] at h
+    | n + 1 => simp [ser_SortJidCellOpt_Own, dec_SortJidCellOpt_Own]
+theorem dec_ser_SortJobCell : (a : SortJobCell) → ∀ (r : List Tok) (n : Nat), (ser_SortJobCell a).length ≤ n →
+    dec_SortJobCell n (ser_SortJobCell a ++ r) = some (a, r)
+  | .«<job>» a0 a1 a2 a3 a4, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJobCell] at h
+    | n + 1 =>
+      simp only [ser_SortJobCell, List.length_cons, List.length_append] at h
+      simp only [ser_SortJobCell, List.cons_append, List.append_assoc, dec_SortJobCell, dec_ser_SortJidCell a0 _ n (by omega), dec_ser_SortOwnerCell a1 _ n (by omega), dec_ser_SortPrioCell a2 _ n (by omega), dec_ser_SortCtlCell a3 _ n (by omega), dec_ser_SortDoneCell a4 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortJobCellFragment : (a : SortJobCellFragment) → ∀ (r : List Tok) (n : Nat), (ser_SortJobCellFragment a).length ≤ n →
+    dec_SortJobCellFragment n (ser_SortJobCellFragment a ++ r) = some (a, r)
+  | .«<job>-fragment» a0 a1 a2 a3 a4, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJobCellFragment] at h
+    | n + 1 =>
+      simp only [ser_SortJobCellFragment, List.length_cons, List.length_append] at h
+      simp only [ser_SortJobCellFragment, List.cons_append, List.append_assoc, dec_SortJobCellFragment, dec_ser_SortJidCellOpt a0 _ n (by omega), dec_ser_SortOwnerCellOpt a1 _ n (by omega), dec_ser_SortPrioCellOpt a2 _ n (by omega), dec_ser_SortCtlCellOpt a3 _ n (by omega), dec_ser_SortDoneCellOpt a4 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortJobCellMap : (a : SortJobCellMap) → ∀ (r : List Tok) (n : Nat), (ser_SortJobCellMap a).length ≤ n →
+    dec_SortJobCellMap n (ser_SortJobCellMap a ++ r) = some (a, r)
+  | .nil , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJobCellMap] at h
+    | n + 1 => simp [ser_SortJobCellMap, dec_SortJobCellMap]
+  | .cons a0 a1 a2, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJobCellMap] at h
+    | n + 1 =>
+      simp only [ser_SortJobCellMap, List.length_cons, List.length_append] at h
+      simp only [ser_SortJobCellMap, List.cons_append, List.append_assoc, dec_SortJobCellMap, dec_ser_SortJidCell a0 _ n (by omega), dec_ser_SortJobCell a1 _ n (by omega), dec_ser_SortJobCellMap a2 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortJobsCell : (a : SortJobsCell) → ∀ (r : List Tok) (n : Nat), (ser_SortJobsCell a).length ≤ n →
+    dec_SortJobsCell n (ser_SortJobsCell a ++ r) = some (a, r)
+  | .«<jobs>» a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJobsCell] at h
+    | n + 1 =>
+      simp only [ser_SortJobsCell, List.length_cons, List.length_append] at h
+      simp only [ser_SortJobsCell, List.cons_append, List.append_assoc, dec_SortJobsCell, dec_ser_SortJobCellMap a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortJobsCellFragment : (a : SortJobsCellFragment) → ∀ (r : List Tok) (n : Nat), (ser_SortJobsCellFragment a).length ≤ n →
+    dec_SortJobsCellFragment n (ser_SortJobsCellFragment a ++ r) = some (a, r)
+  | .«<jobs>-fragment» a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJobsCellFragment] at h
+    | n + 1 =>
+      simp only [ser_SortJobsCellFragment, List.length_cons, List.length_append] at h
+      simp only [ser_SortJobsCellFragment, List.cons_append, List.append_assoc, dec_SortJobsCellFragment, dec_ser_SortJobCellMap a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortJobsCellOpt : (a : SortJobsCellOpt) → ∀ (r : List Tok) (n : Nat), (ser_SortJobsCellOpt a).length ≤ n →
+    dec_SortJobsCellOpt n (ser_SortJobsCellOpt a ++ r) = some (a, r)
+  | .inj_JobsCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJobsCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortJobsCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortJobsCellOpt, List.cons_append, List.append_assoc, dec_SortJobsCellOpt, dec_ser_SortJobsCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JobsCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJobsCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortJobsCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortJobsCellOpt, List.cons_append, List.append_assoc, dec_SortJobsCellOpt, dec_ser_SortJobsCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortJobsCellOpt_Own : (a : SortJobsCellOpt.Own) → ∀ (r : List Tok) (n : Nat), (ser_SortJobsCellOpt_Own a).length ≤ n →
+    dec_SortJobsCellOpt_Own n (ser_SortJobsCellOpt_Own a ++ r) = some (a, r)
+  | .noJobsCell , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortJobsCellOpt_Own] at h
+    | n + 1 => simp [ser_SortJobsCellOpt_Own, dec_SortJobsCellOpt_Own]
 theorem dec_ser_SortK : (a : SortK) → ∀ (r : List Tok) (n : Nat), (ser_SortK a).length ≤ n →
     dec_SortK n (ser_SortK a ++ r) = some (a, r)
   | .dotk , r, n, h => by
@@ -585,6 +1065,36 @@ theorem dec_ser_SortKItem : (a : SortKItem) → ∀ (r : List Tok) (n : Nat), (s
     | n + 1 =>
       simp only [ser_SortKItem, List.length_cons, List.length_append] at h
       simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortCntCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_CtlCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortCtlCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_CtlCellFragment a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortCtlCellFragment a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_CtlCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortCtlCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_DoneCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortDoneCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_DoneCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortDoneCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
   | .inj_GeneratedCounterCell a0, r, n, h => by
     match n with
     | 0 => simp [ser_SortKItem] at h
@@ -609,12 +1119,72 @@ theorem dec_ser_SortKItem : (a : SortKItem) → ∀ (r : List Tok) (n : Nat), (s
     | n + 1 =>
       simp only [ser_SortKItem, List.length_cons, List.length_append] at h
       simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortGeneratedTopCellFragment a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_HiCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortHiCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_HiCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortHiCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
   | .inj_Int a0, r, n, h => by
     match n with
     | 0 => simp [ser_SortKItem] at h
     | n + 1 =>
       simp only [ser_SortKItem, List.length_cons, List.length_append] at h
       simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortInt a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JidCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortJidCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JidCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortJidCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JobCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortJobCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JobCellFragment a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortJobCellFragment a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JobCellMap a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortJobCellMap a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JobsCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortJobsCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JobsCellFragment a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortJobsCellFragment a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_JobsCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortJobsCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
   | .inj_KCell a0, r, n, h => by
     match n with
     | 0 => simp [ser_SortKItem] at h
@@ -645,6 +1215,18 @@ theorem dec_ser_SortKItem : (a : SortKItem) → ∀ (r : List Tok) (n : Nat), (s
     | n + 1 =>
       simp only [ser_SortKItem, List.length_cons, List.length_append] at h
       simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortList a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_LoCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortLoCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_LoCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortLoCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
   | .inj_MCell a0, r, n, h => by
     match n with
     | 0 => simp [ser_SortKItem] at h
@@ -663,12 +1245,36 @@ theorem dec_ser_SortKItem : (a : SortKItem) → ∀ (r : List Tok) (n : Nat), (s
     | n + 1 =>
       simp only [ser_SortKItem, List.length_cons, List.length_append] at h
       simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortMap a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_OwnerCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortOwnerCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_OwnerCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortOwnerCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
   | .inj_Pgm a0, r, n, h => by
     match n with
     | 0 => simp [ser_SortKItem] at h
     | n + 1 =>
       simp only [ser_SortKItem, List.length_cons, List.length_append] at h
       simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortPgm a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_PrioCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortPrioCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_PrioCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortKItem] at h
+    | n + 1 =>
+      simp only [ser_SortKItem, List.length_cons, List.length_append] at h
+      simp only [ser_SortKItem, List.cons_append, List.append_assoc, dec_SortKItem, dec_ser_SortPrioCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
   | .inj_Set a0, r, n, h => by
     match n with
     | 0 => simp [ser_SortKItem] at h
@@ -761,6 +1367,34 @@ theorem dec_ser_SortList : (a : SortList) → ∀ (r : List Tok) (n : Nat), (ser
     | n + 1 =>
       simp only [ser_SortList, List.length_cons, List.length_append] at h
       simp only [ser_SortList, List.cons_append, List.append_assoc, dec_SortList, dec_ser_SortKItem a0 _ n (by omega), dec_ser_SortList a1 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortLoCell : (a : SortLoCell) → ∀ (r : List Tok) (n : Nat), (ser_SortLoCell a).length ≤ n →
+    dec_SortLoCell n (ser_SortLoCell a ++ r) = some (a, r)
+  | .«<lo>» a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortLoCell] at h
+    | n + 1 =>
+      simp only [ser_SortLoCell, List.length_cons, List.length_append] at h
+      simp only [ser_SortLoCell, List.cons_append, List.append_assoc, dec_SortLoCell, dec_ser_SortInt a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortLoCellOpt : (a : SortLoCellOpt) → ∀ (r : List Tok) (n : Nat), (ser_SortLoCellOpt a).length ≤ n →
+    dec_SortLoCellOpt n (ser_SortLoCellOpt a ++ r) = some (a, r)
+  | .inj_LoCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortLoCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortLoCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortLoCellOpt, List.cons_append, List.append_assoc, dec_SortLoCellOpt, dec_ser_SortLoCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_LoCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortLoCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortLoCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortLoCellOpt, List.cons_append, List.append_assoc, dec_SortLoCellOpt, dec_ser_SortLoCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortLoCellOpt_Own : (a : SortLoCellOpt.Own) → ∀ (r : List Tok) (n : Nat), (ser_SortLoCellOpt_Own a).length ≤ n →
+    dec_SortLoCellOpt_Own n (ser_SortLoCellOpt_Own a ++ r) = some (a, r)
+  | .noLoCell , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortLoCellOpt_Own] at h
+    | n + 1 => simp [ser_SortLoCellOpt_Own, dec_SortLoCellOpt_Own]
 theorem dec_ser_SortMCell : (a : SortMCell) → ∀ (r : List Tok) (n : Nat), (ser_SortMCell a).length ≤ n →
     dec_SortMCell n (ser_SortMCell a ++ r) = some (a, r)
   | .«<m>» a0, r, n, h => by
@@ -801,6 +1435,34 @@ theorem dec_ser_SortMap : (a : SortMap) → ∀ (r : List Tok) (n : Nat), (ser_S
     | n + 1 =>
       simp only [ser_SortMap, List.length_cons, List.length_append] at h
       simp only [ser_SortMap, List.cons_append, List.append_assoc, dec_SortMap, dec_ser_SortKItem a0 _ n (by omega), dec_ser_SortKItem a1 _ n (by omega), dec_ser_SortMap a2 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortOwnerCell : (a : SortOwnerCell) → ∀ (r : List Tok) (n : Nat), (ser_SortOwnerCell a).length ≤ n →
+    dec_SortOwnerCell n (ser_SortOwnerCell a ++ r) = some (a, r)
+  | .«<owner>» a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortOwnerCell] at h
+    | n + 1 =>
+      simp only [ser_SortOwnerCell, List.length_cons, List.length_append] at h
+      simp only [ser_SortOwnerCell, List.cons_append, List.append_assoc, dec_SortOwnerCell, dec_ser_SortInt a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortOwnerCellOpt : (a : SortOwnerCellOpt) → ∀ (r : List Tok) (n : Nat), (ser_SortOwnerCellOpt a).length ≤ n →
+    dec_SortOwnerCellOpt n (ser_SortOwnerCellOpt a ++ r) = some (a, r)
+  | .inj_OwnerCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortOwnerCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortOwnerCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortOwnerCellOpt, List.cons_append, List.append_assoc, dec_SortOwnerCellOpt, dec_ser_SortOwnerCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_OwnerCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortOwnerCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortOwnerCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortOwnerCellOpt, List.cons_append, List.append_assoc, dec_SortOwnerCellOpt, dec_ser_SortOwnerCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortOwnerCellOpt_Own : (a : SortOwnerCellOpt.Own) → ∀ (r : List Tok) (n : Nat), (ser_SortOwnerCellOpt_Own a).length ≤ n →
+    dec_SortOwnerCellOpt_Own n (ser_SortOwnerCellOpt_Own a ++ r) = some (a, r)
+  | .noOwnerCell , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortOwnerCellOpt_Own] at h
+    | n + 1 => simp [ser_SortOwnerCellOpt_Own, dec_SortOwnerCellOpt_Own]
 theorem dec_ser_SortPgm : (a : SortPgm) → ∀ (r : List Tok) (n : Nat), (ser_SortPgm a).length ≤ n →
     dec_SortPgm n (ser_SortPgm a ++ r) = some (a, r)
   | .check , r, n, h => by
@@ -815,6 +1477,38 @@ theorem dec_ser_SortPgm : (a : SortPgm) → ∀ (r : List Tok) (n : Nat), (ser_S
     match n with
     | 0 => simp [ser_SortPgm] at h
     | n + 1 => simp [ser_SortPgm, dec_SortPgm]
+  | .go3 , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortPgm] at h
+    | n + 1 => simp [ser_SortPgm, dec_SortPgm]
+theorem dec_ser_SortPrioCell : (a : SortPrioCell) → ∀ (r : List Tok) (n : Nat), (ser_SortPrioCell a).length ≤ n →
+    dec_SortPrioCell n (ser_SortPrioCell a ++ r) = some (a, r)
+  | .«<prio>» a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortPrioCell] at h
+    | n + 1 =>
+      simp only [ser_SortPrioCell, List.length_cons, List.length_append] at h
+      simp only [ser_SortPrioCell, List.cons_append, List.append_assoc, dec_SortPrioCell, dec_ser_SortInt a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortPrioCellOpt : (a : SortPrioCellOpt) → ∀ (r : List Tok) (n : Nat), (ser_SortPrioCellOpt a).length ≤ n →
+    dec_SortPrioCellOpt n (ser_SortPrioCellOpt a ++ r) = some (a, r)
+  | .inj_PrioCell a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortPrioCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortPrioCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortPrioCellOpt, List.cons_append, List.append_assoc, dec_SortPrioCellOpt, dec_ser_SortPrioCell a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+  | .inj_PrioCellOpt a0, r, n, h => by
+    match n with
+    | 0 => simp [ser_SortPrioCellOpt] at h
+    | n + 1 =>
+      simp only [ser_SortPrioCellOpt, List.length_cons, List.length_append] at h
+      simp only [ser_SortPrioCellOpt, List.cons_append, List.append_assoc, dec_SortPrioCellOpt, dec_ser_SortPrioCellOpt_Own a0 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+theorem dec_ser_SortPrioCellOpt_Own : (a : SortPrioCellOpt.Own) → ∀ (r : List Tok) (n : Nat), (ser_SortPrioCellOpt_Own a).length ≤ n →
+    dec_SortPrioCellOpt_Own n (ser_SortPrioCellOpt_Own a ++ r) = some (a, r)
+  | .noPrioCell , r, n, h => by
+    match n with
+    | 0 => simp [ser_SortPrioCellOpt_Own] at h
+    | n + 1 => simp [ser_SortPrioCellOpt_Own, dec_SortPrioCellOpt_Own]
 theorem dec_ser_SortSet : (a : SortSet) → ∀ (r : List Tok) (n : Nat), (ser_SortSet a).length ≤ n →
     dec_SortSet n (ser_SortSet a ++ r) = some (a, r)
   | .nil , r, n, h => by
@@ -829,20 +1523,20 @@ theorem dec_ser_SortSet : (a : SortSet) → ∀ (r : List Tok) (n : Nat), (ser_S
       simp only [ser_SortSet, List.cons_append, List.append_assoc, dec_SortSet, dec_ser_SortKItem a0 _ n (by omega), dec_ser_SortSet a1 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
 theorem dec_ser_SortTCell : (a : SortTCell) → ∀ (r : List Tok) (n : Nat), (ser_SortTCell a).length ≤ n →
     dec_SortTCell n (ser_SortTCell a ++ r) = some (a, r)
-  | .«<T>» a0 a1 a2, r, n, h => by
+  | .«<T>» a0 a1 a2 a3, r, n, h => by
     match n with
     | 0 => simp [ser_SortTCell] at h
     | n + 1 =>
       simp only [ser_SortTCell, List.length_cons, List.length_append] at h
-      simp only [ser_SortTCell, List.cons_append, List.append_assoc, dec_SortTCell, dec_ser_SortKCell a0 _ n (by omega), dec_ser_SortMCell a1 _ n (by omega), dec_ser_SortWorkersCell a2 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+      simp only [ser_SortTCell, List.cons_append, List.append_assoc, dec_SortTCell, dec_ser_SortKCell a0 _ n (by omega), dec_ser_SortMCell a1 _ n (by omega), dec_ser_SortWorkersCell a2 _ n (by omega), dec_ser_SortJobsCell a3 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
 theorem dec_ser_SortTCellFragment : (a : SortTCellFragment) → ∀ (r : List Tok) (n : Nat), (ser_SortTCellFragment a).length ≤ n →
     dec_SortTCellFragment n (ser_SortTCellFragment a ++ r) = some (a, r)
-  | .«<T>-fragment» a0 a1 a2, r, n, h => by
+  | .«<T>-fragment» a0 a1 a2 a3, r, n, h => by
     match n with
     | 0 => simp [ser_SortTCellFragment] at h
     | n + 1 =>
       simp only [ser_SortTCellFragment, List.length_cons, List.length_append] at h
-      simp only [ser_SortTCellFragment, List.cons_append, List.append_assoc, dec_SortTCellFragment, dec_ser_SortKCellOpt a0 _ n (by omega), dec_ser_SortMCellOpt a1 _ n (by omega), dec_ser_SortWorkersCellOpt a2 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
+      simp only [ser_SortTCellFragment, List.cons_append, List.append_assoc, dec_SortTCellFragment, dec_ser_SortKCellOpt a0 _ n (by omega), dec_ser_SortMCellOpt a1 _ n (by omega), dec_ser_SortWorkersCellOpt a2 _ n (by omega), dec_ser_SortJobsCellOpt a3 _ n (by omega), Option.bind_eq_bind, Option.bind_some, Option.pure_def]
 theorem dec_ser_SortTCellOpt : (a : SortTCellOpt) → ∀ (r : List Tok) (n : Nat), (ser_SortTCellOpt a).length ≤ n →
     dec_SortTCellOpt n (ser_SortTCellOpt a ++ r) = some (a, r)
   | .inj_TCell a0, r, n, h => by
@@ -975,6 +1669,48 @@ theorem ser_SortCntCellOpt_Own_inj (a b : SortCntCellOpt.Own) (h : ser_SortCntCe
   rw [h] at ha
   simp_all
 
+theorem ser_SortCtlCell_inj (a b : SortCtlCell) (h : ser_SortCtlCell a = ser_SortCtlCell b) : a = b := by
+  have ha := dec_ser_SortCtlCell a [] (ser_SortCtlCell a).length (Nat.le_refl _)
+  have hb := dec_ser_SortCtlCell b [] (ser_SortCtlCell a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortCtlCellFragment_inj (a b : SortCtlCellFragment) (h : ser_SortCtlCellFragment a = ser_SortCtlCellFragment b) : a = b := by
+  have ha := dec_ser_SortCtlCellFragment a [] (ser_SortCtlCellFragment a).length (Nat.le_refl _)
+  have hb := dec_ser_SortCtlCellFragment b [] (ser_SortCtlCellFragment a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortCtlCellOpt_inj (a b : SortCtlCellOpt) (h : ser_SortCtlCellOpt a = ser_SortCtlCellOpt b) : a = b := by
+  have ha := dec_ser_SortCtlCellOpt a [] (ser_SortCtlCellOpt a).length (Nat.le_refl _)
+  have hb := dec_ser_SortCtlCellOpt b [] (ser_SortCtlCellOpt a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortCtlCellOpt_Own_inj (a b : SortCtlCellOpt.Own) (h : ser_SortCtlCellOpt_Own a = ser_SortCtlCellOpt_Own b) : a = b := by
+  have ha := dec_ser_SortCtlCellOpt_Own a [] (ser_SortCtlCellOpt_Own a).length (Nat.le_refl _)
+  have hb := dec_ser_SortCtlCellOpt_Own b [] (ser_SortCtlCellOpt_Own a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortDoneCell_inj (a b : SortDoneCell) (h : ser_SortDoneCell a = ser_SortDoneCell b) : a = b := by
+  have ha := dec_ser_SortDoneCell a [] (ser_SortDoneCell a).length (Nat.le_refl _)
+  have hb := dec_ser_SortDoneCell b [] (ser_SortDoneCell a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortDoneCellOpt_inj (a b : SortDoneCellOpt) (h : ser_SortDoneCellOpt a = ser_SortDoneCellOpt b) : a = b := by
+  have ha := dec_ser_SortDoneCellOpt a [] (ser_SortDoneCellOpt a).length (Nat.le_refl _)
+  have hb := dec_ser_SortDoneCellOpt b [] (ser_SortDoneCellOpt a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortDoneCellOpt_Own_inj (a b : SortDoneCellOpt.Own) (h : ser_SortDoneCellOpt_Own a = ser_SortDoneCellOpt_Own b) : a = b := by
+  have ha := dec_ser_SortDoneCellOpt_Own a [] (ser_SortDoneCellOpt_Own a).length (Nat.le_refl _)
+  have hb := dec_ser_SortDoneCellOpt_Own b [] (ser_SortDoneCellOpt_Own a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
 theorem ser_SortGeneratedCounterCell_inj (a b : SortGeneratedCounterCell) (h : ser_SortGeneratedCounterCell a = ser_SortGeneratedCounterCell b) : a = b := by
   have ha := dec_ser_SortGeneratedCounterCell a [] (ser_SortGeneratedCounterCell a).length (Nat.le_refl _)
   have hb := dec_ser_SortGeneratedCounterCell b [] (ser_SortGeneratedCounterCell a).length (by simp [h])
@@ -1002,6 +1738,84 @@ theorem ser_SortGeneratedTopCell_inj (a b : SortGeneratedTopCell) (h : ser_SortG
 theorem ser_SortGeneratedTopCellFragment_inj (a b : SortGeneratedTopCellFragment) (h : ser_SortGeneratedTopCellFragment a = ser_SortGeneratedTopCellFragment b) : a = b := by
   have ha := dec_ser_SortGeneratedTopCellFragment a [] (ser_SortGeneratedTopCellFragment a).length (Nat.le_refl _)
   have hb := dec_ser_SortGeneratedTopCellFragment b [] (ser_SortGeneratedTopCellFragment a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortHiCell_inj (a b : SortHiCell) (h : ser_SortHiCell a = ser_SortHiCell b) : a = b := by
+  have ha := dec_ser_SortHiCell a [] (ser_SortHiCell a).length (Nat.le_refl _)
+  have hb := dec_ser_SortHiCell b [] (ser_SortHiCell a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortHiCellOpt_inj (a b : SortHiCellOpt) (h : ser_SortHiCellOpt a = ser_SortHiCellOpt b) : a = b := by
+  have ha := dec_ser_SortHiCellOpt a [] (ser_SortHiCellOpt a).length (Nat.le_refl _)
+  have hb := dec_ser_SortHiCellOpt b [] (ser_SortHiCellOpt a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortHiCellOpt_Own_inj (a b : SortHiCellOpt.Own) (h : ser_SortHiCellOpt_Own a = ser_SortHiCellOpt_Own b) : a = b := by
+  have ha := dec_ser_SortHiCellOpt_Own a [] (ser_SortHiCellOpt_Own a).length (Nat.le_refl _)
+  have hb := dec_ser_SortHiCellOpt_Own b [] (ser_SortHiCellOpt_Own a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJidCell_inj (a b : SortJidCell) (h : ser_SortJidCell a = ser_SortJidCell b) : a = b := by
+  have ha := dec_ser_SortJidCell a [] (ser_SortJidCell a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJidCell b [] (ser_SortJidCell a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJidCellOpt_inj (a b : SortJidCellOpt) (h : ser_SortJidCellOpt a = ser_SortJidCellOpt b) : a = b := by
+  have ha := dec_ser_SortJidCellOpt a [] (ser_SortJidCellOpt a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJidCellOpt b [] (ser_SortJidCellOpt a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJidCellOpt_Own_inj (a b : SortJidCellOpt.Own) (h : ser_SortJidCellOpt_Own a = ser_SortJidCellOpt_Own b) : a = b := by
+  have ha := dec_ser_SortJidCellOpt_Own a [] (ser_SortJidCellOpt_Own a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJidCellOpt_Own b [] (ser_SortJidCellOpt_Own a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJobCell_inj (a b : SortJobCell) (h : ser_SortJobCell a = ser_SortJobCell b) : a = b := by
+  have ha := dec_ser_SortJobCell a [] (ser_SortJobCell a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJobCell b [] (ser_SortJobCell a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJobCellFragment_inj (a b : SortJobCellFragment) (h : ser_SortJobCellFragment a = ser_SortJobCellFragment b) : a = b := by
+  have ha := dec_ser_SortJobCellFragment a [] (ser_SortJobCellFragment a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJobCellFragment b [] (ser_SortJobCellFragment a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJobCellMap_inj (a b : SortJobCellMap) (h : ser_SortJobCellMap a = ser_SortJobCellMap b) : a = b := by
+  have ha := dec_ser_SortJobCellMap a [] (ser_SortJobCellMap a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJobCellMap b [] (ser_SortJobCellMap a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJobsCell_inj (a b : SortJobsCell) (h : ser_SortJobsCell a = ser_SortJobsCell b) : a = b := by
+  have ha := dec_ser_SortJobsCell a [] (ser_SortJobsCell a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJobsCell b [] (ser_SortJobsCell a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJobsCellFragment_inj (a b : SortJobsCellFragment) (h : ser_SortJobsCellFragment a = ser_SortJobsCellFragment b) : a = b := by
+  have ha := dec_ser_SortJobsCellFragment a [] (ser_SortJobsCellFragment a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJobsCellFragment b [] (ser_SortJobsCellFragment a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJobsCellOpt_inj (a b : SortJobsCellOpt) (h : ser_SortJobsCellOpt a = ser_SortJobsCellOpt b) : a = b := by
+  have ha := dec_ser_SortJobsCellOpt a [] (ser_SortJobsCellOpt a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJobsCellOpt b [] (ser_SortJobsCellOpt a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortJobsCellOpt_Own_inj (a b : SortJobsCellOpt.Own) (h : ser_SortJobsCellOpt_Own a = ser_SortJobsCellOpt_Own b) : a = b := by
+  have ha := dec_ser_SortJobsCellOpt_Own a [] (ser_SortJobsCellOpt_Own a).length (Nat.le_refl _)
+  have hb := dec_ser_SortJobsCellOpt_Own b [] (ser_SortJobsCellOpt_Own a).length (by simp [h])
   rw [h] at ha
   simp_all
 
@@ -1047,6 +1861,24 @@ theorem ser_SortList_inj (a b : SortList) (h : ser_SortList a = ser_SortList b) 
   rw [h] at ha
   simp_all
 
+theorem ser_SortLoCell_inj (a b : SortLoCell) (h : ser_SortLoCell a = ser_SortLoCell b) : a = b := by
+  have ha := dec_ser_SortLoCell a [] (ser_SortLoCell a).length (Nat.le_refl _)
+  have hb := dec_ser_SortLoCell b [] (ser_SortLoCell a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortLoCellOpt_inj (a b : SortLoCellOpt) (h : ser_SortLoCellOpt a = ser_SortLoCellOpt b) : a = b := by
+  have ha := dec_ser_SortLoCellOpt a [] (ser_SortLoCellOpt a).length (Nat.le_refl _)
+  have hb := dec_ser_SortLoCellOpt b [] (ser_SortLoCellOpt a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortLoCellOpt_Own_inj (a b : SortLoCellOpt.Own) (h : ser_SortLoCellOpt_Own a = ser_SortLoCellOpt_Own b) : a = b := by
+  have ha := dec_ser_SortLoCellOpt_Own a [] (ser_SortLoCellOpt_Own a).length (Nat.le_refl _)
+  have hb := dec_ser_SortLoCellOpt_Own b [] (ser_SortLoCellOpt_Own a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
 theorem ser_SortMCell_inj (a b : SortMCell) (h : ser_SortMCell a = ser_SortMCell b) : a = b := by
   have ha := dec_ser_SortMCell a [] (ser_SortMCell a).length (Nat.le_refl _)
   have hb := dec_ser_SortMCell b [] (ser_SortMCell a).length (by simp [h])
@@ -1071,9 +1903,45 @@ theorem ser_SortMap_inj (a b : SortMap) (h : ser_SortMap a = ser_SortMap b) : a 
   rw [h] at ha
   simp_all
 
+theorem ser_SortOwnerCell_inj (a b : SortOwnerCell) (h : ser_SortOwnerCell a = ser_SortOwnerCell b) : a = b := by
+  have ha := dec_ser_SortOwnerCell a [] (ser_SortOwnerCell a).length (Nat.le_refl _)
+  have hb := dec_ser_SortOwnerCell b [] (ser_SortOwnerCell a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortOwnerCellOpt_inj (a b : SortOwnerCellOpt) (h : ser_SortOwnerCellOpt a = ser_SortOwnerCellOpt b) : a = b := by
+  have ha := dec_ser_SortOwnerCellOpt a [] (ser_SortOwnerCellOpt a).length (Nat.le_refl _)
+  have hb := dec_ser_SortOwnerCellOpt b [] (ser_SortOwnerCellOpt a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortOwnerCellOpt_Own_inj (a b : SortOwnerCellOpt.Own) (h : ser_SortOwnerCellOpt_Own a = ser_SortOwnerCellOpt_Own b) : a = b := by
+  have ha := dec_ser_SortOwnerCellOpt_Own a [] (ser_SortOwnerCellOpt_Own a).length (Nat.le_refl _)
+  have hb := dec_ser_SortOwnerCellOpt_Own b [] (ser_SortOwnerCellOpt_Own a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
 theorem ser_SortPgm_inj (a b : SortPgm) (h : ser_SortPgm a = ser_SortPgm b) : a = b := by
   have ha := dec_ser_SortPgm a [] (ser_SortPgm a).length (Nat.le_refl _)
   have hb := dec_ser_SortPgm b [] (ser_SortPgm a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortPrioCell_inj (a b : SortPrioCell) (h : ser_SortPrioCell a = ser_SortPrioCell b) : a = b := by
+  have ha := dec_ser_SortPrioCell a [] (ser_SortPrioCell a).length (Nat.le_refl _)
+  have hb := dec_ser_SortPrioCell b [] (ser_SortPrioCell a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortPrioCellOpt_inj (a b : SortPrioCellOpt) (h : ser_SortPrioCellOpt a = ser_SortPrioCellOpt b) : a = b := by
+  have ha := dec_ser_SortPrioCellOpt a [] (ser_SortPrioCellOpt a).length (Nat.le_refl _)
+  have hb := dec_ser_SortPrioCellOpt b [] (ser_SortPrioCellOpt a).length (by simp [h])
+  rw [h] at ha
+  simp_all
+
+theorem ser_SortPrioCellOpt_Own_inj (a b : SortPrioCellOpt.Own) (h : ser_SortPrioCellOpt_Own a = ser_SortPrioCellOpt_Own b) : a = b := by
+  have ha := dec_ser_SortPrioCellOpt_Own a [] (ser_SortPrioCellOpt_Own a).length (Nat.le_refl _)
+  have hb := dec_ser_SortPrioCellOpt_Own b [] (ser_SortPrioCellOpt_Own a).length (by simp [h])
   rw [h] at ha
   simp_all
 
@@ -1176,6 +2044,27 @@ theorem compare_append_ser_SortCntCellOpt (a b : SortCntCellOpt) (r r' : List To
 theorem compare_append_ser_SortCntCellOpt_Own (a b : SortCntCellOpt.Own) (r r' : List Tok) :
     compare (ser_SortCntCellOpt_Own a ++ r) (ser_SortCntCellOpt_Own b ++ r') = (compare (ser_SortCntCellOpt_Own a) (ser_SortCntCellOpt_Own b)).then (compare r r') :=
   compare_append_ser ser_SortCntCellOpt_Own dec_SortCntCellOpt_Own dec_ser_SortCntCellOpt_Own a b r r'
+theorem compare_append_ser_SortCtlCell (a b : SortCtlCell) (r r' : List Tok) :
+    compare (ser_SortCtlCell a ++ r) (ser_SortCtlCell b ++ r') = (compare (ser_SortCtlCell a) (ser_SortCtlCell b)).then (compare r r') :=
+  compare_append_ser ser_SortCtlCell dec_SortCtlCell dec_ser_SortCtlCell a b r r'
+theorem compare_append_ser_SortCtlCellFragment (a b : SortCtlCellFragment) (r r' : List Tok) :
+    compare (ser_SortCtlCellFragment a ++ r) (ser_SortCtlCellFragment b ++ r') = (compare (ser_SortCtlCellFragment a) (ser_SortCtlCellFragment b)).then (compare r r') :=
+  compare_append_ser ser_SortCtlCellFragment dec_SortCtlCellFragment dec_ser_SortCtlCellFragment a b r r'
+theorem compare_append_ser_SortCtlCellOpt (a b : SortCtlCellOpt) (r r' : List Tok) :
+    compare (ser_SortCtlCellOpt a ++ r) (ser_SortCtlCellOpt b ++ r') = (compare (ser_SortCtlCellOpt a) (ser_SortCtlCellOpt b)).then (compare r r') :=
+  compare_append_ser ser_SortCtlCellOpt dec_SortCtlCellOpt dec_ser_SortCtlCellOpt a b r r'
+theorem compare_append_ser_SortCtlCellOpt_Own (a b : SortCtlCellOpt.Own) (r r' : List Tok) :
+    compare (ser_SortCtlCellOpt_Own a ++ r) (ser_SortCtlCellOpt_Own b ++ r') = (compare (ser_SortCtlCellOpt_Own a) (ser_SortCtlCellOpt_Own b)).then (compare r r') :=
+  compare_append_ser ser_SortCtlCellOpt_Own dec_SortCtlCellOpt_Own dec_ser_SortCtlCellOpt_Own a b r r'
+theorem compare_append_ser_SortDoneCell (a b : SortDoneCell) (r r' : List Tok) :
+    compare (ser_SortDoneCell a ++ r) (ser_SortDoneCell b ++ r') = (compare (ser_SortDoneCell a) (ser_SortDoneCell b)).then (compare r r') :=
+  compare_append_ser ser_SortDoneCell dec_SortDoneCell dec_ser_SortDoneCell a b r r'
+theorem compare_append_ser_SortDoneCellOpt (a b : SortDoneCellOpt) (r r' : List Tok) :
+    compare (ser_SortDoneCellOpt a ++ r) (ser_SortDoneCellOpt b ++ r') = (compare (ser_SortDoneCellOpt a) (ser_SortDoneCellOpt b)).then (compare r r') :=
+  compare_append_ser ser_SortDoneCellOpt dec_SortDoneCellOpt dec_ser_SortDoneCellOpt a b r r'
+theorem compare_append_ser_SortDoneCellOpt_Own (a b : SortDoneCellOpt.Own) (r r' : List Tok) :
+    compare (ser_SortDoneCellOpt_Own a ++ r) (ser_SortDoneCellOpt_Own b ++ r') = (compare (ser_SortDoneCellOpt_Own a) (ser_SortDoneCellOpt_Own b)).then (compare r r') :=
+  compare_append_ser ser_SortDoneCellOpt_Own dec_SortDoneCellOpt_Own dec_ser_SortDoneCellOpt_Own a b r r'
 theorem compare_append_ser_SortGeneratedCounterCell (a b : SortGeneratedCounterCell) (r r' : List Tok) :
     compare (ser_SortGeneratedCounterCell a ++ r) (ser_SortGeneratedCounterCell b ++ r') = (compare (ser_SortGeneratedCounterCell a) (ser_SortGeneratedCounterCell b)).then (compare r r') :=
   compare_append_ser ser_SortGeneratedCounterCell dec_SortGeneratedCounterCell dec_ser_SortGeneratedCounterCell a b r r'
@@ -1191,6 +2080,45 @@ theorem compare_append_ser_SortGeneratedTopCell (a b : SortGeneratedTopCell) (r 
 theorem compare_append_ser_SortGeneratedTopCellFragment (a b : SortGeneratedTopCellFragment) (r r' : List Tok) :
     compare (ser_SortGeneratedTopCellFragment a ++ r) (ser_SortGeneratedTopCellFragment b ++ r') = (compare (ser_SortGeneratedTopCellFragment a) (ser_SortGeneratedTopCellFragment b)).then (compare r r') :=
   compare_append_ser ser_SortGeneratedTopCellFragment dec_SortGeneratedTopCellFragment dec_ser_SortGeneratedTopCellFragment a b r r'
+theorem compare_append_ser_SortHiCell (a b : SortHiCell) (r r' : List Tok) :
+    compare (ser_SortHiCell a ++ r) (ser_SortHiCell b ++ r') = (compare (ser_SortHiCell a) (ser_SortHiCell b)).then (compare r r') :=
+  compare_append_ser ser_SortHiCell dec_SortHiCell dec_ser_SortHiCell a b r r'
+theorem compare_append_ser_SortHiCellOpt (a b : SortHiCellOpt) (r r' : List Tok) :
+    compare (ser_SortHiCellOpt a ++ r) (ser_SortHiCellOpt b ++ r') = (compare (ser_SortHiCellOpt a) (ser_SortHiCellOpt b)).then (compare r r') :=
+  compare_append_ser ser_SortHiCellOpt dec_SortHiCellOpt dec_ser_SortHiCellOpt a b r r'
+theorem compare_append_ser_SortHiCellOpt_Own (a b : SortHiCellOpt.Own) (r r' : List Tok) :
+    compare (ser_SortHiCellOpt_Own a ++ r) (ser_SortHiCellOpt_Own b ++ r') = (compare (ser_SortHiCellOpt_Own a) (ser_SortHiCellOpt_Own b)).then (compare r r') :=
+  compare_append_ser ser_SortHiCellOpt_Own dec_SortHiCellOpt_Own dec_ser_SortHiCellOpt_Own a b r r'
+theorem compare_append_ser_SortJidCell (a b : SortJidCell) (r r' : List Tok) :
+    compare (ser_SortJidCell a ++ r) (ser_SortJidCell b ++ r') = (compare (ser_SortJidCell a) (ser_SortJidCell b)).then (compare r r') :=
+  compare_append_ser ser_SortJidCell dec_SortJidCell dec_ser_SortJidCell a b r r'
+theorem compare_append_ser_SortJidCellOpt (a b : SortJidCellOpt) (r r' : List Tok) :
+    compare (ser_SortJidCellOpt a ++ r) (ser_SortJidCellOpt b ++ r') = (compare (ser_SortJidCellOpt a) (ser_SortJidCellOpt b)).then (compare r r') :=
+  compare_append_ser ser_SortJidCellOpt dec_SortJidCellOpt dec_ser_SortJidCellOpt a b r r'
+theorem compare_append_ser_SortJidCellOpt_Own (a b : SortJidCellOpt.Own) (r r' : List Tok) :
+    compare (ser_SortJidCellOpt_Own a ++ r) (ser_SortJidCellOpt_Own b ++ r') = (compare (ser_SortJidCellOpt_Own a) (ser_SortJidCellOpt_Own b)).then (compare r r') :=
+  compare_append_ser ser_SortJidCellOpt_Own dec_SortJidCellOpt_Own dec_ser_SortJidCellOpt_Own a b r r'
+theorem compare_append_ser_SortJobCell (a b : SortJobCell) (r r' : List Tok) :
+    compare (ser_SortJobCell a ++ r) (ser_SortJobCell b ++ r') = (compare (ser_SortJobCell a) (ser_SortJobCell b)).then (compare r r') :=
+  compare_append_ser ser_SortJobCell dec_SortJobCell dec_ser_SortJobCell a b r r'
+theorem compare_append_ser_SortJobCellFragment (a b : SortJobCellFragment) (r r' : List Tok) :
+    compare (ser_SortJobCellFragment a ++ r) (ser_SortJobCellFragment b ++ r') = (compare (ser_SortJobCellFragment a) (ser_SortJobCellFragment b)).then (compare r r') :=
+  compare_append_ser ser_SortJobCellFragment dec_SortJobCellFragment dec_ser_SortJobCellFragment a b r r'
+theorem compare_append_ser_SortJobCellMap (a b : SortJobCellMap) (r r' : List Tok) :
+    compare (ser_SortJobCellMap a ++ r) (ser_SortJobCellMap b ++ r') = (compare (ser_SortJobCellMap a) (ser_SortJobCellMap b)).then (compare r r') :=
+  compare_append_ser ser_SortJobCellMap dec_SortJobCellMap dec_ser_SortJobCellMap a b r r'
+theorem compare_append_ser_SortJobsCell (a b : SortJobsCell) (r r' : List Tok) :
+    compare (ser_SortJobsCell a ++ r) (ser_SortJobsCell b ++ r') = (compare (ser_SortJobsCell a) (ser_SortJobsCell b)).then (compare r r') :=
+  compare_append_ser ser_SortJobsCell dec_SortJobsCell dec_ser_SortJobsCell a b r r'
+theorem compare_append_ser_SortJobsCellFragment (a b : SortJobsCellFragment) (r r' : List Tok) :
+    compare (ser_SortJobsCellFragment a ++ r) (ser_SortJobsCellFragment b ++ r') = (compare (ser_SortJobsCellFragment a) (ser_SortJobsCellFragment b)).then (compare r r') :=
+  compare_append_ser ser_SortJobsCellFragment dec_SortJobsCellFragment dec_ser_SortJobsCellFragment a b r r'
+theorem compare_append_ser_SortJobsCellOpt (a b : SortJobsCellOpt) (r r' : List Tok) :
+    compare (ser_SortJobsCellOpt a ++ r) (ser_SortJobsCellOpt b ++ r') = (compare (ser_SortJobsCellOpt a) (ser_SortJobsCellOpt b)).then (compare r r') :=
+  compare_append_ser ser_SortJobsCellOpt dec_SortJobsCellOpt dec_ser_SortJobsCellOpt a b r r'
+theorem compare_append_ser_SortJobsCellOpt_Own (a b : SortJobsCellOpt.Own) (r r' : List Tok) :
+    compare (ser_SortJobsCellOpt_Own a ++ r) (ser_SortJobsCellOpt_Own b ++ r') = (compare (ser_SortJobsCellOpt_Own a) (ser_SortJobsCellOpt_Own b)).then (compare r r') :=
+  compare_append_ser ser_SortJobsCellOpt_Own dec_SortJobsCellOpt_Own dec_ser_SortJobsCellOpt_Own a b r r'
 theorem compare_append_ser_SortK (a b : SortK) (r r' : List Tok) :
     compare (ser_SortK a ++ r) (ser_SortK b ++ r') = (compare (ser_SortK a) (ser_SortK b)).then (compare r r') :=
   compare_append_ser ser_SortK dec_SortK dec_ser_SortK a b r r'
@@ -1212,6 +2140,15 @@ theorem compare_append_ser_SortKItem_Own (a b : SortKItem.Own) (r r' : List Tok)
 theorem compare_append_ser_SortList (a b : SortList) (r r' : List Tok) :
     compare (ser_SortList a ++ r) (ser_SortList b ++ r') = (compare (ser_SortList a) (ser_SortList b)).then (compare r r') :=
   compare_append_ser ser_SortList dec_SortList dec_ser_SortList a b r r'
+theorem compare_append_ser_SortLoCell (a b : SortLoCell) (r r' : List Tok) :
+    compare (ser_SortLoCell a ++ r) (ser_SortLoCell b ++ r') = (compare (ser_SortLoCell a) (ser_SortLoCell b)).then (compare r r') :=
+  compare_append_ser ser_SortLoCell dec_SortLoCell dec_ser_SortLoCell a b r r'
+theorem compare_append_ser_SortLoCellOpt (a b : SortLoCellOpt) (r r' : List Tok) :
+    compare (ser_SortLoCellOpt a ++ r) (ser_SortLoCellOpt b ++ r') = (compare (ser_SortLoCellOpt a) (ser_SortLoCellOpt b)).then (compare r r') :=
+  compare_append_ser ser_SortLoCellOpt dec_SortLoCellOpt dec_ser_SortLoCellOpt a b r r'
+theorem compare_append_ser_SortLoCellOpt_Own (a b : SortLoCellOpt.Own) (r r' : List Tok) :
+    compare (ser_SortLoCellOpt_Own a ++ r) (ser_SortLoCellOpt_Own b ++ r') = (compare (ser_SortLoCellOpt_Own a) (ser_SortLoCellOpt_Own b)).then (compare r r') :=
+  compare_append_ser ser_SortLoCellOpt_Own dec_SortLoCellOpt_Own dec_ser_SortLoCellOpt_Own a b r r'
 theorem compare_append_ser_SortMCell (a b : SortMCell) (r r' : List Tok) :
     compare (ser_SortMCell a ++ r) (ser_SortMCell b ++ r') = (compare (ser_SortMCell a) (ser_SortMCell b)).then (compare r r') :=
   compare_append_ser ser_SortMCell dec_SortMCell dec_ser_SortMCell a b r r'
@@ -1224,9 +2161,27 @@ theorem compare_append_ser_SortMCellOpt_Own (a b : SortMCellOpt.Own) (r r' : Lis
 theorem compare_append_ser_SortMap (a b : SortMap) (r r' : List Tok) :
     compare (ser_SortMap a ++ r) (ser_SortMap b ++ r') = (compare (ser_SortMap a) (ser_SortMap b)).then (compare r r') :=
   compare_append_ser ser_SortMap dec_SortMap dec_ser_SortMap a b r r'
+theorem compare_append_ser_SortOwnerCell (a b : SortOwnerCell) (r r' : List Tok) :
+    compare (ser_SortOwnerCell a ++ r) (ser_SortOwnerCell b ++ r') = (compare (ser_SortOwnerCell a) (ser_SortOwnerCell b)).then (compare r r') :=
+  compare_append_ser ser_SortOwnerCell dec_SortOwnerCell dec_ser_SortOwnerCell a b r r'
+theorem compare_append_ser_SortOwnerCellOpt (a b : SortOwnerCellOpt) (r r' : List Tok) :
+    compare (ser_SortOwnerCellOpt a ++ r) (ser_SortOwnerCellOpt b ++ r') = (compare (ser_SortOwnerCellOpt a) (ser_SortOwnerCellOpt b)).then (compare r r') :=
+  compare_append_ser ser_SortOwnerCellOpt dec_SortOwnerCellOpt dec_ser_SortOwnerCellOpt a b r r'
+theorem compare_append_ser_SortOwnerCellOpt_Own (a b : SortOwnerCellOpt.Own) (r r' : List Tok) :
+    compare (ser_SortOwnerCellOpt_Own a ++ r) (ser_SortOwnerCellOpt_Own b ++ r') = (compare (ser_SortOwnerCellOpt_Own a) (ser_SortOwnerCellOpt_Own b)).then (compare r r') :=
+  compare_append_ser ser_SortOwnerCellOpt_Own dec_SortOwnerCellOpt_Own dec_ser_SortOwnerCellOpt_Own a b r r'
 theorem compare_append_ser_SortPgm (a b : SortPgm) (r r' : List Tok) :
     compare (ser_SortPgm a ++ r) (ser_SortPgm b ++ r') = (compare (ser_SortPgm a) (ser_SortPgm b)).then (compare r r') :=
   compare_append_ser ser_SortPgm dec_SortPgm dec_ser_SortPgm a b r r'
+theorem compare_append_ser_SortPrioCell (a b : SortPrioCell) (r r' : List Tok) :
+    compare (ser_SortPrioCell a ++ r) (ser_SortPrioCell b ++ r') = (compare (ser_SortPrioCell a) (ser_SortPrioCell b)).then (compare r r') :=
+  compare_append_ser ser_SortPrioCell dec_SortPrioCell dec_ser_SortPrioCell a b r r'
+theorem compare_append_ser_SortPrioCellOpt (a b : SortPrioCellOpt) (r r' : List Tok) :
+    compare (ser_SortPrioCellOpt a ++ r) (ser_SortPrioCellOpt b ++ r') = (compare (ser_SortPrioCellOpt a) (ser_SortPrioCellOpt b)).then (compare r r') :=
+  compare_append_ser ser_SortPrioCellOpt dec_SortPrioCellOpt dec_ser_SortPrioCellOpt a b r r'
+theorem compare_append_ser_SortPrioCellOpt_Own (a b : SortPrioCellOpt.Own) (r r' : List Tok) :
+    compare (ser_SortPrioCellOpt_Own a ++ r) (ser_SortPrioCellOpt_Own b ++ r') = (compare (ser_SortPrioCellOpt_Own a) (ser_SortPrioCellOpt_Own b)).then (compare r r') :=
+  compare_append_ser ser_SortPrioCellOpt_Own dec_SortPrioCellOpt_Own dec_ser_SortPrioCellOpt_Own a b r r'
 theorem compare_append_ser_SortSet (a b : SortSet) (r r' : List Tok) :
     compare (ser_SortSet a ++ r) (ser_SortSet b ++ r') = (compare (ser_SortSet a) (ser_SortSet b)).then (compare r r') :=
   compare_append_ser ser_SortSet dec_SortSet dec_ser_SortSet a b r r'
@@ -1279,6 +2234,22 @@ def tag_SortCntCellOpt : SortCntCellOpt → Nat
   | .inj_CntCellOpt _ => 1
 def tag_SortCntCellOpt_Own : SortCntCellOpt.Own → Nat
   | .noCntCell  => 0
+def tag_SortCtlCell : SortCtlCell → Nat
+  | .«<ctl>» _ _ => 0
+def tag_SortCtlCellFragment : SortCtlCellFragment → Nat
+  | .«<ctl>-fragment» _ _ => 0
+def tag_SortCtlCellOpt : SortCtlCellOpt → Nat
+  | .inj_CtlCell _ => 0
+  | .inj_CtlCellOpt _ => 1
+def tag_SortCtlCellOpt_Own : SortCtlCellOpt.Own → Nat
+  | .noCtlCell  => 0
+def tag_SortDoneCell : SortDoneCell → Nat
+  | .«<done>» _ => 0
+def tag_SortDoneCellOpt : SortDoneCellOpt → Nat
+  | .inj_DoneCell _ => 0
+  | .inj_DoneCellOpt _ => 1
+def tag_SortDoneCellOpt_Own : SortDoneCellOpt.Own → Nat
+  | .noDoneCell  => 0
 def tag_SortGeneratedCounterCell : SortGeneratedCounterCell → Nat
   | .«<generatedCounter>» _ => 0
 def tag_SortGeneratedCounterCellOpt : SortGeneratedCounterCellOpt → Nat
@@ -1290,6 +2261,36 @@ def tag_SortGeneratedTopCell : SortGeneratedTopCell → Nat
   | .«<generatedTop>» _ _ => 0
 def tag_SortGeneratedTopCellFragment : SortGeneratedTopCellFragment → Nat
   | .«<generatedTop>-fragment» _ _ => 0
+def tag_SortHiCell : SortHiCell → Nat
+  | .«<hi>» _ => 0
+def tag_SortHiCellOpt : SortHiCellOpt → Nat
+  | .inj_HiCell _ => 0
+  | .inj_HiCellOpt _ => 1
+def tag_SortHiCellOpt_Own : SortHiCellOpt.Own → Nat
+  | .noHiCell  => 0
+def tag_SortJidCell : SortJidCell → Nat
+  | .«<jid>» _ => 0
+def tag_SortJidCellOpt : SortJidCellOpt → Nat
+  | .inj_JidCell _ => 0
+  | .inj_JidCellOpt _ => 1
+def tag_SortJidCellOpt_Own : SortJidCellOpt.Own → Nat
+  | .noJidCell  => 0
+def tag_SortJobCell : SortJobCell → Nat
+  | .«<job>» _ _ _ _ _ => 0
+def tag_SortJobCellFragment : SortJobCellFragment → Nat
+  | .«<job>-fragment» _ _ _ _ _ => 0
+def tag_SortJobCellMap : SortJobCellMap → Nat
+  | .nil  => 0
+  | .cons _ _ _ => 1
+def tag_SortJobsCell : SortJobsCell → Nat
+  | .«<jobs>» _ => 0
+def tag_SortJobsCellFragment : SortJobsCellFragment → Nat
+  | .«<jobs>-fragment» _ => 0
+def tag_SortJobsCellOpt : SortJobsCellOpt → Nat
+  | .inj_JobsCell _ => 0
+  | .inj_JobsCellOpt _ => 1
+def tag_SortJobsCellOpt_Own : SortJobsCellOpt.Own → Nat
+  | .noJobsCell  => 0
 def tag_SortK : SortK → Nat
   | .dotk  => 0
   | .kseq _ _ => 1
@@ -1304,37 +2305,65 @@ def tag_SortKItem : SortKItem → Nat
   | .inj_Bool _ => 0
   | .inj_CntCell _ => 1
   | .inj_CntCellOpt _ => 2
-  | .inj_GeneratedCounterCell _ => 3
-  | .inj_GeneratedCounterCellOpt _ => 4
-  | .inj_GeneratedTopCell _ => 5
-  | .inj_GeneratedTopCellFragment _ => 6
-  | .inj_Int _ => 7
-  | .inj_KCell _ => 8
-  | .inj_KCellOpt _ => 9
-  | .inj_KConfigVar _ => 10
-  | .inj_KItem _ => 11
-  | .inj_List _ => 12
-  | .inj_MCell _ => 13
-  | .inj_MCellOpt _ => 14
-  | .inj_Map _ => 15
-  | .inj_Pgm _ => 16
-  | .inj_Set _ => 17
-  | .inj_TCell _ => 18
-  | .inj_TCellFragment _ => 19
-  | .inj_TCellOpt _ => 20
-  | .inj_WidCell _ => 21
-  | .inj_WidCellOpt _ => 22
-  | .inj_WorkerCell _ => 23
-  | .inj_WorkerCellFragment _ => 24
-  | .inj_WorkerCellMap _ => 25
-  | .inj_WorkersCell _ => 26
-  | .inj_WorkersCellFragment _ => 27
-  | .inj_WorkersCellOpt _ => 28
+  | .inj_CtlCell _ => 3
+  | .inj_CtlCellFragment _ => 4
+  | .inj_CtlCellOpt _ => 5
+  | .inj_DoneCell _ => 6
+  | .inj_DoneCellOpt _ => 7
+  | .inj_GeneratedCounterCell _ => 8
+  | .inj_GeneratedCounterCellOpt _ => 9
+  | .inj_GeneratedTopCell _ => 10
+  | .inj_GeneratedTopCellFragment _ => 11
+  | .inj_HiCell _ => 12
+  | .inj_HiCellOpt _ => 13
+  | .inj_Int _ => 14
+  | .inj_JidCell _ => 15
+  | .inj_JidCellOpt _ => 16
+  | .inj_JobCell _ => 17
+  | .inj_JobCellFragment _ => 18
+  | .inj_JobCellMap _ => 19
+  | .inj_JobsCell _ => 20
+  | .inj_JobsCellFragment _ => 21
+  | .inj_JobsCellOpt _ => 22
+  | .inj_KCell _ => 23
+  | .inj_KCellOpt _ => 24
+  | .inj_KConfigVar _ => 25
+  | .inj_KItem _ => 26
+  | .inj_List _ => 27
+  | .inj_LoCell _ => 28
+  | .inj_LoCellOpt _ => 29
+  | .inj_MCell _ => 30
+  | .inj_MCellOpt _ => 31
+  | .inj_Map _ => 32
+  | .inj_OwnerCell _ => 33
+  | .inj_OwnerCellOpt _ => 34
+  | .inj_Pgm _ => 35
+  | .inj_PrioCell _ => 36
+  | .inj_PrioCellOpt _ => 37
+  | .inj_Set _ => 38
+  | .inj_TCell _ => 39
+  | .inj_TCellFragment _ => 40
+  | .inj_TCellOpt _ => 41
+  | .inj_WidCell _ => 42
+  | .inj_WidCellOpt _ => 43
+  | .inj_WorkerCell _ => 44
+  | .inj_WorkerCellFragment _ => 45
+  | .inj_WorkerCellMap _ => 46
+  | .inj_WorkersCell _ => 47
+  | .inj_WorkersCellFragment _ => 48
+  | .inj_WorkersCellOpt _ => 49
 def tag_SortKItem_Own : SortKItem.Own → Nat
   | .«#KConfigValue» _ => 0
 def tag_SortList : SortList → Nat
   | .nil  => 0
   | .cons _ _ => 1
+def tag_SortLoCell : SortLoCell → Nat
+  | .«<lo>» _ => 0
+def tag_SortLoCellOpt : SortLoCellOpt → Nat
+  | .inj_LoCell _ => 0
+  | .inj_LoCellOpt _ => 1
+def tag_SortLoCellOpt_Own : SortLoCellOpt.Own → Nat
+  | .noLoCell  => 0
 def tag_SortMCell : SortMCell → Nat
   | .«<m>» _ => 0
 def tag_SortMCellOpt : SortMCellOpt → Nat
@@ -1345,17 +2374,32 @@ def tag_SortMCellOpt_Own : SortMCellOpt.Own → Nat
 def tag_SortMap : SortMap → Nat
   | .nil  => 0
   | .cons _ _ _ => 1
+def tag_SortOwnerCell : SortOwnerCell → Nat
+  | .«<owner>» _ => 0
+def tag_SortOwnerCellOpt : SortOwnerCellOpt → Nat
+  | .inj_OwnerCell _ => 0
+  | .inj_OwnerCellOpt _ => 1
+def tag_SortOwnerCellOpt_Own : SortOwnerCellOpt.Own → Nat
+  | .noOwnerCell  => 0
 def tag_SortPgm : SortPgm → Nat
   | .check  => 0
   | .go  => 1
   | .go2  => 2
+  | .go3  => 3
+def tag_SortPrioCell : SortPrioCell → Nat
+  | .«<prio>» _ => 0
+def tag_SortPrioCellOpt : SortPrioCellOpt → Nat
+  | .inj_PrioCell _ => 0
+  | .inj_PrioCellOpt _ => 1
+def tag_SortPrioCellOpt_Own : SortPrioCellOpt.Own → Nat
+  | .noPrioCell  => 0
 def tag_SortSet : SortSet → Nat
   | .nil  => 0
   | .cons _ _ => 1
 def tag_SortTCell : SortTCell → Nat
-  | .«<T>» _ _ _ => 0
+  | .«<T>» _ _ _ _ => 0
 def tag_SortTCellFragment : SortTCellFragment → Nat
-  | .«<T>-fragment» _ _ _ => 0
+  | .«<T>-fragment» _ _ _ _ => 0
 def tag_SortTCellOpt : SortTCellOpt → Nat
   | .inj_TCell _ => 0
   | .inj_TCellOpt _ => 1
@@ -1407,6 +2451,55 @@ def cmp_SortCntCellOpt_Own (a b : SortCntCellOpt.Own) : Ordering :=
   | .noCntCell  =>
     match b with
     | .noCntCell  => .eq
+def cmp_SortCtlCell (a b : SortCtlCell) : Ordering :=
+  match a with
+  | .«<ctl>» a0 a1 =>
+    match b with
+    | .«<ctl>» b0 b1 => (cmp_SortLoCell a0 b0).then (cmp_SortHiCell a1 b1)
+  termination_by structural a
+def cmp_SortCtlCellFragment (a b : SortCtlCellFragment) : Ordering :=
+  match a with
+  | .«<ctl>-fragment» a0 a1 =>
+    match b with
+    | .«<ctl>-fragment» b0 b1 => (cmp_SortLoCellOpt a0 b0).then (cmp_SortHiCellOpt a1 b1)
+  termination_by structural a
+def cmp_SortCtlCellOpt (a b : SortCtlCellOpt) : Ordering :=
+  match a with
+  | .inj_CtlCell a0 =>
+    match b with
+    | .inj_CtlCell b0 => cmp_SortCtlCell a0 b0
+    | _ => compare 0 (tag_SortCtlCellOpt b)
+  | .inj_CtlCellOpt a0 =>
+    match b with
+    | .inj_CtlCellOpt b0 => cmp_SortCtlCellOpt_Own a0 b0
+    | _ => compare 1 (tag_SortCtlCellOpt b)
+  termination_by structural a
+def cmp_SortCtlCellOpt_Own (a b : SortCtlCellOpt.Own) : Ordering :=
+  match a with
+  | .noCtlCell  =>
+    match b with
+    | .noCtlCell  => .eq
+def cmp_SortDoneCell (a b : SortDoneCell) : Ordering :=
+  match a with
+  | .«<done>» a0 =>
+    match b with
+    | .«<done>» b0 => cmp_SortBool a0 b0
+def cmp_SortDoneCellOpt (a b : SortDoneCellOpt) : Ordering :=
+  match a with
+  | .inj_DoneCell a0 =>
+    match b with
+    | .inj_DoneCell b0 => cmp_SortDoneCell a0 b0
+    | _ => compare 0 (tag_SortDoneCellOpt b)
+  | .inj_DoneCellOpt a0 =>
+    match b with
+    | .inj_DoneCellOpt b0 => cmp_SortDoneCellOpt_Own a0 b0
+    | _ => compare 1 (tag_SortDoneCellOpt b)
+  termination_by structural a
+def cmp_SortDoneCellOpt_Own (a b : SortDoneCellOpt.Own) : Ordering :=
+  match a with
+  | .noDoneCell  =>
+    match b with
+    | .noDoneCell  => .eq
 def cmp_SortGeneratedCounterCell (a b : SortGeneratedCounterCell) : Ordering :=
   match a with
   | .«<generatedCounter>» a0 =>
@@ -1440,6 +2533,99 @@ def cmp_SortGeneratedTopCellFragment (a b : SortGeneratedTopCellFragment) : Orde
     match b with
     | .«<generatedTop>-fragment» b0 b1 => (cmp_SortTCellOpt a0 b0).then (cmp_SortGeneratedCounterCellOpt a1 b1)
   termination_by structural a
+def cmp_SortHiCell (a b : SortHiCell) : Ordering :=
+  match a with
+  | .«<hi>» a0 =>
+    match b with
+    | .«<hi>» b0 => cmp_SortInt a0 b0
+def cmp_SortHiCellOpt (a b : SortHiCellOpt) : Ordering :=
+  match a with
+  | .inj_HiCell a0 =>
+    match b with
+    | .inj_HiCell b0 => cmp_SortHiCell a0 b0
+    | _ => compare 0 (tag_SortHiCellOpt b)
+  | .inj_HiCellOpt a0 =>
+    match b with
+    | .inj_HiCellOpt b0 => cmp_SortHiCellOpt_Own a0 b0
+    | _ => compare 1 (tag_SortHiCellOpt b)
+  termination_by structural a
+def cmp_SortHiCellOpt_Own (a b : SortHiCellOpt.Own) : Ordering :=
+  match a with
+  | .noHiCell  =>
+    match b with
+    | .noHiCell  => .eq
+def cmp_SortJidCell (a b : SortJidCell) : Ordering :=
+  match a with
+  | .«<jid>» a0 =>
+    match b with
+    | .«<jid>» b0 => cmp_SortInt a0 b0
+def cmp_SortJidCellOpt (a b : SortJidCellOpt) : Ordering :=
+  match a with
+  | .inj_JidCell a0 =>
+    match b with
+    | .inj_JidCell b0 => cmp_SortJidCell a0 b0
+    | _ => compare 0 (tag_SortJidCellOpt b)
+  | .inj_JidCellOpt a0 =>
+    match b with
+    | .inj_JidCellOpt b0 => cmp_SortJidCellOpt_Own a0 b0
+    | _ => compare 1 (tag_SortJidCellOpt b)
+  termination_by structural a
+def cmp_SortJidCellOpt_Own (a b : SortJidCellOpt.Own) : Ordering :=
+  match a with
+  | .noJidCell  =>
+    match b with
+    | .noJidCell  => .eq
+def cmp_SortJobCell (a b : SortJobCell) : Ordering :=
+  match a with
+  | .«<job>» a0 a1 a2 a3 a4 =>
+    match b with
+    | .«<job>» b0 b1 b2 b3 b4 => (cmp_SortJidCell a0 b0).then ((cmp_SortOwnerCell a1 b1).then ((cmp_SortPrioCell a2 b2).then ((cmp_SortCtlCell a3 b3).then (cmp_SortDoneCell a4 b4))))
+  termination_by structural a
+def cmp_SortJobCellFragment (a b : SortJobCellFragment) : Ordering :=
+  match a with
+  | .«<job>-fragment» a0 a1 a2 a3 a4 =>
+    match b with
+    | .«<job>-fragment» b0 b1 b2 b3 b4 => (cmp_SortJidCellOpt a0 b0).then ((cmp_SortOwnerCellOpt a1 b1).then ((cmp_SortPrioCellOpt a2 b2).then ((cmp_SortCtlCellOpt a3 b3).then (cmp_SortDoneCellOpt a4 b4))))
+  termination_by structural a
+def cmp_SortJobCellMap (a b : SortJobCellMap) : Ordering :=
+  match a with
+  | .nil  =>
+    match b with
+    | .nil  => .eq
+    | _ => compare 0 (tag_SortJobCellMap b)
+  | .cons a0 a1 a2 =>
+    match b with
+    | .cons b0 b1 b2 => (cmp_SortJidCell a0 b0).then ((cmp_SortJobCell a1 b1).then (cmp_SortJobCellMap a2 b2))
+    | _ => compare 1 (tag_SortJobCellMap b)
+  termination_by structural a
+def cmp_SortJobsCell (a b : SortJobsCell) : Ordering :=
+  match a with
+  | .«<jobs>» a0 =>
+    match b with
+    | .«<jobs>» b0 => cmp_SortJobCellMap a0 b0
+  termination_by structural a
+def cmp_SortJobsCellFragment (a b : SortJobsCellFragment) : Ordering :=
+  match a with
+  | .«<jobs>-fragment» a0 =>
+    match b with
+    | .«<jobs>-fragment» b0 => cmp_SortJobCellMap a0 b0
+  termination_by structural a
+def cmp_SortJobsCellOpt (a b : SortJobsCellOpt) : Ordering :=
+  match a with
+  | .inj_JobsCell a0 =>
+    match b with
+    | .inj_JobsCell b0 => cmp_SortJobsCell a0 b0
+    | _ => compare 0 (tag_SortJobsCellOpt b)
+  | .inj_JobsCellOpt a0 =>
+    match b with
+    | .inj_JobsCellOpt b0 => cmp_SortJobsCellOpt_Own a0 b0
+    | _ => compare 1 (tag_SortJobsCellOpt b)
+  termination_by structural a
+def cmp_SortJobsCellOpt_Own (a b : SortJobsCellOpt.Own) : Ordering :=
+  match a with
+  | .noJobsCell  =>
+    match b with
+    | .noJobsCell  => .eq
 def cmp_SortK (a b : SortK) : Ordering :=
   match a with
   | .dotk  =>
@@ -1487,110 +2673,194 @@ def cmp_SortKItem (a b : SortKItem) : Ordering :=
     match b with
     | .inj_CntCellOpt b0 => cmp_SortCntCellOpt_Own a0 b0
     | _ => compare 2 (tag_SortKItem b)
+  | .inj_CtlCell a0 =>
+    match b with
+    | .inj_CtlCell b0 => cmp_SortCtlCell a0 b0
+    | _ => compare 3 (tag_SortKItem b)
+  | .inj_CtlCellFragment a0 =>
+    match b with
+    | .inj_CtlCellFragment b0 => cmp_SortCtlCellFragment a0 b0
+    | _ => compare 4 (tag_SortKItem b)
+  | .inj_CtlCellOpt a0 =>
+    match b with
+    | .inj_CtlCellOpt b0 => cmp_SortCtlCellOpt_Own a0 b0
+    | _ => compare 5 (tag_SortKItem b)
+  | .inj_DoneCell a0 =>
+    match b with
+    | .inj_DoneCell b0 => cmp_SortDoneCell a0 b0
+    | _ => compare 6 (tag_SortKItem b)
+  | .inj_DoneCellOpt a0 =>
+    match b with
+    | .inj_DoneCellOpt b0 => cmp_SortDoneCellOpt_Own a0 b0
+    | _ => compare 7 (tag_SortKItem b)
   | .inj_GeneratedCounterCell a0 =>
     match b with
     | .inj_GeneratedCounterCell b0 => cmp_SortGeneratedCounterCell a0 b0
-    | _ => compare 3 (tag_SortKItem b)
+    | _ => compare 8 (tag_SortKItem b)
   | .inj_GeneratedCounterCellOpt a0 =>
     match b with
     | .inj_GeneratedCounterCellOpt b0 => cmp_SortGeneratedCounterCellOpt_Own a0 b0
-    | _ => compare 4 (tag_SortKItem b)
+    | _ => compare 9 (tag_SortKItem b)
   | .inj_GeneratedTopCell a0 =>
     match b with
     | .inj_GeneratedTopCell b0 => cmp_SortGeneratedTopCell a0 b0
-    | _ => compare 5 (tag_SortKItem b)
+    | _ => compare 10 (tag_SortKItem b)
   | .inj_GeneratedTopCellFragment a0 =>
     match b with
     | .inj_GeneratedTopCellFragment b0 => cmp_SortGeneratedTopCellFragment a0 b0
-    | _ => compare 6 (tag_SortKItem b)
+    | _ => compare 11 (tag_SortKItem b)
+  | .inj_HiCell a0 =>
+    match b with
+    | .inj_HiCell b0 => cmp_SortHiCell a0 b0
+    | _ => compare 12 (tag_SortKItem b)
+  | .inj_HiCellOpt a0 =>
+    match b with
+    | .inj_HiCellOpt b0 => cmp_SortHiCellOpt_Own a0 b0
+    | _ => compare 13 (tag_SortKItem b)
   | .inj_Int a0 =>
     match b with
     | .inj_Int b0 => cmp_SortInt a0 b0
-    | _ => compare 7 (tag_SortKItem b)
+    | _ => compare 14 (tag_SortKItem b)
+  | .inj_JidCell a0 =>
+    match b with
+    | .inj_JidCell b0 => cmp_SortJidCell a0 b0
+    | _ => compare 15 (tag_SortKItem b)
+  | .inj_JidCellOpt a0 =>
+    match b with
+    | .inj_JidCellOpt b0 => cmp_SortJidCellOpt_Own a0 b0
+    | _ => compare 16 (tag_SortKItem b)
+  | .inj_JobCell a0 =>
+    match b with
+    | .inj_JobCell b0 => cmp_SortJobCell a0 b0
+    | _ => compare 17 (tag_SortKItem b)
+  | .inj_JobCellFragment a0 =>
+    match b with
+    | .inj_JobCellFragment b0 => cmp_SortJobCellFragment a0 b0
+    | _ => compare 18 (tag_SortKItem b)
+  | .inj_JobCellMap a0 =>
+    match b with
+    | .inj_JobCellMap b0 => cmp_SortJobCellMap a0 b0
+    | _ => compare 19 (tag_SortKItem b)
+  | .inj_JobsCell a0 =>
+    match b with
+    | .inj_JobsCell b0 => cmp_SortJobsCell a0 b0
+    | _ => compare 20 (tag_SortKItem b)
+  | .inj_JobsCellFragment a0 =>
+    match b with
+    | .inj_JobsCellFragment b0 => cmp_SortJobsCellFragment a0 b0
+    | _ => compare 21 (tag_SortKItem b)
+  | .inj_JobsCellOpt a0 =>
+    match b with
+    | .inj_JobsCellOpt b0 => cmp_SortJobsCellOpt_Own a0 b0
+    | _ => compare 22 (tag_SortKItem b)
   | .inj_KCell a0 =>
     match b with
     | .inj_KCell b0 => cmp_SortKCell a0 b0
-    | _ => compare 8 (tag_SortKItem b)
+    | _ => compare 23 (tag_SortKItem b)
   | .inj_KCellOpt a0 =>
     match b with
     | .inj_KCellOpt b0 => cmp_SortKCellOpt_Own a0 b0
-    | _ => compare 9 (tag_SortKItem b)
+    | _ => compare 24 (tag_SortKItem b)
   | .inj_KConfigVar a0 =>
     match b with
     | .inj_KConfigVar b0 => cmp_SortKConfigVar a0 b0
-    | _ => compare 10 (tag_SortKItem b)
+    | _ => compare 25 (tag_SortKItem b)
   | .inj_KItem a0 =>
     match b with
     | .inj_KItem b0 => cmp_SortKItem_Own a0 b0
-    | _ => compare 11 (tag_SortKItem b)
+    | _ => compare 26 (tag_SortKItem b)
   | .inj_List a0 =>
     match b with
     | .inj_List b0 => cmp_SortList a0 b0
-    | _ => compare 12 (tag_SortKItem b)
+    | _ => compare 27 (tag_SortKItem b)
+  | .inj_LoCell a0 =>
+    match b with
+    | .inj_LoCell b0 => cmp_SortLoCell a0 b0
+    | _ => compare 28 (tag_SortKItem b)
+  | .inj_LoCellOpt a0 =>
+    match b with
+    | .inj_LoCellOpt b0 => cmp_SortLoCellOpt_Own a0 b0
+    | _ => compare 29 (tag_SortKItem b)
   | .inj_MCell a0 =>
     match b with
     | .inj_MCell b0 => cmp_SortMCell a0 b0
-    | _ => compare 13 (tag_SortKItem b)
+    | _ => compare 30 (tag_SortKItem b)
   | .inj_MCellOpt a0 =>
     match b with
     | .inj_MCellOpt b0 => cmp_SortMCellOpt_Own a0 b0
-    | _ => compare 14 (tag_SortKItem b)
+    | _ => compare 31 (tag_SortKItem b)
   | .inj_Map a0 =>
     match b with
     | .inj_Map b0 => cmp_SortMap a0 b0
-    | _ => compare 15 (tag_SortKItem b)
+    | _ => compare 32 (tag_SortKItem b)
+  | .inj_OwnerCell a0 =>
+    match b with
+    | .inj_OwnerCell b0 => cmp_SortOwnerCell a0 b0
+    | _ => compare 33 (tag_SortKItem b)
+  | .inj_OwnerCellOpt a0 =>
+    match b with
+    | .inj_OwnerCellOpt b0 => cmp_SortOwnerCellOpt_Own a0 b0
+    | _ => compare 34 (tag_SortKItem b)
   | .inj_Pgm a0 =>
     match b with
     | .inj_Pgm b0 => cmp_SortPgm a0 b0
-    | _ => compare 16 (tag_SortKItem b)
+    | _ => compare 35 (tag_SortKItem b)
+  | .inj_PrioCell a0 =>
+    match b with
+    | .inj_PrioCell b0 => cmp_SortPrioCell a0 b0
+    | _ => compare 36 (tag_SortKItem b)
+  | .inj_PrioCellOpt a0 =>
+    match b with
+    | .inj_PrioCellOpt b0 => cmp_SortPrioCellOpt_Own a0 b0
+    | _ => compare 37 (tag_SortKItem b)
   | .inj_Set a0 =>
     match b with
     | .inj_Set b0 => cmp_SortSet a0 b0
-    | _ => compare 17 (tag_SortKItem b)
+    | _ => compare 38 (tag_SortKItem b)
   | .inj_TCell a0 =>
     match b with
     | .inj_TCell b0 => cmp_SortTCell a0 b0
-    | _ => compare 18 (tag_SortKItem b)
+    | _ => compare 39 (tag_SortKItem b)
   | .inj_TCellFragment a0 =>
     match b with
     | .inj_TCellFragment b0 => cmp_SortTCellFragment a0 b0
-    | _ => compare 19 (tag_SortKItem b)
+    | _ => compare 40 (tag_SortKItem b)
   | .inj_TCellOpt a0 =>
     match b with
     | .inj_TCellOpt b0 => cmp_SortTCellOpt_Own a0 b0
-    | _ => compare 20 (tag_SortKItem b)
+    | _ => compare 41 (tag_SortKItem b)
   | .inj_WidCell a0 =>
     match b with
     | .inj_WidCell b0 => cmp_SortWidCell a0 b0
-    | _ => compare 21 (tag_SortKItem b)
+    | _ => compare 42 (tag_SortKItem b)
   | .inj_WidCellOpt a0 =>
     match b with
     | .inj_WidCellOpt b0 => cmp_SortWidCellOpt_Own a0 b0
-    | _ => compare 22 (tag_SortKItem b)
+    | _ => compare 43 (tag_SortKItem b)
   | .inj_WorkerCell a0 =>
     match b with
     | .inj_WorkerCell b0 => cmp_SortWorkerCell a0 b0
-    | _ => compare 23 (tag_SortKItem b)
+    | _ => compare 44 (tag_SortKItem b)
   | .inj_WorkerCellFragment a0 =>
     match b with
     | .inj_WorkerCellFragment b0 => cmp_SortWorkerCellFragment a0 b0
-    | _ => compare 24 (tag_SortKItem b)
+    | _ => compare 45 (tag_SortKItem b)
   | .inj_WorkerCellMap a0 =>
     match b with
     | .inj_WorkerCellMap b0 => cmp_SortWorkerCellMap a0 b0
-    | _ => compare 25 (tag_SortKItem b)
+    | _ => compare 46 (tag_SortKItem b)
   | .inj_WorkersCell a0 =>
     match b with
     | .inj_WorkersCell b0 => cmp_SortWorkersCell a0 b0
-    | _ => compare 26 (tag_SortKItem b)
+    | _ => compare 47 (tag_SortKItem b)
   | .inj_WorkersCellFragment a0 =>
     match b with
     | .inj_WorkersCellFragment b0 => cmp_SortWorkersCellFragment a0 b0
-    | _ => compare 27 (tag_SortKItem b)
+    | _ => compare 48 (tag_SortKItem b)
   | .inj_WorkersCellOpt a0 =>
     match b with
     | .inj_WorkersCellOpt b0 => cmp_SortWorkersCellOpt_Own a0 b0
-    | _ => compare 28 (tag_SortKItem b)
+    | _ => compare 49 (tag_SortKItem b)
   termination_by structural a
 def cmp_SortKItem_Own (a b : SortKItem.Own) : Ordering :=
   match a with
@@ -1609,6 +2879,27 @@ def cmp_SortList (a b : SortList) : Ordering :=
     | .cons b0 b1 => (cmp_SortKItem a0 b0).then (cmp_SortList a1 b1)
     | _ => compare 1 (tag_SortList b)
   termination_by structural a
+def cmp_SortLoCell (a b : SortLoCell) : Ordering :=
+  match a with
+  | .«<lo>» a0 =>
+    match b with
+    | .«<lo>» b0 => cmp_SortInt a0 b0
+def cmp_SortLoCellOpt (a b : SortLoCellOpt) : Ordering :=
+  match a with
+  | .inj_LoCell a0 =>
+    match b with
+    | .inj_LoCell b0 => cmp_SortLoCell a0 b0
+    | _ => compare 0 (tag_SortLoCellOpt b)
+  | .inj_LoCellOpt a0 =>
+    match b with
+    | .inj_LoCellOpt b0 => cmp_SortLoCellOpt_Own a0 b0
+    | _ => compare 1 (tag_SortLoCellOpt b)
+  termination_by structural a
+def cmp_SortLoCellOpt_Own (a b : SortLoCellOpt.Own) : Ordering :=
+  match a with
+  | .noLoCell  =>
+    match b with
+    | .noLoCell  => .eq
 def cmp_SortMCell (a b : SortMCell) : Ordering :=
   match a with
   | .«<m>» a0 =>
@@ -1642,6 +2933,27 @@ def cmp_SortMap (a b : SortMap) : Ordering :=
     | .cons b0 b1 b2 => (cmp_SortKItem a0 b0).then ((cmp_SortKItem a1 b1).then (cmp_SortMap a2 b2))
     | _ => compare 1 (tag_SortMap b)
   termination_by structural a
+def cmp_SortOwnerCell (a b : SortOwnerCell) : Ordering :=
+  match a with
+  | .«<owner>» a0 =>
+    match b with
+    | .«<owner>» b0 => cmp_SortInt a0 b0
+def cmp_SortOwnerCellOpt (a b : SortOwnerCellOpt) : Ordering :=
+  match a with
+  | .inj_OwnerCell a0 =>
+    match b with
+    | .inj_OwnerCell b0 => cmp_SortOwnerCell a0 b0
+    | _ => compare 0 (tag_SortOwnerCellOpt b)
+  | .inj_OwnerCellOpt a0 =>
+    match b with
+    | .inj_OwnerCellOpt b0 => cmp_SortOwnerCellOpt_Own a0 b0
+    | _ => compare 1 (tag_SortOwnerCellOpt b)
+  termination_by structural a
+def cmp_SortOwnerCellOpt_Own (a b : SortOwnerCellOpt.Own) : Ordering :=
+  match a with
+  | .noOwnerCell  =>
+    match b with
+    | .noOwnerCell  => .eq
 def cmp_SortPgm (a b : SortPgm) : Ordering :=
   match a with
   | .check  =>
@@ -1656,6 +2968,31 @@ def cmp_SortPgm (a b : SortPgm) : Ordering :=
     match b with
     | .go2  => .eq
     | _ => compare 2 (tag_SortPgm b)
+  | .go3  =>
+    match b with
+    | .go3  => .eq
+    | _ => compare 3 (tag_SortPgm b)
+def cmp_SortPrioCell (a b : SortPrioCell) : Ordering :=
+  match a with
+  | .«<prio>» a0 =>
+    match b with
+    | .«<prio>» b0 => cmp_SortInt a0 b0
+def cmp_SortPrioCellOpt (a b : SortPrioCellOpt) : Ordering :=
+  match a with
+  | .inj_PrioCell a0 =>
+    match b with
+    | .inj_PrioCell b0 => cmp_SortPrioCell a0 b0
+    | _ => compare 0 (tag_SortPrioCellOpt b)
+  | .inj_PrioCellOpt a0 =>
+    match b with
+    | .inj_PrioCellOpt b0 => cmp_SortPrioCellOpt_Own a0 b0
+    | _ => compare 1 (tag_SortPrioCellOpt b)
+  termination_by structural a
+def cmp_SortPrioCellOpt_Own (a b : SortPrioCellOpt.Own) : Ordering :=
+  match a with
+  | .noPrioCell  =>
+    match b with
+    | .noPrioCell  => .eq
 def cmp_SortSet (a b : SortSet) : Ordering :=
   match a with
   | .nil  =>
@@ -1669,15 +3006,15 @@ def cmp_SortSet (a b : SortSet) : Ordering :=
   termination_by structural a
 def cmp_SortTCell (a b : SortTCell) : Ordering :=
   match a with
-  | .«<T>» a0 a1 a2 =>
+  | .«<T>» a0 a1 a2 a3 =>
     match b with
-    | .«<T>» b0 b1 b2 => (cmp_SortKCell a0 b0).then ((cmp_SortMCell a1 b1).then (cmp_SortWorkersCell a2 b2))
+    | .«<T>» b0 b1 b2 b3 => (cmp_SortKCell a0 b0).then ((cmp_SortMCell a1 b1).then ((cmp_SortWorkersCell a2 b2).then (cmp_SortJobsCell a3 b3)))
   termination_by structural a
 def cmp_SortTCellFragment (a b : SortTCellFragment) : Ordering :=
   match a with
-  | .«<T>-fragment» a0 a1 a2 =>
+  | .«<T>-fragment» a0 a1 a2 a3 =>
     match b with
-    | .«<T>-fragment» b0 b1 b2 => (cmp_SortKCellOpt a0 b0).then ((cmp_SortMCellOpt a1 b1).then (cmp_SortWorkersCellOpt a2 b2))
+    | .«<T>-fragment» b0 b1 b2 b3 => (cmp_SortKCellOpt a0 b0).then ((cmp_SortMCellOpt a1 b1).then ((cmp_SortWorkersCellOpt a2 b2).then (cmp_SortJobsCellOpt a3 b3)))
   termination_by structural a
 def cmp_SortTCellOpt (a b : SortTCellOpt) : Ordering :=
   match a with
@@ -1782,6 +3119,35 @@ theorem cmp_SortCntCellOpt_eq : ∀ (a b : SortCntCellOpt), cmp_SortCntCellOpt a
 theorem cmp_SortCntCellOpt_Own_eq : ∀ (a b : SortCntCellOpt.Own), cmp_SortCntCellOpt_Own a b = compare (ser_SortCntCellOpt_Own a) (ser_SortCntCellOpt_Own b)
   | .noCntCell , b => by
     cases b <;> (try simp only [cmp_SortCntCellOpt_Own, compare_cons_cons, ser_SortCntCellOpt_Own, tag_SortCntCellOpt_Own, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortCtlCell_eq : ∀ (a b : SortCtlCell), cmp_SortCtlCell a b = compare (ser_SortCtlCell a) (ser_SortCtlCell b)
+  | .«<ctl>» a0 a1, b => by
+    cases b <;> (try simp only [cmp_SortCtlCell, cmp_SortHiCell_eq, cmp_SortLoCell_eq, compare_append_ser_SortHiCell, compare_append_ser_SortLoCell, compare_cons_cons, ser_SortCtlCell, tag_SortCtlCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortCtlCellFragment_eq : ∀ (a b : SortCtlCellFragment), cmp_SortCtlCellFragment a b = compare (ser_SortCtlCellFragment a) (ser_SortCtlCellFragment b)
+  | .«<ctl>-fragment» a0 a1, b => by
+    cases b <;> (try simp only [cmp_SortCtlCellFragment, cmp_SortHiCellOpt_eq, cmp_SortLoCellOpt_eq, compare_append_ser_SortHiCellOpt, compare_append_ser_SortLoCellOpt, compare_cons_cons, ser_SortCtlCellFragment, tag_SortCtlCellFragment, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortCtlCellOpt_eq : ∀ (a b : SortCtlCellOpt), cmp_SortCtlCellOpt a b = compare (ser_SortCtlCellOpt a) (ser_SortCtlCellOpt b)
+  | .inj_CtlCell a0, b => by
+    cases b <;> (try simp only [cmp_SortCtlCellOpt, cmp_SortCtlCell_eq, compare_append_ser_SortCtlCell, compare_cons_cons, ser_SortCtlCellOpt, tag_SortCtlCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_CtlCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortCtlCellOpt, cmp_SortCtlCellOpt_Own_eq, compare_append_ser_SortCtlCellOpt_Own, compare_cons_cons, ser_SortCtlCellOpt, tag_SortCtlCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortCtlCellOpt_Own_eq : ∀ (a b : SortCtlCellOpt.Own), cmp_SortCtlCellOpt_Own a b = compare (ser_SortCtlCellOpt_Own a) (ser_SortCtlCellOpt_Own b)
+  | .noCtlCell , b => by
+    cases b <;> (try simp only [cmp_SortCtlCellOpt_Own, compare_cons_cons, ser_SortCtlCellOpt_Own, tag_SortCtlCellOpt_Own, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortDoneCell_eq : ∀ (a b : SortDoneCell), cmp_SortDoneCell a b = compare (ser_SortDoneCell a) (ser_SortDoneCell b)
+  | .«<done>» a0, b => by
+    cases b <;> (try simp only [cmp_SortBool_eq, cmp_SortDoneCell, compare_append_ser_SortBool, compare_cons_cons, ser_SortDoneCell, tag_SortDoneCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortDoneCellOpt_eq : ∀ (a b : SortDoneCellOpt), cmp_SortDoneCellOpt a b = compare (ser_SortDoneCellOpt a) (ser_SortDoneCellOpt b)
+  | .inj_DoneCell a0, b => by
+    cases b <;> (try simp only [cmp_SortDoneCellOpt, cmp_SortDoneCell_eq, compare_append_ser_SortDoneCell, compare_cons_cons, ser_SortDoneCellOpt, tag_SortDoneCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_DoneCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortDoneCellOpt, cmp_SortDoneCellOpt_Own_eq, compare_append_ser_SortDoneCellOpt_Own, compare_cons_cons, ser_SortDoneCellOpt, tag_SortDoneCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortDoneCellOpt_Own_eq : ∀ (a b : SortDoneCellOpt.Own), cmp_SortDoneCellOpt_Own a b = compare (ser_SortDoneCellOpt_Own a) (ser_SortDoneCellOpt_Own b)
+  | .noDoneCell , b => by
+    cases b <;> (try simp only [cmp_SortDoneCellOpt_Own, compare_cons_cons, ser_SortDoneCellOpt_Own, tag_SortDoneCellOpt_Own, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
 theorem cmp_SortGeneratedCounterCell_eq : ∀ (a b : SortGeneratedCounterCell), cmp_SortGeneratedCounterCell a b = compare (ser_SortGeneratedCounterCell a) (ser_SortGeneratedCounterCell b)
   | .«<generatedCounter>» a0, b => by
     cases b <;> (try simp only [cmp_SortGeneratedCounterCell, cmp_SortInt_eq, compare_append_ser_SortInt, compare_cons_cons, ser_SortGeneratedCounterCell, tag_SortGeneratedCounterCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
@@ -1802,6 +3168,61 @@ theorem cmp_SortGeneratedTopCellFragment_eq : ∀ (a b : SortGeneratedTopCellFra
   | .«<generatedTop>-fragment» a0 a1, b => by
     cases b <;> (try simp only [cmp_SortGeneratedCounterCellOpt_eq, cmp_SortGeneratedTopCellFragment, cmp_SortTCellOpt_eq, compare_append_ser_SortGeneratedCounterCellOpt, compare_append_ser_SortTCellOpt, compare_cons_cons, ser_SortGeneratedTopCellFragment, tag_SortGeneratedTopCellFragment, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   termination_by structural a _ => a
+theorem cmp_SortHiCell_eq : ∀ (a b : SortHiCell), cmp_SortHiCell a b = compare (ser_SortHiCell a) (ser_SortHiCell b)
+  | .«<hi>» a0, b => by
+    cases b <;> (try simp only [cmp_SortHiCell, cmp_SortInt_eq, compare_append_ser_SortInt, compare_cons_cons, ser_SortHiCell, tag_SortHiCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortHiCellOpt_eq : ∀ (a b : SortHiCellOpt), cmp_SortHiCellOpt a b = compare (ser_SortHiCellOpt a) (ser_SortHiCellOpt b)
+  | .inj_HiCell a0, b => by
+    cases b <;> (try simp only [cmp_SortHiCellOpt, cmp_SortHiCell_eq, compare_append_ser_SortHiCell, compare_cons_cons, ser_SortHiCellOpt, tag_SortHiCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_HiCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortHiCellOpt, cmp_SortHiCellOpt_Own_eq, compare_append_ser_SortHiCellOpt_Own, compare_cons_cons, ser_SortHiCellOpt, tag_SortHiCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortHiCellOpt_Own_eq : ∀ (a b : SortHiCellOpt.Own), cmp_SortHiCellOpt_Own a b = compare (ser_SortHiCellOpt_Own a) (ser_SortHiCellOpt_Own b)
+  | .noHiCell , b => by
+    cases b <;> (try simp only [cmp_SortHiCellOpt_Own, compare_cons_cons, ser_SortHiCellOpt_Own, tag_SortHiCellOpt_Own, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortJidCell_eq : ∀ (a b : SortJidCell), cmp_SortJidCell a b = compare (ser_SortJidCell a) (ser_SortJidCell b)
+  | .«<jid>» a0, b => by
+    cases b <;> (try simp only [cmp_SortInt_eq, cmp_SortJidCell, compare_append_ser_SortInt, compare_cons_cons, ser_SortJidCell, tag_SortJidCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortJidCellOpt_eq : ∀ (a b : SortJidCellOpt), cmp_SortJidCellOpt a b = compare (ser_SortJidCellOpt a) (ser_SortJidCellOpt b)
+  | .inj_JidCell a0, b => by
+    cases b <;> (try simp only [cmp_SortJidCellOpt, cmp_SortJidCell_eq, compare_append_ser_SortJidCell, compare_cons_cons, ser_SortJidCellOpt, tag_SortJidCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JidCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortJidCellOpt, cmp_SortJidCellOpt_Own_eq, compare_append_ser_SortJidCellOpt_Own, compare_cons_cons, ser_SortJidCellOpt, tag_SortJidCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortJidCellOpt_Own_eq : ∀ (a b : SortJidCellOpt.Own), cmp_SortJidCellOpt_Own a b = compare (ser_SortJidCellOpt_Own a) (ser_SortJidCellOpt_Own b)
+  | .noJidCell , b => by
+    cases b <;> (try simp only [cmp_SortJidCellOpt_Own, compare_cons_cons, ser_SortJidCellOpt_Own, tag_SortJidCellOpt_Own, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortJobCell_eq : ∀ (a b : SortJobCell), cmp_SortJobCell a b = compare (ser_SortJobCell a) (ser_SortJobCell b)
+  | .«<job>» a0 a1 a2 a3 a4, b => by
+    cases b <;> (try simp only [cmp_SortCtlCell_eq, cmp_SortDoneCell_eq, cmp_SortJidCell_eq, cmp_SortJobCell, cmp_SortOwnerCell_eq, cmp_SortPrioCell_eq, compare_append_ser_SortCtlCell, compare_append_ser_SortDoneCell, compare_append_ser_SortJidCell, compare_append_ser_SortOwnerCell, compare_append_ser_SortPrioCell, compare_cons_cons, ser_SortJobCell, tag_SortJobCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortJobCellFragment_eq : ∀ (a b : SortJobCellFragment), cmp_SortJobCellFragment a b = compare (ser_SortJobCellFragment a) (ser_SortJobCellFragment b)
+  | .«<job>-fragment» a0 a1 a2 a3 a4, b => by
+    cases b <;> (try simp only [cmp_SortCtlCellOpt_eq, cmp_SortDoneCellOpt_eq, cmp_SortJidCellOpt_eq, cmp_SortJobCellFragment, cmp_SortOwnerCellOpt_eq, cmp_SortPrioCellOpt_eq, compare_append_ser_SortCtlCellOpt, compare_append_ser_SortDoneCellOpt, compare_append_ser_SortJidCellOpt, compare_append_ser_SortOwnerCellOpt, compare_append_ser_SortPrioCellOpt, compare_cons_cons, ser_SortJobCellFragment, tag_SortJobCellFragment, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortJobCellMap_eq : ∀ (a b : SortJobCellMap), cmp_SortJobCellMap a b = compare (ser_SortJobCellMap a) (ser_SortJobCellMap b)
+  | .nil , b => by
+    cases b <;> (try simp only [cmp_SortJobCellMap, compare_cons_cons, ser_SortJobCellMap, tag_SortJobCellMap, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .cons a0 a1 a2, b => by
+    cases b <;> (try simp only [cmp_SortJidCell_eq, cmp_SortJobCellMap, cmp_SortJobCellMap_eq, cmp_SortJobCell_eq, compare_append_ser_SortJidCell, compare_append_ser_SortJobCell, compare_append_ser_SortJobCellMap, compare_cons_cons, ser_SortJobCellMap, tag_SortJobCellMap, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortJobsCell_eq : ∀ (a b : SortJobsCell), cmp_SortJobsCell a b = compare (ser_SortJobsCell a) (ser_SortJobsCell b)
+  | .«<jobs>» a0, b => by
+    cases b <;> (try simp only [cmp_SortJobCellMap_eq, cmp_SortJobsCell, compare_append_ser_SortJobCellMap, compare_cons_cons, ser_SortJobsCell, tag_SortJobsCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortJobsCellFragment_eq : ∀ (a b : SortJobsCellFragment), cmp_SortJobsCellFragment a b = compare (ser_SortJobsCellFragment a) (ser_SortJobsCellFragment b)
+  | .«<jobs>-fragment» a0, b => by
+    cases b <;> (try simp only [cmp_SortJobCellMap_eq, cmp_SortJobsCellFragment, compare_append_ser_SortJobCellMap, compare_cons_cons, ser_SortJobsCellFragment, tag_SortJobsCellFragment, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortJobsCellOpt_eq : ∀ (a b : SortJobsCellOpt), cmp_SortJobsCellOpt a b = compare (ser_SortJobsCellOpt a) (ser_SortJobsCellOpt b)
+  | .inj_JobsCell a0, b => by
+    cases b <;> (try simp only [cmp_SortJobsCellOpt, cmp_SortJobsCell_eq, compare_append_ser_SortJobsCell, compare_cons_cons, ser_SortJobsCellOpt, tag_SortJobsCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JobsCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortJobsCellOpt, cmp_SortJobsCellOpt_Own_eq, compare_append_ser_SortJobsCellOpt_Own, compare_cons_cons, ser_SortJobsCellOpt, tag_SortJobsCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortJobsCellOpt_Own_eq : ∀ (a b : SortJobsCellOpt.Own), cmp_SortJobsCellOpt_Own a b = compare (ser_SortJobsCellOpt_Own a) (ser_SortJobsCellOpt_Own b)
+  | .noJobsCell , b => by
+    cases b <;> (try simp only [cmp_SortJobsCellOpt_Own, compare_cons_cons, ser_SortJobsCellOpt_Own, tag_SortJobsCellOpt_Own, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
 theorem cmp_SortK_eq : ∀ (a b : SortK), cmp_SortK a b = compare (ser_SortK a) (ser_SortK b)
   | .dotk , b => by
     cases b <;> (try simp only [cmp_SortK, compare_cons_cons, ser_SortK, tag_SortK, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
@@ -1828,6 +3249,16 @@ theorem cmp_SortKItem_eq : ∀ (a b : SortKItem), cmp_SortKItem a b = compare (s
     cases b <;> (try simp only [cmp_SortCntCell_eq, cmp_SortKItem, compare_append_ser_SortCntCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_CntCellOpt a0, b => by
     cases b <;> (try simp only [cmp_SortCntCellOpt_Own_eq, cmp_SortKItem, compare_append_ser_SortCntCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_CtlCell a0, b => by
+    cases b <;> (try simp only [cmp_SortCtlCell_eq, cmp_SortKItem, compare_append_ser_SortCtlCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_CtlCellFragment a0, b => by
+    cases b <;> (try simp only [cmp_SortCtlCellFragment_eq, cmp_SortKItem, compare_append_ser_SortCtlCellFragment, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_CtlCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortCtlCellOpt_Own_eq, cmp_SortKItem, compare_append_ser_SortCtlCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_DoneCell a0, b => by
+    cases b <;> (try simp only [cmp_SortDoneCell_eq, cmp_SortKItem, compare_append_ser_SortDoneCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_DoneCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortDoneCellOpt_Own_eq, cmp_SortKItem, compare_append_ser_SortDoneCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_GeneratedCounterCell a0, b => by
     cases b <;> (try simp only [cmp_SortGeneratedCounterCell_eq, cmp_SortKItem, compare_append_ser_SortGeneratedCounterCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_GeneratedCounterCellOpt a0, b => by
@@ -1836,8 +3267,28 @@ theorem cmp_SortKItem_eq : ∀ (a b : SortKItem), cmp_SortKItem a b = compare (s
     cases b <;> (try simp only [cmp_SortGeneratedTopCell_eq, cmp_SortKItem, compare_append_ser_SortGeneratedTopCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_GeneratedTopCellFragment a0, b => by
     cases b <;> (try simp only [cmp_SortGeneratedTopCellFragment_eq, cmp_SortKItem, compare_append_ser_SortGeneratedTopCellFragment, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_HiCell a0, b => by
+    cases b <;> (try simp only [cmp_SortHiCell_eq, cmp_SortKItem, compare_append_ser_SortHiCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_HiCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortHiCellOpt_Own_eq, cmp_SortKItem, compare_append_ser_SortHiCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_Int a0, b => by
     cases b <;> (try simp only [cmp_SortInt_eq, cmp_SortKItem, compare_append_ser_SortInt, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JidCell a0, b => by
+    cases b <;> (try simp only [cmp_SortJidCell_eq, cmp_SortKItem, compare_append_ser_SortJidCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JidCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortJidCellOpt_Own_eq, cmp_SortKItem, compare_append_ser_SortJidCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JobCell a0, b => by
+    cases b <;> (try simp only [cmp_SortJobCell_eq, cmp_SortKItem, compare_append_ser_SortJobCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JobCellFragment a0, b => by
+    cases b <;> (try simp only [cmp_SortJobCellFragment_eq, cmp_SortKItem, compare_append_ser_SortJobCellFragment, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JobCellMap a0, b => by
+    cases b <;> (try simp only [cmp_SortJobCellMap_eq, cmp_SortKItem, compare_append_ser_SortJobCellMap, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JobsCell a0, b => by
+    cases b <;> (try simp only [cmp_SortJobsCell_eq, cmp_SortKItem, compare_append_ser_SortJobsCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JobsCellFragment a0, b => by
+    cases b <;> (try simp only [cmp_SortJobsCellFragment_eq, cmp_SortKItem, compare_append_ser_SortJobsCellFragment, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_JobsCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortJobsCellOpt_Own_eq, cmp_SortKItem, compare_append_ser_SortJobsCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_KCell a0, b => by
     cases b <;> (try simp only [cmp_SortKCell_eq, cmp_SortKItem, compare_append_ser_SortKCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_KCellOpt a0, b => by
@@ -1848,14 +3299,26 @@ theorem cmp_SortKItem_eq : ∀ (a b : SortKItem), cmp_SortKItem a b = compare (s
     cases b <;> (try simp only [cmp_SortKItem, cmp_SortKItem_Own_eq, compare_append_ser_SortKItem_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_List a0, b => by
     cases b <;> (try simp only [cmp_SortKItem, cmp_SortList_eq, compare_append_ser_SortList, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_LoCell a0, b => by
+    cases b <;> (try simp only [cmp_SortKItem, cmp_SortLoCell_eq, compare_append_ser_SortLoCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_LoCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortKItem, cmp_SortLoCellOpt_Own_eq, compare_append_ser_SortLoCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_MCell a0, b => by
     cases b <;> (try simp only [cmp_SortKItem, cmp_SortMCell_eq, compare_append_ser_SortMCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_MCellOpt a0, b => by
     cases b <;> (try simp only [cmp_SortKItem, cmp_SortMCellOpt_Own_eq, compare_append_ser_SortMCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_Map a0, b => by
     cases b <;> (try simp only [cmp_SortKItem, cmp_SortMap_eq, compare_append_ser_SortMap, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_OwnerCell a0, b => by
+    cases b <;> (try simp only [cmp_SortKItem, cmp_SortOwnerCell_eq, compare_append_ser_SortOwnerCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_OwnerCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortKItem, cmp_SortOwnerCellOpt_Own_eq, compare_append_ser_SortOwnerCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_Pgm a0, b => by
     cases b <;> (try simp only [cmp_SortKItem, cmp_SortPgm_eq, compare_append_ser_SortPgm, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_PrioCell a0, b => by
+    cases b <;> (try simp only [cmp_SortKItem, cmp_SortPrioCell_eq, compare_append_ser_SortPrioCell, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_PrioCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortKItem, cmp_SortPrioCellOpt_Own_eq, compare_append_ser_SortPrioCellOpt_Own, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_Set a0, b => by
     cases b <;> (try simp only [cmp_SortKItem, cmp_SortSet_eq, compare_append_ser_SortSet, compare_cons_cons, ser_SortKItem, tag_SortKItem, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .inj_TCell a0, b => by
@@ -1891,6 +3354,18 @@ theorem cmp_SortList_eq : ∀ (a b : SortList), cmp_SortList a b = compare (ser_
   | .cons a0 a1, b => by
     cases b <;> (try simp only [cmp_SortKItem_eq, cmp_SortList, cmp_SortList_eq, compare_append_ser_SortKItem, compare_append_ser_SortList, compare_cons_cons, ser_SortList, tag_SortList, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   termination_by structural a _ => a
+theorem cmp_SortLoCell_eq : ∀ (a b : SortLoCell), cmp_SortLoCell a b = compare (ser_SortLoCell a) (ser_SortLoCell b)
+  | .«<lo>» a0, b => by
+    cases b <;> (try simp only [cmp_SortInt_eq, cmp_SortLoCell, compare_append_ser_SortInt, compare_cons_cons, ser_SortLoCell, tag_SortLoCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortLoCellOpt_eq : ∀ (a b : SortLoCellOpt), cmp_SortLoCellOpt a b = compare (ser_SortLoCellOpt a) (ser_SortLoCellOpt b)
+  | .inj_LoCell a0, b => by
+    cases b <;> (try simp only [cmp_SortLoCellOpt, cmp_SortLoCell_eq, compare_append_ser_SortLoCell, compare_cons_cons, ser_SortLoCellOpt, tag_SortLoCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_LoCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortLoCellOpt, cmp_SortLoCellOpt_Own_eq, compare_append_ser_SortLoCellOpt_Own, compare_cons_cons, ser_SortLoCellOpt, tag_SortLoCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortLoCellOpt_Own_eq : ∀ (a b : SortLoCellOpt.Own), cmp_SortLoCellOpt_Own a b = compare (ser_SortLoCellOpt_Own a) (ser_SortLoCellOpt_Own b)
+  | .noLoCell , b => by
+    cases b <;> (try simp only [cmp_SortLoCellOpt_Own, compare_cons_cons, ser_SortLoCellOpt_Own, tag_SortLoCellOpt_Own, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
 theorem cmp_SortMCell_eq : ∀ (a b : SortMCell), cmp_SortMCell a b = compare (ser_SortMCell a) (ser_SortMCell b)
   | .«<m>» a0, b => by
     cases b <;> (try simp only [cmp_SortMCell, cmp_SortMap_eq, compare_append_ser_SortMap, compare_cons_cons, ser_SortMCell, tag_SortMCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
@@ -1910,6 +3385,18 @@ theorem cmp_SortMap_eq : ∀ (a b : SortMap), cmp_SortMap a b = compare (ser_Sor
   | .cons a0 a1 a2, b => by
     cases b <;> (try simp only [cmp_SortKItem_eq, cmp_SortMap, cmp_SortMap_eq, compare_append_ser_SortKItem, compare_append_ser_SortMap, compare_cons_cons, ser_SortMap, tag_SortMap, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   termination_by structural a _ => a
+theorem cmp_SortOwnerCell_eq : ∀ (a b : SortOwnerCell), cmp_SortOwnerCell a b = compare (ser_SortOwnerCell a) (ser_SortOwnerCell b)
+  | .«<owner>» a0, b => by
+    cases b <;> (try simp only [cmp_SortInt_eq, cmp_SortOwnerCell, compare_append_ser_SortInt, compare_cons_cons, ser_SortOwnerCell, tag_SortOwnerCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortOwnerCellOpt_eq : ∀ (a b : SortOwnerCellOpt), cmp_SortOwnerCellOpt a b = compare (ser_SortOwnerCellOpt a) (ser_SortOwnerCellOpt b)
+  | .inj_OwnerCell a0, b => by
+    cases b <;> (try simp only [cmp_SortOwnerCellOpt, cmp_SortOwnerCell_eq, compare_append_ser_SortOwnerCell, compare_cons_cons, ser_SortOwnerCellOpt, tag_SortOwnerCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_OwnerCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortOwnerCellOpt, cmp_SortOwnerCellOpt_Own_eq, compare_append_ser_SortOwnerCellOpt_Own, compare_cons_cons, ser_SortOwnerCellOpt, tag_SortOwnerCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortOwnerCellOpt_Own_eq : ∀ (a b : SortOwnerCellOpt.Own), cmp_SortOwnerCellOpt_Own a b = compare (ser_SortOwnerCellOpt_Own a) (ser_SortOwnerCellOpt_Own b)
+  | .noOwnerCell , b => by
+    cases b <;> (try simp only [cmp_SortOwnerCellOpt_Own, compare_cons_cons, ser_SortOwnerCellOpt_Own, tag_SortOwnerCellOpt_Own, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
 theorem cmp_SortPgm_eq : ∀ (a b : SortPgm), cmp_SortPgm a b = compare (ser_SortPgm a) (ser_SortPgm b)
   | .check , b => by
     cases b <;> (try simp only [cmp_SortPgm, compare_cons_cons, ser_SortPgm, tag_SortPgm, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
@@ -1917,6 +3404,20 @@ theorem cmp_SortPgm_eq : ∀ (a b : SortPgm), cmp_SortPgm a b = compare (ser_Sor
     cases b <;> (try simp only [cmp_SortPgm, compare_cons_cons, ser_SortPgm, tag_SortPgm, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   | .go2 , b => by
     cases b <;> (try simp only [cmp_SortPgm, compare_cons_cons, ser_SortPgm, tag_SortPgm, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .go3 , b => by
+    cases b <;> (try simp only [cmp_SortPgm, compare_cons_cons, ser_SortPgm, tag_SortPgm, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortPrioCell_eq : ∀ (a b : SortPrioCell), cmp_SortPrioCell a b = compare (ser_SortPrioCell a) (ser_SortPrioCell b)
+  | .«<prio>» a0, b => by
+    cases b <;> (try simp only [cmp_SortInt_eq, cmp_SortPrioCell, compare_append_ser_SortInt, compare_cons_cons, ser_SortPrioCell, tag_SortPrioCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+theorem cmp_SortPrioCellOpt_eq : ∀ (a b : SortPrioCellOpt), cmp_SortPrioCellOpt a b = compare (ser_SortPrioCellOpt a) (ser_SortPrioCellOpt b)
+  | .inj_PrioCell a0, b => by
+    cases b <;> (try simp only [cmp_SortPrioCellOpt, cmp_SortPrioCell_eq, compare_append_ser_SortPrioCell, compare_cons_cons, ser_SortPrioCellOpt, tag_SortPrioCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .inj_PrioCellOpt a0, b => by
+    cases b <;> (try simp only [cmp_SortPrioCellOpt, cmp_SortPrioCellOpt_Own_eq, compare_append_ser_SortPrioCellOpt_Own, compare_cons_cons, ser_SortPrioCellOpt, tag_SortPrioCellOpt, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  termination_by structural a _ => a
+theorem cmp_SortPrioCellOpt_Own_eq : ∀ (a b : SortPrioCellOpt.Own), cmp_SortPrioCellOpt_Own a b = compare (ser_SortPrioCellOpt_Own a) (ser_SortPrioCellOpt_Own b)
+  | .noPrioCell , b => by
+    cases b <;> (try simp only [cmp_SortPrioCellOpt_Own, compare_cons_cons, ser_SortPrioCellOpt_Own, tag_SortPrioCellOpt_Own, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
 theorem cmp_SortSet_eq : ∀ (a b : SortSet), cmp_SortSet a b = compare (ser_SortSet a) (ser_SortSet b)
   | .nil , b => by
     cases b <;> (try simp only [cmp_SortSet, compare_cons_cons, ser_SortSet, tag_SortSet, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
@@ -1924,12 +3425,12 @@ theorem cmp_SortSet_eq : ∀ (a b : SortSet), cmp_SortSet a b = compare (ser_Sor
     cases b <;> (try simp only [cmp_SortKItem_eq, cmp_SortSet, cmp_SortSet_eq, compare_append_ser_SortKItem, compare_append_ser_SortSet, compare_cons_cons, ser_SortSet, tag_SortSet, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   termination_by structural a _ => a
 theorem cmp_SortTCell_eq : ∀ (a b : SortTCell), cmp_SortTCell a b = compare (ser_SortTCell a) (ser_SortTCell b)
-  | .«<T>» a0 a1 a2, b => by
-    cases b <;> (try simp only [cmp_SortKCell_eq, cmp_SortMCell_eq, cmp_SortTCell, cmp_SortWorkersCell_eq, compare_append_ser_SortKCell, compare_append_ser_SortMCell, compare_append_ser_SortWorkersCell, compare_cons_cons, ser_SortTCell, tag_SortTCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .«<T>» a0 a1 a2 a3, b => by
+    cases b <;> (try simp only [cmp_SortJobsCell_eq, cmp_SortKCell_eq, cmp_SortMCell_eq, cmp_SortTCell, cmp_SortWorkersCell_eq, compare_append_ser_SortJobsCell, compare_append_ser_SortKCell, compare_append_ser_SortMCell, compare_append_ser_SortWorkersCell, compare_cons_cons, ser_SortTCell, tag_SortTCell, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   termination_by structural a _ => a
 theorem cmp_SortTCellFragment_eq : ∀ (a b : SortTCellFragment), cmp_SortTCellFragment a b = compare (ser_SortTCellFragment a) (ser_SortTCellFragment b)
-  | .«<T>-fragment» a0 a1 a2, b => by
-    cases b <;> (try simp only [cmp_SortKCellOpt_eq, cmp_SortMCellOpt_eq, cmp_SortTCellFragment, cmp_SortWorkersCellOpt_eq, compare_append_ser_SortKCellOpt, compare_append_ser_SortMCellOpt, compare_append_ser_SortWorkersCellOpt, compare_cons_cons, ser_SortTCellFragment, tag_SortTCellFragment, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
+  | .«<T>-fragment» a0 a1 a2 a3, b => by
+    cases b <;> (try simp only [cmp_SortJobsCellOpt_eq, cmp_SortKCellOpt_eq, cmp_SortMCellOpt_eq, cmp_SortTCellFragment, cmp_SortWorkersCellOpt_eq, compare_append_ser_SortJobsCellOpt, compare_append_ser_SortKCellOpt, compare_append_ser_SortMCellOpt, compare_append_ser_SortWorkersCellOpt, compare_cons_cons, ser_SortTCellFragment, tag_SortTCellFragment, Ordering.eq_then, Std.ReflOrd.compare_self]) <;> rfl
   termination_by structural a _ => a
 theorem cmp_SortTCellOpt_eq : ∀ (a b : SortTCellOpt), cmp_SortTCellOpt a b = compare (ser_SortTCellOpt a) (ser_SortTCellOpt b)
   | .inj_TCell a0, b => by
@@ -1994,6 +3495,27 @@ instance : DecidableEq SortCntCellOpt := fun a b =>
 instance : DecidableEq SortCntCellOpt.Own := fun a b =>
   if h : cmp_SortCntCellOpt_Own a b = .eq then isTrue (ser_SortCntCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortCntCellOpt_Own_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortCntCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortCtlCell := fun a b =>
+  if h : cmp_SortCtlCell a b = .eq then isTrue (ser_SortCtlCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortCtlCell_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortCtlCell_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortCtlCellFragment := fun a b =>
+  if h : cmp_SortCtlCellFragment a b = .eq then isTrue (ser_SortCtlCellFragment_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortCtlCellFragment_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortCtlCellFragment_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortCtlCellOpt := fun a b =>
+  if h : cmp_SortCtlCellOpt a b = .eq then isTrue (ser_SortCtlCellOpt_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortCtlCellOpt_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortCtlCellOpt_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortCtlCellOpt.Own := fun a b =>
+  if h : cmp_SortCtlCellOpt_Own a b = .eq then isTrue (ser_SortCtlCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortCtlCellOpt_Own_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortCtlCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortDoneCell := fun a b =>
+  if h : cmp_SortDoneCell a b = .eq then isTrue (ser_SortDoneCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortDoneCell_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortDoneCell_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortDoneCellOpt := fun a b =>
+  if h : cmp_SortDoneCellOpt a b = .eq then isTrue (ser_SortDoneCellOpt_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortDoneCellOpt_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortDoneCellOpt_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortDoneCellOpt.Own := fun a b =>
+  if h : cmp_SortDoneCellOpt_Own a b = .eq then isTrue (ser_SortDoneCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortDoneCellOpt_Own_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortDoneCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
 instance : DecidableEq SortGeneratedCounterCell := fun a b =>
   if h : cmp_SortGeneratedCounterCell a b = .eq then isTrue (ser_SortGeneratedCounterCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortGeneratedCounterCell_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortGeneratedCounterCell_eq]; exact Std.ReflOrd.compare_self))
@@ -2009,6 +3531,45 @@ instance : DecidableEq SortGeneratedTopCell := fun a b =>
 instance : DecidableEq SortGeneratedTopCellFragment := fun a b =>
   if h : cmp_SortGeneratedTopCellFragment a b = .eq then isTrue (ser_SortGeneratedTopCellFragment_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortGeneratedTopCellFragment_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortGeneratedTopCellFragment_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortHiCell := fun a b =>
+  if h : cmp_SortHiCell a b = .eq then isTrue (ser_SortHiCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortHiCell_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortHiCell_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortHiCellOpt := fun a b =>
+  if h : cmp_SortHiCellOpt a b = .eq then isTrue (ser_SortHiCellOpt_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortHiCellOpt_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortHiCellOpt_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortHiCellOpt.Own := fun a b =>
+  if h : cmp_SortHiCellOpt_Own a b = .eq then isTrue (ser_SortHiCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortHiCellOpt_Own_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortHiCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJidCell := fun a b =>
+  if h : cmp_SortJidCell a b = .eq then isTrue (ser_SortJidCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJidCell_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJidCell_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJidCellOpt := fun a b =>
+  if h : cmp_SortJidCellOpt a b = .eq then isTrue (ser_SortJidCellOpt_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJidCellOpt_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJidCellOpt_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJidCellOpt.Own := fun a b =>
+  if h : cmp_SortJidCellOpt_Own a b = .eq then isTrue (ser_SortJidCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJidCellOpt_Own_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJidCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJobCell := fun a b =>
+  if h : cmp_SortJobCell a b = .eq then isTrue (ser_SortJobCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJobCell_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJobCell_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJobCellFragment := fun a b =>
+  if h : cmp_SortJobCellFragment a b = .eq then isTrue (ser_SortJobCellFragment_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJobCellFragment_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJobCellFragment_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJobCellMap := fun a b =>
+  if h : cmp_SortJobCellMap a b = .eq then isTrue (ser_SortJobCellMap_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJobCellMap_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJobCellMap_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJobsCell := fun a b =>
+  if h : cmp_SortJobsCell a b = .eq then isTrue (ser_SortJobsCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJobsCell_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJobsCell_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJobsCellFragment := fun a b =>
+  if h : cmp_SortJobsCellFragment a b = .eq then isTrue (ser_SortJobsCellFragment_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJobsCellFragment_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJobsCellFragment_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJobsCellOpt := fun a b =>
+  if h : cmp_SortJobsCellOpt a b = .eq then isTrue (ser_SortJobsCellOpt_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJobsCellOpt_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJobsCellOpt_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortJobsCellOpt.Own := fun a b =>
+  if h : cmp_SortJobsCellOpt_Own a b = .eq then isTrue (ser_SortJobsCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortJobsCellOpt_Own_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortJobsCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
 instance : DecidableEq SortK := fun a b =>
   if h : cmp_SortK a b = .eq then isTrue (ser_SortK_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortK_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortK_eq]; exact Std.ReflOrd.compare_self))
@@ -2030,6 +3591,15 @@ instance : DecidableEq SortKItem.Own := fun a b =>
 instance : DecidableEq SortList := fun a b =>
   if h : cmp_SortList a b = .eq then isTrue (ser_SortList_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortList_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortList_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortLoCell := fun a b =>
+  if h : cmp_SortLoCell a b = .eq then isTrue (ser_SortLoCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortLoCell_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortLoCell_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortLoCellOpt := fun a b =>
+  if h : cmp_SortLoCellOpt a b = .eq then isTrue (ser_SortLoCellOpt_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortLoCellOpt_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortLoCellOpt_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortLoCellOpt.Own := fun a b =>
+  if h : cmp_SortLoCellOpt_Own a b = .eq then isTrue (ser_SortLoCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortLoCellOpt_Own_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortLoCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
 instance : DecidableEq SortMCell := fun a b =>
   if h : cmp_SortMCell a b = .eq then isTrue (ser_SortMCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortMCell_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortMCell_eq]; exact Std.ReflOrd.compare_self))
@@ -2042,9 +3612,27 @@ instance : DecidableEq SortMCellOpt.Own := fun a b =>
 instance : DecidableEq SortMap := fun a b =>
   if h : cmp_SortMap a b = .eq then isTrue (ser_SortMap_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortMap_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortMap_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortOwnerCell := fun a b =>
+  if h : cmp_SortOwnerCell a b = .eq then isTrue (ser_SortOwnerCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortOwnerCell_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortOwnerCell_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortOwnerCellOpt := fun a b =>
+  if h : cmp_SortOwnerCellOpt a b = .eq then isTrue (ser_SortOwnerCellOpt_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortOwnerCellOpt_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortOwnerCellOpt_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortOwnerCellOpt.Own := fun a b =>
+  if h : cmp_SortOwnerCellOpt_Own a b = .eq then isTrue (ser_SortOwnerCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortOwnerCellOpt_Own_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortOwnerCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
 instance : DecidableEq SortPgm := fun a b =>
   if h : cmp_SortPgm a b = .eq then isTrue (ser_SortPgm_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortPgm_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortPgm_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortPrioCell := fun a b =>
+  if h : cmp_SortPrioCell a b = .eq then isTrue (ser_SortPrioCell_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortPrioCell_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortPrioCell_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortPrioCellOpt := fun a b =>
+  if h : cmp_SortPrioCellOpt a b = .eq then isTrue (ser_SortPrioCellOpt_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortPrioCellOpt_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortPrioCellOpt_eq]; exact Std.ReflOrd.compare_self))
+instance : DecidableEq SortPrioCellOpt.Own := fun a b =>
+  if h : cmp_SortPrioCellOpt_Own a b = .eq then isTrue (ser_SortPrioCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortPrioCellOpt_Own_eq a b) ▸ h)))
+  else isFalse (fun e => h (by subst e; rw [cmp_SortPrioCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
 instance : DecidableEq SortSet := fun a b =>
   if h : cmp_SortSet a b = .eq then isTrue (ser_SortSet_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortSet_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortSet_eq]; exact Std.ReflOrd.compare_self))
@@ -2091,6 +3679,11 @@ instance : DecidableEq SortWorkersCellOpt.Own := fun a b =>
   if h : cmp_SortWorkersCellOpt_Own a b = .eq then isTrue (ser_SortWorkersCellOpt_Own_inj a b (Std.LawfulEqOrd.eq_of_compare ((cmp_SortWorkersCellOpt_Own_eq a b) ▸ h)))
   else isFalse (fun e => h (by subst e; rw [cmp_SortWorkersCellOpt_Own_eq]; exact Std.ReflOrd.compare_self))
 
+instance : Ord SortJidCell := ⟨cmp_SortJidCell⟩
+instance : Std.TransOrd SortJidCell := transOrd_of_cmp cmp_SortJidCell ser_SortJidCell cmp_SortJidCell_eq
+instance : Std.LawfulEqOrd SortJidCell :=
+  lawfulEqOrd_of_cmp cmp_SortJidCell ser_SortJidCell cmp_SortJidCell_eq ser_SortJidCell_inj
+
 instance : Ord SortKItem := ⟨cmp_SortKItem⟩
 instance : Std.TransOrd SortKItem := transOrd_of_cmp cmp_SortKItem ser_SortKItem cmp_SortKItem_eq
 instance : Std.LawfulEqOrd SortKItem :=
@@ -2100,6 +3693,90 @@ instance : Ord SortWidCell := ⟨cmp_SortWidCell⟩
 instance : Std.TransOrd SortWidCell := transOrd_of_cmp cmp_SortWidCell ser_SortWidCell cmp_SortWidCell_eq
 instance : Std.LawfulEqOrd SortWidCell :=
   lawfulEqOrd_of_cmp cmp_SortWidCell ser_SortWidCell cmp_SortWidCell_eq ser_SortWidCell_inj
+
+def SortJobCellMap.toList : SortJobCellMap → List (SortJidCell × SortJobCell)
+  | .nil => []
+  | .cons k v r => (k, v) :: r.toList
+def SortJobCellMap.ofList : List (SortJidCell × SortJobCell) → SortJobCellMap
+  | [] => .nil
+  | (k, v) :: r => .cons k v (ofList r)
+theorem SortJobCellMap.toList_ofList : ∀ l, SortJobCellMap.toList (SortJobCellMap.ofList l) = l
+  | [] => rfl
+  | (k, v) :: r => by simp [SortJobCellMap.ofList, SortJobCellMap.toList, SortJobCellMap.toList_ofList r]
+theorem SortJobCellMap.ofList_toList : ∀ m, SortJobCellMap.ofList (SortJobCellMap.toList m) = m
+  | .nil => rfl
+  | .cons k v r => by simp [SortJobCellMap.ofList, SortJobCellMap.toList, SortJobCellMap.ofList_toList r]
+instance : ListIso SortJobCellMap (SortJidCell × SortJobCell) := ⟨SortJobCellMap.toList, SortJobCellMap.ofList, SortJobCellMap.toList_ofList, SortJobCellMap.ofList_toList⟩
+
+def SortJobCellMap.lookupR (k : SortJidCell) : SortJobCellMap → Option SortJobCell
+  | .nil => none
+  | .cons k' v t => match compare k k' with
+    | .lt => none
+    | .eq => some v
+    | .gt => SortJobCellMap.lookupR k t
+def SortJobCellMap.insertR (k : SortJidCell) (v : SortJobCell) : SortJobCellMap → SortJobCellMap
+  | .nil => .cons k v .nil
+  | .cons k' v' t => match compare k k' with
+    | .lt => .cons k v (.cons k' v' t)
+    | .eq => .cons k v t
+    | .gt => .cons k' v' (SortJobCellMap.insertR k v t)
+def SortJobCellMap.eraseR (k : SortJidCell) : SortJobCellMap → SortJobCellMap
+  | .nil => .nil
+  | .cons k' v' t => match compare k k' with
+    | .lt => .cons k' v' t
+    | .eq => t
+    | .gt => .cons k' v' (SortJobCellMap.eraseR k t)
+def SortJobCellMap.sortedR : SortJobCellMap → Bool
+  | .nil => true
+  | .cons _ _ .nil => true
+  | .cons k₁ _ (.cons k₂ v₂ t) => compare k₁ k₂ == .lt && SortJobCellMap.sortedR (.cons k₂ v₂ t)
+theorem SortJobCellMap.lookupR_eq (k : SortJidCell) : ∀ m, SortJobCellMap.lookupR k m = SAL.lookup k m.toList
+  | .nil => rfl
+  | .cons k' v t => by
+    simp only [SortJobCellMap.lookupR, SortJobCellMap.toList, SAL.lookup, SortJobCellMap.lookupR_eq k t]
+    generalize compare k k' = o; cases o <;> rfl
+theorem SortJobCellMap.insertR_eq (k : SortJidCell) (v : SortJobCell) : ∀ m, SortJobCellMap.insertR k v m = SortJobCellMap.ofList (SAL.insert k v m.toList)
+  | .nil => rfl
+  | .cons k' v' t => by
+    simp only [SortJobCellMap.insertR, SortJobCellMap.toList, SAL.insert]
+    generalize compare k k' = o; cases o <;> simp [SortJobCellMap.ofList, SortJobCellMap.ofList_toList, SortJobCellMap.insertR_eq k v t]
+theorem SortJobCellMap.eraseR_eq (k : SortJidCell) : ∀ m, SortJobCellMap.eraseR k m = SortJobCellMap.ofList (SAL.erase k m.toList)
+  | .nil => rfl
+  | .cons k' v' t => by
+    simp only [SortJobCellMap.eraseR, SortJobCellMap.toList, SAL.erase]
+    generalize compare k k' = o; cases o <;> simp [SortJobCellMap.ofList, SortJobCellMap.ofList_toList, SortJobCellMap.eraseR_eq k t]
+theorem SortJobCellMap.sortedR_eq : ∀ m, SortJobCellMap.sortedR m = SAL.sortedAdj m.toList
+  | .nil => rfl
+  | .cons _ _ .nil => rfl
+  | .cons k₁ _ (.cons k₂ v₂ t) => by
+    simp only [SortJobCellMap.sortedR, SortJobCellMap.toList, SAL.sortedAdj, SortJobCellMap.sortedR_eq (.cons k₂ v₂ t)]
+instance : MapRepr SortJobCellMap SortJidCell SortJobCell where
+  lookupR := SortJobCellMap.lookupR
+  insertR := SortJobCellMap.insertR
+  eraseR := SortJobCellMap.eraseR
+  sortedR := SortJobCellMap.sortedR
+  lookupR_eq := SortJobCellMap.lookupR_eq
+  insertR_eq := SortJobCellMap.insertR_eq
+  eraseR_eq := SortJobCellMap.eraseR_eq
+  sortedR_eq := SortJobCellMap.sortedR_eq
+
+theorem SortJobCellMap.sizeOf_lookupR {k : SortJidCell} {v : SortJobCell} : ∀ {m : SortJobCellMap}, SortJobCellMap.lookupR k m = some v → sizeOf v < sizeOf m
+  | .nil, h => by simp [SortJobCellMap.lookupR] at h
+  | .cons k' v' t, h => by
+    unfold SortJobCellMap.lookupR at h
+    cases ho : compare k k' <;> simp only [ho] at h
+    · simp at h
+    · simp only [Option.some.injEq] at h; subst h; simp only [SortJobCellMap.cons.sizeOf_spec]; omega
+    · have := SortJobCellMap.sizeOf_lookupR h; simp only [SortJobCellMap.cons.sizeOf_spec]; omega
+theorem SortJobCellMap.sizeOf_eraseR {k : SortJidCell} {v : SortJobCell} : ∀ {m : SortJobCellMap}, SortJobCellMap.lookupR k m = some v → sizeOf (SortJobCellMap.eraseR k m) < sizeOf m
+  | .nil, h => by simp [SortJobCellMap.lookupR] at h
+  | .cons k' v' t, h => by
+    unfold SortJobCellMap.lookupR at h
+    unfold SortJobCellMap.eraseR
+    cases ho : compare k k' <;> simp only [ho] at h ⊢
+    · simp at h
+    · simp only [SortJobCellMap.cons.sizeOf_spec]; omega
+    · have := SortJobCellMap.sizeOf_eraseR h; simp only [SortJobCellMap.cons.sizeOf_spec]; omega
 
 def SortList.toList : SortList → List (SortKItem)
   | .nil => []
@@ -2352,6 +4029,84 @@ theorem inj_proj_KItem_CntCellOpt {y : SortKItem} {x : SortCntCellOpt} (h : proj
 theorem proj_eq_some_KItem_CntCellOpt {y : SortKItem} {x : SortCntCellOpt} : proj_KItem_CntCellOpt y = some x ↔ y = inj_CntCellOpt_KItem x :=
   ⟨fun h => (inj_proj_KItem_CntCellOpt h).symm, fun h => by subst h; exact proj_inj_KItem_CntCellOpt x⟩
 
+@[reducible] def inj_CtlCell_CtlCellOpt (x : SortCtlCell) : SortCtlCellOpt := SortCtlCellOpt.inj_CtlCell x
+def proj_CtlCellOpt_CtlCell : SortCtlCellOpt → Option SortCtlCell
+  | .inj_CtlCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_CtlCellOpt_CtlCell (x : SortCtlCell) : proj_CtlCellOpt_CtlCell (inj_CtlCell_CtlCellOpt x) = some x := rfl
+theorem inj_proj_CtlCellOpt_CtlCell {y : SortCtlCellOpt} {x : SortCtlCell} (h : proj_CtlCellOpt_CtlCell y = some x) : inj_CtlCell_CtlCellOpt x = y := by
+  cases y <;> simp [proj_CtlCellOpt_CtlCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_CtlCellOpt_CtlCell {y : SortCtlCellOpt} {x : SortCtlCell} : proj_CtlCellOpt_CtlCell y = some x ↔ y = inj_CtlCell_CtlCellOpt x :=
+  ⟨fun h => (inj_proj_CtlCellOpt_CtlCell h).symm, fun h => by subst h; exact proj_inj_CtlCellOpt_CtlCell x⟩
+
+@[reducible] def inj_CtlCell_KItem (x : SortCtlCell) : SortKItem := SortKItem.inj_CtlCell x
+def proj_KItem_CtlCell : SortKItem → Option SortCtlCell
+  | .inj_CtlCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_CtlCell (x : SortCtlCell) : proj_KItem_CtlCell (inj_CtlCell_KItem x) = some x := rfl
+theorem inj_proj_KItem_CtlCell {y : SortKItem} {x : SortCtlCell} (h : proj_KItem_CtlCell y = some x) : inj_CtlCell_KItem x = y := by
+  cases y <;> simp [proj_KItem_CtlCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_CtlCell {y : SortKItem} {x : SortCtlCell} : proj_KItem_CtlCell y = some x ↔ y = inj_CtlCell_KItem x :=
+  ⟨fun h => (inj_proj_KItem_CtlCell h).symm, fun h => by subst h; exact proj_inj_KItem_CtlCell x⟩
+
+@[reducible] def inj_CtlCellFragment_KItem (x : SortCtlCellFragment) : SortKItem := SortKItem.inj_CtlCellFragment x
+def proj_KItem_CtlCellFragment : SortKItem → Option SortCtlCellFragment
+  | .inj_CtlCellFragment x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_CtlCellFragment (x : SortCtlCellFragment) : proj_KItem_CtlCellFragment (inj_CtlCellFragment_KItem x) = some x := rfl
+theorem inj_proj_KItem_CtlCellFragment {y : SortKItem} {x : SortCtlCellFragment} (h : proj_KItem_CtlCellFragment y = some x) : inj_CtlCellFragment_KItem x = y := by
+  cases y <;> simp [proj_KItem_CtlCellFragment] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_CtlCellFragment {y : SortKItem} {x : SortCtlCellFragment} : proj_KItem_CtlCellFragment y = some x ↔ y = inj_CtlCellFragment_KItem x :=
+  ⟨fun h => (inj_proj_KItem_CtlCellFragment h).symm, fun h => by subst h; exact proj_inj_KItem_CtlCellFragment x⟩
+
+def inj_CtlCellOpt_KItem : SortCtlCellOpt → SortKItem
+  | .inj_CtlCell x => .inj_CtlCell x
+  | .inj_CtlCellOpt x => .inj_CtlCellOpt x
+def proj_KItem_CtlCellOpt : SortKItem → Option SortCtlCellOpt
+  | .inj_CtlCell x => some (.inj_CtlCell x)
+  | .inj_CtlCellOpt x => some (.inj_CtlCellOpt x)
+  | _ => none
+@[simp] theorem proj_inj_KItem_CtlCellOpt (x : SortCtlCellOpt) : proj_KItem_CtlCellOpt (inj_CtlCellOpt_KItem x) = some x := by
+  cases x <;> rfl
+theorem inj_proj_KItem_CtlCellOpt {y : SortKItem} {x : SortCtlCellOpt} (h : proj_KItem_CtlCellOpt y = some x) : inj_CtlCellOpt_KItem x = y := by
+  cases y <;> simp [proj_KItem_CtlCellOpt] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_CtlCellOpt {y : SortKItem} {x : SortCtlCellOpt} : proj_KItem_CtlCellOpt y = some x ↔ y = inj_CtlCellOpt_KItem x :=
+  ⟨fun h => (inj_proj_KItem_CtlCellOpt h).symm, fun h => by subst h; exact proj_inj_KItem_CtlCellOpt x⟩
+
+@[reducible] def inj_DoneCell_DoneCellOpt (x : SortDoneCell) : SortDoneCellOpt := SortDoneCellOpt.inj_DoneCell x
+def proj_DoneCellOpt_DoneCell : SortDoneCellOpt → Option SortDoneCell
+  | .inj_DoneCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_DoneCellOpt_DoneCell (x : SortDoneCell) : proj_DoneCellOpt_DoneCell (inj_DoneCell_DoneCellOpt x) = some x := rfl
+theorem inj_proj_DoneCellOpt_DoneCell {y : SortDoneCellOpt} {x : SortDoneCell} (h : proj_DoneCellOpt_DoneCell y = some x) : inj_DoneCell_DoneCellOpt x = y := by
+  cases y <;> simp [proj_DoneCellOpt_DoneCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_DoneCellOpt_DoneCell {y : SortDoneCellOpt} {x : SortDoneCell} : proj_DoneCellOpt_DoneCell y = some x ↔ y = inj_DoneCell_DoneCellOpt x :=
+  ⟨fun h => (inj_proj_DoneCellOpt_DoneCell h).symm, fun h => by subst h; exact proj_inj_DoneCellOpt_DoneCell x⟩
+
+@[reducible] def inj_DoneCell_KItem (x : SortDoneCell) : SortKItem := SortKItem.inj_DoneCell x
+def proj_KItem_DoneCell : SortKItem → Option SortDoneCell
+  | .inj_DoneCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_DoneCell (x : SortDoneCell) : proj_KItem_DoneCell (inj_DoneCell_KItem x) = some x := rfl
+theorem inj_proj_KItem_DoneCell {y : SortKItem} {x : SortDoneCell} (h : proj_KItem_DoneCell y = some x) : inj_DoneCell_KItem x = y := by
+  cases y <;> simp [proj_KItem_DoneCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_DoneCell {y : SortKItem} {x : SortDoneCell} : proj_KItem_DoneCell y = some x ↔ y = inj_DoneCell_KItem x :=
+  ⟨fun h => (inj_proj_KItem_DoneCell h).symm, fun h => by subst h; exact proj_inj_KItem_DoneCell x⟩
+
+def inj_DoneCellOpt_KItem : SortDoneCellOpt → SortKItem
+  | .inj_DoneCell x => .inj_DoneCell x
+  | .inj_DoneCellOpt x => .inj_DoneCellOpt x
+def proj_KItem_DoneCellOpt : SortKItem → Option SortDoneCellOpt
+  | .inj_DoneCell x => some (.inj_DoneCell x)
+  | .inj_DoneCellOpt x => some (.inj_DoneCellOpt x)
+  | _ => none
+@[simp] theorem proj_inj_KItem_DoneCellOpt (x : SortDoneCellOpt) : proj_KItem_DoneCellOpt (inj_DoneCellOpt_KItem x) = some x := by
+  cases x <;> rfl
+theorem inj_proj_KItem_DoneCellOpt {y : SortKItem} {x : SortDoneCellOpt} (h : proj_KItem_DoneCellOpt y = some x) : inj_DoneCellOpt_KItem x = y := by
+  cases y <;> simp [proj_KItem_DoneCellOpt] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_DoneCellOpt {y : SortKItem} {x : SortDoneCellOpt} : proj_KItem_DoneCellOpt y = some x ↔ y = inj_DoneCellOpt_KItem x :=
+  ⟨fun h => (inj_proj_KItem_DoneCellOpt h).symm, fun h => by subst h; exact proj_inj_KItem_DoneCellOpt x⟩
+
 @[reducible] def inj_GeneratedCounterCell_GeneratedCounterCellOpt (x : SortGeneratedCounterCell) : SortGeneratedCounterCellOpt := SortGeneratedCounterCellOpt.inj_GeneratedCounterCell x
 def proj_GeneratedCounterCellOpt_GeneratedCounterCell : SortGeneratedCounterCellOpt → Option SortGeneratedCounterCell
   | .inj_GeneratedCounterCell x => some x
@@ -2406,6 +4161,40 @@ theorem inj_proj_KItem_GeneratedTopCellFragment {y : SortKItem} {x : SortGenerat
 theorem proj_eq_some_KItem_GeneratedTopCellFragment {y : SortKItem} {x : SortGeneratedTopCellFragment} : proj_KItem_GeneratedTopCellFragment y = some x ↔ y = inj_GeneratedTopCellFragment_KItem x :=
   ⟨fun h => (inj_proj_KItem_GeneratedTopCellFragment h).symm, fun h => by subst h; exact proj_inj_KItem_GeneratedTopCellFragment x⟩
 
+@[reducible] def inj_HiCell_HiCellOpt (x : SortHiCell) : SortHiCellOpt := SortHiCellOpt.inj_HiCell x
+def proj_HiCellOpt_HiCell : SortHiCellOpt → Option SortHiCell
+  | .inj_HiCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_HiCellOpt_HiCell (x : SortHiCell) : proj_HiCellOpt_HiCell (inj_HiCell_HiCellOpt x) = some x := rfl
+theorem inj_proj_HiCellOpt_HiCell {y : SortHiCellOpt} {x : SortHiCell} (h : proj_HiCellOpt_HiCell y = some x) : inj_HiCell_HiCellOpt x = y := by
+  cases y <;> simp [proj_HiCellOpt_HiCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_HiCellOpt_HiCell {y : SortHiCellOpt} {x : SortHiCell} : proj_HiCellOpt_HiCell y = some x ↔ y = inj_HiCell_HiCellOpt x :=
+  ⟨fun h => (inj_proj_HiCellOpt_HiCell h).symm, fun h => by subst h; exact proj_inj_HiCellOpt_HiCell x⟩
+
+@[reducible] def inj_HiCell_KItem (x : SortHiCell) : SortKItem := SortKItem.inj_HiCell x
+def proj_KItem_HiCell : SortKItem → Option SortHiCell
+  | .inj_HiCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_HiCell (x : SortHiCell) : proj_KItem_HiCell (inj_HiCell_KItem x) = some x := rfl
+theorem inj_proj_KItem_HiCell {y : SortKItem} {x : SortHiCell} (h : proj_KItem_HiCell y = some x) : inj_HiCell_KItem x = y := by
+  cases y <;> simp [proj_KItem_HiCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_HiCell {y : SortKItem} {x : SortHiCell} : proj_KItem_HiCell y = some x ↔ y = inj_HiCell_KItem x :=
+  ⟨fun h => (inj_proj_KItem_HiCell h).symm, fun h => by subst h; exact proj_inj_KItem_HiCell x⟩
+
+def inj_HiCellOpt_KItem : SortHiCellOpt → SortKItem
+  | .inj_HiCell x => .inj_HiCell x
+  | .inj_HiCellOpt x => .inj_HiCellOpt x
+def proj_KItem_HiCellOpt : SortKItem → Option SortHiCellOpt
+  | .inj_HiCell x => some (.inj_HiCell x)
+  | .inj_HiCellOpt x => some (.inj_HiCellOpt x)
+  | _ => none
+@[simp] theorem proj_inj_KItem_HiCellOpt (x : SortHiCellOpt) : proj_KItem_HiCellOpt (inj_HiCellOpt_KItem x) = some x := by
+  cases x <;> rfl
+theorem inj_proj_KItem_HiCellOpt {y : SortKItem} {x : SortHiCellOpt} (h : proj_KItem_HiCellOpt y = some x) : inj_HiCellOpt_KItem x = y := by
+  cases y <;> simp [proj_KItem_HiCellOpt] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_HiCellOpt {y : SortKItem} {x : SortHiCellOpt} : proj_KItem_HiCellOpt y = some x ↔ y = inj_HiCellOpt_KItem x :=
+  ⟨fun h => (inj_proj_KItem_HiCellOpt h).symm, fun h => by subst h; exact proj_inj_KItem_HiCellOpt x⟩
+
 @[reducible] def inj_Int_KItem (x : SortInt) : SortKItem := SortKItem.inj_Int x
 def proj_KItem_Int : SortKItem → Option SortInt
   | .inj_Int x => some x
@@ -2415,6 +4204,114 @@ theorem inj_proj_KItem_Int {y : SortKItem} {x : SortInt} (h : proj_KItem_Int y =
   cases y <;> simp [proj_KItem_Int] at h <;> (try subst h) <;> rfl
 theorem proj_eq_some_KItem_Int {y : SortKItem} {x : SortInt} : proj_KItem_Int y = some x ↔ y = inj_Int_KItem x :=
   ⟨fun h => (inj_proj_KItem_Int h).symm, fun h => by subst h; exact proj_inj_KItem_Int x⟩
+
+@[reducible] def inj_JidCell_JidCellOpt (x : SortJidCell) : SortJidCellOpt := SortJidCellOpt.inj_JidCell x
+def proj_JidCellOpt_JidCell : SortJidCellOpt → Option SortJidCell
+  | .inj_JidCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_JidCellOpt_JidCell (x : SortJidCell) : proj_JidCellOpt_JidCell (inj_JidCell_JidCellOpt x) = some x := rfl
+theorem inj_proj_JidCellOpt_JidCell {y : SortJidCellOpt} {x : SortJidCell} (h : proj_JidCellOpt_JidCell y = some x) : inj_JidCell_JidCellOpt x = y := by
+  cases y <;> simp [proj_JidCellOpt_JidCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_JidCellOpt_JidCell {y : SortJidCellOpt} {x : SortJidCell} : proj_JidCellOpt_JidCell y = some x ↔ y = inj_JidCell_JidCellOpt x :=
+  ⟨fun h => (inj_proj_JidCellOpt_JidCell h).symm, fun h => by subst h; exact proj_inj_JidCellOpt_JidCell x⟩
+
+@[reducible] def inj_JidCell_KItem (x : SortJidCell) : SortKItem := SortKItem.inj_JidCell x
+def proj_KItem_JidCell : SortKItem → Option SortJidCell
+  | .inj_JidCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_JidCell (x : SortJidCell) : proj_KItem_JidCell (inj_JidCell_KItem x) = some x := rfl
+theorem inj_proj_KItem_JidCell {y : SortKItem} {x : SortJidCell} (h : proj_KItem_JidCell y = some x) : inj_JidCell_KItem x = y := by
+  cases y <;> simp [proj_KItem_JidCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_JidCell {y : SortKItem} {x : SortJidCell} : proj_KItem_JidCell y = some x ↔ y = inj_JidCell_KItem x :=
+  ⟨fun h => (inj_proj_KItem_JidCell h).symm, fun h => by subst h; exact proj_inj_KItem_JidCell x⟩
+
+def inj_JidCellOpt_KItem : SortJidCellOpt → SortKItem
+  | .inj_JidCell x => .inj_JidCell x
+  | .inj_JidCellOpt x => .inj_JidCellOpt x
+def proj_KItem_JidCellOpt : SortKItem → Option SortJidCellOpt
+  | .inj_JidCell x => some (.inj_JidCell x)
+  | .inj_JidCellOpt x => some (.inj_JidCellOpt x)
+  | _ => none
+@[simp] theorem proj_inj_KItem_JidCellOpt (x : SortJidCellOpt) : proj_KItem_JidCellOpt (inj_JidCellOpt_KItem x) = some x := by
+  cases x <;> rfl
+theorem inj_proj_KItem_JidCellOpt {y : SortKItem} {x : SortJidCellOpt} (h : proj_KItem_JidCellOpt y = some x) : inj_JidCellOpt_KItem x = y := by
+  cases y <;> simp [proj_KItem_JidCellOpt] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_JidCellOpt {y : SortKItem} {x : SortJidCellOpt} : proj_KItem_JidCellOpt y = some x ↔ y = inj_JidCellOpt_KItem x :=
+  ⟨fun h => (inj_proj_KItem_JidCellOpt h).symm, fun h => by subst h; exact proj_inj_KItem_JidCellOpt x⟩
+
+@[reducible] def inj_JobCell_KItem (x : SortJobCell) : SortKItem := SortKItem.inj_JobCell x
+def proj_KItem_JobCell : SortKItem → Option SortJobCell
+  | .inj_JobCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_JobCell (x : SortJobCell) : proj_KItem_JobCell (inj_JobCell_KItem x) = some x := rfl
+theorem inj_proj_KItem_JobCell {y : SortKItem} {x : SortJobCell} (h : proj_KItem_JobCell y = some x) : inj_JobCell_KItem x = y := by
+  cases y <;> simp [proj_KItem_JobCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_JobCell {y : SortKItem} {x : SortJobCell} : proj_KItem_JobCell y = some x ↔ y = inj_JobCell_KItem x :=
+  ⟨fun h => (inj_proj_KItem_JobCell h).symm, fun h => by subst h; exact proj_inj_KItem_JobCell x⟩
+
+@[reducible] def inj_JobCellFragment_KItem (x : SortJobCellFragment) : SortKItem := SortKItem.inj_JobCellFragment x
+def proj_KItem_JobCellFragment : SortKItem → Option SortJobCellFragment
+  | .inj_JobCellFragment x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_JobCellFragment (x : SortJobCellFragment) : proj_KItem_JobCellFragment (inj_JobCellFragment_KItem x) = some x := rfl
+theorem inj_proj_KItem_JobCellFragment {y : SortKItem} {x : SortJobCellFragment} (h : proj_KItem_JobCellFragment y = some x) : inj_JobCellFragment_KItem x = y := by
+  cases y <;> simp [proj_KItem_JobCellFragment] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_JobCellFragment {y : SortKItem} {x : SortJobCellFragment} : proj_KItem_JobCellFragment y = some x ↔ y = inj_JobCellFragment_KItem x :=
+  ⟨fun h => (inj_proj_KItem_JobCellFragment h).symm, fun h => by subst h; exact proj_inj_KItem_JobCellFragment x⟩
+
+@[reducible] def inj_JobCellMap_KItem (x : SortJobCellMap) : SortKItem := SortKItem.inj_JobCellMap x
+def proj_KItem_JobCellMap : SortKItem → Option SortJobCellMap
+  | .inj_JobCellMap x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_JobCellMap (x : SortJobCellMap) : proj_KItem_JobCellMap (inj_JobCellMap_KItem x) = some x := rfl
+theorem inj_proj_KItem_JobCellMap {y : SortKItem} {x : SortJobCellMap} (h : proj_KItem_JobCellMap y = some x) : inj_JobCellMap_KItem x = y := by
+  cases y <;> simp [proj_KItem_JobCellMap] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_JobCellMap {y : SortKItem} {x : SortJobCellMap} : proj_KItem_JobCellMap y = some x ↔ y = inj_JobCellMap_KItem x :=
+  ⟨fun h => (inj_proj_KItem_JobCellMap h).symm, fun h => by subst h; exact proj_inj_KItem_JobCellMap x⟩
+
+@[reducible] def inj_JobsCell_JobsCellOpt (x : SortJobsCell) : SortJobsCellOpt := SortJobsCellOpt.inj_JobsCell x
+def proj_JobsCellOpt_JobsCell : SortJobsCellOpt → Option SortJobsCell
+  | .inj_JobsCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_JobsCellOpt_JobsCell (x : SortJobsCell) : proj_JobsCellOpt_JobsCell (inj_JobsCell_JobsCellOpt x) = some x := rfl
+theorem inj_proj_JobsCellOpt_JobsCell {y : SortJobsCellOpt} {x : SortJobsCell} (h : proj_JobsCellOpt_JobsCell y = some x) : inj_JobsCell_JobsCellOpt x = y := by
+  cases y <;> simp [proj_JobsCellOpt_JobsCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_JobsCellOpt_JobsCell {y : SortJobsCellOpt} {x : SortJobsCell} : proj_JobsCellOpt_JobsCell y = some x ↔ y = inj_JobsCell_JobsCellOpt x :=
+  ⟨fun h => (inj_proj_JobsCellOpt_JobsCell h).symm, fun h => by subst h; exact proj_inj_JobsCellOpt_JobsCell x⟩
+
+@[reducible] def inj_JobsCell_KItem (x : SortJobsCell) : SortKItem := SortKItem.inj_JobsCell x
+def proj_KItem_JobsCell : SortKItem → Option SortJobsCell
+  | .inj_JobsCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_JobsCell (x : SortJobsCell) : proj_KItem_JobsCell (inj_JobsCell_KItem x) = some x := rfl
+theorem inj_proj_KItem_JobsCell {y : SortKItem} {x : SortJobsCell} (h : proj_KItem_JobsCell y = some x) : inj_JobsCell_KItem x = y := by
+  cases y <;> simp [proj_KItem_JobsCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_JobsCell {y : SortKItem} {x : SortJobsCell} : proj_KItem_JobsCell y = some x ↔ y = inj_JobsCell_KItem x :=
+  ⟨fun h => (inj_proj_KItem_JobsCell h).symm, fun h => by subst h; exact proj_inj_KItem_JobsCell x⟩
+
+@[reducible] def inj_JobsCellFragment_KItem (x : SortJobsCellFragment) : SortKItem := SortKItem.inj_JobsCellFragment x
+def proj_KItem_JobsCellFragment : SortKItem → Option SortJobsCellFragment
+  | .inj_JobsCellFragment x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_JobsCellFragment (x : SortJobsCellFragment) : proj_KItem_JobsCellFragment (inj_JobsCellFragment_KItem x) = some x := rfl
+theorem inj_proj_KItem_JobsCellFragment {y : SortKItem} {x : SortJobsCellFragment} (h : proj_KItem_JobsCellFragment y = some x) : inj_JobsCellFragment_KItem x = y := by
+  cases y <;> simp [proj_KItem_JobsCellFragment] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_JobsCellFragment {y : SortKItem} {x : SortJobsCellFragment} : proj_KItem_JobsCellFragment y = some x ↔ y = inj_JobsCellFragment_KItem x :=
+  ⟨fun h => (inj_proj_KItem_JobsCellFragment h).symm, fun h => by subst h; exact proj_inj_KItem_JobsCellFragment x⟩
+
+def inj_JobsCellOpt_KItem : SortJobsCellOpt → SortKItem
+  | .inj_JobsCell x => .inj_JobsCell x
+  | .inj_JobsCellOpt x => .inj_JobsCellOpt x
+def proj_KItem_JobsCellOpt : SortKItem → Option SortJobsCellOpt
+  | .inj_JobsCell x => some (.inj_JobsCell x)
+  | .inj_JobsCellOpt x => some (.inj_JobsCellOpt x)
+  | _ => none
+@[simp] theorem proj_inj_KItem_JobsCellOpt (x : SortJobsCellOpt) : proj_KItem_JobsCellOpt (inj_JobsCellOpt_KItem x) = some x := by
+  cases x <;> rfl
+theorem inj_proj_KItem_JobsCellOpt {y : SortKItem} {x : SortJobsCellOpt} (h : proj_KItem_JobsCellOpt y = some x) : inj_JobsCellOpt_KItem x = y := by
+  cases y <;> simp [proj_KItem_JobsCellOpt] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_JobsCellOpt {y : SortKItem} {x : SortJobsCellOpt} : proj_KItem_JobsCellOpt y = some x ↔ y = inj_JobsCellOpt_KItem x :=
+  ⟨fun h => (inj_proj_KItem_JobsCellOpt h).symm, fun h => by subst h; exact proj_inj_KItem_JobsCellOpt x⟩
 
 @[reducible] def inj_KCell_KCellOpt (x : SortKCell) : SortKCellOpt := SortKCellOpt.inj_KCell x
 def proj_KCellOpt_KCell : SortKCellOpt → Option SortKCell
@@ -2470,6 +4367,40 @@ theorem inj_proj_KItem_List {y : SortKItem} {x : SortList} (h : proj_KItem_List 
 theorem proj_eq_some_KItem_List {y : SortKItem} {x : SortList} : proj_KItem_List y = some x ↔ y = inj_List_KItem x :=
   ⟨fun h => (inj_proj_KItem_List h).symm, fun h => by subst h; exact proj_inj_KItem_List x⟩
 
+@[reducible] def inj_LoCell_KItem (x : SortLoCell) : SortKItem := SortKItem.inj_LoCell x
+def proj_KItem_LoCell : SortKItem → Option SortLoCell
+  | .inj_LoCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_LoCell (x : SortLoCell) : proj_KItem_LoCell (inj_LoCell_KItem x) = some x := rfl
+theorem inj_proj_KItem_LoCell {y : SortKItem} {x : SortLoCell} (h : proj_KItem_LoCell y = some x) : inj_LoCell_KItem x = y := by
+  cases y <;> simp [proj_KItem_LoCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_LoCell {y : SortKItem} {x : SortLoCell} : proj_KItem_LoCell y = some x ↔ y = inj_LoCell_KItem x :=
+  ⟨fun h => (inj_proj_KItem_LoCell h).symm, fun h => by subst h; exact proj_inj_KItem_LoCell x⟩
+
+@[reducible] def inj_LoCell_LoCellOpt (x : SortLoCell) : SortLoCellOpt := SortLoCellOpt.inj_LoCell x
+def proj_LoCellOpt_LoCell : SortLoCellOpt → Option SortLoCell
+  | .inj_LoCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_LoCellOpt_LoCell (x : SortLoCell) : proj_LoCellOpt_LoCell (inj_LoCell_LoCellOpt x) = some x := rfl
+theorem inj_proj_LoCellOpt_LoCell {y : SortLoCellOpt} {x : SortLoCell} (h : proj_LoCellOpt_LoCell y = some x) : inj_LoCell_LoCellOpt x = y := by
+  cases y <;> simp [proj_LoCellOpt_LoCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_LoCellOpt_LoCell {y : SortLoCellOpt} {x : SortLoCell} : proj_LoCellOpt_LoCell y = some x ↔ y = inj_LoCell_LoCellOpt x :=
+  ⟨fun h => (inj_proj_LoCellOpt_LoCell h).symm, fun h => by subst h; exact proj_inj_LoCellOpt_LoCell x⟩
+
+def inj_LoCellOpt_KItem : SortLoCellOpt → SortKItem
+  | .inj_LoCell x => .inj_LoCell x
+  | .inj_LoCellOpt x => .inj_LoCellOpt x
+def proj_KItem_LoCellOpt : SortKItem → Option SortLoCellOpt
+  | .inj_LoCell x => some (.inj_LoCell x)
+  | .inj_LoCellOpt x => some (.inj_LoCellOpt x)
+  | _ => none
+@[simp] theorem proj_inj_KItem_LoCellOpt (x : SortLoCellOpt) : proj_KItem_LoCellOpt (inj_LoCellOpt_KItem x) = some x := by
+  cases x <;> rfl
+theorem inj_proj_KItem_LoCellOpt {y : SortKItem} {x : SortLoCellOpt} (h : proj_KItem_LoCellOpt y = some x) : inj_LoCellOpt_KItem x = y := by
+  cases y <;> simp [proj_KItem_LoCellOpt] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_LoCellOpt {y : SortKItem} {x : SortLoCellOpt} : proj_KItem_LoCellOpt y = some x ↔ y = inj_LoCellOpt_KItem x :=
+  ⟨fun h => (inj_proj_KItem_LoCellOpt h).symm, fun h => by subst h; exact proj_inj_KItem_LoCellOpt x⟩
+
 @[reducible] def inj_MCell_KItem (x : SortMCell) : SortKItem := SortKItem.inj_MCell x
 def proj_KItem_MCell : SortKItem → Option SortMCell
   | .inj_MCell x => some x
@@ -2514,6 +4445,40 @@ theorem inj_proj_KItem_Map {y : SortKItem} {x : SortMap} (h : proj_KItem_Map y =
 theorem proj_eq_some_KItem_Map {y : SortKItem} {x : SortMap} : proj_KItem_Map y = some x ↔ y = inj_Map_KItem x :=
   ⟨fun h => (inj_proj_KItem_Map h).symm, fun h => by subst h; exact proj_inj_KItem_Map x⟩
 
+@[reducible] def inj_OwnerCell_KItem (x : SortOwnerCell) : SortKItem := SortKItem.inj_OwnerCell x
+def proj_KItem_OwnerCell : SortKItem → Option SortOwnerCell
+  | .inj_OwnerCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_OwnerCell (x : SortOwnerCell) : proj_KItem_OwnerCell (inj_OwnerCell_KItem x) = some x := rfl
+theorem inj_proj_KItem_OwnerCell {y : SortKItem} {x : SortOwnerCell} (h : proj_KItem_OwnerCell y = some x) : inj_OwnerCell_KItem x = y := by
+  cases y <;> simp [proj_KItem_OwnerCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_OwnerCell {y : SortKItem} {x : SortOwnerCell} : proj_KItem_OwnerCell y = some x ↔ y = inj_OwnerCell_KItem x :=
+  ⟨fun h => (inj_proj_KItem_OwnerCell h).symm, fun h => by subst h; exact proj_inj_KItem_OwnerCell x⟩
+
+@[reducible] def inj_OwnerCell_OwnerCellOpt (x : SortOwnerCell) : SortOwnerCellOpt := SortOwnerCellOpt.inj_OwnerCell x
+def proj_OwnerCellOpt_OwnerCell : SortOwnerCellOpt → Option SortOwnerCell
+  | .inj_OwnerCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_OwnerCellOpt_OwnerCell (x : SortOwnerCell) : proj_OwnerCellOpt_OwnerCell (inj_OwnerCell_OwnerCellOpt x) = some x := rfl
+theorem inj_proj_OwnerCellOpt_OwnerCell {y : SortOwnerCellOpt} {x : SortOwnerCell} (h : proj_OwnerCellOpt_OwnerCell y = some x) : inj_OwnerCell_OwnerCellOpt x = y := by
+  cases y <;> simp [proj_OwnerCellOpt_OwnerCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_OwnerCellOpt_OwnerCell {y : SortOwnerCellOpt} {x : SortOwnerCell} : proj_OwnerCellOpt_OwnerCell y = some x ↔ y = inj_OwnerCell_OwnerCellOpt x :=
+  ⟨fun h => (inj_proj_OwnerCellOpt_OwnerCell h).symm, fun h => by subst h; exact proj_inj_OwnerCellOpt_OwnerCell x⟩
+
+def inj_OwnerCellOpt_KItem : SortOwnerCellOpt → SortKItem
+  | .inj_OwnerCell x => .inj_OwnerCell x
+  | .inj_OwnerCellOpt x => .inj_OwnerCellOpt x
+def proj_KItem_OwnerCellOpt : SortKItem → Option SortOwnerCellOpt
+  | .inj_OwnerCell x => some (.inj_OwnerCell x)
+  | .inj_OwnerCellOpt x => some (.inj_OwnerCellOpt x)
+  | _ => none
+@[simp] theorem proj_inj_KItem_OwnerCellOpt (x : SortOwnerCellOpt) : proj_KItem_OwnerCellOpt (inj_OwnerCellOpt_KItem x) = some x := by
+  cases x <;> rfl
+theorem inj_proj_KItem_OwnerCellOpt {y : SortKItem} {x : SortOwnerCellOpt} (h : proj_KItem_OwnerCellOpt y = some x) : inj_OwnerCellOpt_KItem x = y := by
+  cases y <;> simp [proj_KItem_OwnerCellOpt] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_OwnerCellOpt {y : SortKItem} {x : SortOwnerCellOpt} : proj_KItem_OwnerCellOpt y = some x ↔ y = inj_OwnerCellOpt_KItem x :=
+  ⟨fun h => (inj_proj_KItem_OwnerCellOpt h).symm, fun h => by subst h; exact proj_inj_KItem_OwnerCellOpt x⟩
+
 @[reducible] def inj_Pgm_KItem (x : SortPgm) : SortKItem := SortKItem.inj_Pgm x
 def proj_KItem_Pgm : SortKItem → Option SortPgm
   | .inj_Pgm x => some x
@@ -2523,6 +4488,40 @@ theorem inj_proj_KItem_Pgm {y : SortKItem} {x : SortPgm} (h : proj_KItem_Pgm y =
   cases y <;> simp [proj_KItem_Pgm] at h <;> (try subst h) <;> rfl
 theorem proj_eq_some_KItem_Pgm {y : SortKItem} {x : SortPgm} : proj_KItem_Pgm y = some x ↔ y = inj_Pgm_KItem x :=
   ⟨fun h => (inj_proj_KItem_Pgm h).symm, fun h => by subst h; exact proj_inj_KItem_Pgm x⟩
+
+@[reducible] def inj_PrioCell_KItem (x : SortPrioCell) : SortKItem := SortKItem.inj_PrioCell x
+def proj_KItem_PrioCell : SortKItem → Option SortPrioCell
+  | .inj_PrioCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_KItem_PrioCell (x : SortPrioCell) : proj_KItem_PrioCell (inj_PrioCell_KItem x) = some x := rfl
+theorem inj_proj_KItem_PrioCell {y : SortKItem} {x : SortPrioCell} (h : proj_KItem_PrioCell y = some x) : inj_PrioCell_KItem x = y := by
+  cases y <;> simp [proj_KItem_PrioCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_PrioCell {y : SortKItem} {x : SortPrioCell} : proj_KItem_PrioCell y = some x ↔ y = inj_PrioCell_KItem x :=
+  ⟨fun h => (inj_proj_KItem_PrioCell h).symm, fun h => by subst h; exact proj_inj_KItem_PrioCell x⟩
+
+@[reducible] def inj_PrioCell_PrioCellOpt (x : SortPrioCell) : SortPrioCellOpt := SortPrioCellOpt.inj_PrioCell x
+def proj_PrioCellOpt_PrioCell : SortPrioCellOpt → Option SortPrioCell
+  | .inj_PrioCell x => some x
+  | _ => none
+@[simp] theorem proj_inj_PrioCellOpt_PrioCell (x : SortPrioCell) : proj_PrioCellOpt_PrioCell (inj_PrioCell_PrioCellOpt x) = some x := rfl
+theorem inj_proj_PrioCellOpt_PrioCell {y : SortPrioCellOpt} {x : SortPrioCell} (h : proj_PrioCellOpt_PrioCell y = some x) : inj_PrioCell_PrioCellOpt x = y := by
+  cases y <;> simp [proj_PrioCellOpt_PrioCell] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_PrioCellOpt_PrioCell {y : SortPrioCellOpt} {x : SortPrioCell} : proj_PrioCellOpt_PrioCell y = some x ↔ y = inj_PrioCell_PrioCellOpt x :=
+  ⟨fun h => (inj_proj_PrioCellOpt_PrioCell h).symm, fun h => by subst h; exact proj_inj_PrioCellOpt_PrioCell x⟩
+
+def inj_PrioCellOpt_KItem : SortPrioCellOpt → SortKItem
+  | .inj_PrioCell x => .inj_PrioCell x
+  | .inj_PrioCellOpt x => .inj_PrioCellOpt x
+def proj_KItem_PrioCellOpt : SortKItem → Option SortPrioCellOpt
+  | .inj_PrioCell x => some (.inj_PrioCell x)
+  | .inj_PrioCellOpt x => some (.inj_PrioCellOpt x)
+  | _ => none
+@[simp] theorem proj_inj_KItem_PrioCellOpt (x : SortPrioCellOpt) : proj_KItem_PrioCellOpt (inj_PrioCellOpt_KItem x) = some x := by
+  cases x <;> rfl
+theorem inj_proj_KItem_PrioCellOpt {y : SortKItem} {x : SortPrioCellOpt} (h : proj_KItem_PrioCellOpt y = some x) : inj_PrioCellOpt_KItem x = y := by
+  cases y <;> simp [proj_KItem_PrioCellOpt] at h <;> (try subst h) <;> rfl
+theorem proj_eq_some_KItem_PrioCellOpt {y : SortKItem} {x : SortPrioCellOpt} : proj_KItem_PrioCellOpt y = some x ↔ y = inj_PrioCellOpt_KItem x :=
+  ⟨fun h => (inj_proj_KItem_PrioCellOpt h).symm, fun h => by subst h; exact proj_inj_KItem_PrioCellOpt x⟩
 
 @[reducible] def inj_Set_KItem (x : SortSet) : SortKItem := SortKItem.inj_Set x
 def proj_KItem_Set : SortKItem → Option SortSet
@@ -2696,6 +4695,22 @@ def toK_SortCntCellOpt : SortCntCellOpt → String
   | .inj_CntCellOpt a0 => toK_SortCntCellOpt_Own a0
 def toK_SortCntCellOpt_Own : SortCntCellOpt.Own → String
   | .noCntCell  => "noCntCell"
+def toK_SortCtlCell : SortCtlCell → String
+  | .«<ctl>» a0 a1 => "<ctl>" ++ "(" ++ toK_SortLoCell a0 ++ ", " ++ toK_SortHiCell a1 ++ ")"
+def toK_SortCtlCellFragment : SortCtlCellFragment → String
+  | .«<ctl>-fragment» a0 a1 => "<ctl>-fragment" ++ "(" ++ toK_SortLoCellOpt a0 ++ ", " ++ toK_SortHiCellOpt a1 ++ ")"
+def toK_SortCtlCellOpt : SortCtlCellOpt → String
+  | .inj_CtlCell a0 => toK_SortCtlCell a0
+  | .inj_CtlCellOpt a0 => toK_SortCtlCellOpt_Own a0
+def toK_SortCtlCellOpt_Own : SortCtlCellOpt.Own → String
+  | .noCtlCell  => "noCtlCell"
+def toK_SortDoneCell : SortDoneCell → String
+  | .«<done>» a0 => "<done>" ++ "(" ++ toK_SortBool a0 ++ ")"
+def toK_SortDoneCellOpt : SortDoneCellOpt → String
+  | .inj_DoneCell a0 => toK_SortDoneCell a0
+  | .inj_DoneCellOpt a0 => toK_SortDoneCellOpt_Own a0
+def toK_SortDoneCellOpt_Own : SortDoneCellOpt.Own → String
+  | .noDoneCell  => "noDoneCell"
 def toK_SortGeneratedCounterCell : SortGeneratedCounterCell → String
   | .«<generatedCounter>» a0 => "<generatedCounter>" ++ "(" ++ toK_SortInt a0 ++ ")"
 def toK_SortGeneratedCounterCellOpt : SortGeneratedCounterCellOpt → String
@@ -2707,6 +4722,36 @@ def toK_SortGeneratedTopCell : SortGeneratedTopCell → String
   | .«<generatedTop>» a0 a1 => "<generatedTop>" ++ "(" ++ toK_SortTCell a0 ++ ", " ++ toK_SortGeneratedCounterCell a1 ++ ")"
 def toK_SortGeneratedTopCellFragment : SortGeneratedTopCellFragment → String
   | .«<generatedTop>-fragment» a0 a1 => "<generatedTop>-fragment" ++ "(" ++ toK_SortTCellOpt a0 ++ ", " ++ toK_SortGeneratedCounterCellOpt a1 ++ ")"
+def toK_SortHiCell : SortHiCell → String
+  | .«<hi>» a0 => "<hi>" ++ "(" ++ toK_SortInt a0 ++ ")"
+def toK_SortHiCellOpt : SortHiCellOpt → String
+  | .inj_HiCell a0 => toK_SortHiCell a0
+  | .inj_HiCellOpt a0 => toK_SortHiCellOpt_Own a0
+def toK_SortHiCellOpt_Own : SortHiCellOpt.Own → String
+  | .noHiCell  => "noHiCell"
+def toK_SortJidCell : SortJidCell → String
+  | .«<jid>» a0 => "<jid>" ++ "(" ++ toK_SortInt a0 ++ ")"
+def toK_SortJidCellOpt : SortJidCellOpt → String
+  | .inj_JidCell a0 => toK_SortJidCell a0
+  | .inj_JidCellOpt a0 => toK_SortJidCellOpt_Own a0
+def toK_SortJidCellOpt_Own : SortJidCellOpt.Own → String
+  | .noJidCell  => "noJidCell"
+def toK_SortJobCell : SortJobCell → String
+  | .«<job>» a0 a1 a2 a3 a4 => "<job>" ++ "(" ++ toK_SortJidCell a0 ++ ", " ++ toK_SortOwnerCell a1 ++ ", " ++ toK_SortPrioCell a2 ++ ", " ++ toK_SortCtlCell a3 ++ ", " ++ toK_SortDoneCell a4 ++ ")"
+def toK_SortJobCellFragment : SortJobCellFragment → String
+  | .«<job>-fragment» a0 a1 a2 a3 a4 => "<job>-fragment" ++ "(" ++ toK_SortJidCellOpt a0 ++ ", " ++ toK_SortOwnerCellOpt a1 ++ ", " ++ toK_SortPrioCellOpt a2 ++ ", " ++ toK_SortCtlCellOpt a3 ++ ", " ++ toK_SortDoneCellOpt a4 ++ ")"
+def toK_SortJobCellMap : SortJobCellMap → String
+  | .nil  => ".Map"
+  | .cons a0 a1 a2 => toK_SortJidCell a0 ++ " |-> " ++ toK_SortJobCell a1 ++ " " ++ toK_SortJobCellMap a2
+def toK_SortJobsCell : SortJobsCell → String
+  | .«<jobs>» a0 => "<jobs>" ++ "(" ++ toK_SortJobCellMap a0 ++ ")"
+def toK_SortJobsCellFragment : SortJobsCellFragment → String
+  | .«<jobs>-fragment» a0 => "<jobs>-fragment" ++ "(" ++ toK_SortJobCellMap a0 ++ ")"
+def toK_SortJobsCellOpt : SortJobsCellOpt → String
+  | .inj_JobsCell a0 => toK_SortJobsCell a0
+  | .inj_JobsCellOpt a0 => toK_SortJobsCellOpt_Own a0
+def toK_SortJobsCellOpt_Own : SortJobsCellOpt.Own → String
+  | .noJobsCell  => "noJobsCell"
 def toK_SortK : SortK → String
   | .dotk  => ".K"
   | .kseq a0 a1 => toK_SortKItem a0 ++ " ~> " ++ toK_SortK a1
@@ -2721,20 +4766,41 @@ def toK_SortKItem : SortKItem → String
   | .inj_Bool a0 => toK_SortBool a0
   | .inj_CntCell a0 => toK_SortCntCell a0
   | .inj_CntCellOpt a0 => toK_SortCntCellOpt_Own a0
+  | .inj_CtlCell a0 => toK_SortCtlCell a0
+  | .inj_CtlCellFragment a0 => toK_SortCtlCellFragment a0
+  | .inj_CtlCellOpt a0 => toK_SortCtlCellOpt_Own a0
+  | .inj_DoneCell a0 => toK_SortDoneCell a0
+  | .inj_DoneCellOpt a0 => toK_SortDoneCellOpt_Own a0
   | .inj_GeneratedCounterCell a0 => toK_SortGeneratedCounterCell a0
   | .inj_GeneratedCounterCellOpt a0 => toK_SortGeneratedCounterCellOpt_Own a0
   | .inj_GeneratedTopCell a0 => toK_SortGeneratedTopCell a0
   | .inj_GeneratedTopCellFragment a0 => toK_SortGeneratedTopCellFragment a0
+  | .inj_HiCell a0 => toK_SortHiCell a0
+  | .inj_HiCellOpt a0 => toK_SortHiCellOpt_Own a0
   | .inj_Int a0 => toK_SortInt a0
+  | .inj_JidCell a0 => toK_SortJidCell a0
+  | .inj_JidCellOpt a0 => toK_SortJidCellOpt_Own a0
+  | .inj_JobCell a0 => toK_SortJobCell a0
+  | .inj_JobCellFragment a0 => toK_SortJobCellFragment a0
+  | .inj_JobCellMap a0 => toK_SortJobCellMap a0
+  | .inj_JobsCell a0 => toK_SortJobsCell a0
+  | .inj_JobsCellFragment a0 => toK_SortJobsCellFragment a0
+  | .inj_JobsCellOpt a0 => toK_SortJobsCellOpt_Own a0
   | .inj_KCell a0 => toK_SortKCell a0
   | .inj_KCellOpt a0 => toK_SortKCellOpt_Own a0
   | .inj_KConfigVar a0 => toK_SortKConfigVar a0
   | .inj_KItem a0 => toK_SortKItem_Own a0
   | .inj_List a0 => toK_SortList a0
+  | .inj_LoCell a0 => toK_SortLoCell a0
+  | .inj_LoCellOpt a0 => toK_SortLoCellOpt_Own a0
   | .inj_MCell a0 => toK_SortMCell a0
   | .inj_MCellOpt a0 => toK_SortMCellOpt_Own a0
   | .inj_Map a0 => toK_SortMap a0
+  | .inj_OwnerCell a0 => toK_SortOwnerCell a0
+  | .inj_OwnerCellOpt a0 => toK_SortOwnerCellOpt_Own a0
   | .inj_Pgm a0 => toK_SortPgm a0
+  | .inj_PrioCell a0 => toK_SortPrioCell a0
+  | .inj_PrioCellOpt a0 => toK_SortPrioCellOpt_Own a0
   | .inj_Set a0 => toK_SortSet a0
   | .inj_TCell a0 => toK_SortTCell a0
   | .inj_TCellFragment a0 => toK_SortTCellFragment a0
@@ -2752,6 +4818,13 @@ def toK_SortKItem_Own : SortKItem.Own → String
 def toK_SortList : SortList → String
   | .nil  => ".List"
   | .cons a0 a1 => "ListItem(" ++ toK_SortKItem a0 ++ ") " ++ toK_SortList a1
+def toK_SortLoCell : SortLoCell → String
+  | .«<lo>» a0 => "<lo>" ++ "(" ++ toK_SortInt a0 ++ ")"
+def toK_SortLoCellOpt : SortLoCellOpt → String
+  | .inj_LoCell a0 => toK_SortLoCell a0
+  | .inj_LoCellOpt a0 => toK_SortLoCellOpt_Own a0
+def toK_SortLoCellOpt_Own : SortLoCellOpt.Own → String
+  | .noLoCell  => "noLoCell"
 def toK_SortMCell : SortMCell → String
   | .«<m>» a0 => "<m>" ++ "(" ++ toK_SortMap a0 ++ ")"
 def toK_SortMCellOpt : SortMCellOpt → String
@@ -2762,17 +4835,32 @@ def toK_SortMCellOpt_Own : SortMCellOpt.Own → String
 def toK_SortMap : SortMap → String
   | .nil  => ".Map"
   | .cons a0 a1 a2 => toK_SortKItem a0 ++ " |-> " ++ toK_SortKItem a1 ++ " " ++ toK_SortMap a2
+def toK_SortOwnerCell : SortOwnerCell → String
+  | .«<owner>» a0 => "<owner>" ++ "(" ++ toK_SortInt a0 ++ ")"
+def toK_SortOwnerCellOpt : SortOwnerCellOpt → String
+  | .inj_OwnerCell a0 => toK_SortOwnerCell a0
+  | .inj_OwnerCellOpt a0 => toK_SortOwnerCellOpt_Own a0
+def toK_SortOwnerCellOpt_Own : SortOwnerCellOpt.Own → String
+  | .noOwnerCell  => "noOwnerCell"
 def toK_SortPgm : SortPgm → String
   | .check  => "check_FREEKEY-SYNTAX_Pgm"
   | .go  => "go_FREEKEY-SYNTAX_Pgm"
   | .go2  => "go2_FREEKEY-SYNTAX_Pgm"
+  | .go3  => "go3_FREEKEY-SYNTAX_Pgm"
+def toK_SortPrioCell : SortPrioCell → String
+  | .«<prio>» a0 => "<prio>" ++ "(" ++ toK_SortInt a0 ++ ")"
+def toK_SortPrioCellOpt : SortPrioCellOpt → String
+  | .inj_PrioCell a0 => toK_SortPrioCell a0
+  | .inj_PrioCellOpt a0 => toK_SortPrioCellOpt_Own a0
+def toK_SortPrioCellOpt_Own : SortPrioCellOpt.Own → String
+  | .noPrioCell  => "noPrioCell"
 def toK_SortSet : SortSet → String
   | .nil  => ".Set"
   | .cons a0 a1 => "SetItem(" ++ toK_SortKItem a0 ++ ") " ++ toK_SortSet a1
 def toK_SortTCell : SortTCell → String
-  | .«<T>» a0 a1 a2 => "<T>" ++ "(" ++ toK_SortKCell a0 ++ ", " ++ toK_SortMCell a1 ++ ", " ++ toK_SortWorkersCell a2 ++ ")"
+  | .«<T>» a0 a1 a2 a3 => "<T>" ++ "(" ++ toK_SortKCell a0 ++ ", " ++ toK_SortMCell a1 ++ ", " ++ toK_SortWorkersCell a2 ++ ", " ++ toK_SortJobsCell a3 ++ ")"
 def toK_SortTCellFragment : SortTCellFragment → String
-  | .«<T>-fragment» a0 a1 a2 => "<T>-fragment" ++ "(" ++ toK_SortKCellOpt a0 ++ ", " ++ toK_SortMCellOpt a1 ++ ", " ++ toK_SortWorkersCellOpt a2 ++ ")"
+  | .«<T>-fragment» a0 a1 a2 a3 => "<T>-fragment" ++ "(" ++ toK_SortKCellOpt a0 ++ ", " ++ toK_SortMCellOpt a1 ++ ", " ++ toK_SortWorkersCellOpt a2 ++ ", " ++ toK_SortJobsCellOpt a3 ++ ")"
 def toK_SortTCellOpt : SortTCellOpt → String
   | .inj_TCell a0 => toK_SortTCell a0
   | .inj_TCellOpt a0 => toK_SortTCellOpt_Own a0

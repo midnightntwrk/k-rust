@@ -12,6 +12,7 @@ namespace FreeKey
 
 open KPrelude
 
+instance : KPrelude.MapSizeOf SortJobCellMap SortJidCell SortJobCell := ⟨SortJobCellMap.sizeOf_lookupR, SortJobCellMap.sizeOf_eraseR⟩
 instance : KPrelude.ListSizeAffine SortList SortKItem := ⟨⟨0, SortList.sizeOf_ofList_eq⟩⟩
 instance : KPrelude.MapSizeOf SortMap SortKItem SortKItem := ⟨SortMap.sizeOf_lookupR, SortMap.sizeOf_eraseR⟩
 instance : KPrelude.MapSizeOf SortWorkerCellMap SortWidCell SortWorkerCell := ⟨SortWorkerCellMap.sizeOf_lookupR, SortWorkerCellMap.sizeOf_eraseR⟩
@@ -89,6 +90,42 @@ def K.«hasNeg(_)_FREEKEY_Bool_Map» (x0 : SortMap) : SortBool :=
   | some r => r
   | none =>
     false
+
+/-! `jobsOk(_)_FREEKEY_Bool_JobsCell` (recursive) -/
+def K.«jobsOk(_)_FREEKEY_Bool_JobsCell» (x0 : SortJobsCell) : Option SortBool :=
+  let e1 : Option (Option SortBool) :=
+    match x0 with
+    | SortJobsCell.«<jobs>» m =>
+      if hu : m = KPrelude.MapHook.unit then
+        some (some true)
+      else none
+  match e1 with
+  | some r => r
+  | none =>
+    let e2 : Option (Option SortBool) :=
+      match x0 with
+      | SortJobsCell.«<jobs>» m =>
+        if hwf : KPrelude.MapHook.wfb m = true then
+          KPrelude.MapHook.chooseFirst m ((KPrelude.MapHook.wfb_iff _).1 hwf) fun k v hc =>
+            let Js := KPrelude.MapHook.remove m k
+            match hd : k with
+            | SortJidCell.«<jid>» Gen0 =>
+              match hd_1 : v with
+              | SortJobCell.«<job>» (SortJidCell.«<jid>» y) (SortOwnerCell.«<owner>» Gen1) (SortPrioCell.«<prio>» Gen2) (SortCtlCell.«<ctl>» (SortLoCell.«<lo>» L) (SortHiCell.«<hi>» H)) (SortDoneCell.«<done>» Gen3) =>
+                if heq : y = Gen0 then
+                  match hr : K.«jobsOk(_)_FREEKEY_Bool_JobsCell» (SortJobsCell.«<jobs>» Js) with
+                  | some r =>
+                    some (some (KPrelude.BoolHook.and (KPrelude.IntHook.le L H) r))
+                  | none => some none
+                else none
+        else none
+    match e2 with
+    | some r => r
+    | none =>
+      none
+decreasing_by all_goals first
+  | k2l_decreasing []
+  | (simp_wf; (try subst_vars); (try simp_all [KPrelude.IntHook.le, KPrelude.IntHook.lt, KPrelude.IntHook.add, KPrelude.IntHook.ge, KPrelude.IntHook.gt]); (try omega))
 
 /-! `takeSum(_,_)_FREEKEY_Int_Int_Map` (recursive) -/
 def K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (x0 : SortInt) (x1 : SortMap) : Option SortInt :=
@@ -324,6 +361,96 @@ every instance. -/
 theorem K.«hasNeg(_)_FREEKEY_Bool_Map».eq_of_agrees (x0 : SortMap) (h : K.«hasNeg(_)_FREEKEY_Bool_Map».Agrees x0) {v : SortBool}
     (hv : v ∈ K.«hasNeg(_)_FREEKEY_Bool_Map».instances x0) : K.«hasNeg(_)_FREEKEY_Bool_Map» x0 = v := by
   exact Option.some.inj ((K.«hasNeg(_)_FREEKEY_Bool_Map».eq_instances x0).symm.trans (KPrelude.Agree.head?_eq h hv))
+
+/-! `jobsOk(_)_FREEKEY_Bool_JobsCell`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
+/-- The matcher of equation 1 in `jobsOk(_)_FREEKEY_Bool_JobsCell`'s cascade. -/
+def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn1 (x0 : SortJobsCell) : Option (Option SortBool) :=
+  match x0 with
+  | SortJobsCell.«<jobs>» m =>
+    if hu : m = KPrelude.MapHook.unit then
+      some (some true)
+    else none
+/-- The matcher of equation 2 in `jobsOk(_)_FREEKEY_Bool_JobsCell`'s cascade. -/
+def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn2 (x0 : SortJobsCell) : Option (Option SortBool) :=
+  match x0 with
+  | SortJobsCell.«<jobs>» m =>
+    if hwf : KPrelude.MapHook.wfb m = true then
+      KPrelude.MapHook.chooseFirst m ((KPrelude.MapHook.wfb_iff _).1 hwf) fun k v hc =>
+        let Js := KPrelude.MapHook.remove m k
+        match hd : k with
+        | SortJidCell.«<jid>» Gen0 =>
+          match hd_1 : v with
+          | SortJobCell.«<job>» (SortJidCell.«<jid>» y) (SortOwnerCell.«<owner>» Gen1) (SortPrioCell.«<prio>» Gen2) (SortCtlCell.«<ctl>» (SortLoCell.«<lo>» L) (SortHiCell.«<hi>» H)) (SortDoneCell.«<done>» Gen3) =>
+            if heq : y = Gen0 then
+              match hr : K.«jobsOk(_)_FREEKEY_Bool_JobsCell» (SortJobsCell.«<jobs>» Js) with
+              | some r =>
+                some (some (KPrelude.BoolHook.and (KPrelude.IntHook.le L H) r))
+              | none => some none
+            else none
+    else none
+/-- The instances of equation 1 of `jobsOk(_)_FREEKEY_Bool_JobsCell` at the arguments. -/
+def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst1 (x0 : SortJobsCell) : List (Option SortBool) :=
+  match x0 with
+  | SortJobsCell.«<jobs>» m =>
+    if m = KPrelude.MapHook.unit then
+      [some true]
+    else []
+/-- The instances of equation 2 of `jobsOk(_)_FREEKEY_Bool_JobsCell` at the arguments. -/
+def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst2 (x0 : SortJobsCell) : List (Option SortBool) :=
+  match x0 with
+  | SortJobsCell.«<jobs>» m =>
+    if KPrelude.MapHook.wfb m = true then
+      KPrelude.MapHook.chooseAll m fun k v =>
+        let Js := KPrelude.MapHook.remove m k
+        match k with
+        | SortJidCell.«<jid>» Gen0 =>
+          match v with
+          | SortJobCell.«<job>» (SortJidCell.«<jid>» y) (SortOwnerCell.«<owner>» Gen1) (SortPrioCell.«<prio>» Gen2) (SortCtlCell.«<ctl>» (SortLoCell.«<lo>» L) (SortHiCell.«<hi>» H)) (SortDoneCell.«<done>» Gen3) =>
+            if y = Gen0 then
+              match K.«jobsOk(_)_FREEKEY_Bool_JobsCell» (SortJobsCell.«<jobs>» Js) with
+              | some r =>
+                [some (KPrelude.BoolHook.and (KPrelude.IntHook.le L H) r)]
+              | none => [none]
+            else []
+    else []
+/-- The instances of `jobsOk(_)_FREEKEY_Bool_JobsCell` at the arguments that K's axioms equate with its value: those of the
+first priority group of its equations that has one (one per matching binding of a free-key map
+pattern, in the map's order), or the value where no equation applies. -/
+def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».instances (x0 : SortJobsCell) : List (Option SortBool) :=
+  KPrelude.firstNonempty [K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst1 x0 ++ K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst2 x0]
+/-- K's axioms determine `jobsOk(_)_FREEKEY_Bool_JobsCell` at the arguments: its instances there agree. -/
+abbrev K.«jobsOk(_)_FREEKEY_Bool_JobsCell».Agrees (x0 : SortJobsCell) : Prop :=
+  KPrelude.Agree (K.«jobsOk(_)_FREEKEY_Bool_JobsCell».instances x0)
+theorem K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst1_head (x0 : SortJobsCell) :
+    (K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst1 x0).head? = K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn1 x0 := by
+  unfold K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst1 K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn1
+  k2l_inst_head
+theorem K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst2_head (x0 : SortJobsCell) :
+    (K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst2 x0).head? = K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn2 x0 := by
+  unfold K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst2 K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn2
+  k2l_inst_head
+/-- The value of `jobsOk(_)_FREEKEY_Bool_JobsCell` is its first instance (`chooseFirst`: the first matching binding in the
+map's order). -/
+theorem K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eq_instances (x0 : SortJobsCell) :
+    K.«jobsOk(_)_FREEKEY_Bool_JobsCell» x0 = (K.«jobsOk(_)_FREEKEY_Bool_JobsCell».instances x0).head?.join := by
+  rw [K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eq_def]
+  show (
+    match K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn1 x0 with
+    | some r => r
+    | none =>
+      match K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn2 x0 with
+      | some r => r
+      | none =>
+        none) = _
+  rw [← K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst1_head x0, ← K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst2_head x0]
+  unfold K.«jobsOk(_)_FREEKEY_Bool_JobsCell».instances
+  cases K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst1 x0 <;> try rfl
+  cases K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst2 x0 <;> try rfl
+/-- Where K's axioms determine `jobsOk(_)_FREEKEY_Bool_JobsCell` (its instances agree), the generated value is the value of
+every instance. -/
+theorem K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eq_of_agrees (x0 : SortJobsCell) (h : K.«jobsOk(_)_FREEKEY_Bool_JobsCell».Agrees x0) {v : Option SortBool}
+    (hv : v ∈ K.«jobsOk(_)_FREEKEY_Bool_JobsCell».instances x0) : K.«jobsOk(_)_FREEKEY_Bool_JobsCell» x0 = v := by
+  exact (K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eq_instances x0).trans (KPrelude.Agree.head?_join_eq h hv)
 
 /-! `takeSum(_,_)_FREEKEY_Int_Int_Map`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
 /-- The matcher of equation 1 in `takeSum(_,_)_FREEKEY_Int_Int_Map`'s cascade. -/
