@@ -1104,6 +1104,12 @@ fn krust_fuzz_help_reaches_krust_fuzz() {
     assert!(output.status.success(), "{stdout}{}", text(&output.stderr));
     assert!(stdout.contains("Usage: krust-fuzz"), "{stdout}");
     assert!(stdout.contains("--replay <FILE>"), "{stdout}");
+    // FZ-REPLAY-WHOLE S7: `--at any-state` says what the target matches, not "on the path of a
+    // clean end": what follows a reach does not matter.
+    assert!(
+        stdout.contains("what follows the reach") && !stdout.contains("on the path of a clean end"),
+        "{stdout}"
+    );
 }
 
 /// FZ-REPLAY-WHOLE (final review S10, N4): an unreadable parse diagnostic work limit is an
@@ -1154,6 +1160,25 @@ fn an_unreadable_parse_diagnostic_work_limit_is_refused_with_status_2() {
         .expect("krust-fuzz runs");
     let report = FuzzReport::from_json(text(&output.stdout).trim()).expect("a report");
     assert_eq!(report.identity.parse_diagnostic_work, "unlimited");
+    // Replay does not compare it (`IDENTITY_EXCLUSIONS`): it changes only the text of parse
+    // diagnostics, which no witness case holds.
+    let found = Command::new(krust_fuzz_path)
+        .current_dir(&directory)
+        .args(["--campaign", "le.toml", "--witness", "witness.json"])
+        .env("KRUST_PARSE_DIAGNOSTIC_WORK", "unlimited")
+        .env_remove(FUZZ_PARENT_BUILD_ENV)
+        .stdin(Stdio::null())
+        .output()
+        .expect("krust-fuzz runs");
+    assert_eq!(found.status.code(), Some(0), "{}", text(&found.stderr));
+    let replay = krust_fuzz(&directory, &["--replay", "witness.json"]);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{}{}",
+        text(&replay.stdout),
+        text(&replay.stderr)
+    );
 }
 
 /// Round 2, S2: every identity field the report holds is compared. A comment appended to the
