@@ -73,33 +73,8 @@ def isOneOf (t : Expr) (ts : Array Name) : MetaM Bool := do
   unless ← isFamily t do return false
   ts.anyM fun n => withNewMCtxDepth do isDefEq t (mkConst n)
 
-/-- `familyCases g x` with the hypotheses that `x`'s type does not depend on reverted into the goal
-for the split and introduced again, under their names, in each case. A case split is complete
-whatever the context; the context only lets `familyCases` refute cases (by `contradiction`, which
-tries every hypothesis, a variable of the family by a case split of its own), and on a goal of the
-family's terms that search is the cost of the split (measured on ImpTypes' progress: 255 of
-261 s of its typing splits). Every case it keeps is a case of `x`'s values. -/
-def familyCasesAlone (g : MVarId) (x : FVarId) : MetaM (Array (MVarId × Array Expr)) :=
-  g.withContext do
-    -- what `x`'s type depends on, closed under the types of those variables
-    let mut keep : FVarIdSet := (collectFVars {} (← instantiateMVars (← x.getType))).fvarSet
-    let lctx ← getLCtx
-    for d in lctx.decls.toArray.reverse do
-      let some d := d | continue
-      if keep.contains d.fvarId then
-        keep := keep.insertMany (collectFVars {} (← instantiateMVars d.type)).fvarIds
-    let mut others := #[]
-    for d in lctx do
-      unless d.isImplementationDetail || d.fvarId == x || keep.contains d.fvarId do
-        others := others.push d.fvarId
-    let (xs, g') ← g.revert others (preserveOrder := true)
-    let gs ← KPrelude.familyCases g' x
-    gs.mapM fun (sg, args) => do
-      let (_, sg') ← sg.introNP xs.size
-      return (sg', args)
-
 /-- `cases` on the variable `x` of the main goal; on the arity-indexed family, the cases of its
-sort's values only (`familyCases`, in `x`'s context alone: `familyCasesAlone`). -/
+sort's values only (`familyCases`). -/
 def casesVar (x : Expr) : TacticM Unit := do
   let g ← getMainGoal
   if ← g.withContext do isFamily (← inferType x) then
@@ -110,7 +85,7 @@ def casesVar (x : Expr) : TacticM Unit := do
       let idx' ← whnfD ty.appArg!
       if idx' == ty.appArg! then pure g
       else g.replaceLocalDeclDefEq x.fvarId! (mkApp ty.appFn! idx')
-    let gs ← familyCasesAlone g x.fvarId!
+    let gs ← KPrelude.familyCases g x.fvarId!
     replaceMainGoal (gs.map (·.1)).toList
   else
     let hx ← g.withContext (Term.exprToSyntax x)
@@ -122,7 +97,7 @@ def casesEnumFamily (x : Expr) : TacticM Unit := do
   let g ← getMainGoal
   let s ← saveState
   try
-    let gs ← familyCasesAlone g x.fvarId!
+    let gs ← KPrelude.familyCases g x.fvarId!
     if gs.all (·.2.isEmpty) then replaceMainGoal (gs.map (·.1)).toList else s.restore
   catch _ => s.restore
 
