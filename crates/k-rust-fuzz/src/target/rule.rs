@@ -45,6 +45,7 @@ const CANDIDATES: usize = 5;
 /// Entries matching one reference that carry different ids are an ambiguity; entries that carry
 /// one id are that id's entries, which `shared_identity` flags when there are several. A
 /// reference no entry matches is refused with candidates ([`UnknownRule`]).
+#[cfg(test)]
 pub(crate) fn resolve_rule(
     catalog: &[CompiledRuleOutput],
     rule: &RuleRef,

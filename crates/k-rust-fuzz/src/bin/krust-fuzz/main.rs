@@ -676,13 +676,40 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
                 println!("  engine defect: {}", defect.description);
             }
         }
+        for note in &case.notes {
+            println!("  note: {note}");
+        }
     }
+    if replay.static_differences.is_empty() {
+        println!("fields fixed before any case: reproduced");
+    } else {
+        reproduced = false;
+        println!("fields fixed before any case: not reproduced");
+        for difference in &replay.static_differences {
+            println!("  {difference}");
+        }
+    }
+    println!("{REPLAY_CERTIFIES}");
     Ok(match (reproduced, replay.mismatches.is_empty()) {
         (false, _) => NOT_FOUND,
         (true, true) => FOUND,
         (true, false) => REPRODUCED_FORCED,
     })
 }
+
+/// What a replay certifies, and what it does not (FZ-REPLAY-WHOLE fix round S-B), printed after
+/// its verdicts.
+const REPLAY_CERTIFIES: &str = concat!(
+    "a replay certifies the identity (but the fields it excludes: the proposers and their ",
+    "parameters, the budget, options.shrink, effective-constraints, parse-diagnostic-work and ",
+    "filter), every witness case whole (but repaired-from, and a comparable judgement made outside ",
+    "the determinism contract), each crash's signature, values, program, configuration variables, ",
+    "krun line and message, and the fields fixed before any case (definition-findings, ",
+    "sort-overrides, normal-end, load-records and the warnings the campaign starts with); it does ",
+    "not certify what the campaign's search recorded: the totals, the statement, the other ",
+    "warnings, incidental, client-refusals, engine-defects, crashes-omitted, and each crash's ",
+    "phase, case, count, re-runs, determinism, clock and shrunk values",
+);
 
 /// A human-readable summary of `report`; a differential witness's ends are printed as K text
 /// with `printers`, as KORE without them.

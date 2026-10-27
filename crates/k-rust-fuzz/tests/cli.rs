@@ -31,8 +31,8 @@ use k_rust_fuzz::{
     values::{Constraints, GenerationBounds},
 };
 use support::{
-    COIN, COIN_KILL, COIN_LAYOUT, Fixture, IMP, IMP_DIFF, IMP_DIV_GUARD_DROPPED, R3_PLAINQ,
-    R3_PLAINQ_M,
+    COIN, COIN_KILL, COIN_LAYOUT, Fixture, HALTCAUSE, IMP, IMP_DIFF, IMP_DIV_GUARD_DROPPED,
+    R3_PLAINQ, R3_PLAINQ_M,
 };
 
 /// `r` of `le.imp` is not 1 at a clean natural end (the anchors' `x <= y` branch is not taken),
@@ -321,6 +321,55 @@ fn a_replayed_witness_reproduces_its_class_and_final_configuration() {
         text(&replay.stderr)
     );
     assert!(stdout.contains("the halts of side 0 differ"), "{stdout}");
+
+    // FZ-REPLAY-WHOLE fix round X2: a pattern witness has a `comparable` judgement (the target
+    // kind decides it), so deleting it is a difference; a judgement that breaks its own
+    // invariant is refused; one that names a fact outside the determinism contract is not
+    // compared, and the replay says so.
+    assert!(
+        recorded["report"]["outcome"]["witness"]["first"]["comparable"].is_object(),
+        "{recorded}"
+    );
+    let judgements: [(&str, Option<serde_json::Value>, Option<i32>, &str); 3] = [
+        (
+            "deleted",
+            None,
+            Some(1),
+            "whether the run of every path is comparable differs",
+        ),
+        (
+            "forged",
+            Some(serde_json::json!({"holds": true, "reasons": ["clock"]})),
+            Some(2),
+            "`comparable` says it holds (true) while naming 1 failed condition",
+        ),
+        (
+            "outside",
+            Some(serde_json::json!({"holds": false, "reasons": ["smt-unknowns"]})),
+            Some(0),
+            "note: the `comparable` judgement was not compared",
+        ),
+    ];
+    for (name, judgement, status, said) in judgements {
+        let mut tampered = recorded.clone();
+        let witness = &mut tampered["report"]["outcome"]["witness"];
+        for case in ["first", "shrunk"] {
+            if witness[case].is_object() {
+                match &judgement {
+                    Some(judgement) => witness[case]["comparable"] = judgement.clone(),
+                    None => {
+                        witness[case].as_object_mut().unwrap().remove("comparable");
+                    }
+                }
+            }
+        }
+        let file = format!("comparable-{name}.json");
+        fs::write(directory.join(&file), tampered.to_string()).unwrap();
+        let replay = krust_fuzz(&directory, &["--replay", &file]);
+        let output = format!("{}{}", text(&replay.stdout), text(&replay.stderr));
+        assert_eq!(replay.status.code(), status, "{name}: {output}");
+        assert!(output.contains(said), "{name}: {said}: {output}");
+    }
 }
 
 /// The guide's `krust fuzz` kill: IMP's `primes` with four holes against the mutant that drops
@@ -493,11 +542,22 @@ fn a_replay_compares_the_whole_witness() {
         assert!(stdout.contains(said), "{name}: {said}: {stdout}");
     }
 
-    // The documented exclusion: the refused hit a client's filter repaired `first` from records
-    // the campaign's search, which a replay does not repeat.
+    // A repair without a witness filter is no campaign's (fix round, review N-a): refused.
     let mut tampered = recorded.clone();
     tampered["report"]["outcome"]["witness"]["repaired-from"] =
         serde_json::json!({"case": 3, "holes": [], "cause": "end-not-ascii"});
+    fs::write(directory.join("unfiltered.json"), tampered.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "unfiltered.json"]);
+    assert_eq!(replay.status.code(), Some(2), "{}", text(&replay.stderr));
+    assert!(
+        text(&replay.stderr).contains("only a filter repairs"),
+        "{}",
+        text(&replay.stderr)
+    );
+
+    // The documented exclusion: the refused hit a client's filter repaired `first` from records
+    // the campaign's search, which a replay does not repeat.
+    tampered["report"]["identity"]["filter"] = "a-filter/1".into();
     fs::write(directory.join("repaired.json"), tampered.to_string()).unwrap();
     let replay = krust_fuzz(&directory, &["--replay", "repaired.json"]);
     assert_eq!(
@@ -566,6 +626,104 @@ fn a_rule_reference_names_its_file_as_recorded_from_the_root_or_relative() {
         ("main.k:10".to_owned(), "main.k", 10),
     ] {
         assert_eq!(target(&reference), (source.to_owned(), line), "{reference}");
+    }
+}
+
+/// FZ-REPLAY-WHOLE fix round X1: a crash witness's re-entry fields (`krun-command`, `program`,
+/// `config-vars`) and its message are compared with the replayed crash's, so the review's
+/// `rm -rf /` krun line does not reproduce; a record that claims a shrunk re-run without its
+/// shrunk values is refused; the campaign's search facts (`count`, `case`, `phase`,
+/// `reproduced`) are documented as not certified, and an edit of them still replays.
+#[test]
+fn a_crash_replay_compares_the_crash_record() {
+    let campaign = "definition = \"hc-kompiled\"\nprogram = \"arity.pgm\"\nseed = 0\ncases = 4\n\n[[hole]]\nname = \"N\"\nsort = \"Int\"\nfind = \"arity(3)\"\nliteral = \"3\"\nrange = { min = 0, max = 8 }\n";
+    let directory = workspace(
+        "replay-crash",
+        &[("hc-kompiled", &HALTCAUSE)],
+        &[
+            ("arity.pgm", HALTCAUSE.program("haltcause/arity.pgm").text),
+            ("c.toml", campaign),
+        ],
+    );
+    let found = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "c.toml",
+            "--pattern",
+            "<s> 99 </s>",
+            "--witness",
+            "crash.json",
+        ],
+    );
+    assert_eq!(found.status.code(), Some(1), "{}", text(&found.stdout));
+    let recorded: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(directory.join("crash.json")).unwrap()).unwrap();
+    let crash = &recorded["report"]["crashes"][0];
+    assert!(crash["krun-command"].is_string(), "{crash}");
+    assert!(crash["shrunk-holes"].is_array(), "{crash}");
+    let replay = krust_fuzz(&directory, &["--replay", "crash.json"]);
+    assert_eq!(replay.status.code(), Some(0), "{}", text(&replay.stdout));
+    assert!(
+        text(&replay.stdout).contains("it does not certify what the campaign's search recorded"),
+        "{}",
+        text(&replay.stdout)
+    );
+    let edits: [(&str, serde_json::Value, Option<i32>, &str); 7] = [
+        (
+            "krun-command",
+            "rm -rf / # pwned".into(),
+            Some(1),
+            "crash 0 (first): not reproduced\n  the krun line (`krun-command`) differs",
+        ),
+        (
+            "program",
+            "arity(7)\n".into(),
+            Some(1),
+            "the instantiated program differs",
+        ),
+        (
+            "config-vars",
+            serde_json::json!({"$X": "rm"}),
+            Some(1),
+            "the instantiated configuration variables differ",
+        ),
+        (
+            "message",
+            "all good, nothing crashed".into(),
+            Some(1),
+            "the message differs",
+        ),
+        ("count", 999.into(), Some(0), "crash 0 (first): reproduced"),
+        (
+            "phase",
+            "shrink".into(),
+            Some(0),
+            "crash 0 (first): reproduced",
+        ),
+        (
+            "shrunk-holes",
+            serde_json::Value::Null,
+            Some(2),
+            "records a re-run of shrunk values it does not hold",
+        ),
+    ];
+    for (field, value, status, said) in edits {
+        let mut tampered = recorded.clone();
+        if value.is_null() {
+            tampered["report"]["crashes"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+        } else {
+            tampered["report"]["crashes"][0][field] = value;
+        }
+        let file = format!("{field}.json");
+        fs::write(directory.join(&file), tampered.to_string()).unwrap();
+        let replay = krust_fuzz(&directory, &["--replay", &file]);
+        let output = format!("{}{}", text(&replay.stdout), text(&replay.stderr));
+        assert_eq!(replay.status.code(), status, "{field}: {output}");
+        assert!(output.contains(said), "{field}: {said}: {output}");
     }
 }
 
@@ -682,6 +840,7 @@ fn an_identity_mismatch_is_refused_unless_forced() {
     let mut recorded: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     recorded["report"]["identity"]["k-rust-revision"] = "another-revision".into();
+    recorded["campaign"]["k-rust-revision"] = "another-revision".into();
     fs::write(&path, recorded.to_string()).unwrap();
 
     let refused = krust_fuzz(&directory, &["--replay", "witness.json"]);
@@ -718,6 +877,7 @@ fn an_identity_mismatch_is_refused_unless_forced() {
     let mut other_fuzz: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     other_fuzz["report"]["identity"]["k-rust-revision"] = k_rust::build_identity().into();
+    other_fuzz["campaign"]["k-rust-revision"] = k_rust::build_identity().into();
     other_fuzz["report"]["identity"]["fuzz-revision"] = "0.8.0+src.another".into();
     fs::write(directory.join("other-fuzz.json"), other_fuzz.to_string()).unwrap();
     let refused = krust_fuzz(&directory, &["--replay", "other-fuzz.json"]);
@@ -725,6 +885,12 @@ fn an_identity_mismatch_is_refused_unless_forced() {
     assert_eq!(refused.status.code(), Some(2), "{stderr}");
     assert!(
         stderr.contains("identity mismatch: fuzz-revision: the witness has \"0.8.0+src.another\""),
+        "{stderr}"
+    );
+    // The fix round's nit: the mismatch says a source change of k-rust-fuzz is the cause and
+    // names --force.
+    assert!(
+        stderr.contains("a comment included") && stderr.contains("pass --force"),
         "{stderr}"
     );
 
