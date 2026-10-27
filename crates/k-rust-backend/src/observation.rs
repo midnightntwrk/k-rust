@@ -20,6 +20,9 @@
 //! forward and guarded reconstruction equations, at compatible pure ranks. The existing
 //! definedness and equation machinery continues to evaluate those ordinary source axioms.
 
+pub(crate) mod maps;
+pub(crate) mod reading;
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
@@ -43,6 +46,24 @@ pub(crate) struct Selector {
 }
 
 impl Selector {
+    /// Read only the checked forward equation on an actual embedding instance.
+    pub(crate) fn value_in(&self, definition: &BackendDefinition, input: &Term) -> Option<Term> {
+        let mut value = self.value.clone();
+        while input.attributes().variables.contains(&value) {
+            value.name = format!("{}'", value.name).into();
+        }
+        let pattern = self.embed(Term::variable(value.clone()));
+        match crate::matching::match_terms_in_definition(
+            crate::matching::MatchMode::Implies,
+            definition,
+            &pattern,
+            input,
+        ) {
+            crate::matching::MatchResult::Success(bindings) => bindings.get(&value).cloned(),
+            _ => None,
+        }
+    }
+
     /// The source embedding, not an assumed direct coercion to K.
     pub(crate) fn embed(&self, value: Term) -> Term {
         let substitution = Substitution::from([(self.value.clone(), value)]);

@@ -723,6 +723,28 @@ fn ceil_term_node<'a>(
     }
 }
 
+/// A collection's own canonical obligations, without walking its strict operands again.
+/// Callers retain the operand domains separately and bound the footprint before this call.
+pub(crate) fn collection_head_domain(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Result<Vec<Predicate>, DeferredOutcome> {
+    debug_assert!(matches!(
+        term.kind(),
+        TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. }
+    ));
+    let mut before = Vec::new();
+    let after = ceil_term_node(
+        definition,
+        term,
+        AtCeilFree::Skip,
+        &mut before,
+        &mut Vec::new(),
+    )?;
+    before.extend(after);
+    Ok(before)
+}
+
 /// The definedness of `operand`, a short-circuit operand that is not evaluated: `\bottom`
 /// when builtin hooks show it undefined, otherwise the deferred atoms of its fold.
 ///
@@ -1039,6 +1061,9 @@ pub(crate) fn apply_ceil_equation(
         } else {
             vec![Predicate::False]
         });
+    }
+    if let Some(domain) = crate::observation::maps::lookup_domain(definition, term) {
+        return Some(domain);
     }
     if let Some(condition) = ceil_theory_condition(definition, term) {
         return Some(condition);

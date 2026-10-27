@@ -1127,6 +1127,7 @@ pub struct BackendDefinition {
     /// [`Self::console_reach`].
     console_reach: crate::deferred::ConsoleReach,
     pub(crate) selector_contracts: OnceLock<crate::observation::Selectors>,
+    pub(crate) map_observations: OnceLock<BTreeMap<Sort, crate::observation::maps::Operations>>,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// [`domain_kind_in`] of the sorts table at each builtin sort, in the order of
     /// `BuiltinSort::ALL`, computed once at load: [`Self::domain_kind`] answers from it for a
@@ -1933,6 +1934,7 @@ impl Drop for BackendDefinition {
             std::mem::take(&mut self.finite_sort_constructors),
             std::mem::take(&mut self.inhabited_sorts),
             std::mem::take(&mut self.selector_contracts),
+            std::mem::take(&mut self.map_observations),
         );
         // A refusal drops the parts here, on the current stack. Only a definition deeper than
         // any segment holds is refused, and only a thread with more stack than that loads one.
@@ -2770,6 +2772,7 @@ impl BackendDefinition {
             impure_symbols,
             console_reach: crate::deferred::ConsoleReach::default(),
             selector_contracts: OnceLock::new(),
+            map_observations: OnceLock::new(),
             finite_sort_constructors: BTreeMap::new(),
             builtin_domain_kinds,
             kvar_sorts: OnceLock::new(),

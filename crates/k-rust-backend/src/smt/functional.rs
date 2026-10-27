@@ -17,7 +17,7 @@ use crate::{
 pub(super) struct SharedDomains {
     values: BTreeMap<Term, SExpr>,
     active: BTreeSet<Term>,
-    bindings: Vec<(String, SExpr)>,
+    pub(super) bindings: Vec<(String, SExpr)>,
 }
 
 impl SharedDomains {
@@ -54,7 +54,9 @@ impl TranslationState {
         #[cfg(not(any(feature = "z3", test)))]
         let summary: Option<()> = None;
         let plan = self.domains.get(term).cloned();
-        if plan.is_none() && summary.is_none() {
+        let observation = self.observations.get(term).cloned();
+        let supplies_value = observation.is_some() || self.observation_demands.contains_key(term);
+        if plan.is_none() && summary.is_none() && observation.is_none() {
             return Ok(self.abstract_predicate(&original));
         }
         let scope = self
@@ -74,24 +76,30 @@ impl TranslationState {
             if let Some(reading) = summary {
                 return self.translate_summary_domain(term, &reading);
             }
-            let plan = plan.expect("a source plan or an admitted summary");
-            let mut parts = Vec::new();
-            for predicate in plan.iter() {
-                if *predicate == original {
-                    parts.push(self.translate_domain_head(term)?);
-                } else {
-                    parts.push(self.translate_predicate(predicate)?);
+            let resolved =
+                observation.is_some() || plan.as_ref().is_some_and(|p| !p.contains(&original));
+            let value = if let Some(reading) = observation {
+                self.observation_domain(term, &reading)?
+            } else {
+                let plan = plan.expect("a source plan, observation or admitted summary");
+                let mut parts = Vec::new();
+                for predicate in plan.iter() {
+                    if *predicate == original {
+                        parts.push(self.translate_domain_head(term)?);
+                    } else {
+                        parts.push(self.translate_predicate(predicate)?);
+                    }
                 }
-            }
-            let value = match parts.as_slice() {
-                [] => SExpr::atom("true"),
-                [part] => part.clone(),
-                _ => SExpr::application("and", parts),
+                match parts.as_slice() {
+                    [] => SExpr::atom("true"),
+                    [part] => part.clone(),
+                    _ => SExpr::application("and", parts),
+                }
             };
             // A source rule may decide f(0)'s domain while leaving f(X)'s unresolved.
             // Connect the decided instance to the same head UF, under the original
             // argument domains, so X=0 transports that source fact as well.
-            if !plan.contains(&original)
+            if resolved
                 && let TermKind::Application {
                     symbol, arguments, ..
                 } = term.kind()
@@ -123,15 +131,23 @@ impl TranslationState {
         let scope = self.shared_domains.as_mut().expect("active domain scope");
         scope.active.remove(term);
         let value = result?;
-        if matches!(value, SExpr::Atom(_)) {
+        let reference = if matches!(value, SExpr::Atom(_)) {
             scope.values.insert(term.clone(), value.clone());
-            return Ok(value);
+            value
+        } else {
+            let name = self.fresh_name();
+            let reference = SExpr::atom(name.clone());
+            let scope = self.shared_domains.as_mut().expect("active domain scope");
+            scope.bindings.push((name, value));
+            scope.values.insert(term.clone(), reference.clone());
+            reference
+        };
+        // A demanded observation domain also demands its guarded value equation. For
+        // example a ceil(get(put(...),q)) must transport its value through an opaque alias.
+        // Cache the domain first so the value equation can use it without recursive expansion.
+        if supplies_value {
+            self.translate_term(term)?;
         }
-        let name = self.fresh_name();
-        let reference = SExpr::atom(name.clone());
-        let scope = self.shared_domains.as_mut().expect("active domain scope");
-        scope.bindings.push((name, value));
-        scope.values.insert(term.clone(), reference.clone());
         Ok(reference)
     }
 
@@ -279,6 +295,19 @@ pub(super) fn prepare(
             }
             TermKind::Variable(_) | TermKind::DomainValue { .. } | TermKind::Injection { .. } => {
                 Vec::new()
+            }
+            TermKind::Map { entries, .. }
+                if definition.map_operations(&term.sort()).is_some()
+                    && entries.len().saturating_mul(entries.len()) <= remaining =>
+            {
+                let Ok(conditions) = crate::definedness::collection_head_domain(definition, &term)
+                else {
+                    continue;
+                };
+                if !admit_conditions(state, &conditions, &mut remaining) {
+                    continue;
+                }
+                conditions
             }
             TermKind::Application { .. }
             | TermKind::Map { .. }

@@ -2526,11 +2526,17 @@ fn subject_collection_form(
         CollectionMetadata::Map(map) => {
             hooked(subject, "MAP.update")?;
             let map_sort = Sort::simple(map.map_sort.clone());
-            let remove = declared("MAP.remove", &[map_sort, map.key_sort])?;
+            let operations = definition.map_operations(&map_sort)?;
+            if &operations.collection != map {
+                return None;
+            }
             let mut keys = Vec::new();
             let mut entries = Vec::new();
             let mut base = subject.clone();
             while let Some((_, arguments)) = hooked(&base, "MAP.update") {
+                if !operations.admits(&base, "MAP.update") {
+                    break;
+                }
                 let [inner, key, value] = arguments.as_slice() else {
                     break;
                 };
@@ -2555,9 +2561,9 @@ fn subject_collection_form(
             if entries.is_empty() {
                 return None;
             }
-            let rest = keys.into_iter().fold(base, |rest, key| {
-                Term::application(remove.clone(), Vec::new(), vec![rest, key])
-            });
+            let rest = keys
+                .into_iter()
+                .try_fold(base, |rest, key| operations.remove(definition, rest, &key))?;
             Some(Term::map(map.clone(), entries, Some(rest)))
         }
         CollectionMetadata::Set(set) => {

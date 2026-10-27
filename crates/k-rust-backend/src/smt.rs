@@ -36,6 +36,7 @@ mod z3;
 
 mod functional;
 mod literal;
+mod observation;
 #[cfg(any(feature = "z3", test))]
 mod word;
 
@@ -302,8 +303,9 @@ impl CongruenceHead {
     }
 }
 
-/// One term's lexical sharing scope. A node is translated once, and its parents refer to
-/// its let-bound value. The scope stays inside the current predicate quantifiers.
+/// A lexical value-sharing scope for a term, generated function or observation predicate.
+/// Parents refer to let-bound values; the scope stays inside the current quantifiers and
+/// outside any domain lets that read its values.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct SharedTerms {
     values: FxHashMap<Term, SExpr>,
@@ -330,6 +332,9 @@ pub struct TranslationState {
     opaque_functions: BTreeMap<CongruenceHead, String>,
     domain_functions: BTreeMap<CongruenceHead, String>,
     domains: BTreeMap<Term, Arc<[Predicate]>>,
+    observations: BTreeMap<Term, Arc<crate::observation::reading::Reading>>,
+    observation_demands: BTreeMap<Term, Vec<Term>>,
+    active_observations: BTreeSet<Term>,
     domain_facts: Vec<SExpr>,
     shared_domains: Option<functional::SharedDomains>,
     eligible_operands: FxHashMap<Term, bool>,
@@ -362,6 +367,9 @@ impl TranslationState {
             opaque_functions: BTreeMap::new(),
             domain_functions: BTreeMap::new(),
             domains: BTreeMap::new(),
+            observations: BTreeMap::new(),
+            observation_demands: BTreeMap::new(),
+            active_observations: BTreeSet::new(),
             domain_facts: Vec::new(),
             shared_domains: None,
             eligible_operands: FxHashMap::default(),
@@ -422,9 +430,9 @@ impl TranslationState {
         self.foreign_text = true;
     }
 
-    /// Share operands inside a generated function's lexical scope, preventing a small term
-    /// DAG from expanding into an exponential script. Scalar theory expressions outside
-    /// those scopes retain their previous SMT text and solver resource behavior.
+    /// Share operands in the active lexical value scope, preventing a small term DAG from
+    /// expanding into an exponential script. Observation predicates own their value scope
+    /// so that domain lets cannot outlive the values they read.
     pub fn translate_term(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         if self.congruence.is_none()
             || (self.shared_terms.is_none() && self.congruence_head(term).is_none())
@@ -463,6 +471,32 @@ impl TranslationState {
     }
 
     fn translate_term_node(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
+        let reading = self.observations.get(term).cloned();
+        let demands = self
+            .observation_demands
+            .get(term)
+            .cloned()
+            .unwrap_or_default();
+        if reading.is_some() || !demands.is_empty() {
+            if !self.active_observations.insert(term.clone()) {
+                return self.translate_term_node_plain(term);
+            }
+            let result = (|| {
+                for demand in demands {
+                    self.translate_term(&demand)?;
+                }
+                match reading {
+                    Some(reading) => self.translate_observation(term, &reading),
+                    None => self.translate_term_node_plain(term),
+                }
+            })();
+            self.active_observations.remove(term);
+            return result;
+        }
+        self.translate_term_node_plain(term)
+    }
+
+    fn translate_term_node_plain(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         #[cfg(any(feature = "z3", test))]
         if let Some(reading) = summary::reading(&self.summaries, term).cloned()
             && self.eligible_operand(term)
@@ -748,12 +782,24 @@ impl TranslationState {
         predicate: &Predicate,
     ) -> Result<SExpr, TranslationError> {
         let root = self.shared_domains.is_none();
+        // Observation value equations can derive domains while a value is translated.
+        // Give their shared values the predicate's lifetime: domain lets may read them.
+        let value_root = root && self.shared_terms.is_none() && !self.observations.is_empty();
+        if value_root {
+            self.shared_terms = Some(SharedTerms::default());
+        }
         if root {
             self.shared_domains = Some(functional::SharedDomains::default());
         }
         let result = self.translate_predicate_node(predicate);
-        if root {
+        let result = if root {
             let scope = self.shared_domains.take().expect("root domain scope");
+            result.map(|body| scope.bind(body))
+        } else {
+            result
+        };
+        if value_root {
+            let scope = self.shared_terms.take().expect("predicate value scope");
             return result.map(|body| scope.bind(body));
         }
         result
@@ -767,6 +813,30 @@ impl TranslationState {
             && let Some(value) = self.word_predicates.get(predicate)
         {
             return Ok(value.clone());
+        }
+        if let Predicate::Equals(left, right) = predicate
+            && let (
+                TermKind::Injection {
+                    source: sa,
+                    target: ta,
+                    term: a,
+                },
+                TermKind::Injection {
+                    source: sb,
+                    target: tb,
+                    term: b,
+                },
+            ) = (left.kind(), right.kind())
+            && sa == sb
+            && ta == tb
+            && self.functional_head(left).is_some()
+            && self.functional_head(right).is_some()
+        {
+            // Licensed injections are injective. This is source injection theory, not
+            // injectivity of arbitrary constructor/function UFs. Preserve model protection
+            // for the carrier that this equality no longer needs to translate.
+            self.approximate(Exactness::Approximate);
+            return self.translate_predicate(&Predicate::Equals(a.clone(), b.clone()));
         }
         match predicate {
             Predicate::True => Ok(SExpr::atom("true")),
@@ -862,8 +932,10 @@ impl TranslationState {
             .push((variable.clone(), variable_name.clone()));
         // Domain let bindings referring to this variable must stay inside its quantifier.
         let outside_domains = self.shared_domains.take();
+        let outside_values = self.shared_terms.take();
         let body = self.translate_predicate(body);
         self.shared_domains = outside_domains;
+        self.shared_terms = outside_values;
         self.bound_variables.pop();
         Ok(SExpr::List(vec![
             SExpr::atom(quantifier),
@@ -1406,16 +1478,32 @@ impl SmtPrelude {
         let mut translation = TranslationState::new();
         translation.congruence = self.congruence.clone();
         if let Some(source) = &self.source {
-            functional::prepare(
+            let observations = observation::prepare(
                 source.definition(),
                 &mut translation,
                 known,
                 substitution,
                 checked,
             )?;
-            if let Err(error) =
-                summary::prepare(source, &mut translation, known, substitution, checked)?
-            {
+            let preparation = known
+                .iter()
+                .chain(&observations)
+                .cloned()
+                .collect::<Vec<_>>();
+            functional::prepare(
+                source.definition(),
+                &mut translation,
+                &preparation,
+                substitution,
+                checked,
+            )?;
+            if let Err(error) = summary::prepare(
+                source,
+                &mut translation,
+                &preparation,
+                substitution,
+                checked,
+            )? {
                 return Ok(Err(error));
             }
         }
