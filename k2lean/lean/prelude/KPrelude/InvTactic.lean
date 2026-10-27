@@ -74,13 +74,15 @@ rule's case is an error naming it, and its rule is left open. Because `NS.r` is 
 reference to the generated `Step.Case.r`, a K edit to rule `r` changes the statement the hand
 proof must prove, and so reopens that hand case and no other.
 
-*Heartbeats.* In the `Preserved` and hand modes every rule's closers run with a fresh heartbeat
-count and the budget `k2l.preserve.maxHeartbeats` (by default `maxHeartbeats`), as
-`maxHeartbeats` bounds one per-case theorem of a kind 1 `Invariants.lean`, so a definition with
-many rules (SIMPLE's 169) does not need a larger limit per rule. The elaboration of the proof
-after the tactic counts every rule's heartbeats, so a proof with many rules sets
-`maxHeartbeats 0` and bounds the rules by `k2l.preserve.maxHeartbeats`. A closer that reaches the
-budget (a runtime exception, which `try … catch` rethrows) leaves its rule open, restored, with
+*Heartbeats.* In every mode, each rule's closers run with a fresh heartbeat count and the budget
+`k2l.preserve.maxHeartbeats` (by default `maxHeartbeats`), as `maxHeartbeats` bounds one per-case
+theorem of a kind 1 `Invariants.lean`, so a definition with many rules (SIMPLE's 169) does not
+need a larger limit per rule, and `all_goals k2l_preserve` after `apply Step.preserves_of` bounds
+each rule as the `Preserved` mode does (with the theorem's count, a rule's budget would be what the
+rules before it left). The elaboration of the proof after the tactic counts every rule's
+heartbeats, so a proof with many rules sets `maxHeartbeats 0` and bounds the rules by
+`k2l.preserve.maxHeartbeats`. A closer that reaches the budget (a runtime exception, which
+`try … catch` rethrows) leaves its rule open, restored, with
 the log line `k2l_preserve: rule r reached the heartbeat limit …`; the other rules are still
 attempted, and in the per-case mode the case is reported not closed. A per-case theorem has
 spent its whole budget by then, so its elaboration after the tactic times out too (a second
@@ -218,6 +220,18 @@ def isEnumType (ty : Expr) : MetaM Bool := do
     let some (.ctorInfo ci) := (← getEnv).find? c | return false
     if ci.numFields != 0 then return false
   return true
+
+/-- On the arity-indexed family (design.md §2.1), an enumeration sort is a family term whose value
+forms all have no arguments: the cases of `x` when that holds (`familyCases`), else none. -/
+def familyEnumCases (g : MVarId) (x : FVarId) : MetaM (Option (Array MVarId)) := do
+  let fam ← g.withContext do
+    return (← whnfR (← x.getType)).getAppFn.constName?.any (isFamilyName (← getEnv))
+  unless fam do return none
+  let s ← saveState
+  try
+    let cs ← familyCases g x
+    if cs.all (·.2.isEmpty) then return some (cs.map (·.1)) else s.restore; return none
+  catch _ => s.restore; return none
 
 /-- Split conjunctions among the hypotheses. -/
 def splitAnds : TacticM Unit := do
@@ -436,13 +450,18 @@ partial def splitLoop (simpU : TSyntax `tactic) (simpAllU : TSyntax `tactic)
         for d in (← getLCtx) do
           if d.isImplementationDetail || before.contains d.fvarId then continue
           if (← isProp d.type) then continue
-          if ← isEnumType d.type then acc := acc.push d.fvarId
+          if ← isEnumType d.type then acc := acc.push (d.fvarId, false)
+          else if (← whnfR d.type).getAppFn.constName?.any (isFamilyName (← getEnv)) then
+            acc := acc.push (d.fvarId, true)
         return acc
       let mut cur := #[g]
-      for f in enumFields do
+      for (f, fam) in enumFields do
         let mut next := #[]
         for c in cur do
-          next := next ++ (← tryRec (do return (← c.cases f).map (·.mvarId)) (pure #[c]))
+          if fam then
+            next := next ++ ((← familyEnumCases c f).getD #[c])
+          else
+            next := next ++ (← tryRec (do return (← c.cases f).map (·.mvarId)) (pure #[c]))
         cur := next
       gs' := gs' ++ cur
     let mut out := #[]
@@ -578,8 +597,9 @@ partial def closeRuleAux (k : Closers) (depth : Nat := 2) : TacticM Bool := do
 /-- `closeRuleAux`, where a closer that reaches the heartbeat limit (`maxHeartbeats`) leaves the
 goal open instead of ending the tactic: the limit is a runtime exception, which `try … catch`
 rethrows, so without this one expensive rule would end the proof of every rule after it (in
-the `Preserved` and hand modes) and turn a per-case theorem's "not closed" into a timeout. The
-goal is restored to its state on entry, as for any rule the closers do not close. -/
+the `Preserved` and hand modes, and under `all_goals` in the per-case mode) and turn a per-case
+theorem's "not closed" into a timeout. The goal is restored to its state on entry, as for any
+rule the closers do not close. -/
 def closeRule (k : Closers) : TacticM Bool := do
   let s0 ← saveState
   tryCatchRuntimeEx (closeRuleAux k) fun e => do
@@ -695,7 +715,7 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
   if let some (n, r, _) := case? then
     if handNs.isSome then
       throwError "k2l_preserve: `hand` needs the goal `Preserved S P`, not one rule's case"
-    unless ← perCase k n r g do
+    unless ← withRuleBudget (perCase k n r g) do
       logInfo m!"k2l_preserve: rule {r} not closed; the goal is its case, with the rule's variables and side conditions introduced"
     return
   -- hand mode (kind 2 invariants): `S.preserves_of`, one goal `Step.Case.r P` per rule; the

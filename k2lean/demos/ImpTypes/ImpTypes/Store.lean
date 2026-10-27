@@ -32,7 +32,7 @@ def envTy (G : TEnv) (E : KImp.SortMap) : Prop :=
 
 theorem typeOf_value (G : TEnv) (V : KImp.SortValue) :
     typeOf G (KImp.inj_Value_Expr V) = valTy (KImp.inj_Value_KItem V) := by
-  cases V <;> simp [KImp.inj_Value_Expr, KImp.inj_Value_KItem, valTy, typeOf.inj_Int, typeOf.inj_Bool]
+  k2l_cases V <;> simp [KImp.inj_Value_Expr, KImp.inj_Value_KItem, valTy, typeOf.inj_Int, typeOf.inj_Bool]
 
 namespace hand
 
@@ -51,7 +51,7 @@ theorem «CALC.var» (G : TEnv) : KImp.Step.Case.«CALC.var» (WTc envTy G) := b
     obtain ⟨v', hl, hv⟩ := he.2 X t ht
     rw [MapHook.lookup_of_concat_element hm] at hl
     obtain rfl := Option.some.inj hl
-    cases v <;> simp_all [valTy, item0_inj_Int, item0_inj_Bool, typeOf.inj_Int, typeOf.inj_Bool]
+    k2l_cases v <;> simp_all [valTy, item0_inj_Int, item0_inj_Bool, typeOf.inj_Int, typeOf.inj_Bool]
 
 /-- `CALC.assign`: `<k> X = V:Value ; => .K ...</k> <env> E => E [ X <- V ] </env>`. A well-typed
 assignment stores a value of `X`'s type at `X`; the other keys keep their values. -/
