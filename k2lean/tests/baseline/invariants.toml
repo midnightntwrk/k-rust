@@ -107,7 +107,7 @@ preserve = [{ where = "KImpTpl/Cases.lean:34", closed = 79, total = 79, open = [
 
 [demo.InvBudget]
 tier = "light"
-guarded = 6
+guarded = 7
 preserve = []
 
 [demo.SimpleEnv]
