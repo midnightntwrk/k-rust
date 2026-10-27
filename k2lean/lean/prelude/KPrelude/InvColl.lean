@@ -385,6 +385,12 @@ theorem entriesOn_mono {Q Q' : K × V → Prop} {m : M} (h : EntriesOn Q m) (hq 
 (`inKeys x S = true`, a map walk's test) needs of the map a rule leaves there. -/
 def KeysIncl (S S' : M) : Prop := ∀ x, inKeys x S = true → inKeys x S' = true
 
+/-- A key of `S` is a key of a map that has every key of `S`: a test that a value is a key of the
+referenced map (`X in_keys(S)`), carried to the map a rule leaves there. -/
+@[k2l_coll] theorem inKeys_of_keysIncl {x : K} {S S' : M} (hx : inKeys x S = true)
+    (h : KeysIncl S S') : inKeys x S' = true :=
+  h x hx
+
 /-- A map rebound at one key keeps its keys. -/
 theorem keysIncl_rebind {k : K} {v w : V} {r m m' : M} (h' : concat (element k w) r = some m)
     (h : concat (element k v) r = some m') : KeysIncl m m' :=

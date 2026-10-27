@@ -7,6 +7,7 @@ use syn::{Expr, Ident, LitBool, LitStr, Path, Token};
 
 use crate::grammar::{StructuredFormat, SyntaxTemplate};
 use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
+use crate::provenance::denoted_anchors;
 use crate::{
     ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SortArgument, SyntaxError,
     SyntaxErrorKind, TokenRange,
@@ -748,7 +749,7 @@ impl FunctionAttribute {
     /// Keys the function as a sentence of its own: its production's full
     /// view, then the totality marker, `memo`, `fresh_generator`, `hook`,
     /// the SMT translation and `underspecified`. The production is keyed
-    /// alone, which gives its compact and sort-argument views; its full view
+    /// alone, which gives its full and sort-argument views; its full view
     /// starts the function's sentence, whose keying records the keys the
     /// production's nodes hold and continues after them.
     fn rekey(&mut self) -> Result<(), SyntaxError> {
@@ -1150,13 +1151,8 @@ impl ConstructorAttribute {
     /// # Errors
     ///
     /// None: the attribute was keyed when it was parsed.
-    pub fn sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(self
-            .anchors
-            .iter()
-            .filter(|anchor| self.sort_key.as_ref() == Some(&anchor.key()))
-            .cloned()
-            .collect())
+    pub fn constructor_sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(denoted_anchors(&self.anchors, &[self.sort_key.as_ref()]))
     }
 
     /// The key of the sort path.
@@ -1210,7 +1206,8 @@ impl ConstructorAttribute {
         Ok(())
     }
 
-    /// Keys the syntax template and the metadata, after the compact catalog.
+    /// Keys the syntax template and the metadata, after the sort and the
+    /// syntax that [`Self::allocate_keys`] keys.
     fn allocate_metadata_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         self.keys.allocate_metadata(
             keys,
@@ -2323,15 +2320,18 @@ mod keyed {
 
     impl ConstructorAttribute {
         /// Records the key of the sort, the node of
-        /// [`Self::sort_provenance`].
-        pub(crate) fn keyed_sort_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+        /// [`Self::constructor_sort_provenance`].
+        pub(crate) fn keyed_constructor_sort_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
             nodes.push_tokens(self.sort_key.as_ref(), &self.sort)
         }
 
         /// Records the keys of the full view: the sort, the syntax, then the
         /// metadata.
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
-            self.keyed_sort_nodes(nodes)?;
+            self.keyed_constructor_sort_nodes(nodes)?;
             if let Some(syntax) = &self.syntax {
                 nodes.push_tokens(self.keys.syntax.as_ref(), syntax)?;
             }

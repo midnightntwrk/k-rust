@@ -753,7 +753,7 @@ fn constructor_accepts_required_sort_and_optional_template_in_any_order() {
     assert_eq!(anchors[1].role(), ProvenanceRole::ConstructorSyntax);
     // The constructor descriptor denotes the sort alone; the syntax is the
     // grammar descriptor's.
-    let sort = parsed.sort_provenance().unwrap();
+    let sort = parsed.constructor_sort_provenance().unwrap();
     assert_eq!(sort.len(), 1);
     assert_eq!(sort[0].key(), anchors[0].key());
 }

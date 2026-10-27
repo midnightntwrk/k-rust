@@ -13,14 +13,6 @@ guarded = 91
 overlaps = 0
 unwitnessed = 0
 
-[lib.kmut-ps]
-tier = "light"
-stated = 76
-open = []
-guarded = 91
-overlaps = 0
-unwitnessed = 0
-
 [demo.ImpRel]
 tier = "light"
 guarded = 13
@@ -56,7 +48,7 @@ preserve = []
 [sources.sha256]
 "demos/CellMapRel/CellMapRel/Bisim.lean" = { tier = "light", sha256 = "ff0c0367e4100fc4ecac8c16a5fecca38f0d6aaffedb3ef427beb7fb992d40fb" }
 "demos/CellMapRel/correspondence.toml" = { tier = "light", sha256 = "9d35655de40c76d9e76a185e71c9235314e068f30649518adb7f22f567c962a3" }
-"demos/ImpMut/ImpMut/Tr.lean" = { tier = "light", sha256 = "3eccd567c378d50f1ef809837f6351d519388baeb12c972c16cc7f84f8247bd5" }
+"demos/ImpMut/ImpMut/Tr.lean" = { tier = "light", sha256 = "1757080a6b195d77b68fac0cc54162522134d390355eb27ea03ec4724ca93384" }
 "demos/ImpMut/correspondence.toml" = { tier = "light", sha256 = "9dc529cbcde609dab9109f23f750bfed4acae18f51628905b4fdf5c6ee60acec" }
 "demos/ImpRel/ImpRel/Bisim.lean" = { tier = "light", sha256 = "e8ac8c9f8bfb951e539d6c7b23d6d99efb77e8a8fba0c32371ab9e989b4b9f2d" }
 "demos/ImpRel/correspondence.toml" = { tier = "light", sha256 = "3dc0d320c634fe05568a639cf181b83f224a8c2fe0f3d819f85bd34f193e6397" }
@@ -98,27 +90,6 @@ preserve = []
 "generated/cellmapb/CellMapBTest/Main.lean" = { tier = "light", sha256 = "4a0f89331bbe17b6eec0e2b4ad64aeaab0cbc37b526b1229774084fac6a0d29a" }
 "generated/cellmapb/lakefile.lean" = { tier = "light", sha256 = "5832ab78eb188dfdf756344529ce4a76a3b7fd526c405d3dd158e79a68297fb9" }
 "generated/cellmapb/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
-"generated/kmut-ps/KMut.lean" = { tier = "light", sha256 = "afa060ebbfb0c202f4ef616a3b074bcf968b41a65e99a14181a9d212a5e71b6c" }
-"generated/kmut-ps/KMut/Adequacy.lean" = { tier = "light", sha256 = "8d553abd66f3770db3fa12ca16d1e1650d9188cde0ef8659f21cd37f6e86b0d4" }
-"generated/kmut-ps/KMut/Determinism.lean" = { tier = "light", sha256 = "c5e63a08ecdd00bbfc7495dd4db2bdf89254dd43ab99b7b19d00d5644fbc7c6a" }
-"generated/kmut-ps/KMut/Determinism/L1.lean" = { tier = "light", sha256 = "70f679a973797761216bee00b887092f10335d1a69cc3fe4dccf730cf8518e7f" }
-"generated/kmut-ps/KMut/Determinism/L2.lean" = { tier = "light", sha256 = "5d0fd143a1d18c4e6012105d76714df7662d32735e6ada4dfcae99265a9e820e" }
-"generated/kmut-ps/KMut/Determinism/L3.lean" = { tier = "light", sha256 = "7121fb48630af49428653fa44d37aacfe0cf4e6dfada7b7636b2cf1ce11f2750" }
-"generated/kmut-ps/KMut/Determinism/L4.lean" = { tier = "light", sha256 = "f178e66296a48aa8f202a6cbfb3a2cb3b4a0f5c390ce40e8dc116b186ea2033f" }
-"generated/kmut-ps/KMut/Determinism/L5.lean" = { tier = "light", sha256 = "8c5e54fd682dd3fc2d696bb5b89a2e98c3e8701bff1b38b6a70c916ec2bc2782" }
-"generated/kmut-ps/KMut/Determinism/Pre.lean" = { tier = "light", sha256 = "4969b72c458b991ce4198a93dadb2f4a29effd9fca7876e9106d03e6a84b41bf" }
-"generated/kmut-ps/KMut/Equations.lean" = { tier = "light", sha256 = "2cef03931c8a1949bb08980fd92b0be82c20713c222e1ff6828684147db80bb3" }
-"generated/kmut-ps/KMut/Functions.lean" = { tier = "light", sha256 = "544df15e3bbfe1a374d143e9f56e3d410f894efb71b900e4b97a6594303ca4b3" }
-"generated/kmut-ps/KMut/Init.lean" = { tier = "light", sha256 = "e5240c2ec4dbf1562bdefc44d2292031e2e8b47fb1782e9873d06c1d9c6a10dc" }
-"generated/kmut-ps/KMut/Preserves.lean" = { tier = "light", sha256 = "8d115bd0ef83600a18095d927245f9af22b9110d9b521064a941981842da8bd7" }
-"generated/kmut-ps/KMut/Rules.lean" = { tier = "light", sha256 = "b6f29bdf50dac1a2fde1b58b12409f1de53b66921e9f55068fc899d7ac67e6ce" }
-"generated/kmut-ps/KMut/Terms.lean" = { tier = "light", sha256 = "319104b246fa7d028ee04b2744c9d76a3a3b8b5ff380ff0cfa94bb97e50f5421" }
-"generated/kmut-ps/KMutBench/Main.lean" = { tier = "light", sha256 = "770b618f381ebd3c71d2645b3473d2e0daa520ef74fcd4e4a888eeaeaa3466a2" }
-"generated/kmut-ps/KMutTest/Axioms.lean" = { tier = "light", sha256 = "db513d09d07524ead2861f53b83233e5fd7407256bf40c89b742ec9e7e923ed2" }
-"generated/kmut-ps/KMutTest/DetAxioms.lean" = { tier = "light", sha256 = "704b7f3585f13441267deb0fc75ae96530435781a238ffd43e9e98da7375d469" }
-"generated/kmut-ps/KMutTest/Main.lean" = { tier = "light", sha256 = "eb13697fbe1c0267c50a503f64dc82e73bc415251b27c4aa9c92ecf3904e27a0" }
-"generated/kmut-ps/lakefile.lean" = { tier = "light", sha256 = "d4aabb3de1c6a86df02074b5be284952a5f9ab4534bcda8c4e0adef20f167052" }
-"generated/kmut-ps/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/kmut/KMut.lean" = { tier = "light", sha256 = "afa060ebbfb0c202f4ef616a3b074bcf968b41a65e99a14181a9d212a5e71b6c" }
 "generated/kmut/KMut/Adequacy.lean" = { tier = "light", sha256 = "8d553abd66f3770db3fa12ca16d1e1650d9188cde0ef8659f21cd37f6e86b0d4" }
 "generated/kmut/KMut/Determinism.lean" = { tier = "light", sha256 = "c5e63a08ecdd00bbfc7495dd4db2bdf89254dd43ab99b7b19d00d5644fbc7c6a" }

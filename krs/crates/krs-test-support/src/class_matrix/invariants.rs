@@ -6,7 +6,7 @@
 //!    [`FORWARDED_RUSTC`], which only says that rustc reported and KRS did not;
 //! 2. with its primary range, the first error's, or one of that error's labels inside the case's
 //!    site;
-//! 3. with exactly one error;
+//! 3. with exactly one error (beside rustc's parse error at a position rustc parses, below);
 //! 4. with no error whose kind is another than author (an internal or environment code is never
 //!    the answer to an author's mistake); the kind is the one the diagnostic was reported with,
 //!    since a forwarded native code's kind depends on who wrote the sentence it names;
@@ -23,11 +23,28 @@
 //! position the entry is the spelling. A label counts as the location because a diagnostic that
 //! relates two places names both: `incompatible-binder` puts its primary at the binder's
 //! declaration, the thing most fixes change, and labels the occurrence that needs another sort.
+//!
+//! **Positions rustc parses.** At a position rustc parses as Rust before any KRS macro reads it
+//! ([`Case::rustc_parses`](super::Case::rustc_parses): a fn body an attribute macro takes, a
+//! `const` value), a construct rustc's parser refuses (`y @ P`) is reported by rustc whatever
+//! KRS does: rustc parses the item before it runs the attribute, and no token stream a macro
+//! emits removes a parse error in its own input. KRS still answers, since rustc's "expected
+//! expression, found `@`" does not say what the construct means. So a refusal there may carry
+//! rustc's parse error beside KRS's one error: an uncoded rustc error ([`FORWARDED_RUSTC`]; rustc
+//! gives its parse errors no code) inside the case's spelling, and exactly one other error, also
+//! inside the spelling. The full tier's K2 judges that other error alone
+//! ([`without_rustc_parse_error`]), by the invariants above and by the table's code and site. The
+//! rule is the slot's, not a reading of rustc's message, and no other position has it: rustc
+//! parses nothing inside a macro's own tokens (a `k::term!`, a `k::rules!` block, an attribute's
+//! arguments), and there KRS answers alone. The fast tier's front parses the whole file as Rust
+//! first, so it stops at the same parse error (`krs::expand::parse`) and never sees KRS's answer;
+//! it leaves such a case to the full tier ([`front_stops_at_rustc_parse`]).
 
+use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 
-use krs_diagnostic::codes::CodeKind;
+use krs_diagnostic::codes::{self, CodeKind};
 
 use super::Placed;
 
@@ -146,6 +163,63 @@ impl fmt::Display for Violation {
 /// The registered code under which a rustc error on generated code is forwarded: it is no KRS
 /// diagnosis of the mistake, so it does not satisfy invariant 1.
 pub const FORWARDED_RUSTC: &str = "krs::rust-expansion::uncoded-error";
+
+/// The observation K2 judges: `observed` itself, or, at a position rustc parses, `observed`
+/// without rustc's parse error, when that error (an uncoded rustc error) and exactly one other
+/// error both lie inside the case's spelling and nothing panicked (see the module documentation).
+/// A deviation's signature is still taken from `observed`, so it names both.
+#[must_use]
+pub fn without_rustc_parse_error<'o>(
+    observed: &'o Observed,
+    placed: &Placed<'_>,
+) -> Cow<'o, Observed> {
+    if !placed.case.rustc_parses || observed.panic.is_some() {
+        return Cow::Borrowed(observed);
+    }
+    let rustc_parse = |error: &ObservedDiagnostic| error.code.as_deref() == Some(FORWARDED_RUSTC);
+    let errors = observed.errors().collect::<Vec<_>>();
+    let parse = match errors.as_slice() {
+        [first, second] if rustc_parse(first) && !rustc_parse(second) => *first,
+        [first, second] if rustc_parse(second) && !rustc_parse(first) => *second,
+        _ => return Cow::Borrowed(observed),
+    };
+    if !errors.iter().all(|error| in_spelling(error, placed)) {
+        return Cow::Borrowed(observed);
+    }
+    Cow::Owned(Observed {
+        accepted: observed.accepted,
+        diagnostics: observed
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| !std::ptr::eq(*diagnostic, parse))
+            .cloned()
+            .collect(),
+        panic: None,
+    })
+}
+
+/// Whether the fast tier's front stopped, at a position rustc parses, at the parse error rustc
+/// also reports there: one error, the whole-file front's `krs::expand::parse`, inside the case's
+/// spelling. The front ran no macro, so it has not seen KRS's answer, and the full tier judges
+/// the case (see the module documentation).
+#[must_use]
+pub fn front_stops_at_rustc_parse(observed: &Observed, placed: &Placed<'_>) -> bool {
+    let errors = observed.errors().collect::<Vec<_>>();
+    let [error] = errors.as_slice() else {
+        return false;
+    };
+    placed.case.rustc_parses
+        && observed.panic.is_none()
+        && error.code.as_deref() == Some(codes::expand::PARSE.as_str())
+        && in_spelling(error, placed)
+}
+
+/// Whether `error`'s primary range lies inside the case's spelling.
+fn in_spelling(error: &ObservedDiagnostic, placed: &Placed<'_>) -> bool {
+    error.range.as_ref().is_some_and(|range| {
+        placed.spelling.start <= range.start && range.end <= placed.spelling.end
+    })
+}
 
 /// A code's kind in KRS's registry, `None` for a code the registry does not have: the `kind`
 /// that [`violations`] and [`Table::resolve`](super::table::Table::resolve) judge the real

@@ -19,11 +19,12 @@
 //!   `Stmt` constructor and an `Int` binder in the `Value`, `Stmt` and `KItem` leaves, a typed
 //!   `List` element and `Map` value, a group child, an optional cell and a collection instance,
 //!   in readable records, claims and initializers, `readable/result/typed/list/Go()`;
-//! - term positions: every `TermTree` shape and literal kind at 29 positions of 11 forms (rule
-//!   and local-rule fns, equation fns and tables, the fn shorthand, simplifications, `for Stmt`
-//!   rules, readable records and claims, initializers and constants), nesting depth 2 at one
-//!   subject position per form that has one, `terms/equation/guard/k::is!(Int, x)`;
-//! - the import axis: two bare variants at the same 29 positions under a module-level
+//! - term positions: every `TermTree` shape and literal kind at 31 positions of 12 forms (rule
+//!   and local-rule fns, `cells!` rules, equation fns and tables, the fn shorthand,
+//!   simplifications, `for Stmt` rules, readable records and claims, initializers and
+//!   constants), nesting depth 2 at one subject position per form that has one,
+//!   `terms/equation/guard/k::is!(Int, x)`, `terms/cells/result/_`;
+//! - the import axis: two bare variants at the same 31 positions under a module-level
 //!   `use Cmd::*;`, `import/table/subject/Go()`.
 //!
 //! A case's ID is spelled from its axes, as above, so the expected-outcome table ([`table`])
@@ -362,6 +363,12 @@ pub struct Case {
     pub construct: String,
     /// Whether the case shares its base's package.
     pub packaging: Packaging,
+    /// Whether rustc parses the construct's position as Rust before any KRS macro reads it: a
+    /// fn body an attribute macro takes (a `#[k::rule]`, `#[k::equation]` or
+    /// `#[k::simplification]` result, a `#[k::function]` shorthand) or a `#[k::constant]`
+    /// value. A construct rustc's parser refuses there (`y @ P`) is reported by rustc whatever
+    /// KRS does, which K2 admits ([`invariants::without_rustc_parse_error`]).
+    pub rustc_parses: bool,
     item: String,
     spelling: Range<usize>,
     entry: Range<usize>,
@@ -631,6 +638,7 @@ impl CaseSpec {
             kind: self.kind,
             construct: self.construct,
             packaging,
+            rustc_parses: false,
             item: item.text.clone(),
             spelling,
             entry,

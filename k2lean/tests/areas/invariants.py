@@ -17,6 +17,7 @@ LIBS = {
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
+    "simpleenvs": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
 }
 
 # kind 1 invariants (`DIR/NS/Invariants.lean`); krsimp's library is core's, its invariant this area's
@@ -36,6 +37,7 @@ INVS = {
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy"},
+    "simpleenvs": {"ns": "KSimpleInv", "tier": "heavy"},
 }
 
 DEMOS = {

@@ -25,7 +25,14 @@ the descriptors of the base and its own. A case is judged by
   `CodeKind`; a rustc error forwarded as `krs::rust-expansion::uncoded-error` does not count), located (its
   primary range or one of its labels) inside the site the table's rule names (the entry by default), without a panic or an internal error;
   and the table's outcome: accepted with the K the table records, or refused with the code of the
-  case's mistake class. The table covers every case: a new case needs its entry;
+  case's mistake class. The table covers every case: a new case needs its entry.
+  At a position rustc parses as Rust before any KRS macro reads it (a `#[k::rule]`,
+  `#[k::equation]` or `#[k::simplification]` result, a `#[k::function]` shorthand's body, a
+  `#[k::constant]` value; the generator marks these slots), a construct rustc's parser refuses
+  (`y @ P`) is reported by rustc whatever KRS does. There the refusal conforms with rustc's parse
+  error (an uncoded rustc error) beside KRS's one error, both inside the construct, and K2 judges
+  KRS's error alone. The front stops at the same parse error (`krs::expand::parse`) and leaves the
+  case to the full tier. No other position has this rule (`class_matrix::invariants`);
 - K1, once collected: every anchor of the case's descriptors lies inside the case's text, and no
   semantic key is found twice during lowering;
 - K3, once accepted (initializers aside): each case emits the K of every case its `same_k_as`
@@ -42,8 +49,11 @@ definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, 
 
 The `k5` shard checks `class_matrix::entry_points`: one package that uses all 53 entry points of
 `krs-macros`, and one mutation per entry point that breaks its header and keeps every dependent.
-Each mutation must give exactly one diagnostic, an error, under `krs check --message-format json`
-and under plain `cargo check`; its entry is keyed by the mutation, `entry/attribute/cell`.
+Each mutation must give exactly one diagnostic, an error, under `krs check --message-format json`,
+and exactly one error under plain `cargo check`, whose warnings are counted and not judged: a
+failed item leaves its imports unused (`unused_imports`), which no proc macro can avoid without a
+second error, and which `krs check` relays away. Its entry is keyed by the mutation,
+`entry/attribute/cell`.
 
 Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `k4`, `k5`), and choose the worker count yourself
 when the default (from the available memory, 3 GiB per worker) does not suit:

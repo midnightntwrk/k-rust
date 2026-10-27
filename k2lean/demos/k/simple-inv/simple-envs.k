@@ -4,7 +4,10 @@
 //   environment saved in `<k>`, and `return` and `throw` one saved in a stack frame.
 // - envsOk@T: the strengthening of `demos/SimpleEnv`: also the environment of every `setEnv(E)`
 //   item of every thread's `<k>`, and of every stack frame, with the frame's saved computation and
-//   control, recursively.
+//   control (whichever of its stacks the frame saved), recursively. Preserved by every rule with no
+//   hand case (the gate's heavy library `simpleenvs`, per-sort): `kIn`, `listIn`, `itemIn`, `ctlIn`
+//   read the store through its keys only, which k2lean proves from their equations (monotonicity
+//   in the store, k2lean/docs/invariants.md §3.1), so the rules that allocate keep it.
 // - envsInV@T: envsIn with each environment read through `values(E)`, a list fold, instead of a
 //   walk over the map's bindings.
 // The thread cell map and the environments are walked by a free-key pattern (`K |-> V REST`, and
@@ -53,8 +56,13 @@ module SIMPLE-ENVS
   rule itemIn((E, K, C), S) => allIn(E, S) andBool kIn(K, S) andBool ctlIn(C, S)
   rule itemIn((_, _, K, E, C), S) => allIn(E, S) andBool kIn(K, S) andBool ctlIn(C, S)
   rule itemIn(_, _) => true [owise]
+  // A frame saves the control cell without the stack it is pushed on (SIMPLE's `lambda` saves it
+  // without `<fstack>`, `try` without `<xstack>`), so each cell of the fragment may be absent.
   rule ctlIn(<control>-fragment <fstack> F </fstack> <xstack> X </xstack> </control>-fragment, S)
     => listIn(F, S) andBool listIn(X, S)
+  rule ctlIn(<control>-fragment noFstackCell <xstack> X </xstack> </control>-fragment, S) => listIn(X, S)
+  rule ctlIn(<control>-fragment <fstack> F </fstack> noXstackCell </control>-fragment, S) => listIn(F, S)
+  rule ctlIn(<control>-fragment noFstackCell noXstackCell </control>-fragment, _) => true
 
   syntax Bool ::= envsInV(TCell) [function, total]
                 | threadsInV(ThreadsCell, Map) [function, total]

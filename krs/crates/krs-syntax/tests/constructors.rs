@@ -66,7 +66,7 @@ fn constructor_provenance_keys_declaration_and_inner_field_sorts() {
             .collect::<Vec<_>>()
     };
     assert_eq!(
-        keys(&constructor.sort_provenance().unwrap()),
+        keys(&constructor.constructor_sort_provenance().unwrap()),
         keys(&anchors[1..3])
     );
 }
@@ -170,8 +170,8 @@ fn typed_collection_fields_keep_their_element_types_and_anchor_each_one() {
         [("Entry".to_owned(), true)]
     );
 
-    // The element types are numbered in preorder across the fields; the
-    // compact and full anchor catalogs, which the grammar uses, omit them.
+    // The element types are numbered in preorder across the fields, in the
+    // argument view alone: the full and constructor-sort views omit them.
     let anchors = constructor.argument_provenance().unwrap();
     assert_eq!(
         anchors

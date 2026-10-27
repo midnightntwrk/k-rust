@@ -9,8 +9,8 @@ use std::path::Path;
 use krs_diagnostic::codes::CodeKind;
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
 use krs_test_support::class_matrix::invariants::{
-    FORWARDED_RUSTC, Observed, ObservedDiagnostic, Severity, Violation, registry_kind, signature,
-    violations,
+    FORWARDED_RUSTC, Observed, ObservedDiagnostic, Severity, Violation, front_stops_at_rustc_parse,
+    registry_kind, signature, violations, without_rustc_parse_error,
 };
 use krs_test_support::class_matrix::pending::{
     Judgement, Observation, Pending, UNASSIGNED, case_of,
@@ -89,10 +89,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 16 values, the computation cell's remainder, 3 field orders and the
             // nested group's, and 8 typed cells × 4 contents.
             (Family::Init, 112 + 1 + 3 + 1 + 32),
-            // 29 term positions × 26 constructs.
-            (Family::Terms, 754),
-            // 29 term positions × 2 bare variants.
-            (Family::Import, 58),
+            // 31 term positions × 26 constructs.
+            (Family::Terms, 806),
+            // 31 term positions × 2 bare variants.
+            (Family::Import, 62),
         ])
     );
     assert!(cases.len() <= FRONT_CASE_CAP);
@@ -672,6 +672,155 @@ fn the_site_is_the_tables_and_a_forwarded_rustc_error_is_no_krs_code() {
         violations(&forwarded, &placed.entry, registry_kind),
         vec![Violation::NoRegisteredCode]
     );
+}
+
+/// The slots rustc parses as Rust before a KRS macro reads them: fn bodies an attribute macro
+/// takes, and a `const` value. Nothing inside a macro's own tokens is one.
+#[test]
+fn rustc_parses_exactly_the_fn_bodies_and_the_constant_value() {
+    let slots = class_matrix::cases()
+        .iter()
+        .filter(|case| case.rustc_parses)
+        .map(|case| {
+            let mut segments = case.id.split('/');
+            let family = segments.next().unwrap_or_default();
+            let form = segments.next().unwrap_or_default();
+            let position = segments.next().unwrap_or_default();
+            assert!(
+                matches!(case.family, Family::Terms | Family::Import),
+                "{} is no term position",
+                case.id
+            );
+            assert!(matches!(family, "terms" | "import"));
+            format!("{form}/{position}")
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        slots,
+        BTreeSet::from(
+            [
+                "constant/value",
+                "equation/result",
+                "rule/result",
+                "shorthand/result",
+                "simplification/result",
+            ]
+            .map(str::to_owned)
+        )
+    );
+}
+
+/// K2's one exception: at a position rustc parses, rustc's parse error beside KRS's one error,
+/// both inside the construct, leaves KRS's error to be judged; anywhere else, or with the errors
+/// elsewhere, the observation is judged whole.
+#[test]
+fn rustcs_parse_error_is_admitted_beside_krss_error_where_rustc_parses() {
+    let cases = class_matrix::cases();
+    let placed_case = |id: &str| {
+        cases
+            .iter()
+            .find(|case| case.id == id)
+            .unwrap_or_else(|| panic!("{id} is generated"))
+            .render()
+    };
+    let parsed = placed_case("terms/equation/result/y @ Cmd::Hold(_)");
+    let parsed = &parsed.cases[0];
+    let owned = placed_case("terms/table/result/y @ Cmd::Hold(_)");
+    let owned = &owned.cases[0];
+    let pair = |placed: &Placed<'_>, rustc_at: Range<usize>| Observed {
+        accepted: false,
+        diagnostics: vec![
+            error(
+                Some(FORWARDED_RUSTC),
+                Some(rustc_at),
+                "expected one of `)`, `,`, found `@`",
+            ),
+            error(
+                Some("krs::syntax::invalid-pattern-as"),
+                Some(placed.spelling.clone()),
+                "`@` stands only in a pattern",
+            ),
+        ],
+        panic: None,
+    };
+    let at_sign = |placed: &Placed<'_>| placed.spelling.start + 2..placed.spelling.start + 3;
+
+    let admitted = pair(parsed, at_sign(parsed));
+    let judged = without_rustc_parse_error(&admitted, parsed);
+    assert_eq!(judged.errors().count(), 1);
+    assert_eq!(
+        judged
+            .errors()
+            .next()
+            .and_then(|error| error.code.as_deref()),
+        Some("krs::syntax::invalid-pattern-as")
+    );
+    assert!(violations(&judged, &parsed.spelling, registry_kind).is_empty());
+    assert_eq!(
+        signature(&admitted, parsed),
+        "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::invalid-pattern-as @ spelling",
+        "the signature still names rustc's error"
+    );
+
+    // In a macro's own tokens rustc parses nothing: the same pair is two errors.
+    let in_macro = pair(owned, at_sign(owned));
+    assert_eq!(
+        without_rustc_parse_error(&in_macro, owned).errors().count(),
+        2
+    );
+    // rustc's error outside the construct, a second KRS error, no rustc error, or a panic:
+    // judged whole.
+    let elsewhere = pair(parsed, parsed.item.clone());
+    assert_eq!(
+        without_rustc_parse_error(&elsewhere, parsed)
+            .errors()
+            .count(),
+        2
+    );
+    let mut two_krs = pair(parsed, at_sign(parsed));
+    two_krs.diagnostics.push(error(
+        Some("krs::syntax::rust-syntax"),
+        Some(parsed.spelling.clone()),
+        "expected an expression",
+    ));
+    assert_eq!(
+        without_rustc_parse_error(&two_krs, parsed).errors().count(),
+        3
+    );
+    let mut no_rustc = pair(parsed, at_sign(parsed));
+    no_rustc.diagnostics[0].code = Some("krs::syntax::rust-syntax".to_owned());
+    assert_eq!(
+        without_rustc_parse_error(&no_rustc, parsed)
+            .errors()
+            .count(),
+        2
+    );
+    let mut panicked = pair(parsed, at_sign(parsed));
+    panicked.panic = Some("boom".to_owned());
+    assert_eq!(
+        without_rustc_parse_error(&panicked, parsed)
+            .errors()
+            .count(),
+        2
+    );
+
+    // The front stops at the same parse error there, and only there.
+    let front = Observed {
+        accepted: false,
+        diagnostics: vec![error(
+            Some("krs::expand::parse"),
+            Some(at_sign(parsed)),
+            "expected one of `)`, `,`, found `@`",
+        )],
+        panic: None,
+    };
+    assert!(front_stops_at_rustc_parse(&front, parsed));
+    let mut front_in_macro = front.clone();
+    front_in_macro.diagnostics[0].range = Some(at_sign(owned));
+    assert!(!front_stops_at_rustc_parse(&front_in_macro, owned));
+    let mut front_elsewhere = front;
+    front_elsewhere.diagnostics[0].range = Some(parsed.item.clone());
+    assert!(!front_stops_at_rustc_parse(&front_elsewhere, parsed));
 }
 
 #[test]

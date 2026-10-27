@@ -18,6 +18,15 @@ with which the expander refuses the file (`krs-gate`'s `expansion.digest`).
 These are the only pins this gate owns (`pins.toml` beside this file), and
 `--record` rewrites them after every port passed.
 
+`--macro-output-only` runs that macro-output phase alone: it checks these
+pins, or with `--record` rewrites them, and skips the emission phase entirely,
+without building `krs`. It leaves to the full run everything checked against
+the heavy gates' pins: the formatting, the `krs check` count and warnings, the
+`krs expand` digest and its compile, and the emitted artifacts. What the
+macros hand rustc does not depend on those pins, so the mode is for a run
+whose emission is red only because the heavy gates have not re-recorded their
+pins yet, as during a schema step; the full run is owed once they have.
+
 What it does not run, and why that is sound while it passes: the Rust checks
 (Clippy, tests, the MSRV check, rust-analyzer) see the macro output pinned
 here, the facade crate, and the toolchain; the native compile, the behavior
@@ -25,7 +34,7 @@ corpus, and the Java reference read the emitted artifacts, whose bytes are
 pinned, through the native code that `scripts/gates.toml` routes to the heavy
 gates. The external checkouts are inputs of those layers only.
 
-    python3 tests/ports-emit/verify.py [--record] [PORT...]
+    python3 tests/ports-emit/verify.py [--macro-output-only] [--record] [PORT...]
 """
 
 from __future__ import annotations
@@ -147,6 +156,10 @@ def main() -> int:
         help="rewrite this gate's macro-output pins; the heavy gates' pins are never recorded here",
     )
     parser.add_argument(
+        "--macro-output-only", action="store_true",
+        help="check, or with --record rewrite, only the macro output, and skip the ports' emission",
+    )
+    parser.add_argument(
         "ports", nargs="*", metavar="PORT",
         help="run only these ports (imp, kevm, kmir, kwasm); the registry entry runs all four",
     )
@@ -160,7 +173,8 @@ def main() -> int:
     if pins.get("schema") != 1:
         raise GateError("pins.toml schema differs from 1")
     environment = semantics.build_environment()
-    krs = build(environment)
+    # Only the emission phase runs `krs`.
+    krs = None if arguments.macro_output_only else build(environment)
     gate = krs_gate.build(environment=environment)
 
     with krs_gate.Session(gate, environment=environment) as session:
@@ -174,6 +188,9 @@ def main() -> int:
             files = f"{len(digests)} source file{'' if len(digests) == 1 else 's'}"
             print(f"PASS {port.label} macro output: {files}{note}", flush=True)
 
+    if krs is None:
+        pins.finish("krs-ports-emit (macro output only)")
+        return 0
     for port in selected:
         started = time.monotonic()
         with tempfile.TemporaryDirectory(prefix=f"krs-ports-emit-{port.key}-", dir=scratch_root()) as temporary:

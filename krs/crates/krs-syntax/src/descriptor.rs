@@ -15,6 +15,7 @@ use krs_ir::ProvenanceKey;
 use syn::Ident;
 
 use crate::parse::KeyAllocator;
+use crate::provenance::denoted_anchors;
 use crate::{
     BracketAttribute, ClaimAttribute, ConfigurationAttribute, ConfigurationDeclaration,
     ConstructorAttribute, ConstructorDeclaration, ConstructorField, ContextAliasAttribute,
@@ -382,8 +383,8 @@ impl ProductionItem<'_> {
     pub fn constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let production = self.attribute.production();
         let mut keys = KeyAllocator::default();
-        keys.append(&production.sort_provenance()?)?;
-        keys.append(&self.declaration.sort_provenance()?)?;
+        keys.append(&production.constructor_sort_provenance()?)?;
+        keys.append(&self.declaration.constructor_sort_provenance()?)?;
         keys.append(&production.sort_argument_provenance()?)?;
         keys.append(&self.declaration.argument_provenance()?)?;
         if let Some(symbol) = self.symbol {
@@ -498,16 +499,9 @@ impl EnumConstructorVariant {
             .chain(std::iter::once(
                 self.explicit_symbol().and_then(SymbolAttribute::key),
             ))
-            .flatten()
             .collect::<Vec<_>>();
         let mut keys = KeyAllocator::default();
-        keys.append(
-            &self
-                .provenance()?
-                .into_iter()
-                .filter(|anchor| denoted.contains(&&anchor.key()))
-                .collect::<Vec<_>>(),
-        )?;
+        keys.append(&denoted_anchors(&self.provenance()?, &denoted))?;
         keys.append(&self.argument_provenance()?)?;
         Ok(keys.into_anchors())
     }

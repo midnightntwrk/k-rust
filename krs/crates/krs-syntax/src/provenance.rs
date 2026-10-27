@@ -55,3 +55,17 @@ impl ProvenanceAnchor {
         self.role.key(self.ordinal)
     }
 }
+
+/// The anchors of `anchors` whose key is one of `denoted`, in their order:
+/// the share of a piece's anchors that one of its descriptors denotes. An
+/// absent key denotes nothing.
+pub(crate) fn denoted_anchors(
+    anchors: &[ProvenanceAnchor],
+    denoted: &[Option<&ProvenanceKey>],
+) -> Vec<ProvenanceAnchor> {
+    anchors
+        .iter()
+        .filter(|anchor| denoted.contains(&Some(&anchor.key())))
+        .cloned()
+        .collect()
+}

@@ -48,7 +48,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use krs_compiler::testing::SortJudges;
-use krs_test_support::class_matrix::invariants::{registry_kind, signature, violations};
+use krs_test_support::class_matrix::invariants::{
+    Observed, registry_kind, signature, violations, without_rustc_parse_error,
+};
 use krs_test_support::class_matrix::pending::{
     CLOSURE, FULL, Judgement, KEYS, LATTICE, Observation, Pending, case_of,
 };
@@ -193,11 +195,10 @@ fn selected(families: &[Family]) -> Vec<&'static Case> {
 /// the case's K once accepted; the record mode, which rewrites the table's K, leaves it out.
 fn table_miss(
     expected: &Expected<'_>,
-    judged: &Judged,
+    observed: &Observed,
     placed: &Placed<'_>,
     k: Option<&str>,
 ) -> Option<String> {
-    let observed = &judged.observed;
     match expected {
         Expected::Accept(_) if observed.refused() => Some("the table accepts the case".to_owned()),
         Expected::Accept(accepted) => match (accepted.k.as_deref(), k) {
@@ -364,7 +365,9 @@ impl Shard {
 }
 
 /// K2: the table-free invariants, and the table where it covers the case. `k` is the case's K
-/// for the table's comparison, `None` in the record mode.
+/// for the table's comparison, `None` in the record mode. At a position rustc parses, rustc's
+/// parse error beside KRS's one error at the same spelling is left out of the judgement
+/// ([`without_rustc_parse_error`]), not out of the signature.
 fn k2(
     shard: &mut Shard,
     resolution: &Resolution<'_>,
@@ -375,12 +378,13 @@ fn k2(
     let placed = judged.placed(case);
     let covered = resolution.expected.get(&judged.id);
     let site = covered.map_or(&placed.entry, |expected| expected.site(&placed));
-    let mut misses = violations(&judged.observed, site, registry_kind)
+    let observed = without_rustc_parse_error(&judged.observed, &placed);
+    let mut misses = violations(&observed, site, registry_kind)
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     if let Some(expected) = covered {
-        misses.extend(table_miss(expected, judged, &placed, k));
+        misses.extend(table_miss(expected, &observed, &placed, k));
     }
     let messages = judged
         .observed
@@ -804,11 +808,14 @@ fn k5() {
     let mut one = [0, 0];
     for checked in &checked {
         one[0] += usize::from(checked.krs.errors.len() == 1 && checked.krs.warnings.is_empty());
-        one[1] += usize::from(checked.cargo.errors.len() == 1 && checked.cargo.warnings.is_empty());
+        one[1] += usize::from(checked.cargo.errors.len() == 1);
         let misses = if checked.conforms() {
             Vec::new()
         } else {
-            vec!["more or fewer than one diagnostic".to_owned()]
+            vec![
+                "more or fewer than one diagnostic under krs check, or one error under cargo check"
+                    .to_owned(),
+            ]
         };
         shard.add("k5", &checked.id, checked.signature(), misses);
     }
@@ -833,7 +840,7 @@ fn k5() {
     }
     let tally = spec.pending.tally(red.iter().map(String::as_str));
     eprintln!(
-        "[krs-class] k5: {} entry points in {:.1} s; one diagnostic under krs check {}, under cargo check {}; red {} (by finding {:?}; by step {:?})",
+        "[krs-class] k5: {} entry points in {:.1} s; one diagnostic under krs check {}, one error under cargo check {}; red {} (by finding {:?}; by step {:?})",
         checked.len(),
         started.elapsed().as_secs_f64(),
         one[0],

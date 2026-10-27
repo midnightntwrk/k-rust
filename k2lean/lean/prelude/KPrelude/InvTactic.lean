@@ -237,6 +237,31 @@ def familyEnumCases (g : MVarId) (x : FVarId) : MetaM (Option (Array MVarId)) :=
     if cs.all (·.2.isEmpty) then return some (cs.map (·.1)) else s.restore; return none
   catch _ => s.restore; return none
 
+/-- Case each variable whose type has one constructor and no indices (a K cell sort, on the
+per-sort encoding): the variable is that constructor applied to fresh variables, so the split is
+complete, and the rule's terms then show the cell's content, which equations matching inside the
+cell need (SIMPLE's frames save a `<control>` fragment whose `<xstack>` is a rule variable). -/
+def casesCells : TacticM Unit := do
+  for _ in [0:64] do
+    let g ← getMainGoal
+    let x? ← g.withContext do
+      for d in (← getLCtx) do
+        if d.isImplementationDetail then continue
+        let ty ← whnfR (← instantiateMVars d.type)
+        let .const n _ := ty.getAppFn | continue
+        let some (.inductInfo info) := (← getEnv).find? n | continue
+        if info.numIndices != 0 || info.ctors.length != 1 then continue
+        -- not a type whose constructor holds a value of the type itself (the split would not end)
+        let some (.ctorInfo ci) := (← getEnv).find? info.ctors[0]! | continue
+        if ← forallTelescope ci.type fun as _ => as.anyM fun a => do
+            return (← inferType a).getAppFn.isConstOf n then continue
+        if ← isProp ty then continue
+        return some d.fvarId
+      return none
+    let some x := x? | return
+    let gs ← g.cases x
+    setGoals (gs.map (·.mvarId)).toList
+
 /-- Split conjunctions among the hypotheses. -/
 def splitAnds : TacticM Unit := do
   tryRec (liftMetaTactic fun g => return [← g.casesAnd]) (pure ())
@@ -278,9 +303,17 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
   | depth => do
     if (← getGoals).isEmpty then return true
     splitAnds
+    -- reduce the matches on constructors an element lemma leaves (`match (k, v).snd with …`), so
+    -- that the goal states the binding's parts as the hypotheses do
+    tryRec (evalTactic (← `(tactic| dsimp only))) (pure ())
+    if (← getGoals).isEmpty then return true
     if ← closes (← `(tactic| assumption)) then return true
     let g ← getMainGoal
     let tgt ← whnfR (← instantiateMVars (← g.getType))
+    -- a goal with a metavariable is a side condition of the lemma just applied (`update ?l ?i ?x =
+    -- some l`, `kAll (fun x => f x ?S = some true) k`): a hypothesis fits it or nothing does, and a
+    -- search on it renews the depth at every lemma that applies
+    if tgt.hasExprMVar then return ← closes disch
     -- every goal of `gs` closed by the closer at `depth`
     let all (gs : List MVarId) (depth : Nat) : TacticM Bool := do
       for g' in gs do
@@ -327,7 +360,15 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
             setGoals []
             return true
           s.restore
+    -- first a lemma whose premises are all hypotheses (one step, no search below it), then the
+    -- search: a lemma that closes from the context is not missed behind one that searches deep.
+    -- The step matches the lemma's conclusion up to reducible unfolding only: it looks for a
+    -- syntactic fit, and unfolding a recursive function of the goal (`writesK x k = false` against
+    -- a lemma concluding `inKeys x S = true`) cost ImpWrites a rule's whole budget
     if depth > 0 then
+      for L in lemmas do
+        if ← closes (← `(tactic| (with_reducible apply $(mkIdent L):ident) <;> assumption)) then
+          return true
       for L in lemmas do
         let s ← saveState
         let ok ← tryRec (do
@@ -575,6 +616,8 @@ partial def closeRuleAux (k : Closers) (depth : Nat := 2) : TacticM Bool := do
         -- a list pattern binds its list by an equation (`hli : concat (element x) t = l`):
         -- substitute it, so the invariant of `l` reads as that of its parts
         evalTactic (← `(tactic| (intro h; try subst_vars; $(k.unfoldBoth))))
+        casesCells
+        tryRec (evalTactic (← `(tactic| dsimp only at *))) (pure ())
         splitAnds
         let U := k.U
         forwardColl (fun hs => do

@@ -28,11 +28,11 @@ preserve = []
 "generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
 "generated/race/Race/Determinism.lean" = { tier = "light", sha256 = "52be43ddc62f4bcba653d03c572e05763d36f0f9df02c55d18eb5d0177359276" }
 "generated/race/Race/Equations.lean" = { tier = "light", sha256 = "296c1c26354e03041292bade431f2ae76c5042b0a577a09ce64ce426ddb029e7" }
-"generated/race/Race/Functions.lean" = { tier = "light", sha256 = "b42bc29ebe94e1afe8d5ba64e0d4ffe6c388366802ccd8bdfdda4206dd00c69b" }
+"generated/race/Race/Functions.lean" = { tier = "light", sha256 = "daa67be725cfdd1b143b8ad3107380561108ed23b0127d762a391d730b07a58f" }
 "generated/race/Race/Init.lean" = { tier = "light", sha256 = "ec0d05b43394bb747197dc217b7f3e0584119cc1e6a9e9d96358a9e7e087754d" }
 "generated/race/Race/Preserves.lean" = { tier = "light", sha256 = "bf2b2f049b791549cf92f875ba01effe841fd806e3e200e80dd4dee58b9da240" }
-"generated/race/Race/Rules.lean" = { tier = "light", sha256 = "935c12aab6ea28346b38e7c682959f9595ca393b6efc83dfe864843a1cfb677c" }
-"generated/race/Race/Terms.lean" = { tier = "light", sha256 = "9da1e2be6e9a74f430d42ea3e118873076334bc3b6f72d527d573942506b0218" }
+"generated/race/Race/Rules.lean" = { tier = "light", sha256 = "b62f0ad8e758adbaa604a3b63fad0abea615bdfb29a777668c63855a5ed29b2d" }
+"generated/race/Race/Terms.lean" = { tier = "light", sha256 = "2635161495753eed5412e30f3703d1bc2b85164fcfa5ed06eac793a17af66506" }
 "generated/race/RaceBench/Main.lean" = { tier = "light", sha256 = "99e8eef3d7416b857a814ca04416dce352d066f52ffd2bad3400cab69be476b9" }
 "generated/race/RaceBench/Programs.lean" = { tier = "light", sha256 = "86b8f6f7d8f4fc7f4db54f213a4542316ccd8039d099b722a4758a6e984682d5" }
 "generated/race/RaceTest/Axioms.lean" = { tier = "light", sha256 = "251ccf75bbbb531f81dbe52629d44f7a463469d5709970385e296e5665d25fea" }

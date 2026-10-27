@@ -23,7 +23,7 @@ fn constructor_accepts_bare_and_reference_spellings() {
                 .contains(&ProvenanceRole::ConstructorInternal)
         );
         assert!(
-            !roles(&attribute.sort_provenance().unwrap())
+            !roles(&attribute.constructor_sort_provenance().unwrap())
                 .contains(&ProvenanceRole::ConstructorInternal)
         );
     }

@@ -2,8 +2,8 @@
 
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
-    EnumConstructorDeclaration, ProvenanceRole, StrictnessKind, StructuredFormatFragment,
-    SyntaxErrorKind, SyntaxTemplateItem,
+    EnumConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, StrictnessKind,
+    StructuredFormatFragment, SyntaxErrorKind, SyntaxTemplateItem,
 };
 
 #[test]
@@ -780,6 +780,57 @@ enum Op {
             .iter()
             .any(|anchor| anchor.role() == ProvenanceRole::StableSymbol)
     );
+}
+
+#[test]
+fn variant_constructor_descriptor_denotes_its_symbol_override() {
+    let declaration = EnumConstructorDeclaration::parse_source(
+        r#"#[k::constructors(sort = Expr, result = KResult)]
+enum Op {
+    #[k::symbol("api::Plus")]
+    #[k::syntax("{lhs} + {rhs}")]
+    Add { lhs: Expr, rhs: Expr },
+    #[k::syntax("{lhs} - {rhs}")]
+    Sub { lhs: Expr, rhs: Expr },
+}"#,
+    )
+    .unwrap();
+    let [add, sub] = declaration.variants() else {
+        panic!("two variants");
+    };
+    let symbol = |anchors: &[ProvenanceAnchor]| {
+        anchors
+            .iter()
+            .find(|anchor| anchor.role() == ProvenanceRole::StableSymbol)
+            .cloned()
+    };
+
+    // The override names the symbol the constructor's payload declares, so
+    // the constructor descriptor keeps its anchor, after the sort and the
+    // field sorts, at the literal the variant's production anchors.
+    let constructor = add.constructor_provenance().unwrap();
+    let override_key = add.explicit_symbol().unwrap().key().unwrap();
+    assert_eq!(
+        constructor
+            .iter()
+            .map(ProvenanceAnchor::key)
+            .collect::<Vec<_>>(),
+        [
+            add.sort_key().unwrap(),
+            add.fields()[0].sort_key().unwrap(),
+            add.fields()[1].sort_key().unwrap(),
+            override_key,
+        ]
+        .map(Clone::clone)
+    );
+    let kept = symbol(&constructor).unwrap();
+    let production = symbol(&add.provenance().unwrap()).unwrap();
+    assert_eq!(kept.key(), production.key());
+    assert_eq!(kept.range().start(), production.range().start());
+    assert_eq!(kept.range().end(), production.range().end());
+
+    // A variant without an override denotes no stable symbol.
+    assert!(symbol(&sub.constructor_provenance().unwrap()).is_none());
 }
 
 #[test]

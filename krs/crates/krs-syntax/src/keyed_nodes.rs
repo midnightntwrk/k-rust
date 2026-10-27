@@ -326,8 +326,8 @@ mod tests {
         round_trip.sentence(label, attribute.full_provenance(), |nodes| {
             attribute.keyed_nodes(nodes)
         });
-        round_trip.sentence(label, attribute.sort_provenance(), |nodes| {
-            attribute.keyed_sort_nodes(nodes)
+        round_trip.sentence(label, attribute.constructor_sort_provenance(), |nodes| {
+            attribute.keyed_constructor_sort_nodes(nodes)
         });
         round_trip.sentence(label, attribute.sort_argument_provenance(), |nodes| {
             attribute.keyed_sort_argument_nodes(nodes)
@@ -339,8 +339,8 @@ mod tests {
             });
         }
         round_trip.descriptor(label, production.constructor_provenance(), |nodes| {
-            attribute.keyed_sort_nodes(nodes)?;
-            declaration.keyed_sort_nodes(nodes)?;
+            attribute.keyed_constructor_sort_nodes(nodes)?;
+            declaration.keyed_constructor_sort_nodes(nodes)?;
             attribute.keyed_sort_argument_nodes(nodes)?;
             declaration.keyed_argument_nodes(nodes)?;
             if let Some(symbol) = production.symbol {
@@ -384,8 +384,8 @@ mod tests {
         round_trip.sentence(label, declaration.full_provenance(), |nodes| {
             declaration.keyed_nodes(nodes)
         });
-        round_trip.sentence(label, declaration.sort_provenance(), |nodes| {
-            declaration.keyed_sort_nodes(nodes)
+        round_trip.sentence(label, declaration.constructor_sort_provenance(), |nodes| {
+            declaration.keyed_constructor_sort_nodes(nodes)
         });
         round_trip.sentence(label, declaration.argument_provenance(), |nodes| {
             declaration.keyed_argument_nodes(nodes)
@@ -550,9 +550,11 @@ mod tests {
             round_trip.sentence(&label("constructor"), value.full_provenance(), |nodes| {
                 value.keyed_nodes(nodes)
             });
-            round_trip.sentence(&label("constructor"), value.sort_provenance(), |nodes| {
-                value.keyed_sort_nodes(nodes)
-            });
+            round_trip.sentence(
+                &label("constructor"),
+                value.constructor_sort_provenance(),
+                |nodes| value.keyed_constructor_sort_nodes(nodes),
+            );
             round_trip.sentence(
                 &label("constructor"),
                 value.sort_argument_provenance(),

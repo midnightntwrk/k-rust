@@ -3,16 +3,14 @@
 
 LIBS = {
     "kmut": {"ns": "KMut", "tier": "light"},
-    # kmut in the per-sort encoding, for ImpMut (below)
-    "kmut-ps": {"ns": "KMut", "tier": "light", "encoding": "per-sort"},
 }
 
 DEMOS = {
     # ImpRel relates kimp-ps and krsimp-ps (per-sort): its arity bisimulation's build exceeds 14 GB
     "ImpRel": {"tier": "light", "encoding": "per-sort", "sources": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml"]},
-    # ImpMut (kimp-ps, kmut-ps) and ImpUnroll (kimp-ps, kunroll per-sort): their hand modules
-    # (Diverge.lean, Relation.lean) are written over the per-sort constructors
-    "ImpMut": {"tier": "light", "encoding": "per-sort", "sources": ["demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml"]},
+    # ImpUnroll (kimp-ps, kunroll per-sort): its hand module Relation.lean is written over the
+    # per-sort constructors and their `injEq` lemmas
+    "ImpMut": {"tier": "light", "sources": ["demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml"]},
     "PeanoRel": {"tier": "light", "sources": ["generated/peano", "generated/peanob",
                                               "demos/PeanoRel/PeanoRel/Bisim.lean", "demos/PeanoRel/correspondence.toml"]},
     "CellMapRel": {"tier": "light", "sources": ["generated/cellmap", "generated/cellmapb",

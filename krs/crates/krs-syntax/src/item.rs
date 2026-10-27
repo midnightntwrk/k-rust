@@ -28,8 +28,8 @@ pub struct ConstructorField {
 }
 
 impl ConstructorField {
-    /// The key of the field's sort path, the same in the constructor's
-    /// compact and full views.
+    /// The key of the field's sort path, the same in the constructor's full
+    /// and constructor-sort views.
     #[must_use]
     pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
         self.sort_key.as_ref()
@@ -199,8 +199,8 @@ impl ConstructorDeclaration {
 
     /// Keys the constructor's views. The full view keys the declaration,
     /// each sort parameter and each field sort, then each field name and
-    /// each documentation line; the sort view is its sort parameters and
-    /// field sorts, so each node holds the same key in both. The argument
+    /// each documentation line; the constructor-sort view is its sort
+    /// parameters and field sorts, so each node holds the same key in both. The argument
     /// view keys each element type of the field sorts on its own.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
@@ -314,7 +314,7 @@ impl ConstructorDeclaration {
     /// # Errors
     ///
     /// None: the constructor was keyed when it was parsed.
-    pub fn sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    pub fn constructor_sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self.anchors[self.sorts.clone()].to_vec())
     }
 
@@ -697,9 +697,13 @@ mod keyed {
     use crate::{SortArgument, SyntaxError};
 
     impl ConstructorDeclaration {
-        /// Records the keys of the sort view: each sort parameter and each
-        /// field sort.
-        pub(crate) fn keyed_sort_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+        /// Records the keys of the constructor-sort view, the nodes of
+        /// [`Self::constructor_sort_provenance`]: each sort parameter and
+        /// each field sort.
+        pub(crate) fn keyed_constructor_sort_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
             assert!(self.parameter_keys.len() <= self.parameters.len());
             for (key, parameter) in self.parameter_keys.iter().zip(&self.parameters) {
                 nodes.push_tokens(Some(key), parameter)?;
@@ -710,11 +714,12 @@ mod keyed {
             Ok(())
         }
 
-        /// Records the keys of the full view: the declaration, the sort
-        /// view's, then each field name and each documentation line.
+        /// Records the keys of the full view: the declaration, the
+        /// constructor-sort view's, then each field name and each
+        /// documentation line.
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
             nodes.push_tokens(self.name_key.as_ref(), &self.item.ident)?;
-            self.keyed_sort_nodes(nodes)?;
+            self.keyed_constructor_sort_nodes(nodes)?;
             for field in &self.fields {
                 nodes.push_tokens(field.name_key.as_ref(), &field.name)?;
             }
