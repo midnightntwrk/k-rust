@@ -994,7 +994,8 @@ endmodule
         assert_eq!(case["sides"][0]["halts"], json!(["trivial"]), "{case:#}");
         assert_eq!(row(&kink_results(&dir), "one")["class"], "comparable");
 
-        // The fuzz: each of the six inputs ends undefined on both sides; no witness.
+        // The fuzz: each of the six inputs ends undefined on both sides; no witness. The six cases
+        // try every assignment of the hole's finite domain, so the campaign stops on that.
         let (document, ok) = kink_flow_fuzz(
             &dir,
             HOLE_TEMPLATE,
@@ -1003,7 +1004,7 @@ endmodule
             options(6, true, true),
         );
         assert!(ok, "{document:#}");
-        assert_eq!(document["stopped"], "budget", "{document:#}");
+        assert_eq!(document["stopped"], "domain-exhausted", "{document:#}");
         assert_eq!(document["program"], Value::Null);
         assert_eq!(totals(&document)["classes"], json!({"undefined": 6}));
 
