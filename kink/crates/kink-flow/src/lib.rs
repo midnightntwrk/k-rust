@@ -40,3 +40,14 @@ pub use mutation::{
     EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, Mutation, MutationList,
     ResolvedMutation, RuleText, resolve, rule_texts,
 };
+
+/// The k-rust revision every kink-flow document names as `k_rust_revision`, and `--version`
+/// prints: k-rust's build identity (`k_rust::build_identity`, its version and a digest of its
+/// sources; GUIDE-USABILITY 5), so two builds of one k-rust version from different sources are
+/// told apart, as the fuzz report's `identity.k-rust-revision` tells them. The semantics identity's
+/// component `kink.k_rust_revision` and the cache keys keep the version
+/// (`kink_native::K_RUST_REVISION`): a key already names the executable (`kink_build`).
+#[must_use]
+pub fn k_rust_revision() -> String {
+    k_rust::build_identity()
+}

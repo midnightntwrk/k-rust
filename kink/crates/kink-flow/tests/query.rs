@@ -1081,6 +1081,9 @@ programs = ["add"]
         assert_eq!(status, EXIT_OK, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
         assert_eq!(document["version"], 1);
+        // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
+        // identity, not the version alone.
+        assert_eq!(document["k_rust_revision"], k_rust::build_identity());
         assert_eq!(document["profile"], SolverProfile::BUILD.name());
         let hit = row(&document, "above-two", "add");
         assert_eq!(hit["answer"], "hit");

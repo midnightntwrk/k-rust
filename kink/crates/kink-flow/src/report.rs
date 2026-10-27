@@ -62,7 +62,7 @@ use kink_campaign::{
     CrossCause, CrossEnd, CrossRefusal, ExecutionFailureKind, FinalResult, LeafCensus,
     OracleOutcome, OracleSide, OracleValue, SideRun, TestRun,
 };
-use kink_native::{K_RUST_REVISION, execution::SolverProfile};
+use kink_native::execution::SolverProfile;
 use kink_patch::{Baseline, Claim, SentenceOrigin, TypingDiagnostic, Withdrawal};
 use serde_json::{Value, json};
 use std::{
@@ -727,7 +727,7 @@ pub fn report(manifest: &FlowManifest, options: &ReportOptions) -> (Value, bool)
             json!({
                 "schema": MISSING_SCHEMA,
                 "version": 1,
-                "k_rust_revision": K_RUST_REVISION,
+                "k_rust_revision": crate::k_rust_revision(),
                 "profile": SolverProfile::BUILD.name(),
                 "outcome": outcome,
                 "path": path.display().to_string(),

@@ -91,7 +91,9 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
     );
     assert_eq!(document["schema"], "kink-flow-check");
     assert_eq!(document["version"], 1);
-    assert_eq!(document["k_rust_revision"], kink_native::K_RUST_REVISION);
+    // GUIDE-USABILITY 5 (KINK-R4 fix round): k-rust's build identity, its version and a digest
+    // of its sources, not the version alone.
+    assert_eq!(document["k_rust_revision"], k_rust::build_identity());
     assert_eq!(
         document["profile"],
         kink_native::execution::SolverProfile::BUILD.name()
@@ -442,7 +444,7 @@ fn the_version_flag_names_the_builds() {
         format!(
             "kink-flow {} (k-rust {})\n",
             env!("CARGO_PKG_VERSION"),
-            kink_native::K_RUST_REVISION
+            k_rust::build_identity()
         )
     );
 }

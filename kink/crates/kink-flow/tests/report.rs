@@ -189,6 +189,8 @@ fn report_reprints_the_same_bytes() {
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(document["schema"], MISSING_SCHEMA);
     assert_eq!(document["outcome"], "missing");
+    // GUIDE-USABILITY 5 (KINK-R4 fix round): k-rust's build identity, as every document names it.
+    assert_eq!(document["k_rust_revision"], k_rust::build_identity());
 
     let ran = binary(
         &[

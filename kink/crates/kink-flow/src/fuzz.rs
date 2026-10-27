@@ -525,7 +525,7 @@ fn document() -> Value {
         // k-rust's build identity, the one the embedded fuzz report records (GUIDE-USABILITY 5):
         // its version and a digest of its sources. `kink.k_rust_revision` is the identity
         // component, the version alone; `kink_build` pins the whole executable.
-        "k_rust_revision": k_rust::build_identity(),
+        "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "kink_build": kink_campaign::kink_build().map_or(Value::Null, |b| json!(b.to_string())),
         "kink": kink_campaign::kink_identity(),
@@ -1718,7 +1718,7 @@ pub fn fuzz_job(
         rejection_cap: DEFAULT_REJECTION_CAP,
         seed: options.seed,
         identity: CallerIdentity {
-            k_rust_revision: k_rust::build_identity().to_owned(),
+            k_rust_revision: crate::k_rust_revision(),
             thread_stack_size: Some(DEFINITION_STACK_BYTES as u64),
         },
     };
@@ -2176,12 +2176,20 @@ pub fn fuzz_job(
             true
         }
         CampaignOutcome::NoWitnessFound { no_witness } => {
+            // The budget was spent: k-rust-fuzz's other ending without a witness, every proposer
+            // exhausted (`Ending::Exhausted`), cannot occur here, since kink-flow runs the
+            // library's default proposers, the blind proposer alone, which proposes a case
+            // whenever asked (a finite domain ends `domain-exhausted`, above).
             document["stopped"] = json!("budget");
-            // More cases help only a campaign whose cases still found something new: not one
-            // whose coverage stopped growing long ago (the statement says so), nor one where the
-            // mutant ran out of work where the baseline ended, which no bound decides (the mutant
-            // may not terminate on this program, so more cases of it repeat that). Advising more
-            // cases there contradicts the statement it follows (final review ux S5).
+            // The advice follows the statement (final review ux S5). Where the statement says
+            // coverage stopped growing long ago, it says more cases of this program and these
+            // holes are unlikely to reach a new rule, so advising more cases would contradict it.
+            // Where it says the mutant may not terminate on this program (one `work-bound` case
+            // of that kind or more, `totals.diverging`), more cases with other hole values may
+            // still find a witness; but whether a run terminates cannot be decided, each such case
+            // spends `max-work` on the mutant, and the statement suggests no bound, so the action
+            // points at the template and its holes instead of the budget (KINK-R4 review N5: a
+            // choice of advice, not a claim that more cases cannot help).
             let hint = if report.totals.coverage_stalled_since().is_some()
                 || report.totals.diverging.is_some()
             {

@@ -90,9 +90,12 @@
 //!   k-rust did not compute; no path diagnostic records it. So a match is a hit only when the
 //!   search response's `unsupportedHooks` and `allowanceRefusals` lists are empty; otherwise the
 //!   answer is `unknown` (`unsupported-hook`). The lists are the search's as a whole, so an entry
-//!   on another branch also refuses the hit (fail-closed).
-//! - `no`: the exploration completed (k-rust's `incomplete` list is empty and the watchdog did not
-//!   fire), and also the program's baseline run, kink's plain state-set run of the same initial
+//!   on another branch also refuses the hit (fail-closed), and a non-empty list also makes a
+//!   completed exploration incomplete (no `no`, below).
+//! - `no`: the exploration completed (k-rust's `incomplete` list is empty, the watchdog did not
+//!   fire, and the search left no hook application unevaluated, its `unsupportedHooks` and
+//!   `allowanceRefusals` lists empty: KINK-R4 review N2, since such an application's value, or its
+//!   undefinedness, decides successors k-rust did not compute), and also the program's baseline run, kink's plain state-set run of the same initial
 //!   state under the same budget (the result cache), is `comparable`: complete and free of every
 //!   exclusion kink-campaign reads (a stack stop the run counted, a load stack stop, a
 //!   contradicted claim, an undefined step of the short-circuit reading, an allowance refusal);
@@ -1007,10 +1010,21 @@ fn outcome(
             )),
         };
     }
-    if incomplete.is_empty() {
-        return SearchOutcome::Complete;
+    if !incomplete.is_empty() {
+        return SearchOutcome::Incomplete(incomplete_cause(incomplete, budget));
     }
-    SearchOutcome::Incomplete(incomplete_cause(incomplete, budget))
+    // KINK-R4 review N2: an exploration that left a hook application unevaluated is not shown to
+    // have explored the reachable configurations. Where the hook is undefined at its arguments
+    // the step to that state has no successor, and where it is defined its value can let a rule
+    // apply that the unevaluated application did not; k-rust computed neither. So no `no` rests
+    // on it, whether or not the program's separate baseline run met the same hook.
+    if let Some(why) = unevaluated(&response) {
+        return SearchOutcome::Incomplete(format!(
+            "the exploration found no match, but its states are not shown to be the reachable \
+             configurations: {why}, nor which successors the hook's value would give"
+        ));
+    }
+    SearchOutcome::Complete
 }
 
 /// The cause a hit is refused for when the search left a hook application unevaluated.
@@ -1024,7 +1038,8 @@ const UNSUPPORTED_HOOK: &str = "unsupported-hook";
 /// from its declaration alone, hooked or not; but where the hook is undefined at its arguments the
 /// state denotes no configuration and the step to it has no successor, which k-rust did not
 /// compute. No path diagnostic records it, and the lists are the search's as a whole, so any entry
-/// refuses the hit (a fail-closed loss when the entry is on another branch).
+/// refuses the hit (a fail-closed loss when the entry is on another branch) and makes a completed
+/// exploration incomplete (review N2).
 fn unevaluated(response: &Value) -> Option<String> {
     let hooks = ["unsupportedHooks", "allowanceRefusals"]
         .iter()
@@ -1304,9 +1319,9 @@ mod tests {
     }
 
     /// KINK-HOOKED-VP-QUERY-HIT (final review S2): a match beside a hook application k-rust
-    /// left unevaluated is not a hit, whatever list names it; a completed exploration is still
-    /// judged by the answer rules (a `no` needs a comparable baseline run, which such a hook
-    /// excludes). Before the fix both matches were hits.
+    /// left unevaluated is not a hit, whatever list names it, and a completed exploration beside
+    /// one gives no `no` (review N2). Before the fix both matches were hits and both explorations
+    /// `Complete`.
     #[test]
     fn a_match_beside_an_unevaluated_hook_is_not_a_hit() {
         let record = json!({"hook": "FOO.bar", "reason": "unsupported", "observedIn": "run"});
@@ -1316,10 +1331,18 @@ mod tests {
             let outcome = run(&hooked, &always);
             incomplete(&outcome, UNSUPPORTED_HOOK);
             incomplete(&outcome, "FOO.bar");
+            // Review N2: a completed exploration beside such a hook is not complete either, so it
+            // gives no `no` whatever the program's baseline run met (before: `Complete`).
             let mut complete = response(vec![], vec![]);
             complete[key] = json!([record]);
-            assert_eq!(run(&complete, &always), SearchOutcome::Complete);
+            let outcome = run(&complete, &always);
+            incomplete(&outcome, UNSUPPORTED_HOOK);
+            incomplete(&outcome, "FOO.bar");
         }
+        assert_eq!(
+            run(&response(vec![], vec![]), &always),
+            SearchOutcome::Complete
+        );
     }
 
     #[test]

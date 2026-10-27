@@ -17,7 +17,7 @@ use crate::{
     search::{ProgramOrder, RunMode, RunOptions, mutation_list_refused},
 };
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
-use kink_native::{K_RUST_REVISION, execution::SolverProfile};
+use kink_native::execution::SolverProfile;
 use serde_json::{Value, json};
 use std::{
     ffi::OsString,
@@ -52,8 +52,9 @@ pub fn execute(args: Vec<OsString>) -> u8 {
         // The builds a document's identity names, as `krust-fuzz --version` prints its own.
         Ok([flag]) if flag == "--version" => {
             println!(
-                "kink-flow {} (k-rust {K_RUST_REVISION})",
-                env!("CARGO_PKG_VERSION")
+                "kink-flow {} (k-rust {})",
+                env!("CARGO_PKG_VERSION"),
+                crate::k_rust_revision()
             );
             return EXIT_OK;
         }
@@ -706,7 +707,7 @@ fn header(spec: Value, programs: Vec<Value>) -> Value {
     json!({
         "schema": "kink-flow-check",
         "version": 1,
-        "k_rust_revision": K_RUST_REVISION,
+        "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "spec": spec,
         "programs": programs,

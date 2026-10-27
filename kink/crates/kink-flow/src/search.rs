@@ -6,8 +6,9 @@
 //! 1. Resolve it into one pinned patch (F-04); an `invalid-mutation` ends there.
 //! 2. Choose the programs O: the comparable programs of the up-to-date result cache, the ones
 //!    whose cached coverage witnesses an edited rule's edit first (reached for an edit of its
-//!    `requires`, fired for any other edit; re-pin L2-1-tail), then the rest, each group cheapest
-//!    first (the record's `wall_ms`, then corpus order; [`ProgramOrder`], README 6.4). The order
+//!    `requires`, applied, k-rust `applied`, for any other edit; re-pin L2-1-tail), then the
+//!    rest, each group cheapest first (the record's `wall_ms`, then corpus order;
+//!    [`ProgramOrder`], README 6.4). The order
 //!    changes which killing program is found first and the cost, never a status in the no-Z3
 //!    profile while no `budget.time_ms` bound fires (under Z3 a reused backend's cache of solver
 //!    answers can make it move one between killed, unknown and survived, never to a false kill;
@@ -109,7 +110,7 @@ use kink_campaign::{
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
 use kink_native::{
-    DeclarationCensus, K_RUST_REVISION,
+    DeclarationCensus,
     data::{DataEnds, NamedFinding, data_ends},
     declaration_census,
     execution::SolverProfile,
@@ -271,9 +272,12 @@ struct Candidate<'r> {
     /// The `(module, index)` of every baseline sentence its cached coverage reaches (k-rust
     /// `matched`, the record's `coverage.sentences`).
     reaches: BTreeSet<(String, u64)>,
-    /// The `(module, index)` of every baseline sentence its cached coverage fires (k-rust
-    /// `applied`, the record's `coverage.applied_sentences`; re-pin L2-1-tail).
-    fires: BTreeSet<(String, u64)>,
+    /// The `(module, index)` of every baseline sentence its cached coverage applies (k-rust
+    /// `applied`, the record's `coverage.applied_sentences`; re-pin L2-1-tail): every candidate a
+    /// step built of the sentence, defined or rolled back. Wider than `fired_by` (k-rust
+    /// `committed`, KINK-R4) on purpose: an edit can make a rolled-back candidate defined, so a
+    /// program holding one witnesses the edit.
+    applies: BTreeSet<(String, u64)>,
 }
 
 fn candidate<'r>(index: usize, id: &'r str, row: &'r ProgramRow) -> Option<Candidate<'r>> {
@@ -301,7 +305,7 @@ fn candidate<'r>(index: usize, id: &'r str, row: &'r ProgramRow) -> Option<Candi
         run_sha256: record["run_sha256"].as_str(),
         wall_ms: record["wall_ms"].as_u64(),
         reaches: sentences("sentences"),
-        fires: sentences("applied_sentences"),
+        applies: sentences("applied_sentences"),
     })
 }
 
@@ -2005,14 +2009,15 @@ fn finish(
 /// L2-1-tail, review L2-1-1 D2): an edit that changes the rule's `requires` is witnessed by a
 /// program that reached the rule (k-rust `matched`: it began to decide the condition), every
 /// other edit (a right-hand side, an `ensures`, a left-hand side, an attribute, a deletion) by
-/// one that fired it (`applied`). A program that only matched a rule whose guard it refuted
-/// cannot witness a change of what the rule does once it applies.
+/// one that applied it (`applied`: a candidate of it built, defined or rolled back, which an edit
+/// can make defined; not only the committed steps `fired_by` lists). A program that only matched
+/// a rule whose guard it refuted cannot witness a change of what the rule does once it applies.
 fn reaches(candidate: &Candidate<'_>, rules: &[EditedRule]) -> bool {
     rules.iter().any(|rule| {
         let witnesses = if rule.requires_edited {
             &candidate.reaches
         } else {
-            &candidate.fires
+            &candidate.applies
         };
         witnesses.contains(&(rule.at.module.clone(), u64::from(rule.at.index)))
     })
@@ -2105,7 +2110,7 @@ fn document(
     json!({
         "schema": RUN_SCHEMA,
         "version": RUN_VERSION,
-        "k_rust_revision": K_RUST_REVISION,
+        "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,
         "kink_build": run_document_build(),
@@ -2149,7 +2154,7 @@ pub fn mutation_list_refused(detail: &str) -> Value {
     json!({
         "schema": RUN_SCHEMA,
         "version": RUN_VERSION,
-        "k_rust_revision": K_RUST_REVISION,
+        "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "kink_build": run_document_build(),
         "kink": kink_campaign::kink_identity(),

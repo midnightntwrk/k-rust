@@ -69,8 +69,9 @@ pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// fz26 KRUST-ANYWHERE-HEAD: a matched state is defined when k-rust's `ground_defined` holds,
 /// which also accepts an irreducible `value-production` application such as SIMPLE's `a[4]`; v4,
 /// KINK-R4: a match is no hit when the search left a hook application unevaluated, its
-/// `unsupportedHooks` or `allowanceRefusals` list not empty, so a v3 `hit` may no longer be one,
-/// and a `no` needs the definition to have data, its check complete as well as finding-free).
+/// `unsupportedHooks` or `allowanceRefusals` list not empty, so a v3 `hit` may no longer be one;
+/// an exploration with such a list is not complete, so a v3 `no` may no longer be one either; and
+/// a `no` needs the definition to have data, its check complete as well as finding-free).
 pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v4";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
@@ -590,7 +591,7 @@ fn document(
     json!({
         "schema": QUERY_SCHEMA,
         "version": QUERY_VERSION,
-        "k_rust_revision": K_RUST_REVISION,
+        "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "kink_build": kink_campaign::kink_build().map_or(Value::Null, |b| json!(b.to_string())),
         "kink": kink_campaign::kink_identity(),
@@ -636,7 +637,7 @@ pub fn pattern_list_refused(error: &ManifestError) -> Value {
     json!({
         "schema": QUERY_SCHEMA,
         "version": QUERY_VERSION,
-        "k_rust_revision": K_RUST_REVISION,
+        "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "pattern_list": {"outcome": "refused", "detail": error.to_string()},
     })

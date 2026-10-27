@@ -56,7 +56,6 @@ use kink_campaign::{
 };
 use kink_corpus::{Store, admission::AdmissionRecord, runner::all_normal};
 use kink_native::{
-    K_RUST_REVISION,
     bridge::{LeafTerm, leaf_terms},
     coverage::{RuleAuthors, TestCoverage, coverage_domain, non_executable_ids},
     data::{DataFacts, data_ends},
@@ -1483,11 +1482,15 @@ fn document(
     });
     json!({
         "schema": "kink-flow-results",
+        // 3 since KINK-R4: a rewrite rule's `fired_by` lists only programs some path of whose
+        // run takes the rule's step (k-rust `committed`), no longer one whose candidate of it
+        // was rolled back or whose step by it was undefined (k-rust `applied`); the shape is
+        // unchanged, the meaning of a field is not, so a reader keyed on the version can tell.
         // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
         // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
         // carries `fired_by`.
-        "version": 2,
-        "k_rust_revision": K_RUST_REVISION,
+        "version": 3,
+        "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,
         "spec": {
