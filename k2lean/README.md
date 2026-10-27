@@ -67,7 +67,6 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/SimpleConf` | SIMPLE's steps of two threads join (`k2lean confluence --threads threads`, one view per rule, nothing per pair), so every schedule ends in one configuration given the joins it leaves as hypotheses: those of one thread and those involving a rule that inserts or removes threads, races on a cell, or enables a rule of a rank before (heavy tier) |
 | `demos/ImpNI` | kimp's termination-insensitive noninterference for a two-level security checker in K (`demos/k/imp-sec.k`), stated by `k2lean noninterference` with its 240 obligations, all discharged by the relation it generates from the checker (`ImpNI/Levels.lean`, `Stack.lean`, `Proof.lean`; the store lemmas and 5 cases by hand in `ImpNI/Store.lean`); `ImpNI/Examples.lean` shows the hypotheses hold of a secure program and the checker rejects explicit and implicit flows |
 | `demos/KrsImpTyping` | every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`, from the KRS sidecar |
-| `demos/SimpleEnv` | a kind 2 invariant of SIMPLE, strengthened to be inductive |
 | `demos/ImpWrites` | a kind 2 invariant of kimp that walks the `<k>` cell |
 | `demos/k/kimp-inv`, `demos/k/kimp-keys`, `demos/k/simple-inv` | kind 1 invariants written as K functions |
 | `demos/claims` | K claims of kimp proved in Lean, generically or by hand; claims under an invariant; the termination of kimp's expressions |

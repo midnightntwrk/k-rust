@@ -2,10 +2,10 @@
 // into the store, that is, every value of an environment is a key (a location) of `<store>`.
 // - envsIn@T: every thread's `<env>` and `<genv>`. Not inductive (§8): `setEnv(E)` installs an
 //   environment saved in `<k>`, and `return` and `throw` one saved in a stack frame.
-// - envsOk@T: the strengthening of `demos/SimpleEnv`: also the environment of every `setEnv(E)`
+// - envsOk@T: the strengthening (k2lean/docs/invariants.md §8): also the environment of every `setEnv(E)`
 //   item of every thread's `<k>`, and of every stack frame, with the frame's saved computation and
 //   control (whichever of its stacks the frame saved), recursively. Preserved by every rule with no
-//   hand case (the gate's heavy library `simpleenvs`, per-sort): `kIn`, `listIn`, `itemIn`, `ctlIn`
+//   hand case (the gate's heavy library `simpleenvs`): `kIn`, `listIn`, `itemIn`, `ctlIn`
 //   read the store through its keys only, which k2lean proves from their equations (monotonicity
 //   in the store, k2lean/docs/invariants.md §3.1), so the rules that allocate keep it.
 // - envsInV@T: envsIn with each environment read through `values(E)`, a list fold, instead of a

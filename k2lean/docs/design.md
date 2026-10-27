@@ -117,7 +117,6 @@ The arity universe is the default of `gen` and `relate` since 2026-10-25 (K6): `
 Every generated theorem states the same thing on both universes, so no statement changed with the default.
 A library or demo whose arity form would lose a count stays per-sort, with `encoding = "per-sort"` in its gate registry entry (`tests/areas/AREA.py`; `gate.sh list` prints it); these are, with the reason of each:
 
-- `SimpleEnv` (on `simple-ps`): its hand-written modules match on per-sort constructors (`KSimple.Term.nil`, `inj_FstackCell`);
 - `SimpleRel` (`pipelines/simple-rel.sh`, outside the gate; `simple`, `simplev` and the relation generated per-sort there): its bisimulation builds in the per-sort form (§9);
 - six snapshot tests of the generator (params, measure, peano, counter, freekey, counter_det2), which keep the per-sort output under test (`--per-sort-terms` in `tests/snapshots.rs`).
 
@@ -667,7 +666,7 @@ Open, in the order they block a KEVM library with kimp's guarantees:
   The two libraries build: `Terms.lean` in 334 s / 663 CPU-s / 6.7 GB peak (KEVM) and 367 s / 698 CPU-s / 6.8 GB (the mutant), `Functions.lean` in 103 s / 2.9 GB and 130 s / 2.9 GB.
   The mutant relation's Lean build (`lake build` of its module, under a 14 GB cap) had not finished after 20.5 minutes at 7.4 GB peak, when it was stopped: a measured lower bound.
   Open: the cost of the KEVM relation's Lean build, and where it goes.
-- **The per-sort holdouts** (§2.1, with their reasons): `SimpleEnv` needs its hand-written modules rewritten over the family (`k2l_cases`).
+- **The per-sort holdouts** (§2.1, with their reasons). `SimpleEnv` was retired on 2026-10-28: the generated `envsOk@T` (library `simpleenvs`) proves the same statement on the arity universe with no hand case.
   `ImpMut` and `RaceConf` moved on 2026-10-28 with their counts unchanged: `ImpMut`'s hand module needed only the arity name of the empty map, and `confluence`'s rule text, written with the constructors' names, elaborates on both universes.
   `ImpUnroll` (with `ImpUnrollClaims`) and `SimpleConf` moved the same day: `ImpUnroll`'s hand module inverts an equation of two configurations by `k2l_injections` (`KPrelude/Relate.lean`) in place of the per-sort constructors' `injEq` lemmas, which the arity universe's constructors, being definitions, do not have.
   `ImpNI` moved the same day: `noninterference` writes its relation for the family (§3.7), and its hand module cases by `k2l_cases`.

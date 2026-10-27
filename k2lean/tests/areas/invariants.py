@@ -45,7 +45,6 @@ DEMOS = {
     "ImpWrites": {"tier": "light"},
     "Kind2Template": {"tier": "light"},
     "InvBudget": {"tier": "light"},
-    "SimpleEnv": {"tier": "heavy", "encoding": "per-sort"},
 }
 
 NEGATIVE = {"krsimp-ill-typed": {"tier": "light"}}
