@@ -20,6 +20,7 @@
 //! forward and guarded reconstruction equations, at compatible pure ranks. The existing
 //! definedness and equation machinery continues to evaluate those ordinary source axioms.
 
+pub(crate) mod lists;
 pub(crate) mod maps;
 pub(crate) mod products;
 pub(crate) mod reading;
@@ -47,6 +48,35 @@ pub(crate) struct Selector {
 }
 
 impl Selector {
+    /// Place a stored item in the actual checked embedding context before projecting it.
+    /// The resulting term retains the selector's domain; this does not assert its type.
+    fn observe_stored(&self, item: &Term) -> Option<Term> {
+        fn context(template: &Term, value: &Variable, item: &Term, depth: usize) -> Option<Term> {
+            if depth >= 128 {
+                return None;
+            }
+            if template.sort() == item.sort() {
+                return Some(item.clone());
+            }
+            let mut found = false;
+            let result = template
+                .try_map_children::<()>(|child| {
+                    if child.attributes().variables.contains(value) {
+                        if found {
+                            return Err(());
+                        }
+                        found = true;
+                        context(child, value, item, depth + 1).ok_or(())
+                    } else {
+                        Ok(child.clone())
+                    }
+                })
+                .ok()?;
+            found.then_some(result)
+        }
+        self.project(context(&self.embedding, &self.value, item, 0)?)
+    }
+
     /// Cancel only the licensed spine of this checked source inverse. In particular,
     /// E(p(kseq(raw,dotk)))=kseq(raw,dotk) gives the stored-item equality only when
     /// the actual singleton has the free-constructor role (which includes injectivity).
@@ -181,6 +211,33 @@ pub(crate) fn selector_domain(definition: &BackendDefinition, term: &Term) -> Op
 }
 
 impl BackendDefinition {
+    /// One unambiguous checked source selector capable of observing this stored rank.
+    pub(crate) fn observe_stored(&self, item: &Term, output: &Sort) -> Option<Term> {
+        if item.sort() == *output {
+            return Some(item.clone());
+        }
+        let selectors = self.selectors()?;
+        let mut selected = None;
+        for selector in selectors.by_name.values() {
+            if selector.head.result_sort != *output
+                || selectors
+                    .by_rank
+                    .get(&(selector.head.argument_sorts[0], *output))
+                    .and_then(Option::as_ref)
+                    != Some(&selector.head.name)
+            {
+                continue;
+            }
+            if let Some(observed) = selector.observe_stored(item) {
+                if selected.as_ref().is_some_and(|prior| prior != &observed) {
+                    return None;
+                }
+                selected = Some(observed);
+            }
+        }
+        selected
+    }
+
     fn selectors(&self) -> Option<&Selectors> {
         if let Some(selectors) = self.selector_contracts.get() {
             return Some(selectors);
@@ -380,6 +437,34 @@ fn plain(rule: &RewriteRule) -> bool {
         && rule.existentials.is_empty()
 }
 
+/// A typed variable witness over a raw stored observation. The caller must retain the
+/// resulting term's original domain before treating it as a matching witness.
+pub(crate) fn variable_observation(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    stored: &Term,
+) -> Option<Term> {
+    match pattern.kind() {
+        TermKind::Variable(variable)
+            if variable.kind == crate::term::VariableKind::Element
+                && pattern.sort() == stored.sort() =>
+        {
+            Some(stored.clone())
+        }
+        TermKind::Injection {
+            source,
+            target,
+            term,
+        } if *target == stored.sort()
+            && matches!(term.kind(),TermKind::Variable(v) if v.kind == crate::term::VariableKind::Element) =>
+        {
+            let value = definition.observe_stored(stored, source)?;
+            Some(Term::injection(*source, *target, value))
+        }
+        _ => None,
+    }
+}
+
 /// Exactly an injection/K-singleton spine with one occurrence of the observed value.
 /// Every rank and subsort edge comes from the loaded source declaration.
 fn embedding_shape(definition: &BackendDefinition, term: &Term, value: &Variable) -> bool {
@@ -541,6 +626,20 @@ mod tests {
                 .selector(&Sort::simple("SortC"), &Sort::simple("SortS"))
                 .is_some(),
             "{wrapped}"
+        );
+        let stored = term(&definition, "Raw:SortItem{}");
+        assert_eq!(
+            definition.observe_stored(&stored, &Sort::simple("SortS")),
+            Some(term(&definition, "p{}(kseq{}(Raw:SortItem{},dotk{}()))"))
+        );
+        let (prefix, _) = wrapped
+            .rsplit_once(r#"axiom{R} \implies{R}(\ceil"#)
+            .unwrap();
+        let changed = load(&format!("{prefix} endmodule []"));
+        assert!(
+            changed
+                .observe_stored(&term(&changed, "Raw:SortItem{}"), &Sort::simple("SortS"))
+                .is_none()
         );
         let (prefix, inverse) = SOURCE.rsplit_once("      axiom{R}").unwrap();
         let renamed = format!(
