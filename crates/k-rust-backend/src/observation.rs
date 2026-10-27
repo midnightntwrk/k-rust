@@ -46,6 +46,78 @@ pub(crate) struct Selector {
 }
 
 impl Selector {
+    /// Cancel only the licensed spine of this checked source inverse. In particular,
+    /// E(p(kseq(raw,dotk)))=kseq(raw,dotk) gives the stored-item equality only when
+    /// the actual singleton has the free-constructor role (which includes injectivity).
+    pub(crate) fn reconstruct_subterm(
+        &self,
+        definition: &BackendDefinition,
+        projected: &Term,
+        demanded: &Term,
+    ) -> Option<Term> {
+        let TermKind::Application { arguments, .. } = projected.kind() else {
+            return None;
+        };
+        let [input] = arguments.as_slice() else {
+            return None;
+        };
+        if self.project(input.clone()).as_ref() != Some(projected) {
+            return None;
+        }
+        let mut left = self.embed(projected.clone());
+        let mut right = input.clone();
+        for _ in 0..128 {
+            if &left == demanded {
+                return Some(right);
+            }
+            let next = match (left.kind(), right.kind()) {
+                (
+                    TermKind::Injection {
+                        source: a,
+                        target: b,
+                        term: x,
+                    },
+                    TermKind::Injection {
+                        source: c,
+                        target: d,
+                        term: y,
+                    },
+                ) if a == c
+                    && b == d
+                    && definition.sort_graph().check_subsort(a, b) == Ok(true) =>
+                {
+                    (x.clone(), y.clone())
+                }
+                (
+                    TermKind::Application {
+                        symbol: a,
+                        sort_arguments: sa,
+                        arguments: x,
+                    },
+                    TermKind::Application {
+                        symbol: b,
+                        sort_arguments: sb,
+                        arguments: y,
+                    },
+                ) if a == b
+                    && sa == sb
+                    && a.attributes.head_role() == crate::term::HeadRole::FreeConstructor =>
+                {
+                    let ([x, end_x], [y, end_y]) = (x.as_slice(), y.as_slice()) else {
+                        return None;
+                    };
+                    if end_x != end_y {
+                        return None;
+                    }
+                    (x.clone(), y.clone())
+                }
+                _ => return None,
+            };
+            (left, right) = next;
+        }
+        None
+    }
+
     /// Read only the checked forward equation on an actual embedding instance.
     pub(crate) fn value_in(&self, definition: &BackendDefinition, input: &Term) -> Option<Term> {
         let mut value = self.value.clone();

@@ -108,7 +108,9 @@ impl<'a> Builder<'a> {
         if !self.pure(term)? {
             return Ok(None);
         }
-        let mut result = None;
+        let mut result = self
+            .stored_reconstruction(term)
+            .map(|value| Arc::new(Reading::Leaf(value)));
         if let TermKind::Application {
             symbol, arguments, ..
         } = term.kind()
@@ -226,6 +228,24 @@ impl<'a> Builder<'a> {
             }
             _ => false,
         }
+    }
+
+    fn stored_reconstruction(&self, term: &Term) -> Option<Term> {
+        let TermKind::Injection {
+            term: projected, ..
+        } = term.kind()
+        else {
+            return None;
+        };
+        let TermKind::Application { arguments, .. } = projected.kind() else {
+            return None;
+        };
+        let [input] = arguments.as_slice() else {
+            return None;
+        };
+        self.definition
+            .selector(&input.sort(), &projected.sort())?
+            .reconstruct_subterm(self.definition, projected, term)
     }
 
     fn lift(

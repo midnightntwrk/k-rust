@@ -311,7 +311,7 @@ mod tests {
               sort SortKItem{} []
               sort SortK{} []
               symbol inj{From,To}(From) : To [sortInjection{}()]
-              symbol kseq{}(SortKItem{},SortK{}) : SortK{} [constructor{}()]
+              symbol kseq{}(SortKItem{},SortK{}) : SortK{} [constructor{}(),injective{}()]
               symbol dotk{}() : SortK{} [constructor{}()]
               symbol project{}(SortK{}) : SortInt{} [function{}()]
               axiom{R} \exists{R}(V:SortKItem{},\equals{SortKItem{},R}(V:SortKItem{},inj{SortInt{},SortKItem{}}(X:SortInt{}))) [subsort{SortInt{},SortKItem{}}()]
@@ -726,6 +726,71 @@ mod tests {
         assert!(
             crate::observation::reading::Builder::new(&definition)
                 .of(&term(&definition, lookup))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn typed_storage_reconstruction_requires_the_checked_inverse_and_free_singleton() {
+        let definition = definition(&typed_source());
+        let raw_text = "get{}(M:SortMap{},inj{SortInt{},SortKItem{}}(K:SortInt{}))";
+        let project_text = format!("project{{}}(kseq{{}}({raw_text},dotk{{}}()))");
+        let stored_text = format!("inj{{SortInt{{}},SortKItem{{}}}}({project_text})");
+        let (raw, projected, stored) = (
+            term(&definition, raw_text),
+            term(&definition, &project_text),
+            term(&definition, &stored_text),
+        );
+        let plan = crate::observation::reading::Builder::new(&definition)
+            .of(&stored)
+            .unwrap()
+            .unwrap();
+        assert_eq!(plan.as_ref(), &Reading::Leaf(raw.clone()));
+        #[cfg(feature = "z3")]
+        {
+            use super::super::Validity;
+            let known = [Predicate::Ceil(projected.clone())];
+            assert_eq!(
+                check(&definition, &known, Predicate::Equals(stored.clone(), raw)),
+                Validity::Valid
+            );
+            assert_eq!(
+                check(
+                    &definition,
+                    &[Predicate::Not(Arc::new(Predicate::Ceil(projected)))],
+                    Predicate::Ceil(stored)
+                ),
+                Validity::Refuted
+            );
+        }
+        #[cfg(not(feature = "z3"))]
+        let _ = projected;
+        let without_injectivity =
+            typed_source().replace("[constructor{}(),injective{}()]", "[constructor{}()]");
+        let definition = self::definition(&without_injectivity);
+        assert!(
+            definition
+                .selector(
+                    &crate::term::Sort::simple("SortK"),
+                    &crate::term::Sort::simple("SortInt")
+                )
+                .is_some()
+        );
+        assert!(
+            crate::observation::reading::Builder::new(&definition)
+                .of(&term(&definition, &stored_text))
+                .unwrap()
+                .is_some()
+        );
+        let equation_head = typed_source().replace(
+            "[constructor{}(),injective{}()]",
+            "[anywhere{}(),injective{}()]",
+        );
+        let definition = self::definition(&equation_head);
+        assert!(
+            crate::observation::reading::Builder::new(&definition)
+                .of(&term(&definition, &stored_text))
                 .unwrap()
                 .is_none()
         );
