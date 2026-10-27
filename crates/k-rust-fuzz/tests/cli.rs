@@ -312,46 +312,13 @@ literal = "1"
 range = { min = 0, max = 3 }
 "#;
 
-/// FZ-REPLAY-WHOLE (final review B1): a replay compares the whole witness, so a witness file
-/// whose program, configuration variables, krun lines, label, clean-leaf facts, work or
-/// undefined-step rules were edited does not reproduce; only the documented exclusions
-/// (`repaired-from`) may differ.
-#[test]
-fn a_replay_compares_the_whole_witness() {
-    let primes = IMP_DIFF.program("imp-diff/primes.imp").text;
-    let directory = workspace(
-        "replay-whole",
-        &[
-            ("imp-kompiled", &IMP_DIFF),
-            ("mutant-kompiled", &IMP_DIV_GUARD_DROPPED),
-        ],
-        &[("primes.imp", primes), ("primes.toml", PRIMES_CAMPAIGN)],
-    );
-    let found = krust_fuzz(
-        &directory,
-        &["--campaign", "primes.toml", "--witness", "witness.json"],
-    );
-    assert_eq!(found.status.code(), Some(0), "{}", text(&found.stdout));
-    let recorded: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap()).unwrap();
-    let witness = &recorded["report"]["outcome"]["witness"];
-    assert!(witness["shrunk"].is_object(), "{witness}");
-    assert!(witness["mutant-krun-command"].is_string(), "{witness}");
-    assert!(
-        witness["shrunk"]["sides"][1]["undefined-rules"].is_array(),
-        "{witness}"
-    );
-    let replay = krust_fuzz(&directory, &["--replay", "witness.json"]);
-    assert_eq!(
-        replay.status.code(),
-        Some(0),
-        "{}{}",
-        text(&replay.stdout),
-        text(&replay.stderr)
-    );
+/// An edit of a recorded witness (`report.outcome.witness`).
+type Tamper = fn(&mut serde_json::Value);
 
-    type Tamper = fn(&mut serde_json::Value);
-    let tampers: [(&str, Tamper, &str); 10] = [
+/// The edits of [`a_replay_compares_the_whole_witness`], each with the line its replay prints:
+/// the final review's tampers (B1) and a few more fields of the same kinds.
+fn witness_tampers() -> [(&'static str, Tamper, &'static str); 10] {
+    [
         (
             "program",
             |w| {
@@ -416,8 +383,48 @@ fn a_replay_compares_the_whole_witness() {
             |w| w["first"]["steps"] = 1.into(),
             "the step count differs: the witness has 1, the replay ",
         ),
-    ];
-    for (name, tamper, said) in tampers {
+    ]
+}
+
+/// FZ-REPLAY-WHOLE (final review B1): a replay compares the whole witness, so a witness file
+/// whose program, configuration variables, krun lines, label, clean-leaf facts, work or
+/// undefined-step rules were edited does not reproduce; only the documented exclusions
+/// (`repaired-from`) may differ.
+#[test]
+fn a_replay_compares_the_whole_witness() {
+    let primes = IMP_DIFF.program("imp-diff/primes.imp").text;
+    let directory = workspace(
+        "replay-whole",
+        &[
+            ("imp-kompiled", &IMP_DIFF),
+            ("mutant-kompiled", &IMP_DIV_GUARD_DROPPED),
+        ],
+        &[("primes.imp", primes), ("primes.toml", PRIMES_CAMPAIGN)],
+    );
+    let found = krust_fuzz(
+        &directory,
+        &["--campaign", "primes.toml", "--witness", "witness.json"],
+    );
+    assert_eq!(found.status.code(), Some(0), "{}", text(&found.stdout));
+    let recorded: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap()).unwrap();
+    let witness = &recorded["report"]["outcome"]["witness"];
+    assert!(witness["shrunk"].is_object(), "{witness}");
+    assert!(witness["mutant-krun-command"].is_string(), "{witness}");
+    assert!(
+        witness["shrunk"]["sides"][1]["undefined-rules"].is_array(),
+        "{witness}"
+    );
+    let replay = krust_fuzz(&directory, &["--replay", "witness.json"]);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{}{}",
+        text(&replay.stdout),
+        text(&replay.stderr)
+    );
+
+    for (name, tamper, said) in witness_tampers() {
         let mut tampered = recorded.clone();
         tamper(&mut tampered["report"]["outcome"]["witness"]);
         let file = format!("{name}.json");
@@ -534,16 +541,13 @@ fn a_definition_compiled_in_two_directories_gives_one_report() {
         assert!(!at_a.contains(&root), "{what}: a host path: {at_a}");
         assert_eq!(at_a, at_b, "{what}: the reports differ");
         let parsed = FuzzReport::from_json(at_a.trim()).expect("a report");
-        match what {
-            "rule" => {
-                let rule = parsed.identity.target_rule.expect("a target rule");
-                assert_eq!(rule.name.locations[0].source, "imp.k", "{rule:?}");
-                assert!(!parsed.totals.coverage.names.is_empty());
-            }
-            _ => {
-                let finding = &parsed.definition_findings[0];
-                assert_eq!(finding.equations[0], "b.k:16:3", "{finding:?}");
-            }
+        if what == "rule" {
+            let rule = parsed.identity.target_rule.expect("a target rule");
+            assert_eq!(rule.name.locations[0].source, "imp.k", "{rule:?}");
+            assert!(!parsed.totals.coverage.names.is_empty());
+        } else {
+            let finding = &parsed.definition_findings[0];
+            assert_eq!(finding.equations[0], "b.k:16:3", "{finding:?}");
         }
     }
 }

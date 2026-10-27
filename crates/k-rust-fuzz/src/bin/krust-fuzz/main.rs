@@ -723,21 +723,7 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
             format!(" ({classes})")
         }
     );
-    // A report without a witness says it in its statement (FZ-REPLAY-WHOLE S3).
-    if report.witness().is_some() && report.totals.outside_determinism > 0 {
-        let count = report.totals.outside_determinism;
-        let _ = writeln!(
-            text,
-            "outside the determinism contract: {count} {}{}: a re-run with the same inputs may \
-             differ from that case on",
-            if count == 1 { "case" } else { "cases" },
-            report
-                .totals
-                .first_outside_determinism
-                .map(|case| format!(", the first being case {case}"))
-                .unwrap_or_default()
-        );
-    }
+    write_outside_determinism(&mut text, report);
     if let Some(count) = report.totals.pattern_body_matches {
         let judged = report.totals.pattern_body_judged.unwrap_or(0);
         let _ = writeln!(
@@ -798,6 +784,28 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
         let _ = writeln!(text, "engine defect: {}", defect.description);
     }
     text
+}
+
+/// For a report with a witness, how many cases were outside the determinism contract and the
+/// first of them, from which a re-run may differ (FZ-REPLAY-WHOLE S3); a report without a witness
+/// says it in its statement.
+fn write_outside_determinism(text: &mut String, report: &FuzzReport) {
+    use std::fmt::Write as _;
+    if report.witness().is_none() || report.totals.outside_determinism == 0 {
+        return;
+    }
+    let count = report.totals.outside_determinism;
+    let _ = writeln!(
+        text,
+        "outside the determinism contract: {count} {}{}: a re-run with the same inputs may differ \
+         from that case on",
+        if count == 1 { "case" } else { "cases" },
+        report
+            .totals
+            .first_outside_determinism
+            .map(|case| format!(", the first being case {case}"))
+            .unwrap_or_default()
+    );
 }
 
 /// The summary's crash lines: the first case of each crash signature, one line each, and the

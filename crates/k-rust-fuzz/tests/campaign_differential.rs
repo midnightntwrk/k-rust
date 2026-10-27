@@ -1095,8 +1095,9 @@ fn a_pair_whose_input_has_two_normal_forms_is_genuine() {
     );
     assert_eq!(finding.kind, FindingKind::Pair);
     assert_eq!(finding.position.as_deref(), Some("root"));
+    // Named relative to the main module's file, `r3-plainq/b.k` (FZ-REPLAY-WHOLE S1).
     for equation in &finding.equations {
-        assert!(equation.contains("r3-plainq/b.k:"), "{equation}");
+        assert!(equation.starts_with("b.k:"), "{equation}");
     }
     let name = finding.name.as_deref().expect("a pair's name");
     assert!(

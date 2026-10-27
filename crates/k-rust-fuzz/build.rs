@@ -11,7 +11,7 @@
 //! sources are not in this workspace's layout) makes the identity unverified.
 
 #[path = "../k-rust/build/source_digest.rs"]
-#[allow(
+#[expect(
     dead_code,
     reason = "k-rust's build script uses the rest; this one digests its own members"
 )]

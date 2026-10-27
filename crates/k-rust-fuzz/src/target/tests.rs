@@ -1074,8 +1074,11 @@ fn a_relative_source_names_its_own_file_and_an_absolute_one_falls_back_to_a_suff
     // also a suffix of `lib/rules.k`.
     assert_eq!(resolve("rules.k", 12), Ok("top-12".to_owned()));
     unknown(resolve("rules.k", 20));
-    // An absolute path ends with the catalog's relative path.
+    // An absolute path ends with the catalog's relative path, and so does a path written from
+    // another directory (FZ-REPLAY-WHOLE S1: the catalog's paths are relative to the main
+    // module's directory, and a reference may be written from the checkout's root).
     assert_eq!(resolve("/work/defs/rules.k", 30), Ok("top-30".to_owned()));
+    assert_eq!(resolve("defs/rules.k", 30), Ok("top-30".to_owned()));
     // `/work/defs/lib/rules.k` ends with both relative paths: refused at every line, not
     // resolved by the line.
     for line in [12, 20, 30] {

@@ -92,9 +92,9 @@ fn literals(source: &str) -> BTreeSet<String> {
         let before = source[..start].trim_end();
         let after = source[end + 1..].trim_start();
         if is_token(text) {
-            if after.starts_with(':') && !after.starts_with("::") {
-                found.insert(format!("{text}:"));
-            } else if before.ends_with('[') && after.starts_with(']') {
+            if (after.starts_with(':') && !after.starts_with("::"))
+                || (before.ends_with('[') && after.starts_with(']'))
+            {
                 found.insert(format!("{text}:"));
             } else if (before.ends_with("json!(") && after.starts_with(')'))
                 || (before.ends_with(':') && !before.ends_with("::"))

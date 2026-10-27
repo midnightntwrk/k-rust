@@ -31,8 +31,8 @@ const CANDIDATES: usize = 5;
 ///   label is `<module>.<text>`, so `div` names `RULES.div` when no other module has a `div`.
 /// - `UniqueId` matches the entries with that id.
 /// - `Source` first resolves its source to exactly one catalog file ([`files_named`]: the
-///   whole path; else a suffix of paths after a `/`; else, for an absolute source, the relative
-///   paths it ends with), refusing a source that names several files whatever the line
+///   whole path; else a suffix of paths after a `/`; else the relative paths it ends with),
+///   refusing a source that names several files whatever the line
 ///   ([`TargetProblem::AmbiguousSource`]). It then matches the entries with an origin in that
 ///   file whose location spans the line, from its first line to its last. A rule is a span of
 ///   its source
@@ -164,8 +164,10 @@ pub(super) fn catalog_files(catalog: &[CompiledRuleOutput]) -> BTreeSet<&str> {
 /// - the file whose path is `given`, or whose `Source(path)` text is: a whole path names its
 ///   file alone;
 /// - failing that, every file whose path ends with `given` right after a `/`;
-/// - failing that, for an absolute `given`, every relative path that `given` ends with right
-///   after a `/` (the compiler recorded it relative to where it ran).
+/// - failing that, every relative path that `given` ends with right after a `/`: a catalog
+///   names its files relative to the main module's directory ([`relative_catalog`]), and a
+///   reference may be written from another directory, absolute (`/work/defs/imp.k`) or relative
+///   (`defs/imp.k`, written from the checkout's root).
 ///
 /// More than one file is an ambiguity of the reference, whatever line it names: the line of a
 /// rule in one file may be a comment or lie between rules in the other.
@@ -183,7 +185,7 @@ pub(super) fn files_named<'a>(files: &BTreeSet<&'a str>, given: &str) -> Vec<&'a
         .copied()
         .filter(|path| ends_at_directory(path, given))
         .collect();
-    if !suffix.is_empty() || !given.starts_with('/') {
+    if !suffix.is_empty() {
         return suffix;
     }
     files
@@ -352,7 +354,8 @@ fn edit_distance(left: &str, right: &str) -> usize {
 /// then read the same names wherever the definition was compiled, and the report holds no host
 /// path. A rule reference resolves against these names ([`files_named`]): a path relative to the
 /// main module's directory names its file, a suffix of one after a `/` names the files it ends,
-/// and an absolute path names the relative paths it ends with.
+/// and a path written from elsewhere (absolute, or relative to another directory) names the
+/// relative paths it ends with.
 pub(crate) fn relative_catalog(
     mut catalog: Vec<CompiledRuleOutput>,
     names: &SourceNames,

@@ -81,7 +81,10 @@ fn sources(directory: &Path, with_bin: bool, files: &mut Vec<PathBuf>) {
             if with_bin || name != "bin" {
                 sources(&path, with_bin, files);
             }
-        } else if name.ends_with(".rs") && name != "tests.rs" && !name.ends_with("_tests.rs") {
+        } else if path.extension().is_some_and(|extension| extension == "rs")
+            && name != "tests.rs"
+            && !name.ends_with("_tests.rs")
+        {
             files.push(path);
         }
     }
@@ -178,15 +181,12 @@ fn without_comments(source: &str) -> String {
                 };
                 // A character literal is written as one placeholder, so that a quote character
                 // (`'"'`) opens no string for the later passes.
-                match literal_end {
-                    Some(end) => {
-                        out.push_str("'c'");
-                        index = end;
-                    }
-                    None => {
-                        out.push('\'');
-                        index += 1;
-                    }
+                if let Some(end) = literal_end {
+                    out.push_str("'c'");
+                    index = end;
+                } else {
+                    out.push('\'');
+                    index += 1;
                 }
             }
             _ => {

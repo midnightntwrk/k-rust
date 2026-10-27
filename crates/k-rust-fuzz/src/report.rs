@@ -2416,7 +2416,7 @@ mod tests {
                             kind: k_rust::backend::CompiledRuleKind::Rewrite,
                             label: Some("IMP.a".into()),
                             locations: vec![crate::target::RuleLocation {
-                                source: "/w/imp.k".into(),
+                                source: "imp.k".into(),
                                 reference: "imp.k".into(),
                                 line: 3,
                                 end_line: 4,
@@ -2466,6 +2466,26 @@ mod tests {
                 case: Some(7),
                 description: "confirmation disagreed".into(),
             }],
+        }
+    }
+
+    /// Both bindings declare what version 10 adds (FZ-REPLAY-WHOLE): the identity's k-rust-fuzz
+    /// build and parse diagnostic limit, and the first case a re-run may differ at.
+    #[test]
+    fn typescript_declarations_name_the_version_10_fields() {
+        for path in ["k-rust-napi", "k-rust-wasm"] {
+            let declarations = std::fs::read_to_string(format!(
+                "{}/../{path}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .expect("the declarations read");
+            for key in [
+                "'fuzz-revision': string",
+                "'parse-diagnostic-work': string",
+                "'first-outside-determinism'?: number",
+            ] {
+                assert!(declarations.contains(key), "{path}: {key} is not declared");
+            }
         }
     }
 
@@ -2558,7 +2578,7 @@ mod tests {
                 assert!(declarations.contains(key), "{key} is not declared");
             }
             assert!(!declarations.contains("'backend-error'"));
-            assert!(declarations.contains("version 9 (docs/compatibility.md)"));
+            assert!(declarations.contains("version 10 (docs/compatibility.md)"));
             for key in [
                 "'execution-modality'",
                 "'every-path'?:",
@@ -2748,8 +2768,9 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":9,"identity":{"engine-version":7,"#,
-            r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
+            r#"{"schema":"krust-fuzz-report","version":10,"identity":{"engine-version":7,"#,
+            r#""k-rust-revision":"b322de1ab","fuzz-revision":"0.8.0+src.0","#,
+            r#""definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,
             r#""frontend-digest":"FRONTEND","execution-definition-digest":"EXECUTION","#,
@@ -2771,7 +2792,8 @@ mod tests {
             r#""value-size":131072},"#,
             r#""rejection-cap":"10","#,
             r#""seed":"18446744073709551615","budget":{"cases":"5000"},"#,
-            r#""thread-stack-size":"67108864","solver":"none"},"#,
+            r#""thread-stack-size":"67108864","solver":"none","#,
+            r#""parse-diagnostic-work":"1048576"},"#,
             r#""outcome":{"status":"witness-found","witness":{"label":"property-failure","#,
             r#""first":CASE,"shrunk":CASE,"clean-leaf-facts":["ceil-free"],"#,
             r#""krun-command":"krust krun transfer.imp","#,
@@ -2782,7 +2804,7 @@ mod tests {
             r#""unsupported-reasons":{"natural-end-undecided":2},"#,
             r#""baseline-incomplete-reasons":{},"#,
             r#""coverage":{"applied":["a","b"],"matched":["c"],"names":{"a":{"kind":"rewrite","#,
-            r#""label":"IMP.a","locations":[{"source":"/w/imp.k","reference":"imp.k","line":3,"#,
+            r#""label":"IMP.a","locations":[{"source":"imp.k","reference":"imp.k","line":3,"#,
             r#""end-line":4}]}}},"#,
             r#""target-blocked":3,"pattern-body-matches":4,"pattern-body-judged":3,"#,
             r#""best-score":{"scored-cases":3,"best":{"case":1,"level":0,"#,
