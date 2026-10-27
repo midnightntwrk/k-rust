@@ -22,7 +22,7 @@ kore_relational() {
 
 name_relational() {
   case $1 in
-    kmut|kmut-ps) echo KMut ;; kunroll) echo KUnroll ;; simplev) echo KSimpleV ;;
+    kmut) echo KMut ;; kunroll) echo KUnroll ;; simplev) echo KSimpleV ;;
     peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;;
     pick) echo Pick ;; pickb) echo PickB ;;
     *) return 1 ;;
@@ -31,10 +31,8 @@ name_relational() {
 
 gen_relational() {
   case $1 in
-    # kmut-ps: kmut in the per-sort encoding, for ImpMut, whose hand module Diverge.lean is per-sort
-    kmut|kmut-ps) GEN_ARGS=(--kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json"
-            --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt")
-      [ "$1" = kmut-ps ] && GEN_ARGS+=(--per-sort-terms) ;;
+    kmut) GEN_ARGS=(--kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json"
+            --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
     # per-sort: ImpUnroll's hand module Relation.lean is written over the per-sort constructors
     kunroll) GEN_ARGS=(--kore "$(kore_dir kimp-unroll)/definition.kore" --runtime "$(kore_dir kimp-unroll)/runtime.json"
             --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
@@ -58,7 +56,7 @@ gen_relational() {
 relate_relational() {
   case $1 in
     ImpRel) nb=KrsImp kd=$KRS f=Bisim extra=(--per-sort-terms true) ;;
-    ImpMut) nb=KMut kd=$(kore_dir kmut) extra=(--per-sort-terms true) ;;
+    ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
     ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true --per-sort-terms true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim extra=(--split true) ;;
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
@@ -86,7 +84,6 @@ libs_refine() {
 gate_relational() {
   kc kimp
   runs lib kmut && kc kmut && lib kmut KMut
-  runs lib kmut-ps && kc kmut && lib kmut-ps KMut
   phase "demos relational"
   runs demo ImpRel && { rel ImpRel; dbuild ImpRel; }
   runs demo ImpMut && kc kmut && { rel ImpMut; dbuild ImpMut; }

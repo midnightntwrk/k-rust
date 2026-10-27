@@ -118,10 +118,10 @@ Every generated theorem states the same thing on both universes, so no statement
 A library or demo whose arity form would lose a count stays per-sort, with `encoding = "per-sort"` in its gate registry entry (`tests/areas/AREA.py`; `gate.sh list` prints it); these are, with the reason of each:
 
 - `ImpRel` and `ImpRelClaims` (on `kimp-ps` and `krsimp-ps`): `ImpRel`'s bisimulation on the arity universe grows past 14 GB in its build, and `ImpRelClaims` needs `ImpRel` and so the per-sort copy of kimp's claims, `kimp-claims-ps` (the same generated modules over `kimp-ps`; `ImpUnrollClaims` uses it too);
-- `ImpMut` (on `kimp-ps` and `kmut-ps`) and `ImpUnroll` (on `kimp-ps` and its library `kunroll`, generated per-sort): their hand-written modules (`Diverge.lean`, `Relation.lean`) name per-sort constructors and their `injEq` lemmas;
+- `ImpUnroll` (on `kimp-ps` and its library `kunroll`, generated per-sort): its hand-written module `Relation.lean` names the `injEq` lemmas of per-sort constructors, which are definitions without such lemmas on the arity universe;
 - `SimpleEnv` (on `simple-ps`): its hand-written modules match on per-sort constructors (`KSimple.Term.nil`, `inj_FstackCell`);
 - `ImpNI` and its library `impsec`: hand-written modules over the per-sort names of `KImp` and `KImpSec`;
-- `RaceConf` and its library `race`, and SIMPLE's confluence: `confluence` writes per-sort rule text (SIMPLE's confluence is a report from the KORE and builds no library, so the switch does not reach it);
+- `SimpleConf` (on `simple-ps`): its views are not yet built against the arity `simple`;
 - `SimpleRel` (`pipelines/simple-rel.sh`, outside the gate; `simple`, `simplev` and the relation generated per-sort there): its bisimulation builds in the per-sort form (§9);
 - six snapshot tests of the generator (params, measure, peano, counter, freekey, counter_det2), which keep the per-sort output under test (`--per-sort-terms` in `tests/snapshots.rs`).
 
@@ -659,7 +659,8 @@ Open, in the order they block a KEVM library with kimp's guarantees:
   The two libraries build: `Terms.lean` in 334 s / 663 CPU-s / 6.7 GB peak (KEVM) and 367 s / 698 CPU-s / 6.8 GB (the mutant), `Functions.lean` in 103 s / 2.9 GB and 130 s / 2.9 GB.
   The mutant relation's Lean build (`lake build` of its module, under a 14 GB cap) had not finished after 20.5 minutes at 7.4 GB peak, when it was stopped: a measured lower bound.
   Open: the cost of the KEVM relation's Lean build, and where it goes.
-- **The per-sort holdouts** (§2.1, with their reasons): `ImpRel`'s bisimulation (past 14 GB) is to be localized, by elaborating its modules in pieces under a cap; `SimpleEnv`, `ImpNI`, `ImpMut` and `ImpUnroll` need their hand-written modules rewritten over the family (`k2l_cases`), `noninterference` the arity proofs of the typing equations that `soundness` has had since 2026-10-26 (it shares its emitters), and `confluence` an arity emitter of its rule text.
+- **The per-sort holdouts** (§2.1, with their reasons): `ImpRel`'s bisimulation (past 14 GB) is to be localized, by elaborating its modules in pieces under a cap; `SimpleEnv`, `ImpNI` and `ImpUnroll` need their hand-written modules rewritten over the family (`k2l_cases`), `noninterference` the arity proofs of the typing equations that `soundness` has had since 2026-10-26 (it shares its emitters), and `SimpleConf` a build against the arity `simple`.
+  `ImpMut` and `RaceConf` moved on 2026-10-28 with their counts unchanged: `ImpMut`'s hand module needed only the arity name of the empty map, and `confluence`'s rule text, written with the constructors' names, elaborates on both universes.
   Each holdout moves to the arity universe when its counts there are at least its per-sort ones; the per-sort encoding can be retired when none is left.
 - **`Terms` cost**: about 280 of KEVM's 665 CPU-s are the decoder's round trip by `simp` and 128 leaf-inclusion lemmas by `decide` (estimate from a profile, 2026-10-23).
 - **Lean's realization of match equations and equation lemmas for imported constants** runs under the default 200,000 heartbeats whatever the importing file sets with `set_option` (Lean v4.30.0 and v4.34.0): the adequacy proofs avoid splitting large matches of another module and each equation proof unfolds only its own definitions, but another proof that does either can reach that limit.

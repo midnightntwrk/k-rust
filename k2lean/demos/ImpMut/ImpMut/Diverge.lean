@@ -20,18 +20,17 @@ open KPrelude
 
 /-- `<k> 1 - 1 ~> .K </k> <env> .Map </env>`. -/
 def c₀ : KImp.SortGeneratedTopCell :=
-  .«<generatedTop>» (.«<k>» (.kseq (.inj_Expr (.«_-_» (.inj_Int 1) (.inj_Int 1))) .dotk)) (.«<env>» .nil) (.«<generatedCounter>» 0)
+  .«<generatedTop>» (.«<k>» (.kseq (.inj_Expr (.«_-_» (.inj_Int 1) (.inj_Int 1))) .dotk)) (.«<env>» (KImp.Term.coll_SortMap [])) (.«<generatedCounter>» 0)
 
-theorem kimp_step : KImp.Step c₀ (.«<generatedTop>» (.«<k>» (.kseq (.inj_Int 0) .dotk)) (.«<env>» .nil) (.«<generatedCounter>» 0)) :=
+theorem kimp_step : KImp.Step c₀ (.«<generatedTop>» (.«<k>» (.kseq (.inj_Int 0) .dotk)) (.«<env>» (KImp.Term.coll_SortMap [])) (.«<generatedCounter>» 0)) :=
   KImp.Step.«X - Y» 1 1 .dotk _ _
 
 /-- Every step the mutant takes from the translated configuration differs from the translation
 of kimp's step. -/
 theorem diverge : ∀ d, KMut.Step (tr_SortGeneratedTopCell c₀) d →
-    d ≠ tr_SortGeneratedTopCell (.«<generatedTop>» (.«<k>» (.kseq (.inj_Int 0) .dotk)) (.«<env>» .nil) (.«<generatedCounter>» 0)) := by
+    d ≠ tr_SortGeneratedTopCell (.«<generatedTop>» (.«<k>» (.kseq (.inj_Int 0) .dotk)) (.«<env>» (KImp.Term.coll_SortMap [])) (.«<generatedCounter>» 0)) := by
   intro d h
-  simp only [c₀, tr_SortGeneratedTopCell, tr_SortKCell, tr_SortK, tr_SortKItem, tr_SortExpr_Own, tr_SortExpr,
-    tr_SortEnvCell, tr_SortMap, tr_SortGeneratedCounterCell] at h ⊢
+  simp only [c₀, tr_SortGeneratedTopCell] at h ⊢
   cases h <;> first
     | decide
     | (simp_all [KMut.K.isKResult, KMut.K.isKResult.rule1, KMut.proj_KItem_KResult, KMut.inj_Expr_KItem, BoolHook.and, BoolHook.not]; done)

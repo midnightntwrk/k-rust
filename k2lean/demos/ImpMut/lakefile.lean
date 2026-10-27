@@ -6,8 +6,8 @@ package «ImpMut» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
 require KPrelude from "../../lean/prelude"
-require «KImp» from "../../generated/kimp-ps"
-require «KMut» from "../../generated/kmut-ps"
+require «KImp» from "../../generated/kimp"
+require «KMut» from "../../generated/kmut"
 
 @[default_target]
 lean_lib ImpMut

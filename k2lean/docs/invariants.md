@@ -941,7 +941,7 @@ The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same l
    - `guard: False`: the library is built only as far as its invariant needs, so it has no `…Test.Axioms` guard; the invariant's own `#k2l_assert_axioms` is checked through `INVS`.
    - `inv_lib` (in `invariants.sh`) generates the library, builds its `Equations` and its `Invariants`, and turns a case that `k2l_preserve` does not close into an open case; `runs KIND NAME` holds when the tier being run includes the entry's tier.
    - A heavy invariant (SIMPLE-based) gets `"tier": "heavy"`; nothing else changes.
-   - Libraries are generated in the arity-indexed encoding by default (since 2026-10-25); an entry that must stay on the per-sort encoding gets `"encoding": "per-sort"` and `--per-sort-terms` in its generator call (`kmut-ps`, for `ImpMut`'s hand module), and a demo on per-sort libraries `"encoding": "per-sort"` (SimpleEnv). EnvBound builds on the default kimp (checked 2026-10-25), so it needs neither.
+   - Libraries are generated in the arity-indexed encoding by default (since 2026-10-25); an entry that must stay on the per-sort encoding gets `"encoding": "per-sort"` and `--per-sort-terms` in its generator call (`kimp-ps`, for the holdouts of design.md §2.1), and a demo on per-sort libraries `"encoding": "per-sort"` (SimpleEnv). EnvBound builds on the default kimp (checked 2026-10-25), so it needs neither.
    - `tests/gate.sh list` prints the registered entries, which checks the new ones.
 3. Run a tier, read its `FAIL` and `NOTE` lines, accept, and run again:
 

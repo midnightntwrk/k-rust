@@ -13,9 +13,7 @@ name_confluence() {
 gen_confluence() {
   case $1 in
     # the generator's fixture whose workers interleave (tests/fixtures/race)
-    # per-sort (`--per-sort-terms`): `confluence` writes RaceConf's pairs in per-sort rule text (a
-    # holdout of the per-sort encoding)
-    race) libs_fixture_args "$1"; GEN_ARGS+=(--per-sort-terms) ;;
+    race) libs_fixture_args "$1" ;;
     *) return 1 ;;
   esac
   return 0

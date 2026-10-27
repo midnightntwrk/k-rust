@@ -2,7 +2,7 @@
 # The format of every area's registry is described in gate-check.py's docstring.
 
 DEMOS = {
-    "RaceConf": {"tier": "light", "encoding": "per-sort", "sources": ["generated/race",
+    "RaceConf": {"tier": "light", "sources": ["generated/race",
                                               "demos/RaceConf/RaceConf/Confluence.lean", "demos/RaceConf/confluence.toml"]},
     # SIMPLE's steps of two threads joined generically, the rest as hypotheses (`confluence --threads`)
     "SimpleConf": {"tier": "heavy", "encoding": "per-sort", "sources": ["demos/SimpleConf/SimpleConf/Views.lean"]},
