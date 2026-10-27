@@ -382,8 +382,8 @@ impl ProductionItem<'_> {
     pub fn constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let production = self.attribute.production();
         let mut keys = KeyAllocator::default();
-        keys.append(&production.sort_provenance()?)?;
-        keys.append(&self.declaration.sort_provenance()?)?;
+        keys.append(&production.constructor_sort_provenance()?)?;
+        keys.append(&self.declaration.constructor_sort_provenance()?)?;
         keys.append(&production.sort_argument_provenance()?)?;
         keys.append(&self.declaration.argument_provenance()?)?;
         if let Some(symbol) = self.symbol {

@@ -39,7 +39,8 @@ fn constructor_takes_the_reference_spelling() {
         roles(&attribute.full_provenance().unwrap()).contains(&ProvenanceRole::ConstructorPrefer)
     );
     assert!(
-        !roles(&attribute.sort_provenance().unwrap()).contains(&ProvenanceRole::ConstructorPrefer)
+        !roles(&attribute.constructor_sort_provenance().unwrap())
+            .contains(&ProvenanceRole::ConstructorPrefer)
     );
 }
 

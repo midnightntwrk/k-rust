@@ -1150,7 +1150,7 @@ impl ConstructorAttribute {
     /// # Errors
     ///
     /// None: the attribute was keyed when it was parsed.
-    pub fn sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    pub fn constructor_sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self
             .anchors
             .iter()
@@ -2324,15 +2324,18 @@ mod keyed {
 
     impl ConstructorAttribute {
         /// Records the key of the sort, the node of
-        /// [`Self::sort_provenance`].
-        pub(crate) fn keyed_sort_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+        /// [`Self::constructor_sort_provenance`].
+        pub(crate) fn keyed_constructor_sort_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
             nodes.push_tokens(self.sort_key.as_ref(), &self.sort)
         }
 
         /// Records the keys of the full view: the sort, the syntax, then the
         /// metadata.
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
-            self.keyed_sort_nodes(nodes)?;
+            self.keyed_constructor_sort_nodes(nodes)?;
             if let Some(syntax) = &self.syntax {
                 nodes.push_tokens(self.keys.syntax.as_ref(), syntax)?;
             }
