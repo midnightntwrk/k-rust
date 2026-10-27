@@ -1708,7 +1708,7 @@ endmodule
         assert_eq!(totals(&document)["cases"], 10);
         let action = document["action"].as_str().unwrap();
         assert!(
-            action.contains("more cases of this template cannot help"),
+            action.contains("so this campaign has no other case to run"),
             "{action}"
         );
         assert!(!action.contains("Raise --cases"), "{action}");

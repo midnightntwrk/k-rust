@@ -2148,8 +2148,8 @@ pub fn fuzz_job(
             // repeat them (final review ux S6).
             document["stopped"] = json!("domain-exhausted");
             document["action"] = json!(format!(
-                "no witness: {} Every assignment of the holes ran, so more cases of this template \
-                 cannot help: mark more literals as holes, widen their ranges, or {sought}",
+                "no witness: {} Every assignment of the holes ran, so this campaign has no other \
+                 case to run: mark more literals as holes, widen their ranges, or {sought}",
                 no_witness.statement
             ));
             true

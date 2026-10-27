@@ -381,6 +381,9 @@ pub(crate) fn run_loop_filtered(
         };
         state.charge(run.work);
         state.totals.cases += 1;
+        // The assignment ran, whatever ends the case: a witness, an abort or a cancellation
+        // ends the loop before its tail, and `totals.domain.tried` counts it too.
+        state.note_tried(settings.domain.as_ref(), &proposal);
         state.notes(case, None, &run);
         // A crashed case is a finding, examined before it is counted: its confirmation can put
         // it outside the determinism contract (FZ-CRASH).
@@ -575,7 +578,7 @@ pub(crate) fn run_loop_filtered(
         state.score(case, observation.score.as_ref());
         let interesting = feedback.is_interesting(&observation);
         schedule.observe(&proposal, &observation, interesting);
-        if let Some(assignments) = state.exhausts(settings.domain.as_ref(), &proposal) {
+        if let Some(assignments) = state.exhausted(settings.domain.as_ref()) {
             break Ending::DomainExhausted { assignments };
         }
     };
@@ -2573,14 +2576,22 @@ impl State {
         proposal
     }
 
-    /// Record that `proposal`'s assignment ran, when it is one of `domain`'s; the number of
-    /// the domain's assignments once every one of them has run.
-    fn exhausts(&mut self, domain: Option<&FiniteDomain>, proposal: &Proposal) -> Option<u64> {
-        let domain = domain?;
-        if proposal.failure.is_some() || !domain.contains(&proposal.values) {
-            return None;
+    /// Record that `proposal`'s assignment ran, when it is one of `domain`'s. Recorded as soon as
+    /// the case is counted, so that the cases that end the loop count too; the next proposal is
+    /// drawn only after the case, so the case sequence is the same as when it was recorded at
+    /// the loop's tail.
+    fn note_tried(&mut self, domain: Option<&FiniteDomain>, proposal: &Proposal) {
+        if let Some(domain) = domain
+            && proposal.failure.is_none()
+            && domain.contains(&proposal.values)
+        {
+            self.assignments.insert(render(&proposal.values));
         }
-        self.assignments.insert(render(&proposal.values));
+    }
+
+    /// The number of `domain`'s assignments once every one of them has run.
+    fn exhausted(&self, domain: Option<&FiniteDomain>) -> Option<u64> {
+        let domain = domain?;
         (u64::try_from(self.assignments.len()).unwrap_or(u64::MAX) >= domain.size())
             .then(|| domain.size())
     }
@@ -3211,18 +3222,19 @@ pub(crate) fn no_witness(
             .expect("writing to a String");
         }
     }
-    // Where coverage stopped growing (GUIDE-USABILITY 3): a sound hint that more cases of this
-    // program are unlikely to help, which claims no unreachability.
-    if let Some(last) = totals.coverage_last_grew
+    // Where coverage stopped growing (GUIDE-USABILITY 3): a hint that more cases of this program
+    // are unlikely to help, which claims no unreachability. It needs a stretch of cases with no
+    // new rule that is long in two senses ([`stalled_since`]).
+    if let Some(last) = stalled_since(totals)
         && ending == Ending::Budget
-        && last.saturating_add(1) < totals.cases
     {
         write!(
             text,
-            " No case after case {last} (counted from 0) reached a rule that no earlier case \
-             reached{}, so more cases of this program and these holes are unlikely to reach \
-             others; that is no proof that none can, and a template that holds the target's \
-             construct may.",
+            " The last {} cases (after case {last}, counted from 0) reached no rule that no \
+             earlier case reached{}, so more cases of this program and these holes are unlikely \
+             to reach a new rule; that is no proof that none can, and a template that holds the \
+             target's construct may.",
+            totals.cases - last - 1,
             if differential { " in the mutant" } else { "" }
         )
         .expect("writing to a String");
@@ -3298,6 +3310,23 @@ fn bound_advice(
 /// step a hole sets to 0), so a larger bound helps only a program that ends on those values.
 const TERMINATES: &str = " if the program ends on those values (a hole value can make it loop, \
                           which no bound changes)";
+
+/// The fewest cases after the last one that added a rule to the coverage for the statement to
+/// say that coverage stopped growing ([`stalled_since`]). By the rule of three, after `n`
+/// consecutive cases with no new rule, a constant chance per case of a new rule is below `3 / n`
+/// at 95 % confidence, so 30 such cases put it below one in ten. The cases are no independent
+/// draws (the proposers adapt), so this is a threshold for a hint, not a bound.
+const STALLED_CASES: u64 = 30;
+
+/// The last case that added a rule to the coverage, when the cases after it are many enough to
+/// say that coverage stopped growing: at least [`STALLED_CASES`], and at least as many as the
+/// cases up to and including it, so that the campaign spent as long without a new rule as it
+/// took to reach every rule it reached. `None` otherwise, or when no case added a rule.
+fn stalled_since(totals: &Totals) -> Option<u64> {
+    let last = totals.coverage_last_grew?;
+    let after = totals.cases.checked_sub(last.checked_add(1)?)?;
+    (after >= STALLED_CASES && after > last).then_some(last)
+}
 
 /// "1 case was" or "N cases were".
 fn plural_were(count: u64) -> String {

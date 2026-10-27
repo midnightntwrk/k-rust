@@ -1191,9 +1191,15 @@ impl LiveCases {
                 Ok(prepared) => prepared,
                 Err(reason) => return Ok(CaseRun::rejected(reason, 0)),
             };
-        let mutant_case = match mutant.prepare(mutant_assembler, &self.spec.program, values) {
-            Ok(prepared) => prepared,
-            Err(reason) => return Ok(CaseRun::rejected(reason, 0)),
+        // The baseline accepted the values, so a step that refuses them on the mutant alone
+        // (printing, assembly, or the round trip on the mutant's grammar) says nothing of the
+        // input: `rejected` would call a valid input invalid. The mutant gives the input no run
+        // to compare, so the case is `unsupported`, with the reason that names the mutant
+        // (FZ-ENGINE-R4 fix round, D43(2)).
+        let Ok(mutant_case) = mutant.prepare(mutant_assembler, &self.spec.program, values) else {
+            return Ok(CaseRun::unjudged_before_run(
+                UnjudgedReason::MutantRefusedState,
+            ));
         };
         let side = &mut self.baseline;
         let run_to_completion = self.spec.target.run_to_completion;
@@ -1272,7 +1278,7 @@ impl LiveCases {
             run.rejection = Some(RejectionReason::BackendRefused);
             return Ok(run);
         }
-        if refused(mutated) && !differential::no_instance(mutated) {
+        if differential::mutant_refused(mutated) {
             run.class = OutcomeClass::Unsupported;
             run.unjudged = Some(UnjudgedReason::MutantRefusedState);
             return Ok(run);
@@ -1854,18 +1860,25 @@ fn run_sides(
 }
 
 /// Keep a leaf of `result` judged data only where `other`, the executor of the pair's other
-/// definition, judges its state data too ([`Executor::is_data_here`]). Condition 4 compares ends
+/// definition, judges its state data too ([`Executor::data_here`]). Condition 4 compares ends
 /// across the two definitions, so each compared end must be data in both, each judged by its own
 /// definition (`k_rust_backend::data_term`, "Two definitions").
 ///
 /// An end that names a symbol or sort the other definition does not declare
-/// ([`DataHere::Foreign`]) stays data: it is no term of the other definition's signature, so it
-/// is outside the other side's set whatever that definition's ends are, and it is data in its
-/// own definition (final review N1).
+/// ([`DataHere::Foreign`]) has no reading there, so it is not data in both and cannot be
+/// compared; it is marked ([`exec::LeafReport::undeclared_in_other`]) so that the judge names
+/// that reason (FZ-ENGINE-R4 review B1).
 fn judge_data_in(other: &mut Executor, result: &mut CaseResult) {
     for leaf in &mut result.leaves {
-        if leaf.data_end == Some(true) && other.data_here(&leaf.state) == DataHere::NotData {
-            leaf.data_end = Some(false);
+        if leaf.data_end == Some(true) {
+            match other.data_here(&leaf.state) {
+                DataHere::Data => {}
+                DataHere::NotData => leaf.data_end = Some(false),
+                DataHere::Foreign => {
+                    leaf.data_end = Some(false);
+                    leaf.undeclared_in_other = true;
+                }
+            }
         }
     }
 }

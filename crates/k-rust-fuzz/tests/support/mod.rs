@@ -677,6 +677,20 @@ pub const INIT_PROGRAMS: &[Program] = &[program!("init/go.pgm")];
 fixture!(INIT, "init/init.k", "INIT", INIT_PROGRAMS);
 fixture!(INIT_M, "init/init-m.k", "INIT", INIT_PROGRAMS);
 fixture!(INIT_C, "init/init-c.k", "INIT", INIT_PROGRAMS);
+fixture!(INIT_MACRO, "init/init-macro.k", "INIT", INIT_PROGRAMS);
+
+/// A constructor without a `symbol` attribute, whose generated KORE label names its declaring
+/// module, and two copies that rename it: one with the production moved to the main module, one
+/// with the modules renamed (FZ-ENGINE-R4 review B1).
+pub const UNDECLARED_PROGRAMS: &[Program] = &[program!("undeclared/go.pgm")];
+fixture!(UNDECLARED, "undeclared/r.k", "R", UNDECLARED_PROGRAMS);
+fixture!(
+    UNDECLARED_MOVED,
+    "undeclared/r-moved.k",
+    "R",
+    UNDECLARED_PROGRAMS
+);
+fixture!(UNDECLARED_Q, "undeclared/q.k", "Q", UNDECLARED_PROGRAMS);
 
 /// Branches that meet in one configuration at one depth (FZ-STATESET): a state set keeps the
 /// arrival it meets first, so a rule fired on the other is on no leaf's trace (B1), and the leaf
@@ -1314,7 +1328,7 @@ fixture!(HALTCAUSE, "haltcause/haltcause.k", "HC", HALTCAUSE_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 98] = [
+pub static ALL: [&Fixture; 105] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1413,4 +1427,11 @@ pub static ALL: [&Fixture; 98] = [
     &COMPARABLE_COND,
     &HALTCAUSE,
     &MERGE,
+    &INIT,
+    &INIT_M,
+    &INIT_C,
+    &INIT_MACRO,
+    &UNDECLARED,
+    &UNDECLARED_MOVED,
+    &UNDECLARED_Q,
 ];

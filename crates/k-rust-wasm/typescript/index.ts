@@ -1841,6 +1841,7 @@ export type FuzzUnjudgedReason =
   | 'unobservable'
   | 'kill-without-evidence'
   | 'definition-not-confluent'
+  | 'end-names-undeclared-symbol'
   | 'mutant-end-not-data'
   | 'baseline-end-not-data'
   | 'unconfirmed'

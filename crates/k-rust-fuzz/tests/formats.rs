@@ -39,10 +39,12 @@ use k_rust_fuzz::report::{REPORT_VERSION, digest_hex};
 /// round, in the same wave: `identity.debug-assertions` came in, and the reader now follows type
 /// aliases (`Assignment`), which changes the digest and not the format. Re-pinned within
 /// version 10 by FZ-ENGINE-R4, in the same wave: `totals.domain`, `totals.diverging`,
-/// `totals.coverage-last-grew` and the unjudged reason `mutant-refused-state`.
+/// `totals.coverage-last-grew` and the unjudged reason `mutant-refused-state`. Re-pinned within
+/// version 10 by FZ-ENGINE-R4's fix round, in the same wave: the unjudged reason
+/// `end-names-undeclared-symbol`.
 const REPORT_SHAPE: (u32, &str) = (
     10,
-    "5bb65dd0e5e415dad6a53e061b3672feb10a013cc08b5c817c6a8e34b4bd7c20",
+    "1ad45719b1897e936724e31c16a6637712a8e1fe0f39c6e4da106a62ee71b3ad",
 );
 
 /// The witness file's shape at its version 2 (FZ-CRASH), less the report it holds.

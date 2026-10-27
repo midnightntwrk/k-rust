@@ -24,7 +24,7 @@ use serde_json::Value;
 
 use super::{
     CaseFailure, CaseResult, ComparableCondition, DeterminismBreak, FailureCause, HaltCause,
-    InternalHalt, LeafReport, UncleanReason,
+    InternalHalt, LeafDiagnostic, LeafReport, UncleanReason,
 };
 use crate::crash::{BUILTIN_SITE, INVALID_BUILTIN_RESULT_SYMBOL_SITE, cause_site};
 
@@ -52,11 +52,14 @@ pub enum UnjudgedReason {
     /// macro or alias at run time, or a `simplification-error` halt without its cause. Reported
     /// among the report's `crashes`; a leaf on any path of either side makes the case unjudged.
     InternalHalt,
-    /// Differential: the mutant's backend refused the initial state that the baseline accepted
-    /// ([`FailureCause::StateRefused`] on the mutant alone): it holds a symbol, sort or value the
-    /// mutant's definition does not declare or cannot internalize, so the mutant gives the input
-    /// no run to compare. (A mutant whose initial state merely has no instance gives the empty
-    /// set of ends, which is compared.)
+    /// Differential: the mutant refused the input that the baseline accepted, so it gives the
+    /// input no run to compare: printing a hole value, assembling the configuration or the
+    /// round trip of the values failed on the mutant's grammar alone, or the mutant's backend
+    /// refused the initial state ([`FailureCause::StateRefused`]: a symbol, sort or value its
+    /// definition does not declare or cannot internalize), or its run gave no leaf, which shows
+    /// nothing. The input is valid for the baseline, so the case is not `rejected`. (A mutant
+    /// whose initial state merely has no instance gives the empty set of ends, which is
+    /// compared.)
     MutantRefusedState,
     /// The request is nested deeper than the largest stack the backend provides for one
     /// operation ([`FailureCause::TooDeep`]): a bound the build fixes, a function of the input.
@@ -189,6 +192,15 @@ pub enum UnjudgedReason {
     /// definition has no data ends `not-comparable` before its first case (the report's
     /// `definition-findings` list the findings), so no campaign counts a case under it.
     DefinitionNotConfluent,
+    /// Differential: an end outside the other side's set, or an end of the other side's set
+    /// against which one would be a kill, applies a symbol or names a sort that the other
+    /// definition does not declare ([`crate::exec::LeafReport::undeclared_in_other`]). Such a
+    /// term has no reading in that definition, so its syntactic difference from that side's
+    /// ends shows nothing (`k_rust_backend::data_term`, "Two definitions"): a KORE symbol name is
+    /// no identity across two definitions, since a production without a `symbol` attribute is
+    /// named after the module that declares it, and moving it to another module, or renaming
+    /// the module, renames it while the constructor stays the same.
+    EndNamesUndeclaredSymbol,
     /// Differential: an end of the mutant that the baseline does not reach, or the mutant's set
     /// against which a baseline end would be removed, holds an end that is not data in both
     /// definitions (condition 4): an unevaluated function application, an overload application
@@ -274,6 +286,17 @@ const NOT_DATA_REMEDY: &str = concat!(
     "hold only constructors, builtin values and irreducible overload applications can be",
 );
 
+/// The remedy of [`UnjudgedReason::EndNamesUndeclaredSymbol`].
+const UNDECLARED_SYMBOL_REMEDY: &str = concat!(
+    "an end applies a symbol, or names a sort, that the other definition does not declare, so ",
+    "it has no reading there and cannot be compared with that definition's ends; a KORE ",
+    "symbol name is no identity across two definitions (a production without a `symbol` ",
+    "attribute is named after the module that declares it, so moving it to another module, or ",
+    "renaming the module, renames it), and this case cannot be judged; the same ",
+    "`symbol(NAME)` attribute on the production in both definitions names it alike in both, ",
+    "or a program or hole range whose ends hold only symbols both definitions declare can be",
+);
+
 /// The remedy of [`UnjudgedReason::DefinitionNotConfluent`].
 const DEFINITION_NOT_CONFLUENT_REMEDY: &str = concat!(
     "a definition of the case has no data: its full critical-pair check reports a pair it ",
@@ -334,10 +357,12 @@ const TOO_DEEP_REMEDY: &str = concat!(
 
 /// The remedy of [`UnjudgedReason::MutantRefusedState`].
 const MUTANT_REFUSED_STATE_REMEDY: &str = concat!(
-    "the mutant's backend refused an initial state the baseline accepts (a symbol, sort or ",
-    "value its definition does not declare or cannot internalize), so the mutant has no run on ",
-    "this input to compare; the definitions differ in what states they admit, not in their ",
-    "ends, and only another program or hole range whose state both admit can be judged",
+    "the mutant refused an input the baseline accepts (its grammar did not print, assemble or ",
+    "read back the values, its backend refused the initial state as one holding a symbol, sort",
+    " or value its definition does not declare or cannot internalize, or its run gave no ",
+    "result), so the mutant has no run on this input to compare, and the case says nothing ",
+    "about the two definitions' ends; only another program or hole range that the mutant ",
+    "admits too can be judged",
 );
 
 /// The remedy of [`UnjudgedReason::ClientRefused`].
@@ -369,7 +394,7 @@ impl UnjudgedReason {
     /// Every reason that names no condition, in declaration order: the reasons that name one
     /// ([`Self::EndNotComparable`], [`Self::QueryNotConfirmable`]) are one per
     /// [`ComparableCondition`].
-    pub const ALL: [Self; 45] = [
+    pub const ALL: [Self; 46] = [
         Self::Panic,
         Self::InternalError,
         Self::InternalHalt,
@@ -410,6 +435,7 @@ impl UnjudgedReason {
         Self::Unobservable,
         Self::KillWithoutEvidence,
         Self::DefinitionNotConfluent,
+        Self::EndNamesUndeclaredSymbol,
         Self::MutantEndNotData,
         Self::BaselineEndNotData,
         Self::Unconfirmed,
@@ -452,6 +478,7 @@ impl UnjudgedReason {
             }
             Self::MutantEndNotData | Self::BaselineEndNotData => NOT_DATA_REMEDY,
             Self::DefinitionNotConfluent => DEFINITION_NOT_CONFLUENT_REMEDY,
+            Self::EndNamesUndeclaredSymbol => UNDECLARED_SYMBOL_REMEDY,
             Self::ReachedEndNotData => REACHED_END_NOT_DATA_REMEDY,
             Self::Clock => {
                 "raise or remove the per-case safety limit (campaign key \
@@ -655,13 +682,39 @@ pub(crate) fn incomplete(result: &CaseResult) -> Option<UnjudgedReason> {
 
 /// Why a side whose initial state was shown to have no instance
 /// (`target::differential::no_instance`) does not show the empty set of ends: the first fact
-/// among the run's own and its `vacuous` leaves' reasons beyond their halt (a mark, a
-/// diagnostic). `None` when its absence is decided.
+/// among the run's own, its `vacuous` leaves' reasons beyond their halt (a mark, an undecided
+/// state) and their diagnostics. `None` when its absence is decided.
 pub(crate) fn absence_undecided(result: &CaseResult) -> Option<UnjudgedReason> {
     run_incomplete(result)
         .into_iter()
         .chain(result.leaves.iter().filter_map(beyond_halt))
+        .chain(
+            result
+                .leaves
+                .iter()
+                .flat_map(|leaf| leaf.diagnostics.iter().map(|kind| of_diagnostic(*kind))),
+        )
         .min()
+}
+
+/// The reason a leaf's diagnostic stands for, where it leaves an absence undecided
+/// ([`absence_undecided`]). The kinds that also give an unclean reason name the same reason
+/// that one does ([`UnjudgedReason::of_unclean`], as `exec` maps them); an undecided condition
+/// or predicate leaves the state undecided, and a hook left unevaluated is an unsupported hook.
+fn of_diagnostic(kind: LeafDiagnostic) -> UnjudgedReason {
+    match kind {
+        LeafDiagnostic::UndecidedCondition
+        | LeafDiagnostic::UndecidedPredicate
+        | LeafDiagnostic::UndefinedInitialInstances => UnjudgedReason::UndecidedState,
+        LeafDiagnostic::UnsupportedHookUnevaluated => UnjudgedReason::UnsupportedHook,
+        LeafDiagnostic::SimplificationBudgetExhausted
+        | LeafDiagnostic::RuleConditionUnsimplified => UnjudgedReason::IterationExhaustion,
+        LeafDiagnostic::RuleConditionFailed => UnjudgedReason::SimplificationFailure,
+        LeafDiagnostic::ImplementationChosenValue => UnjudgedReason::ImplementationChosenValue,
+        LeafDiagnostic::ContradictedClaim | LeafDiagnostic::ContradictedTotal => {
+            UnjudgedReason::ContradictedClaim
+        }
+    }
 }
 
 /// The run-level facts of [`incomplete`]: an `Err`, a clock, a fact off the leaves, a
@@ -993,6 +1046,7 @@ mod tests {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end: None,
+            undeclared_in_other: false,
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
@@ -1032,6 +1086,10 @@ mod tests {
             (UnjudgedReason::NaturalEndUndecided, "natural-end-undecided"),
             (UnjudgedReason::NotCeilFree, "not-ceil-free"),
             (UnjudgedReason::MutantEndNotData, "mutant-end-not-data"),
+            (
+                UnjudgedReason::EndNamesUndeclaredSymbol,
+                "end-names-undeclared-symbol",
+            ),
             (UnjudgedReason::WorkBound, "work-bound"),
         ] {
             assert_eq!(reason.name(), name);
@@ -1057,6 +1115,7 @@ mod tests {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end: None,
+            undeclared_in_other: false,
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,

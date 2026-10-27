@@ -1259,7 +1259,9 @@ pub struct Totals {
     /// The last case (counted from 0) whose run added a rule to [`Self::coverage`] (`applied` or
     /// `matched`); absent when no case added one. A value far below [`Self::cases`] says the
     /// cases stopped reaching new rules long ago, so more cases of this program and these holes
-    /// are unlikely to reach others; it is no proof that none can (GUIDE-USABILITY 3).
+    /// are unlikely to reach a new rule; it is no proof that none can (GUIDE-USABILITY 3). The
+    /// no-witness statement says so only when at least 30 cases followed it, and at least as
+    /// many as came up to it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage_last_grew: Option<u64>,
 }
@@ -2833,7 +2835,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":10,"identity":{"engine-version":7,"#,
+            r#"{"schema":"krust-fuzz-report","version":10,"identity":{"engine-version":8,"#,
             r#""k-rust-revision":"b322de1ab","fuzz-revision":"0.8.0+src.0","#,
             r#""definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,

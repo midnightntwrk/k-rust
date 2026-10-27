@@ -33,7 +33,7 @@ const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
 const BEGIN: &str = "=====BEGIN-KRUST-FUZZ-REPORTS=====";
 const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 
-/// The pinned fingerprint of the golden campaigns' case sequence at [`ENGINE_VERSION`] 7.
+/// The pinned fingerprint of the golden campaigns' case sequence at [`ENGINE_VERSION`] 8.
 /// Pinned at integration round 1, when the modules behind the engine landed; re-pin it, with
 /// a version bump, only when the case sequence is meant to change. Version 2 left the four
 /// Int-hole campaigns' fingerprint as it was at version 1 (`f903fed0…`), and added the map
@@ -51,59 +51,62 @@ const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 /// no golden campaign. Version 6 (phase 8) moves no golden campaign either, so it is re-pinned
 /// with the same digest. Version 7 (FZ-STATESET: all-paths cases on state sets) is re-pinned with
 /// the same digest too: every golden campaign runs one path, which stays a path set, so its
-/// cases, classes and condition records are unchanged.
+/// cases, classes and condition records are unchanged. Version 8 (round 4, FZ-ENGINE-R4: a
+/// differential mutant's refusal and absence, `covered` on committed transitions, ends naming
+/// undeclared symbols) moves no golden campaign either, so every fingerprint is re-pinned with
+/// the same digest.
 const PINNED: Option<(u32, &str)> = Some((
-    7,
+    8,
     "ed2751abb407d6d93e71ecc4f9a1b35448ec00c213637182796ad268c4440bcf",
 ));
 
 /// The pinned fingerprint of the state-set campaign's case sequence (FZ-STATESET), at
-/// [`ENGINE_VERSION`] 7, the version that brought all-paths rule and final-pattern cases onto
-/// k-rust state sets. Every other golden campaign runs one path or a differential, so this one
+/// [`ENGINE_VERSION`] 8 (unmoved from version 7, the version that brought all-paths rule and
+/// final-pattern cases onto k-rust state sets). Every other golden campaign runs one path or a differential, so this one
 /// guards a state-set campaign's determinism across processes and its case sequence: a change of
 /// the state-set exploration's merge order, of what it keeps of a merged arrival, or of the
 /// classes judged on it moves it. Bump `ENGINE_VERSION` and re-pin every fingerprint.
 const PINNED_STATESET: Option<(u32, &str)> = Some((
-    7,
+    8,
     "c43af437cd3593aa92147bbada3fdc4df0b22771fc2bb46dd9f21dabe57f5382",
 ));
 
 /// The pinned fingerprint of the state-match campaigns' case sequence (FZ-STATESET-MATCH), at
-/// [`ENGINE_VERSION`] 7: an all-paths `at: any-state` campaign, whose states k-rust matches
+/// [`ENGINE_VERSION`] 8 (unmoved from version 7): an all-paths `at: any-state` campaign, whose states k-rust matches
 /// inside the run (sharing the run's solver cache), and an all-paths `fired` campaign whose hit
 /// is the run's, by the committed transitions. A change of the in-run matching, of the
 /// committed transitions or of the classes judged on them moves it: bump `ENGINE_VERSION` and
 /// re-pin every fingerprint.
 const PINNED_STATE_MATCH: Option<(u32, &str)> = Some((
-    7,
+    8,
     "afbe5ed23402779c61f4bf34bfe2768bcd0b5ad7879f95b8e322019b37342019",
 ));
 
 /// The pinned fingerprint of the dictionary campaigns' case sequence (FZ-11) at
-/// [`ENGINE_VERSION`] 7. Version 2 was the first version with the dictionary; versions 3 to 7
+/// [`ENGINE_VERSION`] 8. Version 2 was the first version with the dictionary; versions 3 to 8
 /// left the fingerprint as it was, since the dictionary draws no run-time literals and asks for
 /// no counts, and no phase-5, phase-6, phase-8 or FZ-STATESET change moves its one-path campaigns. A change of the dictionary's parameters
 /// (`report::DictionaryParameters`) or of its harvest moves it: bump `ENGINE_VERSION` and re-pin
 /// both fingerprints.
 const PINNED_DICTIONARY: Option<(u32, &str)> = Some((
-    7,
+    8,
     "174abe2bf3fcf2720866374ed6cbffa3c3141ab8cc3c2adb3d9f3e58ad71bd18",
 ));
 
 /// The pinned fingerprint of the climb campaign's case sequence (FZ-12), at [`ENGINE_VERSION`]
-/// 7. The climb came in within version 2; version 3 moved this fingerprint (from `3c303ba3…`)
+/// 8. The climb came in within version 2; version 3 moved this fingerprint (from `3c303ba3…`)
 /// because the climb now changes its incumbent from the run-time literals of the guards it
-/// refuted (FZ-16); versions 4 to 7 left it as it was (version 7's state sets serve all-paths
+/// refuted (FZ-16); versions 4 to 8 left it as it was (version 7's state sets serve all-paths
 /// cases only, and the climb campaign runs one path, so its condition records are unchanged). A change of the climb's parameters
 /// (`report::ClimbParameters`), of its moves or of the scores it climbs moves it: bump
 /// `ENGINE_VERSION` and re-pin every fingerprint.
 const PINNED_CLIMB: Option<(u32, &str)> = Some((
-    7,
+    8,
     "81695de9cdab5c23e5be7b35a9c68817ed07904f54c038ab6c0bc57a862149cf",
 ));
 
 /// The pinned fingerprint of the corpus campaign's case sequence (FZ-14), at [`ENGINE_VERSION`]
-/// 7 (unmoved from version 3; the corpus campaign runs one path, which version 7 leaves a path
+/// 8 (unmoved from version 3; the corpus campaign runs one path, which version 7 leaves a path
 /// set). The corpus came in within version 2; version 3 moved this
 /// fingerprint (from `1e959791…`) because the corpus now changes kept cases, and follows up its own
 /// missed case, from the run-time literals of the guards they refuted (FZ-16). The corpus's count
@@ -112,13 +115,13 @@ const PINNED_CLIMB: Option<(u32, &str)> = Some((
 /// parameters (`report::CorpusParameters`), of its mutations or of the harvest it draws literals
 /// from moves it: bump `ENGINE_VERSION` and re-pin every fingerprint.
 const PINNED_CORPUS: Option<(u32, &str)> = Some((
-    7,
+    8,
     "ace0f86bbab3b028bd4c5ce24f9dbdd7007c66ca8c37326a54deea3be937ddb2",
 ));
 
 /// The pinned fingerprint of the solve campaign's case sequence (FZ-15), in builds with the `z3`
-/// feature, at [`ENGINE_VERSION`] 7. The solve proposer came in within version 2; versions 3
-/// to 7 left the fingerprint as it was (the solving campaign weighs neither the climb nor the
+/// feature, at [`ENGINE_VERSION`] 8. The solve proposer came in within version 2; versions 3
+/// to 8 left the fingerprint as it was (the solving campaign weighs neither the climb nor the
 /// corpus, so it draws no run-time literals and asks for no counts; a Z3 context per query,
 /// which changes no answer a fresh process gives, moved nothing; and version 7's state sets serve
 /// all-paths cases only, while this campaign runs one path). A change of its parameters
@@ -126,7 +129,7 @@ const PINNED_CORPUS: Option<(u32, &str)> = Some((
 /// `ENGINE_VERSION` and re-pin every fingerprint.
 #[cfg(feature = "z3")]
 const PINNED_SOLVE: Option<(u32, &str)> = Some((
-    7,
+    8,
     "1db20f24905eefd79e9ec7b3cc4b7ce634c12838eb34d27810e6a1071d76e29e",
 ));
 

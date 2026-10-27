@@ -367,8 +367,10 @@ fn strip_positions(value: &mut serde_json::Value) {
 /// A mutant whose initial state has no instance ([`no_instance`]: only `vacuous` leaves at
 /// depth 0) has the empty set of ends, in either path mode, since it has no path: a complete
 /// baseline's data ends are then removed ends, under the conditions above (FZ-ENGINE-R4, final
-/// review S1). A mutant that answers an `Err` refusing the state is the caller's to class
-/// (`unsupported`, `mutant-refused-state`): it is not judged here.
+/// review S1); with none, the case is `undefined`, as for a mutant whose every path takes an
+/// undefined step. A mutant that answers an `Err` refusing the state, or no leaf, is the
+/// caller's to class (`unsupported`, `mutant-refused-state`, [`mutant_refused`]): it is not
+/// judged here.
 ///
 /// A baseline that refuses the initial state (an `Err` with a refused state, or only `vacuous`
 /// leaves at depth 0) makes the case `rejected`, as [`exec::classify`] classes it: the input is
@@ -492,13 +494,17 @@ pub(crate) fn judge_pair_explained(
         ));
     }
     if absent {
-        // The mutant's set is empty and no baseline end is removed: the baseline has no end the
-        // case could compare (every path takes an undefined step, or, under `run_to_completion`,
-        // stops abnormally), so the two sets agree. When the absence itself is not decided (it
-        // rests on a mark, a solver `unknown` or another fact `complete_ends` refuses), nothing
-        // is shown either way.
+        // The mutant's set is empty and no baseline end is removed: every baseline path takes an
+        // undefined step, or, under `run_to_completion`, some stops abnormally (a decided
+        // abnormal stop is no kill there, `Verdicts::outside`). A mutant with no run is the
+        // limit of one whose every path takes an undefined step, one step earlier, and that
+        // mutant's class is `undefined`; under `run_to_completion` the pair's class (the
+        // mutant's) must also report that the sides disagree where the baseline stopped, which
+        // `miss` would hide. So the case is `undefined`, which is no hit. When the absence
+        // itself is not decided (it rests on a mark, a diagnostic, a solver `unknown` or another
+        // fact `complete_ends` refuses), nothing is shown either way.
         return Ok(if mutant_set.is_some() {
-            (DifferentialJudgement::class(OutcomeClass::Miss), None)
+            (DifferentialJudgement::class(OutcomeClass::Undefined), None)
         } else {
             (
                 DifferentialJudgement::class(OutcomeClass::Unsupported),
@@ -523,6 +529,21 @@ pub(crate) fn no_instance(result: &CaseResult) -> bool {
             .leaves
             .iter()
             .all(|leaf| leaf.halt == HaltReasonOutput::Vacuous && leaf.depth == 0)
+}
+
+/// Whether the mutant's result `mutated` refuses its initial state without showing that it has
+/// no instance: an `Err` for a refused state (a symbol, sort or value its definition does not
+/// declare or cannot internalize), or a result with no leaf, which shows nothing; both are
+/// what [`exec::classify`] classes `rejected` beside [`no_instance`]. The case is then
+/// `unsupported` with [`UnjudgedReason::MutantRefusedState`], which the caller sets before
+/// judging: the mutant gives the input no run to compare. A result whose leaves are all
+/// `vacuous` at depth 0 is no refusal: the initial state has no instance, so the mutant's set
+/// of ends is empty, which [`judge_pair_explained`] compares.
+pub(crate) fn mutant_refused(mutated: &CaseResult) -> bool {
+    matches!(
+        exec::classify(mutated, &vec![false; mutated.leaves.len()], false),
+        Ok(OutcomeClass::Rejected)
+    ) && !no_instance(mutated)
 }
 
 /// Whether the mutant's result is no evidence of a kill (condition 3): some leaf carries an
@@ -617,12 +638,10 @@ fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
         && result.determinism_breaks().is_empty()
         && !result.leaves.is_empty();
     // An initial state shown to have no instance ([`no_instance`]) is a complete run with no end
-    // when that is decided: its `vacuous` leaves carry no reason beyond their halt.
+    // when that is decided ([`decided_absence`]).
     let complete = |leaf: &LeafReport| {
         if absent {
-            leaf.unclean
-                .iter()
-                .all(|reason| *reason == UncleanReason::Halt)
+            decided_absence(leaf)
         } else {
             complete_leaf(leaf)
         }
@@ -638,6 +657,21 @@ fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
             .map(|leaf| &leaf.state)
             .collect(),
     )
+}
+
+/// Whether `leaf`, a `vacuous` leaf at depth 0 of a result whose initial state has no instance
+/// ([`no_instance`]), shows that absence decided: it carries no reason beyond its halt (no mark,
+/// no undecided state, no claim) and no diagnostic. A diagnostic that gives no unclean reason
+/// (an undecided condition or predicate, or a hook left unevaluated) leaves a function
+/// application or a condition undecided somewhere in the normalization that found the initial
+/// state unsatisfiable, and nothing shows that the unsatisfiability does not rest on it, so the
+/// absence is refused (fail closed; FZ-ENGINE-R4 review, residual gap of S1).
+fn decided_absence(leaf: &LeafReport) -> bool {
+    leaf.diagnostics.is_empty()
+        && leaf
+            .unclean
+            .iter()
+            .all(|reason| *reason == UncleanReason::Halt)
 }
 
 /// Whether a leaf may be part of a complete run (condition 1): a clean `stuck` leaf (an end) or
@@ -722,7 +756,7 @@ impl Verdicts {
             match leaf.data_end {
                 Some(true) => verdicts.kills[index] = true,
                 Some(false) => {
-                    verdicts.undecided.get_or_insert(not_data(role));
+                    verdicts.undecided.get_or_insert(not_data(role, leaf));
                 }
                 None => {
                     return Err(EngineDefect {
@@ -735,28 +769,35 @@ impl Verdicts {
                 }
             }
         }
-        let others_are_data = others
+        let other_role = if role == "mutant" {
+            "baseline"
+        } else {
+            "mutant"
+        };
+        // Of the other side's ends that are not data, the reason first in declaration order.
+        let not_data_other = others
             .leaves
             .iter()
-            .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
-            .all(|leaf| leaf.data_end == Some(true));
-        if !others_are_data && verdicts.kills.contains(&true) {
+            .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck && leaf.data_end != Some(true))
+            .map(|leaf| not_data(other_role, leaf))
+            .min();
+        if let Some(reason) = not_data_other
+            && verdicts.kills.contains(&true)
+        {
             verdicts.kills.fill(false);
-            verdicts
-                .undecided
-                .get_or_insert(not_data(if role == "mutant" {
-                    "baseline"
-                } else {
-                    "mutant"
-                }));
+            verdicts.undecided.get_or_insert(reason);
         }
         Ok(verdicts)
     }
 }
 
-/// The reason for an end of the side `role` (`"mutant"` or `"baseline"`) that is not data.
-fn not_data(role: &str) -> UnjudgedReason {
-    if role == "mutant" {
+/// The reason for `leaf`, an end of the side `role` (`"mutant"` or `"baseline"`) that is not
+/// data: [`UnjudgedReason::EndNamesUndeclaredSymbol`] when it names a symbol or sort the other
+/// definition does not declare, which has no reading there, else that side's not-data reason.
+fn not_data(role: &str, leaf: &LeafReport) -> UnjudgedReason {
+    if leaf.undeclared_in_other {
+        UnjudgedReason::EndNamesUndeclaredSymbol
+    } else if role == "mutant" {
         UnjudgedReason::MutantEndNotData
     } else {
         UnjudgedReason::BaselineEndNotData
@@ -796,6 +837,7 @@ mod tests {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end,
+            undeclared_in_other: false,
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
@@ -815,6 +857,7 @@ mod tests {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end: None,
+            undeclared_in_other: false,
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
@@ -1922,6 +1965,140 @@ mod tests {
         assert!(judge_pair(&baseline, &mutant, PathMode::AllPaths, false).is_err());
         // The one-path mode never reads it.
         assert!(judge_pair(&baseline, &mutant, PathMode::OnePath, false).is_ok());
+    }
+
+    /// A result whose initial state has no instance: one `vacuous` leaf at depth 0 with its
+    /// halt only, carrying `diagnostics`.
+    fn absent(diagnostics: Vec<crate::exec::LeafDiagnostic>) -> CaseResult {
+        let mut vacuous = leaf(
+            HaltReasonOutput::Vacuous,
+            config(0, 0),
+            vec![UncleanReason::Halt],
+        );
+        vacuous.depth = 0;
+        vacuous.diagnostics = diagnostics;
+        result(vec![vacuous])
+    }
+
+    /// FZ-ENGINE-R4 review S-b: a mutant with no run against a baseline with no end that could
+    /// kill. The mutant is the limit of one whose every path takes an undefined step, which is
+    /// `undefined`; under `run_to_completion` the baseline's abnormal stop and the mutant's
+    /// absence disagree, which `miss` would hide.
+    #[test]
+    fn a_mutant_with_no_instance_and_nothing_removed_is_undefined() {
+        for paths in BOTH_MODES {
+            assert_eq!(
+                judge_pair_explained(&undefined_only(), &absent(Vec::new()), paths, false)
+                    .expect("no engine defect"),
+                (DifferentialJudgement::class(OutcomeClass::Undefined), None),
+                "{paths:?}"
+            );
+            let stops = result(vec![abnormal(config(5, 0), Some(true))]);
+            assert_eq!(
+                judge_pair_explained(&stops, &absent(Vec::new()), paths, true)
+                    .expect("no engine defect"),
+                (DifferentialJudgement::class(OutcomeClass::Undefined), None),
+                "{paths:?}"
+            );
+            // Without run-to-completion the abnormal stop is an end, and so a removed end.
+            assert_eq!(
+                judge(&stops, &absent(Vec::new()), paths),
+                hit(None, Some(0)),
+                "{paths:?}"
+            );
+        }
+    }
+
+    /// FZ-ENGINE-R4 review, residual gap of S1: a `vacuous` leaf that carries a diagnostic with
+    /// no unclean reason of its own (an undecided condition or predicate, a hook left
+    /// unevaluated) does not show the absence decided, so the baseline's end is no removed end
+    /// and the case is `unsupported` with the diagnostic's reason; without it, a removed end.
+    #[test]
+    fn an_absence_resting_on_an_undecided_diagnostic_is_not_decided() {
+        use crate::exec::LeafDiagnostic as D;
+        let baseline = result(vec![natural(config(3, 0), Some(true))]);
+        for paths in BOTH_MODES {
+            assert_eq!(
+                judge(&baseline, &absent(Vec::new()), paths),
+                hit(None, Some(0)),
+                "{paths:?}"
+            );
+            for (diagnostic, reason) in [
+                (D::UndecidedCondition, UnjudgedReason::UndecidedState),
+                (D::UndecidedPredicate, UnjudgedReason::UndecidedState),
+                (
+                    D::UnsupportedHookUnevaluated,
+                    UnjudgedReason::UnsupportedHook,
+                ),
+            ] {
+                assert_eq!(
+                    judge_pair_explained(&baseline, &absent(vec![diagnostic]), paths, false)
+                        .expect("no engine defect"),
+                    (
+                        DifferentialJudgement::class(OutcomeClass::Unsupported),
+                        Some(reason)
+                    ),
+                    "{paths:?}, {diagnostic:?}"
+                );
+            }
+        }
+    }
+
+    /// FZ-ENGINE-R4 fix round, D43(3): the shapes of a mutant result that refuses the initial
+    /// state (an `Err` for a refused state, or no leaf) are `mutant-refused-state`'s; a result
+    /// whose initial state has no instance, and one with a leaf past depth 0, are not.
+    #[test]
+    fn a_mutant_refusal_is_an_error_or_no_leaf_not_an_absence() {
+        let mut errored = result(Vec::new());
+        errored.failure = Some(CaseFailure::new(
+            "invalid executable state",
+            FailureCause::StateRefused,
+            crate::report::CrashStage::Execute,
+        ));
+        assert!(mutant_refused(&errored));
+        assert!(mutant_refused(&result(Vec::new())));
+        assert!(!mutant_refused(&absent(Vec::new())));
+        assert!(!mutant_refused(&absent(vec![
+            crate::exec::LeafDiagnostic::UndecidedCondition
+        ])));
+        assert!(!mutant_refused(&coin_baseline()));
+        assert!(!mutant_refused(&undefined_only()));
+    }
+
+    /// FZ-ENGINE-R4 review B1: an end that names a symbol the other definition does not declare
+    /// is not compared, and the case names that reason, whichever side holds it.
+    #[test]
+    fn an_end_naming_an_undeclared_symbol_names_its_reason() {
+        let foreign = |state| LeafReport {
+            undeclared_in_other: true,
+            ..natural(state, Some(false))
+        };
+        let mutant = result(vec![foreign(config(5, 0))]);
+        let baseline = result(vec![foreign(config(3, 0))]);
+        for paths in BOTH_MODES {
+            assert_eq!(
+                judge_pair_explained(&coin_baseline(), &mutant, paths, false)
+                    .expect("no engine defect")
+                    .1,
+                Some(UnjudgedReason::EndNamesUndeclaredSymbol),
+                "{paths:?}"
+            );
+            // The would-be added end 5 against a baseline set holding a foreign end.
+            assert_eq!(
+                judge_pair_explained(
+                    &baseline,
+                    &result(vec![natural(config(5, 0), Some(true))]),
+                    paths,
+                    false
+                )
+                .expect("no engine defect"),
+                (
+                    DifferentialJudgement::class(OutcomeClass::Unsupported),
+                    Some(UnjudgedReason::EndNamesUndeclaredSymbol)
+                ),
+                "{paths:?}"
+            );
+        }
     }
 }
 

@@ -946,6 +946,7 @@ impl Executor {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end: None,
+            undeclared_in_other: false,
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
@@ -1225,6 +1226,7 @@ impl Judge<'_> {
                 matches: vec![false; self.matchers.len()],
                 rewrites: established_rewrites(leaf),
                 data_end: None,
+                undeclared_in_other: false,
                 diagnostics: LeafDiagnostic::of_leaf(leaf),
                 term_conjunction: false,
                 undefined_rule: (leaf.reason == HaltReasonOutput::Trivial)
@@ -2080,9 +2082,13 @@ pub(crate) enum DataHere {
     Data,
     /// It does not internalize here for another reason, is not decided, or is not data.
     NotData,
-    /// It names a symbol or a sort this definition does not declare, so it is no term of this
-    /// definition's signature: it is none of this definition's ends, all of which are terms of
-    /// that signature, whatever this definition's equations are (final review N1).
+    /// It names a symbol or a sort this definition does not declare, so it has no reading in
+    /// this definition and is not data here. Kept apart from [`Self::NotData`] only to name the
+    /// reason ([`crate::exec::UnjudgedReason::EndNamesUndeclaredSymbol`]): a KORE symbol name is
+    /// no identity across two definitions (a production without a `symbol` attribute is named
+    /// after the module that declares it), so the state may hold the same constructor as one of
+    /// this definition's ends under another name, and its syntactic difference shows nothing
+    /// (FZ-ENGINE-R4 review B1).
     Foreign,
 }
 

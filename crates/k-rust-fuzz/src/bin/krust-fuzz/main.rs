@@ -1106,7 +1106,8 @@ fn write_unjudged(text: &mut String, report: &FuzzReport) {
 }
 
 /// The rules the cases reached, by source location, label and unique id (`totals.coverage`):
-/// the rewrite rules applied, then those whose condition was entered but which never applied;
+/// the rewrite rules applied (coverage `applied`: a step built a candidate of the rule, its
+/// result defined or not), then those whose condition was entered but which never applied;
 /// equations are only counted. Each list stops after [`LISTED_RULES`] rules, in source order.
 fn write_coverage(text: &mut String, report: &FuzzReport) {
     use std::fmt::Write as _;
@@ -1132,7 +1133,7 @@ fn write_coverage(text: &mut String, report: &FuzzReport) {
         .iter()
         .any(|definition| definition.role == DefinitionRole::Mutant)
     {
-        " (the mutant's; a rule the baseline shares is named where the baseline writes it)"
+        "the mutant's, a rule the baseline shares named where the baseline writes it"
     } else {
         ""
     };
@@ -1164,8 +1165,16 @@ fn write_coverage(text: &mut String, report: &FuzzReport) {
         }
     };
     if !applied.is_empty() || equations > 0 {
+        // Coverage `applied` also holds a candidate whose result was empty, rolled back or the
+        // step's undefined step, which no path takes (FZ-ENGINE-R4 review N-5).
         let heading = format!(
-            "rules applied{whose}: {}{}",
+            "rules applied (some step built a candidate of each, its result defined or not{}): \
+             {}{}",
+            if whose.is_empty() {
+                String::new()
+            } else {
+                format!("; {whose}")
+            },
             applied.len(),
             match equations {
                 0 => String::new(),
@@ -1177,7 +1186,12 @@ fn write_coverage(text: &mut String, report: &FuzzReport) {
     }
     if !blocked.is_empty() {
         let heading = format!(
-            "rules whose condition was reached but which never applied{whose}: {}",
+            "rules whose condition was reached but which never applied{}: {}",
+            if whose.is_empty() {
+                String::new()
+            } else {
+                format!(" ({whose})")
+            },
             blocked.len()
         );
         list(text, heading, blocked);
@@ -1249,13 +1263,7 @@ fn write_differential(
             KillKind::RemovedEnd => "removed end (the baseline reaches an end the mutant cannot)",
         }
     );
-    // The data argument's premises, which the kill rests on and nothing checks (final review N5).
-    let _ = writeln!(
-        text,
-        "premises: the compared ends are data, so they differ in each definition's initial model \
-         when evaluation terminates (A1+) and its lemmas are theorems (A2), as \
-         k_rust_backend::data_term states; neither is checked"
-    );
+    let _ = writeln!(text, "premises: {}", kill_premises(case, kind));
     if let Some(program) = &case.program {
         let _ = writeln!(text, "program:");
         for line in program.lines() {
@@ -1324,6 +1332,48 @@ fn write_differential(
     }
 }
 
+/// What a differential kill of `kind` rests on, for the summary's `premises:` line. A kill
+/// that compares the killing end with the other side's ends rests on the data argument's
+/// premises, which nothing checks (final review N5). A kill against a side with no end compares
+/// nothing: the killing end is outside the empty set whatever the theories say, so it rests on
+/// that side having no end, which its run shows (FZ-ENGINE-R4 review S-c).
+fn kill_premises(case: &WitnessCase, kind: KillKind) -> String {
+    let other_role = match kind {
+        KillKind::AddedEnd => DefinitionRole::Baseline,
+        KillKind::RemovedEnd => DefinitionRole::Mutant,
+    };
+    let Some(other) = case.sides.iter().find(|side| side.role == other_role) else {
+        return DATA_PREMISES.to_owned();
+    };
+    if other.halts.contains(&HaltReasonOutput::Stuck) {
+        return DATA_PREMISES.to_owned();
+    }
+    let role = serde_name(&other_role);
+    if !other.halts.is_empty()
+        && other
+            .halts
+            .iter()
+            .all(|halt| *halt == HaltReasonOutput::Vacuous)
+    {
+        format!(
+            "no ends are compared: the {role}'s initial state has no instance (the backend showed \
+             its constraint unsatisfiable, with no mark and no diagnostic), so the {role} has no \
+             run and no end on this input"
+        )
+    } else {
+        format!(
+            "no ends are compared: every path of the {role} takes an undefined step, which is no \
+             end, so the {role} has no end on this input"
+        )
+    }
+}
+
+/// The data argument's premises, which a kill comparing data ends rests on (final review N5).
+const DATA_PREMISES: &str = "the compared ends are data, so they differ in each definition's \
+                             initial model when evaluation terminates (A1+) and its lemmas are \
+                             theorems (A2), as k_rust_backend::data_term states; neither is \
+                             checked";
+
 fn write_case(text: &mut String, case: &WitnessCase) {
     use std::fmt::Write as _;
     for hole in &case.holes {
@@ -1344,6 +1394,91 @@ pub(crate) fn serde_name<T: serde::Serialize>(value: &T) -> String {
 mod tests {
     use super::*;
     use crate::campaign::{CampaignFile, value_from_toml};
+
+    /// FZ-ENGINE-R4 review S-c: the premises line cites the data argument only for a kill that
+    /// compares ends; a kill against a side with no end says what it rests on instead.
+    #[test]
+    fn the_premises_line_is_true_for_the_kill_shown() {
+        use HaltReasonOutput::{Stuck, Trivial, Vacuous};
+        use k_rust_fuzz::report::{Reaching, WitnessSide};
+        let side = |role, halts: Vec<HaltReasonOutput>| WitnessSide {
+            role,
+            initial_configuration: "init".into(),
+            final_configurations: halts.iter().map(|_| "end".to_owned()).collect(),
+            halts,
+            undefined_rules: Vec::new(),
+            work: None,
+        };
+        let case = |baseline: Vec<HaltReasonOutput>, mutant: Vec<HaltReasonOutput>, kind| {
+            let role = match kind {
+                KillKind::AddedEnd => DefinitionRole::Mutant,
+                KillKind::RemovedEnd => DefinitionRole::Baseline,
+            };
+            WitnessCase {
+                holes: Vec::new(),
+                program: None,
+                config_vars: std::collections::BTreeMap::new(),
+                class: k_rust_fuzz::OutcomeClass::Hit,
+                sides: vec![
+                    side(DefinitionRole::Baseline, baseline),
+                    side(DefinitionRole::Mutant, mutant),
+                ],
+                reaching: Reaching {
+                    role,
+                    leaf: Some(0),
+                    step: None,
+                    configuration: None,
+                },
+                kill: Some(kind),
+                steps: Some(1),
+                comparable: None,
+            }
+        };
+        let premises = |case: &WitnessCase, kind| {
+            let mut text = String::new();
+            write_differential(&mut text, case, kind, None);
+            text.lines()
+                .find(|line| line.starts_with("premises: "))
+                .unwrap_or_default()
+                .to_owned()
+        };
+        // An added end against the baseline's ends, a removed end against the mutant's.
+        for (baseline, mutant, kind) in [
+            (vec![Stuck], vec![Stuck], KillKind::AddedEnd),
+            (vec![Stuck], vec![Stuck, Trivial], KillKind::RemovedEnd),
+        ] {
+            let line = premises(&case(baseline, mutant, kind), kind);
+            assert!(line.contains("(A1+)") && line.contains("(A2)"), "{line}");
+        }
+        // A removed end against a mutant whose initial state has no instance (S1).
+        let line = premises(
+            &case(vec![Stuck], vec![Vacuous], KillKind::RemovedEnd),
+            KillKind::RemovedEnd,
+        );
+        assert!(!line.contains("A1+"), "{line}");
+        assert!(
+            line.contains("no ends are compared: the mutant's initial state has no instance"),
+            "{line}"
+        );
+        // A removed end against a mutant whose every path takes an undefined step.
+        let line = premises(
+            &case(vec![Stuck], vec![Trivial], KillKind::RemovedEnd),
+            KillKind::RemovedEnd,
+        );
+        assert!(
+            line.contains("every path of the mutant takes an undefined step"),
+            "{line}"
+        );
+        // An added end against a baseline whose every path takes an undefined step.
+        let line = premises(
+            &case(vec![Trivial], vec![Stuck], KillKind::AddedEnd),
+            KillKind::AddedEnd,
+        );
+        assert!(
+            line.contains("every path of the baseline takes an undefined step"),
+            "{line}"
+        );
+    }
 
     /// Review round 1 nit: the killing end is printed even beyond the first ends of its side.
     #[test]

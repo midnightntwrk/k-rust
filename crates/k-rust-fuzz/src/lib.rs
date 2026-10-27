@@ -167,7 +167,18 @@ pub fn build_identity() -> String {
 /// but an `at: any-state` hit can move to an earlier reached state (a state holding such an
 /// application is now a clean reach), so its witness's `reaching.step` and
 /// `reaching.configuration` may change.
-pub const ENGINE_VERSION: u32 = 7;
+///
+/// Version 8 (round 4, FZ-ENGINE-R4): classes the proposers read move on inputs outside the
+/// golden set. `covered` reads the committed transitions, so a step whose result was empty (a
+/// rolled-back candidate, an undefined step) is no hit: such a case becomes `undefined` or
+/// `miss`, and the campaign, which a hit would have ended, runs on. In a differential
+/// campaign a mutant that refuses an input the baseline accepts (its grammar or its backend) is
+/// `unsupported`, not `rejected`, which moves whether a campaign reaches the rejection cap; a
+/// mutant whose initial state has no instance has the empty set of ends, so its cases move from
+/// `rejected` to a removed end, `undefined` or `unsupported`; and an end naming a symbol or sort
+/// the other definition does not declare is `unsupported` with its own reason. Every golden
+/// campaign keeps its case sequence, so the fingerprints are re-pinned with the same digests.
+pub const ENGINE_VERSION: u32 = 8;
 
 #[cfg(test)]
 mod release_tests {

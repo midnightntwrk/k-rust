@@ -179,6 +179,17 @@ pub(crate) struct Cut {
 }
 
 impl CaseRun {
+    /// A case that is `unsupported` for `reason` before any run: a differential case whose
+    /// mutant refused the values the baseline accepted (FZ-ENGINE-R4 fix round, D43(2)).
+    pub(crate) fn unjudged_before_run(reason: UnjudgedReason) -> Self {
+        Self {
+            class: OutcomeClass::Unsupported,
+            rejection: None,
+            unjudged: Some(reason),
+            ..Self::rejected(RejectionReason::Assembly, 0)
+        }
+    }
+
     /// A case rejected before execution, or by the backend at depth 0, for `reason`.
     pub(crate) fn rejected(reason: RejectionReason, work: u64) -> Self {
         Self {

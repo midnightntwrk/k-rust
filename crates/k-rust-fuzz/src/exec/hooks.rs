@@ -295,6 +295,7 @@ mod tests {
             matches: Vec::new(),
             rewrites: Vec::new(),
             data_end: None,
+            undeclared_in_other: false,
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,

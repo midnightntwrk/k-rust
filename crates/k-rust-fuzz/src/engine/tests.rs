@@ -2078,40 +2078,40 @@ fn the_bound_advice_holds_only_for_a_program_that_ends() {
 }
 
 /// GUIDE-USABILITY 3 (FZ-ENGINE-R4): the statement says at which case coverage last grew, a
-/// sign that more cases of the same program are unlikely to help, and the report keeps it.
+/// sign that more cases of the same program are unlikely to help, and the report keeps it; it
+/// says so only after a stretch of cases with no new rule that is at least 30 cases long and at
+/// least as long as the stretch before it (review N-3).
 #[test]
 fn the_statement_says_where_coverage_stopped_growing() {
-    let mut totals = totals_with(&[(OutcomeClass::Miss, 100)]);
-    totals.coverage_last_grew = Some(0);
-    let text = no_witness(
-        Ending::Budget,
-        &totals,
-        &Cuts::default(),
-        Budget::Cases(100),
-        &CaseOptions::default(),
-        100,
-        false,
-    )
-    .statement;
+    let statement = |cases: u64, last: u64| {
+        let mut totals = totals_with(&[(OutcomeClass::Miss, cases)]);
+        totals.coverage_last_grew = Some(last);
+        no_witness(
+            Ending::Budget,
+            &totals,
+            &Cuts::default(),
+            Budget::Cases(cases),
+            &CaseOptions::default(),
+            100,
+            false,
+        )
+        .statement
+    };
+    let text = statement(100, 0);
     assert!(
         text.contains(
-            "No case after case 0 (counted from 0) reached a rule that no earlier case reached, \
-             so more cases of this program and these holes are unlikely to reach others"
+            "The last 99 cases (after case 0, counted from 0) reached no rule that no earlier \
+             case reached, so more cases of this program and these holes are unlikely to reach \
+             a new rule"
         ),
         "{text}"
     );
-    totals.coverage_last_grew = Some(99);
-    let text = no_witness(
-        Ending::Budget,
-        &totals,
-        &Cuts::default(),
-        Budget::Cases(100),
-        &CaseOptions::default(),
-        100,
-        false,
-    )
-    .statement;
-    assert!(!text.contains("No case after case"), "{text}");
+    assert!(statement(100, 49).contains("The last 50 cases (after case 49"));
+    for (cases, last) in [(100, 99), (100, 50), (2, 0), (30, 0), (31, 1)] {
+        let text = statement(cases, last);
+        assert!(!text.contains("reached no rule"), "{cases}, {last}: {text}");
+    }
+    assert!(statement(31, 0).contains("The last 30 cases (after case 0"));
 }
 
 #[test]

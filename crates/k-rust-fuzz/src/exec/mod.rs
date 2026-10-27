@@ -369,6 +369,14 @@ pub struct LeafReport {
     /// the data-end requirement of rule and pattern targets, [`crate::Target::data_end`]).
     /// `None` otherwise.
     pub data_end: Option<bool>,
+    /// In a differential pair: the leaf's state applies a symbol, or names a sort, that the
+    /// other definition does not declare (`Executor::data_here`), so it has no reading in that
+    /// definition and cannot be compared with that side's ends; its `data_end` is then
+    /// `Some(false)`, and the judge names the reason
+    /// [`UnjudgedReason::EndNamesUndeclaredSymbol`]. A KORE symbol name is no identity across
+    /// two definitions: a production without a `symbol` attribute is named after the module
+    /// that declares it, so the same constructor can carry two names. `false` otherwise.
+    pub undeclared_in_other: bool,
     /// The kinds of every diagnostic the leaf carries, and its `contradictedTotal`, sorted,
     /// each once, whether or not the clean-leaf rule counts them: kink makes any diagnosed leaf
     /// incomplete ([`comparable`], P7-ADDENDUM section 4, P1).

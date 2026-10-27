@@ -25,12 +25,12 @@ use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
     IMP_ADD_BECOMES_SUB, IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION,
-    IMP_DIFF, IMP_DIV_GUARD_DROPPED, INIT, INIT_C, INIT_M, KPLACE, KPLACE_M, LIST_ROW, LIST_ROW_M,
-    MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, OWISE, OWISE_M, OWISE_X, R2_ADDMEMBER,
-    R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R2_SPOOF, R2_SPOOF_M, R3_MODOV,
-    R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M,
-    R4_HOOKITE, R4_HOOKITE_M, R4_PARTNORULE, R4_PARTNORULE_M, REPLACE_PRIORITY, REPLACE_PRIORITY_M,
-    RERUN, RERUN_DROP,
+    IMP_DIFF, IMP_DIV_GUARD_DROPPED, INIT, INIT_C, INIT_M, INIT_MACRO, KPLACE, KPLACE_M, LIST_ROW,
+    LIST_ROW_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, OWISE, OWISE_M, OWISE_X,
+    R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R2_SPOOF, R2_SPOOF_M,
+    R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, R4_EMPTY,
+    R4_EMPTY_M, R4_HOOKITE, R4_HOOKITE_M, R4_PARTNORULE, R4_PARTNORULE_M, REPLACE_PRIORITY,
+    REPLACE_PRIORITY_M, RERUN, RERUN_DROP, UNDECLARED, UNDECLARED_MOVED, UNDECLARED_Q,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -711,15 +711,79 @@ fn a_mutant_whose_initial_state_has_no_instance_loses_the_baseline_end() {
             "{paths:?}: {:?}",
             report.totals.classes
         );
+        // Every case ran a distinct assignment of the finite domain, the witness's included
+        // (FZ-ENGINE-R4 review N-2).
+        assert_eq!(
+            report.totals.domain.map(|domain| domain.tried),
+            Some(report.totals.cases),
+            "{paths:?}"
+        );
     }
 }
 
-/// Final review N1 (FZ-ENGINE-R4): the mutant's end `<k> done(3) </k>` names a constructor the
-/// baseline does not declare, so it is no term of the baseline's signature and none of the
-/// baseline's ends; it is data in the mutant, so the case is an added end, not
-/// `mutant-end-not-data`.
+/// A differential campaign of `baseline` and `mutant` on `program`, with the hole `N` ranging
+/// over `0 ..= 3`, no explicit value, in path mode `paths`.
+fn small_domain(
+    baseline: &'static Fixture,
+    mutant: &'static Fixture,
+    program: &str,
+    paths: PathMode,
+) -> CampaignSpec {
+    let mut spec = spec_on(baseline, mutant, program, None);
+    spec.holes[0].constraints.range = Some(IntRange {
+        min: Some(BigInt::from(0)),
+        max: Some(BigInt::from(3)),
+    });
+    spec.proposers.explicit = Vec::new();
+    spec.options.paths = paths;
+    spec
+}
+
+/// FZ-ENGINE-R4 review B1: a KORE symbol name is no identity across two definitions. `done(Int)`
+/// has no `symbol` attribute, so its label is generated from its declaring module: moving the
+/// production to another module, or renaming the modules, renames it. Each side's end
+/// `<k> done(N) </k>` then names a symbol the other definition does not declare, and the two
+/// ends, identical as K text, differ as KORE. Such an end has no reading in the other definition,
+/// so the case is `unsupported` (`end-names-undeclared-symbol`) and never a kill, in both path
+/// modes.
 #[test]
-fn an_end_naming_a_symbol_the_baseline_lacks_is_an_added_end() {
+fn an_end_naming_a_symbol_the_other_definition_lacks_is_never_a_kill() {
+    for mutant in [&UNDECLARED_MOVED, &UNDECLARED_Q] {
+        for paths in [PathMode::AllPaths, PathMode::OnePath] {
+            let spec = small_domain(&UNDECLARED, mutant, "undeclared/go.pgm", paths);
+            let report = Campaign::new(spec)
+                .expect("valid")
+                .run(Budget::Cases(4), None);
+            assert!(
+                report.engine_defects.is_empty(),
+                "{}, {paths:?}: {:?}",
+                mutant.file,
+                report.engine_defects
+            );
+            assert!(
+                report.witness().is_none(),
+                "{}, {paths:?}: a false kill, {:?}",
+                mutant.file,
+                report.outcome
+            );
+            assert_eq!(report.totals.cases, 4, "{}, {paths:?}", mutant.file);
+            assert_eq!(
+                report.totals.unsupported_reasons,
+                BTreeMap::from([(UnjudgedReason::EndNamesUndeclaredSymbol, 4)]),
+                "{}, {paths:?}: {:?}",
+                mutant.file,
+                report.totals.classes
+            );
+        }
+    }
+}
+
+/// FZ-ENGINE-R4 review B1: the mutant's end `<k> done(3) </k>` names a constructor the baseline
+/// does not declare. It may be a new constructor (as here) or a renamed copy of one of the
+/// baseline's, which no test on symbol names tells apart, so the case is `unsupported` with
+/// `end-names-undeclared-symbol`, not a kill.
+#[test]
+fn an_end_naming_a_symbol_the_baseline_lacks_is_not_compared() {
     let mut spec = spec_on(&INIT, &INIT_C, "init/go.pgm", None);
     spec.proposers.explicit = Vec::new();
     let report = Campaign::new(spec)
@@ -730,18 +794,81 @@ fn an_end_naming_a_symbol_the_baseline_lacks_is_an_added_end() {
         "{:?}",
         report.engine_defects
     );
-    let witness = report.witness().unwrap_or_else(|| {
-        panic!(
-            "a kill, not {:?} with {:?}",
-            report.outcome, report.totals.unsupported_reasons
-        )
-    });
-    assert_eq!(witness.first.kill, Some(KillKind::AddedEnd));
-    assert_eq!(witness.first.reaching.role, DefinitionRole::Mutant);
-    let mutant_ends = &witness.first.sides[1].final_configurations;
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_eq!(
+        report.totals.unsupported_reasons,
+        BTreeMap::from([(UnjudgedReason::EndNamesUndeclaredSymbol, 2)]),
+        "{:?}",
+        report.totals.classes
+    );
+}
+
+/// FZ-ENGINE-R4 fix round, D43(2): the mutant's grammar reads `go(0)` as `go(1)` (a macro), so
+/// the hole value 0 fails its round trip on the mutant alone. The input is valid for the
+/// baseline, so the case is `unsupported` with `mutant-refused-state`, which names the mutant,
+/// not `rejected`, which would say the input is invalid; the other values agree.
+#[test]
+fn a_value_only_the_mutant_refuses_before_its_run_is_unsupported() {
+    let spec = small_domain(&INIT, &INIT_MACRO, "init/go.pgm", PathMode::AllPaths);
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(4), None);
     assert!(
-        mutant_ends.iter().any(|end| end.contains("Lbldone")),
-        "{mutant_ends:?}"
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert!(
+        !report.totals.classes.contains_key(&OutcomeClass::Rejected),
+        "{:?} {:?}",
+        report.totals.classes,
+        report.totals.rejections
+    );
+    assert_eq!(
+        report.totals.unsupported_reasons,
+        BTreeMap::from([(UnjudgedReason::MutantRefusedState, 1)]),
+        "{:?}",
+        report.totals.classes
+    );
+}
+
+/// FZ-ENGINE-R4 fix round, D43(3): a KORE template holds `done`, which the baseline declares and
+/// the mutant does not. The template is substituted as it is, with no grammar to refuse it, so
+/// the mutant's backend refuses the initial state (an invalid executable state). The mutant
+/// gives the input no run, which says nothing of the input: `unsupported` with
+/// `mutant-refused-state`.
+#[test]
+fn a_state_only_the_mutant_backend_refuses_is_unsupported() {
+    let anchor = r#"\dv{SortInt{}}("3")"#;
+    let initial = INIT_C
+        .compiled()
+        .assemble("done.pgm", "done(3)", &[])
+        .expect("done(3) assembles in the definition that declares it")
+        .to_string();
+    assert_eq!(initial.matches(anchor).count(), 1, "{initial}");
+    let template = k_rust::kore::parser::parse_pattern(&initial.replace(anchor, "VarN:SortInt{}"))
+        .expect("the template parses");
+    let mut spec = small_domain(&INIT_C, &INIT, "init/go.pgm", PathMode::AllPaths);
+    spec.program = ProgramInput::KoreTemplate(template);
+    spec.holes[0].location = HoleLocation::KoreVariable {
+        name: "VarN".into(),
+    };
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(4), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_eq!(
+        report.totals.unsupported_reasons,
+        BTreeMap::from([(UnjudgedReason::MutantRefusedState, 4)]),
+        "{:?} {:?}",
+        report.totals.classes,
+        report.totals.rejections
     );
 }
 
