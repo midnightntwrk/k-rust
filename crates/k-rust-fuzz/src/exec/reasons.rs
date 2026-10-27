@@ -518,15 +518,17 @@ impl UnjudgedReason {
             }
             Self::KillWithoutEvidence => {
                 "the mutant's ends differ from the baseline's, but its result rests on a value \
-                 k-rust chose where the definition leaves it open (such as map or set order), or \
-                 contradicts an attribute the mutant asserts of a function or a rule, so its \
-                 ends are no evidence and this case cannot be judged; a program or hole range \
-                 whose runs avoid both can be"
+                 k-rust chose where the definition leaves it open (such as map or set order, or \
+                 how the compiler numbered the fresh values of a rule with two or more `!` \
+                 variables), or contradicts an attribute the mutant asserts of a function or a \
+                 rule, so its ends are no evidence and this case cannot be judged; a program or \
+                 hole range whose runs avoid both can be"
             }
             Self::ImplementationChosenValue => {
                 "the result depends on a value k-rust chose where the definition leaves it open \
-                 (such as map or set order), so this case cannot be judged; a program or hole \
-                 range whose path does not read such a value can be"
+                 (such as map or set order, or how the compiler numbered the fresh values of a \
+                 rule with two or more `!` variables), so this case cannot be judged; a program \
+                 or hole range whose path does not read such a value or apply such a rule can be"
             }
             Self::SmtUnknowns => {
                 "raise the solver's time limit per query (campaign key `smt-timeout-ms`, \

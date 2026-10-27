@@ -80,16 +80,35 @@
 //! Leaves are compared after k-rust's normalization, under which map and set entries are already
 //! ordered.
 //!
-//! The whole configuration is compared, the `<generatedCounter>` cell included: an end that
-//! differs from every end of the other side only in that cell is a kill. The compiled
-//! definition's `<generatedCounter>` cell and its `freshGenerator` rules are part of each
-//! definition's rewrite theory and fix the fresh constants a run mints, so the counter is a
-//! component of the final configuration like any other cell. kink's whole-term oracle compares
-//! the same complete terms, so the two agree on this point.
+//! An end is compared without the content of its `<generatedCounter>` cell
+//! ([`counter_erased`], which kink's whole-term projection uses too): an end that differs from
+//! an end of the other side only there is in the other side's set. The counter is compilation's
+//! encoding of a rule's `!` variables (`docs/compatibility.md`, "Compiler-resolved fresh
+//! constants"): it holds the first value not yet minted, so that no later step mints a value
+//! minted before. The author does not declare it, and at a final configuration, from which no
+//! step follows, it constrains nothing; how many values a run minted shows only through the
+//! cells the minted values reach, which are compared. A witness keeps the full configurations
+//! (`final-configurations`), counter included.
+//!
+//! A rule with two or more distinct `!` names is lowered with some association of its names to
+//! the offsets below its counter advance, which the contract leaves open, so a definition with
+//! such a rule denotes one rewrite theory per association, and the baseline's and the mutant's
+//! associations may be chosen independently. A kill must hold for every pair. Comparing ends up
+//! to a renaming of minted values decides nothing here: two associations of one rule can compute
+//! differently with the minted values (`<r> X <Int Y` is true under one and false under the
+//! other), and an end does not show which of its values were minted. k-rust marks every run
+//! that builds a candidate of such a rule (class `fresh-association`, named by the rule's
+//! `UNIQUE_ID`), and the mark is an implementation-chosen value like any other: a side whose
+//! leaves and lists carry no such mark reaches the same leaves under every association, and a
+//! marked side is refused by condition 3 (an incomplete baseline, or a mutant that is no
+//! evidence). This refuses some kills that every association shows.
 
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
-use k_rust::{backend::HaltReasonOutput, kore::ast::Pattern as KorePattern};
+use k_rust::{
+    backend::{HaltReasonOutput, counter_erased},
+    kore::ast::Pattern as KorePattern,
+};
 
 use crate::{
     error::CampaignError,
@@ -591,14 +610,14 @@ pub(crate) fn needs_all_paths(
     let adds_none = one_path.leaves.iter().all(|leaf| {
         leaf.halt != HaltReasonOutput::Stuck
             || (run_to_completion && !leaf.natural_end)
-            || baseline_set.contains(&leaf.state)
+            || baseline_set.contains(&*counter_erased(&leaf.state))
     });
     adds_none
         && baseline.leaves.iter().any(|leaf| {
             leaf.halt == HaltReasonOutput::Stuck
                 && leaf.data_end == Some(true)
                 && (!run_to_completion || leaf.natural_end)
-                && !reached.contains(&leaf.state)
+                && !reached.contains(&*counter_erased(&leaf.state))
         })
 }
 
@@ -612,10 +631,11 @@ pub(crate) fn needs_all_paths(
 /// ([`CaseResult::run_facts_off_leaves`]), and every leaf is a clean `stuck` leaf or an
 /// undefined step (`trivial`) whose only unclean reason is its halt (a decided, ceil-free
 /// configuration with no diagnostic, so that the step's undefinedness is decided, not resting
-/// on a mark or a refuted claim). The set holds the `stuck` leaves' configurations only: an
-/// undefined step's leaf holds a configuration that is not stuck and has no successor, and the
-/// path's outcome there is undefinedness, no configuration (the module documentation, "What an
-/// end is"). Load records are facts
+/// on a mark or a refuted claim). The set holds the `stuck` leaves' configurations only, each
+/// with its `<generatedCounter>` content erased ([`counter_erased`]; the module documentation,
+/// "Comparison"): an undefined step's leaf holds a configuration that is not stuck and has no
+/// successor, and the path's outcome there is undefinedness, no configuration (the module
+/// documentation, "What an end is"). Load records are facts
 /// about the definition and do not make a run incomplete (T-5).
 ///
 /// Why the off-leaf facts matter (review B1): an unmarked leaf exists in every model of the
@@ -627,7 +647,7 @@ pub(crate) fn needs_all_paths(
 /// Run-observed unsupported hooks need no check here: since D21, `exec` marks every leaf of a
 /// run that observed one ([`UncleanReason::UnsupportedHook`]), so [`complete_end`] already
 /// refuses such a side.
-fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
+fn complete_ends(result: &CaseResult) -> Option<BTreeSet<Cow<'_, KorePattern>>> {
     let absent = no_instance(result);
     let run_clean = result.failure.is_none()
         && !result.run_facts_off_leaves
@@ -654,7 +674,7 @@ fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
             .leaves
             .iter()
             .filter(|leaf| leaf.halt == HaltReasonOutput::Stuck)
-            .map(|leaf| &leaf.state)
+            .map(|leaf| counter_erased(&leaf.state))
             .collect(),
     )
 }
@@ -726,7 +746,7 @@ impl Verdicts {
     fn outside(
         side: &CaseResult,
         others: &CaseResult,
-        others_set: &BTreeSet<&KorePattern>,
+        others_set: &BTreeSet<Cow<'_, KorePattern>>,
         role: &str,
         run_to_completion: bool,
     ) -> Result<Self, EngineDefect> {
@@ -734,7 +754,9 @@ impl Verdicts {
         for (index, leaf) in side.leaves.iter().enumerate() {
             // Only a stuck leaf is an end that may be a kill; an undefined step's outcome is no end,
             // and a bound or a stop is classed by `exec::classify`.
-            if leaf.halt != HaltReasonOutput::Stuck || others_set.contains(&leaf.state) {
+            if leaf.halt != HaltReasonOutput::Stuck
+                || others_set.contains(&*counter_erased(&leaf.state))
+            {
                 continue;
             }
             if !leaf.is_clean() {
@@ -1424,10 +1446,42 @@ mod tests {
         }
     }
 
+    /// The counter is no part of an end (FZ-FRESH): an added end that differs from a baseline
+    /// end only in `<generatedCounter>` is in the baseline's set.
     #[test]
-    fn a_difference_only_in_the_generated_counter_kills() {
+    fn a_difference_only_in_the_generated_counter_does_not_kill() {
         let mutant = result(vec![natural(config(3, 1), Some(true))]);
-        assert_eq!(added(&coin_baseline(), &mutant).kills, vec![true]);
+        assert_eq!(added(&coin_baseline(), &mutant).kills, vec![false]);
+        assert_eq!(
+            judge(&coin_baseline(), &mutant, PathMode::OnePath),
+            DifferentialJudgement::class(OutcomeClass::Miss)
+        );
+    }
+
+    /// The removed-end twin: a baseline end that differs from a mutant end only in
+    /// `<generatedCounter>` is in the mutant's set, so it is no removed end, and the one-path
+    /// mode does not re-run a mutant whose one path reached it up to the counter.
+    #[test]
+    fn a_baseline_end_differing_only_in_the_generated_counter_is_not_removed() {
+        let baseline = result(vec![
+            natural(config(3, 2), Some(true)),
+            natural(config(4, 0), Some(true)),
+        ]);
+        let mutant = coin_baseline();
+        let ends = complete_ends(&mutant).expect("complete");
+        let removed = Verdicts::outside(&baseline, &mutant, &ends, "baseline", false)
+            .expect("no engine defect");
+        assert_eq!(removed.kills, vec![false, false]);
+        assert_eq!(
+            judge(&baseline, &mutant, PathMode::AllPaths),
+            DifferentialJudgement::class(OutcomeClass::Miss)
+        );
+        let one_path = result(vec![natural(config(3, 0), Some(true))]);
+        assert!(!needs_all_paths(
+            &result(vec![natural(config(3, 5), Some(true))]),
+            &one_path,
+            false
+        ));
     }
 
     /// A clean abnormal stop (a `stuck` leaf that is not a natural end) with the given

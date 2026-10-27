@@ -325,6 +325,67 @@ fn every_simple_data_end_exists() {
     }
 }
 
+/// G-ONE-NAME (FZ-FRESH): SIMPLE's `spawn` mints a thread id with one `!` name, which has one
+/// association of names to counter offsets, so the thread programs (`join.simple`, and
+/// `rdv.simple` with its two meeting interleavings) are marked `fresh-association` nowhere,
+/// though their ends show the minted id (`<generatedCounter>` 1).
+#[test]
+fn simple_s_one_name_spawn_is_not_marked_fresh_association() {
+    let compiled = simple();
+    let BackendRoute::SourceExecution {
+        execution_rewrite_order,
+    } = &compiled.route
+    else {
+        panic!("an in-process compilation is on krun's route");
+    };
+    let definition = Backend::internalize_source_definition(
+        &compiled.kore,
+        &compiled.main_module,
+        execution_rewrite_order,
+    )
+    .expect("SIMPLE internalizes");
+    let mut backend =
+        Backend::from_internalized(definition, BackendOptions::default()).expect("a backend");
+    let grammar = ProgramGrammar::new(&compiled.frontend_definition).expect("a program grammar");
+    for (name, rendezvous) in [("join.simple", None), ("rdv.simple", Some("rendezvous 3;"))] {
+        let (_, text) = program(name);
+        let text = rendezvous.map_or_else(
+            || text.to_owned(),
+            |meeting| text.replace("rendezvous 5;", meeting),
+        );
+        let mut assembler = ConfigurationAssembler::new(
+            &grammar,
+            &compiled.main_module,
+            &compiled.syntax_module,
+            &compiled.configuration_variables,
+        );
+        assembler
+            .program_file(&Sort::new("Stmt"), &text, name)
+            .expect("the program parses");
+        assembler
+            .bind_stream_defaults(false, false, || {
+                Ok::<_, k_rust::kompile::ConfigurationError>(b"\n".to_vec())
+            })
+            .expect("the streams bind");
+        let initial = assembler.finish().expect("the configuration assembles");
+        let result = backend
+            .execute(ExecuteRequest {
+                strategy: ExecutionStrategy::All,
+                result_modality: ResultModalityOutput::StateSet,
+                ..ExecuteRequest::new(initial)
+            })
+            .expect("the program runs");
+        let printed = serde_json::to_string(&result).expect("the result serializes");
+        assert!(!printed.contains("fresh-association"), "{name}: {printed}");
+        assert!(
+            printed.contains(
+                r#"{"args":[{"sort":{"args":[],"name":"SortInt","tag":"SortApp"},"tag":"DV","value":"1"}],"name":"Lbl'-LT-'generatedCounter'-GT-'","sorts":[],"tag":"App"}"#
+            ),
+            "{name}: no end shows the spawned thread's id: {printed}"
+        );
+    }
+}
+
 /// A small definition with a plain `anywhere` head `_[_]` and two guarded equations whose
 /// right-hand side may be undefined (`100 /Int N`), so that the compiler declares `_[_]` a
 /// partial `value-production` (with `N` as the right-hand side it would be `functional`, and
