@@ -110,6 +110,8 @@ algorithms! {
     BackendSmtCheck => "backend.smt.check",
     /// Structural definedness constraint generation and discharge.
     BackendDefinedness => "backend.definedness.discharge",
+    /// Definition-local validation and use of exact selector contracts.
+    BackendObservationSelectors => "backend.observation.selectors",
     /// The load-time critical-pair check of the executable equations.
     BackendConfluenceCheck => "backend.confluence.critical_pairs",
     /// KORE definition validation and internalization.

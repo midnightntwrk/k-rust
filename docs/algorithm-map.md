@@ -5,7 +5,7 @@ It is the starting point for work that spans algorithms.
 Source discovery covers root `crates/*/src`; KRS, KINK and k2lean workspace members are outside this graph.
 It holds only what the algorithm graph declares on cards (`docs/algorithm-cards.md`), reads from tables (the kompile stage tables, `Counter::ALL`), or derives from both.
 An absent edge proves nothing: there is no call graph, and code that no card names belongs to no algorithm.
-Graph: nodes 132 algorithm, 3 contract, 3 invariant, 116 observation, 67 phase, 1 registry, 37 representation; edges 9 constrains, 70 consumes, 23 contains, 1 falls-back-to, 40 follows, 138 measured-by, 36 produces, 1 variant-of.
+Graph: nodes 133 algorithm, 3 contract, 3 invariant, 116 observation, 67 phase, 1 registry, 37 representation; edges 9 constrains, 70 consumes, 23 contains, 1 falls-back-to, 40 follows, 138 measured-by, 36 produces, 1 variant-of.
 
 - `algo-graph query show <id>` prints a whole card (every cost mode, variables, counters, tests); `query impact <id>` prints what a change reaches.
 - `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload, and the algorithm nesting observed on each run, which orders the kprove and krun algorithms this map cannot place. This map has no measured cost.
@@ -144,6 +144,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.fresh.variables — O(c log v) per name, amortized O(log v) with one… +5 modes — at backend/fresh.rs `FreshCounter::mint`
 - backend.implication.check — O(r) matching problems and antecedent… +2 modes — in: [match result], [extracted substitution], [unification result] — at backend/implication.rs `check_established`
 - backend.matching.relation_query — O(c x log |S|) +2 modes — at backend/matching/mod.rs `SortGraph::check_subsort`
+- backend.observation.selectors — O(C * (I + E) + A) catalog work plus structural… — at backend/observation.rs `Selectors::of`
 - backend.rewrite.apply — one matching problem, at most one is_sat query… +1 mode — in: [match result], [extracted substitution] — at backend/rewrite/apply.rs `apply_rule_with_match`
 - backend.rewrite.recover — each strategy either declines or returns matches… +1 mode — in: [match result], [collection solution], [unification result] — at backend/rewrite/recover.rs `recover_indeterminate_match`
 - backend.rewrite.refutation_memo — one expected O(1) rule-address lookup, then O(K)… +1 mode — at backend/rewrite/refutation_memo.rs `RefutationMemo::apply_rule`
