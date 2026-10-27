@@ -2,8 +2,9 @@
 //!
 //! The comparator canonicalizes constructor-tagged no-confusion pairs and no-junk alternatives under k-rust's dependency-first declaration-order contract (`docs/compatibility.md`, Comparison contract; `scripts/reference-normalisations.toml`, N6/N13/N30; upstream k-rust/constructor-axiom-order, declined, so the canonicalization is permanent).
 //! Beyond metadata and per-sentence alpha normalization, it excludes no sentence: a named field projection (`project:<owner>:<field>`) on either route is compared like any other sentence, so one that only one route declares is a difference.
-//! It also applies two declared k-rust differences, `scripts/reference-normalisations.toml` N33 and N37.
+//! It also applies four declared k-rust differences, `scripts/reference-normalisations.toml` N33, N37, N51 and N52.
 //! N33 withholds `injective` from a reference equation-head declaration that the native route declares without it; N37 removes the private configuration-value transport from the native module.
+//! N51 removes from the native module each selector domain and inverse that equals the pair rebuilt from its projection's identity equation; N52 removes two exactly named definedness rules of k-rust's builtin `domains.md`.
 //! It names the generated lambda symbols of `#fun`, `#let`, and `:=K` after their definitions and uses rather than by the `#lambda<hints>_<n>` spelling each frontend chooses (`lambda_labels`).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -89,12 +90,14 @@ pub fn run(
         compare_kore(&reference, &actual, &module_name, &policy)?
     };
     println!(
-        "PASS native KORE: reference={} native={} reference_injective_withheld={} native_transport_rewrites={} reference_lambda_symbols={} \
-         native_lambda_symbols={}",
+        "PASS native KORE: reference={} native={} reference_injective_withheld={} native_transport_rewrites={} \
+         native_selector_contracts={} native_builtin_definedness_rules={} reference_lambda_symbols={} native_lambda_symbols={}",
         report.reference_sentences,
         report.actual_sentences,
         report.reference_injective_withheld,
         report.native_transport_rewrites,
+        report.native_selector_contracts,
+        report.native_builtin_definedness_rules,
         report.reference_lambda_symbols,
         report.actual_lambda_symbols,
     );
@@ -188,6 +191,10 @@ pub struct ComparisonReport {
     pub reference_injective_withheld: usize,
     /// Number of native configuration-value transport sentences, alternatives, and reads removed or translated (k-rust N37).
     pub native_transport_rewrites: usize,
+    /// Number of native selector domain and inverse axioms removed (k-rust N51).
+    pub native_selector_contracts: usize,
+    /// Number of native builtin definedness rules removed (k-rust N52).
+    pub native_builtin_definedness_rules: usize,
     /// Number of reference generated lambda symbols named by content.
     pub reference_lambda_symbols: usize,
     /// Number of native generated lambda symbols named by content.
@@ -318,6 +325,9 @@ fn compare_modules(
 ) -> Result<ComparisonReport, CompareError> {
     let native_transport_rewrites =
         declared_differences::remove_configuration_value_transport(&reference, &mut actual)?;
+    let native_selector_contracts = declared_differences::remove_selector_contracts(&mut actual);
+    let native_builtin_definedness_rules =
+        declared_differences::remove_builtin_definedness_rules(&mut actual)?;
     let reference_injective_withheld =
         declared_differences::withhold_reference_injective(&mut reference, &actual);
     normalize_module(&mut reference, policy)?;
@@ -351,6 +361,8 @@ fn compare_modules(
         actual_sentences,
         reference_injective_withheld,
         native_transport_rewrites,
+        native_selector_contracts,
+        native_builtin_definedness_rules,
         reference_lambda_symbols,
         actual_lambda_symbols,
     })
