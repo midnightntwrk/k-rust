@@ -165,6 +165,16 @@ doc = "an optional (`?`) cell written without `Some(..)`/`None`: a binder, `_`, 
 code = "krs::analysis::optional-presence"
 doc = "`Some(..)`/`None` on a cell that is not `multiplicity = \"?\"`"
 
+# The position table's classes no generated case makes (`krs_syntax::positions`): the term
+# families write no record remainder in a `cells!` value or an initializer, and no turbofish.
+[class.record-remainder-in-cells-term]
+code = "krs::analysis::invalid-record-update"
+doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field"
+
+[class.record-remainder-in-initializer]
+code = "krs::expand::initializer-record-update"
+doc = "a record update or an open record in an initializer, which matches no record to take fields from or leave open"
+
 [class.rest-mismatch]
 code = "krs::syntax::invalid-list-notation"
 doc = "a `..` rest on one side of a cell only: a result rest the subject's entry did not match, or a subject rest the result drops"
@@ -180,6 +190,11 @@ doc = "`k::is!`/`k::project!`, which are rule and claim terms, in an initializer
 [class.sort-test-in-pattern]
 code = "krs::analysis::invalid-sort-test"
 doc = "`k::is!`/`k::project!`, which compute, in a pattern"
+
+# A position-table class no generated case makes (`krs_syntax::positions`).
+[class.turbofish-in-initializer]
+code = "krs::expand::turbofish-placement"
+doc = "a turbofish instance (`Choose::<Int> { .. }`) in an initializer, which builds concrete values"
 
 [class.unbound-name]
 code = "krs::expand::unbound-name"

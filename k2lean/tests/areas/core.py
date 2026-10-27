@@ -15,8 +15,6 @@ LIBS = {
     # and SIMPLE's recorded outputs, so both encodings stay cross-checked while it is in use
     "kimp-ps": {"ns": "KImp", "tier": "light", "encoding": "per-sort", "not_regenerated": ["KImpBench/Programs.lean"]},
     "simple-ps": {"ns": "KSimple", "tier": "heavy", "encoding": "per-sort"},
-    # the KRS IMP port in the per-sort encoding, for ImpRel and ImpRelClaims (relational, claims)
-    "krsimp-ps": {"ns": "KrsImp", "tier": "light", "encoding": "per-sort"},
 }
 
 

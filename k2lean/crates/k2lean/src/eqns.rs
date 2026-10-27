@@ -680,6 +680,13 @@ struct Cx<'a> {
     budget: &'a Budget,
 }
 
+/// Whether `s` gets `k2l_eqn_o`: it has no-match premises (`howise…`: the rule is `owise`, or
+/// tried after others), and it is the equation of a generated function, which the proof unfolds.
+fn uses_eqn_o(s: &Stated, defs: &[String], recursive: &BTreeSet<String>) -> bool {
+    s.statement.contains("\n    (howise")
+        && (rec_of(s, recursive).is_some() || s.unfold_first.iter().any(|n| defs.contains(n)))
+}
+
 /// The recursive function whose equation `s` is, if any.
 fn rec_of(s: &Stated, recursive: &BTreeSet<String>) -> Option<String> {
     s.unfold_first
@@ -742,19 +749,19 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
         None => !cx.rec_fns.is_empty(),
         Some(_) => stated.iter().any(|s| rec_of(s, recursive).is_some()),
     };
+    // `k2l_case_rec`, `k2l_case_discr` and `k2l_case_call` are in `KPrelude.Tactic`
+    // what the proof cases on: the recursive calls, and the projections out of injections
+    // (`proj_Y_X`, named like their `proj_eq_some_Y_X` lemmas), whose `match hp : proj … with`
+    // in a cascade `simp` cannot rewrite
+    let mut case_on: Vec<String> = cx.rec_fns.iter().cloned().collect();
+    case_on.extend(
+        base.iter()
+            .chain(defs.iter())
+            .filter_map(|n| n.strip_prefix("proj_eq_some_"))
+            .map(|p| format!("proj_{p}")),
+    );
+    let r = case_on.join(", ");
     if needs_r {
-        // `k2l_case_rec`, `k2l_case_discr` and `k2l_case_call` are in `KPrelude.Tactic`
-        // what the proof cases on: the recursive calls, and the projections out of injections
-        // (`proj_Y_X`, named like their `proj_eq_some_Y_X` lemmas), whose `match hp : proj … with`
-        // in a cascade `simp` cannot rewrite
-        let mut case_on: Vec<String> = cx.rec_fns.iter().cloned().collect();
-        case_on.extend(
-            base.iter()
-                .chain(defs.iter())
-                .filter_map(|n| n.strip_prefix("proj_eq_some_"))
-                .map(|p| format!("proj_{p}")),
-        );
-        let r = case_on.join(", ");
         o.push_str(&format!(
             "/-- The generic proof of an equation of a recursive function `f`, which `simp` does not\n\
 unfold: unfold `f` once on the left-hand side (`f.eq_def`), reduce the cascade of its equations,\n\
@@ -773,6 +780,28 @@ all_goals first\n      \
 | ((repeat' (first | split | k2l_split_hyps)) <;> (try simp_all [{u}]) <;> omega)))\n\n"
         ));
     }
+    if stated.iter().any(|s| uses_eqn_o(s, defs, recursive)) {
+        let case_rec = if case_on.is_empty() {
+            String::new()
+        } else {
+            format!(" | (k2l_case_rec [{r}] <;> try simp only [Option.bind])")
+        };
+        o.push_str(&format!(
+            "/-- The proof of an equation with no-match premises (an `owise` rule's, whose left-hand side\n\
+is usually a variable), after the function is unfolded: reduce the cascade as `k2l_eqn_r` does,\n\
+also splitting a list variable that it takes apart (`k2l_case_lvar`), then close each case by\n\
+reduction, by the no-match premise of the rule whose arm the case is (`k2l_owise_arm`), or as the\n\
+generic tactics do, after splitting the remaining `if`s and `match`es (a rule's `requires`). -/\n\
+local macro \"k2l_eqn_o\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| (\n    \
+(try simp only [])\n    \
+(try (repeat' (first | k2l_case_list | k2l_case_lvar | (k2l_case_discr <;> try simp only []){case_rec} | (k2l_case_call <;> try simp only [Option.bind]))))\n    \
+all_goals first\n      \
+| rfl\n      \
+| k2l_owise_arm\n      \
+| (simp_all [{u}]; done)\n      \
+| ((repeat' (first | split | k2l_split_hyps)) <;> first | rfl | k2l_owise_arm | (simp_all [{u}]; done) | ((try simp_all [{u}]) <;> omega))))\n\n"
+        ));
+    }
     for s in stated {
         let uf: Vec<&String> = s.unfold_first.iter().filter(|n| defs.contains(n)).collect();
         let first = if uf.is_empty() {
@@ -787,17 +816,37 @@ all_goals first\n      \
         // the generic tactics do not unfold a well-founded recursive function (none of the 32
         // such equations of SIMPLE and imp-typing closed that way), so its equations get only the
         // recursive proof
+        // an equation with no-match premises gets `k2l_eqn_o` last, after the function is unfolded
+        let owise = uses_eqn_o(s, defs, recursive);
         let tac = match rec_of(s, recursive) {
-            Some(f) if list_recursive.contains(&f) => {
-                format!("by\n  intros\n  first\n  | k2l_eqn_r {f} [{own}]\n  | k2l_fold_eqn {f}")
+            Some(f) if list_recursive.contains(&f) || owise => {
+                let mut t = format!("by\n  intros\n  first\n  | k2l_eqn_r {f} [{own}]");
+                // `k2l_fold_eqn` can leave goals, so it ends in `done` for `first` to go on
+                match (list_recursive.contains(&f), owise) {
+                    (true, false) => t.push_str(&format!("\n  | k2l_fold_eqn {f}")),
+                    (true, true) => t.push_str(&format!("\n  | (k2l_fold_eqn {f}; done)")),
+                    _ => {}
+                }
+                if owise {
+                    t.push_str(&format!(
+                        "\n  | ((conv => lhs; rw [{f}.eq_def]); k2l_eqn_o [{own}])"
+                    ));
+                }
+                t
             }
             Some(f) => format!("by\n  intros\n  k2l_eqn_r {f} [{own}]"),
             // last, a case split on the variables under injections, which reduces a cascade that
             // matches the injected term (`k2l_eqn_b` can leave goals, so it must end in `done`
             // for `first` to go on); then cases on the partial calls of the right-hand side
-            None => format!(
-                "by\n  intros\n  first\n  | k2l_eqn_a [{own}]\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
-            ),
+            None => {
+                let mut t = format!(
+                    "by\n  intros\n  first\n  | k2l_eqn_a [{own}]\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
+                );
+                if owise {
+                    t.push_str(&format!("\n  | ({first}k2l_eqn_o [{own}])"));
+                }
+                t
+            }
         };
         if open.contains(&s.name) {
             let prop = open_statement(&s.statement);
@@ -991,6 +1040,46 @@ mod tests {
         assert!(o.contains("local macro \"k2l_eqn_c\""), "{o}");
         // a statement that names no generated definition unfolds none
         assert!(o.contains("theorem Simp.s_0123456789ab (b : Bool) :\n    (b && true) = b := by\n  intros\n  first\n  | k2l_eqn_a []\n  | (k2l_eqn_b []; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])\n  | (k2l_eqn_c [])\n"));
+    }
+
+    #[test]
+    fn owise_equations_get_the_owise_proof_last() {
+        let rec: BTreeSet<String> = ["K.f".to_string()].into();
+        let unfold = vec![
+            "K.f".to_string(),
+            "K.g".to_string(),
+            "K.g.rule1".to_string(),
+        ];
+        let mut ss = sample();
+        ss.push(st(
+            "Eqn.f_2",
+            " (Gen0 : SortNat)\n    (howise0 : ∀ (o0_x : SortNat), Gen0 = o0_x → False) :\n    K.f Gen0 = none",
+            &["K.f", "K.f.rule1"],
+        ));
+        ss.push(st(
+            "Eqn.g_2",
+            " (Gen0 : SortNat)\n    (howise0 : ∀ (o0_x : SortNat), Gen0 = o0_x → K.h o0_x = true → False) :\n    K.g Gen0 = Gen0",
+            &["K.g", "K.g.rule1"],
+        ));
+        let o = emit("N", &ss, &BTreeSet::new(), &unfold, &rec);
+        assert!(o.contains("local macro \"k2l_eqn_o\""), "{o}");
+        assert!(o.contains("| k2l_case_list | k2l_case_lvar |"), "{o}");
+        // a recursive function's: unfolded by its equation lemma, after the recursive proof
+        assert!(o.contains(
+            "K.f Gen0 = none := by\n  intros\n  first\n  | k2l_eqn_r K.f [K.f]\n  | ((conv => lhs; rw [K.f.eq_def]); k2l_eqn_o [K.f])\n"
+        ), "{o}");
+        // the other's: unfolded as `k2l_eqn_c` unfolds it, after the generic proofs
+        assert!(o.contains(
+            "  | (unfold K.g K.g.rule1; k2l_eqn_c [K.g, K.g.rule1])\n  | (unfold K.g K.g.rule1; k2l_eqn_o [K.g, K.g.rule1])\n"
+        ), "{o}");
+        // the statements without no-match premises keep their proofs
+        assert!(
+            o.contains("K.f x = some x := by\n  intros\n  k2l_eqn_r K.f [K.f]\n"),
+            "{o}"
+        );
+        // and without one, no macro
+        let o = emit("N", &sample(), &BTreeSet::new(), &unfold, &rec);
+        assert!(!o.contains("k2l_eqn_o"), "{o}");
     }
 
     #[test]

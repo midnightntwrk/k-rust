@@ -10,6 +10,7 @@ use krs_ir::{
     DescriptorSimplificationPriority, StableText,
 };
 use krs_syntax::KrsSyntax;
+use krs_syntax::positions::Form;
 use krs_syntax::surface::{AttributeMacro, helper_entry};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -483,7 +484,19 @@ fn expand_ordinary_rule(
     // The result and the ensures condition also see the existentials; the
     // subject and requires never do (the parser rejects such a use).
     let binding_idents = rule.result_bindings();
-    let mut term_builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents)
+    let form = match sentence {
+        // A single-body rule (KF-011): its subject's `k::rewrite!` islands
+        // say what changes.
+        RuleSentence::Transition(_) if rule.result().is_none() => Form::LocalRule,
+        RuleSentence::Transition(_) => Form::RuleFn,
+        RuleSentence::Context(_) => Form::Context,
+        RuleSentence::Equation(_) if lexical_imports.is_some() => Form::EquationTable,
+        RuleSentence::Equation(_) => Form::EquationFn,
+        RuleSentence::Simplification(_) => Form::Simplification,
+        RuleSentence::Alias => Form::Alias,
+        RuleSentence::Desugar(_) => Form::Desugar,
+    };
+    let mut term_builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents, form)
         .with_lexical_imports(lexical_imports);
     let mut slots = WireSlots::new(&facade);
     let (existentials, existential_key_functions) = existential_binders(
@@ -526,13 +539,11 @@ fn expand_ordinary_rule(
         .transpose()?;
     let (typed_bindings, binder_key_functions) =
         typed_binders(rule, (&facade, &ledger), nonce, &cfg, &mut slots)?;
-    term_builder.set_rewrites(rule.result().is_none());
     let subject = term_builder.expand_wire(
         KeyedTerm::pattern(&rule.parameter().pattern, rule.subject_tree()),
         TermSide::Left,
         &mut slots,
     )?;
-    term_builder.set_rewrites(false);
     let context_bindings = rule.condition_bindings();
     let function_context = rule
         .function_context()
@@ -881,6 +892,7 @@ fn function_context(
         cfg,
         bindings,
         krs_syntax::RuleSide::Left,
+        Form::EquationFn,
     );
     builder.continue_subject(term_builder);
     let cells = builder.expand_cells(context.pattern(), &configuration_type, slots)?;

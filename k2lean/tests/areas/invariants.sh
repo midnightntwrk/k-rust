@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
 # kimptop, kimpboth, nested, range, walk, kfold, anyfold, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
-# negative check, the kind 2 demos (ImpWrites, KrsImpTyping, SimpleEnv) and template. Registry:
+# negative check, the kind 2 demos (ImpWrites, KrsImpTyping, InvBudget) and template. Registry:
 # invariants.py.
 
 kore_invariants() {
@@ -79,10 +79,9 @@ gen_invariants() {
             --invariant "$([ "$1" = simplet ] && echo tStoreOk@T || echo storeOk@store)") ;;
     # SIMPLE with `envsOk` (demos/k/simple-inv/simple-envs.k): every environment, of every thread and
     # of every stack frame, maps into the store, through walks, folds over `K` and lists, and their
-    # monotonicity in the store. Per-sort: on the arity encoding the walk of the `<threads>` cell
-    # map stops at core's EQ-12 (`k2l_inst_head` on a five-cell element)
+    # monotonicity in the store
     simpleenvs) GEN_ARGS=(--kore "$(kore_dir simple-envs)/definition.kore" --runtime "$(kore_dir simple-envs)/runtime.json"
-            --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms --per-sort-terms
+            --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms
             --open-obligations "$o/open-obligations.txt" --invariant envsOk@T) ;;
     *) return 1 ;;
   esac
@@ -290,10 +289,9 @@ gate_invariants() {
   phase "diff invariants"
   diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested range walk kfold anyfold simpleinv simplestore simplet simpleenvs
   # kind 2 invariants, built like demos: a walk over <k> (ImpWrites), KRS IMP's declared cell type
-  # (KrsImpTyping), a Lean invariant over KSimple's configuration (SimpleEnv, needs SIMPLE), and
-  # k2l_preserve's per-rule heartbeat budget over the range library (InvBudget)
+  # (KrsImpTyping), and k2l_preserve's per-rule heartbeat budget over the range library (InvBudget)
   phase "demos invariants"
-  for d in ImpWrites KrsImpTyping SimpleEnv InvBudget; do
+  for d in ImpWrites KrsImpTyping InvBudget; do
     runs demo "$d" || continue
     dbuild "$d"
     grep -q '^✖' "$L/build-$d.log" && unbuilt "$D/$d" "$L/build-$d.log"

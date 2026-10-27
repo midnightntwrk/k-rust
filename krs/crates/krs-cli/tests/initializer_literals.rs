@@ -231,7 +231,7 @@ fn initializers_hold_builtin_literals_and_lexemes() {
 fn initializers_reject_symbolic_islands_and_ill_sorted_literals() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let anonymous = "error[krs::expand::claim-only-term]: `k::anonymous!` is a claim's symbolic value; an initializer builds the initial configuration from constants and configuration variables";
+    let anonymous = "error[krs::expand::claim-subject-only-term]: `k::anonymous!` is a value nothing determines, which only a claim's start state may hold; here it stands in the value of an initializer";
     let cases = [
         (
             "anonymous-root",

@@ -601,7 +601,7 @@ EOF
 |---|---|---|
 | 1 | untouched | rules that do not change what `P` reads: unfold `P`, then `exact` the hypothesis |
 | 2 | compute (only with `split [f, …]`) | goals decided by computing `P`: simp with the unfolding set and the rule's hypotheses, then case on applications of `f` and on enumeration-typed fields of the result, at most `fuel` deep (default 5) |
-| 3 | collections | predicates on the keys, values or entries of maps, sets and lists: substitute the rule's equations, case each variable of a sort with one constructor (on the per-sort encoding, a cell: a rule's `<xstack> X </xstack>` taken as a variable `C`, so that an equation matching inside the cell applies), split conjunctions, add the facts read off the rule's matched collections (for `EntriesOn Q m` and a match `concat a b = some m`: `Q (k, v)` for an element, `EntriesOn Q x` for the rest), and, from the store terms of both sides, that every key of a map stays a key of the map a rule leaves (`MapHook.KeysIncl`: an operand of a defined `concat` and its result, a map rebound at one key and the original, and the new key of a `concat` with an element); then close each conjunct by a hypothesis, by `apply` of a `@[k2l_coll]` lemma (update, remove, concat, element, unit, `values`, `keys_list`, `entriesOn_inKeys_mono`, …), or, for `EntriesOn Q' m` with a hypothesis `EntriesOn Q m` on the same map, by `entriesOn_mono` and the closer on `Q' p` from `Q p` (a relational invariant whose other map changes: every environment's values stay keys of a store that grows), normalizing a goal no lemma fits by the unfolding set and trying again, with the depth renewed. Each goal's matches on constructors are reduced first (`dsimp only`: an element lemma leaves `match (k, v).snd with …`); a lemma whose premises are all hypotheses is tried before the search; and a goal that still holds a metavariable (the side condition of a lemma just applied, `update ?l ?i ?x = some l`) is closed by a hypothesis or the discharger only, not searched, since only a hypothesis can fit it (2026-10-28: on SIMPLE these searches had exhausted the heartbeat budget before the lemma that closes) |
+| 3 | collections | predicates on the keys, values or entries of maps, sets and lists: substitute the rule's equations, case each variable of a sort with one constructor, a cell: a rule's `<xstack> X </xstack>` taken as a variable `C`, so that an equation matching inside the cell applies (per-sort, an inductive type with one constructor; on the arity-indexed family, a term at a tag with one value form, split by `familyCases`), split conjunctions, add the facts read off the rule's matched collections (for `EntriesOn Q m` and a match `concat a b = some m`: `Q (k, v)` for an element, `EntriesOn Q x` for the rest), and, from the store terms of both sides, that every key of a map stays a key of the map a rule leaves (`MapHook.KeysIncl`: an operand of a defined `concat` and its result, a map rebound at one key and the original, and the new key of a `concat` with an element); then close each conjunct by a hypothesis, by `apply` of a `@[k2l_coll]` lemma (update, remove, concat, element, unit, `values`, `keys_list`, `entriesOn_inKeys_mono`, …), or, for `EntriesOn Q' m` with a hypothesis `EntriesOn Q m` on the same map, by `entriesOn_mono` and the closer on `Q' p` from `Q p` (a relational invariant whose other map changes: every environment's values stay keys of a store that grows), normalizing a goal no lemma fits by the unfolding set and trying again, with the depth renewed. Each goal's matches on constructors are reduced first (`dsimp only`: an element lemma leaves `match (k, v).snd with …`); a lemma whose premises are all hypotheses is tried before the search; and a goal that still holds a metavariable (the side condition of a lemma just applied, `update ?l ?i ?x = some l`) is closed by a hypothesis or the discharger only, not searched, since only a hypothesis can fit it (2026-10-28: on SIMPLE these searches had exhausted the heartbeat budget before the lemma that closes) |
 | 4 | simp | `simp_all` with the unfolding set; failing that, on each branch of the disjunctions among the rule's hypotheses (at most three split along a path; an invariant with `orBool` or `impliesBool` at its top gives `b = false ∨ ElemsSome Q L`), each branch closed by `simp_all` or then by closer 5's arithmetic |
 | 5 | arithmetic | linear arithmetic over `Int`: rewrite the hypotheses and the goal with the unfolding set and the `@[k2l_arith]` lemmas, which state the `Int` and `Bool` hooks in Lean's arithmetic (`IntHook.add a b` is `a + b`, `IntHook.ge a b = true` is `a ≥ b`, `BoolHook.not`, `&&`, `\|\|`), then `omega`; the same step ends the discharger of closer 3's leaves, so the count test `0 ≤ N + 1` of a rebuilt map entry closes from the matched entry's `0 ≤ N` (SIMPLE's `acquire`, `release`) |
 | 6 | injections | a variable `x` of the rule that is the argument of a generated injection `inj_S_T x` in the goal (`inj_Expr_KItem HOLE` in a heating rule, `inj_Value_KItem V` in `CALC.assign`): `cases x`, reduce the injection on each constructor, and run closers 1–6 on each case, at most two such splits along one path; an injection is defined by cases on its argument, so a function that matches on its result is stuck until the argument is a constructor |
@@ -651,8 +651,7 @@ Measured 2026-10-25 on Lean v4.34.0, a shared 32-CPU host at a load of 34 to 43,
 | SIMPLE, `holdsOk@holds`, lock counts ≥ 0 (`demos/k/simple-inv`; per-sort, 2026-10-24, Lean v4.30.0, load 20 to 29) | 1 | 169 | 169 | 0 | 3.4–4.0 s, 2.0 GB |
 | SIMPLE, `storeOk@store`: every store value is a `Val` or `undefined` (`demos/k/simple-inv`; per-sort, 2026-10-25, load 15–16) | 1 | 169 | 169 | 0 | 2.4–3.9 s, 1.8 GB |
 | SIMPLE, `tStoreOk@T`: the same, by a function of the top cell `<T>` (per-sort, 2026-10-25, load 15–16) | 1 | 169 | 169 | 0 | 2.4–2.6 s, 1.8 GB |
-| SIMPLE, environments map into the store (`demos/SimpleEnv`, per-sort; 2026-10-24, Lean v4.30.0, load 20 to 29) | 2 | 169 | 164 | 5 | 26.7–27.3 s, 3.5 GB (main 33.2 s) |
-| SIMPLE, `envsOk@T`: the same statement in K, every environment of every thread and of every stack frame maps into the store (`demos/k/simple-inv/simple-envs.k`, library `simpleenvs`; per-sort, 2026-10-28) | 1 | 169 | 169 | 0 | 26.3 s, 422 s CPU, 4.0 GB |
+| SIMPLE, `envsOk@T`: the same statement in K, every environment of every thread and of every stack frame maps into the store (`demos/k/simple-inv/simple-envs.k`, library `simpleenvs`; 2026-10-28) | 1 | 169 | 169 | 0 | 57.7 s, 468 s CPU, 6.5 GB (per-sort: 26.3 s, 422 s CPU, 4.0 GB) |
 
 - The module's imports alone take 0.6–1.0 s of each time.
 - The per-sort times of 2026-10-24 (Lean v4.30.0, load 12 to 22) compare only roughly with these, at about twice the load: most rows are within a factor of two of them; ImpWrites is the outlier, four times as long and CPU-bound (35–37 s of CPU), since on the arity-indexed encoding it walks `<k>` by one function over the term family (`writesT`).
@@ -689,22 +688,12 @@ theorem «CALC.var» (G : TEnv) : KImp.Step.Case.«CALC.var» (WTc envTy G) := b
 
 `CALC.assign` writes the store: the proof splits on whether a typed identifier `x` is `X` (`MapHook.lookup_update_self`) or another key (`MapHook.lookup_update_ne`, from `SAL.lookup_insert_ne`), the same split as `boundIn_update` in §4.4.
 
-### 6.2 Monotonicity: SIMPLE's store-growing rules (`demos/SimpleEnv/SimpleEnv/Cases.lean`)
+### 6.2 Monotonicity: when a store grows
 
-The kind 2 invariant says every environment value is a location of `<store>`.
-Five rules add or overwrite a store binding (`var X;`, `var X[N];`, `function F(Xs) S`, `++ loc(L)`, `loc(L) = V`): before the step `P` speaks of the store `S`, after it of a larger `S'`, and no closer carries a predicate from `S` to `S'`.
-Each hand case proves that the store grows (`grow_right` for a new binding, `grow_overwrite` for an overwritten one, from `MapHook.mem_toList_of_concat`), lifts the invariant along it (`threadOk_mono`, `envIn_mono`), and hands the rest to the collections closer through a local macro:
-
-```lean
-theorem «var X;» : KSimple.Step.Case.«var X;» (Invariant) := by
-  intro m Gen7 DotVar2 Gen6 Gen10 Gen8 Gen9 L DotVar0 k DotVar3 X DotVar5 Gen11 Env Gen12 r r_2 hm hr hr_3 hpri
-  intro h
-  have hg := grow_right hr_3
-  have hL := inStore_left_element hr_3
-  grow_close hm hg h
-```
-
-`grow_close` ends with `k2l_coll_close [lemmas]`, the collections closer on its own, which is the usual way to finish a hand case once the step the closers miss is done.
+An invariant that says values are keys of the store (SIMPLE's `envsOk@T`, `demos/k/simple-inv/simple-envs.k`) speaks of the store `S` before a step and of a larger `S'` after it, in five SIMPLE rules (`var X;`, `var X[N];`, `function F(Xs) S`, `++ loc(L)`, `loc(L) = V`).
+The generator proves this case itself when the invariant's functions read the store only through `in_keys` (§3.1, monotonicity in a map parameter): `Invariant.f_mono` carries `f x S = some true` to `S'` from `KeysIncl S S'`, which closer 3 derives from the rule's store terms, so the five rules close with no hand case.
+A hand case is needed when a function reads the store some other way, through `orBool`, `notBool`, a lookup of a value, or a `requires`, under which a larger store need not keep the value.
+Its proof has the same steps: show that the store grows (`KeysIncl S S'`, from `MapHook.mem_toList_of_concat` for a new binding), show that the test is kept along it (by induction over the test's equations, as `f_mono` is generated), and end with `k2l_coll_close [lemmas]`, the collections closer on its own, with those lemmas.
 
 ### 6.3 Useful lemmas
 
@@ -851,19 +840,21 @@ SIMPLE's "every value of every thread's `<env>`, and of `<genv>`, is a location 
 - A configuration with `<k> setEnv(x |-> 7) ~> K </k>`, `<env> .Map </env>` and `<store> .Map </store>` satisfies the plain statement and steps to `<env> x |-> 7 </env>`, which does not.
 - The same holds for the environments saved in stack frames (`return`, `throw`) and for `<genv>` (a function call).
 
-The strengthened invariant (`demos/SimpleEnv/SimpleEnv/Invariant.lean`) also says it of every environment a thread holds: the `setEnv(E)` items of its `<k>`, and every stack frame's environment, saved computation and saved control, recursively.
+The strengthened invariant (`envsOk@T` in `demos/k/simple-inv/simple-envs.k`) also says it of every environment a thread holds: the `setEnv(E)` items of its `<k>`, and every stack frame's environment, saved computation and saved control, recursively.
 
-```lean
-def ThreadOk (S : SortMap) (p : SortIdCell × SortThreadCell) : Prop :=
-  EnvIn S (envOf (thEnv p.2)) ∧ AllIn S (envsK (kOf (thK p.2))) ∧
-    AllIn S (envsL (fsOf (ctlF (thCtl p.2)))) ∧ AllIn S (envsL (xsOf (ctlX (thCtl p.2))))
-
-def Invariant (c : SortGeneratedTopCell) : Prop :=
-  MapHook.EntriesOn (ThreadOk (storeOf (tStore (topT c)))) (threadsOf (tThreads (topT c))) ∧
-    EnvIn (storeOf (tStore (topT c))) (genvOf (tGenv (topT c)))
+```k
+rule kIn(.K, _) => true
+rule kIn(I:KItem ~> K, S) => itemIn(I, S) andBool kIn(K, S)
+rule listIn(.List, _) => true
+rule listIn(ListItem(I) L, S) => itemIn(I, S) andBool listIn(L, S)
+rule itemIn(setEnv(E), S) => allIn(E, S)
+rule itemIn((E, K, C), S) => allIn(E, S) andBool kIn(K, S) andBool ctlIn(C, S)
+rule itemIn((_, _, K, E, C), S) => allIn(E, S) andBool kIn(K, S) andBool ctlIn(C, S)
+rule itemIn(_, _) => true [owise]
 ```
 
-It implies the plain statement (its first conjunct), and it is inductive: 164 of 169 rules close automatically and the 5 store rules by hand (§6.2).
+`allIn` walks an environment, `ctlIn` reads a saved `<control>` in each shape SIMPLE saves it, and `envsOk` walks the `<threads>` cell map with them.
+It implies the plain statement, and it is inductive: all 169 rules close automatically, the 5 store rules through the generated monotonicity (§6.2).
 How to find the strengthening: read the open goal of the failing rule, find where the value the rule installs comes from (here, a `setEnv` item or a stack frame), and add the property of that source to `P`.
 `Preserved.and_under` (`lean/prelude/KPrelude/Invariant.lean`) proves a conjunction in stages: `Preserved S P` and `PreservedUnder S P Q` (`Q` kept by the steps from configurations satisfying `P`) give `Preserved S (P ∧ Q)`.
 
@@ -874,7 +865,7 @@ How to find the strengthening: read the open goal of the failing rule, find wher
 | inductive invariants only | a non-inductive property fails at a rule | strengthen it (§8) |
 | nothing about undefined steps | a rule with an undefined result has no `Step` | state undefinedness through `App` and the adequacy theorems |
 | configuration variables are arbitrary at `init` | `init_holds` needs hypotheses on `pgm`, `env` | state them; they are what a caller must establish |
-| relational invariants over a map that rules extend | a map walk (§3.1) whose test reads another cell, such as SIMPLE's "every value of every thread's `<env>` is a key of `<store>`" (`envsIn@T`, `demos/k/simple-inv/simple-envs.k`), needs that a key of the store stays a key where a rule changes the store; the collections closer derives it from the rule's store terms (§5.1, 2026-10-25): on SIMPLE, 164 of 169 cases at the default budget (per-sort, Lean v4.34.0, 2026-10-25), and 166 at `maxHeartbeats` 400,000; the 3 left, `setEnv(Env)`, `return V;`, `throw V;`, are where the statement is false (it is not inductive, §8). Its strengthening over computations and stack frames, `envsOk@T` (the statement of `demos/SimpleEnv`, through the folds `kIn`, `listIn` and the group's `itemIn`, `ctlIn`, monotone in the store, §3.1), is proved for all 169 rules with no hand case (2026-10-28, heavy library `simpleenvs`). It is per-sort: on the arity encoding the walk of the `<threads>` cell map stops at core's EQ-12, and the case split of a cell variable (closer 3) is per-sort only, so the rules that save a frame's `<control>` are not known to close there | on the arity encoding, wait for EQ-12; meanwhile `simpleenvs` is a per-sort library |
+| relational invariants over a map that rules extend | a map walk (§3.1) whose test reads another cell, such as SIMPLE's "every value of every thread's `<env>` is a key of `<store>`" (`envsIn@T`, `demos/k/simple-inv/simple-envs.k`), needs that a key of the store stays a key where a rule changes the store; the collections closer derives it from the rule's store terms (§5.1, 2026-10-25): on SIMPLE, 164 of 169 cases at the default budget (per-sort, Lean v4.34.0, 2026-10-25), and 166 at `maxHeartbeats` 400,000; the 3 left, `setEnv(Env)`, `return V;`, `throw V;`, are where the statement is false (it is not inductive, §8). Its strengthening over computations and stack frames, `envsOk@T` (through the folds `kIn`, `listIn` and the group's `itemIn`, `ctlIn`, monotone in the store, §3.1), is proved for all 169 rules with no hand case (2026-10-28, heavy library `simpleenvs`) | strengthen the statement (§8), as `envsOk@T` does |
 | arithmetic is linear | closer 5 is `omega` on the total `Int` hooks: a case that needs a product of variables, or `/Int`, `%Int`, `^Int` (partial hooks, `Option`-valued, not unfolded), stays open | a hand case, or a lemma of the step it needs passed to `k2l_preserve` |
 | injection splits: of variables, two along a path | closer 6 cases only on a variable under an injection (not on `inj_S_T (f x)`), at most twice on one path | a lemma `f (inj_S_T e) = …` by `cases e <;> rfl`, passed to `k2l_preserve` |
 | `owise` side conditions by simp | an `owise` equation rewrites only where simp proves that no other equation matches, from the argument's constructors; on `isId(kseq(inj_Value_KItem V, .K))` it applies only in closer 6's cases of `V`; the generator states it at injections when every other pattern is a constructor of `KItem`'s own (§3.1), not otherwise | a lemma of the injection, or a hand case |
@@ -927,8 +918,8 @@ The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same l
    -  diffs kimpinv kimpfold kimptop kimpboth nested …
    +  diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested …
    …
-   -  for d in ImpWrites KrsImpTyping SimpleEnv InvBudget; do
-   +  for d in ImpWrites KrsImpTyping SimpleEnv InvBudget EnvBound; do
+   -  for d in ImpWrites KrsImpTyping InvBudget; do
+   +  for d in ImpWrites KrsImpTyping InvBudget EnvBound; do
         runs demo "$d" || continue
    --- a/k2lean/tests/areas/invariants.py
    +++ b/k2lean/tests/areas/invariants.py
@@ -943,7 +934,7 @@ The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same l
    - `guard: False`: the library is built only as far as its invariant needs, so it has no `…Test.Axioms` guard; the invariant's own `#k2l_assert_axioms` is checked through `INVS`.
    - `inv_lib` (in `invariants.sh`) generates the library, builds its `Equations` and its `Invariants`, and turns a case that `k2l_preserve` does not close into an open case; `runs KIND NAME` holds when the tier being run includes the entry's tier.
    - A heavy invariant (SIMPLE-based) gets `"tier": "heavy"`; nothing else changes.
-   - Libraries are generated in the arity-indexed encoding by default (since 2026-10-25); an entry that must stay on the per-sort encoding gets `"encoding": "per-sort"` and `--per-sort-terms` in its generator call (`kimp-ps`, for the holdouts of design.md §2.1), and a demo on per-sort libraries `"encoding": "per-sort"` (SimpleEnv). EnvBound builds on the default kimp (checked 2026-10-25), so it needs neither.
+   - Libraries are generated in the arity-indexed encoding by default (since 2026-10-25); an entry that must stay on the per-sort encoding gets `"encoding": "per-sort"` and `--per-sort-terms` in its generator call (`kimp-ps`, for the holdouts of design.md §2.1), and a demo on per-sort libraries `"encoding": "per-sort"`. EnvBound builds on the default kimp (checked 2026-10-25), so it needs neither.
    - `tests/gate.sh list` prints the registered entries, which checks the new ones.
 3. Run a tier, read its `FAIL` and `NOTE` lines, accept, and run again:
 
@@ -982,8 +973,7 @@ To rehearse without touching your checkout, make a worktree of it (`git worktree
 | `demos/ImpTypes/ImpTypes/Store.lean` (with `Typing.lean` and `Soundness.lean`, generated by `k2lean soundness`) | 2 | a runtime typing generated from a K type checker, parametrized by a hand-written store typing, with `split [typeOf, wt]`; two store hand cases |
 | `demos/ImpWrites/ImpWrites/{Invariant,Cases,Run}.lean` | 2 | a predicate that walks `<k>` (no pending statement assigns `x`), 79 of 79 automatic, 29 of them through the injection split |
 | `demos/InvBudget/` (light gate) | 2 | `k2l_preserve`'s per-rule heartbeat budget: on `range`, `alloc` reaches a budget of 2,000 and is left open while `seq` and `set` close, checked by `#guard_msgs`; and a collections-closer step at the recursion-depth limit fails like any other (`RecDepth.lean`) |
-| `demos/SimpleEnv/` | 2 | a relational, strengthened invariant over SIMPLE, five monotonicity hand cases |
-| `demos/k/simple-inv/simple-envs.k` (not in the gate) | 1 | the same statement, plain and strengthened, as K functions over `<T>` that walk the thread cell map: 161 of 169 automatic for the plain one, 8 for the strengthened one (§9) |
+| `demos/k/simple-inv/simple-envs.k`, `generated/simpleenvs/` (library `simpleenvs`, heavy gate) | 1 | a relational invariant of SIMPLE, every environment maps into the store, as K functions over `<T>` that walk the thread cell map: the plain statement is not inductive (§8); the strengthened one, `envsOk@T`, 169 of 169 with no hand case, the store rules through the generated monotonicity (§6.2) |
 | `tests/fixtures/walk/walk.k` (library `walk`, light gate) | 1 | a relational invariant written as two map walks, over the `<workers>` cell map and over each worker's `<env>`: 5 of 5 automatic, the post-state maps' well-formedness by the `@[k2l_coll]` lemmas `MapHook.wf_of_concat` and the others |
 | `lean/prelude/KPrelude/InvTactic.lean` | — | the tactic's documentation |
 | `lean/prelude/KPrelude/Invariant.lean`, `InvSteps.lean` | — | `Preserved`, `PreservedUnder`, `Star`, `StepsN`, the typed view `TConfig` and `OnCell` |

@@ -244,6 +244,13 @@ fn relation(
     };
     let nb = get("checker-name");
     let ckore = get("checker-kore");
+    // `--per-sort-terms true`: the libraries are in the one type per sort encoding (as `relate`'s
+    // and `soundness`'s option); otherwise the arity-indexed family (design.md §2.1)
+    let per_sort = match opt.get("per-sort-terms").map(String::as_str) {
+        None | Some("false") => false,
+        Some("true") => true,
+        Some(v) => fail(&format!("--per-sort-terms {v}: true or false")),
+    };
     let text = std::fs::read_to_string(&ckore).unwrap_or_else(|e| fail(&format!("{ckore}: {e}")));
     let cdef = crate::ir::load(&text).unwrap_or_else(|e| fail(&format!("{ckore}: {e}")));
     let find = |w: &str| -> String {
@@ -431,7 +438,9 @@ components (its equations at that constructor, in order, then its `owise` value)
         t,
         "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of its calls, and compute. -/\nmacro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, {}]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]\n  all_goals simp_all [KEqHook.eq, BoolHook.and, BoolHook.or{}]))\n",
         fnames.join(", "),
-        trs.join(", "),
+        // the translation's equations at each constructor: on the arity universe `tr_S` names the
+        // one recursive `tr`, whose equations `relate` states as the `k2l_tr` lemmas
+        if per_sort { trs.join(", ") } else { "k2l_tr".to_string() },
         convs.join("\n    | "),
         tfs.iter().map(|f| f.lean_b.clone()).collect::<Vec<_>>().join(", "),
         unfolds.iter().map(|u| format!(", {u}")).collect::<String>()
@@ -471,6 +480,15 @@ stack), `SQ` (a step from a low stack), `SameQ` (two runs at one low stack). -/\
     )
     .unwrap();
     let projs = snd::plug_def(&a, &cools, &hole, &mut s);
+    if !per_sort {
+        // realized here, under this file's `maxHeartbeats 0`: a module that imports `plug` and
+        // unfolds it realizes its equation lemmas under Lean's default limit whatever it sets
+        // (design.md §9), and on the arity universe the fallback's equation has a side condition
+        // per cooling rule, a family constructor against a family constructor, beyond that limit
+        s.push_str(
+            "\n/-- `plug`'s equation lemmas, realized in this module (see `k2lean noninterference`). -/\ntheorem plug_eqns_realized : True := by\n  have := @plug.eq_1\n  trivial\n",
+        );
+    }
     // the items with no pending value
     let kitem = a.m.sort("SortKItem");
     let mut larms: Vec<(String, String, String, String, String)> = Vec::new(); // (short, ctor, arg type, low rhs, confined rhs)
@@ -523,6 +541,14 @@ stack), `SQ` (a step from a low stack), `SameQ` (two runs at one low stack). -/\
     for (_, c, _, _, cr) in &larms {
         writeln!(s, "  | {c} x => {cr}").unwrap();
     }
+    // on the arity universe: case splits by `k2l_cases` (only the sort's value forms), and the
+    // equations of `lk` and `CK`, whose recursion on `SortK` (the family at one index) is
+    // well-founded, not structural, so they do not reduce by `rfl`
+    let (cases_t, lk_pf, ck_pf) = if per_sort {
+        ("cases", "rfl", "rfl")
+    } else {
+        ("k2l_cases", "by simp only [lk]", "by rw [CK]")
+    };
     writeln!(
         s,
         "  | _ => none\n\n\
@@ -534,9 +560,9 @@ def lk (G : Lab) : Bool → {kt} → Bool\n  | b, .dotk => !b\n  | b, .kseq it k
 /-- A confined stack over the continuation `K`: `k` is `K` with nothing pending, or its first\n\
 item consumes `b` and the rest is a confined stack over `K`. -/\n\
 def CK (G : Lab) (K : {kt}) : Bool → {kt} → Prop\n  | b, .dotk => b = false ∧ {kt}.dotk = K\n  | b, .kseq it k => (b = false ∧ {kt}.kseq it k = K) ∨\n      (match citem G b it with\n       | some o => CK G K o k\n       | none => False)\n\n\
-theorem CK_kseq (G : Lab) (K : {kt}) (b : Bool) (it : {kit}) (k : {kt}) :\n    CK G K b (.kseq it k) = ((b = false ∧ {kt}.kseq it k = K) ∨\n      (match citem G b it with\n       | some o => CK G K o k\n       | none => False)) := rfl\n\n\
-theorem CK_dotk (G : Lab) (K : {kt}) (b : Bool) :\n    CK G K b .dotk = (b = false ∧ {kt}.dotk = K) := rfl\n\n\
-theorem CK_base (G : Lab) (K : {kt}) : CK G K false K := by\n  cases K <;> simp [CK]\n"
+theorem CK_kseq (G : Lab) (K : {kt}) (b : Bool) (it : {kit}) (k : {kt}) :\n    CK G K b (.kseq it k) = ((b = false ∧ {kt}.kseq it k = K) ∨\n      (match citem G b it with\n       | some o => CK G K o k\n       | none => False)) := {ck_pf}\n\n\
+theorem CK_dotk (G : Lab) (K : {kt}) (b : Bool) :\n    CK G K b .dotk = (b = false ∧ {kt}.dotk = K) := {ck_pf}\n\n\
+theorem CK_base (G : Lab) (K : {kt}) : CK G K false K := by\n  {cases_t} K <;> simp [CK]\n"
     )
     .unwrap();
     // computing the typings
@@ -549,7 +575,11 @@ theorem CK_base (G : Lab) (K : {kt}) : CK G K false K := by\n  cases K <;> simp 
         if a.m.sort(srt).is_simple() {
             "rfl"
         } else {
-            "by cases x <;> rfl"
+            if per_sort {
+                "by cases x <;> rfl"
+            } else {
+                "by k2l_cases x <;> rfl"
+            }
         }
     };
     writeln!(
@@ -566,8 +596,8 @@ theorem citem_false (G : Lab) (it : {kit}) : citem G false it = citem0 G it := r
 @[simp] theorem citem_true_{hs} (G : Lab) (x : {ht}) : citem G true ({na}.inj_{hs}_KItem x) = none := {bc}\n\
 @[simp] theorem litem_true_{ss} (G : Lab) (x : {st}) : litem G true ({na}.inj_{ss}_KItem x) = none := {bs}\n\
 @[simp] theorem citem_true_{ss} (G : Lab) (x : {st}) : citem G true ({na}.inj_{ss}_KItem x) = none := {bs}\n\
-@[simp] theorem lk_dotk (G : Lab) (b : Bool) : lk G b .dotk = !b := rfl\n\
-@[simp] theorem lk_kseq (G : Lab) (b : Bool) (it : {kit}) (k : {kt}) :\n    lk G b (.kseq it k) = (match litem G b it with | some o => lk G o k | none => false) := rfl\n\
+@[simp] theorem lk_dotk (G : Lab) (b : Bool) : lk G b .dotk = !b := {lk_pf}\n\
+@[simp] theorem lk_kseq (G : Lab) (b : Bool) (it : {kit}) (k : {kt}) :\n    lk G b (.kseq it k) = (match litem G b it with | some o => lk G o k | none => false) := {lk_pf}\n\
 attribute [simp] litem0_{hs} citem0_{hs} litem_false citem_false\n",
         ht = ty(&na, &hole),
         st = ty(&na, &sec.sort),
@@ -597,6 +627,26 @@ def SameQ (G : Lab) (c₁ c₁' : {topt}) : Prop :=\n  ∀ c₂ c₂', Sync G c�
     .unwrap();
     // the closers
     let store_sort = format!("{na}.{}", store_cell.sort);
+    // on the arity universe the store cell's sort is `Term t`, which `whnfR` unfolds the
+    // abbreviation to, and a field of a case split has it as `Term i` for an index `i` that
+    // computes to `t`: the test is definitional equality, and the split `familyCases`' (`casesVar`)
+    // a level, the value of a checker's call: on the arity universe its value forms by `k2l_cases`
+    let split_cases = if per_sort { "cases" } else { "k2l_cases" };
+    let (store_test, store_split) = if per_sort {
+        (
+            format!(
+                "let t ← whnfR d.type\n          return if t.isConstOf ``{store_sort} then some d else none"
+            ),
+            "let gs ← g.cases d.fvarId\n    replaceMainGoal (gs.map (·.mvarId)).toList".to_string(),
+        )
+    } else {
+        (
+            format!(
+                "let t ← instantiateMVars d.type\n          return if ← isDefEq t (mkConst ``{store_sort}) then some d else none"
+            ),
+            "g.withContext (KPrelude.Soundness.casesVar (mkFVar d.fvarId))".to_string(),
+        )
+    };
     let fqn = |f: &TFn| format!("{ns}.{}", f.name);
     writeln!(
         s,
@@ -604,9 +654,9 @@ def SameQ (G : Lab) (c₁ c₁' : {topt}) : Prop :=\n  ∀ c₂ c₂', Sync G c�
 `k2l_ni_comp` computes the typings of both sides of a rule (`k2l_ni_simp`), cases on the values of\n\
 the checker's functions that the computation stops at (`k2l_ni_split`), and computes again. -/\n\n\
 open Lean Meta Elab Tactic in\n/-- Case every variable of the store cell's sort into `<{store}> E`. -/\n\
-elab \"k2l_cases_store\" : tactic => do\n  let rec go (fuel : Nat) : TacticM Unit := do\n    if fuel = 0 then return\n    let g ← getMainGoal\n    let some d ← g.withContext do\n        (← getLCtx).findDeclM? fun d => do\n          if d.isImplementationDetail then return none\n          let t ← whnfR d.type\n          return if t.isConstOf ``{store_sort} then some d else none\n      | return\n    let gs ← g.cases d.fvarId\n    replaceMainGoal (gs.map (·.mvarId)).toList\n    go (fuel - 1)\n  go 8\n\n\
+elab \"k2l_cases_store\" : tactic => do\n  let rec go (fuel : Nat) : TacticM Unit := do\n    if fuel = 0 then return\n    let g ← getMainGoal\n    let some d ← g.withContext do\n        (← getLCtx).findDeclM? fun d => do\n          if d.isImplementationDetail then return none\n          {store_test}\n      | return\n    {store_split}\n    go (fuel - 1)\n  go 8\n\n\
 open Lean Meta Elab Tactic in\n/-- Case on the value of an application of one of `fs` in a hypothesis or the goal that no\nequation hypothesis has as its left-hand side yet, and recurse. -/\n\
-partial def niSplitLoop (fs : Array Name) (fuel : Nat) : TacticM Unit := do\n  if (← getGoals).isEmpty || fuel = 0 then return\n  let g ← getMainGoal\n  let found ← g.withContext do\n    let lctx ← getLCtx\n    let mut done : Array Expr := #[]\n    let mut cands : Array Expr := #[]\n    for d in lctx do\n      if d.isImplementationDetail then continue\n      let t ← instantiateMVars d.type\n      if let some (_, l, _) := t.eq? then done := done.push l\n      cands := cands.push t\n    cands := cands.push (← instantiateMVars (← g.getType))\n    for t in cands do\n      if let some e := t.find? (fun e => !e.hasLooseBVars && fs.any e.isAppOf && e.getAppNumArgs == 2 && !done.contains e) then\n        return some e\n    return none\n  let some e := found | return\n  let x ← g.withContext (Term.exprToSyntax e)\n  evalTactic (← `(tactic| ((rcases _h : $x:term with _ | v) <;> (try cases v))))\n  KPrelude.Soundness.eachGoal (niSplitLoop fs (fuel - 1))\n\n\
+partial def niSplitLoop (fs : Array Name) (fuel : Nat) : TacticM Unit := do\n  if (← getGoals).isEmpty || fuel = 0 then return\n  let g ← getMainGoal\n  let found ← g.withContext do\n    let lctx ← getLCtx\n    let mut done : Array Expr := #[]\n    let mut cands : Array Expr := #[]\n    for d in lctx do\n      if d.isImplementationDetail then continue\n      let t ← instantiateMVars d.type\n      if let some (_, l, _) := t.eq? then done := done.push l\n      cands := cands.push t\n    cands := cands.push (← instantiateMVars (← g.getType))\n    for t in cands do\n      if let some e := t.find? (fun e => !e.hasLooseBVars && fs.any e.isAppOf && e.getAppNumArgs == 2 && !done.contains e) then\n        return some e\n    return none\n  let some e := found | return\n  let x ← g.withContext (Term.exprToSyntax e)\n  evalTactic (← `(tactic| ((rcases _h : $x:term with _ | v) <;> (try {split_cases} v))))\n  KPrelude.Soundness.eachGoal (niSplitLoop fs (fuel - 1))\n\n\
 elab \"k2l_ni_split\" : tactic => niSplitLoop #[``{}, ``{}, ``{}] 6\n\n\
 macro \"k2l_ni_simp\" : tactic => `(tactic| simp_all [plug, dflt, citem0_{hs}, litem0_{hs}, {na}.proj_inj_KItem_{hs},\n    {}{}, CK_base])\n\n\
 macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try (k2l_ni_split; all_goals (try k2l_ni_simp))))\n\nend {ns}",
@@ -665,16 +715,20 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
     writeln!(p, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
     writeln!(
         p,
-        "/-- The generic case of `CQ`. -/\nmacro \"k2l_cq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold CQ\n  intro K hck hne hgood\n  simp only [kOf, storeOf, CK_kseq] at hck hne hgood ⊢\n  refine ⟨?_, ?_⟩\n  all_goals first\n    | exact hiOnly_refl hgood\n    | (try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n       try subst_vars\n       try k2l_ni_comp)))\n\n\
+        "/-- The generic case of `CQ`. -/\nmacro \"k2l_cq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold CQ\n  intro K hck hne hgood\n  simp only [kOf, storeOf, CK_kseq] at hck hne hgood ⊢\n  refine ⟨?_, ?_⟩\n  all_goals first\n    | {hi_refl}hiOnly_refl hgood\n    | (try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n       try subst_vars\n       try k2l_ni_comp)))\n\n\
 /-- The generic case of `SQ`. -/\nmacro \"k2l_sq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold SQ\n  intro hlk hgood\n  simp only [kOf, storeOf] at hlk hgood ⊢\n  try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n  try subst_vars\n  try k2l_ni_simp\n  try k2l_ni_split\n  all_goals (try k2l_ni_simp)\n  all_goals first\n    | (apply sq_base; k2l_ni_comp; done)\n    | (apply sq_drop2 <;> simp only [dropK, CK_kseq] <;> k2l_ni_comp <;> done)\n    | skip))\n\n\
-/-- The generic case of `SameQ` for the rule whose `Step` constructor is `c`: the other run takes\nthe same rule (`Step.deterministic`), which reads and writes no store. -/\nmacro \"k2l_same \" c:ident : tactic => `(tactic| (\n  intros\n  unfold SameQ\n  intro c₂ c₂' hS h₂\n  obtain ⟨hk, hlk, hlow⟩ := hS\n  rcases c₂ with {pat}\n  simp only [kOf] at hk\n  subst hk\n  have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n  subst hd\n  k2l_cases_store\n  simp only [kOf, storeOf] at hlow ⊢\n  first\n    | (simp only [true_and]; assumption)\n    | exact ⟨rfl, by assumption⟩))\n",
+/-- The generic case of `SameQ` for the rule whose `Step` constructor is `c`: the other run takes\nthe same rule (`Step.deterministic`), which reads and writes no store. -/\nmacro \"k2l_same \" c:ident : tactic => `(tactic| (\n  intros\n  unfold SameQ\n  intro c₂ c₂' hS h₂\n  obtain ⟨hk, hlk, hlow⟩ := hS\n  {rcases_t} c₂ with {pat}\n  simp only [kOf] at hk\n  subst hk\n  have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n  subst hd\n  k2l_cases_store\n  simp only [kOf, storeOf] at hlow ⊢\n  first\n    | (simp only [true_and]; assumption)\n    | exact ⟨rfl, by assumption⟩))\n",
         pat = {
             // `⟨⟨k₂⟩, e₂, g₂⟩`: the top cell's arguments, `<k>` destructured
             let ps: Vec<String> = (0..cells.len())
                 .map(|i| if i == kpos { "⟨k₂⟩".to_string() } else { format!("x{i}₂") })
                 .collect();
             format!("⟨{}⟩", ps.join(", "))
-        }
+        },
+        // on the arity universe `CK` is defined by well-founded recursion, so `exact` would try to
+        // unify `HiOnly` with an unfolding of it; reducibly the mismatch fails at once
+        hi_refl = if per_sort { "exact " } else { "with_reducible exact " },
+        rcases_t = if per_sort { "rcases" } else { "k2l_cases" },
     )
     .unwrap();
     let mut generic = [0usize; 3];
@@ -714,6 +768,12 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
         )
         .unwrap();
     }
+    // on the arity universe `CK` does not reduce by `rfl` (its recursion is well-founded)
+    let ck_dotk_at = if per_sort {
+        ""
+    } else {
+        "rw [CK_dotk] at h\n  "
+    };
     writeln!(
         p,
         "variable (G : Lab)\n\n\
@@ -722,7 +782,7 @@ def Rel (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, CK G K false (kOf c₁) ∧ CK 
 def Left (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, CK G K false (kOf c₁) ∧ kOf c₁ ≠ K ∧ CK G K false (kOf c₂) ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
 def Right (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, kOf c₁ = K ∧ CK G K false (kOf c₂) ∧ kOf c₂ ≠ K ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
 variable {{G}}\n\n\
-theorem ne_dotk_of_CK {{K k : {kt}}} (h : CK G K false k) (hne : k ≠ K) : k ≠ .dotk := by\n  rintro rfl\n  exact hne (h.2)\n\n\
+theorem ne_dotk_of_CK {{K k : {kt}}} (h : CK G K false k) (hne : k ≠ K) : k ≠ .dotk := by\n  rintro rfl\n  {ck_dotk_at}exact hne (h.2)\n\n\
 theorem sync_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂ c₂', Sync G c₁ c₂ → {name}.Step c₂ c₂' → Rel G c₁' c₂' := by\n  intro c₂ c₂' hs h₂\n  obtain ⟨hk, hlow⟩ := same_step G h c₂ c₂' hs h₂\n  obtain ⟨K, hck, hlk⟩ := sq_step G h hs.2.1 hs.2.2.1\n  exact ⟨K, hck, hk ▸ hck, hlk, hlow⟩\n\n\
 theorem left_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂, Left G c₁ c₂ → Rel G c₁' c₂ := by\n  rintro c₂ ⟨K, hc₁, hne, hc₂, hlk, hlow⟩\n  obtain ⟨hc₁', hhi⟩ := cq_step G h K hc₁ hne hlow.1\n  exact ⟨K, hc₁', hc₂, hlk, lowEq_hiOnly hlow hhi⟩\n\n\
 theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    ∀ c₁, Right G c₁ c₂ → Rel G c₁ c₂' := by\n  rintro c₁ ⟨K, hc₁, hc₂, hne, hlk, hlow⟩\n  obtain ⟨hc₂', hhi⟩ := cq_step G h K hc₂ hne hlow.2.1\n  exact ⟨K, hc₁ ▸ CK_base G K, hc₂', hlk, lowEq_symm (lowEq_hiOnly (lowEq_symm hlow) hhi)⟩\n"

@@ -17,6 +17,7 @@ use krs_ir::{
     ProvenanceKey,
 };
 use krs_syntax::KrsSyntax;
+use krs_syntax::positions::Form;
 use krs_syntax::{
     KSequence, KSequenceNotation, MapBody, MapExpression, ProvenanceRole, RuleSide,
     StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind, StateTerm, TermArguments,
@@ -140,6 +141,7 @@ pub(crate) fn context_alias(
         &cfg,
         &binding_idents,
         RuleSide::Left,
+        Form::ContextAlias,
     );
     let pattern = builder.expand_cells(alias.pattern(), &configuration_type, &mut slots)?;
     key_functions.extend(builder.terms.key_functions);
@@ -395,6 +397,13 @@ pub(super) fn configuration_rule(
         (&facade, &ledger, nonce, &cfg),
         &mut slots,
     )?;
+    // A single-body rule (KF-011): its subject's `k::rewrite!` islands say
+    // what changes.
+    let form = if rule.result().is_none() {
+        Form::CellsLocalRule
+    } else {
+        Form::CellsRule
+    };
     let mut left = StateRuleBuilder::new(
         &facade,
         &ledger,
@@ -402,8 +411,8 @@ pub(super) fn configuration_rule(
         &cfg,
         &binding_idents,
         RuleSide::Left,
+        form,
     );
-    left.terms.set_rewrites(rule.result().is_none());
     let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
@@ -412,6 +421,7 @@ pub(super) fn configuration_rule(
         &cfg,
         &result_idents,
         RuleSide::Right,
+        form,
     );
     let result = match (rule.result(), &result_type) {
         (Some(result), Some(result_type)) => {
@@ -425,6 +435,7 @@ pub(super) fn configuration_rule(
         nonce ^ 0x4000_0000_0000_0000,
         &cfg,
         &requires_idents,
+        form,
     );
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
@@ -445,6 +456,7 @@ pub(super) fn configuration_rule(
         nonce ^ 0x2000_0000_0000_0000,
         &cfg,
         &result_idents,
+        form,
     );
     let ensures = ensures_condition(rule.existentials(), &mut ensures_builder, &mut slots)?;
     let mut key_functions = left.terms.key_functions;
@@ -622,13 +634,14 @@ impl<'a> StateRuleBuilder<'a> {
         cfg: &'a [Attribute],
         bindings: &'a [Ident],
         side: RuleSide,
+        form: Form,
     ) -> Self {
         Self {
             facade,
             bindings,
             side,
-            terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings),
-            claim: false,
+            terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings, form),
+            claim: form.is_claim(),
         }
     }
 
@@ -639,18 +652,15 @@ impl<'a> StateRuleBuilder<'a> {
         self.terms.next_key = previous.next_key;
     }
 
-    pub(super) fn for_claim(mut self) -> Self {
-        self.claim = true;
-        self.terms = self.terms.for_claim();
-        self
+    const fn term_side(&self) -> TermSide {
+        match self.side {
+            RuleSide::Left => TermSide::Left,
+            RuleSide::Right => TermSide::Right,
+        }
     }
 
     fn term_role(&self, role: TermRole) -> ProvenanceRole {
-        let side = match self.side {
-            RuleSide::Left => TermSide::Left,
-            RuleSide::Right => TermSide::Right,
-        };
-        side.role(role)
+        self.term_side().role(role)
     }
 
     pub(super) fn expand_cells(
@@ -901,9 +911,12 @@ impl<'a> StateRuleBuilder<'a> {
                     slots,
                 )?;
                 let authored_path = spelling(application.head());
-                let instance = self
-                    .terms
-                    .application_instance_wire(application, node, slots)?;
+                let instance = self.terms.application_instance_wire(
+                    application,
+                    node,
+                    self.term_side(),
+                    slots,
+                )?;
                 let arguments = match application.arguments() {
                     TermArguments::Positional(values) => {
                         let mut arguments = Vec::new();
@@ -1115,8 +1128,7 @@ impl<'a> StateRuleBuilder<'a> {
                 range, from, to, ..
             } => {
                 let node = keys.node(NodeKind::Rewrite, *range)?;
-                self.terms
-                    .enter_rewrite(*range, matches!(self.side, RuleSide::Left))?;
+                self.terms.enter_rewrite(*range, self.term_side())?;
                 let from = self.expand_term(from, keys, slots);
                 let to = match (from.is_ok(), to) {
                     (true, Some(to)) => {

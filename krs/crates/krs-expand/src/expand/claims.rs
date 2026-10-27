@@ -6,6 +6,7 @@ use krs_ir::wire::{
 };
 use krs_ir::{ClaimModality, DescriptorRuleLabel, ProtocolRuleBinding, ProtocolRuleBindingKind};
 use krs_syntax::KrsSyntax;
+use krs_syntax::positions::Form;
 use krs_syntax::{
     ClaimModality as SyntaxClaimModality, ProvenanceAnchor, ProvenanceRole, RuleSide,
     StateRuleBindingKind, StateRuleReferenceKind, TokenRange,
@@ -156,8 +157,8 @@ fn configuration_claim(
         &cfg,
         &universal_idents,
         RuleSide::Left,
-    )
-    .for_claim();
+        Form::CellsClaim,
+    );
     let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
@@ -166,8 +167,8 @@ fn configuration_claim(
         &cfg,
         &all_idents,
         RuleSide::Right,
-    )
-    .for_claim();
+        Form::CellsClaim,
+    );
     let result = right.expand_cells(
         rule.result().expect("a claim parses only with a result"),
         &result_type,
@@ -179,8 +180,8 @@ fn configuration_claim(
         nonce ^ 0x4000_0000_0000_0000,
         &cfg,
         &universal_idents,
-    )
-    .for_claim();
+        Form::CellsClaim,
+    );
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
             KeyedTerm::of(condition.term()),
@@ -200,8 +201,8 @@ fn configuration_claim(
         nonce ^ 0x2000_0000_0000_0000,
         &cfg,
         &all_idents,
-    )
-    .for_claim();
+        Form::CellsClaim,
+    );
     let ensures = if let Some(condition) = claim.ensures() {
         let term = ensures_builder.expand_wire(
             KeyedTerm::of(condition.term()),

@@ -10,6 +10,7 @@ use krs_ir::wire::{
     WireTerm, WireTypeReference,
 };
 use krs_ir::{BuiltinSort, DescriptorApplicationHeadClass, ProductionFieldId, ProvenanceKey};
+use krs_syntax::positions::{Admission, Construct, Form, Nesting, Position, Slot};
 use krs_syntax::surface::path_text;
 use krs_syntax::{
     ProvenanceRole, TermArguments, TermExpression, TermKeys, TermNode, TermSymbol, TermTree,
@@ -456,6 +457,20 @@ pub(super) enum TermSide {
     RuleEnsures,
 }
 
+impl TermSide {
+    /// The slot of `form` a term on this side fills.
+    const fn slot(self, form: Form) -> Slot {
+        match (form, self) {
+            (Form::Constant, _) => Slot::ConstantValue,
+            (Form::Initializer, _) => Slot::InitializerValue,
+            (_, Self::Left) => Slot::Subject,
+            (_, Self::Right) => Slot::Result,
+            (_, Self::Requires) => Slot::Requires,
+            (_, Self::Ensures | Self::RuleEnsures) => Slot::Ensures,
+        }
+    }
+}
+
 /// A term-node role that a [`TermSide`] maps to its provenance role.
 #[derive(Clone, Copy)]
 pub(super) enum TermRole {
@@ -502,13 +517,15 @@ pub(super) struct TermBuilder<'a> {
     pub(super) next_key: usize,
     pub(super) key_functions: Vec<TokenStream>,
     associated_keys: bool,
-    claim: bool,
-    /// Whether this sentence kind admits turbofish instances (KF-027).
-    application_instances: bool,
-    /// Whether turbofish arguments use the readable spelling, the sort
-    /// (`Choose::<Exp>`), rather than the reference spelling, the sort
-    /// marker (`Choose::<dyn ExpSort>`).
-    readable_instances: bool,
+    /// The sentence form whose terms this builder expands: with the side
+    /// and the walk's nesting, the [`Position`] every construct is judged
+    /// at (`krs_syntax::positions`).
+    form: Form,
+    /// How many term nodes enclose the one being expanded, itself
+    /// included: a node below a slot's root has depth above 1.
+    depth: usize,
+    /// Whether a collection's key, value or element is being expanded.
+    in_collection_entry: bool,
     /// The local binders (BIND-1) of the `k::matches!` pattern being
     /// expanded, or `None` outside one.
     local_binders: Option<Vec<Ident>>,
@@ -529,9 +546,6 @@ pub(super) struct TermBuilder<'a> {
     /// rustc's ambiguity error where it is used.
     lexical_imports: Option<&'a [syn::ItemUse]>,
     pub(super) tooling_binding_references: Vec<Path>,
-    /// Whether `k::rewrite!` is admitted: the subject of a single-body rule
-    /// (KF-011).
-    allow_rewrite: bool,
     /// Whether a `k::rewrite!` is being expanded.
     in_rewrite: bool,
 }
@@ -543,6 +557,7 @@ impl<'a> TermBuilder<'a> {
         nonce: u64,
         cfg: &'a [Attribute],
         bindings: &'a [Ident],
+        form: Form,
     ) -> Self {
         Self {
             facade,
@@ -553,24 +568,75 @@ impl<'a> TermBuilder<'a> {
             next_key: 0,
             key_functions: Vec::new(),
             associated_keys: false,
-            claim: false,
-            application_instances: true,
-            readable_instances: false,
+            form,
+            depth: 0,
+            in_collection_entry: false,
             local_binders: None,
             let_pattern_binders: None,
             let_scopes: Vec::new(),
             lexical_rule_head: false,
             lexical_imports: None,
             tooling_binding_references: Vec::new(),
-            allow_rewrite: false,
             in_rewrite: false,
         }
     }
 
-    /// Admits `k::rewrite!` (KF-011) in the terms expanded next: `true` for
-    /// the subject of a single-body rule.
-    pub(super) fn set_rewrites(&mut self, allowed: bool) {
-        self.allow_rewrite = allowed;
+    /// The position a construct at the current node stands at, on `side`.
+    pub(super) const fn position(&self, side: TermSide) -> Position {
+        Position {
+            form: self.form,
+            slot: side.slot(self.form),
+            nesting: Nesting {
+                below_root: self.depth > 1,
+                in_matches_pattern: self.in_matches_pattern(),
+                in_let_pattern: self.in_let_pattern(),
+                in_rewrite: self.in_rewrite,
+                in_collection_entry: self.in_collection_entry,
+            },
+        }
+    }
+
+    /// Judges `construct`, whose own tokens are `range`, at the current node
+    /// on `side` by the position table: a refusal carries the class's code
+    /// at the construct; a row the compiler decides is admitted here.
+    pub(super) fn admit(
+        &self,
+        side: TermSide,
+        construct: Construct,
+        range: TokenRange,
+    ) -> crate::Result<()> {
+        let position = self.position(side);
+        match krs_syntax::positions::admits(position, construct) {
+            Admission::Refuse(class) => Err(ExpandError::at_range(
+                class.code(),
+                range,
+                class.message(position),
+            )),
+            Admission::Admit | Admission::After(_) => Ok(()),
+        }
+    }
+
+    /// Judges a record's remainder: the base of a record update
+    /// `Ctor { f: e, ..t }`, at the base, and an open record
+    /// `Ctor { f: e, .. }`, at the record's head `head`.
+    fn admit_record(
+        &self,
+        side: TermSide,
+        update: Option<&TermTree>,
+        open: bool,
+        head: TokenRange,
+    ) -> crate::Result<()> {
+        if let Some(base) = update {
+            let range = match base {
+                TermTree::Reference(path) => TokenRange::for_tokens(path)?,
+                _ => head,
+            };
+            self.admit(side, Construct::RecordUpdate, range)?;
+        }
+        if open {
+            self.admit(side, Construct::OpenRecord, head)?;
+        }
+        Ok(())
     }
 
     /// Starts one `k::rewrite!` (K's local `=>`, KF-011) on `side`;
@@ -578,20 +644,9 @@ impl<'a> TermBuilder<'a> {
     pub(super) fn enter_rewrite(
         &mut self,
         range: krs_syntax::TokenRange,
-        left_side: bool,
+        side: TermSide,
     ) -> crate::Result<()> {
-        if !self.allow_rewrite
-            || !left_side
-            || self.in_rewrite
-            || self.in_matches_pattern()
-            || self.in_let_pattern()
-        {
-            return Err(ExpandError::new(
-                expand::LOCAL_REWRITE_OUTSIDE_SUBJECT,
-                range.first(),
-                "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body `#[k::rule]` fn (one that returns `()`), or rewrites the hole of a `#[k::context]` fn; it cannot appear in a result, a condition, a pattern island, another rewrite, or another sentence",
-            ));
-        }
+        self.admit(side, Construct::Rewrite, range)?;
         self.in_rewrite = true;
         Ok(())
     }
@@ -613,7 +668,7 @@ impl<'a> TermBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         let node = keys.node(NodeKind::Rewrite, range)?;
-        self.enter_rewrite(range, matches!(side, TermSide::Left))?;
+        self.enter_rewrite(range, side)?;
         let from = self.expand_node(from, keys, side, slots);
         let to = match (from.is_ok(), to) {
             (true, Some(to)) => {
@@ -630,24 +685,15 @@ impl<'a> TermBuilder<'a> {
         self
     }
 
-    pub(super) fn for_claim(mut self) -> Self {
-        self.claim = true;
-        self
-    }
-
-    /// Rejects turbofish instances on application heads (KF-027): an
-    /// initializer builds a concrete value, whose syntax numbers no instance.
-    pub(super) const fn without_application_instances(mut self) -> Self {
-        self.application_instances = false;
-        self
-    }
-
-    /// Expands turbofish arguments in the readable spelling, the sort
-    /// (`Choose::<Exp>`), for a readable `k::rules!` clause; the reference
-    /// spelling is the sort marker (`Choose::<dyn ExpSort>`).
-    pub(super) const fn with_readable_instances(mut self) -> Self {
-        self.readable_instances = true;
-        self
+    /// Whether turbofish arguments use the readable spelling, the sort
+    /// (`Choose::<Exp>`), as a readable `k::rules!` or `k::claims!` clause
+    /// writes them, rather than the reference spelling, the sort marker
+    /// (`Choose::<dyn ExpSort>`).
+    const fn readable_instances(&self) -> bool {
+        matches!(
+            self.form,
+            Form::ReadableRule | Form::ReadableClaim | Form::SortRule
+        )
     }
 
     /// Resolves every one-segment path through rustc with `imports` in
@@ -713,22 +759,7 @@ impl<'a> TermBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         let node = keys.node(NodeKind::Let, range)?;
-        if matches!(side, TermSide::Left) || self.in_matches_pattern() || self.in_let_pattern() {
-            return Err(ExpandError::new(
-                expand::LET_OUTSIDE_TERM,
-                range.first(),
-                "a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern",
-            ));
-        }
-        // upstream k/claim-let-and-matches-unresolved (k-rust/claim-let-and-matches:
-        // reviewed, not a request, since k-rust agrees with K).
-        if self.claim {
-            return Err(ExpandError::new(
-                expand::LET_OUTSIDE_TERM,
-                range.first(),
-                "`let` blocks are not supported in claims: Java K's kprove and the native prover both reject K's #let in a claim; bind the value in the claim's subject instead",
-            ));
-        }
+        self.admit(side, Construct::Let, range)?;
         let sort = sort
             .map(|sort| self.local_sort_reference(node.key(ProvenanceRole::LetSort)?, sort, slots))
             .transpose()?;
@@ -800,13 +831,7 @@ impl<'a> TermBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         let node = keys.node(NodeKind::Closure, range)?;
-        if matches!(side, TermSide::Left) || self.in_matches_pattern() || self.in_let_pattern() {
-            return Err(ExpandError::new(
-                expand::ML_PLACEMENT,
-                range.first(),
-                "an `ml::exists` closure is a predicate (K's #Exists); it cannot appear on a left-hand side or inside a pattern",
-            ));
-        }
+        self.admit(side, Construct::MlPredicate, range)?;
         let sort =
             self.local_sort_reference(node.key(ProvenanceRole::MlBinderSort)?, sort, slots)?;
         self.let_scopes.push(vec![binder.clone()]);
@@ -844,22 +869,7 @@ impl<'a> TermBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         let node = keys.node(NodeKind::Matches, range)?;
-        if matches!(side, TermSide::Left) || self.in_matches_pattern() || self.in_let_pattern() {
-            return Err(ExpandError::new(
-                expand::MATCHES_OUTSIDE_CONDITION,
-                range.first(),
-                "`k::matches!` is a Bool test (K's :=K); it cannot appear on a left-hand side or inside a pattern",
-            ));
-        }
-        // upstream k/claim-let-and-matches-unresolved (k-rust/claim-let-and-matches:
-        // reviewed, not a request, since k-rust agrees with K).
-        if self.claim {
-            return Err(ExpandError::new(
-                expand::MATCHES_OUTSIDE_CONDITION,
-                range.first(),
-                "`k::matches!` is not supported in claims: Java K's kprove and the native prover both reject K's :=K in a claim; match the shape in the claim's subject instead",
-            ));
-        }
+        self.admit(side, Construct::Matches, range)?;
         let subject = self.expand_node(subject, keys, side, slots)?;
         self.local_binders = Some(binders.to_vec());
         let pattern = self.expand_node(pattern, keys, side, slots);
@@ -882,11 +892,42 @@ impl<'a> TermBuilder<'a> {
         self.expand_node(term.tree(), &mut term.reader(self.ledger), side, slots)
     }
 
+    /// [`Self::expand_wire`] for a collection's key, value or element: a
+    /// lookup evaluates it, so the table admits there what it leaves to
+    /// resolution in a pattern.
+    pub(super) fn expand_entry_wire(
+        &mut self,
+        term: KeyedTerm<'_>,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        let enclosing = ::core::mem::replace(&mut self.in_collection_entry, true);
+        let wire = self.expand_wire(term, side, slots);
+        self.in_collection_entry = enclosing;
+        wire
+    }
+
+    /// Expands one term node, after the position table admits each
+    /// construct the node is (preorder: an enclosing construct is judged
+    /// before the ones inside it, so a mistake is reported once).
+    fn expand_node(
+        &mut self,
+        tree: &TermTree,
+        keys: &mut TermKeyReader<'_>,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        self.depth += 1;
+        let wire = self.expand_tree(tree, keys, side, slots);
+        self.depth -= 1;
+        wire
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Exhaustive transport for the closed structured-term grammar."
     )]
-    fn expand_node(
+    fn expand_tree(
         &mut self,
         tree: &TermTree,
         keys: &mut TermKeyReader<'_>,
@@ -895,11 +936,15 @@ impl<'a> TermBuilder<'a> {
     ) -> crate::Result<WireTerm> {
         match tree {
             TermTree::Application(application) => {
-                let path_key = keys.path(application.head())?;
-                let node = keys.node(
-                    NodeKind::ApplicationHead,
-                    TokenRange::for_tokens(application.head())?,
+                let head_range = TokenRange::for_tokens(application.head())?;
+                self.admit_record(
+                    side,
+                    application.update(),
+                    application.is_open(),
+                    head_range,
                 )?;
+                let path_key = keys.path(application.head())?;
+                let node = keys.node(NodeKind::ApplicationHead, head_range)?;
                 let key = node.key(side.role(TermRole::ApplicationHead))?;
                 let lexical = if self.lexical_imports.is_some() {
                     !application.is_notation()
@@ -920,7 +965,7 @@ impl<'a> TermBuilder<'a> {
                         slots,
                     )?
                 };
-                let instance = self.application_instance_wire(application, node, slots)?;
+                let instance = self.application_instance_wire(application, node, side, slots)?;
                 let arguments = match application.arguments() {
                     TermArguments::Positional(values) => {
                         let mut arguments = Vec::new();
@@ -1018,62 +1063,67 @@ impl<'a> TermBuilder<'a> {
                     })
                 }
             }
-            TermTree::Literal(literal) => Ok(WireTerm::Literal {
-                key: keys
-                    .node(NodeKind::Literal, literal.range()?)?
-                    .key(side.role(TermRole::Literal))?,
-                literal: wire_literal(literal),
-            }),
-            TermTree::Wildcard(range) if self.in_let_pattern() => {
-                let node = keys.node(NodeKind::LetWildcard, *range)?;
-                Ok(WireTerm::Wildcard {
-                    key: node.key(ProvenanceRole::LetWildcard)?,
-                })
-            }
-            TermTree::Wildcard(range) if self.in_matches_pattern() => {
-                let node = keys.node(NodeKind::MatchesWildcard, *range)?;
-                Ok(WireTerm::Wildcard {
-                    key: node.key(ProvenanceRole::MatchesWildcard)?,
+            TermTree::Literal(literal) => {
+                let range = literal.range()?;
+                self.admit(side, Construct::Literal, range)?;
+                Ok(WireTerm::Literal {
+                    key: keys
+                        .node(NodeKind::Literal, range)?
+                        .key(side.role(TermRole::Literal))?,
+                    literal: wire_literal(literal),
                 })
             }
             TermTree::Wildcard(range) => {
                 // A result wildcard parses only for a desugar clause that
                 // lists `_` in `unbound_variables` (KF-046).
-                if !matches!(side, TermSide::Left | TermSide::Right) {
-                    return Err(ExpandError::at_range(
-                        expand::RULE_RESULT_WILDCARD,
-                        *range,
-                        "KRS rule results cannot contain wildcards",
-                    ));
+                self.admit(side, Construct::Wildcard, *range)?;
+                if self.in_let_pattern() {
+                    let node = keys.node(NodeKind::LetWildcard, *range)?;
+                    Ok(WireTerm::Wildcard {
+                        key: node.key(ProvenanceRole::LetWildcard)?,
+                    })
+                } else if self.in_matches_pattern() {
+                    let node = keys.node(NodeKind::MatchesWildcard, *range)?;
+                    Ok(WireTerm::Wildcard {
+                        key: node.key(ProvenanceRole::MatchesWildcard)?,
+                    })
+                } else {
+                    Ok(WireTerm::Wildcard {
+                        key: keys.wildcard(*range)?,
+                    })
                 }
-                Ok(WireTerm::Wildcard {
-                    key: keys.wildcard(*range)?,
+            }
+            TermTree::IdToken { literal } => {
+                let range = TokenRange::for_tokens(literal)?;
+                self.admit(side, Construct::IdToken, range)?;
+                Ok(WireTerm::BuiltinToken {
+                    key: keys
+                        .node(NodeKind::IdToken, range)?
+                        .key(ProvenanceRole::ClaimIdToken)?,
+                    sort: BuiltinSort::Id,
+                    value: literal.value(),
                 })
             }
-            TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: keys
-                    .node(NodeKind::IdToken, TokenRange::for_tokens(literal)?)?
-                    .key(ProvenanceRole::ClaimIdToken)?,
-                sort: BuiltinSort::Id,
-                value: literal.value(),
-            }),
-            TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: keys
-                    .node(NodeKind::BytesToken, TokenRange::for_tokens(literal)?)?
-                    .key(ProvenanceRole::ClaimBytesToken)?,
-                sort: BuiltinSort::Bytes,
-                value: bytes_token::encode(&literal.value()),
-            }),
-            // A readable claim's subject may hold `k::anonymous!`, as a
-            // `cells!` claim's does.
+            TermTree::BytesToken { literal } => {
+                let range = TokenRange::for_tokens(literal)?;
+                self.admit(side, Construct::BytesToken, range)?;
+                Ok(WireTerm::BuiltinToken {
+                    key: keys
+                        .node(NodeKind::BytesToken, range)?
+                        .key(ProvenanceRole::ClaimBytesToken)?,
+                    sort: BuiltinSort::Bytes,
+                    value: bytes_token::encode(&literal.value()),
+                })
+            }
+            // A claim's subject, readable or `cells!`, may hold
+            // `k::anonymous!`.
             TermTree::Anonymous {
                 sort,
                 spelling: display_literal,
-            } if self.claim && matches!(side, TermSide::Left) => {
-                let node = keys.node(
-                    NodeKind::Anonymous,
-                    TokenRange::for_tokens(display_literal)?,
-                )?;
+            } => {
+                let range = TokenRange::for_tokens(display_literal)?;
+                self.admit(side, Construct::Anonymous, range)?;
+                let node = keys.node(NodeKind::Anonymous, range)?;
                 let key = node.key(ProvenanceRole::ClaimAnonymous)?;
                 let sort_key = node.key(ProvenanceRole::ClaimAnonymousSort)?;
                 let spelling_key = node.key(ProvenanceRole::ClaimAnonymousSpelling)?;
@@ -1106,13 +1156,10 @@ impl<'a> TermBuilder<'a> {
                     spelling: display_literal.value(),
                 })
             }
-            TermTree::Anonymous { spelling, .. } => Err(ExpandError::new(
-                expand::CLAIM_SUBJECT_ONLY_TERM,
-                spelling.span(),
-                "anonymous! is valid only in a claim subject",
-            )),
             TermTree::Lexeme { sort, text } => {
-                let node = keys.node(NodeKind::Lexeme, TokenRange::for_tokens(text)?)?;
+                let range = TokenRange::for_tokens(text)?;
+                self.admit(side, Construct::Lexeme, range)?;
+                let node = keys.node(NodeKind::Lexeme, range)?;
                 self.lexeme_wire(sort, text, node, slots)
             }
             TermTree::SortTest {
@@ -1121,6 +1168,7 @@ impl<'a> TermBuilder<'a> {
                 sort,
                 operand,
             } => {
+                self.admit(side, Construct::SortTest, *range)?;
                 let node = keys.node(NodeKind::SortTest, *range)?;
                 let (key, sort) = self.sort_test_reference(sort, node, slots)?;
                 Ok(WireTerm::SortTest {
@@ -1130,28 +1178,10 @@ impl<'a> TermBuilder<'a> {
                     operand: Box::new(self.expand_node(operand, keys, side, slots)?),
                 })
             }
-            TermTree::As { binding, .. }
-                if self.in_matches_pattern() && matches!(side, TermSide::Right) =>
-            {
-                Err(ExpandError::new(
-                    expand::PATTERN_AS_OUTSIDE_LHS,
-                    binding.span(),
-                    format!(
-                        "`{binding} @ pattern` in a `k::matches!` pattern is allowed only in requires and ensures conditions: K rejects #as in a rule's right-hand side"
-                    ),
-                ))
-            }
             TermTree::As { binding, pattern } => {
-                if !matches!(side, TermSide::Left) && !self.in_matches_pattern() {
-                    return Err(ExpandError::new(
-                        expand::PATTERN_AS_OUTSIDE_LHS,
-                        binding.span(),
-                        format!(
-                            "`{binding} @ pattern` binds only on a left-hand side (K's #as is LHS-only)"
-                        ),
-                    ));
-                }
-                let node = keys.node(NodeKind::As, TokenRange::for_tokens(binding)?)?;
+                let range = TokenRange::for_tokens(binding)?;
+                self.admit(side, Construct::As, range)?;
+                let node = keys.node(NodeKind::As, range)?;
                 let (key, binding_key) = self.take_pattern_as(binding, node)?;
                 Ok(WireTerm::As {
                     key,
@@ -1164,13 +1194,7 @@ impl<'a> TermBuilder<'a> {
                 range,
                 alternatives,
             } => {
-                if !matches!(side, TermSide::Left) && !self.in_matches_pattern() {
-                    return Err(ExpandError::new(
-                        expand::PATTERN_OR_OUTSIDE_LHS,
-                        range.first(),
-                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
-                    ));
-                }
+                self.admit(side, Construct::Or, *range)?;
                 let node = keys.node(NodeKind::Or, *range)?;
                 let key = Self::take_pattern_or(node)?;
                 Ok(WireTerm::Or {
@@ -1214,13 +1238,7 @@ impl<'a> TermBuilder<'a> {
                 body,
             } => self.expand_closure(*range, binder, sort, body, keys, side, slots),
             TermTree::OrBool { range, arguments } => {
-                if !self.claim {
-                    return Err(ExpandError::at_range(
-                        expand::CLAIM_ONLY_TERM,
-                        *range,
-                        "or_bool! is currently claim-only",
-                    ));
-                }
+                self.admit(side, Construct::OrBool, *range)?;
                 let key = keys
                     .node(NodeKind::OrBool, *range)?
                     .key(ProvenanceRole::ClaimOrBool)?;
@@ -1229,12 +1247,12 @@ impl<'a> TermBuilder<'a> {
                 Ok(WireTerm::OrBool { key, arguments })
             }
             TermTree::Cell(cell) => {
+                let owner_range = TokenRange::for_tokens(cell.owner())?;
+                self.admit(side, Construct::Fragment, owner_range)?;
+                self.admit_record(side, cell.update(), cell.is_open(), owner_range)?;
                 let path_key = keys.path(cell.owner())?;
                 let key = keys
-                    .node(
-                        NodeKind::ApplicationHead,
-                        TokenRange::for_tokens(cell.owner())?,
-                    )?
+                    .node(NodeKind::ApplicationHead, owner_range)?
                     .key(side.role(TermRole::ApplicationHead))?;
                 let declaration = self.cell_declaration_reference(cell.owner(), slots)?;
                 let mut fields = Vec::new();
@@ -1492,6 +1510,7 @@ impl<'a> TermBuilder<'a> {
         &mut self,
         application: &krs_syntax::TermApplication,
         node: NodeKeys<'_>,
+        side: TermSide,
         slots: &mut WireSlots,
     ) -> crate::Result<Vec<krs_ir::wire::WireSortReference>> {
         let mut instance_keys = node.keys(ProvenanceRole::ApplicationInstance);
@@ -1499,13 +1518,11 @@ impl<'a> TermBuilder<'a> {
         let Some(first) = instance.first() else {
             return Ok(Vec::new());
         };
-        if !self.application_instances {
-            return Err(ExpandError::new(
-                expand::TURBOFISH_PLACEMENT,
-                syn::spanned::Spanned::span(first.ty()),
-                "a turbofish instance is written only in a rule, equation, simplification, alias, desugar, or claim, not in an initializer",
-            ));
-        }
+        self.admit(
+            side,
+            Construct::Turbofish,
+            TokenRange::for_tokens(first.ty())?,
+        )?;
         let cfg = self.cfg;
         let facade = self.facade;
         let owner = application.head();
@@ -1526,10 +1543,10 @@ impl<'a> TermBuilder<'a> {
         });
         let mut references = Vec::with_capacity(instance.len());
         for (index, sort) in instance.iter().enumerate() {
-            if self.readable_instances && sort.is_dynamic() {
+            if self.readable_instances() && sort.is_dynamic() {
                 return Err(readable_marker_error(application, index));
             }
-            if !self.readable_instances && !sort.is_dynamic() {
+            if !self.readable_instances() && !sort.is_dynamic() {
                 self.reference_marker_check(application, index);
             }
             let generated = call_site_path(sort.sort())?;

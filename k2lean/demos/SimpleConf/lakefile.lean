@@ -7,7 +7,7 @@ package «SimpleConf» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
 require KPrelude from "../../lean/prelude"
-require «KSimple» from "../../generated/simple-ps"
+require «KSimple» from "../../generated/simple"
 
 @[default_target]
 lean_lib SimpleConf

@@ -7,7 +7,6 @@
 #   ExprTypes     kimp's expression language EXPR is type-sound for the checker k/expr-typing.k
 #   ImpMut        a mutant of kimp (k/kimp-mutant) diverges from kimp
 #   KrsImpTyping  every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`
-#   SimpleEnv     (heavy only) a kind 2 invariant of SIMPLE: every environment maps into the store
 #   PeanoRel, CellMapRel  the generator's fixtures peano and cellmap (../tests/fixtures) are each
 #                 bisimilar to themselves under two namespaces (`k2lean relate`, `Bisim.lean`)
 #   ImpUnroll     kimp and a variant whose `while` unrolls in one step less are stuttering
@@ -28,8 +27,7 @@
 #   k2lean/demos/regen.sh [light|heavy]      (default light)
 #
 # light generates kimp, krsimp, kmut, imptypes and the fixture libraries and builds six projects (a clean build took
-# 780 s wall and 2,000 s of CPU on a shared 32-CPU host); heavy also generates SIMPLE and builds
-# SimpleEnv (about 500 s more).
+# 780 s wall and 2,000 s of CPU on a shared 32-CPU host); heavy also generates SIMPLE.
 #
 # Environment:
 #   KRUST=FILE          krust (default target/release/krust of this checkout)
@@ -145,7 +143,6 @@ libs_noninterference ImpNI > "$S/noninterference-ImpNI.log" 2>&1 || { tail -5 "$
 printf 'module\tbuild\n' > "$S/modules.tsv"
 : > "$S/preserve.txt"
 projects=(ImpRel ImpTypes ExprTypes ImpMut KrsImpTyping PeanoRel CellMapRel PickRel ImpUnroll RaceConf ImpNI)
-[ "$TIER" = heavy ] && projects+=(SimpleEnv)
 for p in "${projects[@]}"; do
   [ "${CLEAN:-0}" = 1 ] && rm -rf "$D/$p/.lake"
   (cd "$D/$p" && timed "$p" "$S/build-$p.log" lake build) || { grep -E '^error' "$S/build-$p.log" | head; exit 1; }

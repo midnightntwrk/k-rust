@@ -33,10 +33,8 @@ gen_relational() {
   case $1 in
     kmut) GEN_ARGS=(--kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json"
             --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
-    # per-sort: ImpUnroll's hand module Relation.lean is written over the per-sort constructors
     kunroll) GEN_ARGS=(--kore "$(kore_dir kimp-unroll)/definition.kore" --runtime "$(kore_dir kimp-unroll)/runtime.json"
-            --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
-            --per-sort-terms) ;;
+            --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
     # the variant of SIMPLE (tests/simple-variant.py), related to SIMPLE by demos/SimpleRel
     simplev) GEN_ARGS=(--kore "$(kore_dir simple-variant)/definition.kore" --runtime "$(kore_dir simple-variant)/runtime.json"
             --out "$o" --name KSimpleV --prelude ../../lean/prelude --linear-terms
@@ -55,9 +53,9 @@ gen_relational() {
 # cellmapb, pick and pickb)
 relate_relational() {
   case $1 in
-    ImpRel) nb=KrsImp kd=$KRS f=Bisim extra=(--per-sort-terms true) ;;
+    ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
-    ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true --per-sort-terms true) ;;
+    ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim extra=(--split true) ;;
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
     CellMapRel) na=CellMap ka=$(libs_fixture cellmap) nb=CellMapB kd=$ka f=Bisim ;;

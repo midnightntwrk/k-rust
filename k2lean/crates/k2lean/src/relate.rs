@@ -1618,11 +1618,20 @@ fn emit(
         ct = cases_tac(a)
     )
     .unwrap();
-    writeln!(
+    if a.arity {
+        // a map value is `coll_SortMap l`, translated by `trL_SortMap` on the list
+        writeln!(
+            o,
+            "theorem toList_tr_SortMap : MapHook.Pointwise tr_SortKItem tr_SortKItem tr_SortMap := by\n  intro m\n  match m with\n  | .«coll_SortMap» l => exact go l\nwhere\n  go : ∀ l : List ({na}.SortKItem × {na}.SortKItem), trL_SortMap l = SAL.mapPairs tr_SortKItem tr_SortKItem l\n    | [] => rfl\n    | (k, v) :: r => congrArg (List.cons (tr_SortKItem k, tr_SortKItem v)) (go r)\n"
+        )
+        .unwrap();
+    } else {
+        writeln!(
         o,
         "theorem toList_tr_SortMap : MapHook.Pointwise tr_SortKItem tr_SortKItem tr_SortMap := by\n  intro m\n  show {nb}.SortMap.toList (tr_SortMap m) = SAL.mapPairs tr_SortKItem tr_SortKItem ({na}.SortMap.toList m)\n  exact go m\nwhere\n  go : ∀ m, {nb}.SortMap.toList (tr_SortMap m) = SAL.mapPairs tr_SortKItem tr_SortKItem ({na}.SortMap.toList m)\n    | .nil => rfl\n    | .cons k v r => by\n      simp only [tr_SortMap, {nb}.SortMap.toList, {na}.SortMap.toList, SAL.mapPairs_cons, go r]\n"
     )
     .unwrap();
+    }
     writeln!(
         o,
         "theorem map_fwd {{k v : {na}.SortKItem}} {{D m : {na}.SortMap}} (hk : keyOK k = true) (hm : KeysOK m)\n    (h : MapHook.concat (MapHook.element k v) D = some m) :\n    MapHook.concat (MapHook.element (tr_SortKItem k) (tr_SortKItem v)) (tr_SortMap D) = some (tr_SortMap m) :=\n  MapHook.concat_element_pointwise toList_tr_SortMap pres hk hm h\n"
@@ -3179,7 +3188,10 @@ fn emit_per_rule(
 /// so that no process holds every simulation of a large definition: the translation and its
 /// lemmas, then each simulation importing what it uses (`forward` reads `app_bwd`, `backward`
 /// `app_fwd`), then the bisimulation. The proof macros move to the first module, scoped to the
-/// namespace instead of local to the file.
+/// namespace instead of local to the file. The sections are cut where the next one begins, in
+/// either of the two emitters' orders (the simulations before `App` under an invariant, after it
+/// otherwise); under an invariant the simulations do not read `App`'s lemmas, and the imports
+/// only order the builds.
 fn split_modules(lean: &str, out: &str, ns: &str) -> Result<Vec<(String, String)>, String> {
     let out_path = std::path::Path::new(out);
     let stem = out_path
@@ -3202,14 +3214,26 @@ fn split_modules(lean: &str, out: &str, ns: &str) -> Result<Vec<(String, String)
     let fwd = find("/-! ## Forward simulation")?;
     let bwd = find("/-! ## Backward simulation")?;
     let bis = find("/-! ## The bisimulation")?;
+    // the sections come in either order (the bisimulation last); each ends where the next begins
+    let starts = [app, fwd, bwd, bis];
+    let next = |s: usize| {
+        starts
+            .iter()
+            .copied()
+            .filter(|&x| x > s)
+            .min()
+            .unwrap_or(bis)
+    };
+    let (app_end, fwd_end, bwd_end) = (next(app), next(fwd), next(bwd));
+    let base_end = app.min(fwd).min(bwd);
     let app_bwd = app
-        + lean[app..fwd]
+        + lean[app..app_end]
             .find("\nopen ")
             .filter(|&i| {
                 lean[app + i..].starts_with("\nopen ")
-                    && lean[app + i..fwd].contains("theorem appbwd.")
+                    && lean[app + i..app_end].contains("theorem appbwd.")
             })
-            .or_else(|| lean[app..fwd].find("\ntheorem app_bwd"))
+            .or_else(|| lean[app..app_end].find("\ntheorem app_bwd"))
             .ok_or("--split: no `app_bwd`")?
         + 1;
     let end = lean
@@ -3232,9 +3256,9 @@ fn split_modules(lean: &str, out: &str, ns: &str) -> Result<Vec<(String, String)
     };
     let parts = [
         ("AppFwd", body(app, app_bwd), vec!["Base"]),
-        ("AppBwd", body(app_bwd, fwd), vec!["Base"]),
-        ("Forward", body(fwd, bwd), vec!["AppBwd"]),
-        ("Backward", body(bwd, bis), vec!["AppFwd"]),
+        ("AppBwd", body(app_bwd, app_end), vec!["Base"]),
+        ("Forward", body(fwd, fwd_end), vec!["AppBwd"]),
+        ("Backward", body(bwd, bwd_end), vec!["AppFwd"]),
     ];
     let scoped = |t: &str| {
         t.replace("\nlocal macro ", "\nscoped macro ")
@@ -3248,7 +3272,11 @@ fn split_modules(lean: &str, out: &str, ns: &str) -> Result<Vec<(String, String)
     };
     let mut files = vec![(
         dir.join("Base.lean").display().to_string(),
-        scoped(&format!("{}{}\n{macros}\nend {ns}\n", &lean[..app], "")),
+        scoped(&format!(
+            "{}{}\n{macros}\nend {ns}\n",
+            &lean[..base_end],
+            ""
+        )),
     )];
     for (name, text, deps) in &parts {
         let imports: Vec<String> = deps.iter().map(|d| format!("{module}.{d}")).collect();
@@ -3592,4 +3620,33 @@ fn emit_ordered(
     writeln!(o, "#k2l_assert_axioms inv_step forward backward app_fwd app_bwd bisim stepsN_iff terminal_iff app_iff run_agree\n").unwrap();
     writeln!(o, "end {ns}").unwrap();
     Ok(o)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Under an invariant the simulations come before `App` (`emit`); each module still gets its
+    /// own section, and the base ends at the first one.
+    #[test]
+    fn split_cuts_the_invariant_order_by_section() {
+        let lean = "import A\n\nnamespace R\n\nopen KPrelude\n\ndef tr := 0\n\
+            /-! ## Forward simulation -/\ntheorem forward : True := trivial\n\
+            /-! ## Backward simulation -/\ntheorem backward : True := trivial\n\
+            /-! ## A rule applies in A -/\ntheorem app_fwd : True := trivial\n\ntheorem app_bwd : True := trivial\n\
+            /-! ## The bisimulation -/\ntheorem bisim : True := trivial\n\nend R\n";
+        let files = split_modules(lean, "R/Bisim.lean", "R").unwrap();
+        let get = |f: &str| &files.iter().find(|(p, _)| p.ends_with(f)).unwrap().1;
+        assert!(get("Base.lean").contains("def tr") && !get("Base.lean").contains("theorem"));
+        for (f, has, not) in [
+            ("Forward.lean", "forward", "backward"),
+            ("Backward.lean", "backward", "app_fwd"),
+            ("AppFwd.lean", "app_fwd", "app_bwd"),
+            ("AppBwd.lean", "app_bwd", "bisim"),
+        ] {
+            assert!(get(f).contains(&format!("theorem {has}")), "{f}");
+            assert!(!get(f).contains(&format!("theorem {not}")), "{f}");
+        }
+        assert!(get("R/Bisim.lean").contains("theorem bisim"));
+    }
 }

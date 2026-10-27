@@ -16,175 +16,208 @@ namespace FreeKey
 
 open KPrelude
 
-theorem Rules.sum.complete (DotVar2 : SortK) (M : SortMap) (DotVar0 : SortGeneratedCounterCell) (W : SortWorkerCellMap) (r : SortBool) (r_2 : SortInt)
+theorem Rules.sum.complete (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (W : SortWorkerCellMap) (r : SortBool) (r_2 : SortInt)
       (hr : K.«allNat(_)_FREEKEY_Bool_Map» M = some r)
       (hreq : KPrelude.BoolHook.and r (KPrelude.BoolHook.not (K.«hasNeg(_)_FREEKEY_Bool_Map» M)) = true)
       (hr_3 : K.«total(_)_FREEKEY_Int_WorkerCellMap» W = some r_2) :
-    ∃ ρ ∈ Rules.sum (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» W)) DotVar0), ρ.next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (0 : Int)) (SortKItem.inj_Int r_2))) (SortWorkersCell.«<workers>» W)) DotVar0) := by
+    ∃ ρ ∈ Rules.sum (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» W) DotVar1) DotVar0), ρ.next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (0 : Int)) (SortKItem.inj_Int r_2))) (SortWorkersCell.«<workers>» W) DotVar1) DotVar0) := by
   k2l_map_facts
   dsimp only [Rules.sum]
   repeat' (first | k2l_choose | split)
   all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
 
-theorem Rules.sum.applies (DotVar2 : SortK) (M : SortMap) (DotVar0 : SortGeneratedCounterCell) (W : SortWorkerCellMap) (r : SortBool)
+theorem Rules.sum.applies (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (W : SortWorkerCellMap) (r : SortBool)
       (hr : K.«allNat(_)_FREEKEY_Bool_Map» M = some r)
       (hreq : KPrelude.BoolHook.and r (KPrelude.BoolHook.not (K.«hasNeg(_)_FREEKEY_Bool_Map» M)) = true) :
-    ∃ ρ ∈ Rules.sum (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» W)) DotVar0), ρ.applies = true := by
+    ∃ ρ ∈ Rules.sum (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» W) DotVar1) DotVar0), ρ.applies = true := by
   k2l_map_facts
   dsimp only [Rules.sum]
   repeat' (first | k2l_choose | split)
   all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
 
-theorem Rules.tick.complete (Gen3 : SortKCell) (Gen4 : SortMCell) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt) (r : SortWorkerCellMap)
+theorem Rules.tick.complete (Gen4 : SortKCell) (Gen5 : SortMCell) (m : SortWorkerCellMap) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt) (r : SortWorkerCellMap)
       (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» C))) DotVar2 = some m)
       (hr : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» (KPrelude.IntHook.add C (1 : Int))))) DotVar2 = some r) :
-    ∃ ρ ∈ Rules.tick (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» m)) DotVar0), ρ.next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» r)) DotVar0) := by
+    ∃ ρ ∈ Rules.tick (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen4 Gen5 (SortWorkersCell.«<workers>» m) Gen3) DotVar0), ρ.next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen4 Gen5 (SortWorkersCell.«<workers>» r) Gen3) DotVar0) := by
   k2l_map_facts
   dsimp only [Rules.tick]
   repeat' (first | k2l_choose | split)
   all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
 
-theorem Rules.tick.applies (Gen3 : SortKCell) (Gen4 : SortMCell) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt)
+theorem Rules.tick.applies (Gen4 : SortKCell) (Gen5 : SortMCell) (m : SortWorkerCellMap) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt)
       (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» C))) DotVar2 = some m) :
-    ∃ ρ ∈ Rules.tick (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» m)) DotVar0), ρ.applies = true := by
+    ∃ ρ ∈ Rules.tick (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen4 Gen5 (SortWorkersCell.«<workers>» m) Gen3) DotVar0), ρ.applies = true := by
   k2l_map_facts
   dsimp only [Rules.tick]
   repeat' (first | k2l_choose | split)
   all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
 
-theorem Rules.take.complete (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
+theorem Rules.take.complete (DotVar2 : SortK) (M : SortMap) (Gen4 : SortWorkersCell) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
       (hr : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (3 : Int) M = some r) :
-    ∃ ρ ∈ Rules.take (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0), ρ.next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (2 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0) := by
+    ∃ ρ ∈ Rules.take (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) Gen4 Gen3) DotVar0), ρ.next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (2 : Int)) (SortKItem.inj_Int r))) Gen4 Gen3) DotVar0) := by
   k2l_map_facts
   dsimp only [Rules.take]
   repeat' (first | k2l_choose | split)
   all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
 
-theorem Rules.take.applies (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) :
-    ∃ ρ ∈ Rules.take (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0), ρ.applies = true := by
+theorem Rules.take.applies (DotVar2 : SortK) (M : SortMap) (Gen4 : SortWorkersCell) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) :
+    ∃ ρ ∈ Rules.take (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) Gen4 Gen3) DotVar0), ρ.applies = true := by
   k2l_map_facts
   dsimp only [Rules.take]
   repeat' (first | k2l_choose | split)
   all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
 
-theorem Rules.check.complete (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
+theorem Rules.jobs.complete (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (JS : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (r : SortBool)
+      (hr : K.«jobsOk(_)_FREEKEY_Bool_JobsCell» JS = some r)
+      (hreq : r = true) :
+    ∃ ρ ∈ Rules.jobs (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go3) DotVar2)) (SortMCell.«<m>» M) DotVar1 JS) DotVar0), ρ.next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (3 : Int)) (SortKItem.inj_Int (1 : Int)))) DotVar1 JS) DotVar0) := by
+  k2l_map_facts
+  dsimp only [Rules.jobs]
+  repeat' (first | k2l_choose | split)
+  all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
+
+theorem Rules.jobs.applies (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (JS : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (r : SortBool)
+      (hr : K.«jobsOk(_)_FREEKEY_Bool_JobsCell» JS = some r)
+      (hreq : r = true) :
+    ∃ ρ ∈ Rules.jobs (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go3) DotVar2)) (SortMCell.«<m>» M) DotVar1 JS) DotVar0), ρ.applies = true := by
+  k2l_map_facts
+  dsimp only [Rules.jobs]
+  repeat' (first | k2l_choose | split)
+  all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
+
+theorem Rules.check.complete (DotVar2 : SortK) (M : SortMap) (Gen4 : SortWorkersCell) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
       (hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true)
       (hr : K.«anyPos(_)_FREEKEY_Int_Map» M = some r) :
-    ∃ ρ ∈ Rules.check (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0), ρ.next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (1 : Int)) (SortKItem.inj_Int r))) DotVar1) DotVar0) := by
+    ∃ ρ ∈ Rules.check (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) Gen4 Gen3) DotVar0), ρ.next? = some (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortMCell.«<m>» (KPrelude.MapHook.update M (SortKItem.inj_Int (1 : Int)) (SortKItem.inj_Int r))) Gen4 Gen3) DotVar0) := by
   k2l_map_facts
   dsimp only [Rules.check]
   repeat' (first | k2l_choose | split)
   all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
 
-theorem Rules.check.applies (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell)
+theorem Rules.check.applies (DotVar2 : SortK) (M : SortMap) (Gen4 : SortWorkersCell) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell)
       (hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true) :
-    ∃ ρ ∈ Rules.check (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0), ρ.applies = true := by
+    ∃ ρ ∈ Rules.check (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) Gen4 Gen3) DotVar0), ρ.applies = true := by
   k2l_map_facts
   dsimp only [Rules.check]
   repeat' (first | k2l_choose | split)
   all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))
 
-theorem Rules.sum.mem (DotVar2 : SortK) (M : SortMap) (DotVar0 : SortGeneratedCounterCell) (W : SortWorkerCellMap) (r : SortBool)
+theorem Rules.sum.mem (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (W : SortWorkerCellMap) (r : SortBool)
       (hr : K.«allNat(_)_FREEKEY_Bool_Map» M = some r)
       (hreq : KPrelude.BoolHook.and r (KPrelude.BoolHook.not (K.«hasNeg(_)_FREEKEY_Bool_Map» M)) = true) :
-    R.sum ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» W)) DotVar0) := by
+    R.sum ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» W) DotVar1) DotVar0) := by
   apply KPrelude.mem_mergeRank_left
   exact List.mem_cons_self
 
-theorem Rules.sum.memS (DotVar2 : SortK) (M : SortMap) (DotVar0 : SortGeneratedCounterCell) (W : SortWorkerCellMap) (r : SortBool) (r_2 : SortInt)
+theorem Rules.sum.memS (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (W : SortWorkerCellMap) (r : SortBool) (r_2 : SortInt)
       (hr : K.«allNat(_)_FREEKEY_Bool_Map» M = some r)
       (hreq : KPrelude.BoolHook.and r (KPrelude.BoolHook.not (K.«hasNeg(_)_FREEKEY_Bool_Map» M)) = true)
       (hr_3 : K.«total(_)_FREEKEY_Int_WorkerCellMap» W = some r_2) :
-    R.sum ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» W)) DotVar0) := by
+    R.sum ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go) DotVar2)) (SortMCell.«<m>» M) (SortWorkersCell.«<workers>» W) DotVar1) DotVar0) := by
   apply KPrelude.mem_mergeRank_left
   exact List.mem_cons_self
 
-theorem Rules.tick.mem (Gen3 : SortKCell) (Gen4 : SortMCell) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt)
+theorem Rules.tick.mem (Gen4 : SortKCell) (Gen5 : SortMCell) (m : SortWorkerCellMap) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt)
       (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» C))) DotVar2 = some m) :
-    R.tick ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» m)) DotVar0) := by
+    R.tick ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen4 Gen5 (SortWorkersCell.«<workers>» m) Gen3) DotVar0) := by
   apply KPrelude.mem_mergeRank_right
   exact List.mem_cons_self
 
-theorem Rules.tick.memS (Gen3 : SortKCell) (Gen4 : SortMCell) (m : SortWorkerCellMap) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt) (r : SortWorkerCellMap)
+theorem Rules.tick.memS (Gen4 : SortKCell) (Gen5 : SortMCell) (m : SortWorkerCellMap) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (DotVar2 : SortWorkerCellMap) (Gen0 : SortInt) (C : SortInt) (r : SortWorkerCellMap)
       (hm : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» C))) DotVar2 = some m)
       (hr : KPrelude.MapHook.concat (KPrelude.MapHook.element (SortWidCell.«<wid>» Gen0) (SortWorkerCell.«<worker>» (SortWidCell.«<wid>» Gen0) (SortCntCell.«<cnt>» (KPrelude.IntHook.add C (1 : Int))))) DotVar2 = some r) :
-    R.tick ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen3 Gen4 (SortWorkersCell.«<workers>» m)) DotVar0) := by
+    R.tick ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen4 Gen5 (SortWorkersCell.«<workers>» m) Gen3) DotVar0) := by
   apply KPrelude.mem_mergeRank_right
   exact List.mem_cons_self
 
-theorem Rules.take.mem (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) :
-    R.take ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0) := by
+theorem Rules.take.mem (DotVar2 : SortK) (M : SortMap) (Gen4 : SortWorkersCell) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) :
+    R.take ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) Gen4 Gen3) DotVar0) := by
   apply KPrelude.mem_mergeRank_left
-  apply List.mem_cons_of_mem
   exact List.mem_cons_self
 
-theorem Rules.take.memS (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
+theorem Rules.take.memS (DotVar2 : SortK) (M : SortMap) (Gen4 : SortWorkersCell) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
       (hr : K.«takeSum(_,_)_FREEKEY_Int_Int_Map» (3 : Int) M = some r) :
-    R.take ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0) := by
+    R.take ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go2) DotVar2)) (SortMCell.«<m>» M) Gen4 Gen3) DotVar0) := by
   apply KPrelude.mem_mergeRank_left
-  apply List.mem_cons_of_mem
   exact List.mem_cons_self
 
-theorem Rules.check.mem (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell)
+theorem Rules.jobs.mem (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (JS : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (r : SortBool)
+      (hr : K.«jobsOk(_)_FREEKEY_Bool_JobsCell» JS = some r)
+      (hreq : r = true) :
+    R.jobs ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go3) DotVar2)) (SortMCell.«<m>» M) DotVar1 JS) DotVar0) := by
+  apply KPrelude.mem_mergeRank_left
+  exact List.mem_cons_self
+
+theorem Rules.jobs.memS (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (JS : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (r : SortBool)
+      (hr : K.«jobsOk(_)_FREEKEY_Bool_JobsCell» JS = some r)
+      (hreq : r = true) :
+    R.jobs ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.go3) DotVar2)) (SortMCell.«<m>» M) DotVar1 JS) DotVar0) := by
+  apply KPrelude.mem_mergeRank_left
+  exact List.mem_cons_self
+
+theorem Rules.check.mem (DotVar2 : SortK) (M : SortMap) (Gen4 : SortWorkersCell) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell)
       (hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true) :
-    R.check ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0) := by
+    R.check ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) Gen4 Gen3) DotVar0) := by
   apply KPrelude.mem_mergeRank_left
-  apply List.mem_cons_of_mem
-  apply List.mem_cons_of_mem
   exact List.mem_cons_self
 
-theorem Rules.check.memS (DotVar2 : SortK) (M : SortMap) (DotVar1 : SortWorkersCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
+theorem Rules.check.memS (DotVar2 : SortK) (M : SortMap) (Gen4 : SortWorkersCell) (Gen3 : SortJobsCell) (DotVar0 : SortGeneratedCounterCell) (r : SortInt)
       (hreq : K.«twoPos(_)_FREEKEY_Bool_Map» M = true)
       (hr : K.«anyPos(_)_FREEKEY_Int_Map» M = some r) :
-    R.check ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) DotVar1) DotVar0) := by
+    R.check ∈ bucketOf0 (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.check) DotVar2)) (SortMCell.«<m>» M) Gen4 Gen3) DotVar0) := by
   apply KPrelude.mem_mergeRank_left
-  apply List.mem_cons_of_mem
-  apply List.mem_cons_of_mem
   exact List.mem_cons_self
 
 theorem Step0.app {i : Nat} {c c' : SortGeneratedTopCell} (h : Step0 i c c') : App i c := by
   cases h with
-  | sum DotVar2 M DotVar0 W r r_2 hr hreq hr_3 => exact App.sum DotVar2 M DotVar0 W r hr hreq
-  | tick Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr => exact App.tick Gen3 Gen4 m DotVar0 DotVar2 Gen0 C hm
-  | take DotVar2 M DotVar1 DotVar0 r hr => exact App.take DotVar2 M DotVar1 DotVar0
-  | check DotVar2 M DotVar1 DotVar0 r hreq hr => exact App.check DotVar2 M DotVar1 DotVar0 hreq
+  | sum DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3 => exact App.sum DotVar2 M DotVar1 DotVar0 W r hr hreq
+  | tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr => exact App.tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C hm
+  | take DotVar2 M Gen4 Gen3 DotVar0 r hr => exact App.take DotVar2 M Gen4 Gen3 DotVar0
+  | jobs DotVar2 M DotVar1 JS DotVar0 r hr hreq => exact App.jobs DotVar2 M DotVar1 JS DotVar0 r hr hreq
+  | check DotVar2 M Gen4 Gen3 DotVar0 r hreq hr => exact App.check DotVar2 M Gen4 Gen3 DotVar0 hreq
 
 /-- A rank-`i` step where no higher rank applies is a `Step`. -/
 theorem Step0.lift {i : Nat} {c c' : SortGeneratedTopCell} (h : Step0 i c c') (hi : ∀ j, j < i → ¬ App j c) : Step c c' := by
   cases h with
-  | sum DotVar2 M DotVar0 W r r_2 hr hreq hr_3 => exact Step.sum DotVar2 M DotVar0 W r r_2 hr hreq hr_3
-  | tick Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr => exact Step.tick Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr
-  | take DotVar2 M DotVar1 DotVar0 r hr => exact Step.take DotVar2 M DotVar1 DotVar0 r hr
-  | check DotVar2 M DotVar1 DotVar0 r hreq hr => exact Step.check DotVar2 M DotVar1 DotVar0 r hreq hr
+  | sum DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3 => exact Step.sum DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3
+  | tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr => exact Step.tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr
+  | take DotVar2 M Gen4 Gen3 DotVar0 r hr => exact Step.take DotVar2 M Gen4 Gen3 DotVar0 r hr
+  | jobs DotVar2 M DotVar1 JS DotVar0 r hr hreq => exact Step.jobs DotVar2 M DotVar1 JS DotVar0 r hr hreq
+  | check DotVar2 M Gen4 Gen3 DotVar0 r hreq hr => exact Step.check DotVar2 M Gen4 Gen3 DotVar0 r hreq hr
 
 theorem Step.base {c c' : SortGeneratedTopCell} (h : Step c c') : ∃ i, Step0 i c c' ∧ ∀ j, j < i → ¬ App j c := by
   cases h with
-  | sum DotVar2 M DotVar0 W r r_2 hr hreq hr_3 => exact ⟨0, Step0.sum DotVar2 M DotVar0 W r r_2 hr hreq hr_3, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
-  | tick Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr => exact ⟨0, Step0.tick Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
-  | take DotVar2 M DotVar1 DotVar0 r hr => exact ⟨0, Step0.take DotVar2 M DotVar1 DotVar0 r hr, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
-  | check DotVar2 M DotVar1 DotVar0 r hreq hr => exact ⟨0, Step0.check DotVar2 M DotVar1 DotVar0 r hreq hr, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
+  | sum DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3 => exact ⟨0, Step0.sum DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
+  | tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr => exact ⟨0, Step0.tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
+  | take DotVar2 M Gen4 Gen3 DotVar0 r hr => exact ⟨0, Step0.take DotVar2 M Gen4 Gen3 DotVar0 r hr, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
+  | jobs DotVar2 M DotVar1 JS DotVar0 r hr hreq => exact ⟨0, Step0.jobs DotVar2 M DotVar1 JS DotVar0 r hr hreq, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
+  | check DotVar2 M Gen4 Gen3 DotVar0 r hreq hr => exact ⟨0, Step0.check DotVar2 M Gen4 Gen3 DotVar0 r hreq hr, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
 
 theorem rules0_progress {c c' : SortGeneratedTopCell} (h : Step0 0 c c') : ∃ r ∈ bucketOf0 c, ∃ c'', (r.run c).next? = some c'' := by
   cases h with
-  | sum DotVar2 M DotVar0 W r r_2 hr hreq hr_3 =>
-    obtain ⟨ρ, hρ, e⟩ := Rules.sum.complete DotVar2 M DotVar0 W r r_2 hr hreq hr_3
-    exact ⟨R.sum, Rules.sum.memS DotVar2 M DotVar0 W r r_2 hr hreq hr_3, pick_next_of_mem _ ρ _ hρ e⟩
-  | tick Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr =>
-    obtain ⟨ρ, hρ, e⟩ := Rules.tick.complete Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr
-    exact ⟨R.tick, Rules.tick.memS Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr, pick_next_of_mem _ ρ _ hρ e⟩
-  | take DotVar2 M DotVar1 DotVar0 r hr =>
-    obtain ⟨ρ, hρ, e⟩ := Rules.take.complete DotVar2 M DotVar1 DotVar0 r hr
-    exact ⟨R.take, Rules.take.memS DotVar2 M DotVar1 DotVar0 r hr, pick_next_of_mem _ ρ _ hρ e⟩
-  | check DotVar2 M DotVar1 DotVar0 r hreq hr =>
-    obtain ⟨ρ, hρ, e⟩ := Rules.check.complete DotVar2 M DotVar1 DotVar0 r hreq hr
-    exact ⟨R.check, Rules.check.memS DotVar2 M DotVar1 DotVar0 r hreq hr, pick_next_of_mem _ ρ _ hρ e⟩
+  | sum DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3 =>
+    obtain ⟨ρ, hρ, e⟩ := Rules.sum.complete DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3
+    exact ⟨R.sum, Rules.sum.memS DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3, pick_next_of_mem _ ρ _ hρ e⟩
+  | tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr =>
+    obtain ⟨ρ, hρ, e⟩ := Rules.tick.complete Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr
+    exact ⟨R.tick, Rules.tick.memS Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr, pick_next_of_mem _ ρ _ hρ e⟩
+  | take DotVar2 M Gen4 Gen3 DotVar0 r hr =>
+    obtain ⟨ρ, hρ, e⟩ := Rules.take.complete DotVar2 M Gen4 Gen3 DotVar0 r hr
+    exact ⟨R.take, Rules.take.memS DotVar2 M Gen4 Gen3 DotVar0 r hr, pick_next_of_mem _ ρ _ hρ e⟩
+  | jobs DotVar2 M DotVar1 JS DotVar0 r hr hreq =>
+    obtain ⟨ρ, hρ, e⟩ := Rules.jobs.complete DotVar2 M DotVar1 JS DotVar0 r hr hreq
+    exact ⟨R.jobs, Rules.jobs.memS DotVar2 M DotVar1 JS DotVar0 r hr hreq, pick_next_of_mem _ ρ _ hρ e⟩
+  | check DotVar2 M Gen4 Gen3 DotVar0 r hreq hr =>
+    obtain ⟨ρ, hρ, e⟩ := Rules.check.complete DotVar2 M Gen4 Gen3 DotVar0 r hreq hr
+    exact ⟨R.check, Rules.check.memS DotVar2 M Gen4 Gen3 DotVar0 r hreq hr, pick_next_of_mem _ ρ _ hρ e⟩
 
 theorem rules0_applies {c : SortGeneratedTopCell} (h : App 0 c) : ∃ r ∈ bucketOf0 c, (r.run c).applies = true := by
   cases h with
-  | sum DotVar2 M DotVar0 W r hr hreq => exact ⟨R.sum, Rules.sum.mem DotVar2 M DotVar0 W r hr hreq, pick_applies_of_exists (Rules.sum.applies DotVar2 M DotVar0 W r hr hreq)⟩
-  | tick Gen3 Gen4 m DotVar0 DotVar2 Gen0 C hm => exact ⟨R.tick, Rules.tick.mem Gen3 Gen4 m DotVar0 DotVar2 Gen0 C hm, pick_applies_of_exists (Rules.tick.applies Gen3 Gen4 m DotVar0 DotVar2 Gen0 C hm)⟩
-  | take DotVar2 M DotVar1 DotVar0 => exact ⟨R.take, Rules.take.mem DotVar2 M DotVar1 DotVar0, pick_applies_of_exists (Rules.take.applies DotVar2 M DotVar1 DotVar0)⟩
-  | check DotVar2 M DotVar1 DotVar0 hreq => exact ⟨R.check, Rules.check.mem DotVar2 M DotVar1 DotVar0 hreq, pick_applies_of_exists (Rules.check.applies DotVar2 M DotVar1 DotVar0 hreq)⟩
+  | sum DotVar2 M DotVar1 DotVar0 W r hr hreq => exact ⟨R.sum, Rules.sum.mem DotVar2 M DotVar1 DotVar0 W r hr hreq, pick_applies_of_exists (Rules.sum.applies DotVar2 M DotVar1 DotVar0 W r hr hreq)⟩
+  | tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C hm => exact ⟨R.tick, Rules.tick.mem Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C hm, pick_applies_of_exists (Rules.tick.applies Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C hm)⟩
+  | take DotVar2 M Gen4 Gen3 DotVar0 => exact ⟨R.take, Rules.take.mem DotVar2 M Gen4 Gen3 DotVar0, pick_applies_of_exists (Rules.take.applies DotVar2 M Gen4 Gen3 DotVar0)⟩
+  | jobs DotVar2 M DotVar1 JS DotVar0 r hr hreq => exact ⟨R.jobs, Rules.jobs.mem DotVar2 M DotVar1 JS DotVar0 r hr hreq, pick_applies_of_exists (Rules.jobs.applies DotVar2 M DotVar1 JS DotVar0 r hr hreq)⟩
+  | check DotVar2 M Gen4 Gen3 DotVar0 hreq => exact ⟨R.check, Rules.check.mem DotVar2 M Gen4 Gen3 DotVar0 hreq, pick_applies_of_exists (Rules.check.applies DotVar2 M Gen4 Gen3 DotVar0 hreq)⟩
 
 /-- No rule of rank 0 applies exactly when its bucket is stuck. -/
 theorem rank0_stuck {c : SortGeneratedTopCell} (h : firstDefined (bucketOf0 c) c none = .stuck) : ¬ App 0 c := by
@@ -207,10 +240,11 @@ theorem succ0_sound {c c' : SortGeneratedTopCell} (h : c' ∈ succ0 c) : Step0 0
 
 theorem succ0_complete {c c' : SortGeneratedTopCell} (h : Step0 0 c c') : c' ∈ succ0 c := by
   cases h with
-  | sum DotVar2 M DotVar0 W r r_2 hr hreq hr_3 => exact List.mem_flatMap.2 ⟨Rules.sum, KPrelude.mem_of_getElem? (i := 0) rfl, mem_nexts.2 (Rules.sum.complete DotVar2 M DotVar0 W r r_2 hr hreq hr_3)⟩
-  | tick Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr => exact List.mem_flatMap.2 ⟨Rules.tick, KPrelude.mem_of_getElem? (i := 1) rfl, mem_nexts.2 (Rules.tick.complete Gen3 Gen4 m DotVar0 DotVar2 Gen0 C r hm hr)⟩
-  | take DotVar2 M DotVar1 DotVar0 r hr => exact List.mem_flatMap.2 ⟨Rules.take, KPrelude.mem_of_getElem? (i := 2) rfl, mem_nexts.2 (Rules.take.complete DotVar2 M DotVar1 DotVar0 r hr)⟩
-  | check DotVar2 M DotVar1 DotVar0 r hreq hr => exact List.mem_flatMap.2 ⟨Rules.check, KPrelude.mem_of_getElem? (i := 3) rfl, mem_nexts.2 (Rules.check.complete DotVar2 M DotVar1 DotVar0 r hreq hr)⟩
+  | sum DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3 => exact List.mem_flatMap.2 ⟨Rules.sum, KPrelude.mem_of_getElem? (i := 0) rfl, mem_nexts.2 (Rules.sum.complete DotVar2 M DotVar1 DotVar0 W r r_2 hr hreq hr_3)⟩
+  | tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr => exact List.mem_flatMap.2 ⟨Rules.tick, KPrelude.mem_of_getElem? (i := 1) rfl, mem_nexts.2 (Rules.tick.complete Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hm hr)⟩
+  | take DotVar2 M Gen4 Gen3 DotVar0 r hr => exact List.mem_flatMap.2 ⟨Rules.take, KPrelude.mem_of_getElem? (i := 2) rfl, mem_nexts.2 (Rules.take.complete DotVar2 M Gen4 Gen3 DotVar0 r hr)⟩
+  | jobs DotVar2 M DotVar1 JS DotVar0 r hr hreq => exact List.mem_flatMap.2 ⟨Rules.jobs, KPrelude.mem_of_getElem? (i := 3) rfl, mem_nexts.2 (Rules.jobs.complete DotVar2 M DotVar1 JS DotVar0 r hr hreq)⟩
+  | check DotVar2 M Gen4 Gen3 DotVar0 r hreq hr => exact List.mem_flatMap.2 ⟨Rules.check, KPrelude.mem_of_getElem? (i := 4) rfl, mem_nexts.2 (Rules.check.complete DotVar2 M Gen4 Gen3 DotVar0 r hreq hr)⟩
 
 /-- Soundness of the executable step. -/
 theorem step_sound {c c' : SortGeneratedTopCell} (h : step c = .next c') : Step c c' := by
