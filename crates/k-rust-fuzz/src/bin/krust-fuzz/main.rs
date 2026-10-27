@@ -1200,6 +1200,13 @@ fn write_differential(
             KillKind::RemovedEnd => "removed end (the baseline reaches an end the mutant cannot)",
         }
     );
+    // The data argument's premises, which the kill rests on and nothing checks (final review N5).
+    let _ = writeln!(
+        text,
+        "premises: the compared ends are data, so they differ in each definition's initial model \
+         when evaluation terminates (A1+) and its lemmas are theorems (A2), as \
+         k_rust_backend::data_term states; neither is checked"
+    );
     if let Some(program) = &case.program {
         let _ = writeln!(text, "program:");
         for line in program.lines() {
@@ -1218,12 +1225,19 @@ fn write_differential(
             .iter()
             .filter(|halt| **halt == HaltReasonOutput::Trivial)
             .count();
+        // Only `vacuous` leaves: the side's initial state has no instance, so it has no run.
+        let absent = !side.halts.is_empty()
+            && side
+                .halts
+                .iter()
+                .all(|halt| *halt == HaltReasonOutput::Vacuous);
         let role = serde_name(&side.role);
         let _ = writeln!(
             text,
             "{role} ends: {}{}",
             ends.len(),
             match undefined {
+                _ if absent => " (its initial state has no instance, so it has no run)".to_owned(),
                 0 => String::new(),
                 1 => " (and 1 leaf at an undefined step, which is no end)".to_owned(),
                 _ => format!(" (and {undefined} leaves at an undefined step, which are no ends)"),

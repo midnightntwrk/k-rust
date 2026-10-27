@@ -364,6 +364,12 @@ fn strip_positions(value: &mut serde_json::Value) {
 /// application of a total function may denote the baseline's end, so its syntactic difference
 /// proves nothing.
 ///
+/// A mutant whose initial state has no instance ([`no_instance`]: only `vacuous` leaves at
+/// depth 0) has the empty set of ends, in either path mode, since it has no path: a complete
+/// baseline's data ends are then removed ends, under the conditions above (FZ-ENGINE-R4, final
+/// review S1). A mutant that answers an `Err` refusing the state is the caller's to class
+/// (`unsupported`, `mutant-refused-state`): it is not judged here.
+///
 /// A baseline that refuses the initial state (an `Err` with a refused state, or only `vacuous`
 /// leaves at depth 0) makes the case `rejected`, as [`exec::classify`] classes it: the input is
 /// not a state of the baseline, so there is nothing to compare. An incomplete baseline makes the
@@ -435,11 +441,18 @@ pub(crate) fn judge_pair_explained(
         ));
     }
     let added = Verdicts::outside(mutant, baseline, &baseline_set, "mutant", run_to_completion)?;
-    let removed = match (paths, complete_ends(mutant)) {
+    // A mutant whose initial state has no instance has no path at all, so its one-path result
+    // already shows its whole set of ends, the empty set.
+    let absent = no_instance(mutant);
+    let mutant_set = complete_ends(mutant);
+    let removed = match (paths, &mutant_set) {
         (PathMode::AllPaths, Some(mutant_set)) => {
-            Verdicts::outside(baseline, mutant, &mutant_set, "baseline", run_to_completion)?
+            Verdicts::outside(baseline, mutant, mutant_set, "baseline", run_to_completion)?
         }
-        (PathMode::OnePath, _) | (PathMode::AllPaths, None) => Verdicts::none(baseline),
+        (PathMode::OnePath, Some(mutant_set)) if absent => {
+            Verdicts::outside(baseline, mutant, mutant_set, "baseline", run_to_completion)?
+        }
+        (PathMode::OnePath | PathMode::AllPaths, _) => Verdicts::none(baseline),
     };
     let killing_leaf = added.kills.iter().position(|&kills| kills);
     let removed_end = removed.kills.iter().position(|&kills| kills);
@@ -478,7 +491,38 @@ pub(crate) fn judge_pair_explained(
             Some(reason),
         ));
     }
+    if absent {
+        // The mutant's set is empty and no baseline end is removed: the baseline has no end the
+        // case could compare (every path takes an undefined step, or, under `run_to_completion`,
+        // stops abnormally), so the two sets agree. When the absence itself is not decided (it
+        // rests on a mark, a solver `unknown` or another fact `complete_ends` refuses), nothing
+        // is shown either way.
+        return Ok(if mutant_set.is_some() {
+            (DifferentialJudgement::class(OutcomeClass::Miss), None)
+        } else {
+            (
+                DifferentialJudgement::class(OutcomeClass::Unsupported),
+                Some(reasons::absence_undecided(mutant).unwrap_or(UnjudgedReason::EngineDefect)),
+            )
+        });
+    }
     Ok((DifferentialJudgement::class(class), reason))
+}
+
+/// Whether `result` shows that its initial state has no instance in its definition: it ran
+/// without an `Err`, and it has leaves, each `vacuous` at depth 0, the initial state's
+/// constraint shown unsatisfiable. (A result with no leaf shows nothing, and is classed as a
+/// refusal.) Such a definition gives the input no run and no end: its set
+/// of ends is empty, as for a run whose every path takes an undefined step, one step earlier.
+/// The baseline's absence makes a case `rejected` (the input is no state of the baseline, so
+/// there is nothing to compare); the mutant's leaves the baseline's ends to be removed ends.
+pub(crate) fn no_instance(result: &CaseResult) -> bool {
+    result.failure.is_none()
+        && !result.leaves.is_empty()
+        && result
+            .leaves
+            .iter()
+            .all(|leaf| leaf.halt == HaltReasonOutput::Vacuous && leaf.depth == 0)
 }
 
 /// Whether the mutant's result is no evidence of a kill (condition 3): some leaf carries an
@@ -563,6 +607,7 @@ pub(crate) fn needs_all_paths(
 /// run that observed one ([`UncleanReason::UnsupportedHook`]), so [`complete_end`] already
 /// refuses such a side.
 fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
+    let absent = no_instance(result);
     let run_clean = result.failure.is_none()
         && !result.run_facts_off_leaves
         && !result.safety_limit_hit
@@ -571,7 +616,16 @@ fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
         && result.run_allowance_refusals == 0
         && result.determinism_breaks().is_empty()
         && !result.leaves.is_empty();
-    if !run_clean || !result.leaves.iter().all(complete_leaf) {
+    // An initial state shown to have no instance ([`no_instance`]) is a complete run with no end
+    // when that is decided: its `vacuous` leaves carry no reason beyond their halt.
+    let complete = |leaf: &LeafReport| {
+        if absent {
+            leaf.unclean.iter().all(|reason| *reason == UncleanReason::Halt)
+        } else {
+            complete_leaf(leaf)
+        }
+    };
+    if !run_clean || !result.leaves.iter().all(complete) {
         return None;
     }
     Some(

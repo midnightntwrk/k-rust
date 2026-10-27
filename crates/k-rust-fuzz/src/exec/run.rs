@@ -684,24 +684,36 @@ impl Executor {
     /// It internalizes here, is decided, and [`BackendDefinition::is_data`] holds with this
     /// definition's own heads. Any failure reads as not data.
     pub(crate) fn is_data_here(&mut self, state: &KorePattern) -> bool {
+        self.data_here(state) == DataHere::Data
+    }
+
+    /// [`Self::is_data_here`], telling apart a state that names a symbol or sort this
+    /// definition does not declare ([`DataHere::Foreign`]) from one that is not data here.
+    pub(crate) fn data_here(&mut self, state: &KorePattern) -> DataHere {
         if self.data_heads().is_err() {
-            return false;
+            return DataHere::NotData;
         }
         let heads = self.data_heads.as_ref().expect("computed just above");
         self.backend
             .with_solver_over(None, &[state], |definition, _| {
-                Ok::<_, BackendError>(
-                    definition
-                        .admit_unverified(state, &[])
-                        .internalize_pattern()
-                        .is_ok_and(|pattern| {
-                            pattern.constraints.is_empty()
-                                && pattern.term.attributes().variables.is_empty()
-                                && definition.is_data(&pattern.term, heads)
-                        }),
-                )
+                if names_undeclared(definition, state) {
+                    return Ok::<_, BackendError>(DataHere::Foreign);
+                }
+                let data = definition
+                    .admit_unverified(state, &[])
+                    .internalize_pattern()
+                    .is_ok_and(|pattern| {
+                        pattern.constraints.is_empty()
+                            && pattern.term.attributes().variables.is_empty()
+                            && definition.is_data(&pattern.term, heads)
+                    });
+                Ok(if data {
+                    DataHere::Data
+                } else {
+                    DataHere::NotData
+                })
             })
-            .unwrap_or(false)
+            .unwrap_or(DataHere::NotData)
     }
 
     /// The definition's data heads and the findings of its full critical-pair check
@@ -2059,4 +2071,58 @@ pub(crate) mod seam {
             }
         }
     }
+}
+
+/// What [`Executor::data_here`] finds of a state of the other definition of a differential pair.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DataHere {
+    /// The state internalizes here, is decided, and is data with this definition's heads.
+    Data,
+    /// It does not internalize here for another reason, is not decided, or is not data.
+    NotData,
+    /// It names a symbol or a sort this definition does not declare, so it is no term of this
+    /// definition's signature: it is none of this definition's ends, all of which are terms of
+    /// that signature, whatever this definition's equations are (final review N1).
+    Foreign,
+}
+
+/// Whether `state` applies a symbol, or names a sort, that `definition` does not declare.
+fn names_undeclared(definition: &BackendDefinition, state: &KorePattern) -> bool {
+    use k_rust::kore::ast::Sort;
+    let sort_undeclared = |sort: &Sort| {
+        let mut pending = vec![sort];
+        while let Some(sort) = pending.pop() {
+            if let Sort::Application { name, arguments } = sort {
+                if !definition.sorts().contains_key(name.as_str()) {
+                    return true;
+                }
+                pending.extend(arguments);
+            }
+        }
+        false
+    };
+    let mut pending = vec![state];
+    while let Some(pattern) = pending.pop() {
+        match pattern {
+            KorePattern::Application { symbol, arguments }
+            | KorePattern::AssociativeApplication {
+                symbol, arguments, ..
+            } => {
+                if !definition.symbols().contains_key(symbol.name.as_str())
+                    || symbol.sort_parameters.iter().any(sort_undeclared)
+                {
+                    return true;
+                }
+                pending.extend(arguments);
+            }
+            KorePattern::DomainValue { sort, .. } => {
+                if sort_undeclared(sort) {
+                    return true;
+                }
+            }
+            // An end is a term: its other connectives, if any, are judged by internalization.
+            _ => {}
+        }
+    }
+    false
 }

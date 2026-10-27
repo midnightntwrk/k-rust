@@ -1804,6 +1804,7 @@ export type FuzzUnjudgedReason =
   | 'panic'
   | 'internal-error'
   | 'internal-halt'
+  | 'mutant-refused-state'
   | 'too-deep'
   | 'stack-mapping-refused'
   | 'stack-exhausted'

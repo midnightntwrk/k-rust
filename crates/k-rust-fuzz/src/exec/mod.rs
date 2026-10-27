@@ -33,7 +33,7 @@ pub use comparable::{ComparableCondition, LeafDiagnostic};
 pub use hooks::{LeafHooks, RunHooks};
 pub use reasons::UnjudgedReason;
 pub(crate) use run::{
-    AnyStateRun, CompiledPattern, Executor, LeafMatcher, NormalEnd, PatternCompiler,
+    AnyStateRun, CompiledPattern, DataHere, Executor, LeafMatcher, NormalEnd, PatternCompiler,
 };
 
 use crate::{

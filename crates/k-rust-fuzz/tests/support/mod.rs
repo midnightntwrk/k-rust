@@ -670,6 +670,14 @@ fixture!(
     CLAIMSTEP_PROGRAMS
 );
 
+/// A configuration cell initialized by a function of the program, and a mutant in which that
+/// function is undefined for `go(0)`, whose initial state then has no instance; and a mutant
+/// whose end holds a constructor only it declares (FZ-ENGINE-R4).
+pub const INIT_PROGRAMS: &[Program] = &[program!("init/go.pgm")];
+fixture!(INIT, "init/init.k", "INIT", INIT_PROGRAMS);
+fixture!(INIT_M, "init/init-m.k", "INIT", INIT_PROGRAMS);
+fixture!(INIT_C, "init/init-c.k", "INIT", INIT_PROGRAMS);
+
 /// Branches that meet in one configuration at one depth (FZ-STATESET): a state set keeps the
 /// arrival it meets first, so a rule fired on the other is on no leaf's trace (B1), and the leaf
 /// carries the first arrival's facts (V1); `pick(0)` rolls back a candidate whose successor is

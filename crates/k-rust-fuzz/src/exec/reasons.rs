@@ -52,6 +52,12 @@ pub enum UnjudgedReason {
     /// macro or alias at run time, or a `simplification-error` halt without its cause. Reported
     /// among the report's `crashes`; a leaf on any path of either side makes the case unjudged.
     InternalHalt,
+    /// Differential: the mutant's backend refused the initial state that the baseline accepted
+    /// ([`FailureCause::StateRefused`] on the mutant alone): it holds a symbol, sort or value the
+    /// mutant's definition does not declare or cannot internalize, so the mutant gives the input
+    /// no run to compare. (A mutant whose initial state merely has no instance gives the empty
+    /// set of ends, which is compared.)
+    MutantRefusedState,
     /// The request is nested deeper than the largest stack the backend provides for one
     /// operation ([`FailureCause::TooDeep`]): a bound the build fixes, a function of the input.
     TooDeep,
@@ -348,10 +354,11 @@ impl UnjudgedReason {
     /// Every reason that names no condition, in declaration order: the reasons that name one
     /// ([`Self::EndNotComparable`], [`Self::QueryNotConfirmable`]) are one per
     /// [`ComparableCondition`].
-    pub const ALL: [Self; 44] = [
+    pub const ALL: [Self; 45] = [
         Self::Panic,
         Self::InternalError,
         Self::InternalHalt,
+        Self::MutantRefusedState,
         Self::TooDeep,
         Self::StackMappingRefused,
         Self::StackExhausted,
@@ -487,6 +494,13 @@ impl UnjudgedReason {
             Self::EndNotComparable(_) => END_NOT_COMPARABLE_REMEDY,
             Self::QueryNotConfirmable(_) => QUERY_NOT_CONFIRMABLE_REMEDY,
             Self::ClientRefused => CLIENT_REFUSED_REMEDY,
+            Self::MutantRefusedState => {
+                "the mutant's backend refused an initial state the baseline accepts (a symbol, \
+                 sort or value its definition does not declare or cannot internalize), so the \
+                 mutant has no run on this input to compare; the definitions differ in what \
+                 states they admit, not in their ends, and only another program or hole range \
+                 whose state both admit can be judged"
+            }
             Self::TooDeep => {
                 "the case's configuration is nested deeper than the backend's stack holds; \
                  choose a smaller hole range or program, or run krust-fuzz on a thread with a \
@@ -621,6 +635,33 @@ pub(crate) fn beyond_halt(leaf: &LeafReport) -> Option<UnjudgedReason> {
 /// first fact, in declaration order, among those that refuse it, read as
 /// `target::differential::complete_ends` reads them. `None` when the run is complete.
 pub(crate) fn incomplete(result: &CaseResult) -> Option<UnjudgedReason> {
+    if crate::target::differential::no_instance(result) {
+        return absence_undecided(result);
+    }
+    let mut reasons = run_incomplete(result);
+    if result.failure.is_none() && result.leaves.is_empty() {
+        reasons.push(UnjudgedReason::HaltVacuous);
+    }
+    for leaf in &result.leaves {
+        reasons.extend(incomplete_leaf(leaf));
+    }
+    reasons.into_iter().min()
+}
+
+/// Why a side whose initial state was shown to have no instance
+/// (`target::differential::no_instance`) does not show the empty set of ends: the first fact
+/// among the run's own and its `vacuous` leaves' reasons beyond their halt (a mark, a
+/// diagnostic). `None` when its absence is decided.
+pub(crate) fn absence_undecided(result: &CaseResult) -> Option<UnjudgedReason> {
+    run_incomplete(result)
+        .into_iter()
+        .chain(result.leaves.iter().filter_map(beyond_halt))
+        .min()
+}
+
+/// The run-level facts of [`incomplete`]: an `Err`, a clock, a fact off the leaves, a
+/// determinism break, a stack stop, a solver `unknown` or an allowance refusal.
+fn run_incomplete(result: &CaseResult) -> Vec<UnjudgedReason> {
     let mut reasons = Vec::new();
     if let Some(failure) = &result.failure {
         reasons.push(UnjudgedReason::of_failure(failure));
@@ -649,13 +690,7 @@ pub(crate) fn incomplete(result: &CaseResult) -> Option<UnjudgedReason> {
     if result.run_allowance_refusals > 0 {
         reasons.push(UnjudgedReason::AllowanceRefusal);
     }
-    if result.failure.is_none() && result.leaves.is_empty() {
-        reasons.push(UnjudgedReason::HaltVacuous);
-    }
-    for leaf in &result.leaves {
-        reasons.extend(incomplete_leaf(leaf));
-    }
-    reasons.into_iter().min()
+    reasons
 }
 
 /// Why one leaf is not an end a complete set may hold: a clean `stuck` leaf, or an undefined

@@ -201,6 +201,7 @@ impl Campaign {
             normal_end: Some(cases.normal_ends()),
             rule_names: rules.names,
             domain: FiniteDomain::of(holes.iter().map(|hole| (&hole.sort, &hole.constraints))),
+            differential: matches!(spec.target.kind, TargetKind::Differential(_)),
         };
         Ok(Campaign {
             spec,
@@ -316,6 +317,7 @@ impl Campaign {
                 budget,
                 &self.spec.options,
                 self.spec.rejection_cap,
+                matches!(self.spec.target.kind, TargetKind::Differential(_)),
             ),
         }
     }
@@ -378,6 +380,7 @@ impl Campaign {
                         budget,
                         &self.spec.options,
                         self.spec.rejection_cap,
+                        matches!(self.spec.target.kind, TargetKind::Differential(_)),
                     );
                     return report_without_cases(
                         &self.settings,
@@ -916,6 +919,16 @@ fn not_comparable(
         "no hit can be established: a hit needs a data end, and no end of the definition is data \
          (`data-end = false`, `--no-data-end` accept other ends)"
     };
+    // A name applies on each definition where it matches (GUIDE-USABILITY, nit): a mutant in
+    // another file has findings that only names of that file match.
+    let per_side = if differential {
+        " Each definition's findings need names that match them: a name applies on each \
+         definition where it matches, and the findings of a mutant written in another file \
+         name positions in that file, so each needs its own name (as definition-findings \
+         prints it, or `mutant:NAME`)."
+    } else {
+        ""
+    };
     Some(CampaignOutcome::NotComparable {
         sides: without_data.to_vec(),
         statement: format!(
@@ -936,7 +949,7 @@ fn not_comparable(
              definition-findings) makes the campaign judge the definition read as if that \
              finding did not hold (a pair joined, an equation agreed with its hook): its \
              verdicts then hold for that reading, not for the definition as written, whatever \
-             inputs reach it; a decided finding cannot be assumed. No case was run."
+             inputs reach it; a decided finding cannot be assumed.{per_side} No case was run."
         ),
     })
 }

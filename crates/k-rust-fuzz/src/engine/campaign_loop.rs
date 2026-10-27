@@ -77,6 +77,8 @@ pub(crate) struct LoopSettings {
     /// The holes' finite domains, when every hole has one and their product is at most
     /// [`MAX_EXHAUSTIVE`]: the campaign ends once every assignment of them has run.
     pub(crate) domain: Option<FiniteDomain>,
+    /// Whether the target is differential, for the no-witness statement.
+    pub(crate) differential: bool,
 }
 
 /// The most assignments a campaign's finite domain may have for the loop to track which ran
@@ -330,6 +332,7 @@ pub(crate) fn run_loop_filtered(
                 budget,
                 &settings.options,
                 settings.rejection_cap,
+                settings.differential,
             );
             let outcome = outcome(Ending::Aborted, no_witness, state.abort.take());
             return state.report(settings, budget, outcome);
@@ -584,6 +587,7 @@ pub(crate) fn run_loop_filtered(
         budget,
         &settings.options,
         settings.rejection_cap,
+        settings.differential,
     );
     state.refusal_clause(&mut no_witness);
     let outcome = outcome(ending, no_witness, state.abort.take());
@@ -642,6 +646,7 @@ fn witness_report(
             budget,
             &settings.options,
             settings.rejection_cap,
+            settings.differential,
         );
         let outcome = outcome(Ending::Aborted, no_witness, state.abort.take());
         return state.report(settings, budget, outcome);
@@ -2872,6 +2877,7 @@ pub(crate) fn no_witness(
     budget: Budget,
     options: &CaseOptions,
     rejection_cap: u64,
+    differential: bool,
 ) -> NoWitness {
     let plural = |count: u64, noun: &str| {
         if count == 1 {
@@ -2892,14 +2898,36 @@ pub(crate) fn no_witness(
             " The campaign ended before its budget because every proposer was exhausted; enable \
              the blind proposer to run more cases.",
         ),
-        Ending::DomainExhausted { assignments } => write!(
-            text,
-            " Domain exhausted: every one of the {assignments} assignments of the holes' finite \
-             domains (each hole's choices, a Boolean, or a bounded integer range, as generated) \
-             was tried once (run, or rejected before running), so the campaign ended before its \
-             budget; more cases would only repeat them."
-        )
-        .expect("writing to a String"),
+        Ending::DomainExhausted { assignments } => {
+            write!(
+                text,
+                " Domain exhausted: every one of the {assignments} assignments of the holes' \
+                 finite domains (each hole's choices, a Boolean, or a bounded integer range, as \
+                 generated) was tried once (run, or rejected before running), so the campaign \
+                 ended before its budget; more cases would only repeat them"
+            )
+            .expect("writing to a String");
+            // A case outside the determinism contract, or a candidate whose confirmation
+            // disagreed, may end otherwise when it runs again (final review N4).
+            let unstable = [
+                (totals.outside_determinism, "outside the determinism contract"),
+                (totals.unconfirmed, "that reached the target unconfirmed"),
+            ]
+            .into_iter()
+            .filter(|(count, _)| *count > 0)
+            .map(|(count, what)| format!("{} {what}", plural(count, "case")))
+            .collect::<Vec<_>>();
+            if unstable.is_empty() {
+                text.push('.');
+            } else {
+                write!(
+                    text,
+                    ", except the {}, which may end otherwise on another run.",
+                    unstable.join(" and the ")
+                )
+                .expect("writing to a String");
+            }
+        }
         Ending::RejectedOut => {
             let reasons: Vec<String> = totals
                 .rejections
@@ -2943,9 +2971,18 @@ pub(crate) fn no_witness(
             .expect("writing to a String");
         }
         if refused > 0 {
+            // Only the baseline's refusal rejects a differential case: a mutant that refuses the
+            // state is `unsupported` (`mutant-refused-state`), and one whose state has no
+            // instance has the empty set of ends, which is compared (final review S1).
+            let backend = if differential {
+                "the baseline's backend"
+            } else {
+                "the backend"
+            };
             write!(
                 text,
-                " {} rejected by the backend, which refused the initial state.",
+                " {} rejected by {backend}, which refused the initial state (it is no state of \
+                 that definition).",
                 plural_were(refused)
             )
             .expect("writing to a String");
@@ -3051,7 +3088,14 @@ pub(crate) fn no_witness(
     let work = count(OutcomeClass::WorkBound);
     let timeouts = count(OutcomeClass::Timeout);
     let unfinished = count(OutcomeClass::ReachedUnfinished);
+    // What each side explored (final review N3): a differential baseline always runs every
+    // path, and a rejected input none.
     match options.paths {
+        PathMode::OnePath if differential => text.push_str(
+            " The baseline was run on every path of each input and the mutant on k-rust's \
+             first-applicable path only (one-path mode), or on every path where only a removed \
+             end could still kill; the all-paths option runs the mutant on every path.",
+        ),
         PathMode::OnePath => text.push_str(
             " Only k-rust's first-applicable path of each input was explored (one-path mode); \
              the all-paths option explores every path.",
@@ -3059,7 +3103,14 @@ pub(crate) fn no_witness(
         PathMode::AllPaths
             if depth + work + timeouts + unsupported + incomplete + unfinished == 0 =>
         {
-            text.push_str(" Every path of each input was explored (all-paths mode).");
+            if rejected > 0 {
+                text.push_str(
+                    " Every path of each input that was not rejected was explored (all-paths \
+                     mode).",
+                );
+            } else {
+                text.push_str(" Every path of each input was explored (all-paths mode).");
+            }
         }
         PathMode::AllPaths => text.push_str(
             " Every path of each input was followed up to the bounds below (all-paths mode); \
@@ -3073,7 +3124,7 @@ pub(crate) fn no_witness(
         );
         write!(
             text,
-            " {} stopped at {bound}: raise max-depth.",
+            " {} stopped at {bound}: raise max-depth{TERMINATES}.",
             plural(depth, "case")
         )
         .expect("writing to a String");
@@ -3089,7 +3140,7 @@ pub(crate) fn no_witness(
         if work > diverging {
             write!(
                 text,
-                " {} stopped at {bound}: raise max-work.",
+                " {} stopped at {bound}: raise max-work{TERMINATES}.",
                 plural(work - diverging, "case")
             )
             .expect("writing to a String");
@@ -3174,7 +3225,7 @@ fn bound_advice(
         );
         write!(
             text,
-            " In {} of them {what} stopped at {bound}: raise max-depth{purpose}.",
+            " In {} of them {what} stopped at {bound}: raise max-depth{purpose}{TERMINATES}.",
             counts.depth
         )
         .expect("writing to a String");
@@ -3185,7 +3236,7 @@ fn bound_advice(
             .map_or_else(|| "its work bound".to_owned(), |w| format!("max-work {w}"));
         write!(
             text,
-            " In {} of them {what} stopped at {bound}: raise max-work{purpose}.",
+            " In {} of them {what} stopped at {bound}: raise max-work{purpose}{TERMINATES}.",
             counts.work
         )
         .expect("writing to a String");
@@ -3204,6 +3255,12 @@ fn bound_advice(
         .expect("writing to a String");
     }
 }
+
+/// The condition of the advice to raise a depth or work bound (GUIDE-USABILITY 2): whether a
+/// run ends cannot be decided, and a hole value can make the program itself loop (a loop whose
+/// step a hole sets to 0), so a larger bound helps only a program that ends on those values.
+const TERMINATES: &str = " if the program ends on those values (a hole value can make it loop, \
+                          which no bound changes)";
 
 /// "1 case was" or "N cases were".
 fn plural_were(count: u64) -> String {

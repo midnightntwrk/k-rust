@@ -25,7 +25,7 @@ use crate::{
     assemble::{CaseAssembler, ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal},
     exec::{
-        self, Abort, CaseRequestShape, CaseResult, CompiledPattern, Executor, FailureCause,
+        self, Abort, CaseRequestShape, CaseResult, CompiledPattern, DataHere, Executor, FailureCause,
         NormalEnd, OutcomeClass, PatternCompiler, TargetNeeds, UncleanReason, UnjudgedReason,
         hooks,
     },
@@ -1242,11 +1242,22 @@ impl LiveCases {
                 )
             })
         });
-        // A value either side's backend refuses makes the case `rejected` (ARCHITECTURE 4.3,
-        // 5.3), before the pair is judged: a refused baseline is not an incomplete one.
-        if refused(&baseline) || refused(mutated) {
+        // A value the baseline's backend refuses makes the case `rejected` (ARCHITECTURE 4.3,
+        // 5.3), before the pair is judged: a refused baseline is not an incomplete one, and the
+        // input is no state of the baseline. A mutant whose initial state has no instance has the
+        // empty set of ends, which the judge compares (`differential::no_instance`); a mutant
+        // that refuses the state outright (a symbol, sort or value its definition does not
+        // declare or cannot internalize) gives no run to compare, which says nothing of the
+        // input, so the case is `unsupported` with a reason that names the mutant
+        // (FZ-ENGINE-R4, final review S1).
+        if refused(&baseline) {
             run.class = OutcomeClass::Rejected;
             run.rejection = Some(RejectionReason::BackendRefused);
+            return Ok(run);
+        }
+        if refused(mutated) && !differential::no_instance(mutated) {
+            run.class = OutcomeClass::Unsupported;
+            run.unjudged = Some(UnjudgedReason::MutantRefusedState);
             return Ok(run);
         }
         // The judged result is the re-run's when there is one (with its all-paths mode): the
@@ -1829,9 +1840,14 @@ fn run_sides(
 /// definition, judges its state data too ([`Executor::is_data_here`]). Condition 4 compares ends
 /// across the two definitions, so each compared end must be data in both, each judged by its own
 /// definition (`k_rust_backend::data_term`, "Two definitions").
+///
+/// An end that names a symbol or sort the other definition does not declare
+/// ([`DataHere::Foreign`]) stays data: it is no term of the other definition's signature, so it
+/// is outside the other side's set whatever that definition's ends are, and it is data in its
+/// own definition (final review N1).
 fn judge_data_in(other: &mut Executor, result: &mut CaseResult) {
     for leaf in &mut result.leaves {
-        if leaf.data_end == Some(true) && !other.is_data_here(&leaf.state) {
+        if leaf.data_end == Some(true) && other.data_here(&leaf.state) == DataHere::NotData {
             leaf.data_end = Some(false);
         }
     }

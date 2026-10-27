@@ -348,6 +348,7 @@ fn settings(holes: usize) -> LoopSettings {
         normal_end: None,
         rule_names: std::sync::Arc::default(),
         domain: None,
+        differential: false,
     }
 }
 
@@ -1309,6 +1310,7 @@ fn the_no_witness_statement_names_the_path_mode_and_the_bound_to_raise() {
         Budget::Cases(8),
         &options,
         100,
+        false,
     );
     assert_eq!(statement.path_mode, PathMode::OnePath);
     let text = statement.statement;
@@ -1337,6 +1339,7 @@ fn the_no_witness_statement_names_the_path_mode_and_the_bound_to_raise() {
         Budget::Work(9000),
         &all_paths,
         100,
+        false,
     )
     .statement;
     for expected in [
@@ -1711,6 +1714,7 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
         Budget::Cases(64),
         &CaseOptions::default(),
         100,
+        false,
     )
     .statement;
     assert!(
@@ -1739,6 +1743,7 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
         Budget::Cases(10),
         &all_paths,
         100,
+        false,
     )
     .statement;
     for expected in [
@@ -1770,6 +1775,7 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
         Budget::Cases(10),
         &CaseOptions::default(),
         3,
+        false,
     )
     .statement;
     assert!(
@@ -1803,11 +1809,13 @@ fn the_statement_never_claims_every_path_explored_for_cut_or_unjudged_cases() {
         Budget::Cases(10),
         &all_paths,
         100,
+        false,
     )
     .statement;
     for expected in [
         "10 cases had an incomplete baseline, so no kill could be judged.",
-        "In 10 of them a baseline path stopped at max-depth 3: raise max-depth.",
+        "In 10 of them a baseline path stopped at max-depth 3: raise max-depth if the program ends \
+         on those values",
         "followed up to the bounds below (all-paths mode)",
     ] {
         assert!(text.contains(expected), "missing {expected:?} in {text:?}");
@@ -1832,6 +1840,7 @@ fn the_statement_never_claims_every_path_explored_for_cut_or_unjudged_cases() {
         Budget::Cases(10),
         &all_paths,
         100,
+        false,
     )
     .statement;
     assert!(
@@ -1869,11 +1878,13 @@ fn the_statement_advises_raising_a_bound_only_for_unfinished_cases_a_bound_cut()
         Budget::Cases(3),
         &all_paths,
         100,
+        false,
     )
     .statement;
     for expected in [
         "3 cases reached the target without ending naturally.",
-        "In 1 of them a path stopped at max-depth 3: raise max-depth so that they finish.",
+        "In 1 of them a path stopped at max-depth 3: raise max-depth so that they finish if the \
+         program ends on those values",
         "2 of them stopped abnormally (stuck before a natural end, or at an undefined step), \
          which no bound changes.",
     ] {
@@ -1897,6 +1908,7 @@ fn the_statement_advises_raising_a_bound_only_for_unfinished_cases_a_bound_cut()
         Budget::Cases(3),
         &all_paths,
         100,
+        false,
     )
     .statement;
     assert!(!text.contains("so that they finish"), "{text}");
@@ -1917,11 +1929,13 @@ fn the_statement_does_not_say_backend_refused_cases_were_not_run() {
         Budget::Cases(6),
         &CaseOptions::default(),
         100,
+        false,
     )
     .statement;
     for expected in [
         "2 cases were rejected and not run.",
-        "3 cases were rejected by the backend, which refused the initial state.",
+        "3 cases were rejected by the backend, which refused the initial state (it is no state of \
+         that definition).",
     ] {
         assert!(text.contains(expected), "missing {expected:?} in {text:?}");
     }
@@ -1933,11 +1947,122 @@ fn the_statement_does_not_say_backend_refused_cases_were_not_run() {
         Budget::Cases(6),
         &CaseOptions::default(),
         100,
+        false,
     )
     .statement;
     assert!(!text.contains("not run"), "{text}");
     assert!(
         text.contains("5 cases were rejected by the backend"),
+        "{text}"
+    );
+}
+
+/// Final review S1 and N3 (FZ-ENGINE-R4): a differential statement names the baseline as the
+/// side whose refusal rejected an input, names what each side explored in one-path mode, and an
+/// all-paths statement does not say that a rejected input was explored.
+#[test]
+fn the_statement_names_the_side_that_refused_and_what_each_side_explored() {
+    let mut rejected = totals_with(&[(OutcomeClass::Miss, 3), (OutcomeClass::Rejected, 1)]);
+    rejected.rejections = BTreeMap::from([(RejectionReason::BackendRefused, 1)]);
+    let statement = |totals: &Totals, paths, differential| {
+        no_witness(
+            Ending::Budget,
+            totals,
+            &Cuts::default(),
+            Budget::Cases(4),
+            &CaseOptions {
+                paths,
+                ..CaseOptions::default()
+            },
+            100,
+            differential,
+        )
+        .statement
+    };
+    let text = statement(&rejected, PathMode::AllPaths, true);
+    for expected in [
+        "1 case was rejected by the baseline's backend, which refused the initial state",
+        "Every path of each input that was not rejected was explored (all-paths mode).",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in {text:?}");
+    }
+    assert!(!text.contains("Every path of each input was explored"), "{text}");
+    let text = statement(&rejected, PathMode::OnePath, true);
+    assert!(
+        text.contains(
+            "The baseline was run on every path of each input and the mutant on k-rust's \
+             first-applicable path only (one-path mode), or on every path where only a removed \
+             end could still kill"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("Only k-rust's first-applicable path"), "{text}");
+    let text = statement(&totals_with(&[(OutcomeClass::Miss, 4)]), PathMode::AllPaths, false);
+    assert!(
+        text.contains("Every path of each input was explored (all-paths mode)."),
+        "{text}"
+    );
+}
+
+/// Final review N4 (FZ-ENGINE-R4): an exhausted domain's "more cases would only repeat them"
+/// excepts the cases outside the determinism contract and the unconfirmed candidates, which may
+/// end otherwise on another run.
+#[test]
+fn an_exhausted_domain_excepts_the_cases_a_repeat_may_change() {
+    let statement = |totals: &Totals| {
+        no_witness(
+            Ending::DomainExhausted { assignments: 4 },
+            totals,
+            &Cuts::default(),
+            Budget::Cases(10),
+            &CaseOptions::default(),
+            100,
+            false,
+        )
+        .statement
+    };
+    let stable = totals_with(&[(OutcomeClass::Miss, 4)]);
+    assert!(
+        statement(&stable).contains("more cases would only repeat them."),
+        "{}",
+        statement(&stable)
+    );
+    let mut unstable = totals_with(&[(OutcomeClass::Miss, 2), (OutcomeClass::Timeout, 2)]);
+    unstable.outside_determinism = 2;
+    unstable.unconfirmed = 1;
+    let text = statement(&unstable);
+    assert!(
+        text.contains(
+            "more cases would only repeat them, except the 2 cases outside the determinism \
+             contract and the 1 case that reached the target unconfirmed, which may end \
+             otherwise on another run."
+        ),
+        "{text}"
+    );
+}
+
+/// GUIDE-USABILITY 2 (FZ-ENGINE-R4): the advice to raise a bound holds only for a program that
+/// ends on the values tried, since a hole value can make the program itself loop.
+#[test]
+fn the_bound_advice_holds_only_for_a_program_that_ends() {
+    let text = no_witness(
+        Ending::Budget,
+        &totals_with(&[(OutcomeClass::WorkBound, 2), (OutcomeClass::Miss, 1)]),
+        &Cuts::default(),
+        Budget::Cases(3),
+        &CaseOptions {
+            max_work: Some(500),
+            ..CaseOptions::default()
+        },
+        100,
+        false,
+    )
+    .statement;
+    assert!(
+        text.contains(
+            "2 cases stopped at max-work 500: raise max-work if the program ends on those values \
+             (a hole value can make it loop, which no bound changes)."
+        ),
         "{text}"
     );
 }

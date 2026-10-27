@@ -22,7 +22,7 @@ use k_rust_fuzz::{
 use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
-    COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
+    COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture, INIT, INIT_C, INIT_M,
     IMP_ADD_BECOMES_SUB, IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION,
     IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, LIST_ROW, LIST_ROW_M, MAC, MAC_KILL, OV,
     OV_INTS, OV_PREPEND, OV_SIZE, OWISE, OWISE_M, OWISE_X, R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW,
@@ -242,7 +242,8 @@ fn incomplete_baselines_under_all_paths_name_the_depth_bound() {
     let statement = &report.no_witness().expect("no witness").statement;
     for expected in [
         "10 cases had an incomplete baseline, so no kill could be judged.",
-        "In 10 of them a baseline path stopped at max-depth 3: raise max-depth.",
+        "In 10 of them a baseline path stopped at max-depth 3: raise max-depth if the program ends \
+         on those values",
     ] {
         assert!(
             statement.contains(expected),
@@ -657,6 +658,72 @@ fn a_mutant_that_removes_an_end_is_killed_in_the_one_path_mode_too() {
         witness.first.sides[1].final_configurations.len(),
         1,
         "the mutant's complete set, from its all-paths run"
+    );
+}
+
+/// Final review S1 (FZ-ENGINE-R4): on `go(0)` the mutant's initial state has no instance (its
+/// initializer `f` is undefined there), so the mutant gives the input no run and its set of ends
+/// is empty, while the baseline ends with `0` in `<x>`. That is a removed end, in both path
+/// modes (the mutant has no path to re-run), not a rejected input; the other values agree.
+#[test]
+fn a_mutant_whose_initial_state_has_no_instance_loses_the_baseline_end() {
+    for paths in [PathMode::AllPaths, PathMode::OnePath] {
+        let mut spec = spec_on(&INIT, &INIT_M, "init/go.pgm", None);
+        spec.holes[0].constraints.range = Some(IntRange {
+            min: Some(BigInt::from(0)),
+            max: Some(BigInt::from(3)),
+        });
+        spec.proposers.explicit = vec![BTreeMap::from([(
+            "N".to_owned(),
+            Value::Int(BigInt::from(1)),
+        )])];
+        spec.options.paths = paths;
+        let report = Campaign::new(spec).expect("valid").run(Budget::Cases(20), None);
+        assert!(
+            report.engine_defects.is_empty(),
+            "{:?}",
+            report.engine_defects
+        );
+        let witness = report
+            .witness()
+            .unwrap_or_else(|| panic!("{paths:?}: a kill, not {:?}", report.outcome));
+        assert_eq!(witness.first.kill, Some(KillKind::RemovedEnd), "{paths:?}");
+        assert_eq!(witness.first.holes[0].value, Value::Int(BigInt::from(0)));
+        assert_eq!(witness.first.reaching.role, DefinitionRole::Baseline);
+        assert!(
+            !report.totals.classes.contains_key(&OutcomeClass::Rejected),
+            "{paths:?}: {:?}",
+            report.totals.classes
+        );
+    }
+}
+
+/// Final review N1 (FZ-ENGINE-R4): the mutant's end `<k> done(3) </k>` names a constructor the
+/// baseline does not declare, so it is no term of the baseline's signature and none of the
+/// baseline's ends; it is data in the mutant, so the case is an added end, not
+/// `mutant-end-not-data`.
+#[test]
+fn an_end_naming_a_symbol_the_baseline_lacks_is_an_added_end() {
+    let mut spec = spec_on(&INIT, &INIT_C, "init/go.pgm", None);
+    spec.proposers.explicit = Vec::new();
+    let report = Campaign::new(spec).expect("valid").run(Budget::Cases(2), None);
+    assert!(
+        report.engine_defects.is_empty(),
+        "{:?}",
+        report.engine_defects
+    );
+    let witness = report.witness().unwrap_or_else(|| {
+        panic!(
+            "a kill, not {:?} with {:?}",
+            report.outcome, report.totals.unsupported_reasons
+        )
+    });
+    assert_eq!(witness.first.kill, Some(KillKind::AddedEnd));
+    assert_eq!(witness.first.reaching.role, DefinitionRole::Mutant);
+    let mutant_ends = &witness.first.sides[1].final_configurations;
+    assert!(
+        mutant_ends.iter().any(|end| end.contains("Lbldone")),
+        "{mutant_ends:?}"
     );
 }
 
@@ -1441,8 +1508,8 @@ fn a_mutant_that_stops_at_max_work_where_the_baseline_ended_is_not_told_to_raise
         "{statement}"
     );
     assert!(
-        !statement.contains("cases stopped at max-work 3000: raise max-work.")
-            && !statement.contains("case stopped at max-work 3000: raise max-work."),
+        !statement.contains("cases stopped at max-work 3000: raise max-work")
+            && !statement.contains("case stopped at max-work 3000: raise max-work"),
         "{statement}"
     );
     // The explicit `D = 0` case: the baseline does not end, and the old advice stands.
