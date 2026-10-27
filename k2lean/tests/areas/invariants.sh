@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
-# kimptop, kimpboth, nested, range, walk, kfold, and SIMPLE's simpleinv, simplestore, simplet), KRS IMP's sidecar invariant, the
+# kimptop, kimpboth, nested, range, walk, kfold, anyfold, and SIMPLE's simpleinv, simplestore, simplet), KRS IMP's sidecar invariant, the
 # negative check, the kind 2 demos (ImpWrites, KrsImpTyping, SimpleEnv) and template. Registry:
 # invariants.py.
 
@@ -16,7 +16,7 @@ kore_invariants() {
 
 name_invariants() {
   case $1 in
-    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;;
+    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;;
     simpleinv|simplestore|simplet) echo KSimpleInv ;;
     *) return 1 ;;
   esac
@@ -52,6 +52,10 @@ gen_invariants() {
     # a fold over `<k>` whose test of one item is a partial function (tests/fixtures/kfold)
     kfold) GEN_ARGS=(--kore "$FIXTURES/kfold/definition.kore" --runtime "$FIXTURES/kfold/runtime.json"
             --out "$o" --name KKFold --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --invariant ok) ;;
+    # `orBool` list folds, read under `notBool` and as they are (tests/fixtures/anyfold)
+    anyfold) GEN_ARGS=(--kore "$FIXTURES/anyfold/definition.kore" --runtime "$FIXTURES/anyfold/runtime.json"
+            --out "$o" --name KAnyFold --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
             --invariant ok) ;;
     # a map extended by a map built by recursion on an `Int` range (tests/fixtures/range)
     range) GEN_ARGS=(--kore "$FIXTURES/range/definition.kore" --runtime "$FIXTURES/range/runtime.json"
@@ -259,6 +263,8 @@ gate_invariants() {
   runs lib range && inv_lib range KRange
   # a fold over `<k>` read item by item (tests/fixtures/kfold)
   runs lib kfold && inv_lib kfold KKFold
+  # `orBool` list folds (tests/fixtures/anyfold)
+  runs lib anyfold && inv_lib anyfold KAnyFold
   # walks by free-key patterns over a cell map and over maps (tests/fixtures/walk)
   runs lib walk && inv_lib walk KWalk
   runs negative krsimp-ill-typed && negative_ill_typed
@@ -272,7 +278,7 @@ gate_invariants() {
     kc simple-inv && inv_lib "$d" KSimpleInv
   done
   phase "diff invariants"
-  diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested range walk kfold simpleinv simplestore simplet
+  diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested range walk kfold anyfold simpleinv simplestore simplet
   # kind 2 invariants, built like demos: a walk over <k> (ImpWrites), KRS IMP's declared cell type
   # (KrsImpTyping), a Lean invariant over KSimple's configuration (SimpleEnv, needs SIMPLE), and
   # k2l_preserve's per-rule heartbeat budget over the range library (InvBudget)

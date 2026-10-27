@@ -334,7 +334,9 @@ pub struct TranslationState {
     domains: BTreeMap<Term, Arc<[Predicate]>>,
     observations: BTreeMap<Term, Arc<crate::observation::reading::Reading>>,
     observation_demands: BTreeMap<Term, Vec<Term>>,
+    observation_facts: BTreeMap<Term, Vec<Predicate>>,
     active_observations: BTreeSet<Term>,
+    list_congruence: BTreeMap<Sort, Arc<crate::term::ListDefinition>>,
     summary_congruence: BTreeSet<CongruenceHead>,
     #[cfg(any(feature = "z3", test))]
     active_summary_links: BTreeSet<Term>,
@@ -380,7 +382,9 @@ impl TranslationState {
             domains: BTreeMap::new(),
             observations: BTreeMap::new(),
             observation_demands: BTreeMap::new(),
+            observation_facts: BTreeMap::new(),
             active_observations: BTreeSet::new(),
+            list_congruence: BTreeMap::new(),
             summary_congruence: BTreeSet::new(),
             #[cfg(any(feature = "z3", test))]
             active_summary_links: BTreeSet::new(),
@@ -499,7 +503,12 @@ impl TranslationState {
             .get(term)
             .cloned()
             .unwrap_or_default();
-        if reading.is_some() || !demands.is_empty() {
+        let facts = self
+            .observation_facts
+            .get(term)
+            .cloned()
+            .unwrap_or_default();
+        if reading.is_some() || !demands.is_empty() || !facts.is_empty() {
             if !self.active_observations.insert(term.clone()) {
                 return self.translate_term_node_plain(term);
             }
@@ -507,10 +516,15 @@ impl TranslationState {
                 for demand in demands {
                     self.translate_term(&demand)?;
                 }
-                match reading {
+                let value = match reading {
                     Some(reading) => self.translate_observation(term, &reading),
                     None => self.translate_term_node_plain(term),
+                }?;
+                for fact in facts {
+                    let fact = self.translate_predicate(&fact)?;
+                    self.record_source_fact(fact)?;
                 }
+                Ok(value)
             })();
             self.active_observations.remove(term);
             return result;
@@ -649,6 +663,28 @@ impl TranslationState {
                 } else {
                     Ok(self.abstract_term(term, Exactness::Approximate))
                 }
+            }
+            TermKind::List {
+                definition,
+                heads,
+                rest,
+            } if self.list_congruence.get(&term.sort()) == Some(definition)
+                && heads
+                    .len()
+                    .saturating_add(rest.as_ref().map_or(0, |(_, tails)| tails.len()))
+                    <= 128
+                && heads
+                    .iter()
+                    .all(|head| head.sort() == definition.element_sort)
+                && rest.as_ref().is_none_or(|(base, tails)| {
+                    base.sort() == term.sort()
+                        && tails
+                            .iter()
+                            .all(|tail| tail.sort() == definition.element_sort)
+                })
+                && self.eligible_operand(term) =>
+            {
+                self.translate_list(definition, heads, rest)
             }
             TermKind::DomainValue { .. }
             | TermKind::Map { .. }
@@ -790,14 +826,7 @@ impl TranslationState {
         self.approximate(Exactness::Approximate);
         #[cfg(any(feature = "z3", test))]
         self.demand_summary_cases(&head, arguments)?;
-        let name = match self.opaque_functions.get(&head) {
-            Some(name) => name.clone(),
-            None => {
-                let name = self.fresh_name();
-                self.opaque_functions.insert(head, name.clone());
-                name
-            }
-        };
+        let name = self.congruence_name(head);
         if arguments.is_empty() {
             return Ok(SExpr::atom(name));
         }
@@ -806,6 +835,17 @@ impl TranslationState {
             .map(|arg| self.translate_term(arg))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(SExpr::application(name, arguments))
+    }
+
+    fn congruence_name(&mut self, head: CongruenceHead) -> String {
+        match self.opaque_functions.get(&head) {
+            Some(name) => name.clone(),
+            None => {
+                let name = self.fresh_name();
+                self.opaque_functions.insert(head, name.clone());
+                name
+            }
+        }
     }
 
     pub fn translate_predicate(
@@ -817,7 +857,9 @@ impl TranslationState {
         // Give their shared values the predicate's lifetime: domain lets may read them.
         let value_root = root
             && self.shared_terms.is_none()
-            && (!self.observations.is_empty() || !self.summary_congruence.is_empty());
+            && (!self.observations.is_empty()
+                || !self.observation_facts.is_empty()
+                || !self.summary_congruence.is_empty());
         if value_root {
             self.shared_terms = Some(SharedTerms::default());
         }

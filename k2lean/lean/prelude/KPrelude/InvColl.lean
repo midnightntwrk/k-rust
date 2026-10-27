@@ -530,6 +530,11 @@ variable {Q : E → Prop} {l a b t : L} {x : E}
 @[k2l_coll] theorem elemsOn_element (h : Q x) : ElemsOn Q (element x : L) := by
   intro y hy; unfold element at hy; rw [toList_ofList, List.mem_singleton] at hy; exact hy ▸ h
 
+/-- `ListItem(X)`: the predicate of its one element (with `elemsOn_concat_iff`, a list built by
+`ListItem(X) L` or `L ListItem(X)` reads as its parts). -/
+@[k2l_pres] theorem elemsOn_element_iff : ElemsOn Q (element x : L) ↔ Q x := by
+  simp [ElemsOn, element, toList_ofList]
+
 /-- The normal form of a list's fact in the unfolding set (`@[k2l_pres]`): that of its parts, so a
 rule's `ListItem(X) REST` gives the fact of `REST` with no search. -/
 @[k2l_pres] theorem elemsOn_concat_iff : ElemsOn Q (concat a b) ↔ ElemsOn Q a ∧ ElemsOn Q b := by

@@ -108,8 +108,7 @@ impl<'a> Builder<'a> {
         if !self.pure(term)? {
             return Ok(None);
         }
-        let mut result = self
-            .stored_reconstruction(term)
+        let mut result = stored_reconstruction(self.definition, term)
             .or_else(|| self.definition.products()?.field_value(term))
             .or_else(|| {
                 let TermKind::Application { symbol, .. } = term.kind() else {
@@ -120,6 +119,16 @@ impl<'a> Builder<'a> {
                     .flatten()
             })
             .map(|value| Arc::new(Reading::Leaf(value)));
+        if result.is_none() {
+            let sort = match term.kind() {
+                TermKind::Application { arguments, .. } => arguments.first().map(Term::sort),
+                TermKind::List { .. } => Some(term.sort()),
+                _ => None,
+            };
+            result = sort
+                .and_then(|sort| self.definition.list_operations(&sort))
+                .and_then(|ops| ops.reading(self.definition, term));
+        }
         if let TermKind::Application {
             symbol, arguments, ..
         } = term.kind()
@@ -178,7 +187,7 @@ impl<'a> Builder<'a> {
         Ok(result)
     }
 
-    fn pure(&mut self, root: &Term) -> Stoppable<bool> {
+    pub(crate) fn pure(&mut self, root: &Term) -> Stoppable<bool> {
         let Some(effects) = &self.effects else {
             return Ok(false);
         };
@@ -237,24 +246,6 @@ impl<'a> Builder<'a> {
             }
             _ => false,
         }
-    }
-
-    fn stored_reconstruction(&self, term: &Term) -> Option<Term> {
-        let TermKind::Injection {
-            term: projected, ..
-        } = term.kind()
-        else {
-            return None;
-        };
-        let TermKind::Application { arguments, .. } = projected.kind() else {
-            return None;
-        };
-        let [input] = arguments.as_slice() else {
-            return None;
-        };
-        self.definition
-            .selector(&input.sort(), &projected.sort())?
-            .reconstruct_subterm(self.definition, projected, term)
     }
 
     fn lift(
@@ -390,4 +381,23 @@ impl<'a> Builder<'a> {
         self.observations.insert(request, reading.clone());
         Ok(Some(reading))
     }
+}
+
+/// Recover the raw stored item only through a checked selector inverse.
+pub(super) fn stored_reconstruction(definition: &BackendDefinition, term: &Term) -> Option<Term> {
+    let TermKind::Injection {
+        term: projected, ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    let TermKind::Application { arguments, .. } = projected.kind() else {
+        return None;
+    };
+    let [input] = arguments.as_slice() else {
+        return None;
+    };
+    definition
+        .selector(&input.sort(), &projected.sort())?
+        .reconstruct_subterm(definition, projected, term)
 }

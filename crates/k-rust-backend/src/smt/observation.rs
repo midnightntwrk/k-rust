@@ -7,6 +7,54 @@ use super::{SExpr, TranslationError, TranslationState};
 use crate::{observation::reading::Reading, rule::Predicate, term::Term};
 
 impl TranslationState {
+    /// Forward congruence of the actual source list roles. No injectivity or general
+    /// sequence theory is asserted; original list domains remain separately required.
+    pub(super) fn translate_list(
+        &mut self,
+        collection: &Arc<crate::term::ListDefinition>,
+        heads: &crate::term::Items<Term>,
+        rest: &Option<(Term, crate::term::Items<Term>)>,
+    ) -> Result<SExpr, TranslationError> {
+        self.approximate(super::Exactness::Approximate);
+        let sort = crate::term::Sort::simple(collection.list_sort.clone());
+        let role = |name: crate::term::Name, arguments| super::CongruenceHead::Application {
+            name,
+            sorts: vec![],
+            arguments,
+            result: sort,
+        };
+        let unit = self.congruence_name(role(collection.symbols.unit.clone(), vec![]));
+        let item = self.congruence_name(role(
+            collection.symbols.element.clone(),
+            vec![collection.element_sort],
+        ));
+        let concat =
+            self.congruence_name(role(collection.symbols.concat.clone(), vec![sort, sort]));
+        let cons = |value, tail| {
+            SExpr::application(
+                concat.clone(),
+                vec![SExpr::application(item.clone(), vec![value]), tail],
+            )
+        };
+        let mut value = if let Some((base, tails)) = rest {
+            if tails.is_empty() {
+                self.translate_term(base)?
+            } else {
+                let mut suffix = SExpr::atom(unit.clone());
+                for tail in tails.iter().rev() {
+                    suffix = cons(self.translate_term(tail)?, suffix);
+                }
+                SExpr::application(concat.clone(), vec![self.translate_term(base)?, suffix])
+            }
+        } else {
+            SExpr::atom(unit)
+        };
+        for head in heads.iter().rev() {
+            value = cons(self.translate_term(head)?, value);
+        }
+        Ok(value)
+    }
+
     pub(super) fn translate_observation(
         &mut self,
         term: &Term,
@@ -145,6 +193,19 @@ pub(super) fn prepare(
     let Some(originals) = original_terms(known, substitution, checked)? else {
         return Ok(Vec::new());
     };
+    let mut list_prefixes = BTreeMap::<Term, usize>::new();
+    for term in &originals {
+        stop::check()?;
+        if let crate::term::TermKind::Application { arguments, .. } = term.kind()
+            && let Some(input) = arguments.first()
+            && let Some((list, count)) = definition
+                .list_operations(&input.sort())
+                .and_then(|ops| ops.demanded_prefix(term))
+        {
+            let demand = list_prefixes.entry(list.clone()).or_default();
+            *demand = (*demand).max(count);
+        }
+    }
     let mut predicates = known.iter().chain(checked).cloned().collect::<Vec<_>>();
     let mut terms = substitution.values().cloned().collect::<Vec<_>>();
     let mut builder = Builder::new(definition);
@@ -218,6 +279,23 @@ pub(super) fn prepare(
             if !seen.insert(term.clone()) {
                 continue;
             }
+            if let Some(ops) = definition.list_operations(&term.sort()) {
+                state
+                    .list_congruence
+                    .insert(term.sort(), ops.collection.clone());
+                if originals.contains(&term)
+                    && !matches!(term.kind(), crate::term::TermKind::List { .. })
+                    && state.eligible_operand(&term)
+                    && let Some(fact) = ops.empty_fact(&term)
+                {
+                    predicates.push(fact.clone());
+                    state
+                        .observation_facts
+                        .entry(term.clone())
+                        .or_default()
+                        .push(fact);
+                }
+            }
             if let Some(reading) = builder.of(&term)? {
                 readings.push(reading.clone());
                 state.observations.insert(term.clone(), reading);
@@ -269,9 +347,42 @@ pub(super) fn prepare(
                 }
             }
             if originals.contains(&term)
+                && state.eligible_operand(&term)
+                && let crate::term::TermKind::Application { arguments, .. } = term.kind()
+                && let [input] = arguments.as_slice()
+                && let Some(selector) = definition.selector(&input.sort(), &term.sort())
+                && selector.project(input.clone()).as_ref() == Some(&term)
+            {
+                // A projected value used by arithmetic may later be simplified to a
+                // literal. Demand its checked inverse now, so that stored-item equality
+                // still transports that value through reconstructed state contexts.
+                let inverse = selector.embed(term.clone());
+                if inverse != term {
+                    let reading = Arc::new(Reading::Leaf(input.clone()));
+                    state.observations.insert(inverse.clone(), reading.clone());
+                    readings.push(reading);
+                    terms.push(inverse.clone());
+                    state
+                        .observation_demands
+                        .entry(term.clone())
+                        .or_default()
+                        .push(inverse);
+                }
+            }
+            if originals.contains(&term)
                 && !state.observations.contains_key(&term)
                 && state.eligible_operand(&term)
-                && let Some(canonical) = definition.products().and_then(|p| p.canonical(&term))
+                && let Some(canonical) = definition
+                    .products()
+                    .and_then(|p| p.canonical(&term))
+                    .or_else(|| {
+                        if matches!(term.kind(), crate::term::TermKind::List { .. }) {
+                            return None;
+                        }
+                        definition
+                            .list_operations(&term.sort())?
+                            .prefix(term.clone(), list_prefixes.get(&term).copied().unwrap_or(1))
+                    })
                 && let Some(reading) = builder.of(&canonical)?
             {
                 // Only values present in the original query get this demand. Generated

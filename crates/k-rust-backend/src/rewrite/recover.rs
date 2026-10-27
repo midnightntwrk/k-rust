@@ -132,6 +132,21 @@ fn recover_by_simplifying_pairs(
         matched.conjoin(simplified_subject.conditions);
         let simplified_subject = simplified_subject.term;
 
+        if let Some((witness, guards)) = crate::observation::lists::match_view(
+            definition,
+            &simplified_pattern,
+            &simplified_subject,
+        )? && let MatchResult::Success(found) = match_terms_in_definition(
+            MatchMode::Rewrite,
+            definition,
+            &simplified_pattern,
+            &witness,
+        ) {
+            matched.bind(&found);
+            matched.conjoin(guards);
+            continue;
+        }
+
         if !simplified_pattern
             .attributes()
             .variables
