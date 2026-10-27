@@ -3229,6 +3229,8 @@ Those are separate case-guided inputs; the six original unguided forms are not r
 The original map repro and independent instruction spot checks also passed the consumer review.
 
 `contract-call-taken`, `contract-dispatch-running` and `contract-dispatch-wake` independently reached the same external limit without a native verdict.
-They remain ordinary local-contract workload whose individual proofs are unqualified by those runs; they were not assigned outside the supported syntax or declared Lean work.
-Profile preparation, authored-case aggregation, missing source links and SMT work before diagnosing their cause or changing budgets.
+They remained ordinary local-contract workload whose individual proofs were unqualified by those runs; they were not assigned outside the supported syntax or declared Lean work.
+The native follow-up at `88dad4351` proves the same three compiled contracts with unchanged Foldiboy source and native Z3 4.12.5 defaults: all five CALL parts prove in 41.37 seconds total, running in 423.71 seconds and wake in 429.40 seconds of core proof time, with productive leaves and no stop or unexplored state.
+That follow-up repairs source Boolean guard admission and adds bounded complete-input decided-query reuse, sufficient map-context checks and request-local independently proved observation aliases; it adds no trusted source axiom.
+The combined revision also passes 1812 backend tests and the 79 fixed core/facade dispositions; this is a targeted replay of the three contracts, not a fresh replay of all 181 authored claims.
 These are historical qualification measurements, not certification of every later checkout or a Foldiboy-specific whitelist defining the supported laws.

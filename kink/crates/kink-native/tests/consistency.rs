@@ -402,26 +402,29 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// no digest is touched. At the branch base `16014aab4` the ranges already did not hold their
 /// pinned text, the test being red there (MAIN-KINK-GATE-RED), so this moves no verdict.
 ///
+/// Typed SMT cache documentation moves the three compatibility passages down one line.
+/// All pinned passages and both source digests remain byte-identical.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
 const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     (
         "docs/compatibility.md",
-        1081,
-        1083,
+        1082,
+        1084,
         "a350602f04b9a4d28ae88fa10bfe57340bcfe3f0f19a9260c9e926ac80f00e25",
     ),
     (
         "docs/compatibility.md",
-        1112,
-        1119,
+        1113,
+        1120,
         "16798fc021e1c3b22eee935971f2c7fcbfdddb5af1771ee22bdd0929d7d58bf1",
     ),
     (
         "docs/compatibility.md",
-        1135,
-        1148,
+        1136,
+        1149,
         "64b22da342b8e31eb42497885315d42af3fba138e6315797d46870ab2a47d202",
     ),
     (
