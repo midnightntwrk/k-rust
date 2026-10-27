@@ -28,7 +28,11 @@ On each goal it runs, in order, until one closes the goal completely:
    lemma's premises by the hypotheses or by simp; a goal no lemma applies to is normalized by the
    unfolding set and attacked again (at most twice on a path: `Q (k, v)` of a rebuilt element
    unfolds to goals on the collections inside it);
-4. *simp*: `simp_all` with the unfolding set;
+4. *simp*: `simp_all` with the unfolding set; failing that, the same on each branch of the
+   disjunctions among the rule's hypotheses (at most three split along a path), which an
+   invariant with `orBool` or `impliesBool` at its top leaves (`B impliesBool hasZero(L)` is
+   `b = false ∨ ElemsSome Q L`), each branch closed by `simp_all` or then by the arithmetic of 5:
+   a hypothesis `A ∨ B` proves the goal when each branch does;
 5. *arithmetic*: rewrite the hypotheses and the goal with the unfolding set and the
    `@[k2l_arith]` lemmas, which state the `Int` and `Bool` hooks in Lean's arithmetic
    (`IntHook.add a b` is `a + b`, `IntHook.ge a b = true` is `a ≥ b`), then `omega` on what
@@ -236,6 +240,27 @@ def familyEnumCases (g : MVarId) (x : FVarId) : MetaM (Option (Array MVarId)) :=
 /-- Split conjunctions among the hypotheses. -/
 def splitAnds : TacticM Unit := do
   tryRec (liftMetaTactic fun g => return [← g.casesAnd]) (pure ())
+
+/-- Split the disjunctions among the hypotheses of each goal, and the conjunctions of each branch,
+at most `n` disjunctions along a path. -/
+partial def splitOrs (n : Nat) : TacticM Unit := do
+  if n = 0 then return
+  let mut out := #[]
+  for g in ← getGoals do
+    let h? ← g.withContext do
+      for d in (← getLCtx) do
+        if d.isImplementationDetail then continue
+        if (← instantiateMVars d.type).isAppOfArity ``Or 2 then return some d.fvarId
+      return none
+    match h? with
+    | none => out := out.push g
+    | some h =>
+      for sg in ← g.cases h do
+        setGoals [sg.mvarId]
+        splitAnds
+        splitOrs (n - 1)
+        out := out ++ (← getGoals)
+  setGoals out.toList
 
 /-- `EntriesOn Q m` (a `KPrelude.MapHook.EntriesOn` application): `(Q, m)`. -/
 def entriesOn? (ty : Expr) : Option (Expr × Expr) :=
@@ -560,9 +585,26 @@ partial def closeRuleAux (k : Closers) (depth : Nat := 2) : TacticM Bool := do
         if (← getGoals).isEmpty then return true
         collClose k.disch k.coll k.norm k.U 2 3) (pure false)
     if ok then setGoals [] else s1.restore
-  -- 4. simp
+  -- 4. simp, then on each branch of the hypotheses' disjunctions
   unless ok do
     ok ← closes (← `(tactic| (intro h; $(k.simpAllU); done)))
+  unless ok do
+    ok ← tryRec (do
+        evalTactic (← `(tactic| (intro h; $(k.unfoldBoth))))
+        splitAnds
+        splitOrs 3
+        -- each branch: `simp_all`, or the arithmetic of 5 after it or alone
+        for g in ← getGoals do
+          setGoals [g]
+          if ← closes (← `(tactic| ($(k.simpAllU); done))) then continue
+          let s ← saveState
+          tryRec (evalTactic k.simpAllU) (pure ())
+          if (← getGoals).isEmpty then continue
+          if ← closes k.arith then continue
+          s.restore
+          unless ← closes k.arith do return false
+        pure true) (pure false)
+    if ok then setGoals [] else s1.restore
   -- 5. arithmetic
   unless ok do
     ok ← closes (← `(tactic| (intro h; $(k.arith))))
