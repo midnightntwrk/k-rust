@@ -303,9 +303,10 @@ fn state_one(
             let oe = match (st.split_last(), &ca) {
                 (Some((Step::Bind { expr, var, .. }, init)), L::Var(v)) if v == var => {
                     init.iter().rev().try_fold(expr.render(), |e, s| match s {
-                        Step::Bind { expr, var, .. } => {
-                            Some(format!("(Option.bind {} fun {var} => {e})", expr.render_arg()))
-                        }
+                        Step::Bind { expr, var, .. } => Some(format!(
+                            "(Option.bind {} fun {var} => {e})",
+                            expr.render_arg()
+                        )),
                         _ => None,
                     })
                 }
