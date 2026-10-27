@@ -38,6 +38,8 @@ doc = "`name @ pattern` (K's `#as`) outside a left-hand side"
 code = "krs::analysis::invalid-pattern-or"
 doc = "`A | B` in a simplification's or single-body rule's subject, which is rewritten as one term"
 
+# No generated case makes this mistake alone: outside a pattern, the term family's only `|`
+# construct, `Cmd::Go() | Cmd::Hold(_)`, holds a `_`, whose placement is decided first.
 [class.alternatives-outside-pattern]
 code = "krs::analysis::ambiguous-operator"
 doc = "`A | B` in a result, a condition or an initializer, where `|` is the bitwise operator"
@@ -227,27 +229,6 @@ at = "spelling"
 [[refuse]]
 match = 'terms/{local-rule,simplification}/subject/Cmd::Go() | Cmd::Hold(_)'
 class = "alternatives-in-one-term-rewrite"
-at = "spelling"
-
-# alternatives-outside-pattern
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/Cmd::Go() | Cmd::Hold(_)'
-class = "alternatives-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{result,result-list-element}/Cmd::Go() | Cmd::Hold(_)'
-class = "alternatives-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/Cmd::Go() | Cmd::Hold(_)'
-class = "alternatives-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule}/{guard,result}/Cmd::Go() | Cmd::Hold(_)'
-class = "alternatives-outside-pattern"
 at = "spelling"
 
 # binder-sort
@@ -858,24 +839,26 @@ match = 'init/k/{[0],[],k::k![0],k::k![]}'
 class = "unused-configuration-variable"
 at = "item"
 
-# wildcard-outside-pattern
+# wildcard-outside-pattern. Outside a pattern, `Cmd::Go() | Cmd::Hold(_)` is the bitwise operator
+# applied to two terms, whose operand sorts only the compiler judges; the `_` inside it is a
+# placement mistake, decided before any sort, so the case is the `_`'s, at the construct.
 [[refuse]]
-match = 'terms/init/{item,item-depth-2}/_'
+match = 'terms/init/{item,item-depth-2}/{_,Cmd::Go() | Cmd::Hold(_)}'
 class = "wildcard-outside-pattern"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/readable/{result,result-list-element}/_'
+match = 'terms/readable/{result,result-list-element}/{_,Cmd::Go() | Cmd::Hold(_)}'
 class = "wildcard-outside-pattern"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/_'
+match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/{_,Cmd::Go() | Cmd::Hold(_)}'
 class = "wildcard-outside-pattern"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/{equation,rule}/{guard,result}/_'
+match = 'terms/{equation,rule}/{guard,result}/{_,Cmd::Go() | Cmd::Hold(_)}'
 class = "wildcard-outside-pattern"
 at = "spelling"
 

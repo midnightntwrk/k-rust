@@ -829,11 +829,6 @@ step = "S5"
 
 # S0-10: a term construct outside the positions it may stand at is refused with the generic parse code of the form that meets it (`rust-syntax`, `unsupported-term-expression`, `syntax::invalid-matches`, `syntax::invalid-let`, `unsupported-rule-signature`) instead of the construct's code
 
-["terms/claim/result/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S3"
-
 ["terms/claim/result/y @ Cmd::Hold(_)"]
 finding = "S0-10"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -884,11 +879,6 @@ finding = "S0-10"
 deviation = "krs::syntax::unsupported-rule-signature @ spelling"
 step = "S3"
 
-["terms/equation/guard/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S3"
-
 ["terms/equation/guard/k::anonymous!(Int, \"_V\")"]
 finding = "S0-10"
 deviation = "krs::syntax::unsupported-rule-signature @ spelling"
@@ -907,11 +897,6 @@ step = "S3"
 ["terms/equation/guard/k::lexeme!(Word, \"word\")"]
 finding = "S0-10"
 deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/equation/result/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
 step = "S3"
 
 ["terms/equation/subject-depth-2/k::matches!(x, Cmd::Hold(_))"]
@@ -944,19 +929,9 @@ finding = "S0-10"
 deviation = "krs::syntax::invalid-let @ spelling"
 step = "S3"
 
-["terms/init/item-depth-2/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S3"
-
 ["terms/init/item-depth-2/k::anonymous!(Int, \"_V\")"]
 finding = "S0-10"
 deviation = "krs::expand::claim-only-term @ spelling"
-step = "S3"
-
-["terms/init/item/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
 step = "S3"
 
 ["terms/init/item/k::anonymous!(Int, \"_V\")"]
@@ -1004,19 +979,9 @@ finding = "S0-10"
 deviation = "krs::expand::ml-placement @ spelling"
 step = "S3"
 
-["terms/readable/result-list-element/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S3"
-
 ["terms/readable/result-list-element/y @ Cmd::Hold(_)"]
 finding = "S0-10"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S3"
-
-["terms/readable/result/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
 step = "S3"
 
 ["terms/readable/result/y @ Cmd::Hold(_)"]
@@ -1094,11 +1059,6 @@ finding = "S0-10"
 deviation = "krs::syntax::unsupported-rule-signature @ spelling"
 step = "S3"
 
-["terms/rule/guard/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S3"
-
 ["terms/rule/guard/k::anonymous!(Int, \"_V\")"]
 finding = "S0-10"
 deviation = "krs::syntax::unsupported-rule-signature @ spelling"
@@ -1117,11 +1077,6 @@ step = "S3"
 ["terms/rule/guard/k::lexeme!(Word, \"word\")"]
 finding = "S0-10"
 deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/result/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
 step = "S3"
 
 ["terms/rule/subject-depth-2/k::matches!(x, Cmd::Hold(_))"]
@@ -1154,16 +1109,6 @@ finding = "S0-10"
 deviation = "krs::syntax::invalid-let @ spelling"
 step = "S3"
 
-["terms/shorthand/result/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S3"
-
-["terms/simplification/result/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S3"
-
 ["terms/simplification/subject/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-10"
 deviation = "krs::syntax::invalid-matches @ spelling"
@@ -1177,11 +1122,6 @@ step = "S3"
 ["terms/simplification/subject/{ let y = x; y }"]
 finding = "S0-10"
 deviation = "krs::syntax::invalid-let @ spelling"
-step = "S3"
-
-["terms/sort-rule/result/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
 step = "S3"
 
 ["terms/sort-rule/subject-depth-2/k::is!(Int, x)"]
@@ -1232,11 +1172,6 @@ step = "S3"
 ["terms/sort-rule/subject/{ let y = x; y }"]
 finding = "S0-10"
 deviation = "krs::syntax::rust-syntax @ spelling"
-step = "S3"
-
-["terms/table/result/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
 step = "S3"
 
 ["terms/table/result/y @ Cmd::Hold(_)"]
