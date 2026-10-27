@@ -18,6 +18,14 @@
 //! - `applied_ids` (fired) are k-rust's `applied` ids: every rule for which a step built a
 //!   successor or found the step undefined, and every equation whose instance gave a result.
 //!
+//! `fired_sentences` (KINK-R4) are the baseline sentences behind the fired ids: a rewrite rule
+//! among k-rust's `committed` ids, whose step some explored path takes (a successor the step's
+//! own normalization showed defined), and an equation among `applied`, whose instance gave a
+//! result. A rewrite candidate rolled back because its successor was undefined, and an undefined
+//! step's rule, are applied but not committed: no path takes them, so they are not fired.
+//! kink-flow's `fired_by` reads them; they are not part of the canonical value
+//! ([`TestCoverage::value`]), which schedules read, so [`COVERAGE_DOMAIN`] did not move.
+//!
 //! Both cover every state the run explored, the states a state-set result merges away included.
 //! Before L2-1 (`kink/coverage/v1`) the rule ids were the rewrite rules among `applied` only, so
 //! an equation edit was never covered (ticket CS-T09), and an execution without run coverage was
@@ -229,6 +237,10 @@ pub struct TestCoverage {
     pub sentences: BTreeSet<SentenceRef>,
     /// The baseline sentences behind `applied_ids`.
     pub applied_sentences: BTreeSet<SentenceRef>,
+    /// The baseline sentences behind the fired ids, a subset of `applied_sentences`: the rewrite
+    /// rules whose step some explored path takes (k-rust `committed`) and the equations among
+    /// `applied_ids` (module docs). Not in [`Self::value`].
+    pub fired_sentences: BTreeSet<SentenceRef>,
     /// The ids of `rule_ids` with no baseline sentence, with the reason (generating pass or an
     /// `UNMAPPED_*` value).
     pub unmapped: BTreeMap<String, String>,
@@ -313,6 +325,7 @@ impl TestCoverage {
         };
         let mut sentences = BTreeSet::new();
         let mut applied_sentences = BTreeSet::new();
+        let mut fired_sentences = BTreeSet::new();
         let mut unmapped = BTreeMap::new();
         for id in &coverage.matched {
             match authors.get(id) {
@@ -320,6 +333,16 @@ impl TestCoverage {
                     sentences.extend(authors.iter().cloned());
                     if coverage.applied.contains(id) {
                         applied_sentences.extend(authors.iter().cloned());
+                    }
+                    // A rewrite rule fires when a path takes its step; an equation when its
+                    // instance gave a result (it takes no step, so it is never committed).
+                    let fired = if coverage.applied_rewrites.contains(id) {
+                        coverage.committed.contains(id)
+                    } else {
+                        coverage.applied.contains(id)
+                    };
+                    if fired {
+                        fired_sentences.extend(authors.iter().cloned());
                     }
                 }
                 Some(Authorship::Unmapped(reason)) => {
@@ -337,6 +360,7 @@ impl TestCoverage {
             applied_ids: coverage.applied.clone(),
             sentences,
             applied_sentences,
+            fired_sentences,
             unmapped,
         }
     }
@@ -352,12 +376,14 @@ impl TestCoverage {
             applied_ids: BTreeSet::new(),
             sentences: BTreeSet::new(),
             applied_sentences: BTreeSet::new(),
+            fired_sentences: BTreeSet::new(),
             unmapped: BTreeMap::new(),
         }
     }
 
     /// The canonical value: `{"test_id","complete","rule_ids","applied_ids","sentences",
-    /// "applied_sentences","unmapped"}`, every list sorted.
+    /// "applied_sentences","unmapped"}`, every list sorted; `fired_sentences` is left out
+    /// (module docs).
     #[must_use]
     pub fn value(&self) -> Value {
         let sentences = |sentences: &BTreeSet<SentenceRef>| {

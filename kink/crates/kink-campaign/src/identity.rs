@@ -73,8 +73,11 @@ use std::{path::Path, sync::OnceLock};
 /// review 1, minor). v5 (re-pin adoption A-1): a record holds `specification_diagnostics`, the
 /// baseline run's contradicted-claim records, and `smt_unknowns`, its undecided solver answers;
 /// and a baseline run whose k-rust lists hold any entry is excluded, so a v4 `comparable` record
-/// may no longer be.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v5";
+/// may no longer be. v6 (KINK-R4): a record's coverage holds `fired_sentences`, which a rule's
+/// `fired_by` now lists in place of `applied_sentences`: a rewrite rule only when some path of the
+/// run takes its step (k-rust `committed`), not when its candidate was rolled back or its step was
+/// undefined; a v5 record has no such member, and its `applied_sentences` hold rules no path took.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v6";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

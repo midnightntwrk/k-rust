@@ -610,6 +610,80 @@ text = 'h(opaque(1), 2)'
         );
     }
 
+    /// KINK-R4: a rule's `fired_by` lists a program only when some path of its run takes the
+    /// rule's step (k-rust `committed`). On `pick(0)` the candidates `bad` (`10 /Int 0`) and
+    /// `good` share a priority; `bad`'s successor is undefined beside `good`'s, so it is rolled
+    /// back: applied (the record's `applied_sentences`), but no path takes it, so `bad` is
+    /// reached and not fired, while `good` fires. On `pick(5)` both fire. Before result schema
+    /// v6 `fired_by` read `applied` and listed `pick(0)` under `bad`. An equation fires when its
+    /// instance gives a result (`half`).
+    #[test]
+    #[ignore = "kink"]
+    fn fired_by_lists_only_programs_a_path_of_which_takes_the_step() {
+        let dir = scratch("fired-committed");
+        write(
+            &dir.join("pick.k"),
+            "module PICK-SYNTAX\n  imports INT-SYNTAX\n  syntax Pgm ::= pick(Int)\nendmodule\n\n\
+             module PICK\n  imports PICK-SYNTAX\n  imports INT\n  \
+             configuration <k> $PGM:Pgm </k> <out> 0 </out>\n  \
+             syntax Int ::= half(Int) [function, total]\n  rule half(X) => X /Int 2\n  \
+             rule [bad]: <k> pick(N) => .K </k> <out> _ => 10 /Int N </out>\n  \
+             rule [good]: <k> pick(N) => .K </k> <out> _ => half(N) </out>\nendmodule\n",
+        );
+        write(
+            &dir.join("FLOW.toml"),
+            "[spec]\nentry = \"pick.k\"\nmain_module = \"PICK\"\nsyntax_module = \
+             \"PICK-SYNTAX\"\n\n[[program]]\nid = \"zero\"\ntext = \"pick(0)\"\n\n\
+             [[program]]\nid = \"five\"\ntext = \"pick(5)\"\n",
+        );
+        let (document, status) = run(&dir.join("FLOW.toml"), false);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(
+            rows(&document),
+            expect(&[("zero", "comparable", false), ("five", "comparable", false)])
+        );
+        let rule = |label: &str| {
+            document["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|rule| rule["label"] == label)
+                .cloned()
+                .unwrap_or_else(|| panic!("no rule {label}: {document:#}"))
+        };
+        let lists = |label: &str| {
+            let rule = rule(label);
+            (rule["reached_by"].clone(), rule["fired_by"].clone())
+        };
+        assert_eq!(
+            lists("PICK.bad"),
+            (json!(["zero", "five"]), json!(["five"]))
+        );
+        assert_eq!(
+            lists("PICK.good"),
+            (json!(["zero", "five"]), json!(["zero", "five"]))
+        );
+        let half = document["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["label"].is_null())
+            .cloned()
+            .unwrap();
+        assert_eq!(half["fired_by"], json!(["zero", "five"]), "{half:#}");
+        let record = read_json(&record_path(&dir.join("FLOW.toml"), &document, "zero"));
+        let holds = |key: &str, label: &str| {
+            record["coverage"][key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|sentence| sentence["label"] == label)
+        };
+        assert!(holds("applied_sentences", "PICK.bad"), "{record:#}");
+        assert!(!holds("fired_sentences", "PICK.bad"), "{record:#}");
+        assert!(holds("fired_sentences", "PICK.good"), "{record:#}");
+    }
+
     #[test]
     #[ignore = "kink"]
     fn editing_one_program_recomputes_exactly_that_one() {
@@ -959,7 +1033,7 @@ text = 'h(opaque(1), 2)'
                 .any(|sentence| sentence["label"] == "MAP-STORE.store")
         };
         assert!(
-            reached("sentences") && reached("applied_sentences"),
+            reached("sentences") && reached("applied_sentences") && reached("fired_sentences"),
             "{record:#}"
         );
         assert_eq!(document["rules"][0]["status"], "covered");
@@ -968,8 +1042,9 @@ text = 'h(opaque(1), 2)'
         // U1: a v1 record is recomputed, never trusted under the v2 value rule.
         // Re-pin R0b: v4, because the exclusions change what counts as comparable. Re-pin adoption
         // A-1: v5, because a record holds the baseline run's specification diagnostics and undecided
-        // solver answers, and k-rust's run-level lists exclude a baseline run.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v5");
+        // solver answers, and k-rust's run-level lists exclude a baseline run. KINK-R4: v6,
+        // because a record's coverage holds the fired sentences `fired_by` lists.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v6");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

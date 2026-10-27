@@ -265,15 +265,21 @@ pub struct ResultRun {
 /// k-rust's run coverage of one run (`collect_coverage`, `RunCoverageOutput`), by `UNIQUE_ID`:
 /// every rule and equation the run applied, every one whose condition it began to decide
 /// (`matched`, a superset; the two are what kink schedules by, [`crate::coverage::TestCoverage`]),
-/// and the rewrite rules among `applied`: those for which a step built a successor or found the
-/// step undefined, which a stepped path set's branch identities also name (the L1-1 differential
-/// compares them). It covers every state the run explored, including leaves a state set merges
-/// away. Coverage is a scheduling and report input only.
+/// the rewrite rules among `applied`: those for which a step built a successor or found the step
+/// undefined, which a stepped path set's branch identities also name (the L1-1 differential
+/// compares them), and the rewrite rules whose successor the run committed to (`committed`,
+/// `collect_committed`, a subset of `applied`): a step built a successor of the rule that its own
+/// normalization showed defined, so some explored path takes the rule's step. A candidate rolled
+/// back because its successor was undefined and an undefined step's rule are in `applied` only:
+/// no path takes them. It covers every state the run explored, including leaves a state set
+/// merges away. Coverage is a scheduling and report input only.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RunCoverage {
     pub applied: BTreeSet<String>,
     pub matched: BTreeSet<String>,
     pub applied_rewrites: BTreeSet<String>,
+    /// Empty when the run's coverage did not report it (every run [`request`] builds asks).
+    pub committed: BTreeSet<String>,
 }
 
 impl RunCoverage {
@@ -284,6 +290,7 @@ impl RunCoverage {
             applied,
             matched: output.matched.into_iter().collect(),
             applied_rewrites,
+            committed: output.committed.into_iter().flatten().collect(),
         }
     }
 }
@@ -589,9 +596,13 @@ pub enum ExecutionAdapterFailure {
 ///   k-rust reports only when asked, and asking changes no other field of the result).
 /// - `collect_conditions: None`: no condition records are asked for (they are part of the
 ///   coverage k-rust reports only when asked, and asking changes no other field of the result).
-/// - `match_states: None`, `collect_committed: false`: kink matches no reached state inside the
-///   run and reads no committed transitions; asking for either changes no other field of the
-///   result, so their absence keeps every run as before.
+/// - `match_states: None`: kink matches no reached state inside the run; asking changes no other
+///   field of the result, so its absence keeps every run as before.
+/// - `collect_committed: true` (KINK-R4): the run's coverage also reports the rewrite rules whose
+///   successor it committed to ([`RunCoverage::committed`]), which kink-flow's `fired_by` reads.
+///   k-rust states that asking changes no other field of the result (docs/compatibility.md,
+///   "Committed transitions"), so no leaf, list, `applied` or `matched` set, and so no verdict or
+///   schedule, differs from a run without it.
 ///
 /// Step timeouts stay off: a step deadline is host-dependent, which an Execute-promise run must
 /// not be (finding A-03).
@@ -618,7 +629,7 @@ fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRe
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
         match_states: None,
-        collect_committed: false,
+        collect_committed: true,
         schema_version: BACKEND_SCHEMA_VERSION,
     }
 }
@@ -637,6 +648,9 @@ fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRe
 /// calibrates a mutant's `max_work` from its state set. A campaign that stores reports
 /// (kink-corpus, replay) runs the default `RunOptions`; kink-flow's tier-1 context names its work
 /// budget. Builds before packet CACHE-ID name no version (1ee9955 ran path sets with traces).
+/// KINK-R4 asks for the committed transitions within v2: k-rust states that asking changes no
+/// other field of the result, and nothing that decides a verdict or a schedule reads them; the one
+/// store that holds them, kink-flow's result records, moved its own `RESULT_SCHEMA_VERSION`.
 pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v2";
 
 /// The request of a stepped run: an observed path set without a work budget.

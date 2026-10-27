@@ -199,6 +199,7 @@ fn complete_coverage() -> TestCoverage {
         applied_ids: BTreeSet::new(),
         sentences: BTreeSet::new(),
         applied_sentences: BTreeSet::new(),
+        fired_sentences: BTreeSet::new(),
         unmapped: BTreeMap::new(),
     }
 }

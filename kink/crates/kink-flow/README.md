@@ -119,7 +119,7 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<spec digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v5`, kink's build identity `kink_build`, kink's semantics identity `kink`, the two digests and the budget), class and cause,
+(result schema version `kink-flow/result/v6`, kink's build identity `kink_build`, kink's semantics identity `kink`, the two digests and the budget), class and cause,
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), the final configuration as KORE text, the rule
 coverage, `wall_ms`, the wall time of the program's live baseline run (outside the key and
@@ -186,11 +186,15 @@ mismatches, a summary, `baseline_runs` (`results --verify` runs every program li
 A rule's coverage is k-rust's run coverage of each comparable program's baseline run (kink-native
 `coverage`, `kink/coverage/v2` since re-pin L2-1, v3 since L2-1-tail), rewrite rules and equations alike: `reached_by` lists the
 programs that began to decide one of the rule's conditions for an instance whose left-hand side matched, or
-applied it (k-rust `matched`), and `fired_by` those that applied it (`applied`: a rewrite step built a successor,
-or an equation's instance gave a result). Neither is an over-approximation of what can change a result: a
+applied it (k-rust `matched`), and `fired_by` those that fired it: for a rewrite rule, some path of the run takes its
+step (`committed`: a step built a successor of the rule that its own normalization showed defined), and for an
+equation, an instance gave a result (`applied`). Since result schema v6 (KINK-R4) a rewrite rule's `fired_by` no longer
+lists a program whose candidate of it was rolled back because its successor was undefined, or whose step by it was
+undefined (both are in `applied`, and no path takes either), so it lists exactly the programs `fuzz --fired` offers.
+Neither is an over-approximation of what can change a result: a
 higher-priority rule whose left-hand side never matched is not reached, although its failure is what lets a
-lower-priority or `owise` rule fire. The record holds the reached and fired sentences (`coverage.sentences`,
-`coverage.applied_sentences`).
+lower-priority or `owise` rule fire. The record holds the reached, applied and fired sentences (`coverage.sentences`,
+`coverage.applied_sentences`, which orders `run`'s programs, and `coverage.fired_sentences`).
 A `non-executable` rule is one k-rust never runs (it internalizes executable axioms only), so no program can reach it:
 since re-pin L2-1-tail it has status `no-coverage-signal` with reason `a non-executable rule: k-rust never runs it, so no
 program can reach it`, never `uncovered`; before, it was listed `uncovered`, as a next program to write.

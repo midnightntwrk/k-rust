@@ -286,7 +286,7 @@ kink-flow fuzz FLOW.toml TEMPLATES.toml --template clamp-holes --reach imp.k:47 
 
 Rule 47 is `- I1 => 0 -Int I1`. `clamp` writes `r = -1;` only when `x < lo`, which its literals never made true; `X = 0, LO = 1` does.
 The confirmation is kink's `results` on the fragment: the program is comparable and listed in the rule's `reached_by`.
-By default the job asks for the rule to be reached (its condition tried, `condition-reached`, as `reached_by` counts); `--fired` asks for some path to take the rule's step (`covered`: a step built a successor of the rule that denotes a configuration; `fired_by` counts every such program, and also counts a rule whose result was empty and rolled back, which `--fired` does not).
+By default the job asks for the rule to be reached (its condition tried, `condition-reached`, as `reached_by` counts); `--fired` asks for some path to take the rule's step (`covered`: a step built a successor of the rule that denotes a configuration, as `fired_by` counts; a step whose result was empty, rolled back or undefined, counts for neither).
 
 Rule 50 is `! T => notBool T`. No hole value of `clamp` reaches it, since `clamp` has no `!`:
 

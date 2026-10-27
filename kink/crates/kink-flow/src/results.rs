@@ -874,7 +874,10 @@ pub fn sentence_value(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
 
 /// A record's coverage (kink-native `TestCoverage`, coverage v2 since re-pin L2-1): `sentences`
 /// are the baseline sentences the run reached (k-rust `matched`), `applied_sentences` those it
-/// fired (`applied`).
+/// applied (`applied`: a step built a successor or found the step undefined, which orders a run's
+/// programs), and `fired_sentences` (result schema v6, KINK-R4) those it fired, which a rule's
+/// `fired_by` lists: a rewrite rule whose step some explored path takes (k-rust `committed`), an
+/// equation whose instance gave a result (`applied`).
 fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
     let sentences = |sentences: &BTreeSet<SentenceRef>| {
         sentences
@@ -886,6 +889,7 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
         "complete": coverage.complete,
         "sentences": sentences(&coverage.sentences),
         "applied_sentences": sentences(&coverage.applied_sentences),
+        "fired_sentences": sentences(&coverage.fired_sentences),
     })
 }
 
@@ -1386,7 +1390,11 @@ fn program_row(
 }
 
 /// Every authored rule of the specification, with the comparable programs whose coverage
-/// reaches it (`reached_by`, k-rust `matched`) and fires it (`fired_by`, `applied`): uncovered
+/// reaches it (`reached_by`, k-rust `matched`) and fires it (`fired_by`, the record's
+/// `fired_sentences`: for a rewrite rule k-rust `committed`, some path of the run takes the
+/// rule's step; since KINK-R4, before which it read `applied`, which also holds a candidate
+/// rolled back because its successor was undefined and an undefined step's rule, neither of which
+/// any path takes, and which `kink-flow fuzz --fired` never offered): uncovered
 /// rules first, then covered rules, then the rules with no coverage signal (no compiled id in
 /// kink-native's `coverage_domain`: a rule that compiles to no axiom, a `non-executable` rule
 /// (re-pin L2-1-tail: k-rust never runs one, so no program can reach it), a macro or alias rule,
@@ -1401,10 +1409,7 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         if record["class"] != ResultClass::Comparable.as_str() {
             continue;
         }
-        for (key, into) in [
-            ("sentences", &mut reached),
-            ("applied_sentences", &mut fired),
-        ] {
+        for (key, into) in [("sentences", &mut reached), ("fired_sentences", &mut fired)] {
             for sentence in record["coverage"][key].as_array().into_iter().flatten() {
                 if let (Some(module), Some(index)) =
                     (sentence["module"].as_str(), sentence["index"].as_u64())
