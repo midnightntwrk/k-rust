@@ -29,6 +29,14 @@
 //! - A terminal term with a free variable is `Unknown`. A symbolic run's complete stuck leaf
 //!   stands for all of its instances, so its term is not one value: comparing such terms
 //!   structurally, or classifying them, is not a comparison of the values the programs compute.
+//! - A whole-term slot, and a crash side, compares terminal configurations without the content
+//!   of their `<generatedCounter>` cell (fz26 FZ-FRESH; [`StateProjection::WholeTerm`]): the
+//!   counter is compilation's encoding of the values already minted, undeclared by the
+//!   definition and constraining nothing at a terminal. Which of a rule's two or more `!`
+//!   variables gets which counter offset the definition leaves open, so a run through a step that
+//!   built a candidate of such a rule is no evidence: k-rust notes it on the run's
+//!   `implementationChosenValues` list (class `fresh-association`), which excludes the run as any
+//!   other entry there does (kink-native [`Exclusion::ImplementationChosenValue`]).
 //! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
 //!   terminal. Its exit stop is the class `UndefinedStep` without a code, and its final result
 //!   is its last configuration, the pre-step term, as for a stuck terminal.
@@ -122,7 +130,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
-use k_rust::backend::{Backend, BackendOptions};
+use k_rust::backend::{Backend, BackendOptions, counter_erased};
 use k_rust::kore::{
     ast::{Pattern, Sort},
     parser::parse_definition,
@@ -177,9 +185,13 @@ pub enum StateProjection {
     /// The terminal class, and the `\dv{SortInt{}}` value of the one cell with this KORE
     /// symbol (for example `Lbl'-LT-'exit-code'-GT-'`) when a cell is declared. A missing,
     /// repeated or non-`Int` cell, or a code outside `i64`, is a projection failure.
-    ExitStop {
-        exit_code_cell: Option<String>,
-    },
+    ExitStop { exit_code_cell: Option<String> },
+    /// Every terminal's whole configuration, with the content of its `<generatedCounter>` cell
+    /// erased ([`counter_erased`]). The counter is compilation's record of the values a run has
+    /// minted for `!` variables: the definition does not declare it, and at a terminal, where no
+    /// further step mints a value, it constrains nothing. How many values a run minted shows only
+    /// where the minted values went, in the declared cells, which stay. A slot that names the
+    /// counter cell among its [`Self::TermPaths`] still reads it.
     WholeTerm,
     /// The subterms at these child-index paths (`kore::walk::children`). The paths must be
     /// nonempty, sorted and prefix-free, and there must be at least one.
@@ -3424,16 +3436,20 @@ pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> Oracl
         .iter()
         .any(|terminal| terminal.kind == ExecutionTerminalKind::SemanticCrash)
     {
-        // Mixed crash and normal terminal sets are not modelled.
+        // Mixed crash and normal terminal sets are not modelled. A crash is compared by its
+        // terminal term, an end like any other, so without its counter content as in
+        // `StateProjection::WholeTerm`.
         return match terminals.as_slice() {
-            [terminal] => OracleSide::SemanticCrash(terminal.state.clone()),
+            [terminal] => OracleSide::SemanticCrash(counter_erased(&terminal.state).into_owned()),
             _ => OracleSide::Unknown,
         };
     }
     project(projection, &terminals).map_or(OracleSide::Error, OracleSide::Normal)
 }
 
-/// Projects complete, non-crash terminals; `None` is a projection failure.
+/// Projects complete, non-crash terminals; `None` is a projection failure. A whole term is the
+/// terminal's configuration with its `<generatedCounter>` content erased
+/// ([`StateProjection::WholeTerm`]), so two terminal sets that differ only in that cell agree.
 fn project(projection: &StateProjection, terminals: &[&ExecutionTerminal]) -> Option<OracleValue> {
     Some(match projection {
         StateProjection::ExitStop { exit_code_cell } => OracleValue::ExitStop(
@@ -3458,7 +3474,7 @@ fn project(projection: &StateProjection, terminals: &[&ExecutionTerminal]) -> Op
         StateProjection::WholeTerm => OracleValue::FinalResult(FinalResult::WholeTerm(
             terminals
                 .iter()
-                .map(|terminal| terminal.state.clone())
+                .map(|terminal| counter_erased(&terminal.state).into_owned())
                 .collect(),
         )),
         StateProjection::TermPaths(paths) => OracleValue::FinalResult(FinalResult::TermPaths(

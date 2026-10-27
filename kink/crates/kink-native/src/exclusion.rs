@@ -39,8 +39,8 @@
 //!   0068938b1, 1659), so a comparison of complete sets needs it empty; a load record is on every
 //!   run's list, so it excludes every test of its definition. On a ground run any record excludes,
 //!   so `ground` is not read: a non-ground record there arises only from a mark, a refusal, an
-//!   unsupported hook or a non-ground record, each excluded on its own (compat 1661-1668). An empty
-//!   list says nothing about a symbolic run (compat 1661), whose tests stay on the trusted-baseline
+//!   unsupported hook or a non-ground record, each excluded on its own (compat 1669-1676). An empty
+//!   list says nothing about a symbolic run (compat 1669), whose tests stay on the trusted-baseline
 //!   premise, and the leaf rule does not close that gap: a `preserves-definedness` claim false at a
 //!   symbolic instance that only a later step narrows to leaves neither a record nor a leaf naming
 //!   the rule, in either modality, so such a run is not excluded (KINK-PD-SYMBOLIC-INSTANCE, a
@@ -53,7 +53,9 @@
 //!   definition leaves open, on k-rust's `implementationChosenValues` list
 //!   ([`RunFacts::implementation_chosen_values`]): every class value k-rust's evaluator takes in
 //!   `Execution` mode is noted there, the initial state's normalization and work that ended on no
-//!   leaf included (compat 1778-1801). Decision 1's census still stands beside it; the list adds a
+//!   leaf included (compat 1786-1809), and so is a step that built a candidate of a rule with two
+//!   or more `!` names, whose association with counter offsets the definition leaves open (class
+//!   `fresh-association`, fz26 FZ-FRESH). Decision 1's census still stands beside it; the list adds a
 //!   run that read an open value through an equation the census does not see (a prelude one).
 //! - [`Exclusion::ImplementationChosenHook`]: the definition references a hook for which k-rust
 //!   chooses a value the definition leaves open (re-pin decision 1, findings D-10, E-10, E-11):
@@ -409,9 +411,16 @@ pub const DOMAINS_OPEN_HOOKS: &[(&str, &str, &str)] = &[
 /// Not added, because the file fixes the value: `FFI.free` ("returns `.K`"), the `RAT` hooks
 /// (rational arithmetic in a stated canonical form), `FLOAT.rat2float` (IEEE 754 rounding, as
 /// the other Float hooks), and the sort hooks of `kast.md` (`K.K`, `K.KItem`, no value). Fresh
-/// constants (`!X`, `kast.md` 172-176, and `freshKVar`) are not a hook: the definition's
-/// compiled `<generatedCounter>` cell and its `freshGenerator` rules fix them, so they are a
-/// premise about the compiled definition, not a value the backend chooses.
+/// constants (`!X`, `kast.md` 172-176, and `freshKVar`) are not a hook. The compiled
+/// definition's `<generatedCounter>` cell (starting at 0, advanced by a rule's number of distinct
+/// `!` names), its consecutive offsets and its `freshGenerator` rules fix every value but one:
+/// which of a rule's two or more `!` names gets which offset, which k-rust's contract leaves
+/// open (its `docs/compatibility.md`, "Compiler-resolved fresh constants"). That choice is no
+/// hook either: k-rust notes a step that builds a candidate of such a rule on the run's
+/// `implementationChosenValues` list (class `fresh-association`, the rule's `UNIQUE_ID` as the
+/// hook), so [`Exclusion::ImplementationChosenValue`] excludes the run with no entry here. A
+/// definition whose rules each have at most one `!` name compiles to one association, a premise
+/// about the compiled definition like the rest.
 pub const BUILTIN_OPEN_HOOKS: &[(&str, &str, &str, &str)] = &[
     (
         "substitution.md",
