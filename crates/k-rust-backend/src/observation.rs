@@ -20,6 +20,7 @@
 //! forward and guarded reconstruction equations, at compatible pure ranks. The existing
 //! definedness and equation machinery continues to evaluate those ordinary source axioms.
 
+pub(crate) mod frames;
 pub(crate) mod lists;
 mod map_equality;
 pub(crate) mod maps;
@@ -464,6 +465,189 @@ pub(crate) fn variable_observation(
         }
         _ => None,
     }
+}
+
+/// Fill the selected value-pattern fragment from source observations. A known value needs
+/// only an equality guard; an unbound variable needs a checked typed observation. Products
+/// use complete source reconstruction, and arbitrary function inverses remain unsupported.
+pub(crate) fn pattern_observation(
+    definition: &BackendDefinition,
+    pattern: &Term,
+    observed: &Term,
+    pattern_variables: &crate::term::Variables,
+    remaining: &mut usize,
+) -> crate::stop::Stoppable<Option<Term>> {
+    let mut pending = vec![pattern];
+    while let Some(term) = pending.pop() {
+        crate::stop::check()?;
+        if *remaining == 0 {
+            return Ok(None);
+        }
+        *remaining -= 1;
+        if term
+            .attributes()
+            .variables
+            .iter()
+            .all(|v| !pattern_variables.contains(v))
+        {
+            continue;
+        }
+        match term.kind() {
+            TermKind::Variable(v) if v.kind == crate::term::VariableKind::Element => {}
+            TermKind::Injection { term, .. } => pending.push(term),
+            TermKind::Application {
+                symbol, arguments, ..
+            } if symbol.attributes.head_role() == crate::term::HeadRole::FreeConstructor => {
+                pending.extend(arguments)
+            }
+            _ => return Ok(None),
+        }
+    }
+    fn node(
+        definition: &BackendDefinition,
+        pattern: &Term,
+        observed: &Term,
+        pattern_variables: &crate::term::Variables,
+        remaining: &mut usize,
+        depth: usize,
+    ) -> crate::stop::Stoppable<Option<Term>> {
+        crate::stop::check()?;
+        if *remaining == 0 || depth >= 128 || pattern.sort() != observed.sort() {
+            return Ok(None);
+        }
+        *remaining -= 1;
+        if pattern
+            .attributes()
+            .variables
+            .iter()
+            .all(|v| !pattern_variables.contains(v))
+        {
+            return Ok(Some(pattern.clone()));
+        }
+        if matches!(pattern.kind(),TermKind::Variable(v) if v.kind == crate::term::VariableKind::Element)
+        {
+            return Ok(Some(observed.clone()));
+        }
+        if let TermKind::Injection {
+            source,
+            target,
+            term,
+        } = pattern.kind()
+        {
+            let Some(typed) = definition.observe_stored(observed, source) else {
+                return Ok(None);
+            };
+            let Some(value) = node(
+                definition,
+                term,
+                &typed,
+                pattern_variables,
+                remaining,
+                depth + 1,
+            )?
+            else {
+                return Ok(None);
+            };
+            return Ok(Some(Term::injection(*source, *target, value)));
+        }
+        // The compiler's exact embedding may itself contain a free singleton wrapper.
+        // Read its actual schema rather than inferring an inverse from its spelling.
+        if let Some(selectors) = definition.selectors() {
+            for selector in selectors.by_name.values() {
+                crate::stop::check()?;
+                if *remaining == 0 {
+                    return Ok(None);
+                }
+                *remaining -= 1;
+                if selector.head.argument_sorts[0] != observed.sort()
+                    || selectors
+                        .by_rank
+                        .get(&(observed.sort(), selector.head.result_sort))
+                        .and_then(Option::as_ref)
+                        != Some(&selector.head.name)
+                {
+                    continue;
+                }
+                let Some(inner) = selector.value_in(definition, pattern) else {
+                    continue;
+                };
+                if inner == *pattern {
+                    continue;
+                }
+                let Some(projected) = selector.project(observed.clone()) else {
+                    continue;
+                };
+                let Some(value) = node(
+                    definition,
+                    &inner,
+                    &projected,
+                    pattern_variables,
+                    remaining,
+                    depth + 1,
+                )?
+                else {
+                    continue;
+                };
+                return Ok(Some(selector.embed(value)));
+            }
+        }
+        let TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } = pattern.kind()
+        else {
+            return Ok(None);
+        };
+        if symbol.attributes.head_role() != crate::term::HeadRole::FreeConstructor {
+            return Ok(None);
+        }
+        let Some(canonical) = definition.products().and_then(|p| p.canonical(observed)) else {
+            // Keep a genuine constructor case as an ordinary residual pattern. Its
+            // field/case obligations must still be solved by the existing matcher; the
+            // map's deterministic rest does not assert that this constructor matched.
+            return Ok(Some(observed.clone()));
+        };
+        let TermKind::Application {
+            symbol: head,
+            sort_arguments: sorts,
+            arguments: fields,
+        } = canonical.kind()
+        else {
+            return Ok(None);
+        };
+        if symbol != head || sort_arguments != sorts || arguments.len() != fields.len() {
+            return Ok(None);
+        }
+        let mut values = Vec::with_capacity(fields.len());
+        for (pattern, field) in arguments.iter().zip(fields) {
+            let Some(value) = node(
+                definition,
+                pattern,
+                field,
+                pattern_variables,
+                remaining,
+                depth + 1,
+            )?
+            else {
+                return Ok(None);
+            };
+            values.push(value);
+        }
+        Ok(Some(Term::application(
+            symbol.clone(),
+            *sort_arguments,
+            values,
+        )))
+    }
+    node(
+        definition,
+        pattern,
+        observed,
+        pattern_variables,
+        remaining,
+        0,
+    )
 }
 
 /// Exactly an injection/K-singleton spine with one occurrence of the observed value.

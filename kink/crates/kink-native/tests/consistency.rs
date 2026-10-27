@@ -393,32 +393,36 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// the source passage moves its lines. The passage is now 2935-2965 byte-identically;
 /// its digest and kink's conservative condition-equality exclusion stay unchanged.
 ///
+/// Native observation contracts: selector documentation moves the compatibility passages
+/// down four lines, and definition-local observation catalogs move the source passage down
+/// twelve. All four passages are byte-identical; only their line positions are re-pinned.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
 const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     (
         "docs/compatibility.md",
-        1069,
-        1071,
+        1073,
+        1075,
         "a350602f04b9a4d28ae88fa10bfe57340bcfe3f0f19a9260c9e926ac80f00e25",
     ),
     (
         "docs/compatibility.md",
-        1100,
-        1107,
+        1104,
+        1111,
         "16798fc021e1c3b22eee935971f2c7fcbfdddb5af1771ee22bdd0929d7d58bf1",
     ),
     (
         "docs/compatibility.md",
-        1123,
-        1136,
+        1127,
+        1140,
         "64b22da342b8e31eb42497885315d42af3fba138e6315797d46870ab2a47d202",
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
-        2935,
-        2965,
+        2947,
+        2977,
         "3b5205091a3683ba0d694b1a136cef303abb250984fce1be15d3710769e4ffbe",
     ),
 ];

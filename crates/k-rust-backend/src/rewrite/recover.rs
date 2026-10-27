@@ -50,6 +50,7 @@ use crate::{
     substitution::{Substitution, compose, substitute},
     term::{
         HeadRole, Sort, Sorts, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
+        Variables,
         names::{VariableProvenance, split_marker},
     },
     unification::{
@@ -87,6 +88,7 @@ pub(crate) enum RecoveredMatch {
 /// an answer and is returned on the outer layer.
 pub(crate) fn recover_indeterminate_match(
     definition: &BackendDefinition,
+    pattern_variables: &Variables,
     substitution: Substitution,
     remainder: Vec<(Term, Term)>,
     known_predicates: &[Predicate],
@@ -97,6 +99,7 @@ pub(crate) fn recover_indeterminate_match(
     measure::bump(Counter::RewriteIndeterminateRecoveries);
     recover_by_simplifying_pairs(
         definition,
+        pattern_variables,
         substitution,
         remainder,
         known_predicates,
@@ -108,6 +111,7 @@ pub(crate) fn recover_indeterminate_match(
 
 fn recover_by_simplifying_pairs(
     definition: &BackendDefinition,
+    pattern_variables: &Variables,
     substitution: Substitution,
     remainder: Vec<(Term, Term)>,
     known_predicates: &[Predicate],
@@ -132,19 +136,93 @@ fn recover_by_simplifying_pairs(
         matched.conjoin(simplified_subject.conditions);
         let simplified_subject = simplified_subject.term;
 
-        if let Some((witness, guards)) = crate::observation::lists::match_view(
+        let observation = if let Some(view) = crate::observation::lists::match_view(
             definition,
             &simplified_pattern,
             &simplified_subject,
-        )? && let MatchResult::Success(found) = match_terms_in_definition(
-            MatchMode::Rewrite,
-            definition,
-            &simplified_pattern,
-            &witness,
-        ) {
-            matched.bind(&found);
-            matched.conjoin(guards);
-            continue;
+        )? {
+            Some(view)
+        } else {
+            crate::observation::frames::map_match(
+                definition,
+                &simplified_pattern,
+                &simplified_subject,
+                pattern_variables,
+            )?
+        };
+        if let Some((witness, mut guards)) = observation {
+            let mut structural = Vec::new();
+            // Earlier bindings can put subject variables into supplied keys/values.
+            // Match in the shared scope, but retain every proposed subject binding as
+            // an equality obligation: recovery may bind only the original pattern.
+            let mut retain_pattern_bindings = |found: &mut Substitution| {
+                found.retain(|variable, value| {
+                    if pattern_variables.contains(variable) {
+                        true
+                    } else {
+                        let source = Term::variable(variable.clone());
+                        guards.extend([
+                            Predicate::Ceil(source.clone()),
+                            Predicate::Ceil(value.clone()),
+                            Predicate::Equals(source, value.clone()),
+                        ]);
+                        false
+                    }
+                });
+            };
+            let found = match match_terms_in_definition(
+                MatchMode::Implies,
+                definition,
+                &simplified_pattern,
+                &witness,
+            ) {
+                MatchResult::Success(mut found) => {
+                    retain_pattern_bindings(&mut found);
+                    Some(found)
+                }
+                MatchResult::Indeterminate {
+                    substitution: mut found,
+                    remainder,
+                } => {
+                    retain_pattern_bindings(&mut found);
+                    let mut complete = true;
+                    for (left, right) in remainder {
+                        let left = substitute(&left, &found);
+                        let right = substitute(&right, &found);
+                        let unknown = left
+                            .attributes()
+                            .variables
+                            .iter()
+                            .chain(right.attributes().variables.iter())
+                            .any(|v| pattern_variables.contains(v));
+                        if !is_functional_pattern(&left) || !is_functional_pattern(&right) {
+                            complete = false;
+                            break;
+                        }
+                        if unknown {
+                            if is_collection_term(&left) || is_collection_term(&right) {
+                                complete = false;
+                                break;
+                            }
+                            structural.push((left, right));
+                            continue;
+                        }
+                        guards.extend([
+                            Predicate::Ceil(left.clone()),
+                            Predicate::Ceil(right.clone()),
+                            Predicate::Equals(left, right),
+                        ]);
+                    }
+                    complete.then_some(found)
+                }
+                MatchResult::Failed(_) | MatchResult::Undecided(_) => None,
+            };
+            if let Some(found) = found {
+                matched.bind(&found);
+                matched.conjoin(guards);
+                unresolved.extend(structural);
+                continue;
+            }
         }
 
         if !simplified_pattern

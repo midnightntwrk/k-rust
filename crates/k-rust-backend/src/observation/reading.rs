@@ -194,6 +194,11 @@ impl<'a> Builder<'a> {
                     // A base observation is already the ordinary source function.
                     result = reading
                         .filter(|r| !matches!(r.as_ref(), Reading::Leaf(leaf) if leaf == term));
+                    if result.is_none() {
+                        result = ops
+                            .canonical_observation(self.definition, term)
+                            .map(|value| Arc::new(Reading::Leaf(value)));
+                    }
                 }
             }
         }

@@ -2961,6 +2961,43 @@ bound = "one syntactic unifiability test per candidate, then at most one Evaluat
 
 [[node]]
 kind = "algorithm"
+id = "backend.observation.selectors"
+provenance = "declared"
+area = "backend"
+name = "source-checked selector catalog and local image test"
+variable = "A = classified source axioms; C = ceil rows; I = candidate inverse rows at their root index; E = embedding nodes; M = image-match work"
+invariant = "Each retained selector has the exact source image-domain, forward and conditional inverse equations; source names or markers supply none of these facts."
+no_counter = "The definition-local catalog has no dedicated counter; the ordinary matcher retains its measurements."
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendObservationSelectors"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/observation.rs"
+symbol = "Selectors::of"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/observation.rs"
+symbol = "Selectors::of"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/observation.rs"
+symbol = "Selectors::checked"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/observation.rs"
+symbol = "selector_domain"
+
+[[node.cost]]
+mode = "one immutable definition, then one local instance"
+bound = "O(C * (I + E) + A) catalog work plus structural comparisons; catalog discovery declines above 16384 source axioms or 128 inverse candidates for a selector. A cached rank lookup costs O(log C), then one ordinary image match costs M. This bounds catalog work, not solver work."
+
+[[node]]
+kind = "algorithm"
 id = "backend.proof.search"
 provenance = "declared"
 area = "backend"
