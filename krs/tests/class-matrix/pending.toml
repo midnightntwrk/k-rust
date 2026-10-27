@@ -864,11 +864,6 @@ finding = "S0-10"
 deviation = "krs::syntax::rust-syntax @ spelling"
 step = "S3"
 
-["terms/constant/value/y @ Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::expand::parse @ spelling"
-step = "S3"
-
 ["terms/equation/guard/\"s\""]
 finding = "S0-10"
 deviation = "krs::syntax::unsupported-rule-signature @ spelling"
@@ -917,11 +912,6 @@ step = "S3"
 ["terms/equation/result/Cmd::Go() | Cmd::Hold(_)"]
 finding = "S0-10"
 deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S3"
-
-["terms/equation/result/y @ Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::expand::parse @ spelling"
 step = "S3"
 
 ["terms/equation/subject-depth-2/k::matches!(x, Cmd::Hold(_))"]
@@ -1134,11 +1124,6 @@ finding = "S0-10"
 deviation = "krs::syntax::unsupported-term-expression @ spelling"
 step = "S3"
 
-["terms/rule/result/y @ Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::expand::parse @ spelling"
-step = "S3"
-
 ["terms/rule/subject-depth-2/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-10"
 deviation = "krs::syntax::invalid-matches @ spelling"
@@ -1174,19 +1159,9 @@ finding = "S0-10"
 deviation = "krs::syntax::unsupported-term-expression @ spelling"
 step = "S3"
 
-["terms/shorthand/result/y @ Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::expand::parse @ spelling"
-step = "S3"
-
 ["terms/simplification/result/Cmd::Go() | Cmd::Hold(_)"]
 finding = "S0-10"
 deviation = "krs::syntax::unsupported-term-expression @ spelling"
-step = "S3"
-
-["terms/simplification/result/y @ Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::expand::parse @ spelling"
 step = "S3"
 
 ["terms/simplification/subject/k::matches!(x, Cmd::Hold(_))"]
@@ -1317,6 +1292,26 @@ step = "S3"
 ["terms/table/subject/{ let y = x; y }"]
 finding = "S0-10"
 deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+# S0-10 where rustc parses the position (a fn body, a `const` value): rustc's parse error at `@` is
+# admitted (K2), but KRS answers with the parse code of the form that read it instead of the
+# construct's; a shorthand whose body does not parse as Rust is read as the struct form of
+# `#[k::function]`, which reports its missing `sort` at the attribute
+
+["full/terms/constant/value/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["full/terms/rule/result/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["full/terms/shorthand/result/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::missing-argument @ item"
 step = "S3"
 
 # S0-11: a function application below the root of a rewrite rule's or equation's pattern is accepted and emitted; k-rust refuses it (`IllegalFunctionOnLhs`)
@@ -1604,36 +1599,11 @@ finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
 
-# S0-18: rustc reports beside KRS: a second, uncoded parse error at `@`, or a cascade of E0422/E0425 after a broken `k::equations!` header
+# S0-18: rustc reports beside KRS: a cascade of E0422/E0425 after a broken `k::equations!` header
 
 ["entry/function/equations"]
 finding = "S0-18"
 deviation = "krs check: 4 errors [E0422, E0425], 0 warnings []; cargo check: 4 errors [E0422, E0425], 0 warnings []"
-step = "S3"
-
-["full/terms/constant/value/y @ Cmd::Hold(_)"]
-finding = "S0-18"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
-step = "S3"
-
-["full/terms/equation/result/y @ Cmd::Hold(_)"]
-finding = "S0-18"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::invalid-pattern-as @ spelling"
-step = "S3"
-
-["full/terms/rule/result/y @ Cmd::Hold(_)"]
-finding = "S0-18"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
-step = "S3"
-
-["full/terms/shorthand/result/y @ Cmd::Hold(_)"]
-finding = "S0-18"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::missing-argument @ item"
-step = "S3"
-
-["full/terms/simplification/result/y @ Cmd::Hold(_)"]
-finding = "S0-18"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::invalid-pattern-as @ spelling"
 step = "S3"
 
 # B1: an initializer refuses bracket notation (`[]`, `[0]`, `[pgm]`) with the generic `unsupported-initializer-body`, also where it denotes a List or the computation
@@ -2221,28 +2191,6 @@ step = "S5"
 finding = "B8"
 deviation = "accepted"
 step = "S5"
-
-# N12: a failed item leaves an `unused_imports` warning under plain `cargo check`
-
-["entry/attribute/cell"]
-finding = "N12"
-deviation = "krs check: 1 errors [krs::syntax::unknown-argument], 0 warnings []; cargo check: 1 errors [krs::syntax::unknown-argument], 1 warnings [unused_imports]"
-step = "S3"
-
-["entry/attribute/configuration"]
-finding = "N12"
-deviation = "krs check: 1 errors [krs::syntax::unknown-argument], 0 warnings []; cargo check: 1 errors [krs::syntax::unknown-argument], 1 warnings [unused_imports]"
-step = "S3"
-
-["entry/attribute/init"]
-finding = "N12"
-deviation = "krs check: 1 errors [krs::syntax::unexpected-attribute-payload], 0 warnings []; cargo check: 1 errors [krs::syntax::unexpected-attribute-payload], 1 warnings [unused_imports]"
-step = "S3"
-
-["entry/function/k"]
-finding = "N12"
-deviation = "krs check: 1 errors [krs::syntax::invalid-state-macro], 0 warnings []; cargo check: 1 errors [krs::syntax::invalid-state-macro], 1 warnings [unused_imports]"
-step = "S3"
 
 # N22: a module-level `use Cmd::*;` does not reach the term positions (rustc E0573)
 

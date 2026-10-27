@@ -169,6 +169,9 @@ struct Slot {
     position: &'static str,
     side: Side,
     template: &'static str,
+    /// Whether rustc parses the position as Rust before the form's macro reads it
+    /// ([`Case::rustc_parses`](super::Case::rustc_parses)).
+    rustc_parses: bool,
 }
 
 const fn slot(
@@ -182,6 +185,18 @@ const fn slot(
         position,
         side,
         template,
+        rustc_parses: false,
+    }
+}
+
+impl Slot {
+    /// The slot, at a position rustc parses: a fn body an attribute macro reads, or a `const`
+    /// value.
+    const fn parsed_by_rustc(self) -> Self {
+        Self {
+            rustc_parses: true,
+            ..self
+        }
     }
 }
 
@@ -211,7 +226,8 @@ const SLOTS: [Slot; 29] = [
             "]: Term<Stmt>) -> Term<Stmt> {\n",
             "    Cmd::Hold(HOLE)\n}\n"
         ),
-    ),
+    )
+    .parsed_by_rustc(),
     slot(
         "rule",
         "guard",
@@ -262,7 +278,8 @@ const SLOTS: [Slot; 29] = [
             "]: Term<Int>) -> Term<Int> {\n",
             "    Size(HOLE)\n}\n"
         ),
-    ),
+    )
+    .parsed_by_rustc(),
     slot(
         "equation",
         "guard",
@@ -306,7 +323,8 @@ const SLOTS: [Slot; 29] = [
         "result",
         Side::Result,
         "#[k::function(partial, internal)]\npub fn FTAG(x: Term<KItem>) -> Term<Int> {\n    Size(HOLE)\n}\n",
-    ),
+    )
+    .parsed_by_rustc(),
     slot(
         "simplification",
         "subject",
@@ -326,7 +344,8 @@ const SLOTS: [Slot; 29] = [
             "]: Term<Int>) -> Term<Int> {\n",
             "    Size(HOLE)\n}\n"
         ),
-    ),
+    )
+    .parsed_by_rustc(),
     slot(
         "sort-rule",
         "subject",
@@ -418,7 +437,8 @@ const SLOTS: [Slot; 29] = [
         "value",
         Side::Result,
         "#[k::constant]\npub const KUPPER: Stmt = Cmd::Hold(HOLE);\n",
-    ),
+    )
+    .parsed_by_rustc(),
 ];
 
 /// The term family: 29 slots × 26 constructs, and the import axis: 29 slots × 2 bare
@@ -470,5 +490,7 @@ fn case(family: Family, slot: Slot, construct: &str) -> Case {
     } else {
         Packaging::Shared(command)
     };
-    spec.finish(packaging, &item)
+    let mut case = spec.finish(packaging, &item);
+    case.rustc_parses = slot.rustc_parses;
+    case
 }

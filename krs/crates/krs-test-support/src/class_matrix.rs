@@ -362,6 +362,12 @@ pub struct Case {
     pub construct: String,
     /// Whether the case shares its base's package.
     pub packaging: Packaging,
+    /// Whether rustc parses the construct's position as Rust before any KRS macro reads it: a
+    /// fn body an attribute macro takes (a `#[k::rule]`, `#[k::equation]` or
+    /// `#[k::simplification]` result, a `#[k::function]` shorthand) or a `#[k::constant]`
+    /// value. A construct rustc's parser refuses there (`y @ P`) is reported by rustc whatever
+    /// KRS does, which K2 admits ([`invariants::without_rustc_parse_error`]).
+    pub rustc_parses: bool,
     item: String,
     spelling: Range<usize>,
     entry: Range<usize>,
@@ -631,6 +637,7 @@ impl CaseSpec {
             kind: self.kind,
             construct: self.construct,
             packaging,
+            rustc_parses: false,
             item: item.text.clone(),
             spelling,
             entry,

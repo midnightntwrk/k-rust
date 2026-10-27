@@ -1,12 +1,19 @@
-//! K5: a package whose only mistake breaks one entry point's header gives exactly one diagnostic,
-//! under `krs check --message-format json` and under plain `cargo check`
+//! K5: a package whose only mistake breaks one entry point's header gives exactly one diagnostic
+//! under `krs check --message-format json`, and exactly one error under plain `cargo check`
 //! (`krs_test_support::class_matrix::entry_points`).
 //!
 //! Each mutation is its own package, checked by the `krs` binary this test is built with and by
 //! `cargo check`, with the worker's target. The errors and the warnings of each are counted with
-//! their codes; a warning counts against the case as an extra diagnostic, since an editor shows it
-//! (an `unused_imports` warning that a failed item causes, say). The unmutated base must give
-//! none under either.
+//! their codes. Under `krs check` a warning counts against the case as an extra diagnostic: KRS
+//! relays rustc's output and can leave out what a failed item causes. Under plain `cargo check`
+//! only the errors are judged. A warning there that a failed item causes is inherent to proc
+//! macros: rustc marks an import used only when a path resolves through it, and a failed
+//! expansion either emits nothing for its paths, so an import only they use is
+//! `unused_imports`, or emits them where each path that is itself the mistake adds a second error;
+//! a parse that failed does not even know each path's namespace. No output satisfies both, so the
+//! warning stays, beside the one error, under `cargo check` and in an editor. The warnings are
+//! still counted and printed in the signature. The unmutated base must give no diagnostic under
+//! either.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -56,12 +63,11 @@ pub struct Checked {
 }
 
 impl Checked {
-    /// Whether each tool reported exactly one error and nothing else.
+    /// Whether `krs check` reported exactly one error and nothing else, and `cargo check`
+    /// exactly one error (its warnings are not judged; see the module documentation).
     #[must_use]
     pub fn conforms(&self) -> bool {
-        [&self.krs, &self.cargo]
-            .iter()
-            .all(|counts| counts.errors.len() == 1 && counts.warnings.is_empty())
+        self.krs.errors.len() == 1 && self.krs.warnings.is_empty() && self.cargo.errors.len() == 1
     }
 
     /// The signature `pending.toml` records.

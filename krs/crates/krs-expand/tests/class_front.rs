@@ -5,7 +5,10 @@
 //!   (`class_matrix::invariants`), and by `expected.toml` where a rule covers it: an accepted
 //!   case must not be refused, and a refused one must answer with its class's code, exactly
 //!   located inside the rule's range. A case the front accepts is decided after rustc, by the
-//!   full tier (`krs-class`); here it conforms.
+//!   full tier (`krs-class`); here it conforms. So is a case at a position rustc parses that the
+//!   front refuses with the Rust parse error rustc also reports there (`krs::expand::parse` at
+//!   the construct): the front ran no macro, so KRS's own answer is the full tier's to judge
+//!   (`class_matrix::invariants`, "Positions rustc parses").
 //! - **K1 on payload forms.** For every descriptor factory the front writes, an initializer's
 //!   payload function included: each key its payload names has exactly one anchor in the
 //!   factory's own `__KRS_AUTHORED` table, no two anchors share a key, every anchor is exact, and
@@ -37,7 +40,8 @@ use krs_expand::sink::{ByteRange, InvocationId, MappingClass};
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
 use krs_ir::ProvenanceRole;
 use krs_test_support::class_matrix::invariants::{
-    Observed, ObservedDiagnostic, Severity, registry_kind, signature, violations,
+    Observed, ObservedDiagnostic, Severity, front_stops_at_rustc_parse, registry_kind, signature,
+    violations,
 };
 use krs_test_support::class_matrix::pending::{Judgement, Observation, Pending, UNASSIGNED};
 use krs_test_support::class_matrix::table::{Expected, Table, TableError};
@@ -561,7 +565,8 @@ impl Test {
 
 /// One case's verdict in this tier.
 enum Verdict {
-    /// The front accepted the case with sound keys: the full tier decides it.
+    /// The front accepted the case with sound keys, or stopped at rustc's parse error at a
+    /// position rustc parses: the full tier decides it.
     Deferred,
     Conforms,
     Deviates(Test, String),
@@ -575,6 +580,9 @@ fn judge(placed: &Placed<'_>, front: &Front, expected: Option<&Expected<'_>>) ->
         } else {
             Verdict::Deviates(Test::K1, front.keys.defects.join("; "))
         };
+    }
+    if front_stops_at_rustc_parse(&front.observed, placed) {
+        return Verdict::Deferred;
     }
     let site = expected.map_or(&placed.entry, |expected| expected.site(placed));
     let broken = !violations(&front.observed, site, registry_kind).is_empty();
