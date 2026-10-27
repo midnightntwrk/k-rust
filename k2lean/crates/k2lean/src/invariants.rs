@@ -81,6 +81,20 @@
 //! (`MapHook.entriesOn_of_range`, with the two proved equations as its hypotheses). The
 //! collections closer applies it to the map a rule's right-hand side binds to a call of `f`.
 //!
+//! **Monotonicity in a map parameter.** A rule that allocates in a store leaves every key of the
+//! store a key (`MapHook.KeysIncl S S'`), and an invariant that reads the store only through its
+//! keys (every environment maps into the store, in every frame) must stay `true` at the new store.
+//! A partial `Bool` function of the invariant's closure is monotone in a map argument `s` when
+//! every equation binds `s` to a variable that no other argument or side condition reads and its
+//! right-hand side is `true`, a constant, or an `andBool` of terms that do not mention `s`, of
+//! `X in_keys(s)`, and of calls passing `s` where the callee is monotone (the greatest such set;
+//! `monos`). Each gets `Invariant.f_mono : KeysIncl S S' → f x S = some true → f x S' = some
+//! true`: a walk from its element-wise form, any other by recursion on its subject along its own
+//! proved equations, one case per equation (`k2l_mono_arm`), its `owise` equation where none
+//! matches, or the definition, which then gives `none`; the recursion follows the definition's, on
+//! the subterms the patterns bind, with the same termination tactic. The collections closer reads
+//! them as `@[k2l_coll]` lemmas at a call and at a fold's element-wise form (`kAll`, `ElemsOn`).
+//!
 //! **Initial configurations.** `init` (`{ns}/Init.lean`) has one parameter per configuration
 //! variable. A part whose cell holds a configuration variable in `init` holds there exactly when
 //! the part's predicate holds of that variable, which becomes a hypothesis of `Invariant.init_holds`; a
@@ -400,6 +414,10 @@ struct Fold {
     /// `Option`-valued): the call, and the two proved equations its element-wise form is proved
     /// from (the definition is not unfolded, as `k2l_fold_eqn` does for a total test)
     partial: Option<(String, String, String)>,
+    /// the parameters' argument positions, and a partial test's function and arguments (Lean
+    /// names)
+    param_pos: Vec<usize>,
+    test_fn: Option<(String, Vec<String>)>,
 }
 
 impl Fold {
@@ -538,6 +556,7 @@ fn fold_of(
         let e = lw.expr(phi, "SortBool").ok()?;
         // a partial test: a call `g(X, P…)` on the element and the parameters, as the equation
         // binds it first (not swapped), with both equations proved
+        let mut test_fn = None;
         let partial = if lw.steps.is_empty() {
             None
         } else {
@@ -563,7 +582,9 @@ fn fold_of(
             if !proved(&ue) || !proved(&ce) {
                 return None;
             }
-            Some((format!("{} {}", gsig.lean, gargs.join(" ")), ue, ce))
+            let call = format!("{} {}", gsig.lean, gargs.join(" "));
+            test_fn = Some((g.clone(), gargs));
+            Some((call, ue, ce))
         };
         let base = names::demangle(f)
             .split('(')
@@ -584,6 +605,8 @@ fn fold_of(
             pos,
             params,
             partial,
+            param_pos: pvars.iter().map(|(j, _)| *j).collect(),
+            test_fn,
         })
     })
 }
@@ -601,6 +624,9 @@ struct KFold {
     x: String,
     unit_eqn: String,
     cons_eqn: String,
+    /// the parameters' argument positions, and the test's function and arguments (Lean names)
+    param_pos: Vec<usize>,
+    test_fn: (String, Vec<String>),
 }
 
 impl KFold {
@@ -734,6 +760,8 @@ fn kfold_of(
         x,
         unit_eqn,
         cons_eqn,
+        param_pos: pvars.iter().map(|(j, _)| *j).collect(),
+        test_fn: (g.clone(), gargs),
     })
 }
 
@@ -1357,6 +1385,368 @@ fn range_of(
     })
 }
 
+/// A function an invariant calls that is monotone in a map parameter `s`: `f(…, S) = some true`
+/// stays `some true` when `S` is replaced by a map with at least the keys of `S`
+/// (`MapHook.KeysIncl S S'`). That is what a rule that allocates in a store needs of an invariant
+/// that reads the store only through its keys (SIMPLE's `itemIn`, `kIn`, `listIn`, `ctlIn` with
+/// the store `S`). The theorem `Invariant.f_mono` is proved by recursion on the subject along
+/// `f`'s own proved equations (`monos`); a map walk's from its element-wise form.
+struct Mono {
+    lean: String,
+    base: String,
+    args: Vec<String>,
+    /// the map parameter's position
+    s: usize,
+    /// a map walk (index into the walks), proved from its element-wise form
+    walk: Option<usize>,
+    /// one per non-`owise` equation, in order
+    arms: Vec<MonoArm>,
+    /// the `owise` equation and its value
+    owise: Option<(String, bool)>,
+    /// some equation has a list pattern (the fallback reads the definition's `uncons`)
+    lists: bool,
+    /// whether an equation calls a function of the group (other than a walk)
+    calls: bool,
+}
+
+/// The arm of one equation: `∃ binders, x = pat` (no pattern when the equation matches every
+/// subject), the equation, and the parts `(a, b)` of each list pattern `ListItem(a) b`.
+struct MonoArm {
+    binders: Vec<(String, String)>,
+    pat: Option<String>,
+    eqn: String,
+    conses: Vec<(String, String)>,
+}
+
+impl Mono {
+    /// The subject's position (for a function that is not a walk: the argument other than `s`).
+    fn subj(&self) -> usize {
+        1 - self.s
+    }
+}
+
+/// Whether the right-hand side `p` of an equation, with the map parameter bound to `v`, is
+/// monotone in `v` given the monotone pairs `cand`: a term that does not mention `v`, an
+/// `andBool` of monotone terms, `X in_keys(v)` with `X` not mentioning `v`, or a call of a
+/// function that `call_ok` admits with `v` exactly at a position where that function is
+/// monotone, the call's other arguments not mentioning `v`; a call of a function that is not a
+/// walk passes, as its subject, a variable bound strictly inside the subject's pattern
+/// (`inner`), so that the recursion of `Invariant.f_mono` decreases.
+fn mono_rhs(
+    m: &Model,
+    p: &P,
+    v: &str,
+    cand: &BTreeSet<(String, usize)>,
+    walks: &BTreeSet<String>,
+    inner: &[String],
+    call_ok: &dyn Fn(&str) -> bool,
+) -> bool {
+    if !mentions(p, "", v) {
+        return true;
+    }
+    let P::App(g, _, a) = p else { return false };
+    match hook(m, g) {
+        Some("BOOL.and") => {
+            a.len() == 2
+                && a.iter()
+                    .all(|q| mono_rhs(m, q, v, cand, walks, inner, call_ok))
+        }
+        Some("MAP.in_keys") => {
+            a.len() == 2 && matches!(&a[1], P::Var(w, _) if w == v) && !mentions(&a[0], "", v)
+        }
+        Some(_) => false,
+        None => {
+            call_ok(g)
+                && (0..a.len()).any(|j| {
+                    matches!(&a[j], P::Var(w, _) if w == v)
+                        && cand.contains(&(g.clone(), j))
+                        && (0..a.len()).all(|i| i == j || !mentions(&a[i], "", v))
+                        && (walks.contains(g)
+                            || (a.len() == 2
+                                && matches!(&a[1 - j], P::Var(w, _) if inner.contains(w))))
+                })
+        }
+    }
+}
+
+/// The monotone functions among `fs` (`Mono`): the greatest set of pairs `(f, s)` such that `f`
+/// is partial and `Bool`-valued with every equation proved and none with a side condition, binds
+/// its map argument `s` to a variable in every equation, and every right-hand side is monotone in
+/// it (`mono_rhs`). A function that is not a walk has one other argument, its subject, whose
+/// patterns are constructor terms and list patterns `ListItem(X) L` (no map or set patterns,
+/// whose equations carry well-formedness premises); a walk's test is a plain proposition (no
+/// pattern on the binding) that calls no other function of the group.
+fn monos(cx: &Ctx, fs: &BTreeSet<String>, walks: &[Walk]) -> Vec<Mono> {
+    let m = cx.m;
+    let proved = |n: &String| cx.stated.contains(n) && !cx.open_eqns.contains(n);
+    let eqn = |g: &str, i: usize| {
+        format!(
+            "Eqn.{}",
+            names::ident(&format!("{}_{}", names::demangle(g), i + 1))
+        )
+    };
+    let is_map = |s: &str| {
+        m.sorts
+            .get(s)
+            .is_some_and(|i| i.kind == Kind::Coll(Coll::Map))
+    };
+    let walk_of_fn = |g: &str| {
+        cx.fns
+            .get(g)
+            .and_then(|sig| walks.iter().position(|w| w.lean == sig.lean))
+    };
+    // a subject pattern: constructors, injections and `ListItem(X) L`; its variables strictly
+    // inside, and the parts of its list patterns
+    fn subject_ok(m: &Model, p: &P, top: bool, inner: &mut Vec<String>) -> bool {
+        match p {
+            P::Var(v, _) => {
+                if !top {
+                    inner.push(v.clone());
+                }
+                true
+            }
+            P::App(c, _, a) => match hook(m, c) {
+                None => a.iter().all(|q| subject_ok(m, q, false, inner)),
+                Some("LIST.unit") => a.is_empty(),
+                Some("LIST.concat") => {
+                    matches!(a.as_slice(), [P::App(e, _, ea), P::Var(..)]
+                        if hook(m, e) == Some("LIST.element") && matches!(ea.as_slice(), [P::Var(..)]))
+                        && a.iter().all(|q| subject_ok(m, q, false, inner))
+                }
+                Some("LIST.element") => a.iter().all(|q| subject_ok(m, q, false, inner)),
+                _ => false,
+            },
+            P::Dv(..) => true,
+            _ => false,
+        }
+    }
+    let mut cand: BTreeSet<(String, usize)> = BTreeSet::new();
+    for g in fs {
+        let (Some(sig), Some(es)) = (cx.fns.get(g), cx.eqs.get(g)) else {
+            continue;
+        };
+        let walk = walk_of_fn(g).map(|i| &walks[i]);
+        // a walk's theorem is its element-wise form (`Invariant.f_walk`), from its instances;
+        // another function's is proved from its equations
+        if !sig.partial
+            || sig.result != "SortBool"
+            || !sig.lean.starts_with("K.")
+            || es.is_empty()
+            || es.iter().any(|e| !e.requires.is_empty())
+            || (walk.is_none() && !(0..es.len()).all(|i| proved(&eqn(g, i))))
+        {
+            continue;
+        }
+        if let Some(w) = walk {
+            if w.key_pat.is_some() || w.val_pat.is_some() || w.wrap.is_some() {
+                continue;
+            }
+        } else if sig.args.len() != 2 {
+            continue;
+        }
+        let ss: Vec<usize> = (0..sig.args.len())
+            .filter(|&s| is_map(&sig.args[s]) && walk.is_none_or(|w| w.pos != s))
+            .filter(|&s| {
+                es.iter().all(|e| match &e.args[s] {
+                    P::Var(v, _) => {
+                        (0..e.args.len()).all(|j| j == s || !mentions(&e.args[j], "", v))
+                    }
+                    _ => false,
+                })
+            })
+            .filter(|&s| {
+                walk.is_some()
+                    || es
+                        .iter()
+                        .all(|e| subject_ok(m, &e.args[1 - s], true, &mut Vec::new()))
+            })
+            .collect();
+        // one map parameter: the theorem's name says which function, not which argument
+        if let [s] = ss[..] {
+            cand.insert((g.clone(), s));
+        }
+    }
+    let walk_set: BTreeSet<String> = cand
+        .iter()
+        .filter(|(g, _)| walk_of_fn(g).is_some())
+        .map(|(g, _)| g.clone())
+        .collect();
+    loop {
+        let drop: Vec<(String, usize)> = cand
+            .iter()
+            .filter(|(g, s)| {
+                let is_walk = walk_set.contains(g);
+                let call_ok = |h: &str| !is_walk || h == g;
+                !cx.eqs[g].iter().all(|e| {
+                    let P::Var(v, _) = &e.args[*s] else {
+                        return false;
+                    };
+                    let mut inner = Vec::new();
+                    if !is_walk {
+                        subject_ok(m, &e.args[1 - s], true, &mut inner);
+                    }
+                    // an `owise` equation's value is a constant (its arm only rewrites the goal)
+                    if e.owise {
+                        return matches!(&e.rhs, P::Dv(_, t) if t == "true" || t == "false");
+                    }
+                    mono_rhs(m, &e.rhs, v, &cand, &walk_set, &inner, &call_ok)
+                })
+            })
+            .cloned()
+            .collect();
+        if drop.is_empty() {
+            break;
+        }
+        for d in drop {
+            cand.remove(&d);
+        }
+    }
+    let mut out = Vec::new();
+    for (g, s) in &cand {
+        let sig = &cx.fns[g];
+        let es = &cx.eqs[g];
+        let base: String = names::demangle(g)
+            .split('(')
+            .next()
+            .unwrap_or("f")
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        let mut mo = Mono {
+            lean: sig.lean.clone(),
+            base,
+            args: sig.args.clone(),
+            s: *s,
+            walk: walk_of_fn(g),
+            arms: Vec::new(),
+            owise: None,
+            lists: false,
+            calls: false,
+        };
+        if mo.walk.is_none() {
+            let subj = mo.subj();
+            for (i, e) in es.iter().enumerate() {
+                if e.owise {
+                    let P::Dv(_, t) = &e.rhs else { unreachable!() };
+                    mo.owise = Some((eqn(g, i), t == "true"));
+                    continue;
+                }
+                let P::Var(v, _) = &e.args[*s] else {
+                    unreachable!()
+                };
+                let mut called = Vec::new();
+                free_calls(&e.rhs, &mut called);
+                mo.calls |= called
+                    .iter()
+                    .any(|h| cand.iter().any(|(c, _)| c == h) && !walk_set.contains(h));
+                let _ = v;
+                let p = &e.args[subj];
+                if let P::Var(..) = p {
+                    mo.arms.push(MonoArm {
+                        binders: vec![],
+                        pat: None,
+                        eqn: eqn(g, i),
+                        conses: vec![],
+                    });
+                    continue;
+                }
+                let mut lw = Lower::new(m, cx.fns, &MONO_RESERVED);
+                let mut vs = Vec::new();
+                free_vars(p, &mut vs);
+                let mut binders = Vec::new();
+                for x in &vs {
+                    let Some(t) = var_sort(p, x) else {
+                        return Vec::new();
+                    };
+                    let n = lw.param(&crate::lower::sanitize(x), &t);
+                    lw.vars.insert(x.clone(), n.clone());
+                    binders.push((n, t));
+                }
+                let Ok(l) = lw.expr(p, &sig.args[subj]) else {
+                    return Vec::new();
+                };
+                if !lw.steps.is_empty() {
+                    return Vec::new();
+                }
+                let mut conses = Vec::new();
+                list_conses(m, p, &lw.vars, &mut conses);
+                mo.lists |= !conses.is_empty() || mentions_hook(m, p, "LIST.unit");
+                mo.arms.push(MonoArm {
+                    binders,
+                    pat: Some(l.render()),
+                    eqn: eqn(g, i),
+                    conses,
+                });
+            }
+        }
+        out.push(mo);
+    }
+    out
+}
+
+/// Names a monotonicity proof binds itself.
+const MONO_RESERVED: [&str; 10] = ["x", "S", "S'", "h", "hx", "hx0", "hs0", "p", "hp", "m"];
+
+/// The functions `p` calls.
+fn free_calls(p: &P, out: &mut Vec<String>) {
+    if let P::App(g, _, a) = p {
+        out.push(g.clone());
+        a.iter().for_each(|q| free_calls(q, out));
+    }
+}
+
+/// Whether `p` applies a function with the hook `h`.
+fn mentions_hook(m: &Model, p: &P, h: &str) -> bool {
+    match p {
+        P::App(g, _, a) => hook(m, g) == Some(h) || a.iter().any(|q| mentions_hook(m, q, h)),
+        _ => false,
+    }
+}
+
+/// The Lean names `(a, b)` of each list pattern `ListItem(a) b` in `p`.
+fn list_conses(m: &Model, p: &P, vars: &BTreeMap<String, String>, out: &mut Vec<(String, String)>) {
+    if let P::App(c, _, a) = p {
+        if hook(m, c) == Some("LIST.concat")
+            && let [P::App(_, _, ea), P::Var(l, _)] = a.as_slice()
+            && let [P::Var(x, _)] = ea.as_slice()
+            && let (Some(x), Some(l)) = (vars.get(x), vars.get(l))
+        {
+            out.push((x.clone(), l.clone()));
+        }
+        a.iter().for_each(|q| list_conses(m, q, vars, out));
+    }
+}
+
+/// `s` with the identifier `from` replaced by `to` (not inside `«…»`).
+fn subst_ident(s: &str, from: &str, to: &str) -> String {
+    let is_id = |c: char| c.is_alphanumeric() || c == '_' || c == '\'' || c == '.';
+    let cs: Vec<char> = s.chars().collect();
+    let f: Vec<char> = from.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    let mut quoted = false;
+    while i < cs.len() {
+        let c = cs[i];
+        if c == '«' {
+            quoted = true;
+        } else if c == '»' {
+            quoted = false;
+        }
+        if !quoted
+            && cs[i..].starts_with(&f)
+            && (i == 0 || !is_id(cs[i - 1]))
+            && cs.get(i + f.len()).is_none_or(|&d| !is_id(d))
+        {
+            out.push_str(to);
+            i += f.len();
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
 /// The sort of the variable `v` in `p`.
 fn var_sort(p: &P, v: &str) -> Option<String> {
     match p {
@@ -1946,6 +2336,8 @@ pub fn emit(
     let mut split_binds = false;
     let mut owise_injs: Vec<OwiseInj> = Vec::new();
     let mut walks: Vec<Walk> = Vec::new();
+    // every function the invariants call, directly or not
+    let mut closure_fns: BTreeSet<String> = BTreeSet::new();
 
     // the projection chain of a cell path; returns the read expression for `c` (for a cell inside
     // a cell collection: the collection, and the read of the cell off an element)
@@ -2262,6 +2654,7 @@ pub fn emit(
         // what the tactic unfolds: the K equations of the non-recursive functions it calls, and
         // the element-wise form of the list folds
         for g in closure(cx.def, cx.eqs, &sym) {
+            closure_fns.insert(g.clone());
             let Some(gs) = cx.fns.get(&g) else { continue };
             if !gs.lean.starts_with("K.") {
                 continue;
@@ -2811,6 +3204,293 @@ k2l_cases w\n  exact Invariant.{b}_walk _{pa}\n\n",
             ));
         }
     }
+    // monotonicity in a map parameter (`Mono`): the theorems, from the equations, then
+    // `@[k2l_coll]` forms of them on what the closers see (a call, a fold's element-wise form)
+    let monos = monos(cx, &closure_fns, &walks);
+    let mono_name = |mo: &Mono| format!("Invariant.{}_mono", mo.base);
+    let mono_by_lean = |lean: &str| monos.iter().find(|x| x.lean == lean);
+    let ms = |mo: &Mono| mo.args[mo.s].clone();
+    let closers: Vec<String> = monos
+        .iter()
+        .map(|mo| format!("{} h", mono_name(mo)))
+        .chain(["(fun hx => KPrelude.MapHook.inKeys_of_keysIncl hx h)".to_string()])
+        .collect();
+    let closers = closers.join(", ");
+    for mo in monos.iter().filter(|mo| mo.walk.is_some()) {
+        let w = &walks[mo.walk.unwrap()];
+        // the walk's call with the map `m`, `S` at the parameter, the others implicit
+        let pname = (0..mo.args.len())
+            .filter(|&j| j != w.pos)
+            .position(|j| j == mo.s)
+            .map(|i| w.params[i].0.clone())
+            .unwrap_or_default();
+        let others: String = w
+            .params
+            .iter()
+            .filter(|(n, _)| *n != pname)
+            .map(|(n, t)| format!(" {{{n} : {t}}}"))
+            .collect();
+        let call = |s: &str| subst_ident(&w.call("m"), &pname, s);
+        d.push_str(&format!(
+            "/-- The map walk `{}` stays `true` when its map parameter is replaced by a map with at least its\n\
+keys: its test reads that map through its keys only. -/\n\
+theorem {} {{S S' : {}}} (h : KPrelude.MapHook.KeysIncl S S') {{m : {}}}{others}\n    \
+(hx : {} = some true) :\n    {} = some true := by\n  \
+rw [Invariant.{b}_walk] at hx ⊢\n  \
+refine ⟨hx.1, fun p hp => ?_⟩\n  \
+have hx := hx.2 p hp\n  \
+simp only [Invariant.{b}_test] at hx ⊢\n  \
+k2l_mono_arm hx [{closers}]\n\n",
+            w.lean,
+            mono_name(mo),
+            ms(mo),
+            w.map,
+            call("S"),
+            call("S'"),
+            b = w.base,
+        ));
+    }
+    // the group: the functions on a cycle of calls get the termination of their recursion
+    let group: Vec<&Mono> = monos.iter().filter(|mo| mo.walk.is_none()).collect();
+    let calls_of = |mo: &Mono| -> BTreeSet<String> {
+        let g = cx
+            .fns
+            .iter()
+            .find(|(_, s)| s.lean == mo.lean)
+            .map(|(k, _)| k.clone())
+            .unwrap_or_default();
+        let mut out = Vec::new();
+        for e in &cx.eqs[&g] {
+            free_calls(&e.rhs, &mut out);
+        }
+        out.into_iter()
+            .filter_map(|h| cx.fns.get(&h).map(|s| s.lean.clone()))
+            .filter(|l| group.iter().any(|x| &x.lean == l))
+            .collect()
+    };
+    let edges: BTreeMap<String, BTreeSet<String>> = group
+        .iter()
+        .map(|mo| (mo.lean.clone(), calls_of(mo)))
+        .collect();
+    let on_cycle = |l: &String| {
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut todo: Vec<String> = edges[l].iter().cloned().collect();
+        while let Some(x) = todo.pop() {
+            if &x == l {
+                return true;
+            }
+            if seen.insert(x.clone()) {
+                todo.extend(edges.get(&x).into_iter().flatten().cloned());
+            }
+        }
+        false
+    };
+    if !group.is_empty() {
+        d.push_str("mutual\n");
+    }
+    for mo in &group {
+        let (s, j) = (mo.s, mo.subj());
+        let call = |x: &str, sv: &str| {
+            let mut a = vec![String::new(); 2];
+            a[s] = sv.to_string();
+            a[j] = x.to_string();
+            format!("{} {}", mo.lean, a.join(" "))
+        };
+        let mut body = String::new();
+        let mut covered = false;
+        for (i, arm) in mo.arms.iter().enumerate() {
+            let hc = format!("hc{}", i + 1);
+            let step = |body: &mut String, ind: &str| {
+                for (a, b) in &arm.conses {
+                    body.push_str(&format!(
+                        "{ind}have := KPrelude.ListHook.sizeOf_uncons (KPrelude.ListHook.uncons_concat_element {a} {b})\n"
+                    ));
+                }
+                body.push_str(&format!(
+                    "{ind}rw [{}] at hx ⊢\n{ind}k2l_mono_arm hx [{closers}]\n",
+                    arm.eqn
+                ));
+            };
+            match &arm.pat {
+                None => {
+                    step(&mut body, "  ");
+                    covered = true;
+                    break;
+                }
+                Some(pat) if arm.binders.is_empty() => {
+                    body.push_str(&format!(
+                        "  by_cases {hc} : x = {pat}\n  · rw [{hc}] at hx ⊢\n"
+                    ));
+                    step(&mut body, "    ");
+                }
+                Some(pat) => {
+                    let bs: String = arm
+                        .binders
+                        .iter()
+                        .map(|(n, t)| format!(" ({n} : {t})"))
+                        .collect();
+                    let ns: Vec<&str> = arm.binders.iter().map(|(n, _)| n.as_str()).collect();
+                    body.push_str(&format!(
+                        "  by_cases {hc} : ∃{bs}, x = {pat}\n  · obtain ⟨{}, hx0⟩ := {hc}\n    rw [hx0] at hx ⊢\n",
+                        ns.join(", ")
+                    ));
+                    step(&mut body, "    ");
+                }
+            }
+        }
+        if !covered {
+            match &mo.owise {
+                Some((o, true)) => body.push_str(&format!(
+                    "  apply {o} <;> (intros; subst_vars; simp_all)\n"
+                )),
+                Some((o, false)) => body.push_str(&format!(
+                    "  exfalso\n  rw [show {} = some false by apply {o} <;> (intros; subst_vars; simp_all)] at hx\n  simp at hx\n",
+                    call("x", "S")
+                )),
+                None => body.push_str(&format!(
+                    "  exfalso\n  unfold {} at hx\n  repeat' (first | (split at hx) | simp_all{})\n",
+                    mo.lean,
+                    if mo.lists {
+                        " [KPrelude.ListHook.uncons_eq_some_iff]"
+                    } else {
+                        ""
+                    }
+                )),
+            }
+        }
+        let term = if on_cycle(&mo.lean) {
+            "termination_by sizeOf x\ndecreasing_by all_goals k2l_decreasing []\n"
+        } else {
+            ""
+        };
+        d.push_str(&format!(
+            "/-- `{}` stays `true` when its map argument is replaced by a map with at least its keys (by\n\
+recursion on its subject, along its equations: the map is read through its keys only). -/\n\
+theorem {} {{S S' : {}}} (h : KPrelude.MapHook.KeysIncl S S') {{x : {}}}\n    \
+(hx : {} = some true) :\n    {} = some true := by\n{body}{term}\n",
+            mo.lean,
+            mono_name(mo),
+            ms(mo),
+            mo.args[j],
+            call("x", "S"),
+            call("x", "S'"),
+        ));
+    }
+    if !group.is_empty() {
+        d.push_str("end\n\n");
+    }
+    for mo in &group {
+        let (s, j) = (mo.s, mo.subj());
+        let call = |sv: &str| {
+            let mut a = vec![String::new(); 2];
+            a[s] = sv.to_string();
+            a[j] = "x".to_string();
+            format!("{} {}", mo.lean, a.join(" "))
+        };
+        d.push_str(&format!(
+            "/-- `{}` as the collections closer applies it. -/\n\
+@[k2l_coll] theorem {}_coll {{S S' : {}}} {{x : {}}} (hx : {} = some true)\n    \
+(h : KPrelude.MapHook.KeysIncl S S') : {} = some true :=\n  {} h hx\n\n",
+            mono_name(mo),
+            mono_name(mo),
+            ms(mo),
+            mo.args[j],
+            call("S"),
+            call("S'"),
+            mono_name(mo),
+        ));
+    }
+    // a fold's element-wise form, at a test monotone in the fold's map parameter
+    let fold_param = |pos: &[usize], params: &[(String, String)], s: usize| {
+        pos.iter()
+            .position(|&j| j == s)
+            .map(|i| params[i].0.clone())
+    };
+    let test_mono = |f: &str, test: &(String, Vec<String>), pname: &str, x: &str| {
+        let fm = mono_by_lean(f)?;
+        let gsig = cx.fns.get(&test.0)?;
+        let gm = mono_by_lean(&gsig.lean)?;
+        let _ = fm;
+        (gm.walk.is_none()
+            && test.1.get(gm.s).is_some_and(|a| a == pname)
+            && test.1.get(gm.subj()).is_some_and(|a| a == x))
+        .then(|| mono_name(gm))
+    };
+    let mut kall_mono = false;
+    let mut fold_monos = String::new();
+    for f in &kfolds {
+        let Some(fm) = mono_by_lean(&f.lean) else {
+            continue;
+        };
+        let Some(pname) = fold_param(&f.param_pos, &f.params, fm.s) else {
+            continue;
+        };
+        let Some(gm) = test_mono(&f.lean, &f.test_fn, &pname, &f.x) else {
+            continue;
+        };
+        let others: String = f
+            .params
+            .iter()
+            .filter(|(n, _)| *n != pname)
+            .map(|(n, t)| format!(" {{{n} : {t}}}"))
+            .collect();
+        kall_mono = true;
+        fold_monos.push_str(&format!(
+            "/-- `Invariant.{b}_iff`'s element-wise form keeps its items' test when the map parameter grows. -/\n\
+@[k2l_coll] theorem Invariant.{b}_kAll_mono {{S S' : {}}}{others} {{k : SortK}}\n    \
+(hk : Invariant.kAll (fun {x} => {}) k) (h : KPrelude.MapHook.KeysIncl S S') :\n    \
+Invariant.kAll (fun {x} => {}) k :=\n  Invariant.kAll_mono (fun _ hx => {gm} h hx) hk\n\n",
+            ms(fm),
+            subst_ident(&f.test, &pname, "S"),
+            subst_ident(&f.test, &pname, "S'"),
+            b = f.base,
+            x = f.x,
+        ));
+    }
+    for f in &folds {
+        let (Some((gcall, _, _)), Some(test)) = (&f.partial, &f.test_fn) else {
+            continue;
+        };
+        let Some(fm) = mono_by_lean(&f.lean) else {
+            continue;
+        };
+        let Some(pname) = fold_param(&f.param_pos, &f.params, fm.s) else {
+            continue;
+        };
+        let Some(gm) = test_mono(&f.lean, test, &pname, &f.x) else {
+            continue;
+        };
+        let others: String = f
+            .params
+            .iter()
+            .filter(|(n, _)| *n != pname)
+            .map(|(n, t)| format!(" {{{n} : {t}}}"))
+            .collect();
+        fold_monos.push_str(&format!(
+            "/-- `Invariant.{b}_iff`'s element-wise form keeps its elements' test when the map parameter grows. -/\n\
+@[k2l_coll] theorem Invariant.{b}_elems_mono {{S S' : {}}}{others} {{l : {}}}\n    \
+(hl : KPrelude.ListHook.ElemsOn (fun {x} => {} = some true) l) (h : KPrelude.MapHook.KeysIncl S S') :\n    \
+KPrelude.ListHook.ElemsOn (fun {x} => {} = some true) l :=\n  fun y hy => {gm} h (hl y hy)\n\n",
+            ms(fm),
+            f.list,
+            subst_ident(gcall, &pname, "S"),
+            subst_ident(gcall, &pname, "S'"),
+            b = f.base,
+            x = f.x,
+        ));
+    }
+    if kall_mono {
+        d.push_str(
+            "/-- `Invariant.kAll` of a weaker predicate. -/\n\
+theorem Invariant.kAll_mono {P Q : SortKItem → Prop} (hpq : ∀ x, P x → Q x) :\n    \
+∀ {k : SortK}, Invariant.kAll P k → Invariant.kAll Q k\n  \
+| .dotk, _ => by simp only [Invariant.kAll]\n  \
+| .kseq _ _, hk => by\n    \
+simp only [Invariant.kAll] at hk ⊢\n    \
+exact ⟨hpq _ hk.1, Invariant.kAll_mono hpq hk.2⟩\n\n",
+        );
+    }
+    d.push_str(&fold_monos);
     // the lemmas of the maps built on an `Int` range, which the collections closer applies to
     // the map a rule binds
     for (g, r) in &ranges {

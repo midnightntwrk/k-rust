@@ -870,7 +870,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,18,17,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,18,20,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -880,7 +880,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,18,18,23)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,18,21,23)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -890,7 +890,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,18,19,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,18,22,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -900,7 +900,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,18,20,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,18,23,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -910,7 +910,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,18,21,23)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,18,24,23)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -923,7 +923,40 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,18,22,31)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,18,25,31)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+    )
+  ]
+  symbol Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(SortInt{}) : SortCmd{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,18,26,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+    )
+  ]
+  symbol Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+    SortInt{},
+    SortInt{}
+  ) : SortCmd{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,18,27,31)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+    )
+  ]
+  symbol Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(SortInt{}) : SortCmd{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,18,28,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -1262,7 +1295,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,20,37,28)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,20,43,28)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -1272,7 +1305,17 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,20,38,28)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,20,44,28)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+    )
+  ]
+  symbol Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(SortMap{}) : SortKItem{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,20,45,30)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -1281,7 +1324,7 @@ module KFOLD
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,19,40,57)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,19,47,57)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     ),
@@ -1291,7 +1334,7 @@ module KFOLD
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,19,41,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,19,48,48)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     ),
@@ -1304,7 +1347,7 @@ module KFOLD
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,19,42,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,19,49,55)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     ),
@@ -1317,7 +1360,17 @@ module KFOLD
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,19,43,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,19,50,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+    ),
+    total{}()
+  ]
+  symbol LblallIn'LParUndsCommUndsRParUnds'KFOLD'Unds'Bool'Unds'Map'Unds'Map{}(SortMap{}, SortMap{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,19,51,52)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     ),
@@ -1329,7 +1382,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,35,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,41,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -1341,7 +1394,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,35,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,41,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -1353,7 +1406,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,35,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,41,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -1370,7 +1423,7 @@ module KFOLD
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,35,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,41,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/kfold/kfold.k)"
     )
@@ -1748,6 +1801,14 @@ module KFOLD
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortKItem{}}(
+      \and{SortKItem{}}(
+        Lbl'Hash'KConfigValue{}(X0:SortK{}),
+        Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(Y0:SortMap{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortCmd{},
@@ -1811,6 +1872,33 @@ module KFOLD
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblcall'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblcall'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblcall'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortCmd{},
@@ -1849,6 +1937,33 @@ module KFOLD
           Y0:SortCmd{},
           Y1:SortCmd{}
         )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblnop'LParRParUnds'KFOLD-SYNTAX'Unds'Cmd{}(),
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblnop'LParRParUnds'KFOLD-SYNTAX'Unds'Cmd{}(),
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblnop'LParRParUnds'KFOLD-SYNTAX'Unds'Cmd{}(),
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
       )
     )
     [constructor{}()]
@@ -1899,6 +2014,33 @@ module KFOLD
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblwrap'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd{}(X0:SortCmd{}),
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblwrap'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd{}(X0:SortCmd{}),
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblwrap'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd{}(X0:SortCmd{}),
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortCmd{},
@@ -1938,6 +2080,33 @@ module KFOLD
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblpush'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd{}(X0:SortCmd{}),
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblpush'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd{}(X0:SortCmd{}),
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblpush'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd{}(X0:SortCmd{}),
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortCmd{},
@@ -1952,6 +2121,33 @@ module KFOLD
           Y0:SortCmd{},
           Y1:SortCmd{}
         )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblpop'LParRParUnds'KFOLD-SYNTAX'Unds'Cmd{}(),
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblpop'LParRParUnds'KFOLD-SYNTAX'Unds'Cmd{}(),
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblpop'LParRParUnds'KFOLD-SYNTAX'Unds'Cmd{}(),
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
       )
     )
     [constructor{}()]
@@ -1982,6 +2178,142 @@ module KFOLD
       Lblseq'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
         \and{SortCmd{}}(X0:SortCmd{}, Y0:SortCmd{}),
         \and{SortCmd{}}(X1:SortCmd{}, Y1:SortCmd{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblseq'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
+          X0:SortCmd{},
+          X1:SortCmd{}
+        ),
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblseq'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
+          X0:SortCmd{},
+          X1:SortCmd{}
+        ),
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblseq'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
+          X0:SortCmd{},
+          X1:SortCmd{}
+        ),
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortCmd{},
+      \equals{SortCmd{}, R}(
+        Val:SortCmd{},
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      ),
+      Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(
+        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortCmd{},
+      \equals{SortCmd{}, R}(
+        Val:SortCmd{},
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          K0:SortInt{},
+          K1:SortInt{}
+        )
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      ),
+      Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}),
+        \and{SortInt{}}(X1:SortInt{}, Y1:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortCmd{},
+      \equals{SortCmd{}, R}(
+        Val:SortCmd{},
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      ),
+      Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(
+        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{})
       )
     )
     [constructor{}()]
@@ -2229,6 +2561,14 @@ module KFOLD
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortKItem{}}(
+      \and{SortKItem{}}(
+        Lbluse'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Int{}(X0:SortInt{}),
+        Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(Y0:SortMap{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortKItem{},
@@ -2245,6 +2585,34 @@ module KFOLD
         Lbllater'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'K{}(Y0:SortK{})
       ),
       Lbllater'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'K{}(\and{SortK{}}(X0:SortK{}, Y0:SortK{}))
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortKItem{}}(
+      \and{SortKItem{}}(
+        Lbllater'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'K{}(X0:SortK{}),
+        Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(Y0:SortMap{})
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(K0:SortMap{})
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortKItem{}}(
+      \and{SortKItem{}}(
+        Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(X0:SortMap{}),
+        Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(Y0:SortMap{})
+      ),
+      Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(
+        \and{SortMap{}}(X0:SortMap{}, Y0:SortMap{})
+      )
     )
     [constructor{}()]
   axiom{R}
@@ -2284,6 +2652,18 @@ module KFOLD
         Val:SortBool{},
         LblstackOk'LParUndsCommUndsRParUnds'KFOLD'Unds'Bool'Unds'List'Unds'Map{}(
           K0:SortList{},
+          K1:SortMap{}
+        )
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblallIn'LParUndsCommUndsRParUnds'KFOLD'Unds'Bool'Unds'Map'Unds'Map{}(
+          K0:SortMap{},
           K1:SortMap{}
         )
       )
@@ -2634,6 +3014,24 @@ module KFOLD
           )
         )
       ),
+      \exists{SortCmd{}}(
+        X0:SortInt{},
+        Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{})
+      ),
+      \exists{SortCmd{}}(
+        X0:SortInt{},
+        \exists{SortCmd{}}(
+          X1V2:SortInt{},
+          Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+            X0:SortInt{},
+            X1V2:SortInt{}
+          )
+        )
+      ),
+      \exists{SortCmd{}}(
+        X0:SortInt{},
+        Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{})
+      ),
       \bottom{SortCmd{}}()
     )
     [constructor{}()]
@@ -2715,6 +3113,10 @@ module KFOLD
       \exists{SortKItem{}}(
         X0:SortK{},
         Lbllater'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'K{}(X0:SortK{})
+      ),
+      \exists{SortKItem{}}(
+        X0V3:SortMap{},
+        Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(X0V3:SortMap{})
       ),
       \exists{SortKItem{}}(Val:SortBool{}, inj{SortBool{}, SortKItem{}}(Val:SortBool{})),
       \exists{SortKItem{}}(ValV2:SortCmd{}, inj{SortCmd{}, SortKItem{}}(ValV2:SortCmd{})),
@@ -5378,7 +5780,7 @@ module KFOLD
     )
     [
       UNIQUE'Unds'ID{}("7591d86054692b507df563aa355176cb3fc32291a940f7401b25d2ca4fa92432"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,45,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,53,40)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5399,7 +5801,7 @@ module KFOLD
     )
     [
       UNIQUE'Unds'ID{}("ea65b876769959629545cb358135c36ed70e1490f7352c009d7024d4bce8adef"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,26)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,26)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5432,7 +5834,7 @@ module KFOLD
     )
     [
       UNIQUE'Unds'ID{}("8afc5efe8687ed945cf34d5f679a0fddd7cbf7596b89b19d0ba8f9e0b406a6be"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,47,62)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,55,62)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5465,7 +5867,7 @@ module KFOLD
     )
     [
       UNIQUE'Unds'ID{}("eb1408b70ab886818426cf7bd6e9352c5b5b1c9d2bdb9d0d3588a286d2ba8aa5"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,41)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,56,41)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5498,7 +5900,40 @@ module KFOLD
     )
     [
       UNIQUE'Unds'ID{}("d99a7c8044af5e129b071b20afddf299192566f3d6bf7065620836e639b3bdd1"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(57,3,57,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortKItem{}, R}(
+            X0:SortKItem{},
+            Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(VarE:SortMap{})
+          ),
+          \and{R}(\in{SortMap{}, R}(X1:SortMap{}, VarS:SortMap{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblitemOk'LParUndsCommUndsRParUnds'KFOLD'Unds'Bool'Unds'KItem'Unds'Map{}(
+          X0:SortKItem{},
+          X1:SortMap{}
+        ),
+        \and{SortBool{}}(
+          LblallIn'LParUndsCommUndsRParUnds'KFOLD'Unds'Bool'Unds'Map'Unds'Map{}(
+            VarE:SortMap{},
+            VarS:SortMap{}
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("f478457f685c12cac375e260e039c5d5c60626fc800f28626f2b35237e81392e"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(58,3,58,42)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5541,7 +5976,27 @@ module KFOLD
                   )
                 )
               ),
-              \bottom{R}()
+              \or{R}(
+                \exists{R}(
+                  Var'Unds'Gen6:SortMap{},
+                  \exists{R}(
+                    Var'Unds'Gen7:SortMap{},
+                    \and{R}(
+                      \top{R}(),
+                      \and{R}(
+                        \in{SortKItem{}, R}(
+                          X0:SortKItem{},
+                          Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(
+                            Var'Unds'Gen6:SortMap{}
+                          )
+                        ),
+                        \and{R}(\in{SortMap{}, R}(X1:SortMap{}, Var'Unds'Gen7:SortMap{}), \top{R}())
+                      )
+                    )
+                  )
+                ),
+                \bottom{R}()
+              )
             )
           )
         ),
@@ -5563,7 +6018,7 @@ module KFOLD
     )
     [
       UNIQUE'Unds'ID{}("7ed54012a179f323cb4c4816cb331bf41699c34eeac742938e02dcc3375c3204"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,3,50,36)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,3,59,36)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       ),
@@ -5588,7 +6043,7 @@ module KFOLD
     )
     [
       UNIQUE'Unds'ID{}("81b601f5231eebee5f63ad101bd3acc8d3d9a1b111f9a9340bcd5c68d855bb27"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,3,51,33)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,33)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5627,7 +6082,73 @@ module KFOLD
     )
     [
       UNIQUE'Unds'ID{}("2a47e7cfd1b2a047de68c4cdc1f661a354e98dc5a7f81fe6716fb25781a33f33"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,52,71)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,61,71)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortMap{}, R}(X0:SortMap{}, Lbl'Stop'Map{}()),
+          \and{R}(\in{SortMap{}, R}(X1:SortMap{}, Var'Unds'Gen0:SortMap{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblallIn'LParUndsCommUndsRParUnds'KFOLD'Unds'Bool'Unds'Map'Unds'Map{}(
+          X0:SortMap{},
+          X1:SortMap{}
+        ),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("f1b4bc2a50c84e8040f7a2d3e3f22bf2e558d163b8b0c2532e9dc6e088db1ed9"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(62,3,62,30)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortMap{}, R}(
+            X0:SortMap{},
+            Lbl'Unds'Map'Unds'{}(
+              Lbl'UndsPipe'-'-GT-Unds'{}(Var'Unds'Gen0:SortKItem{}, VarV:SortKItem{}),
+              VarE:SortMap{}
+            )
+          ),
+          \and{R}(\in{SortMap{}, R}(X1:SortMap{}, VarS:SortMap{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblallIn'LParUndsCommUndsRParUnds'KFOLD'Unds'Bool'Unds'Map'Unds'Map{}(
+          X0:SortMap{},
+          X1:SortMap{}
+        ),
+        \and{SortBool{}}(
+          Lbl'Unds'andBool'Unds'{}(
+            Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(
+              VarV:SortKItem{},
+              VarS:SortMap{}
+            ),
+            LblallIn'LParUndsCommUndsRParUnds'KFOLD'Unds'Bool'Unds'Map'Unds'Map{}(
+              VarE:SortMap{},
+              VarS:SortMap{}
+            )
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("538f1516c3965f2e048e3947daa339dbd657b8bcd009be93488c41e948b73d60"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(63,3,63,65)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5671,7 +6192,7 @@ module KFOLD
     [
       UNIQUE'Unds'ID{}("7cf4ed0213f3158e2c7a2379f453982b1eaff00a9addf97c720ddf7b9e24fc0d"),
       label{}("seq"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,57)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(65,3,65,57)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5721,7 +6242,7 @@ module KFOLD
     [
       UNIQUE'Unds'ID{}("3d4e8a26a4b9c66fb0857f41a73bf5cb41f55d244ba2a44ce571c75efd4f8273"),
       label{}("call"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,55,93)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(66,3,66,93)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5755,7 +6276,7 @@ module KFOLD
     [
       UNIQUE'Unds'ID{}("c163d1082ef0834cb88c1b2241561729ca6d84b6176ef818f106acf4618ae98a"),
       label{}("use"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,56,46)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(67,3,67,46)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5789,7 +6310,7 @@ module KFOLD
     [
       UNIQUE'Unds'ID{}("32724488d351d6a13fe9ecced21464dd88668549a06b1938dbf6a739204c1183"),
       label{}("nop"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(57,3,57,45)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(68,3,68,45)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5832,7 +6353,7 @@ module KFOLD
     [
       UNIQUE'Unds'ID{}("391c1d99051013f2296cd1b5ac37bc7045e9f872bfe6cbe3922392dc96639412"),
       label{}("wrap"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(58,3,58,60)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(69,3,69,60)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5866,7 +6387,7 @@ module KFOLD
     [
       UNIQUE'Unds'ID{}("49f6a7c378d13d1748f742f54498394f1a5755a97e2f9eb144d65fb57394578e"),
       label{}("later"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,3,59,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(70,3,70,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5911,7 +6432,7 @@ module KFOLD
     [
       UNIQUE'Unds'ID{}("fa4b8deae4a8f133ea1721228e8a9812d5d94c4d1c3ae275af7e92a61760d81b"),
       label{}("push"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,99)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(71,3,71,99)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -5947,7 +6468,193 @@ module KFOLD
     [
       UNIQUE'Unds'ID{}("ad37325460fa159ab36e5afc4ec9b0e6f5e803a3d48b66fb817c6dbec10f50be"),
       label{}("pop"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,61,83)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(72,3,72,83)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortCmd{}, SortKItem{}}(
+                Lblgrow'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(VarL:SortInt{})
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Lbl'-LT-'store'-GT-'{}(VarS:SortMap{}),
+          Var'Unds'Gen3:SortStackCell{},
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+          LblnotBool'Unds'{}(
+            Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(
+              inj{SortInt{}, SortKItem{}}(VarL:SortInt{}),
+              VarS:SortMap{}
+            )
+          ),
+          \dv{SortBool{}}("true")
+        )
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar1:SortK{}),
+          Lbl'-LT-'store'-GT-'{}(
+            Lbl'Unds'Map'Unds'{}(
+              VarS:SortMap{},
+              Lbl'UndsPipe'-'-GT-Unds'{}(
+                inj{SortInt{}, SortKItem{}}(VarL:SortInt{}),
+                inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))
+              )
+            )
+          ),
+          Var'Unds'Gen3:SortStackCell{},
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("9c834ec752413ca5d3880889f5a7f075353b8a3aeaed5e6e231bafee8b6d5175"),
+      label{}("grow"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(73,3,74,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortCmd{}, SortKItem{}}(
+                Lblset'LParUndsCommUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+                  VarL:SortInt{},
+                  VarV:SortInt{}
+                )
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Lbl'-LT-'store'-GT-'{}(VarS:SortMap{}),
+          Var'Unds'Gen3:SortStackCell{},
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar1:SortK{}),
+          Lbl'-LT-'store'-GT-'{}(
+            LblMap'Coln'update{}(
+              VarS:SortMap{},
+              inj{SortInt{}, SortKItem{}}(VarL:SortInt{}),
+              inj{SortInt{}, SortKItem{}}(VarV:SortInt{})
+            )
+          ),
+          Var'Unds'Gen3:SortStackCell{},
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("cfcc753ecf1407faab59442cb62daccfd71b2bf10a46a80159467fc26abc54e2"),
+      label{}("set"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(75,3,75,81)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortCmd{}, SortKItem{}}(
+                Lblsave'LParUndsRParUnds'KFOLD-SYNTAX'Unds'Cmd'Unds'Int{}(VarL:SortInt{})
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          \and{SortStoreCell{}}(
+            Lbl'-LT-'store'-GT-'{}(VarS:SortMap{}),
+            Var'Unds'Gen6:SortStoreCell{}
+          ),
+          Var'Unds'Gen3:SortStackCell{},
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+          Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(
+            inj{SortInt{}, SortKItem{}}(VarL:SortInt{}),
+            VarS:SortMap{}
+          ),
+          \dv{SortBool{}}("true")
+        )
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(
+                Lbl'UndsPipe'-'-GT-Unds'{}(
+                  inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0")),
+                  inj{SortInt{}, SortKItem{}}(VarL:SortInt{})
+                )
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'Gen6:SortStoreCell{},
+          Var'Unds'Gen3:SortStackCell{},
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("c75580278fa0947c64be15d0469054bf9d5378b899fdce14a4aa5407e11cb825"),
+      label{}("save"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(76,3,76,101)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/kfold/kfold.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              Lblscope'LParUndsRParUnds'KFOLD'Unds'KItem'Unds'Map{}(Var'Unds'Gen0:SortMap{}),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'Gen4:SortStoreCell{},
+          Var'Unds'Gen3:SortStackCell{},
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar1:SortK{}),
+          Var'Unds'Gen4:SortStoreCell{},
+          Var'Unds'Gen3:SortStackCell{},
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("34866e5a70fcc454b3cae9f13ea0291a989817e432dcdd7f13fbe354725eeef0"),
+      label{}("scope"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(77,3,77,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/kfold/kfold.k)"
       )
@@ -6749,7 +7456,7 @@ module KFOLD
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,1,62,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,1,78,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/kfold/kfold.k)"
   )

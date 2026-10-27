@@ -412,7 +412,24 @@ fn k_folds_get_their_element_wise_form() {
     // the `<stack>` list fold, with the same partial test, from its two equations
     assert!(defs.contains("theorem Invariant.stackOk_iff (l : SortList) (p1 : SortMap) :\n    K.«stackOk(_,_)_KFOLD_Bool_List_Map» l p1 = some true ↔ KPrelude.ListHook.ElemsOn (fun x => K.«itemOk(_,_)_KFOLD_Bool_KItem_Map» x p1 = some true) l :=\n  KPrelude.ListHook.all_iff_of_eqns_partial"), "{defs}");
     let thms = std::fs::read_to_string(out.join("KKFold/Invariants.lean")).unwrap();
-    assert!(thms.contains("Eqn.«itemOk(_,_)_KFOLD_Bool_KItem_Map_3», Eqn.«ok(_)_KFOLD_Bool_GeneratedTopCell_1», Invariant.stackOk_iff, Invariant.kOk_iff, Invariant.kAll, Invariant.itemOk_owise_Bool, Invariant.itemOk_owise_Cmd"), "{thms}");
+    assert!(thms.contains("Eqn.«itemOk(_,_)_KFOLD_Bool_KItem_Map_4», Eqn.«ok(_)_KFOLD_Bool_GeneratedTopCell_1», Invariant.stackOk_iff, Invariant.kOk_iff, Invariant.kAll, Invariant.itemOk_owise_Bool, Invariant.itemOk_owise_Cmd"), "{thms}");
+    // the group reads the store through its keys only: monotone in it, by recursion along the
+    // equations, and the walk `allIn` from its element-wise form; the closers' forms of both
+    assert!(defs.contains("theorem Invariant.itemOk_mono {S S' : SortMap} (h : KPrelude.MapHook.KeysIncl S S') {x : SortKItem}\n    (hx : K.«itemOk(_,_)_KFOLD_Bool_KItem_Map» x S = some true) :\n    K.«itemOk(_,_)_KFOLD_Bool_KItem_Map» x S' = some true := by\n  by_cases hc1 : ∃ (L : SortInt), x = SortKItem.inj_KItem (SortKItem.Own.«use(_)» L)"), "{defs}");
+    assert!(
+        defs.contains("theorem Invariant.allIn_mono {S S' : SortMap}"),
+        "{defs}"
+    );
+    assert!(
+        defs.contains("@[k2l_coll] theorem Invariant.kOk_kAll_mono {S S' : SortMap} {k : SortK}"),
+        "{defs}"
+    );
+    assert!(
+        defs.contains(
+            "@[k2l_coll] theorem Invariant.stackOk_elems_mono {S S' : SortMap} {l : SortList}"
+        ),
+        "{defs}"
+    );
 }
 
 fn gen_fixture(dir: &Path, out: &Path, ns: &str) {

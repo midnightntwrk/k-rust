@@ -45,6 +45,11 @@ open ListIso
 
 variable {L E : Type} [ListIso L E]
 
+/-- `uncons` takes `ListItem(X) REST` apart, and only it: what the fallback of a generated
+monotonicity proof needs to refute the definition's `uncons` arm where no list pattern matched. -/
+theorem uncons_eq_some_iff {l t : L} {x : E} : uncons l = some (x, t) ↔ l = concat (element x) t :=
+  ⟨fun h => (concat_element_of_uncons h).symm, fun h => h ▸ uncons_concat_element x t⟩
+
 /-- `ListItem(X) REST` is never `.List`. -/
 theorem concat_element_ne_unit (x : E) (t : L) : concat (element x) t ≠ (unit : L) := by
   intro h
@@ -250,5 +255,24 @@ theorem bind_bool_eq_some_true (o : Option Bool) (f : Bool → Option Bool) :
   cases o with
   | none => simp
   | some b => cases b <;> simp
+
+/-- `k2l_mono_arm hx [m₁, …]`: one arm of a generated monotonicity proof (`Invariant.f_mono`,
+`invariants.md` §3.1). The arm's equation has rewritten `hx : f x S = some true` and the goal
+`f x S' = some true` into the equation's right-hand side at `S` and at `S'`, `andBool`s of calls
+bound one after another; both are split into their calls, and each call of the goal is either a
+hypothesis (it does not read the map) or follows from one by some `mᵢ : g y S = some true →
+g y S' = some true`. -/
+syntax "k2l_mono_arm " ident " [" term,* "]" : tactic
+
+macro_rules
+  | `(tactic| k2l_mono_arm $hx [$ms,*]) => `(tactic| (
+      (try simp only [KPrelude.bind_bool_eq_some_true, KPrelude.BoolHook.and, Option.bind_fun_some]
+        at $hx:ident ⊢)
+      (try simp at $hx:ident ⊢)
+      (try k2l_split_ands)
+      (try and_intros)
+      all_goals first
+        | assumption
+        $[| exact $ms (by assumption)]*))
 
 end KPrelude

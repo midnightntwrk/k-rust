@@ -9,7 +9,10 @@
 // through `Invariant.itemOk_owise_Cmd`: `seq` pushes two commands, `call` a `use`, `wrap` a `later`
 // holding a command, and `nop`, `use`, `later` pop one. The `<stack>` list is folded by `stackOk`
 // with the same partial test (`Invariant.stackOk_iff`, from its two equations): `push` pushes a
-// `later`, `pop` drops one.
+// `later`, `pop` drops one. An item `scope(E)` holds a map whose every value is a key of the store
+// (`allIn`, a map walk). The store grows (`grow`) and is updated (`set`): every pending item stays
+// valid because the group `kOk`, `itemOk`, `stackOk` reads the store through its keys only, which
+// `Invariant.itemOk_mono` and the others prove from the equations (`invariants.md` §3.1).
 requires "domains.md"
 
 module KFOLD-SYNTAX
@@ -20,6 +23,9 @@ module KFOLD-SYNTAX
                | push(Cmd)          // defer C on the stack
                | pop()
                | seq(Cmd, Cmd)
+               | grow(Int)          // add the fresh location L, bound to 0
+               | set(Int, Int)      // store V at location L
+               | save(Int)          // remember location L, a key of the store, in a scope
 endmodule
 
 module KFOLD
@@ -36,20 +42,25 @@ module KFOLD
 
   syntax KItem ::= use(Int)
                  | later(K)
+                 | scope(Map)
 
   syntax Bool ::= ok(GeneratedTopCell) [function, total]
                 | kOk(K, Map) [function, total]
                 | itemOk(KItem, Map) [function, total]
                 | stackOk(List, Map) [function, total]
+                | allIn(Map, Map) [function, total]
   rule ok(<generatedTop> <k> K </k> <store> S </store> <stack> St </stack> _ </generatedTop>)
     => kOk(K, S) andBool stackOk(St, S)
   rule kOk(.K, _) => true
   rule kOk(I:KItem ~> K, S) => itemOk(I, S) andBool kOk(K, S)
   rule itemOk(use(L), S) => L in_keys(S)
   rule itemOk(later(K), S) => kOk(K, S)
+  rule itemOk(scope(E), S) => allIn(E, S)
   rule itemOk(_, _) => true [owise]
   rule stackOk(.List, _) => true
   rule stackOk(ListItem(I) L, S) => itemOk(I, S) andBool stackOk(L, S)
+  rule allIn(.Map, _) => true
+  rule allIn((_ |-> V) E, S) => V in_keys(S) andBool allIn(E, S)
 
   rule <k> seq(C1, C2) => C1 ~> C2 ... </k> [label(seq)]
   rule <k> call(L) => use(L) ... </k> <store> S </store> requires L in_keys(S) [label(call)]
@@ -59,4 +70,9 @@ module KFOLD
   rule <k> later(_) => .K ... </k> [label(later)]
   rule <k> push(C) => .K ... </k> <stack> St => ListItem(later(C ~> .K)) St </stack> [label(push)]
   rule <k> pop() => .K ... </k> <stack> ListItem(_) St => St </stack> [label(pop)]
+  rule <k> grow(L) => .K ... </k> <store> S => S (L |-> 0) </store>
+    requires notBool (L in_keys(S)) [label(grow)]
+  rule <k> set(L, V) => .K ... </k> <store> S => S[L <- V] </store> [label(set)]
+  rule <k> save(L) => scope(0 |-> L) ... </k> <store> S </store> requires L in_keys(S) [label(save)]
+  rule <k> scope(_) => .K ... </k> [label(scope)]
 endmodule
