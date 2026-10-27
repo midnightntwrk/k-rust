@@ -586,6 +586,10 @@ fn check_writable(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the replay's notes, verdicts, fixed fields and certification, printed in order"
+)]
 fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
     let file = WitnessFile::read(path)?;
     let mut resolved = file.campaign.clone();

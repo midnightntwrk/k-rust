@@ -1463,6 +1463,11 @@ export interface FuzzReportIdentity {
   'thread-stack-size': string | null
   solver: 'z3' | 'none'
   /**
+   * Whether the k-rust-fuzz build has debug assertions, whose panics a release build does not
+   * raise, so the profile decides which crashes a report holds (report version 10).
+   */
+  'debug-assertions': boolean
+  /**
    * The parser's diagnostic work limit (`KRUST_PARSE_DIAGNOSTIC_WORK`; `unlimited`, or the floor
    * in chart steps as a decimal string), which changes the text of parse diagnostics a warning
    * may quote (report version 10).

@@ -7,8 +7,9 @@
 //! every key the code sets or reads by index (`document["stopped"]`), and every string the code
 //! writes as a whole value (`json!("client-refused")`, `"kind": "reach"`), comments left out. A key, a `stopped`
 //! value, a warning kind or a refusal reason added, renamed or removed moves it; a message's
-//! wording does not. The document embeds a k-rust-fuzz report, so the pin also names the
-//! report version it embeds. A shape or report version that changes without a bump of
+//! wording does not. The document embeds a k-rust-fuzz report and k-rust-fuzz's hole
+//! declarations, so the pin also names the report version and the witness version (which names
+//! `HoleDecl`'s shape) it embeds. A shape or report version that changes without a bump of
 //! [`FUZZ_VERSION`] fails here until the version is bumped and the digest re-pinned (a literal
 //! that changes without changing the document, such as a key read and never written, is
 //! re-pinned under the same version, with the reason beside the pin).
@@ -23,10 +24,13 @@ use k_rust_fuzz::report::{REPORT_VERSION, digest_hex};
 use kink_flow::fuzz::FUZZ_VERSION;
 
 /// The document's shape at [`FUZZ_VERSION`] 4 (fz26 FZ-REPLAY-WHOLE: it embeds report version
-/// 10), with the report version it embeds.
-const DOCUMENT_SHAPE: (u32, u32, &str) = (
+/// 10), with the report version and the witness version whose types it embeds: the report as
+/// `attempts[].fuzz`, and `template.holes`, k-rust-fuzz's `HoleDecl`, whose shape the witness
+/// version names (k-rust-fuzz `tests/formats.rs`; fix round S-D).
+const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
     4,
     10,
+    2,
     "8ad12634d62d4f03d4c1867ccc255d247c6c9b24ce887da48c47fe58047f922e",
 );
 
@@ -115,6 +119,21 @@ fn literals(source: &str) -> BTreeSet<String> {
     found
 }
 
+/// The krust-fuzz witness version, read from the executable's source (the executable is no
+/// library): it names the shape of k-rust-fuzz's `HoleDecl`, which the document embeds.
+fn witness_version() -> u32 {
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../crates/k-rust-fuzz/src/bin/krust-fuzz/replay.rs"
+    ))
+    .expect("krust-fuzz's replay.rs reads");
+    source
+        .lines()
+        .find_map(|line| line.strip_prefix("pub const WITNESS_VERSION: u32 = "))
+        .and_then(|rest| rest.trim_end_matches(';').parse().ok())
+        .expect("replay.rs declares WITNESS_VERSION")
+}
+
 #[test]
 fn the_fuzz_document_version_names_its_shape() {
     let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/fuzz.rs"))
@@ -140,7 +159,7 @@ fn the_fuzz_document_version_names_its_shape() {
     if std::env::var_os("KINK_FLOW_FORMATS_PRINT").is_some() {
         println!("document shape at version {FUZZ_VERSION}: {digest}\n  {found:?}");
     }
-    let (version, report, pinned) = DOCUMENT_SHAPE;
+    let (version, report, witness, pinned) = DOCUMENT_SHAPE;
     assert_eq!(
         version, FUZZ_VERSION,
         "FUZZ_VERSION moved to {FUZZ_VERSION}: re-pin the document's shape for the new version"
@@ -149,6 +168,13 @@ fn the_fuzz_document_version_names_its_shape() {
         report, REPORT_VERSION,
         "the embedded k-rust-fuzz report moved to version {REPORT_VERSION}, which changes the \
          document: bump FUZZ_VERSION and re-pin"
+    );
+    assert_eq!(
+        witness,
+        witness_version(),
+        "the krust-fuzz witness version moved to {}, so the shape of the hole declarations the \
+         document embeds (`template.holes`) may have changed: bump FUZZ_VERSION and re-pin",
+        witness_version()
     );
     assert_eq!(
         digest, pinned,

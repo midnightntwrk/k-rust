@@ -63,13 +63,15 @@ pub struct CampaignSpec {
     pub identity: CallerIdentity,
 }
 
-/// Identity inputs that k-rust offers no API for, supplied by the caller and recorded in the
-/// report as given (ARCHITECTURE 5.4, T-6).
+/// Identity inputs supplied by the caller and recorded in the report as given (ARCHITECTURE 5.4,
+/// T-6).
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct CallerIdentity {
-    /// The k-rust revision the caller built against (for example a commit id). No revision
-    /// constant exists in k-rust.
+    /// The k-rust revision the caller built against: `krust-fuzz`, the bindings and kink-flow
+    /// pass `k_rust::build_identity()` (D26), the k-rust version and a digest of its sources;
+    /// another embedder may give another name, which the report records as given. (The
+    /// k-rust-fuzz build is recorded by the library itself, `crate::build_identity`.)
     pub k_rust_revision: String,
     /// The stack size, in bytes, of the thread that calls [`crate::Campaign::run`], when the
     /// caller knows it. Stack stops depend on it (ARCHITECTURE 5.4).

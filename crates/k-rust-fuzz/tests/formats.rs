@@ -14,8 +14,11 @@
 //! field's Rust type changed to one that serializes alike) is re-pinned under the same version,
 //! with the reason beside the pin.
 //!
-//! Not read: an inherent method a hand-written impl calls (`ComparableCondition::name`), and a
-//! type's serde code in a crate outside the files listed. A witness file holds a report, so its
+//! Not read: an inherent method a hand-written impl calls (`ComparableCondition::name`), the
+//! body of an `impl Visitor` (the hand-written deserializers of `IntText` and `HoleChoice`,
+//! campaign-file types no document holds), a `Deserialize` impl whose lifetime is not named
+//! `'de`, and a type's serde code in a crate outside the files listed. A type alias is read and
+//! followed (`Assignment`). A witness file holds a report, so its
 //! shape is that of the types the witness holds beside its report: a witness of another report
 //! version is refused by that version before anything else is read, so a type the two share is
 //! guarded by the report's version.
@@ -30,12 +33,14 @@ use std::{
 
 use k_rust_fuzz::report::{REPORT_VERSION, digest_hex};
 
-/// The report's shape at [`REPORT_VERSION`] 10 (FZ-REPLAY-WHOLE: the identity's `fuzz-revision`
-/// and `parse-diagnostic-work`, `totals.first-outside-determinism`, and source locations named
-/// relative to the main module's file).
+/// The report's shape at [`REPORT_VERSION`] 10 (FZ-REPLAY-WHOLE: the identity's `fuzz-revision`,
+/// `parse-diagnostic-work` and `debug-assertions`, `totals.first-outside-determinism`, and source
+/// locations named relative to the main module's file). Re-pinned within version 10 by the fix
+/// round, in the same wave: `identity.debug-assertions` came in, and the reader now follows type
+/// aliases (`Assignment`), which changes the digest and not the format.
 const REPORT_SHAPE: (u32, &str) = (
     10,
-    "f93e821a12f9fe0b5e682212572da71fe57cd2260e7d3f5afe38ac401837beef",
+    "e6930e0adab3bd3e85ac7905b637e0888ec2d15b0b7947a0c4d7a92ffadca798",
 );
 
 /// The witness file's shape at its version 2 (FZ-CRASH), less the report it holds.
@@ -331,6 +336,11 @@ fn classify(item: &str) -> Option<(String, Kind)> {
     if let Some(name) = name_after("struct ").or_else(|| name_after("enum ")) {
         return derives_serde.then_some((name, Kind::Type));
     }
+    // A type alias is followed through: `Vec<Assignment>` serializes as what `Assignment` names
+    // (fix round S-D).
+    if let Some(name) = name_after("type ") {
+        return Some((name, Kind::Type));
+    }
     if body.starts_with("impl") {
         // Normalized: `impl Serialize for X`, `impl<'de>Deserialize<'de>for X`.
         let header = body.split('{').next().unwrap_or("");
@@ -487,6 +497,7 @@ fn the_report_version_names_the_report_shape() {
         "WitnessCase",
         "HaltReasonOutput",
         "decimal_u64",
+        "Assignment",
     ] {
         assert!(
             computed.1.iter().any(|read| read == name),
@@ -520,7 +531,8 @@ fn the_witness_version_names_the_witness_shape() {
 #[test]
 fn the_shape_reader_reads_items_not_comments() {
     let source = "/// a doc\n#[derive(Serialize)]\n#[serde(rename_all = \"kebab-case\")]\npub struct A {\n    // a comment\n    pub b: Vec<B>, /* inline */\n    pub c: &'static str,\n}\n#[cfg(test)]\nmod tests { #[derive(Serialize)] struct T; }\nmod m { #[derive(Deserialize)] pub enum B { X('\"'), Y } }\n";
-    let items = items(&without_comments(source));
+    let items_of = |source: &str| items(&without_comments(source));
+    let items = items_of(source);
     assert!(
         items.contains(
             &"#[derive(Serialize)]#[serde(rename_all=\"kebab-case\")]pub struct A{pub b:Vec<B>,pub c:&'static str,}".to_owned()
@@ -538,6 +550,12 @@ fn the_shape_reader_reads_items_not_comments() {
         "{items:?}"
     );
     assert_eq!(classify(&items[0]), Some(("A".to_owned(), Kind::Type)));
+    // A type alias is a type of the shape, followed through (fix round S-D).
+    let alias = items_of("pub type Assignment = BTreeMap<String, Value>;\n");
+    assert_eq!(
+        classify(&alias[0]),
+        Some(("Assignment".to_owned(), Kind::Type))
+    );
 }
 
 /// k-rust-fuzz's build script digests this crate and its path dependencies outside k-rust's

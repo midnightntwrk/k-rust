@@ -361,7 +361,7 @@ An invalid pattern is refused before any case (`invalid-pattern`), with k-rust's
 
 `kink-flow fuzz` takes `--cases N` (1000 by default) or `--work W`, `--seed S` (0 by default) and `--max-work N`, the work bound of each run (100000 by default); each run is also bounded by the flow's `[budget] max_depth` and `time_ms`.
 The same inputs and seed give the same document, so a small budget and a fixed seed make a job cheap to repeat; the examples above take a few seconds each.
-The exceptions are clocks and the stack: a case that a step's time limit (the flow's `time_ms`), a solver `unknown` or a stop for lack of stack decided is outside the determinism contract, counted in the fuzz report's `totals.outside-determinism`, and since every later case depends on the cases before it, a re-run may differ from the first such case on (`totals.first-outside-determinism`; the statement in `action` says so). `--time-limit-ms` and kink's confirmation, which runs under the flow's `time_ms`, are clocks too.
+The exceptions are clocks and the stack: a case that a step's time limit (the flow's `time_ms`), a solver `unknown` or a stop for lack of stack decided is outside the determinism contract, counted in the fuzz report's `totals.outside-determinism`, and since every later case depends on the cases before it, a re-run may differ from the first such case on (`totals.first-outside-determinism`, which also counts a candidate whose confirmation the clock stopped and, with the solve proposer, the case proposed after a solve run the clock or the stack stopped; the statement in `action` says so). `--time-limit-ms` and kink's confirmation, which runs under the flow's `time_ms`, are clocks too.
 `--one-path` follows one path of the mutant instead of all; `--time-limit-ms T` stops the campaign after `T` ms; `--no-confirm` skips kink's confirmation (the witness then has `confirmed: false`); `--no-filter` turns off kink's rules inside the campaign; `--assume-joined NAME` adds a premise for this command.
 
 ## Choosing a template
@@ -533,7 +533,9 @@ first witness: reproduced
 shrunk witness: reproduced
 ```
 
-Replay compares the whole witness, the program, the krun lines and each side's work included, so a witness file edited by hand does not reproduce.
+Replay compares the whole witness, the program, the krun lines and each side's work included, each crash's values, program and krun line, and the report's fields fixed before any case (the definition findings, the sort overrides, the normal end, the load records and the warnings the campaign starts with), so an edit of any of them does not reproduce.
+It cannot certify what the campaign's search recorded, since it runs only the recorded cases: the totals, the statement, the other warnings, the incidental findings, each crash's phase, case, count, re-runs and shrunk values, a repaired witness's `repaired-from`, the witness filter's identity and the proposers' parameters. Its last line says so.
+The identity names the k-rust-fuzz build by its sources, a comment included, so a witness kept across commits replays only with `--force` (status 3 when its cases reproduce), or is found again.
 
 `krust fuzz` exits with 0 for a witness (with `--replay`, when every case reproduced), 1 for none: no witness within the budget, `Domain exhausted`, `equivalent`, `not comparable`, the rejection cap or an aborted campaign (with `--replay`, a case that did not reproduce), 2 on an error (a usage error, a refused campaign or replay, an unreadable input or environment variable), and 3 for a replay forced past identity mismatches (`--force`) whose cases reproduced, which confirms nothing the file claims.
 The two commands agree where their meanings agree: 0 for a witness, 1 for `not-comparable` and an aborted campaign, 2 for a usage error. `kink-flow fuzz` follows kink's convention, where 0 means the job reached a verdict, so no witness is 0 there and 1 here, and a refused job is 1 there and 2 here.

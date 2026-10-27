@@ -113,7 +113,8 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// name where version 9 wrote `<main>`, so a report is a function of its identity wherever the
 /// definition was compiled (S1). It adds `identity.fuzz-revision`, the k-rust-fuzz build
 /// ([`crate::build_identity`], S4), `identity.parse-diagnostic-work`, the parser's diagnostic
-/// work limit (N4), and `totals.first-outside-determinism`, the first case a re-run may differ
+/// work limit (N4), `identity.debug-assertions`, the build profile's fact that decides which
+/// crashes occur (fix round S-E), and `totals.first-outside-determinism`, the first case a re-run may differ
 /// at (S3). A version-9 reader refuses the new fields, and `--replay` refuses a version-9
 /// witness by its version.
 pub const REPORT_VERSION: u32 = 10;
@@ -432,6 +433,10 @@ pub struct ReportIdentity {
     /// it), `"none"` otherwise: a build without a solver leaves undecided some conditions a
     /// solver decides.
     pub solver: String,
+    /// Whether this build of k-rust-fuzz has debug assertions (`cfg!(debug_assertions)`): a
+    /// debug assertion's panic is a crash a release build does not raise, so the build profile
+    /// decides which crashes a report holds (FZ-REPLAY-WHOLE fix round S-E).
+    pub debug_assertions: bool,
     /// The parser's diagnostic work limit this process read
     /// (`k_rust::inner::DiagnosticWork::from_environment`, the `KRUST_PARSE_DIAGNOSTIC_WORK`
     /// variable): `unlimited`, or the floor in chart steps as a decimal string. It changes the
@@ -2373,6 +2378,7 @@ mod tests {
                 budget: Budget::Cases(5000),
                 thread_stack_size: Some(64 << 20),
                 solver: "none".into(),
+                debug_assertions: false,
                 parse_diagnostic_work: "1048576".into(),
                 dictionary: None,
                 climb: None,
@@ -2485,6 +2491,7 @@ mod tests {
                 "'fuzz-revision': string",
                 "'parse-diagnostic-work': string",
                 "'first-outside-determinism'?: number",
+                "'debug-assertions': boolean",
             ] {
                 assert!(declarations.contains(key), "{path}: {key} is not declared");
             }
@@ -2794,7 +2801,7 @@ mod tests {
             r#""value-size":131072},"#,
             r#""rejection-cap":"10","#,
             r#""seed":"18446744073709551615","budget":{"cases":"5000"},"#,
-            r#""thread-stack-size":"67108864","solver":"none","#,
+            r#""thread-stack-size":"67108864","solver":"none","debug-assertions":false,"#,
             r#""parse-diagnostic-work":"1048576"},"#,
             r#""outcome":{"status":"witness-found","witness":{"label":"property-failure","#,
             r#""first":CASE,"shrunk":CASE,"clean-leaf-facts":["ceil-free"],"#,

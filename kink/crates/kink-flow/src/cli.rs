@@ -501,9 +501,11 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
 /// MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [options]
 /// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit
-/// status: [`EXIT_OK`] when the job was done (a witness printed as a `[[program]]` fragment, or
-/// none within the budget or the time limit); [`EXIT_CORPUS`] when an input, the template or the
-/// mutation is refused, the campaign is `not-comparable`, or a run failed.
+/// status: [`EXIT_OK`] when the job reached a verdict (`stopped` is `null`, `budget`,
+/// `client-refused`, `unconfirmed`, `assembly-mismatch`, `equivalent`, `rejected-out` or
+/// `time-limit`); [`EXIT_CORPUS`] when an input, the template or the mutation is refused
+/// (`refused`), the campaign is `not-comparable`, or it `aborted` (the README's and the guide's
+/// table).
 pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value, u8) {
     let manifest = match FlowManifest::read(manifest) {
         Ok(manifest) => manifest,

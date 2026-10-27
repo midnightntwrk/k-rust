@@ -307,6 +307,8 @@ pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> V
             seed: _,
             thread_stack_size: _,
             solver: _,
+            // A debug assertion's panic is a crash a release build does not raise.
+            debug_assertions: _,
             // The engine version names the code that chose the cases; a replay runs a fixed
             // assignment, but a witness of another engine version is another build's (S-B).
             engine_version: _,
@@ -418,6 +420,10 @@ pub struct Replay {
 }
 
 /// Replay `file`'s witness cases on `loaded` (ARCHITECTURE 9.4).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one loop: the recorded cases, the identity check, each case and the fixed fields"
+)]
 pub fn replay(
     file: &WitnessFile,
     loaded: &LoadedCampaign,
@@ -586,12 +592,7 @@ fn static_differences(
                 .to_owned(),
         );
     }
-    fn set(
-        records: &[k_rust_fuzz::report::LoadRecord],
-    ) -> std::collections::BTreeSet<&k_rust_fuzz::report::LoadRecord> {
-        records.iter().collect()
-    }
-    if set(load_records) != set(&first.load_records) {
+    if load_record_set(load_records) != load_record_set(&first.load_records) {
         differences.push("the load records differ".to_owned());
     }
     differences
@@ -899,6 +900,10 @@ pub enum WhichCase {
 }
 
 /// How the replayed witness case `replayed` differs from the recorded `recorded` ([`differences`]).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one comparison per field of the destructured case and its sides"
+)]
 fn case_differences(
     recorded: &WitnessCase,
     replayed: &WitnessCase,
@@ -1020,6 +1025,13 @@ fn case_differences(
 /// A count of the witness for a message: the number, or `none`.
 fn shown(count: Option<u64>) -> String {
     count.map_or_else(|| "none".to_owned(), |count| count.to_string())
+}
+
+/// `records` as a set: every case run reports the definitions' load records alike.
+fn load_record_set(
+    records: &[k_rust_fuzz::report::LoadRecord],
+) -> std::collections::BTreeSet<&k_rust_fuzz::report::LoadRecord> {
+    records.iter().collect()
 }
 
 /// How a replayed comparable judgement stands against the recorded one.
@@ -1249,6 +1261,7 @@ mod tests {
     /// that names other hooks, or names some where the recorded one named none, differs.
     #[test]
     fn a_changed_set_of_hooks_does_not_reproduce() {
+        use super::Judgement::{Differs, Equal};
         use k_rust_fuzz::report::{ReasonHook, ReasonHooks};
         let named = |hooks: &[ReasonHook]| {
             let mut judged = judged(&[C::Halt]);
@@ -1260,7 +1273,6 @@ mod tests {
         let none = named(&[]);
         let shl = named(&[ReasonHook::unsupported("INT.shl")]);
         let pow = named(&[ReasonHook::unsupported("INT.pow")]);
-        use super::Judgement::{Differs, Equal};
         assert_eq!(comparable_reproduced(Some(&shl), Some(&shl)), Equal);
         assert_eq!(comparable_reproduced(Some(&none), Some(&none)), Equal);
         assert_eq!(comparable_reproduced(Some(&shl), Some(&pow)), Differs);

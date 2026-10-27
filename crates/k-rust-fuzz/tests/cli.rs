@@ -246,6 +246,10 @@ fn le_workspace(test: &str) -> PathBuf {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one witness file and the tampers its replay must reject"
+)]
 fn a_replayed_witness_reproduces_its_class_and_final_configuration() {
     let directory = le_workspace("replay");
     let (status, report) = json_run(

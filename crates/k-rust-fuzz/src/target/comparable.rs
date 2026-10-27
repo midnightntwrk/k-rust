@@ -176,8 +176,9 @@ impl ResolvedTarget {
 
     /// The comparable judgement of a reported witness case that its case did not make
     /// ([`Self::judge_comparable`]): a rule or pattern target without `comparable-end` whose
-    /// case `shape` runs one path, names a terminal rule or asks for a path set (an all-paths
-    /// `at: any-state` case, FZ-STATESET N2). It runs the program from `initial`
+    /// case `shape` runs one path, names a terminal rule or asks for a path set. (An all-paths
+    /// `at: any-state` case runs a state set with no terminal rule since FZ-STATESET-MATCH, which
+    /// is its own run of every path, so it makes its judgement itself.) It runs the program from `initial`
     /// on every path on `executor` within `cancel`'s scope, outside every case, and gives the
     /// judgement with that run's work (at least 1) for the campaign's total. A failed solver
     /// prelude, which the witness's own run passed, reads as `run-failed`. `None` when the case
@@ -213,8 +214,10 @@ impl ResolvedTarget {
 }
 
 /// Whether a case run with `shape` is the program's own run of every path: strategy `all`, no
-/// terminal rule, and a state set, as [`CaseRequestShape::every_path`] runs it (FZ-STATESET N2:
-/// an `at: any-state` case runs a path set, which is not that run).
+/// terminal rule, and a state set, as [`CaseRequestShape::every_path`] runs it. An all-paths
+/// `at: any-state` case is one (FZ-STATESET-MATCH: `case_state_set` gives it a state set with no
+/// terminal rule); a one-path case, a `fired` case without `run-to-completion` and a path set
+/// are not.
 fn own_run_of_every_path(shape: &CaseRequestShape) -> bool {
     shape.all_paths() && !shape.has_terminal_rules() && shape.state_set()
 }

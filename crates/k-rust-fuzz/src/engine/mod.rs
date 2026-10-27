@@ -1030,6 +1030,7 @@ fn identity(
         thread_stack_size: spec.identity.thread_stack_size,
         // k-rust's solver feature, whatever enabled it (Cargo unifies features across a build).
         solver: if k_rust::Z3_INFERENCE { "z3" } else { "none" }.into(),
+        debug_assertions: cfg!(debug_assertions),
         parse_diagnostic_work: match k_rust::inner::DiagnosticWork::from_environment() {
             k_rust::inner::DiagnosticWork::Limited { floor } => floor.to_string(),
             k_rust::inner::DiagnosticWork::Unlimited => "unlimited".to_owned(),

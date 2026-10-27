@@ -1032,7 +1032,9 @@ fn repair_candidate(
                 }
             }
         }
-        Confirmed::Cancelled => Candidate::Not,
+        // A repair candidate is no case: a cancelled confirmation, or one whose run was outside
+        // the contract, decides only whether the repair is kept.
+        Confirmed::Cancelled | Confirmed::Outside => Candidate::Not,
         Confirmed::Aborted(abort) => {
             state.aborted(abort, case, settings, candidate, false);
             Candidate::Aborted
@@ -1044,9 +1046,6 @@ fn repair_candidate(
             );
             Candidate::Not
         }
-        // A repair candidate is no case: its run outside the contract decides only whether the
-        // repair is kept.
-        Confirmed::Outside => Candidate::Not,
     }
 }
 
