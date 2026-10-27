@@ -1332,6 +1332,20 @@ symbol = "Counter::SimplifyRounds"
 
 [[node]]
 kind = "observation"
+id = "SmtPreparedQueries"
+provenance = "table"
+area = "smt"
+name = "SmtPreparedQueries"
+table = "Counter::ALL"
+registry_name = "smt.prepared_queries"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SmtPreparedQueries"
+
+[[node]]
+kind = "observation"
 id = "SmtQueries"
 provenance = "table"
 area = "smt"
@@ -1371,6 +1385,34 @@ registry_name = "smt.solver_runs"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/measure.rs"
 symbol = "Counter::SmtSolverRuns"
+
+[[node]]
+kind = "observation"
+id = "SmtTypedCacheHits"
+provenance = "table"
+area = "smt"
+name = "SmtTypedCacheHits"
+table = "Counter::ALL"
+registry_name = "smt.typed_cache_hits"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SmtTypedCacheHits"
+
+[[node]]
+kind = "observation"
+id = "SmtTypedCacheMisses"
+provenance = "table"
+area = "smt"
+name = "SmtTypedCacheMisses"
+table = "Counter::ALL"
+registry_name = "smt.typed_cache_misses"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SmtTypedCacheMisses"
 
 [[node]]
 kind = "observation"
@@ -4312,9 +4354,9 @@ kind = "algorithm"
 id = "backend.smt.cache"
 provenance = "declared"
 area = "backend"
-name = "bounded FIFO memoization of SMT query scripts"
-variable = "e = entries evicted; E = cached entries; L = script length in bytes"
-invariant = "entries and insertion_order agree; eviction stops once the entry and key-byte limits admit the new key"
+name = "bounded decided-answer reuse before preparation and over SMT scripts"
+variable = "e = entries evicted; E = cached entries; L = script length in bytes; W = bounded typed-input comparison or admission work; G = retained key-graph charge"
+invariant = "Typed entries belong to one immutable solver/prelude and are compared in full under their query kind and evaluation context. Only decided answers are retained, with FIFO entry and graph-retention limits. The lower script cache retains its independent entry and key-byte limits. Stops, failures, Unknown and models are never typed-cache answers."
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendSmtCache"
@@ -4323,6 +4365,46 @@ registry_name = "BackendSmtCache"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt/z3.rs"
 symbol = "Z3Solver::solve"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3/typed_cache.rs"
+symbol = "Cache"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3/typed_cache.rs"
+symbol = "Cache::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3/typed_cache.rs"
+symbol = "Cache::get"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3/typed_cache.rs"
+symbol = "Cache::insert"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3/typed_cache.rs"
+symbol = "Query::fingerprint"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3/typed_cache.rs"
+symbol = "equal_inputs"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3/typed_cache.rs"
+symbol = "retention"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3/typed_cache.rs"
+symbol = "collection_cost"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -4364,13 +4446,42 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt/z3.rs"
 symbol = "Z3Solver::check_prelude"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::typed_answer"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::remember_typed"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "equal_terms_bounded"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::node_address"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt.rs"
+symbol = "SmtPrelude::query"
+
 [[node.cost]]
-mode = "cache hit"
+mode = "script cache hit"
 bound = "O(L x log E) for the key comparison, after an O(L) copy of the base script in solve_query"
 
 [[node.cost]]
 mode = "cache insertion"
 bound = "O(e) evictions for e oldest entries removed to satisfy both limits"
+
+[[node.cost]]
+mode = "typed-input lookup and admission"
+bound = "A fixed-size syntactic-prefix fingerprint, then at most E full structural comparisons, each limited to W=32768 work units and visiting shared term pairs once. A miss uses ordinary preparation. Decided-answer insertion walks distinct term nodes, variable supports, payloads and collection-size bounds before cloning; W and a 4-MiB per-entry retention charge bound admission. At most 256 entries and 64 MiB of conservative graph charge are retained; shared graphs between entries are overcharged. Eviction drops e key graphs, whose retained total is bounded by G."
 
 [[node.cost]]
 mode = "prelude consistency"
@@ -11851,6 +11962,12 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "backend.smt.cache"
+to = "SmtPreparedQueries"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.cache"
 to = "SmtQueries"
 provenance = "declared"
 
@@ -11864,6 +11981,18 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.smt.cache"
 to = "SmtSolverRuns"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.cache"
+to = "SmtTypedCacheHits"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.cache"
+to = "SmtTypedCacheMisses"
 provenance = "declared"
 
 [[edge]]

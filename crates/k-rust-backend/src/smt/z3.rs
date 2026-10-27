@@ -1,14 +1,14 @@
 //! ```toml algorithm
 //! id = "backend.smt.cache"
-//! name = "bounded FIFO memoization of SMT query scripts"
-//! sites = ["Z3Solver::solve", "SolverResultCache::get", "SolverResultCache::insert", "Z3Solver::solve_uncached", "SolverResultCache", "Z3Solver::solve_model", "Z3Solver::confirm_answer", "Z3Solver::check_prelude"]
-//! variable = "e = entries evicted; E = cached entries; L = script length in bytes"
-//! counters = ["SmtQueries", "SmtSolverRuns", "SmtRlimitCount"]
+//! name = "bounded decided-answer reuse before preparation and over SMT scripts"
+//! sites = ["Z3Solver::solve", "SolverResultCache::get", "SolverResultCache::insert", "Z3Solver::solve_uncached", "SolverResultCache", "Z3Solver::solve_model", "Z3Solver::confirm_answer", "Z3Solver::check_prelude", "Z3Solver::typed_answer", "Z3Solver::remember_typed"]
+//! variable = "e = entries evicted; E = cached entries; L = script length in bytes; W = bounded typed-input comparison or admission work; G = retained key-graph charge"
+//! counters = ["SmtQueries", "SmtSolverRuns", "SmtRlimitCount", "SmtTypedCacheHits", "SmtTypedCacheMisses", "SmtPreparedQueries"]
 //! span = "per call"
-//! invariant = "entries and insertion_order agree; eviction stops once the entry and key-byte limits admit the new key"
+//! invariant = "Typed entries belong to one immutable solver/prelude and are compared in full under their query kind and evaluation context. Only decided answers are retained, with FIFO entry and graph-retention limits. The lower script cache retains its independent entry and key-byte limits. Stops, failures, Unknown and models are never typed-cache answers."
 //!
 //! [[cost]]
-//! mode = "cache hit"
+//! mode = "script cache hit"
 //! bound = "O(L x log E) for the key comparison, after an O(L) copy of the base script in solve_query"
 //!
 //! [[cost]]
@@ -16,11 +16,20 @@
 //! bound = "O(e) evictions for e oldest entries removed to satisfy both limits"
 //!
 //! [[cost]]
+//! mode = "typed-input lookup and admission"
+//! bound = "A fixed-size syntactic-prefix fingerprint, then at most E full structural comparisons, each limited to W=32768 work units and visiting shared term pairs once. A miss uses ordinary preparation. Decided-answer insertion walks distinct term nodes, variable supports, payloads and collection-size bounds before cloning; W and a 4-MiB per-entry retention charge bound admission. At most 256 entries and 64 MiB of conservative graph charge are retained; shared graphs between entries are overcharged. Eviction drops e key graphs, whose retained total is bounded by G."
+//!
+//! [[cost]]
 //! mode = "prelude consistency"
 //! bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer or rejected script"
 //! ```
 //!
-//! In-process Z3 behind a bounded FIFO result cache: `Counter::SmtQueries` in,
+//! Decided typed-input answers are reused before preparation; nontrivial model requests translate
+//! and solve afresh. The typed cache belongs to the solver's immutable prelude, is shared only
+//! by its clones, and separates query kind, evaluation mode and console context. Oversized or
+//! foreign-metadata keys decline admission. Cancellation and prelude failure precede hits.
+//!
+//! In-process Z3 also retains the bounded FIFO script result cache: `Counter::SmtQueries` in,
 //! `Counter::SmtSolverRuns` out (the lazy prelude check and the model path count solver
 //! runs without a query), O(L x log E) per hit for a script of L bytes among E cached entries,
 //! eviction pops the oldest entry until the entry and key-byte limits admit the new key. The
@@ -46,6 +55,8 @@
 //! ```
 
 #![deny(clippy::wildcard_enum_match_arm)]
+
+mod typed_cache;
 
 use std::num::NonZeroU32;
 use std::{
@@ -246,6 +257,9 @@ pub struct Z3Solver {
     /// those sorts are built; a sort the definition gives no kind has no values to build.
     model_kinds: ModelKinds,
     result_cache: Arc<Mutex<SolverResultCache>>,
+    typed_cache: Arc<Mutex<typed_cache::Cache>>,
+    #[cfg(test)]
+    preparation_count: Arc<AtomicUsize>,
     prelude_state: Arc<Mutex<PreludeState>>,
     prelude_signal: PreludeSignal,
     #[cfg(test)]
@@ -390,6 +404,12 @@ impl Z3Solver {
                 RESULT_CACHE_ENTRY_LIMIT,
                 RESULT_CACHE_KEY_BYTE_LIMIT,
             ))),
+            typed_cache: Arc::new(Mutex::new(typed_cache::Cache::new(
+                typed_cache::ENTRY_LIMIT,
+                typed_cache::RETENTION_LIMIT,
+            ))),
+            #[cfg(test)]
+            preparation_count: Arc::new(AtomicUsize::new(0)),
             prelude_state: Arc::new(Mutex::new(PreludeState::Unchecked)),
             prelude_signal: PreludeSignal::default(),
             #[cfg(test)]
@@ -863,6 +883,44 @@ fn decide_validity<E>(
     }))
 }
 
+impl Z3Solver {
+    fn typed_answer(
+        &self,
+        inputs: &typed_cache::Query<'_>,
+    ) -> Stoppable<Option<typed_cache::Answer>> {
+        stop::check()?;
+        let answer = self
+            .typed_cache
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(inputs)?;
+        // A concurrently failed prelude or cancellation still wins over a cached answer.
+        stop::check()?;
+        if let Some(failure) = self.prelude_failure() {
+            return Err(self.prelude_stop(failure));
+        }
+        measure::bump(if answer.is_some() {
+            Counter::SmtTypedCacheHits
+        } else {
+            Counter::SmtTypedCacheMisses
+        });
+        Ok(answer)
+    }
+    fn remember_typed(
+        &self,
+        inputs: &typed_cache::Query<'_>,
+        answer: typed_cache::Answer,
+    ) -> Stoppable<()> {
+        if let Some(source) = &self.prelude.source {
+            self.typed_cache
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(inputs, answer, source.definition())?;
+        }
+        Ok(())
+    }
+}
+
 impl SmtSolver for Z3Solver {
     fn is_sat(
         &self,
@@ -872,11 +930,21 @@ impl SmtSolver for Z3Solver {
         if let Some(failure) = self.prelude_failure() {
             return Err(self.prelude_stop(failure));
         }
+        let inputs = typed_cache::Query::new(false, predicates, substitution, &[]);
+        if let Some(typed_cache::Answer::Sat(answer)) = self.typed_answer(&inputs)? {
+            return Ok(Ok(answer));
+        }
+        #[cfg(test)]
+        self.preparation_count.fetch_add(1, Ordering::Relaxed);
         let query = match self.prelude.query(predicates, substitution, &[], false)? {
             Ok(query) => query,
             Err(error) => return Ok(Err(error.into())),
         };
-        self.solve_query(&query, None)
+        let answer = self.solve_query(&query, None)?;
+        if let Ok(answer) = &answer {
+            self.remember_typed(&inputs, typed_cache::Answer::Sat(answer.clone()))?;
+        }
+        Ok(answer)
     }
 
     fn check_predicates(
@@ -888,21 +956,32 @@ impl SmtSolver for Z3Solver {
         if let Some(failure) = self.prelude_failure() {
             return Err(self.prelude_stop(failure));
         }
+        stop::check()?;
         if checked.is_empty() {
             return Ok(Ok(Validity::Valid));
         }
+        let inputs = typed_cache::Query::new(true, known, substitution, checked);
+        if let Some(typed_cache::Answer::Validity(answer)) = self.typed_answer(&inputs)? {
+            return Ok(Ok(answer));
+        }
+        #[cfg(test)]
+        self.preparation_count.fetch_add(1, Ordering::Relaxed);
         let query = match self.prelude.query(known, substitution, checked, true)? {
             Ok(query) => query,
             Err(error) => return Ok(Err(error.into())),
         };
         let checked = query.checked().to_string();
-        decide_validity(|subquery| match subquery {
+        let answer = decide_validity(|subquery| match subquery {
             ValiditySubquery::Base => self.solve_query(&query, None),
             ValiditySubquery::Positive => self.solve_query(&query, Some(&checked)),
             ValiditySubquery::Negative => {
                 self.solve_query(&query, Some(&format!("(not {checked})")))
             }
-        })
+        })?;
+        if let Ok(answer) = &answer {
+            self.remember_typed(&inputs, typed_cache::Answer::Validity(answer.clone()))?;
+        }
+        Ok(answer)
     }
 
     fn get_model(&self, query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {
@@ -990,6 +1069,138 @@ mod tests {
 
     fn x() -> Variable {
         Variable::new("X", crate::term::Sort::simple("SortInt"))
+    }
+
+    /// An API hit must skip preparation even when the lower script cache has evicted its answer.
+    #[test]
+    fn typed_reuse_precedes_preparation_and_survives_script_eviction() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let s = Substitution::new();
+        let checked = [Predicate::Term(term(
+            &definition,
+            r#"lt{}(X:SortInt{},\dv{SortInt{}}("10"))"#,
+        ))];
+        assert_eq!(
+            solver.check_predicates(&[], &s, &checked),
+            Ok(Ok(Validity::Contingent))
+        );
+        let prepared = solver.preparation_count.load(Ordering::Relaxed);
+        let runs = solver.uncached_solve_count.load(Ordering::Relaxed);
+        *solver.result_cache.lock().unwrap() = SolverResultCache::new(0, 0);
+        assert_eq!(
+            solver.clone().check_predicates(&[], &s, &checked),
+            Ok(Ok(Validity::Contingent))
+        );
+        assert_eq!(solver.preparation_count.load(Ordering::Relaxed), prepared);
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), runs);
+        let changed = Substitution::from([(x(), Term::int(20))]);
+        assert_eq!(
+            solver.check_predicates(&[], &changed, &checked),
+            Ok(Ok(Validity::Refuted))
+        );
+        assert!(solver.preparation_count.load(Ordering::Relaxed) > prepared);
+        let known = [Predicate::Equals(Term::variable(x()), Term::int(5))];
+        assert_eq!(
+            solver.check_predicates(&known, &s, &checked),
+            Ok(Ok(Validity::Valid))
+        );
+        let opposite = [Predicate::Not(Arc::new(checked[0].clone()))];
+        assert_eq!(
+            solver.check_predicates(&known, &s, &opposite),
+            Ok(Ok(Validity::Refuted))
+        );
+    }
+    #[test]
+    fn cached_typed_answers_still_observe_cancellation_and_prelude_failure() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let s = Substitution::new();
+        let checked = [Predicate::Term(term(
+            &definition,
+            r#"lt{}(X:SortInt{},\dv{SortInt{}}("10"))"#,
+        ))];
+        assert_eq!(
+            solver.check_predicates(&[], &s, &checked),
+            Ok(Ok(Validity::Contingent))
+        );
+        let token = CancellationToken::new();
+        token.cancel();
+        assert_eq!(
+            token.scope(|| cause(solver.check_predicates(&[], &s, &checked))),
+            Err(StopCause::Cancelled)
+        );
+        *solver.prelude_state.lock().unwrap() = PreludeState::Failed(PreludeFailure::Inconsistent);
+        assert_eq!(
+            cause(solver.check_predicates(&[], &s, &checked)),
+            Err(INCONSISTENT)
+        );
+    }
+    #[test]
+    fn typed_cache_is_private_to_its_definition_and_evaluation_context() {
+        use crate::evaluation::{EvaluationMode, with_evaluation};
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let s = Substitution::new();
+        let q = [Predicate::Equals(Term::variable(x()), Term::int(5))];
+        assert_eq!(solver.is_sat(&q, &s), Ok(Ok(Satisfiability::Sat)));
+        let prepared = solver.preparation_count.load(Ordering::Relaxed);
+        with_evaluation(EvaluationMode::Execution, || {
+            assert_eq!(solver.is_sat(&q, &s), Ok(Ok(Satisfiability::Sat)))
+        });
+        assert_eq!(
+            solver.preparation_count.load(Ordering::Relaxed),
+            prepared + 1
+        );
+        assert_eq!(solver.is_sat(&q, &s), Ok(Ok(Satisfiability::Sat)));
+        assert_eq!(
+            solver.preparation_count.load(Ordering::Relaxed),
+            prepared + 1
+        );
+        {
+            let _scope =
+                crate::evaluation::EvaluationScope::enter_run(EvaluationMode::Execution, true);
+            assert_eq!(solver.is_sat(&q, &s), Ok(Ok(Satisfiability::Sat)));
+        }
+        assert_eq!(
+            solver.preparation_count.load(Ordering::Relaxed),
+            prepared + 2
+        );
+        let other = Z3Solver::with_prelude(&definition, "(assert false)").unwrap();
+        assert_eq!(cause(other.is_sat(&q, &s)), Err(INCONSISTENT));
+    }
+
+    #[test]
+    fn structurally_equal_query_terms_do_not_reuse_another_definitions_axioms() {
+        let source = r#"[] module MAIN
+          hooked-sort SortInt{} [hook{}("INT.Int"),hasDomainValues{}()]
+          symbol f{}(SortInt{}) : SortInt{} [function{}(),total{}(),smtlib{}("f")]
+          axiom{R} \implies{R}(\top{R}(),\equals{SortInt{},R}(
+            f{}(X:SortInt{}),\and{SortInt{}}(\dv{SortInt{}}("1"),\top{SortInt{}}())))
+            [simplification{}(),smt-lemma{}(),label{}("value")]
+          endmodule []"#;
+        let first =
+            BackendDefinition::internalize(&parse_definition(source).unwrap(), "MAIN").unwrap();
+        let second = BackendDefinition::internalize(
+            &parse_definition(&source.replace("\"1\"", "\"2\"")).unwrap(),
+            "MAIN",
+        )
+        .unwrap();
+        let checked = [Predicate::Equals(
+            term(&first, r#"f{}(\dv{SortInt{}}("0"))"#),
+            Term::int(1),
+        )];
+        let s = Substitution::new();
+        let first = Z3Solver::new(&first).unwrap();
+        let second = Z3Solver::new(&second).unwrap();
+        assert_eq!(
+            first.check_predicates(&[], &s, &checked),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            second.check_predicates(&[], &s, &checked),
+            Ok(Ok(Validity::Refuted))
+        );
     }
 
     #[test]
@@ -2415,6 +2626,7 @@ mod tests {
             Ok(Ok(Satisfiability::Sat))
         );
 
+        let runs = measure::snapshot().get(Counter::SmtSolverRuns);
         assert_eq!(
             solver.get_model(&ModelQuery::for_solver_tests(
                 &predicates,
@@ -2425,6 +2637,15 @@ mod tests {
                 Term::raw_domain_value(Sort::simple("SortInt"), "7")
             )]))))
         );
+        assert_eq!(measure::snapshot().get(Counter::SmtSolverRuns), runs + 1);
+        assert!(matches!(
+            solver.get_model(&ModelQuery::for_solver_tests(
+                &predicates,
+                &Substitution::new()
+            )),
+            Ok(Ok(ModelResult::Sat(_)))
+        ));
+        assert_eq!(measure::snapshot().get(Counter::SmtSolverRuns), runs + 2);
     }
 
     /// The solver decides nothing about `^Int` or `^%Int` from a value where no integer is the

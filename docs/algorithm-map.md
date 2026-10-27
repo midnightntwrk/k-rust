@@ -5,7 +5,7 @@ It is the starting point for work that spans algorithms.
 Source discovery covers root `crates/*/src`; KRS, KINK and k2lean workspace members are outside this graph.
 It holds only what the algorithm graph declares on cards (`docs/algorithm-cards.md`), reads from tables (the kompile stage tables, `Counter::ALL`), or derives from both.
 An absent edge proves nothing: there is no call graph, and code that no card names belongs to no algorithm.
-Graph: nodes 133 algorithm, 3 contract, 3 invariant, 116 observation, 67 phase, 1 registry, 37 representation; edges 9 constrains, 70 consumes, 23 contains, 1 falls-back-to, 40 follows, 138 measured-by, 36 produces, 1 variant-of.
+Graph: nodes 133 algorithm, 3 contract, 3 invariant, 119 observation, 67 phase, 1 registry, 37 representation; edges 9 constrains, 70 consumes, 23 contains, 1 falls-back-to, 40 follows, 141 measured-by, 36 produces, 1 variant-of.
 
 - `algo-graph query show <id>` prints a whole card (every cost mode, variables, counters, tests); `query impact <id>` prints what a change reaches.
 - `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload, and the algorithm nesting observed on each run, which orders the kprove and krun algorithms this map cannot place. This map has no measured cost.
@@ -155,7 +155,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.search.patterns — O(m) matches, each followed by one predicate… — in: [match result] — at backend/search.rs `search_pattern_using`
 - backend.simplify.predicates — n predicate simplifications plus up to n rebuilds… +5 modes — in: [match result] — at backend/simplify.rs `simplify_predicates_with_solver`
 - backend.simplify.term — O(r x |t| x c), with the rounds that are not… +6 modes — in: [match result] — at backend/simplify.rs `simplify_with_optional_execution`
-- backend.smt.cache — O(L x log E) for the key comparison, after an… +2 modes — at backend/smt/z3.rs `Z3Solver::solve`
+- backend.smt.cache — O(L x log E) for the key comparison, after an… +3 modes — at backend/smt/z3.rs `Z3Solver::solve`
 - backend.smt.check — O(R) solver work as reported by Z3 — at backend/smt/z3.rs `measured_check`
 - backend.substitution.apply — per entered subterm, the variable-set meet test… +2 modes — at backend/substitution.rs `substitute`
 - backend.substitution.extract_output — O(c^2 x t), plus for each solved binding whose… — at backend/search.rs `normalize_match_condition`

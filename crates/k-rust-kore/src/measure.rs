@@ -20,7 +20,7 @@
 /// Schema version of the `KRUST_COUNTERS` document: it versions the counter set (the names and
 /// meaning of the counters the dump holds) and moves when that set changes; a change of the
 /// counts a run reports leaves it as it is ("Format versions" in `docs/compatibility.md`).
-pub const COUNTER_SCHEMA_VERSION: u64 = 21;
+pub const COUNTER_SCHEMA_VERSION: u64 = 22;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -556,8 +556,14 @@ pub enum Counter {
     /// Known predicates each conjunction simplification copies into its own assumptions,
     /// counted once per call.
     SimplifyKnownPredicates,
-    /// SMT queries issued, including result-cache hits.
+    /// Prepared SMT subqueries issued, including script-result-cache hits.
     SmtQueries,
+    /// API queries answered before preparation by the typed-input result cache.
+    SmtTypedCacheHits,
+    /// API queries not answered by the typed-input result cache.
+    SmtTypedCacheMisses,
+    /// Queries entering definition-aware preparation, including fresh model queries.
+    SmtPreparedQueries,
     /// SMT queries that ran a solver instance.
     SmtSolverRuns,
     /// Z3 resource-limit units consumed by solver checks.
@@ -612,7 +618,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 99;
+    pub const COUNT: usize = 102;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -692,6 +698,9 @@ impl Counter {
         Counter::SimplifyConjunctNodes,
         Counter::SimplifyKnownPredicates,
         Counter::SmtQueries,
+        Counter::SmtTypedCacheHits,
+        Counter::SmtTypedCacheMisses,
+        Counter::SmtPreparedQueries,
         Counter::SmtSolverRuns,
         Counter::SmtRlimitCount,
         Counter::Allocations,
@@ -798,6 +807,9 @@ impl Counter {
             Counter::SimplifyConjunctNodes => "simplify.conjunct_nodes",
             Counter::SimplifyKnownPredicates => "simplify.known_predicates",
             Counter::SmtQueries => "smt.queries",
+            Counter::SmtTypedCacheHits => "smt.typed_cache_hits",
+            Counter::SmtTypedCacheMisses => "smt.typed_cache_misses",
+            Counter::SmtPreparedQueries => "smt.prepared_queries",
             Counter::SmtSolverRuns => "smt.solver_runs",
             Counter::SmtRlimitCount => "smt.rlimit_count",
             Counter::Allocations => "allocation.count",

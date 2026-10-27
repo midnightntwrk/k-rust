@@ -1806,6 +1806,12 @@ impl Term {
         Arc::as_ptr(&self.0) as usize
     }
 
+    /// Identity while a borrowed graph is alive; unlike `identity`, retains no weak handle.
+    #[cfg(feature = "z3")]
+    pub(crate) fn node_address(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
+
     /// Transform the immediate children and preserve this term when every child is unchanged.
     ///
     /// Constructors recompute their synthetic attributes when a child changes. Keeping the
@@ -3979,6 +3985,65 @@ pub(crate) fn equal_terms_on_work_list(left: &Term, right: &Term) -> bool {
             }
         }
     }
+}
+
+/// ```toml algorithm-site
+/// id = "backend.smt.cache"
+/// role = "part"
+/// sites = ["equal_terms_bounded", "Term::node_address"]
+/// ```
+/// Structural equality for bounded memo lookups, visiting shared pairs once.
+/// Exhausting the caller's work allowance declines reuse; it never establishes inequality.
+#[cfg(feature = "z3")]
+pub(crate) fn equal_terms_bounded(left: &Term, right: &Term, work: &mut usize) -> Option<bool> {
+    let mut pending = vec![PendingEqual::Terms(left, right)];
+    let mut seen = rustc_hash::FxHashSet::default();
+    while let Some(pair) = pending.pop() {
+        *work = work.checked_sub(1)?;
+        match pair {
+            PendingEqual::Terms(left, right) => {
+                if left.ptr_eq(right) {
+                    continue;
+                }
+                if left.0.attributes.hash != right.0.attributes.hash {
+                    return Some(false);
+                }
+                if !seen.insert((left.node_address(), right.node_address())) {
+                    continue;
+                }
+                let mut exhausted = false;
+                let same = equal_nodes(left.kind(), right.kind(), &mut |children| {
+                    for child in children {
+                        if pending.len() >= *work {
+                            exhausted = true;
+                            break;
+                        }
+                        pending.push(child);
+                    }
+                });
+                if same.is_none() {
+                    return Some(false);
+                }
+                if exhausted {
+                    return None;
+                }
+            }
+            PendingEqual::Entries(mut entries) => {
+                if let Some(((key, value), (other_key, other_value))) = entries.next() {
+                    pending.push(PendingEqual::Entries(entries));
+                    pending.push(PendingEqual::Terms(value, other_value));
+                    pending.push(PendingEqual::Terms(key, other_key));
+                }
+            }
+            PendingEqual::Elements(mut elements) => {
+                if let Some((left, right)) = elements.next() {
+                    pending.push(PendingEqual::Elements(elements));
+                    pending.push(PendingEqual::Terms(left, right));
+                }
+            }
+        }
+    }
+    Some(true)
 }
 
 /// A comparison [`equal_terms_on_work_list`] owes: of two children, or of the entries two maps

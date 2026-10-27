@@ -1626,6 +1626,7 @@ impl SmtPrelude {
         checked: &[Predicate],
         filter_for_checked: bool,
     ) -> Stoppable<Result<TranslatedQuery, TranslationError>> {
+        k_rust_kore::measure::bump(k_rust_kore::measure::Counter::SmtPreparedQueries);
         let mut translation = TranslationState::new();
         translation.congruence = self.congruence.clone();
         if let Some(source) = &self.source {
