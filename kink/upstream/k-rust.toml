@@ -374,6 +374,7 @@ local_workaround = "retired: kink-native keeps the rule as AdaptedLeaf::undefine
 requested_action = "Satisfied."
 sources = ["k-rust draft/k-in-k/workers/KK-66-report.md open points, KK-75-report.md"]
 update_2026_10_17 = "Re-pin to 501f18b9: under StateSet or strategy any, a Trivial leaf's rule_id is witness metadata (answers-2026-10.toml section_2_2_summary (4)). kink requests PathSet, where the rule_id still names the producing rule. kink reads it only for reports and for the preserves-definedness guard (R0b deliverable 6), never in a comparison. The tests cited above pass in the K-in-K2 1ee9955 gate of record (draft/tasks/repin-501f18b9/handoffs/R0c-fix-4.toml: workspace 777/0/9; Z3 kink-native 229/0/1, kink-campaign 220/0/1, kink-corpus 56/0/8). Still fixed."
+update_2026_10_27 = "fz26 KINK-PATHSET-FALLBACK: kink reads every result run as the state set k-rust answers (kink-native EXECUTION_REQUEST_VERSION v2). The 2026-10-17 reading is superseded: a state-set Trivial leaf of an undefined step names that step's rule from its own configuration, the same on every path (k-rust tests/backend/exploration_merge.rs); only a leaf of a remainder its own normalization refutes names its parent's producing rule, the witness path's when that parent is the merged state (k-rust docs/backend-port.md), and that leaf shows no contradiction of the named rule's claim (kink-native src/exclusion.rs, D40)."
 
 [[request]]
 id = "variable-identity"
@@ -1058,6 +1059,7 @@ summary = "Since KINK-10/3 an undefined rule result gives a Trivial leaf over th
 reproducer = "ADDENDUM-3 KINK-18: a [preserves-definedness] rule whose right-hand side is X /Int 0; r(I) => a requires td(I) >Int 0 with td total and undefined at 0, run at 0."
 local_workaround = "PathSet Trivial leaf of a [preserves-definedness] rule is unknown; every mutant is built without the claims its edit can affect (R0c-fix-2). Remaining gap: a baseline whose own claim is false (trusted as a premise)."
 requested_action = "Handoff KINK-18 (medium). Report both cases in both modalities, the first like contradicted_total, the second on the path's following leaf; under StateSet list on each Trivial leaf every rule whose undefined step it stands for, with each one's contradicted claims. Acceptance as in ADDENDUM-3 KINK-18."
+update_2026_10_27 = "fz26 KINK-PATHSET-FALLBACK: the second needed_by reason no longer holds. kink reads state-set result runs without a path-set fallback; a state-set Trivial leaf of an undefined step names its own step's rule, and a refuted remainder's leaf, the one that names its parent's producer, shows no contradiction of that producer's claim (D40). The first reason stands, and so does a gap in it: a preserves-definedness claim false at a symbolic instance that only a later step narrows to gets no record and no leaf naming the rule, in either modality (KINK-PD-SYMBOLIC-INSTANCE; kink-native tests/exclusion.rs pins it)."
 sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-3.md KINK-18", "draft/tasks/repin-501f18b9/ANALYSIS.md"]
 handoff = "KINK-18"
 

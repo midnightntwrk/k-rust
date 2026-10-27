@@ -12,8 +12,8 @@
 //   `nfin`, the `owise` rule an undefined condition leaves applicable, so its arrival rests on the
 //   record, and a state set absorbs it into the first path's state during exploration: the `fin`
 //   leaf carries no record and only the list holds it.
-// - tv(0): the step's result is undefined: a `Trivial` leaf naming the contradicted `total`, so
-//   the state set is replaced by its path set.
+// - tv(0): the step's result is undefined: a `Trivial` leaf naming the contradicted `total`, in
+//   the state set as in the path set.
 module A1CLAIMS-SYNTAX
   imports INT-SYNTAX
   syntax Prog ::= sib(Int) [symbol(sib)]

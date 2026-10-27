@@ -2422,3 +2422,99 @@ fn a_vacuous_remainder_below_a_merged_state_excludes_neither_run() {
         }
     });
 }
+
+/// A KNOWN GAP, not desired behaviour (KINK-PD-SYMBOLIC-INSTANCE, D40; the KINK-PATHSET-FALLBACK
+/// review's probe, `testdata/k/stateset/rpd.k`). `g1` carries `preserves-definedness` but its
+/// result is undefined at X = 0. On the symbolic `a(X)` (RPD-LATER) the run reaches that
+/// instance only through `pz`'s narrowing, one step later: its leaves are a `Trivial` leaf naming
+/// `pz` and a `Stuck` leaf, it carries no contradicted-claim record, no leaf names a
+/// `preserves-definedness` rule, and so it is not excluded, though g1's claim is false on an
+/// instance it reaches. On the ground `a(0)` (RPD-GROUND) g1's own step shows the `\bottom`, and
+/// the record excludes the run. Both readings are the same in either modality, so the gap does
+/// not depend on the state set. This test pins today's behaviour so that a fix (k-rust recording
+/// the contradiction, or kink deciding it) shows up here; it is a gap to close, not a guarantee.
+/// Z3-only: the `Stuck` remainder needs a solver.
+#[cfg(feature = "z3")]
+#[test]
+fn known_gap_a_pd_claim_false_at_a_narrowed_symbolic_instance_is_not_excluded() {
+    use kink_native::execution::{ResultModality, ResultRun};
+    on_a_big_stack(|| {
+        for (module, argument, excluded) in [
+            ("RPD-LATER", support::var("VarX", "SortInt"), None),
+            (
+                "RPD-GROUND",
+                support::int(0),
+                Some(Exclusion::ContradictedClaim),
+            ),
+        ] {
+            let loaded =
+                support::load_path(&Path::new(support::DIR).join("stateset/rpd.k"), module);
+            let side = NativeValidator::bind(loaded, CompileOptions::default())
+                .compile_baseline()
+                .unwrap_or_else(|e| panic!("{module}: {e}"));
+            let encoded = k_rust::kast::identifier::encode(module);
+            let exclusions = DefinitionExclusions::of_validated(&side, &encoded).unwrap();
+            let catalog = backend(&side, &encoded).rule_catalog(None).unwrap();
+            let label = |id: &str| {
+                catalog
+                    .iter()
+                    .find(|rule| rule.id == id)
+                    .and_then(|rule| rule.label.clone())
+                    .unwrap_or_default()
+            };
+            let state =
+                support::initial_state(support::app("Lbla", vec![argument.clone()]), "SortProg");
+            let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+            let read = |modality| {
+                let execution = adapter
+                    .execute_result(
+                        &mut backend(&side, &encoded),
+                        &state,
+                        budget(),
+                        ResultRun {
+                            modality,
+                            max_work: None,
+                        },
+                    )
+                    .unwrap();
+                let mut leaves = execution
+                    .leaves()
+                    .iter()
+                    .map(|leaf| {
+                        (
+                            leaf.halt,
+                            leaf.undefined_rule.as_ref().map(|rule| label(&rule.id)),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                leaves.sort_by_key(|(halt, _)| format!("{halt:?}"));
+                (
+                    leaves,
+                    execution.facts().contradicted_claims.len(),
+                    exclusions.contradiction_on_a_leaf(&execution),
+                    exclusions.run_exclusion(&execution),
+                )
+            };
+            let state_set = read(ResultModality::StateSet);
+            assert_eq!(state_set, read(ResultModality::PathSet), "{module}");
+            assert_eq!(state_set.3, excluded, "{module}: {state_set:?}");
+            if module == "RPD-LATER" {
+                assert_eq!(
+                    state_set,
+                    (
+                        vec![
+                            (HaltClass::Stuck, None),
+                            (HaltClass::Trivial, Some("RPD-LATER.pz".to_owned())),
+                        ],
+                        0,
+                        false,
+                        None
+                    ),
+                    "{module}"
+                );
+            } else {
+                assert!(state_set.1 > 0, "{module}: the record");
+            }
+        }
+    });
+}

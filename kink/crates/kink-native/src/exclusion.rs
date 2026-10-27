@@ -18,29 +18,37 @@
 //! - [`Exclusion::ContradictedClaim`]: a leaf is an undefined step that falsifies a trusted claim
 //!   (re-pin decision 2, finding A-13): k-rust names a contradicted `total` claim
 //!   (`contradictedTotal`), or a `Trivial` leaf's rule carries `preserves-definedness`. The
-//!   definition is inconsistent there, and any verdict follows from an inconsistent theory. In
-//!   both modalities the `Trivial` leaf of an undefined step is the configuration the step was
-//!   taken from, naming the step's rule; a state set never merges it, and keeps one per distinct
-//!   configuration and depth, which every converging path takes alike, so a leaf contradiction on
-//!   a state set is one on the path set of the same request (fz26 KINK-PATHSET-FALLBACK). The one
+//!   definition is inconsistent there, and any verdict follows from an inconsistent theory. In both
+//!   modalities the `Trivial` leaf of an undefined step is the configuration the step was taken
+//!   from, naming the step's rule; a state set never merges it, and keeps one per distinct
+//!   configuration and depth, which every converging path takes alike, so a leaf contradiction on a
+//!   state set is one on the path set of the same request (fz26 KINK-PATHSET-FALLBACK). The one
 //!   leaf that names another rule is a remainder its own normalization refutes: it names the rule
-//!   that produced its parent, under a state set the witness path's only (k-rust
-//!   `docs/backend-port.md`), so the `preserves-definedness` reading below can differ between
-//!   the modalities there; it reads a contradiction that no `\bottom` of that rule shows, and
-//!   every real contradiction of a claim is a record on the run's list, which holds absorbed
-//!   arrivals' records too. Since re-pin adoption A-1 also any record on the run's `contradictedClaims` list, observed by
-//!   the run or by the load of its definition (`observedIn: load`, decision D-6), ground or not
+//!   that produced its parent, which, when that parent is the merged state itself, is under a state
+//!   set the witness path's only (k-rust `docs/backend-port.md`), so the `preserves-definedness`
+//!   reading below can differ between the modalities there. It never reads a contradiction of that
+//!   rule's claim (D40): a remainder takes no step, and its leaf is `Trivial` only when one of its
+//!   own `\ceil` or `Defined` constraints is refuted, which comes from its parent's constraints or
+//!   its own negated condition; a `preserves-definedness` step adds no definedness obligation, and
+//!   its `requires` and `ensures` are outside its claim, so what the remainder refutes either
+//!   restricted the producer's instances before its step or is not the producer's result. Since
+//!   re-pin adoption A-1 also any record on the run's `contradictedClaims` list, observed by the
+//!   run or by the load of its definition (`observedIn: load`, decision D-6), ground or not
 //!   ([`RunFacts::contradicted_claims`]): the list holds what no leaf carries, a candidate a
 //!   defined sibling covered and a state a state-set merge absorbed (`docs/compatibility.md` at
 //!   0068938b1, 1659), so a comparison of complete sets needs it empty; a load record is on every
 //!   run's list, so it excludes every test of its definition. On a ground run any record excludes,
 //!   so `ground` is not read: a non-ground record there arises only from a mark, a refusal, an
-//!   unsupported hook or a non-ground record, each excluded on its own (compat 1661-1668). An
-//!   empty list says nothing about a symbolic run (compat 1661), whose tests stay on the
-//!   trusted-baseline premise. Only a leaf's contradiction
-//!   ([`DefinitionExclusions::contradiction_on_a_leaf`]) is the per-test case for which admission
-//!   keeps a baseline (kink-campaign `admit`); a record on the list alone refuses a baseline as
-//!   any other exclusion does, so no refusal relaxes.
+//!   unsupported hook or a non-ground record, each excluded on its own (compat 1661-1668). An empty
+//!   list says nothing about a symbolic run (compat 1661), whose tests stay on the trusted-baseline
+//!   premise, and the leaf rule does not close that gap: a `preserves-definedness` claim false at a
+//!   symbolic instance that only a later step narrows to leaves neither a record nor a leaf naming
+//!   the rule, in either modality, so such a run is not excluded (KINK-PD-SYMBOLIC-INSTANCE, a
+//!   known gap pinned by `tests/exclusion.rs`
+//!   `known_gap_a_pd_claim_false_at_a_narrowed_symbolic_instance_is_not_excluded`). Only a leaf's
+//!   contradiction ([`DefinitionExclusions::contradiction_on_a_leaf`]) is the per-test case for
+//!   which admission keeps a baseline (kink-campaign `admit`); a record on the list alone refuses a
+//!   baseline as any other exclusion does, so no refusal relaxes.
 //! - [`Exclusion::ImplementationChosenValue`] (re-pin adoption A-1): the run read a value the
 //!   definition leaves open, on k-rust's `implementationChosenValues` list
 //!   ([`RunFacts::implementation_chosen_values`]): every class value k-rust's evaluator takes in

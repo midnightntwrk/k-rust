@@ -693,11 +693,15 @@ impl ExecutionAdapter {
     /// Executes `state` from the backend's default module as one unobserved result run under
     /// `run`, exactly as k-rust answers it, in the request's modality whatever its leaves (fz26
     /// KINK-PATHSET-FALLBACK, which removed the replacement of a state set with an undefined,
-    /// vacuous or contradicted leaf by its path set). Under a state set every `Trivial` and
-    /// `Vacuous` leaf is a leaf of the path set of the same request, so a leaf contradiction on the
-    /// state set implies one on the path set; and the run's lists hold every record of the run,
-    /// absorbed arrivals' included, so the exclusions lose nothing a contradicted claim shows
-    /// ([`crate::exclusion`]).
+    /// vacuous or contradicted leaf by its path set). In a run with no work or breadth bound, every
+    /// `Trivial` and `Vacuous` leaf of the state set is a leaf of the path set of the same request,
+    /// and the run's lists hold every record k-rust observes, absorbed arrivals' included. The one
+    /// state-set leaf whose rule can differ from a path-set leaf's is a refuted remainder's, which
+    /// names its parent's producing rule; its refutation rests on constraints a
+    /// `preserves-definedness` producer does not add, so it shows no contradiction of that
+    /// producer's claim on either run (D40, [`crate::exclusion`]). Under a work bound the state set
+    /// can reach past the path set; only a mutant's run is bounded, and any exclusion makes it
+    /// `Unknown`.
     pub fn execute_result(
         &self,
         backend: &mut Backend,
