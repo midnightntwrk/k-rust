@@ -85,7 +85,8 @@ program = "primes"
 
 **Mark every data literal**, operands and initial values included, not only the ones you suspect.
 In the trials behind this guide the killing value was usually in a hole the author would not have chosen: `i = 0` below, `t = 0` for another IMP mutation, the dividend `100` of a WebAssembly division.
-Holes cost nothing when they do not matter: the first case runs the program as written (each hole at its literal, the *anchor*), and a witness is shrunk so that every hole it does not need ends at its least value.
+Holes cost little when they do not matter: the first case runs the program as written (each hole at its literal, the *anchor*), and a witness is shrunk so that every hole it does not need ends at its least value.
+They are not free: each one widens the space the search draws from, and a value of an extra hole can take the run off the path that reaches the edited rule (in `primes`, `m = 0` with `n = 2` as written skips the loop that holds the division).
 
 Keep ranges small when the values have no meaning beyond their size (0 to 8 for a loop bound): when every hole has finitely many values and there are at most 4096 assignments, the campaign never repeats one, and once it has tried them all it says `Domain exhausted`.
 
@@ -360,6 +361,7 @@ An invalid pattern is refused before any case (`invalid-pattern`), with k-rust's
 
 `kink-flow fuzz` takes `--cases N` (1000 by default) or `--work W`, `--seed S` (0 by default) and `--max-work N`, the work bound of each run (100000 by default); each run is also bounded by the flow's `[budget] max_depth` and `time_ms`.
 The same inputs and seed give the same document, so a small budget and a fixed seed make a job cheap to repeat; the examples above take a few seconds each.
+The exceptions are clocks and the stack: a case that a step's time limit (the flow's `time_ms`), a solver `unknown` or a stop for lack of stack decided is outside the determinism contract, counted in the fuzz report's `totals.outside-determinism`, and since every later case depends on the cases before it, a re-run may differ from the first such case on (`totals.first-outside-determinism`; the statement in `action` says so). `--time-limit-ms` and kink's confirmation, which runs under the flow's `time_ms`, are clocks too.
 `--one-path` follows one path of the mutant instead of all; `--time-limit-ms T` stops the campaign after `T` ms; `--no-confirm` skips kink's confirmation (the witness then has `confirmed: false`); `--no-filter` turns off kink's rules inside the campaign; `--assume-joined NAME` adds a premise for this command.
 
 ## Choosing a template
@@ -379,7 +381,7 @@ Start from the programs the last `run` lists in the mutation's `reaching` (the d
 
 ## Reading the document
 
-`kink-flow fuzz` prints one document (version 3). The fields to read first:
+`kink-flow fuzz` prints one document (version 4). The fields to read first:
 
 - `stopped`: `null` when there is a witness; otherwise why not (table below).
 - `action`: the next step, in words. For a search that found nothing it quotes the campaign's statement.
@@ -389,21 +391,21 @@ Start from the programs the last `run` lists in the mutation's `reaching` (the d
 - `job`: what was run (`kind`, the mutation, rule or pattern, `path_mode`, the witness filter's identity), or why it was refused (`job.refusal` with `stage`, `reason` and `detail`).
 - `template.last_run`: what the last `run` said about this template's program and the mutation.
 
-| `stopped` | Meaning | What to do |
-| --- | --- | --- |
-| `null` | A witness, confirmed by kink unless `--no-confirm`. | Append `program.fragment`. |
-| `budget` | No witness within the budget. Not a proof of anything. | Read the statement in `action` (below). |
-| `client-refused` | Candidates were found, and kink's rules refused every one of them inside the campaign. | Read the fuzz report's `client-refusals` for kink's reason and remedy; change the template or the hole ranges. |
-| `unconfirmed` | A candidate passed the campaign, and kink's confirmation refused it. | Read `attempts[0].confirmation.cause`; try another seed, template or range. |
-| `assembly-mismatch` | kink assembles the instantiated program to another initial configuration than the campaign ran. | Report it with the document. |
-| `not-comparable` | The definition has findings you have not named, so no end of it can be compared. | See [Premises](#premises-findings-you-assume). |
-| `equivalent` | The mutant compiles to the same definition. | Drop the mutation. |
-| `rejected-out` | Too many hole values were refused (they do not read back, or violate their sort). | Fix the holes. |
-| `time-limit` | `--time-limit-ms` stopped the campaign. | Give it more time or fewer cases. |
-| `aborted` | The campaign could not go on (a solver that does not start, backends that do not rebuild after a crash). | Read `action`. |
-| `refused` | The job was refused before any case. | Read `job.refusal`. |
+| `stopped` | Meaning | What to do | Exit |
+| --- | --- | --- | --- |
+| `null` | A witness, confirmed by kink unless `--no-confirm`. | Append `program.fragment`. | 0 |
+| `budget` | No witness within the budget. Not a proof of anything. | Read the statement in `action` (below). | 0 |
+| `client-refused` | Candidates were found, and kink's rules refused every one of them inside the campaign. | Read the fuzz report's `client-refusals` for kink's reason and remedy; change the template or the hole ranges. | 0 |
+| `unconfirmed` | A candidate passed the campaign, and kink's confirmation refused it. | Read `attempts[0].confirmation.cause`; try another seed, template or range. | 0 |
+| `assembly-mismatch` | kink assembles the instantiated program to another initial configuration than the campaign ran. | Report it with the document. | 0 |
+| `not-comparable` | The definition has findings you have not named, so no end of it can be compared. | See [Premises](#premises-findings-you-assume). | 1 |
+| `equivalent` | The mutant compiles to the same definition. | Drop the mutation. | 0 |
+| `rejected-out` | Too many hole values were refused (they do not read back, or violate their sort). | Fix the holes. | 0 |
+| `time-limit` | `--time-limit-ms` stopped the campaign. | Give it more time or fewer cases. | 0 |
+| `aborted` | The campaign could not go on (a solver that does not start, backends that do not rebuild after a crash). | Read `action`. | 1 |
+| `refused` | The job was refused before any case. | Read `job.refusal`. | 1 |
 
-The exit status is 0 when the job ran (a witness, none within the budget, or a candidate kink refused), 1 when an input, the template or the job is refused or the definition is not comparable, and 2 on a usage error.
+The exit status is 0 when the job reached a verdict (a witness, none within the budget, or candidates kink refused), 1 when an input, the template or the job is refused, the definition is not comparable or the campaign aborted, and 2 on a usage error (an unknown template, mutation or pattern id included). `kink-flow --version` prints its version and k-rust's build and exits 0.
 
 **The statement of a search that found nothing** lists why cases could not decide anything, largest first, with a remedy:
 
@@ -530,6 +532,11 @@ krust fuzz --replay witness.json
 first witness: reproduced
 shrunk witness: reproduced
 ```
+
+Replay compares the whole witness, the program, the krun lines and each side's work included, so a witness file edited by hand does not reproduce.
+
+`krust fuzz` exits with 0 for a witness (with `--replay`, when every case reproduced), 1 for none: no witness within the budget, `Domain exhausted`, `equivalent`, `not comparable`, the rejection cap or an aborted campaign (with `--replay`, a case that did not reproduce), 2 on an error (a usage error, a refused campaign or replay, an unreadable input or environment variable), and 3 for a replay forced past identity mismatches (`--force`) whose cases reproduced, which confirms nothing the file claims.
+The two commands agree where their meanings agree: 0 for a witness, 1 for `not-comparable` and an aborted campaign, 2 for a usage error. `kink-flow fuzz` follows kink's convention, where 0 means the job reached a verdict, so no witness is 0 there and 1 here, and a refused job is 1 there and 2 here.
 
 The same campaign file serves the other jobs; flags override it. A pattern matched at any state:
 
