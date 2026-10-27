@@ -1245,6 +1245,49 @@ pub struct Totals {
     /// absent when it refused nothing.
     #[serde(default, skip_serializing_if = "FilterTotals::is_empty")]
     pub filter: FilterTotals,
+    /// The holes' finite domain ([`DomainTotals`]): present exactly when every hole has finitely
+    /// many values and their assignments are few enough for the campaign to end once each has
+    /// run (at most 4096), so that a reader need not read the statement to learn that more
+    /// cases of this program cannot help (final review ux S6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<DomainTotals>,
+    /// The differential `work-bound` cases in which the work bound stopped the mutant while the
+    /// baseline reached all its ends ([`DivergingTotals`]): the mutant may not terminate on this
+    /// program, which no bound decides. Absent when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diverging: Option<DivergingTotals>,
+    /// The last case (counted from 0) whose run added a rule to [`Self::coverage`] (`applied` or
+    /// `matched`); absent when no case added one. A value far below [`Self::cases`] says the
+    /// cases stopped reaching new rules long ago, so more cases of this program and these holes
+    /// are unlikely to reach others; it is no proof that none can (GUIDE-USABILITY 3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage_last_grew: Option<u64>,
+}
+
+/// The holes' finite domain ([`Totals::domain`]).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct DomainTotals {
+    /// How many assignments of the holes the domain has: the product of each hole's number of
+    /// values, as generated.
+    pub assignments: u64,
+    /// How many distinct assignments of the domain the cases ran (rejected before running
+    /// included).
+    pub tried: u64,
+    /// Every assignment ran, so the campaign ended without spending its budget (`Domain
+    /// exhausted`): more cases would only repeat them.
+    pub exhausted: bool,
+}
+
+/// The differential cases in which the mutant may not terminate ([`Totals::diverging`]).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct DivergingTotals {
+    /// How many `work-bound` cases stopped the mutant at the work bound while no bound and no
+    /// clock cut the baseline.
+    pub cases: u64,
+    /// The largest work the baseline spent in one of them, to reach all its ends.
+    pub baseline_work: u64,
 }
 
 /// What a campaign's witness filter refused and what its repairs cost ([`Totals::filter`],
@@ -2450,6 +2493,16 @@ mod tests {
                 solve: None,
                 crash_work: 0,
                 filter: FilterTotals::default(),
+                domain: Some(DomainTotals {
+                    assignments: 64,
+                    tried: 40,
+                    exhausted: false,
+                }),
+                diverging: Some(DivergingTotals {
+                    cases: 2,
+                    baseline_work: 161,
+                }),
+                coverage_last_grew: Some(7),
             },
             normal_end: Some(NormalEnds {
                 baseline: NormalEndKind::EveryK,
@@ -2492,6 +2545,9 @@ mod tests {
                 "'parse-diagnostic-work': string",
                 "'first-outside-determinism'?: number",
                 "'debug-assertions': boolean",
+                "domain?: { assignments: number; tried: number; exhausted: boolean }",
+                "diverging?: { cases: number; 'baseline-work': number }",
+                "'coverage-last-grew'?: number",
             ] {
                 assert!(declarations.contains(key), "{path}: {key} is not declared");
             }
@@ -2818,7 +2874,10 @@ mod tests {
             r#""target-blocked":3,"pattern-body-matches":4,"pattern-body-judged":3,"#,
             r#""best-score":{"scored-cases":3,"best":{"case":1,"level":0,"#,
             r#""guard-distance":"2/3"}},"outside-determinism":0,"unconfirmed":1,"#,
-            r#""case-sequence-digest":"CASES"},"normal-end":{"baseline":"every-k"},"#,
+            r#""case-sequence-digest":"CASES","#,
+            r#""domain":{"assignments":64,"tried":40,"exhausted":false},"#,
+            r#""diverging":{"cases":2,"baseline-work":161},"coverage-last-grew":7},"#,
+            r#""normal-end":{"baseline":"every-k"},"#,
             r#""load-records":[{"kind":"contradicted-claim","#,
             r#""detail":"total"}],"sort-overrides":[{"hole":"X","sort":"Id","#,
             r#""refusal":"Token"}],"warnings":["statically-unreachable"],"#,

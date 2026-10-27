@@ -1676,6 +1676,110 @@ endmodule
         assert_eq!(row["claim"], "confirmed", "{row:#}");
     }
 
+    /// Final review ux S6 (FZ-ENGINE-R4): `run-holes` has 10 assignments (X in 0..=9), none of
+    /// which reaches `step(V)` with `V > 18` (V = 2X), so the campaign ends after them with no
+    /// budget spent: `stopped: domain-exhausted`, from the embedded report's `totals.domain`,
+    /// and the action does not suggest more cases.
+    #[test]
+    #[ignore = "kink"]
+    fn an_exhausted_domain_stops_domain_exhausted() {
+        let dir = steps_flow("exhausted");
+        let list = PatternList::decode(
+            "[[pattern]]\nid = \"huge-step\"\npattern = \"<k> step(V) </k> requires V >Int 18\"\n",
+        )
+        .unwrap();
+        let (document, ok) = run_job(
+            &dir,
+            STEPS_TEMPLATES,
+            "run-holes",
+            Job::Pattern(list, "huge-step".into()),
+            imp_options(40),
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(
+            document["stopped"], "domain-exhausted",
+            "{:#}",
+            document["action"]
+        );
+        assert_eq!(
+            totals(&document)["domain"],
+            serde_json::json!({"assignments": 10, "tried": 10, "exhausted": true})
+        );
+        assert_eq!(totals(&document)["cases"], 10);
+        let action = document["action"].as_str().unwrap();
+        assert!(
+            action.contains("more cases of this template cannot help"),
+            "{action}"
+        );
+        assert!(!action.contains("Raise --cases"), "{action}");
+    }
+
+    /// Final review ux S8 (FZ-ENGINE-R4): on `run(0)` the program reaches `spin(0)`, which
+    /// rewrites to itself forever, so the pattern witness is a hit whose run of every path
+    /// stops at the work bound: kink-flow warns `witness-not-terminating`. A witness whose run
+    /// ends carries no such warning.
+    #[test]
+    #[ignore = "kink"]
+    fn a_pattern_witness_that_does_not_terminate_is_warned() {
+        const SPIN_K: &str = "module SPIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= run(Int)
+endmodule
+
+module SPIN
+  imports SPIN-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= spin(Int)
+  rule <k> run(X) => spin(X) </k>
+  rule <k> spin(X) => spin(X) </k> requires X ==Int 0
+endmodule
+";
+        let manifest = "[spec]\nentry = \"spin.k\"\nmain_module = \"SPIN\"\nsyntax_module = \
+                        \"SPIN-SYNTAX\"\n\n[[program]]\nid = \"one\"\ntext = \"run(1)\"\n";
+        let dir = scratch_flow("spin", "spin.k", SPIN_K, manifest, "");
+        let list = PatternList::decode(
+            "[[pattern]]\nid = \"spins\"\npattern = \"<k> spin(0) </k>\"\n\n[[pattern]]\nid = \
+             \"stops\"\npattern = \"<k> spin(3) </k>\"\n",
+        )
+        .unwrap();
+        let templates = "[[template]]\nid = \"run-holes\"\nprogram = \"one\"\n\
+                         [[template.hole]]\nname = \"X\"\nsort = \"Int\"\nfind = \"1\"\n\
+                         literal = \"1\"\nrange = { min = 0, max = 3 }\n";
+        let options = || FuzzOptions {
+            max_work: Some(2_000),
+            ..imp_options(20)
+        };
+        let (document, ok) = run_job(
+            &dir,
+            templates,
+            "run-holes",
+            Job::Pattern(list.clone(), "spins".into()),
+            options(),
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["stopped"], Value::Null, "{:#}", document["action"]);
+        assert!(
+            warning_kinds(&document).contains(&"witness-not-terminating"),
+            "{:#}",
+            document["warnings"]
+        );
+        let (document, ok) = run_job(
+            &dir,
+            templates,
+            "run-holes",
+            Job::Pattern(list, "stops".into()),
+            options(),
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["stopped"], Value::Null, "{:#}", document["action"]);
+        assert!(
+            !warning_kinds(&document).contains(&"witness-not-terminating"),
+            "{:#}",
+            document["warnings"]
+        );
+    }
+
     /// The last `run` document (read from `--cache`, never written by `fuzz`): no document, then
     /// the mutation's reaching programs suggested as templates with a warning for a template outside
     /// them, and a warning for a template whose program is not comparable; `--time-limit-ms` warns

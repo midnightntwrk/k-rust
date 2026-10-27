@@ -2115,11 +2115,7 @@ fn names_undeclared(definition: &BackendDefinition, state: &KorePattern) -> bool
                 }
                 pending.extend(arguments);
             }
-            KorePattern::DomainValue { sort, .. } => {
-                if sort_undeclared(sort) {
-                    return true;
-                }
-            }
+            KorePattern::DomainValue { sort, .. } if sort_undeclared(sort) => return true,
             // An end is a term: its other connectives, if any, are judged by internalization.
             _ => {}
         }

@@ -1961,6 +1961,18 @@ export interface FuzzTotals {
     /** Included in `work`. */
     'repair-work'?: number
   }
+  /**
+   * The holes' finite domain, present exactly when every hole has finitely many values and at
+   * most 4096 assignments; `exhausted` when every assignment ran (report version 10).
+   */
+  domain?: { assignments: number; tried: number; exhausted: boolean }
+  /**
+   * Differential `work-bound` cases that stopped the mutant where the baseline reached all its
+   * ends, and the most work the baseline spent in one; absent when none (report version 10).
+   */
+  diverging?: { cases: number; 'baseline-work': number }
+  /** The last case (from 0) that added a rule to `coverage`; absent when none (report version 10). */
+  'coverage-last-grew'?: number
 }
 
 /**

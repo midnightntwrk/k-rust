@@ -1986,7 +1986,10 @@ fn the_statement_names_the_side_that_refused_and_what_each_side_explored() {
     ] {
         assert!(text.contains(expected), "missing {expected:?} in {text:?}");
     }
-    assert!(!text.contains("Every path of each input was explored"), "{text}");
+    assert!(
+        !text.contains("Every path of each input was explored"),
+        "{text}"
+    );
     let text = statement(&rejected, PathMode::OnePath, true);
     assert!(
         text.contains(
@@ -1996,8 +1999,15 @@ fn the_statement_names_the_side_that_refused_and_what_each_side_explored() {
         ),
         "{text}"
     );
-    assert!(!text.contains("Only k-rust's first-applicable path"), "{text}");
-    let text = statement(&totals_with(&[(OutcomeClass::Miss, 4)]), PathMode::AllPaths, false);
+    assert!(
+        !text.contains("Only k-rust's first-applicable path"),
+        "{text}"
+    );
+    let text = statement(
+        &totals_with(&[(OutcomeClass::Miss, 4)]),
+        PathMode::AllPaths,
+        false,
+    );
     assert!(
         text.contains("Every path of each input was explored (all-paths mode)."),
         "{text}"
@@ -2065,6 +2075,43 @@ fn the_bound_advice_holds_only_for_a_program_that_ends() {
         ),
         "{text}"
     );
+}
+
+/// GUIDE-USABILITY 3 (FZ-ENGINE-R4): the statement says at which case coverage last grew, a
+/// sign that more cases of the same program are unlikely to help, and the report keeps it.
+#[test]
+fn the_statement_says_where_coverage_stopped_growing() {
+    let mut totals = totals_with(&[(OutcomeClass::Miss, 100)]);
+    totals.coverage_last_grew = Some(0);
+    let text = no_witness(
+        Ending::Budget,
+        &totals,
+        &Cuts::default(),
+        Budget::Cases(100),
+        &CaseOptions::default(),
+        100,
+        false,
+    )
+    .statement;
+    assert!(
+        text.contains(
+            "No case after case 0 (counted from 0) reached a rule that no earlier case reached, \
+             so more cases of this program and these holes are unlikely to reach others"
+        ),
+        "{text}"
+    );
+    totals.coverage_last_grew = Some(99);
+    let text = no_witness(
+        Ending::Budget,
+        &totals,
+        &Cuts::default(),
+        Budget::Cases(100),
+        &CaseOptions::default(),
+        100,
+        false,
+    )
+    .statement;
+    assert!(!text.contains("No case after case"), "{text}");
 }
 
 #[test]

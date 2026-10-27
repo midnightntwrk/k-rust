@@ -393,6 +393,7 @@ Start from the programs the last `run` lists in the mutation's `reaching` (the d
 | --- | --- | --- | --- |
 | `null` | A witness, confirmed by kink unless `--no-confirm`. | Append `program.fragment`. | 0 |
 | `budget` | No witness within the budget. Not a proof of anything. | Read the statement in `action` (below). | 0 |
+| `domain-exhausted` | No witness, and every assignment of the holes ran (each hole has finitely many values), so more cases cannot help. | Mark more literals as holes, widen their ranges, or write another template. | 0 |
 | `client-refused` | Candidates were found, and kink's rules refused every one of them inside the campaign. | Read the fuzz report's `client-refusals` for kink's reason and remedy; change the template or the hole ranges. | 0 |
 | `unconfirmed` | A candidate passed the campaign, and kink's confirmation refused it. | Read `attempts[0].confirmation.cause`; try another seed, template or range. | 0 |
 | `assembly-mismatch` | kink assembles the instantiated program to another initial configuration than the campaign ran. | Report it with the document. | 0 |
@@ -423,6 +424,7 @@ The reasons are counted in the fuzz report's `totals.unsupported-reasons` and `t
 - `already-killed`, `stale-run-document`: the last `run` killed the mutation already, or was made for another specification.
 - `client-refused`: kink's rules refused some candidates, counted per cause.
 - `crash`: k-rust or k-rust-fuzz failed on a case (a defect to report; the case kills nothing). The fuzz report's `crashes` holds the case.
+- `witness-not-terminating`: the pattern witness's run of every path was cut by `--max-work`, the depth bound or a clock. It reaches the pattern, but as a test it may never end, so every `run` and `results` runs it to the budget. Prefer hole values or a template whose run ends.
 - `time-limit-scope`: `--time-limit-ms` bounds the campaign, not the setup before it.
 
 ## What kink refuses, and why
@@ -627,7 +629,7 @@ On WebAssembly and KEVM, compile the definition and the mutant with `krust kcomp
 2. Template: start from a program in the mutation's `reaching` (or one near the rule). Mark every data literal, with small ranges.
 3. Run with a small budget and a fixed seed: `--cases 50` to `300`, `--max-work 20000`, default `--seed 0`.
 4. `stopped: null`: append `program.fragment` (and any `premises` to `[spec] assume_joined`), run `kink-flow run --only ID` or `results`, and check the status.
-5. `stopped: budget`: read `action`. `Domain exhausted`, "may not terminate", or 100 % `miss` with no progress means: write a new three-to-eight-line program in which the edited rule's result reaches the end directly. Then consider whether the mutation is equivalent.
+5. `stopped: budget` or `domain-exhausted`: read `action`. `Domain exhausted`, "may not terminate", or 100 % `miss` with no progress means: write a new three-to-eight-line program in which the edited rule's result reaches the end directly. Then consider whether the mutation is equivalent.
 6. `client-refused` or `unconfirmed`: read the cause; change the template or ranges (ASCII strings), or try another seed.
 7. `not-comparable`: do not name findings by reflex. Name one only if you accept it as a premise, and say so beside the test.
 8. Never claim a mutation is equivalent, or a rule unreachable, because the fuzz found nothing; say what you tried.

@@ -97,6 +97,7 @@ use k_rust_fuzz::{
     CompiledDefinition, Definitions, HoleDecl, HoleLocation, PathMode, ProgramInput,
     ProposerConfig, Target, TargetKind,
     error::CampaignError,
+    exec::ComparableCondition,
     holes::HoleFile,
     report::{
         AbortKind, CampaignOutcome, DefinitionFinding, FindingVerdict, FuzzReport, WitnessCase,
@@ -137,7 +138,9 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// FZ-REPLAY-WHOLE) embeds k-rust-fuzz reports of version 10: their identity records the
 /// k-rust-fuzz build and the parser's diagnostic work limit, their totals the first case outside
 /// the determinism contract, and every source location they name is relative to the main
-/// module's file. `tests/formats.rs` ties the version to the document's shape.
+/// module's file; it also adds the `stopped` value `domain-exhausted` and the warning
+/// `witness-not-terminating` (FZ-ENGINE-R4), and the embedded totals' `domain`, `diverging` and
+/// `coverage-last-grew`. `tests/formats.rs` ties the version to the document's shape.
 pub const FUZZ_VERSION: u32 = 4;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
@@ -1954,6 +1957,7 @@ pub fn fuzz_job(
             };
             let mut refused = Vec::new();
             let mut offered = None;
+            let mut offered_case = None;
             for (case, which) in cases {
                 let fragment = fragment(template, &instance, case);
                 if refused
@@ -1991,6 +1995,7 @@ pub fn fuzz_job(
                 if !options.confirm {
                     attempt["candidate"] = candidate;
                     offered = Some((fragment, false));
+                    offered_case = Some(case);
                     break;
                 }
                 let mut confirmation = confirm(manifest, options, job, &fragment);
@@ -2000,6 +2005,7 @@ pub fn fuzz_job(
                 attempt["confirmation"] = confirmation.clone();
                 if confirmed {
                     offered = Some((fragment, true));
+                    offered_case = Some(case);
                     break;
                 }
                 refused.push((fragment.id.clone(), confirmation));
@@ -2030,6 +2036,41 @@ pub fn fuzz_job(
                 document["attempts"] = json!([attempt]);
                 return (document, true);
             };
+            // A witness whose run of every path a bound or a clock cut may not terminate: as a
+            // corpus program it runs to the budget in every `run` and `results`, and is never
+            // comparable (final review ux S8). Only a pattern witness can be one: a reach
+            // witness's run is comparable, and a kill's two runs end.
+            if let Some(comparable) = offered_case.and_then(|case| case.comparable.as_ref()) {
+                let cuts = comparable
+                    .reasons
+                    .iter()
+                    .filter(|reason| {
+                        matches!(
+                            reason,
+                            ComparableCondition::WorkBound
+                                | ComparableCondition::DepthBound
+                                | ComparableCondition::Clock
+                        )
+                    })
+                    .map(|reason| reason.name())
+                    .collect::<Vec<_>>();
+                if !cuts.is_empty() {
+                    push_warning(
+                        &mut document,
+                        warning(
+                            "witness-not-terminating",
+                            format!(
+                                "the witness program's run of every path did not end within \
+                                 the bounds ({}): it reaches the target, but as a test it may \
+                                 not terminate, so every `run` and `results` would run it to \
+                                 the budget and kink would never count it comparable; prefer \
+                                 hole values or a template whose run ends",
+                                cuts.join(", ")
+                            ),
+                        ),
+                    );
+                }
+            }
             let (id, file) = (fragment.id.clone(), fragment.file.clone());
             document["program"] = json!({
                 "id": id,
@@ -2096,6 +2137,19 @@ pub fn fuzz_job(
             document["action"] = json!(format!(
                 "no witness kink accepts: {} Mark other literals as holes, narrow the holes to \
                  values kink compares, or {sought}",
+                no_witness.statement
+            ));
+            true
+        }
+        CampaignOutcome::NoWitnessFound { no_witness }
+            if report.totals.domain.is_some_and(|domain| domain.exhausted) =>
+        {
+            // Every assignment of the holes ran: no budget was spent, and more cases would only
+            // repeat them (final review ux S6).
+            document["stopped"] = json!("domain-exhausted");
+            document["action"] = json!(format!(
+                "no witness: {} Every assignment of the holes ran, so more cases of this template \
+                 cannot help: mark more literals as holes, widen their ranges, or {sought}",
                 no_witness.statement
             ));
             true

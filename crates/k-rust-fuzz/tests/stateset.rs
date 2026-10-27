@@ -450,7 +450,10 @@ fn a_rolled_back_target_rule_is_never_a_hit() {
         )))
     };
     for mode in [RuleMode::Fired, RuleMode::Covered] {
-        assert_eq!(pick(0, mode, PathMode::AllPaths), (OutcomeClass::Miss, None));
+        assert_eq!(
+            pick(0, mode, PathMode::AllPaths),
+            (OutcomeClass::Miss, None)
+        );
         assert_eq!(pick(0, mode, PathMode::OnePath), (OutcomeClass::Miss, None));
         assert_eq!(pick(1, mode, PathMode::AllPaths), (OutcomeClass::Hit, None));
         assert_eq!(pick(1, mode, PathMode::OnePath), (OutcomeClass::Hit, None));

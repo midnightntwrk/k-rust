@@ -12,7 +12,8 @@ use k_rust_fuzz::{
     TargetKind,
     exec::UnjudgedReason,
     report::{
-        CampaignOutcome, DefinitionRole, FindingKind, FindingVerdict, HitLabel, KillKind, Reaching,
+        CampaignOutcome, DefinitionRole, DomainTotals, FindingKind, FindingVerdict, HitLabel,
+        KillKind, Reaching,
     },
     spec::DEFAULT_REJECTION_CAP,
     spec::PathMode,
@@ -22,13 +23,14 @@ use k_rust_fuzz::{
 use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
-    COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture, INIT, INIT_C, INIT_M,
+    COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
     IMP_ADD_BECOMES_SUB, IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION,
-    IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, LIST_ROW, LIST_ROW_M, MAC, MAC_KILL, OV,
-    OV_INTS, OV_PREPEND, OV_SIZE, OWISE, OWISE_M, OWISE_X, R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW,
-    R2_ANYW_M, R2_OVER, R2_OVER_M, R2_SPOOF, R2_SPOOF_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ,
-    R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M, R4_HOOKITE, R4_HOOKITE_M,
-    R4_PARTNORULE, R4_PARTNORULE_M, REPLACE_PRIORITY, REPLACE_PRIORITY_M, RERUN, RERUN_DROP,
+    IMP_DIFF, IMP_DIV_GUARD_DROPPED, INIT, INIT_C, INIT_M, KPLACE, KPLACE_M, LIST_ROW, LIST_ROW_M,
+    MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, OWISE, OWISE_M, OWISE_X, R2_ADDMEMBER,
+    R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R2_SPOOF, R2_SPOOF_M, R3_MODOV,
+    R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M,
+    R4_HOOKITE, R4_HOOKITE_M, R4_PARTNORULE, R4_PARTNORULE_M, REPLACE_PRIORITY, REPLACE_PRIORITY_M,
+    RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -370,6 +372,18 @@ fn an_undefined_step_where_the_baseline_stops_is_a_confirmed_removed_end() {
             "the baseline stops at the division: {baseline_end}"
         );
     }
+    // GUIDE-USABILITY 7 (FZ-ENGINE-R4): the coverage is the mutant's, and a rule the baseline
+    // shares (the same unique id) is named where the baseline writes it, in `imp.k`; only the
+    // edited division rule, which the baseline lacks, is named in the mutant's file.
+    let names = &report.totals.coverage.names;
+    let sources = |file: &str| {
+        names
+            .values()
+            .filter(|name| name.locations.iter().any(|at| at.source == file))
+            .count()
+    };
+    assert!(sources("imp.k") > 1, "{names:?}");
+    assert!(sources("imp-div-guard-dropped.k") <= 1, "{names:?}");
 }
 
 /// Each witness side records its run's work and, at an undefined step, the rule whose step is
@@ -678,7 +692,9 @@ fn a_mutant_whose_initial_state_has_no_instance_loses_the_baseline_end() {
             Value::Int(BigInt::from(1)),
         )])];
         spec.options.paths = paths;
-        let report = Campaign::new(spec).expect("valid").run(Budget::Cases(20), None);
+        let report = Campaign::new(spec)
+            .expect("valid")
+            .run(Budget::Cases(20), None);
         assert!(
             report.engine_defects.is_empty(),
             "{:?}",
@@ -706,7 +722,9 @@ fn a_mutant_whose_initial_state_has_no_instance_loses_the_baseline_end() {
 fn an_end_naming_a_symbol_the_baseline_lacks_is_an_added_end() {
     let mut spec = spec_on(&INIT, &INIT_C, "init/go.pgm", None);
     spec.proposers.explicit = Vec::new();
-    let report = Campaign::new(spec).expect("valid").run(Budget::Cases(2), None);
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(2), None);
     assert!(
         report.engine_defects.is_empty(),
         "{:?}",
@@ -1507,6 +1525,13 @@ fn a_mutant_that_stops_at_max_work_where_the_baseline_ended_is_not_told_to_raise
         statement.contains("the mutant may not terminate on this program"),
         "{statement}"
     );
+    // The same fact as a field (final review ux S6).
+    let diverging = report.totals.diverging.expect("diverging cases");
+    assert!(
+        diverging.cases > 0 && diverging.cases <= work_bound.unwrap_or(0),
+        "{diverging:?}"
+    );
+    assert!(diverging.baseline_work > 0, "{diverging:?}");
     assert!(
         !statement.contains("cases stopped at max-work 3000: raise max-work")
             && !statement.contains("case stopped at max-work 3000: raise max-work"),
@@ -1572,6 +1597,23 @@ fn a_finite_domain_is_exhausted_after_its_assignments() {
         "{statement}"
     );
     assert!(!statement.contains("The budget was spent"), "{statement}");
+    // The same fact as a field (final review ux S6), and where coverage last grew.
+    assert_eq!(
+        report.totals.domain,
+        Some(DomainTotals {
+            assignments: 2,
+            tried: 2,
+            exhausted: true,
+        })
+    );
+    assert!(
+        report
+            .totals
+            .coverage_last_grew
+            .is_some_and(|case| case < 2),
+        "{:?}",
+        report.totals.coverage_last_grew
+    );
 }
 
 /// TRIAL2 N-T3 (FZ-POLISH): a token choice written as a plain string is refused with the form

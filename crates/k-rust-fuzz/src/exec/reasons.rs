@@ -325,6 +325,21 @@ const ANY_STATE_UNATTRIBUTED_REMEDY: &str = concat!(
     "and a program or hole range whose every path ends cleanly can be one with it",
 );
 
+/// The remedy of [`UnjudgedReason::TooDeep`].
+const TOO_DEEP_REMEDY: &str = concat!(
+    "the case's configuration is nested deeper than the backend's stack holds; choose a smaller ",
+    "hole range or program, or run krust-fuzz on a thread with a larger stack (library ",
+    "`CallerIdentity::thread_stack_size`)",
+);
+
+/// The remedy of [`UnjudgedReason::MutantRefusedState`].
+const MUTANT_REFUSED_STATE_REMEDY: &str = concat!(
+    "the mutant's backend refused an initial state the baseline accepts (a symbol, sort or ",
+    "value its definition does not declare or cannot internalize), so the mutant has no run on ",
+    "this input to compare; the definitions differ in what states they admit, not in their ",
+    "ends, and only another program or hole range whose state both admit can be judged",
+);
+
 /// The remedy of [`UnjudgedReason::ClientRefused`].
 const CLIENT_REFUSED_REMEDY: &str = concat!(
     "the client's witness filter refused the hit (the report's client-refusals give each ",
@@ -494,18 +509,8 @@ impl UnjudgedReason {
             Self::EndNotComparable(_) => END_NOT_COMPARABLE_REMEDY,
             Self::QueryNotConfirmable(_) => QUERY_NOT_CONFIRMABLE_REMEDY,
             Self::ClientRefused => CLIENT_REFUSED_REMEDY,
-            Self::MutantRefusedState => {
-                "the mutant's backend refused an initial state the baseline accepts (a symbol, \
-                 sort or value its definition does not declare or cannot internalize), so the \
-                 mutant has no run on this input to compare; the definitions differ in what \
-                 states they admit, not in their ends, and only another program or hole range \
-                 whose state both admit can be judged"
-            }
-            Self::TooDeep => {
-                "the case's configuration is nested deeper than the backend's stack holds; \
-                 choose a smaller hole range or program, or run krust-fuzz on a thread with a \
-                 larger stack (library `CallerIdentity::thread_stack_size`)"
-            }
+            Self::MutantRefusedState => MUTANT_REFUSED_STATE_REMEDY,
+            Self::TooDeep => TOO_DEEP_REMEDY,
             Self::Panic
             | Self::InternalError
             | Self::InternalHalt

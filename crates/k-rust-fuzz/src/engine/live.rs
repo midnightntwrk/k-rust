@@ -25,9 +25,9 @@ use crate::{
     assemble::{CaseAssembler, ProgramAssembly, build_backend},
     error::{CampaignError, SortRefusal},
     exec::{
-        self, Abort, CaseRequestShape, CaseResult, CompiledPattern, DataHere, Executor, FailureCause,
-        NormalEnd, OutcomeClass, PatternCompiler, TargetNeeds, UncleanReason, UnjudgedReason,
-        hooks,
+        self, Abort, CaseRequestShape, CaseResult, CompiledPattern, DataHere, Executor,
+        FailureCause, NormalEnd, OutcomeClass, PatternCompiler, TargetNeeds, UncleanReason,
+        UnjudgedReason, hooks,
     },
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
@@ -711,18 +711,43 @@ impl LiveCases {
     }
 
     /// The names of every id in the rule catalog of the definition whose coverage a case
-    /// records (the mutant's in a differential campaign, [`run_of`], the baseline's otherwise),
-    /// and the rule a rule target resolved to with its names.
+    /// records (the mutant's in a differential campaign, [`run_of`], each named as the
+    /// baseline's catalog names it when the baseline has it; the baseline's otherwise), and the
+    /// rule a rule target resolved to with its names.
     ///
     /// # Errors
     ///
     /// [`CampaignError::Definition`] when the backend gives no catalog.
     pub(crate) fn rule_index(&mut self) -> Result<RuleIndex, CampaignError> {
         let target = self.target_rule_id().map(str::to_owned);
-        let side = match &mut self.judge {
-            Judge::Differential(mutant) => mutant,
-            Judge::Target(_) => &mut self.baseline,
-        };
+        let mut names = Self::catalog_names(&mut self.baseline)?;
+        if let Judge::Differential(mutant) = &mut self.judge {
+            // The mutant's coverage, named from the baseline's catalog for every rule the two
+            // share (a unique id is a digest of the rule, so an unchanged rule has the same one
+            // on both sides), and from the mutant's for the rules only it has (GUIDE-USABILITY
+            // 7): an author reads the unchanged rules at their place in the definition, not in
+            // the mutant's copy.
+            let mut mutant_names = Self::catalog_names(mutant)?;
+            for (id, name) in &mut mutant_names {
+                if let Some(shared) = names.get(id) {
+                    shared.clone_into(name);
+                }
+            }
+            names = mutant_names;
+        }
+        let target = target.and_then(|id| {
+            let name = names.get(&id)?.clone();
+            Some(TargetRule { id, name })
+        });
+        Ok(RuleIndex {
+            names: Arc::new(names),
+            target,
+        })
+    }
+
+    /// The names of every id in `side`'s rule catalog, with source locations relative to its
+    /// main module's file.
+    fn catalog_names(side: &mut Side) -> Result<BTreeMap<String, RuleName>, CampaignError> {
         let catalog = side
             .executor
             .backend_mut()
@@ -734,15 +759,7 @@ impl LiveCases {
             catalog,
             &crate::source_names::SourceNames::of(&side.definition.frontend_definition),
         );
-        let names = target::rule_names(&catalog);
-        let target = target.and_then(|id| {
-            let name = names.get(&id)?.clone();
-            Some(TargetRule { id, name })
-        });
-        Ok(RuleIndex {
-            names: Arc::new(names),
-            target,
-        })
+        Ok(target::rule_names(&catalog))
     }
 
     /// The catalog id of a rule target's rule, as the target resolved it; `None` for every

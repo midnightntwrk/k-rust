@@ -26,7 +26,7 @@ use k_rust::backend::{CompiledRuleKind, HaltReasonOutput};
 use k_rust_fuzz::{
     Campaign, CampaignError,
     error::TargetProblem,
-    exec::UnjudgedReason,
+    exec::{ComparableCondition, UnjudgedReason},
     report::{
         BestScore, CampaignOutcome, DefinitionRole, FuzzReport, HitLabel, KillKind, WitnessCase,
         describe_reason,
@@ -797,6 +797,9 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
         } else if let Some(command) = &witness.krun_command {
             let _ = writeln!(text, "krun: {command}");
         }
+        if let Some(comparable) = &case.comparable {
+            write_comparable(&mut text, comparable);
+        }
     }
     if let Some(no_witness) = report.no_witness() {
         let _ = writeln!(text, "{}", no_witness.statement);
@@ -816,6 +819,41 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
         let _ = writeln!(text, "engine defect: {}", defect.description);
     }
     text
+}
+
+/// A rule or pattern witness's `comparable` judgement (final review ux S8): whether kink could
+/// compare the witness program's run of every path, and, when a bound or a clock cut that run,
+/// that the program may not terminate as a test.
+fn write_comparable(text: &mut String, comparable: &k_rust_fuzz::report::Comparability) {
+    use std::fmt::Write as _;
+    if comparable.holds {
+        let _ = writeln!(text, "comparable: yes");
+        return;
+    }
+    let reasons = comparable
+        .reasons
+        .iter()
+        .map(|reason| reason.name())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let cut = comparable.reasons.iter().any(|reason| {
+        matches!(
+            reason,
+            ComparableCondition::WorkBound
+                | ComparableCondition::DepthBound
+                | ComparableCondition::Clock
+        )
+    });
+    let _ = writeln!(
+        text,
+        "comparable: no ({reasons}){}",
+        if cut {
+            ": the witness program's run of every path did not end within the bounds; as a \
+             test it may not terminate"
+        } else {
+            ""
+        }
+    );
 }
 
 /// For a report with a witness, how many cases and solve runs were outside the determinism
@@ -1087,6 +1125,17 @@ fn write_coverage(text: &mut String, report: &FuzzReport) {
         .filter(|id| !coverage.applied.contains(id.as_str()))
         .collect();
     let equations = coverage.applied.len() - applied.len();
+    // A differential campaign records the mutant's coverage (GUIDE-USABILITY 7).
+    let whose = if report
+        .identity
+        .definitions
+        .iter()
+        .any(|definition| definition.role == DefinitionRole::Mutant)
+    {
+        " (the mutant's; a rule the baseline shares is named where the baseline writes it)"
+    } else {
+        ""
+    };
     let list = |text: &mut String, heading: String, mut ids: Vec<&String>| {
         let _ = writeln!(text, "{heading}");
         ids.sort_by_key(|id| {
@@ -1116,7 +1165,7 @@ fn write_coverage(text: &mut String, report: &FuzzReport) {
     };
     if !applied.is_empty() || equations > 0 {
         let heading = format!(
-            "rules applied: {}{}",
+            "rules applied{whose}: {}{}",
             applied.len(),
             match equations {
                 0 => String::new(),
@@ -1128,7 +1177,7 @@ fn write_coverage(text: &mut String, report: &FuzzReport) {
     }
     if !blocked.is_empty() {
         let heading = format!(
-            "rules whose condition was reached but which never applied: {}",
+            "rules whose condition was reached but which never applied{whose}: {}",
             blocked.len()
         );
         list(text, heading, blocked);

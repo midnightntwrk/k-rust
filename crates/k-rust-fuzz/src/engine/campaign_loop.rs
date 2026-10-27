@@ -25,10 +25,10 @@ use crate::{
     report::{
         AbortKind, BestScore, CampaignOutcome, ClientRefusal, Comparability, CrashDeterminism,
         CrashFinding, CrashFindings, CrashHole, CrashPhase, CrashSignature, CrashStage,
-        EngineDefect, FuzzReport, HitLabel, Incidentals, KillKind, LoadRecord, NoWitness,
-        NormalEnds, PanicRecord, REPORT_SCHEMA, REPORT_VERSION, ReasonHook, ReasonHooks,
-        RejectionReason, RepairedFrom, ReportIdentity, SortOverride, Totals, Witness, WitnessCase,
-        describe_reason, digest_hex,
+        DivergingTotals, DomainTotals, EngineDefect, FuzzReport, HitLabel, Incidentals, KillKind,
+        LoadRecord, NoWitness, NormalEnds, PanicRecord, REPORT_SCHEMA, REPORT_VERSION, ReasonHook,
+        ReasonHooks, RejectionReason, RepairedFrom, ReportIdentity, SortOverride, Totals, Witness,
+        WitnessCase, describe_reason, digest_hex,
     },
     score::{Score, Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
@@ -2679,8 +2679,13 @@ impl State {
             }
         }
         let coverage = &mut self.totals.coverage;
+        let before = coverage.applied.len() + coverage.matched.len();
         coverage.applied.extend(run.applied.iter().cloned());
         coverage.matched.extend(run.matched.iter().cloned());
+        if coverage.applied.len() + coverage.matched.len() > before {
+            // As above, this case is the last one counted.
+            self.totals.coverage_last_grew = Some(self.totals.cases.saturating_sub(1));
+        }
     }
 
     fn totals_snapshot(&mut self) -> Totals {
@@ -2700,6 +2705,19 @@ impl State {
         outcome: CampaignOutcome,
     ) -> FuzzReport {
         let mut totals = self.totals_snapshot();
+        totals.domain = settings.domain.as_ref().map(|domain| {
+            let tried = u64::try_from(self.assignments.len()).unwrap_or(u64::MAX);
+            DomainTotals {
+                assignments: domain.size(),
+                tried,
+                exhausted: tried >= domain.size(),
+            }
+        });
+        let diverging = self.cuts.diverging;
+        totals.diverging = (diverging.cases > 0).then_some(DivergingTotals {
+            cases: diverging.cases,
+            baseline_work: diverging.baseline_work,
+        });
         totals.best_score = settings.scorer.as_ref().map(|_| BestScore {
             scored_cases: self.scored,
             best: self.best.as_ref().map(|(score, case)| score.value(*case)),
@@ -2910,7 +2928,10 @@ pub(crate) fn no_witness(
             // A case outside the determinism contract, or a candidate whose confirmation
             // disagreed, may end otherwise when it runs again (final review N4).
             let unstable = [
-                (totals.outside_determinism, "outside the determinism contract"),
+                (
+                    totals.outside_determinism,
+                    "outside the determinism contract",
+                ),
                 (totals.unconfirmed, "that reached the target unconfirmed"),
             ]
             .into_iter()
@@ -3189,6 +3210,22 @@ pub(crate) fn no_witness(
             )
             .expect("writing to a String");
         }
+    }
+    // Where coverage stopped growing (GUIDE-USABILITY 3): a sound hint that more cases of this
+    // program are unlikely to help, which claims no unreachability.
+    if let Some(last) = totals.coverage_last_grew
+        && ending == Ending::Budget
+        && last.saturating_add(1) < totals.cases
+    {
+        write!(
+            text,
+            " No case after case {last} (counted from 0) reached a rule that no earlier case \
+             reached{}, so more cases of this program and these holes are unlikely to reach \
+             others; that is no proof that none can, and a template that holds the target's \
+             construct may.",
+            if differential { " in the mutant" } else { "" }
+        )
+        .expect("writing to a String");
     }
     if ending == Ending::Budget {
         match budget {

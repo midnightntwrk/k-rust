@@ -2389,6 +2389,67 @@ fn the_summary_names_the_rules_the_campaign_reached() {
     }
 }
 
+/// Final review ux S8 (FZ-ENGINE-R4): the summary prints a pattern witness's `comparable`
+/// judgement. On `run(0)` the program reaches `spin(0)`, which rewrites to itself forever, so the
+/// witness's run of every path stops at the work bound and the summary says that as a test it
+/// may not terminate.
+#[test]
+fn the_summary_says_a_witness_may_not_terminate() {
+    const SPIN: &str = "module SPIN-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= run(Int)
+endmodule
+
+module SPIN
+  imports SPIN-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= spin(Int)
+  rule <k> run(X) => spin(X) </k>
+  rule <k> spin(X) => spin(X) </k> requires X ==Int 0
+endmodule
+";
+    let campaign = |pattern: &str| {
+        format!(
+            "definition = \"spin-kompiled\"\nprogram = \"one.pgm\"\ncases = 10\n\
+             [target]\npattern = \"{pattern}\"\nat = \"any-state\"\n\
+             [options]\nmax-work = 2000\n\
+             [[hole]]\nname = \"X\"\nsort = \"Int\"\nliteral = \"1\"\n\
+             range = {{ min = 0, max = 3 }}\n"
+        )
+    };
+    let directory = workspace(
+        "spin-comparable",
+        &[],
+        &[
+            ("one.pgm", "run(1)"),
+            ("spins.toml", &campaign("<k> spin(0) </k>")),
+            ("stops.toml", &campaign("<k> spin(3) </k>")),
+        ],
+    );
+    write_compiled_source("spin.k", SPIN, "SPIN", &directory.join("spin-kompiled"));
+    let output = krust_fuzz(&directory, &["--campaign", "spins.toml"]);
+    let stdout = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{stdout}{}",
+        text(&output.stderr)
+    );
+    assert!(
+        stdout.contains("comparable: no (")
+            && stdout.contains(
+                "the witness program's run of every path did not end within the bounds; as a \
+                 test it may not terminate"
+            ),
+        "{stdout}"
+    );
+    let output = krust_fuzz(&directory, &["--campaign", "stops.toml"]);
+    let stdout = text(&output.stdout);
+    assert_eq!(output.status.code(), Some(0), "{stdout}");
+    assert!(stdout.contains("comparable: yes"), "{stdout}");
+}
+
 /// FZ-RULEREF review B1: a source position whose file names two files of the definition is
 /// refused whatever the line. `a/rules.k` has a rule on line 5, where `b/rules.k` has a comment;
 /// `rules.k:5` once resolved to `a`'s rule.

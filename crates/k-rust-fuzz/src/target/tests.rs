@@ -864,7 +864,10 @@ fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
     let mut traced = natural_end();
     traced.rewrites = vec!["id-div".to_owned()];
     assert_eq!(
-        judged(&uncommitted(vec![natural_end(), traced], &["id-div"], &[]), true),
+        judged(
+            &uncommitted(vec![natural_end(), traced], &["id-div"], &[]),
+            true
+        ),
         (OutcomeClass::Hit, None)
     );
     // A cut run stays cut: no class claims the rule was not fired.
@@ -879,7 +882,10 @@ fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
     // So does a cut beside a clean natural end that might stand for an absorbed reach: a cut
     // class concedes the run is incomplete, and claims no miss (V7).
     assert_eq!(
-        judged(&uncommitted(vec![natural_end(), cut], &["id-div"], &[]), true),
+        judged(
+            &uncommitted(vec![natural_end(), cut], &["id-div"], &[]),
+            true
+        ),
         (OutcomeClass::DepthBound, None)
     );
     // A coverage mode reads the committed transitions itself, whatever the modality.

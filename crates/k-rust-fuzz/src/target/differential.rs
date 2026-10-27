@@ -620,7 +620,9 @@ fn complete_ends(result: &CaseResult) -> Option<BTreeSet<&KorePattern>> {
     // when that is decided: its `vacuous` leaves carry no reason beyond their halt.
     let complete = |leaf: &LeafReport| {
         if absent {
-            leaf.unclean.iter().all(|reason| *reason == UncleanReason::Halt)
+            leaf.unclean
+                .iter()
+                .all(|reason| *reason == UncleanReason::Halt)
         } else {
             complete_leaf(leaf)
         }
