@@ -5,7 +5,7 @@
 #    ["readable/result/pc/Some(x)"]
 #    finding = "B3"
 #    deviation = "E0277 @ item"
-#    step = "S3"
+#    step = "S5"
 #
 # A pending case that conforms, or deviates differently, fails until this file records it; see
 # `class_matrix::pending`. Keys: a case ID (K2, read by both tiers), `full/ID` (K2 where the full
@@ -1744,315 +1744,323 @@ deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 step = "S5"
 
 # B2: an initializer value of the wrong kind or sort is rustc E0308 at the generated types, not a KRS error
+# The value's kind (a cell wrapper, map notation, presence, a group or instance record, a leaf
+# value) must be judged against the cell's declared kind, which the `#[k::init]` macro cannot see
+# and only the collector knows: S5's, with S0-9's other cell-entry spellings.
 
 ["init/counter/0"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/counter/Frame { ret: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S3"
+step = "S5"
 
 ["init/counter/Job { payload: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S3"
+step = "S5"
 
 ["init/counter/k::builtin::map::empty()"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/counter/k::k![0]"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/counter/k::k![]"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/counter/k::k![pgm]"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/counter/k::map![0 -> 1]"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/counter/k::map![]"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/counter/list::empty()"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/counter/pgm"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/env/Frame { ret: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S3"
+step = "S5"
 
 ["init/env/Job { payload: 0 }"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S3"
+step = "S5"
 
 ["init/env/Some(0)"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S3"
+step = "S5"
 
 ["init/env/k::k![0]"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/env/k::k![]"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
 
 ["init/env/k::k![pgm]"]
 finding = "B2"
 deviation = "E0308 @ item"
-step = "S3"
+step = "S5"
+
+["init/frame/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/frame/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/frame/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/frame/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/frame/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/frame/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/frame/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/frame/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/frame/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/frame/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/frame/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/job/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/job/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/job/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/job/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/job/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/job/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/job/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/job/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/job/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/job/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/job/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/k/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/k/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/k/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/k/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/k/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/k/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/k/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/k/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/k/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/pc/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/pc/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/pc/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/pc/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/pc/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/pc/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/stack/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/stack/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/stack/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/stack/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/stack/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+["init/stack/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S5"
+
+# B2, kind-free: a configuration variable that is the whole content of a leaf of another sort, or
+# of a cell whose kind the spelling states. No kind is in question; rustc refuses it only because
+# the initializer re-emits the variable as the cell's Rust value, a second sort judge that pre-empts
+# the IR's (S3's bridge).
 
 ["init/env/pgm"]
 finding = "B2"
 deviation = "E0308 @ spelling"
 step = "S3"
 
-["init/frame/0"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/frame/Job { payload: 0 }"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/frame/Some(0)"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/frame/k::builtin::map::empty()"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/frame/k::k![0]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/frame/k::k![]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/frame/k::k![pgm]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/frame/k::map![0 -> 1]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/frame/k::map![]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/frame/list::empty()"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/frame/pgm"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/job/0"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/job/Frame { ret: 0 }"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/job/Some(0)"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/job/k::builtin::map::empty()"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/job/k::k![0]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/job/k::k![]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/job/k::k![pgm]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/job/k::map![0 -> 1]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/job/k::map![]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/job/list::empty()"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/job/pgm"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/k/0"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/k/Frame { ret: 0 }"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/k/Job { payload: 0 }"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/k/Some(0)"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/k/k::builtin::map::empty()"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/k/k::map![0 -> 1]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/k/k::map![]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/k/list::empty()"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/k/pgm"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/pc/Frame { ret: 0 }"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/pc/Job { payload: 0 }"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/pc/Some(0)"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/pc/k::k![0]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/pc/k::k![]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/pc/k::k![pgm]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
 ["init/pc/pgm"]
 finding = "B2"
 deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/stack/Frame { ret: 0 }"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/stack/Job { payload: 0 }"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/stack/Some(0)"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/stack/k::k![0]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/stack/k::k![]"]
-finding = "B2"
-deviation = "E0308 @ item"
-step = "S3"
-
-["init/stack/k::k![pgm]"]
-finding = "B2"
-deviation = "E0308 @ item"
 step = "S3"
 
 ["init/stack/pgm"]
@@ -2086,86 +2094,89 @@ deviation = "E0308 @ spelling"
 step = "S3"
 
 # B3: `Some(..)`/`None` in a readable result on a cell that is not optional is rustc E0277 on a hidden facade trait at the whole block
+# `Some(..)`/`None` written as a result entry is presence, decided against the cell's declared kind
+# (optional or not), which the readable macro cannot see: it reads the spelling as a term only
+# because the subject did not name the cell as optional. S5's, with S0-9's other cell-entry spellings.
 
 ["claim/result/env/None"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["claim/result/env/Some(x)"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["claim/result/frame/None"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["claim/result/frame/Some(x)"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["claim/result/pc/None"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["claim/result/pc/Some(x)"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["claim/result/stack/None"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["claim/result/stack/Some(x)"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["readable/result/env/None"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["readable/result/env/Some(x)"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["readable/result/frame/None"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["readable/result/frame/Some(x)"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["readable/result/pc/None"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["readable/result/pc/Some(x)"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["readable/result/stack/None"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 ["readable/result/stack/Some(x)"]
 finding = "B3"
 deviation = "E0277 @ item"
-step = "S3"
+step = "S5"
 
 # B7: a bare entry on a `*` collection is accepted with a one-instance meaning
 
