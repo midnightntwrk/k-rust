@@ -10,7 +10,7 @@ package «ImpUnrollClaims» where
 
 require KClaims from "../../lean/claims"
 require «ImpUnroll» from "../ImpUnroll"
-require «KImpClaims» from "../../generated/kimp-claims-ps"
+require «KImpClaims» from "../../generated/kimp-claims"
 
 @[default_target]
 lean_lib ImpUnrollClaims

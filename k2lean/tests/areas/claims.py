@@ -4,8 +4,8 @@
 DEMOS = {
     # on ImpRel and kimp-claims-ps, both per-sort (ImpRel is a holdout of the relational area)
     "ImpRelClaims": {"tier": "heavy", "encoding": "per-sort", "sources": ["demos/ImpRelClaims/ImpRelClaims/Transfers.lean"]},
-    # on ImpUnroll and kimp-claims-ps, both per-sort (ImpUnroll is a holdout of the relational area)
-    "ImpUnrollClaims": {"tier": "heavy", "encoding": "per-sort", "sources": ["demos/ImpUnrollClaims/ImpUnrollClaims/Transfers.lean"]},
+    # on ImpUnroll and kimp-claims (the arity universe)
+    "ImpUnrollClaims": {"tier": "heavy", "sources": ["demos/ImpUnrollClaims/ImpUnrollClaims/Transfers.lean"]},
 }
 
 

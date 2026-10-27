@@ -39,8 +39,8 @@ kimp_claims() {
     "$KRUST" kprove --compiled-definition "$KO/imp-sum-spec" --main-module IMP-SUM-SPEC \
       --claim IMP-SUM-SPEC.two-sum-spec --depth 300 2>&1 < /dev/null | grep -E '^claim|^  [a-z]' || true
   } > "$MEAS/kprove.txt"
-  # kimp-claims over kimp, the measured one; kimp-claims-ps, the same modules over kimp-ps, for the
-  # transfer demos, whose relations (ImpRel, ImpUnroll) are per-sort holdouts (relational area)
+  # kimp-claims over kimp, the measured one; kimp-claims-ps, the same modules over kimp-ps, for
+  # ImpRelClaims, whose relation ImpRel is a per-sort holdout (relational area)
   claims_gen() { # OUT SEMANTICS-PATH LOG [ARG…]
     local out=$1 sem=$2 log=$3; shift 3
     "$G" claims --kore "$KO/kimp/definition.kore" \
