@@ -1128,6 +1128,7 @@ pub struct BackendDefinition {
     console_reach: crate::deferred::ConsoleReach,
     pub(crate) selector_contracts: OnceLock<crate::observation::Selectors>,
     pub(crate) map_observations: OnceLock<BTreeMap<Sort, crate::observation::maps::Operations>>,
+    pub(crate) product_observations: OnceLock<crate::observation::products::Products>,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// [`domain_kind_in`] of the sorts table at each builtin sort, in the order of
     /// `BuiltinSort::ALL`, computed once at load: [`Self::domain_kind`] answers from it for a
@@ -1935,6 +1936,7 @@ impl Drop for BackendDefinition {
             std::mem::take(&mut self.inhabited_sorts),
             std::mem::take(&mut self.selector_contracts),
             std::mem::take(&mut self.map_observations),
+            std::mem::take(&mut self.product_observations),
         );
         // A refusal drops the parts here, on the current stack. Only a definition deeper than
         // any segment holds is refused, and only a thread with more stack than that loads one.
@@ -2773,6 +2775,7 @@ impl BackendDefinition {
             console_reach: crate::deferred::ConsoleReach::default(),
             selector_contracts: OnceLock::new(),
             map_observations: OnceLock::new(),
+            product_observations: OnceLock::new(),
             finite_sort_constructors: BTreeMap::new(),
             builtin_domain_kinds,
             kvar_sorts: OnceLock::new(),
@@ -3117,6 +3120,14 @@ impl BackendDefinition {
     /// that root, which no listed constructor head covers.
     pub(crate) fn finite_constructor_heads(&self, sort: &Sort) -> Option<&FiniteConstructorDomain> {
         self.finite_sort_constructors.get(sort)
+    }
+
+    /// Actual closed instances whose complete source no-junk domain has one head.
+    pub(crate) fn sole_constructor_heads(&self) -> impl Iterator<Item = (Sort, &ConstructorHead)> {
+        self.finite_sort_constructors
+            .iter()
+            .filter(|(_, domain)| domain.heads.len() == 1)
+            .map(|(sort, domain)| (*sort, domain.heads.first().expect("one head")))
     }
 
     pub(crate) fn internalize_term(

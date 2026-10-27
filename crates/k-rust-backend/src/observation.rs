@@ -21,6 +21,7 @@
 //! definedness and equation machinery continues to evaluate those ordinary source axioms.
 
 pub(crate) mod maps;
+pub(crate) mod products;
 pub(crate) mod reading;
 
 use std::{collections::BTreeMap, sync::Arc};

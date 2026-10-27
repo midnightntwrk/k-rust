@@ -34,6 +34,116 @@ impl SharedDomains {
 }
 
 impl TranslationState {
+    /// Instantiate already-admitted cases at this opaque occurrence's scalar arguments.
+    /// This also runs when a word plan bypasses the corresponding scalar value call.
+    /// Each fact is closed at the actual query scope; no quantified source theory is added.
+    #[cfg(any(feature = "z3", test))]
+    pub(super) fn demand_summary_cases(
+        &mut self,
+        head: &super::CongruenceHead,
+        arguments: &[Term],
+    ) -> Result<(), TranslationError> {
+        let Some(cases) = self.summary_cases.get(head).cloned() else {
+            return Ok(());
+        };
+        if !self.active_summary_cases.insert(head.clone()) {
+            return Ok(());
+        }
+        let result = (|| {
+            for key in cases {
+                if self.summary_case_budget == 0 {
+                    break;
+                }
+                let reading = self.summaries.get(&key).expect("prepared case").clone();
+                let TermKind::Application {
+                    symbol,
+                    sort_arguments,
+                    ..
+                } = reading.summary.formal.kind()
+                else {
+                    unreachable!();
+                };
+                if arguments.len() != key.static_arguments.len() {
+                    continue;
+                }
+                let actual = arguments
+                    .iter()
+                    .zip(&key.static_arguments)
+                    .map(|(argument, fixed)| fixed.as_ref().unwrap_or(argument).clone())
+                    .collect();
+                let call = Term::application(symbol.clone(), *sort_arguments, actual);
+                let scope = self
+                    .bound_variables
+                    .iter()
+                    .map(|(_, name)| name.clone())
+                    .collect();
+                if !self.summary_case_seen.insert((call.clone(), scope)) {
+                    continue;
+                }
+                self.summary_case_budget -= 1;
+                self.translate_term(&call)?;
+            }
+            Ok(())
+        })();
+        self.active_summary_cases.remove(head);
+        result
+    }
+
+    #[cfg(any(feature = "z3", test))]
+    pub(super) fn link_summary_to_function(
+        &mut self,
+        term: &Term,
+        value: SExpr,
+    ) -> Result<(), TranslationError> {
+        if !self.active_summary_links.insert(term.clone()) {
+            return Ok(());
+        }
+        let result = (|| {
+            let TermKind::Application {
+                symbol, arguments, ..
+            } = term.kind()
+            else {
+                unreachable!();
+            };
+            let head = self
+                .functional_head(term)
+                .expect("admitted pure functional summary");
+            let ordinary = self.translate_congruent(head, arguments)?;
+            let domain = self.translate_predicate(&Predicate::Ceil(term.clone()))?;
+            self.record_source_fact(SExpr::application(
+                "=>",
+                vec![
+                    domain.clone(),
+                    SExpr::application("=", vec![ordinary, value]),
+                ],
+            ))?;
+            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
+                let arguments_domain = if arguments.is_empty() {
+                    SExpr::atom("true")
+                } else {
+                    self.translate_predicate(&Predicate::And(
+                        arguments
+                            .iter()
+                            .map(|a| Predicate::Ceil(a.clone()))
+                            .collect::<Vec<_>>()
+                            .into(),
+                    ))?
+                };
+                let head = self.translate_domain_head(term)?;
+                self.record_source_fact(SExpr::application(
+                    "=>",
+                    vec![
+                        arguments_domain,
+                        SExpr::application("=", vec![head, domain]),
+                    ],
+                ))?;
+            }
+            Ok(())
+        })();
+        self.active_summary_links.remove(term);
+        result
+    }
+
     pub(super) fn translate_domain(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
         if self.congruence.is_some() && term.attributes().ceil_free() {
             // Eliminating a domain must not turn an uninterpreted input carrier into
@@ -71,13 +181,13 @@ impl TranslationState {
         if scope.active.len() >= 128 || !scope.active.insert(term.clone()) {
             return Ok(self.abstract_predicate(&original));
         }
+        let resolved = summary.is_none()
+            && (observation.is_some() || plan.as_ref().is_some_and(|p| !p.contains(&original)));
         let result = (|| {
             #[cfg(any(feature = "z3", test))]
             if let Some(reading) = summary {
                 return self.translate_summary_domain(term, &reading);
             }
-            let resolved =
-                observation.is_some() || plan.as_ref().is_some_and(|p| !p.contains(&original));
             let value = if let Some(reading) = observation {
                 self.observation_domain(term, &reading)?
             } else {
@@ -96,36 +206,6 @@ impl TranslationState {
                     _ => SExpr::application("and", parts),
                 }
             };
-            // A source rule may decide f(0)'s domain while leaving f(X)'s unresolved.
-            // Connect the decided instance to the same head UF, under the original
-            // argument domains, so X=0 transports that source fact as well.
-            if resolved
-                && let TermKind::Application {
-                    symbol, arguments, ..
-                } = term.kind()
-                && symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial)
-                && self.functional_head(term).is_some()
-            {
-                let mut argument_domains = Vec::new();
-                for argument in arguments {
-                    argument_domains.push(self.translate_domain(argument)?);
-                }
-                let head = self.translate_domain_head(term)?;
-                let fact = SExpr::application(
-                    "=>",
-                    vec![
-                        if argument_domains.is_empty() {
-                            SExpr::atom("true")
-                        } else {
-                            SExpr::application("and", argument_domains)
-                        },
-                        SExpr::application("=", vec![head, value.clone()]),
-                    ],
-                );
-                // These are source consequences, not checked obligations. Close their
-                // lexical lets and binders before adding them to the query's known facts.
-                self.record_source_fact(fact)?;
-            }
             Ok(value)
         })();
         let scope = self.shared_domains.as_mut().expect("active domain scope");
@@ -142,6 +222,34 @@ impl TranslationState {
             scope.values.insert(term.clone(), reference.clone());
             reference
         };
+        // Memoize the fully computed domain before translating the head's arguments.
+        // Their value demands may reenter this domain (for example a product field's
+        // source reconstruction), which is no longer a recursive domain derivation.
+        if resolved
+            && let TermKind::Application {
+                symbol, arguments, ..
+            } = term.kind()
+            && symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial)
+            && self.functional_head(term).is_some()
+        {
+            let mut argument_domains = Vec::new();
+            for argument in arguments {
+                argument_domains.push(self.translate_domain(argument)?);
+            }
+            let head = self.translate_domain_head(term)?;
+            let fact = SExpr::application(
+                "=>",
+                vec![
+                    if argument_domains.is_empty() {
+                        SExpr::atom("true")
+                    } else {
+                        SExpr::application("and", argument_domains)
+                    },
+                    SExpr::application("=", vec![head, reference.clone()]),
+                ],
+            );
+            self.record_source_fact(fact)?;
+        }
         // A demanded observation domain also demands its guarded value equation. For
         // example a ceil(get(put(...),q)) must transport its value through an opaque alias.
         // Cache the domain first so the value equation can use it without recursive expansion.
@@ -191,6 +299,14 @@ impl TranslationState {
         let Some(head) = self.functional_head(term) else {
             return Ok(self.abstract_predicate(&Predicate::Ceil(term.clone())));
         };
+        #[cfg(any(feature = "z3", test))]
+        self.demand_summary_cases(
+            &head,
+            &crate::deferred::children(term)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+        )?;
         self.approximate(super::Exactness::Approximate);
         let name = match self.domain_functions.get(&head) {
             Some(name) => name.clone(),

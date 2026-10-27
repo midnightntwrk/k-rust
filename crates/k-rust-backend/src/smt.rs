@@ -335,6 +335,17 @@ pub struct TranslationState {
     observations: BTreeMap<Term, Arc<crate::observation::reading::Reading>>,
     observation_demands: BTreeMap<Term, Vec<Term>>,
     active_observations: BTreeSet<Term>,
+    summary_congruence: BTreeSet<CongruenceHead>,
+    #[cfg(any(feature = "z3", test))]
+    active_summary_links: BTreeSet<Term>,
+    #[cfg(any(feature = "z3", test))]
+    summary_cases: BTreeMap<CongruenceHead, Vec<summary::Key>>,
+    #[cfg(any(feature = "z3", test))]
+    active_summary_cases: BTreeSet<CongruenceHead>,
+    #[cfg(any(feature = "z3", test))]
+    summary_case_seen: BTreeSet<(Term, Vec<String>)>,
+    #[cfg(any(feature = "z3", test))]
+    summary_case_budget: usize,
     domain_facts: Vec<SExpr>,
     shared_domains: Option<functional::SharedDomains>,
     eligible_operands: FxHashMap<Term, bool>,
@@ -370,6 +381,17 @@ impl TranslationState {
             observations: BTreeMap::new(),
             observation_demands: BTreeMap::new(),
             active_observations: BTreeSet::new(),
+            summary_congruence: BTreeSet::new(),
+            #[cfg(any(feature = "z3", test))]
+            active_summary_links: BTreeSet::new(),
+            #[cfg(any(feature = "z3", test))]
+            summary_cases: BTreeMap::new(),
+            #[cfg(any(feature = "z3", test))]
+            active_summary_cases: BTreeSet::new(),
+            #[cfg(any(feature = "z3", test))]
+            summary_case_seen: BTreeSet::new(),
+            #[cfg(any(feature = "z3", test))]
+            summary_case_budget: 256,
             domain_facts: Vec::new(),
             shared_domains: None,
             eligible_operands: FxHashMap::default(),
@@ -511,11 +533,18 @@ impl TranslationState {
                 .map(|(argument, _)| self.translate_term(argument))
                 .collect::<Result<Vec<_>, _>>()?;
             self.approximate(reading.exactness);
-            return Ok(if arguments.is_empty() {
+            let value = if arguments.is_empty() {
                 SExpr::atom(reading.name)
             } else {
                 SExpr::application(reading.name, arguments)
-            });
+            };
+            if self
+                .functional_head(term)
+                .is_some_and(|head| self.summary_congruence.contains(&head))
+            {
+                self.link_summary_to_function(term, value.clone())?;
+            }
+            return Ok(value);
         }
         match term.kind() {
             // A term-level `\and` denotes the intersection of its operands' values, `\bottom` where
@@ -759,6 +788,8 @@ impl TranslationState {
         arguments: &[Term],
     ) -> Result<SExpr, TranslationError> {
         self.approximate(Exactness::Approximate);
+        #[cfg(any(feature = "z3", test))]
+        self.demand_summary_cases(&head, arguments)?;
         let name = match self.opaque_functions.get(&head) {
             Some(name) => name.clone(),
             None => {
@@ -784,7 +815,9 @@ impl TranslationState {
         let root = self.shared_domains.is_none();
         // Observation value equations can derive domains while a value is translated.
         // Give their shared values the predicate's lifetime: domain lets may read them.
-        let value_root = root && self.shared_terms.is_none() && !self.observations.is_empty();
+        let value_root = root
+            && self.shared_terms.is_none()
+            && (!self.observations.is_empty() || !self.summary_congruence.is_empty());
         if value_root {
             self.shared_terms = Some(SharedTerms::default());
         }
@@ -1506,6 +1539,7 @@ impl SmtPrelude {
             )? {
                 return Ok(Err(error));
             }
+            observation::finish_summary_readings(&mut translation, &observations)?;
         }
         if let Err(error) = word::prepare(&mut translation, known, checked)? {
             return Ok(Err(error));

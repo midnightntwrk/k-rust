@@ -1065,6 +1065,9 @@ pub(crate) fn apply_ceil_equation(
     if let Some(domain) = crate::observation::maps::lookup_domain(definition, term) {
         return Some(domain);
     }
+    if let Some(domain) = crate::observation::products::field_domain(definition, term) {
+        return Some(domain);
+    }
     if let Some(condition) = ceil_theory_condition(definition, term) {
         return Some(condition);
     }

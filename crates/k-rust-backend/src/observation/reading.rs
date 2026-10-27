@@ -110,6 +110,15 @@ impl<'a> Builder<'a> {
         }
         let mut result = self
             .stored_reconstruction(term)
+            .or_else(|| self.definition.products()?.field_value(term))
+            .or_else(|| {
+                let TermKind::Application { symbol, .. } = term.kind() else {
+                    return None;
+                };
+                (symbol.attributes.head_role() == HeadRole::FreeConstructor)
+                    .then(|| self.definition.products()?.reconstruction(term))
+                    .flatten()
+            })
             .map(|value| Arc::new(Reading::Leaf(value)));
         if let TermKind::Application {
             symbol, arguments, ..

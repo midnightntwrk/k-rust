@@ -142,6 +142,9 @@ pub(super) fn prepare(
     {
         return Ok(Vec::new());
     }
+    let Some(originals) = original_terms(known, substitution, checked)? else {
+        return Ok(Vec::new());
+    };
     let mut predicates = known.iter().chain(checked).cloned().collect::<Vec<_>>();
     let mut terms = substitution.values().cloned().collect::<Vec<_>>();
     let mut builder = Builder::new(definition);
@@ -265,6 +268,25 @@ pub(super) fn prepare(
                     }
                 }
             }
+            if originals.contains(&term)
+                && !state.observations.contains_key(&term)
+                && state.eligible_operand(&term)
+                && let Some(canonical) = definition.products().and_then(|p| p.canonical(&term))
+                && let Some(reading) = builder.of(&canonical)?
+            {
+                // Only values present in the original query get this demand. Generated
+                // fields do not recursively unfold products or discover new witnesses.
+                state
+                    .observations
+                    .insert(canonical.clone(), reading.clone());
+                readings.push(reading);
+                terms.push(canonical.clone());
+                state
+                    .observation_demands
+                    .entry(term.clone())
+                    .or_default()
+                    .push(canonical);
+            }
             let children = crate::deferred::children(&term);
             if children.len() > remaining {
                 break;
@@ -274,6 +296,110 @@ pub(super) fn prepare(
         }
     }
     Ok(domains)
+}
+
+#[cfg(any(feature = "z3", test))]
+fn original_terms(
+    known: &[Predicate],
+    substitution: &crate::substitution::Substitution,
+    checked: &[Predicate],
+) -> crate::stop::Stoppable<Option<std::collections::BTreeSet<Term>>> {
+    let mut predicates = known.iter().chain(checked).collect::<Vec<_>>();
+    let mut terms = substitution.values().collect::<Vec<_>>();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut remaining = 16_384usize;
+    while !predicates.is_empty() || !terms.is_empty() {
+        crate::stop::check()?;
+        if remaining == 0 {
+            return Ok(None);
+        }
+        remaining -= 1;
+        if let Some(predicate) = predicates.pop() {
+            match predicate {
+                Predicate::Term(t) | Predicate::Ceil(t) | Predicate::Defined(t) => terms.push(t),
+                Predicate::Equals(a, b) => terms.extend([a, b]),
+                Predicate::Not(p) | Predicate::Exists(_, p) | Predicate::Forall(_, p) => {
+                    predicates.push(p)
+                }
+                Predicate::And(ps) | Predicate::Or(ps) => {
+                    if ps.len() > remaining {
+                        return Ok(None);
+                    }
+                    predicates.extend(ps.iter());
+                }
+                Predicate::Implies(a, b) | Predicate::Iff(a, b) => {
+                    predicates.extend([a.as_ref(), b.as_ref()])
+                }
+                Predicate::True
+                | Predicate::False
+                | Predicate::Floor(_)
+                | Predicate::In(..)
+                | Predicate::Absent(_) => {}
+            }
+        } else if let Some(term) = terms.pop() {
+            if !seen.insert(term.clone()) {
+                continue;
+            }
+            let children = crate::deferred::children(term);
+            if children.len() > remaining {
+                return Ok(None);
+            }
+            terms.extend(children);
+        }
+    }
+    Ok(Some(seen))
+}
+
+/// Keep exact summary-only queries on their existing path. When a signature also has an
+/// opaque occurrence, specialized instances must transport through that same ordinary UF.
+#[cfg(feature = "z3")]
+pub(super) fn finish_summary_readings(
+    state: &mut TranslationState,
+    demands: &[Predicate],
+) -> crate::stop::Stoppable<()> {
+    let mut opaque = std::collections::BTreeSet::new();
+    for demand in demands {
+        crate::stop::check()?;
+        let Predicate::Ceil(term) = demand else {
+            continue;
+        };
+        if super::summary::reading(&state.summaries, term).is_none()
+            && let Some(head) = state.congruence_head(term)
+        {
+            opaque.insert(head);
+        }
+    }
+    let summaries = state
+        .summaries
+        .values()
+        .map(|r| r.summary.clone())
+        .collect::<Vec<_>>();
+    for summary in summaries {
+        crate::stop::check()?;
+        if let Some(head) = state.functional_head(&summary.formal)
+            && opaque.contains(&head)
+        {
+            state.summary_congruence.insert(head.clone());
+            state
+                .summary_cases
+                .entry(head)
+                .or_default()
+                .push(summary.key.clone());
+        }
+    }
+    for term in state.observations.keys().cloned().collect::<Vec<_>>() {
+        crate::stop::check()?;
+        if super::summary::reading(&state.summaries, &term).is_some()
+            && state
+                .functional_head(&term)
+                .is_none_or(|head| !state.summary_congruence.contains(&head))
+        {
+            // The existing complete summary already supplies this reading, with its
+            // original exactness. No foreign carrier/value UF is needed for this query.
+            state.observations.remove(&term);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
