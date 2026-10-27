@@ -66,11 +66,7 @@ impl TranslationState {
                     .map(|(argument, fixed)| fixed.as_ref().unwrap_or(argument).clone())
                     .collect();
                 let call = Term::application(symbol.clone(), *sort_arguments, actual);
-                let scope = self
-                    .bound_variables
-                    .iter()
-                    .map(|(_, name)| name.clone())
-                    .collect();
+                let scope = self.source_scope(&call.attributes().variables.to_btree_set());
                 if !self.summary_case_seen.insert((call.clone(), scope)) {
                     continue;
                 }
@@ -251,6 +247,10 @@ impl TranslationState {
             } = term.kind()
             && symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial)
             && self.functional_head(term).is_some()
+            && self.domain_link_seen.insert((
+                term.clone(),
+                self.source_scope(&term.attributes().variables.to_btree_set()),
+            ))
         {
             let mut argument_domains = Vec::new();
             for argument in arguments {

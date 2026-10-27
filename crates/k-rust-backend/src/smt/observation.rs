@@ -100,6 +100,13 @@ impl TranslationState {
         // Always keep the original functional interpretation. A source equation about this
         // instance then also transports through opaque equal arguments and higher contexts.
         let original = self.translate_term_node_plain(term)?;
+        // Source readings contain only terms derived from this operand. A closed
+        // equation already emitted at the same visible source variables applies in
+        // every later lexical value/domain scope, including unrelated image witnesses.
+        let scope = self.source_scope(&term.attributes().variables.to_btree_set());
+        if !self.observation_reading_seen.insert((term.clone(), scope)) {
+            return Ok(original);
+        }
         let value = self.observation_value(reading, &original, &mut BTreeMap::new())?;
         let domain = self.translate_predicate(&Predicate::Ceil(term.clone()))?;
         self.approximate(super::Exactness::Approximate);
@@ -907,6 +914,74 @@ mod tests {
             .check_predicates(known, &Substitution::new(), &[checked])
             .unwrap()
             .unwrap()
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn nested_typed_key_reads_share_source_facts_across_image_witnesses() {
+        use crate::smt::{SmtPrelude, SmtSolver, Validity, Z3Solver};
+        use crate::term::{Sort, Variable, Variables};
+        let source = typed_source().replace("endmodule",r#"hooked-symbol add{}(SortInt{},SortInt{}) : SortInt{} [function{}(),total{}(),hook{}("INT.add"),smt-hook{}("+")] endmodule"#);
+        let definition = self::definition(&source);
+        let subject = term(&definition, "M:SortMap{}");
+        let ops = definition.map_operations(&subject.sort()).unwrap();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let prelude = SmtPrelude::from_definition(&definition).unwrap();
+        let int = Sort::simple("SortInt");
+        let stored = ops.collection.key_sort;
+        let mut key = Term::injection(int, stored, Term::int(0));
+        for depth in 0..4 {
+            let raw = ops.lookup(&definition, subject.clone(), &key).unwrap();
+            let typed = definition.observe_stored(&raw, &int).unwrap();
+            let pattern = Term::map(
+                ops.collection.clone(),
+                vec![(
+                    key.clone(),
+                    term(&definition, "inj{SortInt{},SortKItem{}}(X:SortInt{})"),
+                )],
+                Some(term(&definition, "R:SortMap{}")),
+            );
+            let pattern_variables: Variables =
+                [Variable::new("X", int), Variable::new("R", subject.sort())]
+                    .into_iter()
+                    .collect();
+            let (_, guards) = crate::observation::frames::map_match(
+                &definition,
+                &pattern,
+                &subject,
+                &pattern_variables,
+            )
+            .unwrap()
+            .unwrap();
+            let known = [
+                Predicate::Ceil(typed.clone()),
+                Predicate::Equals(typed.clone(), Term::int(7)),
+            ];
+            let query = prelude
+                .query(&known, &Substitution::new(), &guards, false)
+                .unwrap()
+                .unwrap();
+            let bytes = query.base().len() + query.checked().to_string().len();
+            eprintln!("nested typed map key depth {depth}: {bytes} bytes");
+            assert!(
+                bytes < 1024 * 1024,
+                "source facts must be shared, depth {depth}: {bytes} bytes"
+            );
+            assert_eq!(
+                solver
+                    .check_predicates(&known, &Substitution::new(), &guards)
+                    .unwrap()
+                    .unwrap(),
+                Validity::Valid
+            );
+            assert!(query.model_mappings().is_none());
+            let next = Term::application(
+                definition.symbols()["add"].clone(),
+                vec![],
+                vec![typed, Term::int(1)],
+            );
+            key = Term::injection(int, stored, next);
+        }
     }
 
     #[cfg(feature = "z3")]

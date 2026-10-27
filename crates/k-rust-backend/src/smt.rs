@@ -359,6 +359,8 @@ pub struct TranslationState {
     observation_demands: BTreeMap<Term, Vec<Term>>,
     observation_facts: BTreeMap<Term, Vec<Predicate>>,
     observation_fact_seen: BTreeSet<(Term, Vec<String>)>,
+    observation_reading_seen: BTreeSet<(Term, Vec<String>)>,
+    domain_link_seen: BTreeSet<(Term, Vec<String>)>,
     active_observations: BTreeSet<Term>,
     list_congruence: BTreeMap<Sort, Arc<crate::term::ListDefinition>>,
     map_congruence: BTreeMap<Sort, Arc<crate::term::MapDefinition>>,
@@ -409,6 +411,8 @@ impl TranslationState {
             observation_demands: BTreeMap::new(),
             observation_facts: BTreeMap::new(),
             observation_fact_seen: BTreeSet::new(),
+            observation_reading_seen: BTreeSet::new(),
+            domain_link_seen: BTreeSet::new(),
             active_observations: BTreeSet::new(),
             list_congruence: BTreeMap::new(),
             map_congruence: BTreeMap::new(),
@@ -459,7 +463,14 @@ impl TranslationState {
         if let Some(scope) = &self.shared_terms {
             fact = scope.bind(fact);
         }
+        let mentioned = smt_variables(&fact)
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
         for (variable, name) in self.bound_variables.clone().into_iter().rev() {
+            if !mentioned.contains(&name) {
+                continue;
+            }
             let sort = self.smt_sort(&variable.sort)?;
             fact = SExpr::List(vec![
                 SExpr::atom("forall"),
@@ -472,6 +483,19 @@ impl TranslationState {
         }
         self.domain_facts.push(fact);
         Ok(())
+    }
+
+    /// Only visible binders used by a source consequence distinguish its instantiation.
+    /// Unrelated existential witnesses do not create another copy of that same fact.
+    fn source_scope(&self, variables: &BTreeSet<Variable>) -> Vec<String> {
+        let mut visible = BTreeSet::new();
+        let mut scope = Vec::new();
+        for (variable, name) in self.bound_variables.iter().rev() {
+            if variables.contains(variable) && visible.insert(variable) {
+                scope.push(name.clone());
+            }
+        }
+        scope
     }
 
     /// Record that the translation copies text into the script that it did not write itself:
@@ -538,11 +562,11 @@ impl TranslationState {
         if !facts.is_empty() {
             // These are unconditional source consequences closed by record_source_fact,
             // so another lexical value scope needs no second copy. Binders remain distinct.
-            let scope = self
-                .bound_variables
-                .iter()
-                .map(|(_, name)| name.clone())
-                .collect();
+            let mut variables = term.attributes().variables.to_btree_set();
+            for fact in &facts {
+                variables.extend(fact.free_variables());
+            }
+            let scope = self.source_scope(&variables);
             if !self.observation_fact_seen.insert((term.clone(), scope)) {
                 facts.clear();
             }
