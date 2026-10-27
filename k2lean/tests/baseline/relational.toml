@@ -53,7 +53,7 @@ preserve = []
 "demos/ImpRel/ImpRel/Bisim.lean" = { tier = "light", sha256 = "e8ac8c9f8bfb951e539d6c7b23d6d99efb77e8a8fba0c32371ab9e989b4b9f2d" }
 "demos/ImpRel/correspondence.toml" = { tier = "light", sha256 = "3dc0d320c634fe05568a639cf181b83f224a8c2fe0f3d819f85bd34f193e6397" }
 "demos/ImpUnroll/ImpUnroll/Refine.lean" = { tier = "light", sha256 = "65db16b3a7f4fe5bd8a6f844bd3015d62d27d12fd037ec524096d0bd6f3b8575" }
-"demos/ImpUnroll/ImpUnroll/Tr.lean" = { tier = "light", sha256 = "bf980f7954da902395f91c26abee5e3226c09165ef0910d76b20ffebf9cee53f" }
+"demos/ImpUnroll/ImpUnroll/Tr.lean" = { tier = "light", sha256 = "6ed7c1e2dc433b51d84082fd38914fe48c93980a6aed5b598c6f5403ecc6690d" }
 "demos/ImpUnroll/correspondence.toml" = { tier = "light", sha256 = "d7ad4a218b46827ec050dcf32d699b82beec603d33a09e64d53a0402e2ad9c2a" }
 "demos/ImpUnroll/refine.toml" = { tier = "light", sha256 = "105780b13186c7e6662680806ad1d65bd10c79658950b0b69670ae4cfe426474" }
 "demos/PeanoRel/PeanoRel/Bisim.lean" = { tier = "light", sha256 = "2e0913dfe07d02e2cb8972af694c06c12175f95ec75c8a56c2770631e0505786" }
@@ -119,13 +119,13 @@ preserve = []
 "generated/kunroll/KUnroll/Determinism/L3.lean" = { tier = "light", sha256 = "1a0a685669824dd282f7ea18eeda0cc0db2d287bce7de67d6cd2f42eb4de2459" }
 "generated/kunroll/KUnroll/Determinism/L4.lean" = { tier = "light", sha256 = "dab8d1f0da9a4a4d425627fc5426894825d8bd0a49a30ef37947151c9688634b" }
 "generated/kunroll/KUnroll/Determinism/L5.lean" = { tier = "light", sha256 = "d6ea09ef3cbe8d08e727d908f8041db3f1d4b7105760b7631231da4bb60f9697" }
-"generated/kunroll/KUnroll/Determinism/Pre.lean" = { tier = "light", sha256 = "0d1c6ae0683b8ad0427c7e85f708535c2ce5ceb8ca5b8e2d486daf0d958088fb" }
+"generated/kunroll/KUnroll/Determinism/Pre.lean" = { tier = "light", sha256 = "7596556fe5789b2ec9e21068b8f89dd89eb55b0ede06555920dcd7294671e1b5" }
 "generated/kunroll/KUnroll/Equations.lean" = { tier = "light", sha256 = "7976628c5f5af46aac94dde598cee0db3d37f5879dab48eb2b3015c0f9eeeefa" }
-"generated/kunroll/KUnroll/Functions.lean" = { tier = "light", sha256 = "2b7ef7799105cf06aee1f07d88242bc2e775b56fe9115912607f64bad7dc80bc" }
+"generated/kunroll/KUnroll/Functions.lean" = { tier = "light", sha256 = "45e95e71c5d4ecac48c74cd78dfb15db76fa4d43612b2c217c6d9838b8b4b767" }
 "generated/kunroll/KUnroll/Init.lean" = { tier = "light", sha256 = "634c2565cbc47b8e9e603e2595f968968d2248b736851ffae33b576987089191" }
 "generated/kunroll/KUnroll/Preserves.lean" = { tier = "light", sha256 = "2a9dad63978fcb415d45f6811e30257b1d7a3df5141fed12e312635899a39992" }
-"generated/kunroll/KUnroll/Rules.lean" = { tier = "light", sha256 = "38acb07afccc4a5b01e3b23efb1c34d10e7dec0355b0f216a05b4dcd3b8e2870" }
-"generated/kunroll/KUnroll/Terms.lean" = { tier = "light", sha256 = "ec2048d9e8c5e7452d2b670228ce697efc75e3215a11cec8b8d80001a6491dc1" }
+"generated/kunroll/KUnroll/Rules.lean" = { tier = "light", sha256 = "eb658b88c13e545c17a8ccdf6174c37430c239c623a987030830351a84e694a4" }
+"generated/kunroll/KUnroll/Terms.lean" = { tier = "light", sha256 = "544bfd37d3142dca6817986acebf20542266564b2b6acddea8c0b746878ae92a" }
 "generated/kunroll/KUnrollBench/Main.lean" = { tier = "light", sha256 = "61622eb8ac1dae1fc001b96b4e0f7037a46cfebad760a0a581a71157f2d28dfe" }
 "generated/kunroll/KUnrollTest/Axioms.lean" = { tier = "light", sha256 = "f48d4deaf109db611b85c33f975bb2a53aa578732c5896dcb4b25cb3ac791502" }
 "generated/kunroll/KUnrollTest/DetAxioms.lean" = { tier = "light", sha256 = "73159936880f24c90de2f1b87f3cf018b48d328bd9b830192467a738982ae300" }
