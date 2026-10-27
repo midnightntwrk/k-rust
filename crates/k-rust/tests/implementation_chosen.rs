@@ -1206,9 +1206,10 @@ fn a_one_name_rule_whose_left_hand_side_holds_its_advance_is_not_marked() {
 }
 
 /// G-NO-DIGEST (FZ-FRESH): a two-name rule is classified when the definition is loaded, from the
-/// compiled counter advance, so compilation records nothing of it: the axiom carries only its id,
-/// its label and its source location, and the compiled definition (and with it the execution digest) is
-/// the one compiled before the mark existed.
+/// compiled counter, so compilation records nothing of it. This checks the attribute list only:
+/// the axiom carries its id, its label and its source location and no attribute for the
+/// association. That the compiled definition, and with it the execution digest, did not move
+/// follows from FZ-FRESH changing no compiler code; this test does not compare digests.
 #[test]
 fn a_two_name_rule_compiles_without_an_attribute_for_its_association() {
     let (kore, _) = compile(FRESH, "mk(3)");

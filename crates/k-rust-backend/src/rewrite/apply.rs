@@ -1961,8 +1961,9 @@ fn instantiate(
 
 /// Note, in an execution, that the candidate being built is one of an association-open rule
 /// ([`crate::rule::ComputedRuleAttributes::association_open`]): its right-hand side and `ensures`
-/// hold k-rust's association of the rule's two or more `!` names with counter offsets, which
-/// the definition leaves open (`docs/compatibility.md`, "Compiler-resolved fresh constants"), so
+/// hold k-rust's association of the rule's two or more `!` names with counter offsets (or, for a
+/// rule marked by failing closed, a counter the load could not read as an advance by 0 or 1),
+/// which the definition leaves open (`docs/compatibility.md`, "Compiler-resolved fresh constants"), so
 /// the candidate's result is one association's (`ChosenClass::FreshAssociation`, named by the
 /// rule's `UNIQUE_ID`). The caller notes it inside the candidate-owned scope, before the
 /// right-hand side is built, so it covers the right-hand side's construction and

@@ -98,7 +98,9 @@
 //! differently with the minted values (`<r> X <Int Y` is true under one and false under the
 //! other), and an end does not show which of its values were minted. k-rust marks every run
 //! that builds a candidate of such a rule (class `fresh-association`, named by the rule's
-//! `UNIQUE_ID`), and the mark is an implementation-chosen value like any other: a side whose
+//! `UNIQUE_ID`): it reads the rule's compiled counter advance through the left-hand side's
+//! bindings of literals, and fails closed, marking also any rule whose counter it cannot read as
+//! an advance by 0 or 1. The mark is an implementation-chosen value like any other: a side whose
 //! leaves and lists carry no such mark reaches the same leaves under every association, and a
 //! marked side is refused by condition 3 (an incomplete baseline, or a mutant that is no
 //! evidence). This refuses some kills that every association shows.

@@ -5,7 +5,8 @@
 //! which offset in a rule with two or more names. So a definition with such a rule denotes one
 //! rewrite theory per association, and a kill must hold for every pair of associations of the
 //! two definitions. k-rust marks every run that builds a candidate of such a rule
-//! (`fresh-association`), and the differential's condition 3 refuses the case as for any
+//! (`fresh-association`; it reads the compiled counter advance through the left-hand side's
+//! bindings of literals and fails closed on any other form), and the differential's condition 3 refuses the case as for any
 //! implementation-chosen value. The counter is not part of an end: ends are compared with its
 //! content erased, so a mutant that only mints more values is no kill, while one whose minted
 //! values reach a declared cell still is.

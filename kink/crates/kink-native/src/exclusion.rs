@@ -53,9 +53,10 @@
 //!   definition leaves open, on k-rust's `implementationChosenValues` list
 //!   ([`RunFacts::implementation_chosen_values`]): every class value k-rust's evaluator takes in
 //!   `Execution` mode is noted there, the initial state's normalization and work that ended on no
-//!   leaf included (compat 1786-1809), and so is a step that built a candidate of a rule with two
-//!   or more `!` names, whose association with counter offsets the definition leaves open (class
-//!   `fresh-association`, fz26 FZ-FRESH). Decision 1's census still stands beside it; the list adds a
+//!   leaf included (compat 1946-1970, "Marks in executions"), and so is a step that built a
+//!   candidate of a rule with two or more `!` names, whose association with counter offsets the
+//!   definition leaves open (class `fresh-association`, fz26 FZ-FRESH; k-rust fails closed, so a
+//!   rule whose compiled counter it cannot read as an advance by 0 or 1 is marked too). Decision 1's census still stands beside it; the list adds a
 //!   run that read an open value through an equation the census does not see (a prelude one).
 //! - [`Exclusion::ImplementationChosenHook`]: the definition references a hook for which k-rust
 //!   chooses a value the definition leaves open (re-pin decision 1, findings D-10, E-10, E-11):

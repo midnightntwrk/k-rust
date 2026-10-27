@@ -890,9 +890,10 @@ fn undefined_initial_instances_message(definedness: &[Predicate], result_sort: &
 
 /// What a path met for a mark of `hook` and `class`: a value the definition leaves open; for
 /// `effect-order`, which is not a value, an effect order it leaves open; for
-/// `fresh-association`, a step of the rule whose `UNIQUE_ID` is `hook`, named as
-/// [`rule_named_by_id`] does, whose association of its `!` names with counter offsets the
-/// definition leaves open.
+/// `fresh-association`, an instance of the rule whose `UNIQUE_ID` is `hook` (a candidate: its
+/// left-hand side matched and its `requires` held, whether its result was defined, undefined or
+/// vanished), named as [`rule_named_by_id`] does, whose association of its `!` names with counter
+/// offsets the definition leaves open.
 fn chosen_value_met(
     definition: &BackendDefinition,
     hook: &str,
@@ -904,7 +905,7 @@ fn chosen_value_met(
             class.name()
         ),
         k_rust_backend::builtin::ChosenClass::FreshAssociation => format!(
-            "built a successor of rule {}, whose association of its fresh variables with counter offsets the definition leaves open ({})",
+            "built an instance of rule {}, defined or not, whose association of its fresh variables with counter offsets the definition leaves open ({})",
             rule_named_by_id(definition, hook),
             class.name()
         ),

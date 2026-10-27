@@ -226,7 +226,10 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// `fresh-association` mark is noted, so that passage alone is re-pinned by digest, at its own
 /// lines; every other range after 1029 moved down 8 to 12 lines with the lines it named, which at
 /// the branch base `16014aab4` already did not hold its pinned text, the test being red there
-/// (MAIN-KINK-GATE-RED: those passages moved, byte-identical, and are not re-pinned here)):
+/// (MAIN-KINK-GATE-RED: those passages moved, byte-identical, and are not re-pinned here); its
+/// fix round restated, in place, that sentence for the classification as built (an
+/// association-open rule, every rule with two or more names among them, failing closed), so the
+/// mark passage is re-pinned by digest again at the same lines):
 /// - 92: the run-level record keeps what the diagnostic channel drops (`allowanceRefusals`,
 ///   `unsupportedHooks`, of the run and of the load);
 /// - 859: a result whose `allowanceRefusals` is empty is the result under every allowance of at
@@ -235,8 +238,9 @@ fn every_adapted_run_carries_the_run_level_facts() {
 ///   leaf; the list holds those of work that ended on no reported leaf; it is complete for ground
 ///   contradictions and says nothing about a symbolic run;
 /// - 1946-1970: a mark is noted where the evaluator takes the value, and a `fresh-association`
-///   mark where a rewrite step builds a candidate of a rule with two or more `!` names, kept
-///   through undone work and memos; the run's list holds every mark, absorbed and vanished work
+///   mark where a rewrite step builds a candidate of an association-open rule (every rule with two
+///   or more `!` names, and any whose compiled counter k-rust cannot read as an advance by 0 or 1:
+///   fail closed, so the list only grows), kept through undone work and memos; the run's list holds every mark, absorbed and vanished work
 ///   included; the guarantee for a run whose list is empty (FZ-FRESH: the association of such a
 ///   rule's names with counter offsets is open, so a run on whose list it is not noted is the
 ///   same under every association, which A-1's exclusion of a non-empty list relies on);
@@ -266,7 +270,7 @@ const A1_PASSAGES: [(usize, usize, &str); 7] = [
     (
         1946,
         1970,
-        "41de601ba9635c7f1f1c51adcb2e4743f0fa29a8b49a5a5f0362e7ae9f0d52f6",
+        "95a011afcd589c8552438021f5104e582e9997f1e66d5d714af6aee6a6a67c28",
     ),
     (
         2563,

@@ -2403,8 +2403,9 @@ fn kprove_does_not_prove_a_subsort_item_absent_from_a_set_holding_it() {
 
 /// KR-MARK's warning (FZ-FRESH): a run through a rule with two `!` names rests on k-rust's
 /// association of the names to counter offsets, which the definition leaves open
-/// (`docs/compatibility.md`, "Compiler-resolved fresh constants"), so krun warns once, naming
-/// the rule and the class; a run through a one-name rule does not warn.
+/// (`docs/compatibility.md`, "Compiler-resolved fresh constants"), so krun warns once that the
+/// path built an instance of the rule, naming the rule and the class; a run through a one-name
+/// rule does not warn.
 #[test]
 fn krun_warns_of_a_run_through_a_rule_with_two_fresh_names() {
     const FRESH: &str = r#"
@@ -2429,7 +2430,9 @@ endmodule
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1, "{warning}");
     assert!(
-        warnings[0].contains("FRESH.two") && warnings[0].contains("(fresh-association)"),
+        warnings[0].contains("built an instance of rule")
+            && warnings[0].contains("FRESH.two")
+            && warnings[0].contains("(fresh-association)"),
         "{warning}"
     );
     let one = krun_mint_program(FRESH, "FRESH", "one(3)");

@@ -393,7 +393,10 @@ pub enum ChosenClass {
     /// `<generatedCounter>` cell (`docs/compatibility.md`, "Compiler-resolved fresh constants").
     /// A choice of the compiler, not a hook value: [`chosen_value`] never returns it, and the
     /// mark's `hook` is the rule's `UNIQUE_ID`. An execution notes it where a step builds a
-    /// candidate of such a rule (`crate::rule::ComputedRuleAttributes::association_open`).
+    /// candidate of an association-open rule
+    /// (`crate::rule::ComputedRuleAttributes::association_open`): every rule with two or more
+    /// names, whatever spelling compilation gives its counter advance, and, failing closed, any
+    /// rule whose compiled counter the load cannot read as an advance by 0 or 1.
     FreshAssociation,
 }
 
@@ -4653,6 +4656,7 @@ mod tests {
                 ChosenClass::FreshName,
                 ChosenClass::ReadCount,
                 ChosenClass::EffectOrder,
+                ChosenClass::FreshAssociation,
             ]
             .map(ChosenClass::name),
             [
@@ -4665,6 +4669,7 @@ mod tests {
                 "fresh-name",
                 "read-count",
                 "effect-order",
+                "fresh-association",
             ]
         );
     }
