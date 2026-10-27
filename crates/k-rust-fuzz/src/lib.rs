@@ -63,10 +63,33 @@ pub use spec::{
 pub use target::{Target, TargetKind};
 pub use values::{Constraints, Value};
 
+/// This build of k-rust-fuzz, which every report records as `identity.fuzz-revision`: the
+/// package version, then `+src.` and the digest of the sources this crate and `krs-unparse` are
+/// built from (the build script's `K_RUST_FUZZ_SOURCE_DIGEST`, by the rule of k-rust's
+/// `build/source_digest.rs`), or the version and `k_rust::UNVERIFIED_BUILD` outside this
+/// workspace's layout (FZ-REPLAY-WHOLE S4).
+///
+/// A report is computed by k-rust's runs and by this crate's code: its classes, judgements,
+/// statements, warnings and summary lines. The k-rust revision names only the first, and
+/// [`ENGINE_VERSION`] promises only the case sequence, so a fix of a classification or of a
+/// statement that moves no golden campaign could change a report under an unchanged identity.
+/// This revision names the rest: two builds whose report code differs, committed or not, record
+/// different revisions. No caller can name another.
+#[must_use]
+pub fn build_identity() -> String {
+    let digest = env!("K_RUST_FUZZ_SOURCE_DIGEST");
+    if digest.is_empty() {
+        format!("{}{}", env!("CARGO_PKG_VERSION"), k_rust::UNVERIFIED_BUILD)
+    } else {
+        format!("{}+src.{digest}", env!("CARGO_PKG_VERSION"))
+    }
+}
+
 /// The version of the engine's case sequence.
 ///
 /// A campaign's report is a function of its definitions, program, holes, target, options,
-/// budget, seed, the k-rust revision and this version (ARCHITECTURE 5.4, 9.3). It covers the
+/// budget, seed, the k-rust revision, the k-rust-fuzz revision ([`build_identity`]) and this
+/// version (ARCHITECTURE 5.4, 9.3). It covers the
 /// fuzz crate's proposer, schedule and generator code and the pinned versions of `proptest`,
 /// `rand` and `rand_chacha`. Any change that can change the sequence of cases a fixed
 /// specification produces bumps it; the golden determinism test fails when the sequence changes

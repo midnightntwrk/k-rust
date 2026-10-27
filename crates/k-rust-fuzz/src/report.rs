@@ -103,7 +103,20 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// behind each reason or condition that rests on one ([`ReasonHooks`]), and
 /// `totals.pattern-body-judged` counts the cases whose ends were judged against a final pattern.
 /// A reader of the round's earlier version-9 reports refuses the new fields.
-pub const REPORT_VERSION: u32 = 9;
+///
+/// Version 10 (round 4, FZ-REPLAY-WHOLE, D41) names every source location relative to the
+/// directory of the main module's file, as the identity's digests name sources (`imp.k`,
+/// `lib/x.k`, `../lib/y.k`), where version 9 wrote the path the definition was compiled at: in
+/// `totals.coverage.names` and `identity.target-rule` (each location's `source`, and its
+/// `reference`, now a suffix of that relative path) and in `definition-findings` (each equation's
+/// position, and the reasons that quote it); the digests name the main module's file by its own
+/// name where version 9 wrote `<main>`, so a report is a function of its identity wherever the
+/// definition was compiled (S1). It adds `identity.fuzz-revision`, the k-rust-fuzz build
+/// ([`crate::build_identity`], S4), `identity.parse-diagnostic-work`, the parser's diagnostic
+/// work limit (N4), and `totals.first-outside-determinism`, the first case a re-run may differ
+/// at (S3). A version-9 reader refuses the new fields, and `--replay` refuses a version-9
+/// witness by its version.
+pub const REPORT_VERSION: u32 = 10;
 
 /// How many hooks a reason or condition names at most ([`ReasonHooks`]); the rest are counted.
 pub const LISTED_HOOKS: usize = 8;
@@ -371,6 +384,10 @@ pub struct ReportIdentity {
     pub engine_version: u32,
     /// The k-rust revision, as the caller gave it.
     pub k_rust_revision: String,
+    /// This build of k-rust-fuzz ([`crate::build_identity`]): the code that classifies, judges
+    /// and reports, which the k-rust revision does not cover (FZ-REPLAY-WHOLE S4). Recorded by
+    /// the library itself; no caller can name another.
+    pub fuzz_revision: String,
     /// The baseline, then the mutant of a differential campaign.
     pub definitions: Vec<DefinitionIdentity>,
     /// [`digest_hex`] of the program: its name, start sort and text, the configuration-variable
@@ -415,6 +432,12 @@ pub struct ReportIdentity {
     /// it), `"none"` otherwise: a build without a solver leaves undecided some conditions a
     /// solver decides.
     pub solver: String,
+    /// The parser's diagnostic work limit this process read
+    /// (`k_rust::inner::DiagnosticWork::from_environment`, the `KRUST_PARSE_DIAGNOSTIC_WORK`
+    /// variable): `unlimited`, or the floor in chart steps as a decimal string. It changes the
+    /// text of parse diagnostics, which reach the warnings (a narrowed hole's probe that does not
+    /// parse), so the report is a function of it (FZ-REPLAY-WHOLE N4).
+    pub parse_diagnostic_work: String,
     /// The dictionary proposer's parameters (ARCHITECTURE 8.3), present exactly when the
     /// dictionary has a positive weight; absent from the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1183,8 +1206,16 @@ pub struct Totals {
     /// proposer scores the campaign's cases (the climb or the solve proposer), so that a reader
     /// sees whether the guided search came near the target; `None` when no proposer scores.
     pub best_score: Option<BestScore>,
-    /// Cases outside the determinism contract (ARCHITECTURE 5.4).
+    /// Cases outside the determinism contract (ARCHITECTURE 5.4): a clock, a solver `unknown`, a
+    /// stop for lack of stack or an allowance refusal decided them, so another run may end them
+    /// otherwise. The schedule, the guided proposers and the budget observe every case, so a
+    /// re-run with the same inputs may differ from the first of them on.
     pub outside_determinism: u64,
+    /// The first case outside the determinism contract, counted from 0; absent when there is
+    /// none. A re-run with the same inputs reproduces this report's cases before it, and may
+    /// differ from it on (FZ-REPLAY-WHOLE S3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_outside_determinism: Option<u64>,
     /// Candidates that reached the target but were not confirmed: the confirmation failed,
     /// disagreed (an engine defect) or was cancelled. One of them may be a real witness.
     pub unconfirmed: u64,
@@ -2287,6 +2318,7 @@ mod tests {
             identity: ReportIdentity {
                 engine_version: crate::ENGINE_VERSION,
                 k_rust_revision: "b322de1ab".into(),
+                fuzz_revision: "0.8.0+src.0".into(),
                 definitions: vec![DefinitionIdentity {
                     role: DefinitionRole::Baseline,
                     main_module: "IMP".into(),
@@ -2339,6 +2371,7 @@ mod tests {
                 budget: Budget::Cases(5000),
                 thread_stack_size: Some(64 << 20),
                 solver: "none".into(),
+                parse_diagnostic_work: "1048576".into(),
                 dictionary: None,
                 climb: None,
                 corpus: None,
@@ -2403,6 +2436,7 @@ mod tests {
                     }),
                 }),
                 outside_determinism: 0,
+                first_outside_determinism: None,
                 unconfirmed: 1,
                 case_sequence_digest: digest_hex(b"cases"),
                 solve: None,

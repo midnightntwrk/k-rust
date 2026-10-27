@@ -290,6 +290,7 @@ fn identity() -> ReportIdentity {
     ReportIdentity {
         engine_version: crate::ENGINE_VERSION,
         k_rust_revision: "test".into(),
+        fuzz_revision: "test".into(),
         definitions: vec![DefinitionIdentity {
             role: DefinitionRole::Baseline,
             main_module: "MAIN".into(),
@@ -316,6 +317,7 @@ fn identity() -> ReportIdentity {
         budget: Budget::Cases(0),
         thread_stack_size: None,
         solver: "none".into(),
+        parse_diagnostic_work: "1048576".into(),
         dictionary: None,
         climb: None,
         corpus: None,
@@ -1164,6 +1166,8 @@ fn cases_outside_the_determinism_contract_are_counted_and_add_no_coverage() {
         None,
     );
     assert_eq!(report.totals.outside_determinism, 1);
+    // FZ-REPLAY-WHOLE S3: the case a re-run may first differ at (the value 2 is case 1).
+    assert_eq!(report.totals.first_outside_determinism, Some(1));
     assert_eq!(report.totals.target_blocked, 1);
     let applied: Vec<&str> = report
         .totals
@@ -1624,6 +1628,7 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
     ]);
     mixed.unconfirmed = 2;
     mixed.outside_determinism = 1;
+    mixed.first_outside_determinism = Some(6);
     let all_paths = CaseOptions {
         paths: PathMode::AllPaths,
         max_depth: Some(9),
@@ -1643,6 +1648,9 @@ fn the_statement_counts_every_case_that_could_not_yield_a_witness() {
         "3 cases could not be judged (unsupported) and may hide a witness",
         "2 candidates reached the target but were not confirmed",
         "1 case was outside the determinism contract",
+        // FZ-REPLAY-WHOLE S3: what that means for a re-run.
+        "the first being case 6: such a case may end otherwise on another run",
+        "reproduces this report only up to that case and may differ from it on",
         "followed up to the bounds below (all-paths mode)",
         "1 case stopped at max-depth 9",
     ] {

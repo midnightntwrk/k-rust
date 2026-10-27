@@ -1,6 +1,8 @@
 //! The digest of the sources a build of k-rust is made from, for `k_rust::build_identity`.
 //!
-//! k-rust's build script includes this file, and so does `tests/build_identity.rs`.
+//! k-rust's build script includes this file, and so does `tests/build_identity.rs`; so does
+//! k-rust-fuzz's, for `k_rust_fuzz::build_identity`, with its own members
+//! ([`source_digest_of`]).
 //!
 //! **What is hashed.** Exactly the files the compiler reads for k-rust's library and binary,
 //! and for the workspace crates they are built from ([`MEMBERS`]):
@@ -61,6 +63,19 @@ pub struct SourceDigest {
 
 /// The digest of the sources of the k-rust whose manifest directory is `manifest`.
 pub fn source_digest(manifest: &Path) -> SourceDigest {
+    let members: Vec<String> = MEMBERS
+        .iter()
+        .map(|member| format!("crates/{member}"))
+        .collect();
+    source_digest_of(manifest, &members)
+}
+
+/// The digest of the sources of `members`, each a crate directory relative to the workspace of
+/// the crate whose manifest directory is `manifest` (the directory two levels above it), by the
+/// rule of this module: `k-rust-fuzz`'s build script digests its own sources and those of the
+/// path dependencies k-rust's digest does not cover. An embed naming `CARGO_MANIFEST_DIR` is
+/// resolved against `manifest`, as for k-rust's members.
+pub fn source_digest_of(manifest: &Path, members: &[String]) -> SourceDigest {
     let unverified = SourceDigest {
         digest: None,
         triggers: Vec::new(),
@@ -71,11 +86,17 @@ pub fn source_digest(manifest: &Path) -> SourceDigest {
     let Some(workspace) = crates.parent() else {
         return unverified;
     };
+    let members: Vec<PathBuf> = members
+        .iter()
+        .map(|member| workspace.join(member))
+        .collect();
     let mut sources = Vec::new();
-    for member in MEMBERS {
-        let directory = crates.join(member);
+    for directory in &members {
+        let Some(name) = directory.file_name().and_then(|name| name.to_str()) else {
+            return unverified;
+        };
         let named = fs::read_to_string(directory.join("Cargo.toml"))
-            .is_ok_and(|text| text.contains(&format!("name = \"{member}\"")));
+            .is_ok_and(|text| text.contains(&format!("name = \"{name}\"")));
         if !named {
             return unverified;
         }
@@ -109,10 +130,9 @@ pub fn source_digest(manifest: &Path) -> SourceDigest {
         let Some(target) = normalize(&target) else {
             continue;
         };
-        let in_member = MEMBERS.iter().any(|member| {
-            let member = crates.join(member);
-            target.starts_with(&member) && !target.starts_with(member.join("tests"))
-        });
+        let in_member = members
+            .iter()
+            .any(|member| target.starts_with(member) && !target.starts_with(member.join("tests")));
         let regular = fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.is_file());
         if regular && in_member {
             hashed.insert(target);

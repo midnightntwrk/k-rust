@@ -133,8 +133,12 @@ use toml::{Table, Value as Toml};
 pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// The document's `version`. Version 3 (fz26 FZ-COMPARABLE-B) adds `job.filter`, the `stopped`
 /// value `client-refused`, the warning `client-refused` and the refusal `initial-state-excluded`,
-/// and embeds fuzz reports that carry the witness filter's fields.
-pub const FUZZ_VERSION: u32 = 3;
+/// and embeds fuzz reports that carry the witness filter's fields. Version 4 (fz26 round 4,
+/// FZ-REPLAY-WHOLE) embeds k-rust-fuzz reports of version 10: their identity records the
+/// k-rust-fuzz build and the parser's diagnostic work limit, their totals the first case outside
+/// the determinism contract, and every source location they name is relative to the main
+/// module's file. `tests/formats.rs` ties the version to the document's shape.
+pub const FUZZ_VERSION: u32 = 4;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.

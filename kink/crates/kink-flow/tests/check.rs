@@ -431,6 +431,22 @@ fn binary(args: &[&std::ffi::OsStr]) -> (Option<i32>, String, String) {
     )
 }
 
+/// fz26 FZ-REPLAY-WHOLE (final review N6): `--version` prints the build and k-rust's identity
+/// and exits 0, as `krust-fuzz --version` does, instead of the usage.
+#[test]
+fn the_version_flag_names_the_builds() {
+    let (code, stdout, stderr) = binary(&["--version".as_ref()]);
+    assert_eq!(code, Some(EXIT_OK.into()), "{stderr}");
+    assert_eq!(
+        stdout,
+        format!(
+            "kink-flow {} (k-rust {})\n",
+            env!("CARGO_PKG_VERSION"),
+            kink_native::K_RUST_REVISION
+        )
+    );
+}
+
 mod kink_tier {
     use super::*;
 
@@ -501,7 +517,7 @@ mod kink_tier {
             assert_eq!(code, Some(EXIT_USAGE.into()), "{args:?}");
             assert!(stdout.is_empty(), "{args:?}");
             assert!(
-                stderr.contains("usage: kink-flow check FLOW.toml"),
+                stderr.contains("usage: kink-flow --version | kink-flow check FLOW.toml"),
                 "{stderr}"
             );
         }

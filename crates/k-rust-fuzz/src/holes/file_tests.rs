@@ -265,3 +265,28 @@ fn what_is_no_value_and_unknown_keys_are_refused_on_decoding() {
         HoleChoice::Integer(i64::MIN)
     );
 }
+
+/// FZ-REPLAY-WHOLE N2: a range bound that is neither an integer nor a decimal string is refused
+/// with what a bound may be, not with the name of an internal type.
+#[test]
+fn a_fractional_range_bound_says_what_a_bound_is() {
+    let error = decl(
+        json!({ "name": "N", "sort": "Int", "literal": "3", "range": { "max": 8.5 } }),
+        Some("p.imp"),
+    )
+    .expect_err("a fractional bound is refused");
+    assert!(
+        error.contains("a range bound: an integer, or a decimal string")
+            && !error.contains("IntText"),
+        "{error}"
+    );
+    let wide = decl(
+        json!({ "name": "N", "sort": "Int", "literal": "3", "range": { "max": u64::MAX } }),
+        Some("p.imp"),
+    )
+    .expect("a bound above i64 reads as its digits");
+    assert_eq!(
+        wide.constraints.range.and_then(|range| range.max),
+        Some(BigInt::from(u64::MAX))
+    );
+}

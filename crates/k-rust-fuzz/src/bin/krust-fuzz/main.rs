@@ -6,8 +6,12 @@
 //! map onto its specification. Compiled directories are loaded as `krust krun --definition`
 //! loads them, and every backend is built on krun's route. The exit status is 0 when a witness
 //! was found and confirmed (or, with `--replay`, when every recorded witness case and crash
-//! reproduced), 1
-//! when not, and 2 on an error or a refused replay.
+//! reproduced under the recorded identity), 1 when not (no witness within the budget, an
+//! equivalent pair, a pair that is not comparable, a campaign that hit its rejection cap or
+//! aborted; with `--replay`, a case that did not reproduce), 2 on an error (usage, a refused
+//! campaign or replay, an unreadable input or environment, a failed write), and 3 when a replay
+//! forced past identity mismatches reproduced every case: the cases repeat, but on inputs that
+//! are not the recorded ones, so the witness is not confirmed.
 
 mod campaign;
 mod replay;
@@ -46,6 +50,11 @@ const FOUND: u8 = 0;
 const NOT_FOUND: u8 = 1;
 /// Exit status: an error, or a refused replay.
 const ERROR: u8 = 2;
+/// Exit status: a replay forced past identity mismatches reproduced every case. The cases
+/// repeat on inputs other than the recorded ones (another build, definition or program), which
+/// confirms nothing the witness file claims, so it is not [`FOUND`]; nor is it [`NOT_FOUND`],
+/// since every case repeated.
+const REPRODUCED_FORCED: u8 = 3;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -56,7 +65,10 @@ const ERROR: u8 = 2;
                   variables) and, optionally, the target and options come from a campaign file \
                   in TOML (crates/k-rust-fuzz/README.md, \"Command line\"); flags override it. \
                   Exit status: 0 when a witness was found and confirmed (with --replay: \
-                  reproduced), 1 when not, 2 on an error or a refused replay.",
+                  every case reproduced), 1 when not (no witness, equivalent, not comparable, \
+                  rejection cap, aborted; with --replay: a case did not reproduce), 2 on an \
+                  error or a refused replay, 3 when a replay forced past identity mismatches \
+                  reproduced every case.",
     arg_required_else_help = true
 )]
 #[expect(
@@ -106,7 +118,7 @@ struct Args {
     rule_mode: Option<RuleModeArg>,
 
     /// Target: a clean final configuration matches this pattern (`krust krun --pattern` syntax),
-    /// or with `--at any-state` any configuration of a path.
+    /// or with `--at any-state` any configuration a path reaches, whatever follows it.
     #[arg(long, value_name = "PATTERN", conflicts_with = "differential")]
     pattern: Option<String>,
 
@@ -255,7 +267,8 @@ struct Args {
     )]
     replay: Option<PathBuf>,
 
-    /// Replay despite an identity mismatch.
+    /// Replay despite an identity mismatch; the exit status is then 3 when every case
+    /// reproduced.
     #[arg(long, requires = "replay")]
     force: bool,
 }
@@ -275,7 +288,9 @@ enum RuleModeArg {
 enum PatternAtArg {
     /// A clean end of the run.
     Final,
-    /// Any configuration on a path, the initial one included, on the path of a clean end.
+    /// Any configuration the run reaches, the initial one included, on a path clean up to it;
+    /// what follows the reach (a stuck end, a cut by max-work or max-depth, a loop) does not
+    /// matter, unless --run-to-completion asks every path to end naturally.
     AnyState,
 }
 
@@ -318,12 +333,21 @@ fn main() -> ExitCode {
             );
         }
     }
-    // The version names the k-rust build, which the skew check and the reports compare.
+    // The version names this build and the k-rust build, which the skew check and the reports
+    // compare (`identity.fuzz-revision`, `identity.k-rust-revision`).
     let version: &'static str =
-        Box::leak(format!("{} (k-rust {own})", env!("CARGO_PKG_VERSION")).into_boxed_str());
+        Box::leak(format!("{} (k-rust {own})", k_rust_fuzz::build_identity()).into_boxed_str());
     let matches = <Args as clap::CommandFactory>::command()
         .version(version)
         .get_matches();
+    // The parser's diagnostic work limit changes the text of parse diagnostics, which reach a
+    // report's warnings, so an unreadable value is refused, as krust refuses it, rather than read
+    // as the default the user set it to change; the report records the limit
+    // (`identity.parse-diagnostic-work`).
+    if let Err(error) = k_rust::inner::DiagnosticWork::environment() {
+        eprintln!("error: {error}");
+        return ExitCode::from(ERROR);
+    }
     let args = match <Args as clap::FromArgMatches>::from_arg_matches(&matches) {
         Ok(args) => args,
         Err(error) => error.exit(),
@@ -594,9 +618,12 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
         )
     })?;
     let replay = replay::replay(&file, &loaded, args.force, STACK_SIZE as u64)?;
+    let fuzz_revision = k_rust_fuzz::build_identity();
     let unverified = [
         &file.report.identity.k_rust_revision,
         &loaded.resolved.k_rust_revision,
+        &file.report.identity.fuzz_revision,
+        &fuzz_revision,
     ]
     .into_iter()
     .filter(|revision| !k_rust::is_verified_build(revision))
@@ -604,8 +631,8 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
     .collect::<Vec<_>>();
     if !unverified.is_empty() {
         eprintln!(
-            "note: the k-rust revision {} names no source digest, so builds of one version \
-             cannot be told apart by it",
+            "note: the revision {} names no source digest, so builds of one version cannot be \
+             told apart by it",
             unverified.join(" and ")
         );
     }
@@ -650,7 +677,11 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
             }
         }
     }
-    Ok(if reproduced { FOUND } else { NOT_FOUND })
+    Ok(match (reproduced, replay.mismatches.is_empty()) {
+        (false, _) => NOT_FOUND,
+        (true, true) => FOUND,
+        (true, false) => REPRODUCED_FORCED,
+    })
 }
 
 /// A human-readable summary of `report`; a differential witness's ends are printed as K text
@@ -692,6 +723,21 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
             format!(" ({classes})")
         }
     );
+    // A report without a witness says it in its statement (FZ-REPLAY-WHOLE S3).
+    if report.witness().is_some() && report.totals.outside_determinism > 0 {
+        let count = report.totals.outside_determinism;
+        let _ = writeln!(
+            text,
+            "outside the determinism contract: {count} {}{}: a re-run with the same inputs may \
+             differ from that case on",
+            if count == 1 { "case" } else { "cases" },
+            report
+                .totals
+                .first_outside_determinism
+                .map(|case| format!(", the first being case {case}"))
+                .unwrap_or_default()
+        );
+    }
     if let Some(count) = report.totals.pattern_body_matches {
         let judged = report.totals.pattern_body_judged.unwrap_or(0);
         let _ = writeln!(

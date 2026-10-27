@@ -515,7 +515,7 @@ const impCampaign = (campaign = {}) => ({
 test('runs one fuzz campaign on IMP to a confirmed witness', () => {
   const { json, report } = runFuzzCampaign(impCampaign())
   assert.equal(report.schema, 'krust-fuzz-report')
-  assert.equal(report.version, 9)
+  assert.equal(report.version, 10)
   assert.equal(report.identity.solver, SOLVER)
   assert.equal(report.identity.seed, '24301')
   assert.deepEqual(report.identity.budget, { cases: '64' })
@@ -545,7 +545,10 @@ const BUILD_IDENTITY = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?\+src\.[0-9a-f]{32}$/
 const STACK_SIZE = '268435456'
 
 test('runs the campaign on its own thread and refuses a caller stack size', () => {
-  assert.equal(runFuzzCampaign(impCampaign({ budget: { cases: '1' } })).report.identity['thread-stack-size'], STACK_SIZE)
+  const { identity } = runFuzzCampaign(impCampaign({ budget: { cases: '1' } })).report
+  assert.equal(identity['thread-stack-size'], STACK_SIZE)
+  // The k-rust-fuzz build that reported, which no caller names (report version 10).
+  assert.match(identity['fuzz-revision'], BUILD_IDENTITY)
   assert.throws(
     () => runFuzzCampaign(impCampaign({ identity: { 'k-rust-revision': 'r', 'thread-stack-size': 1 } })),
     /campaign\.identity\.thread-stack-size: the campaign runs on a thread of this binding/,

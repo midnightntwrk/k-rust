@@ -31,9 +31,9 @@ use crate::campaign::{LoadedCampaign, ResolvedCampaign};
 pub const WITNESS_SCHEMA: &str = "krust-fuzz-witness";
 
 /// The witness file's `version` field. Version 2 (FZ-CRASH) holds a report of
-/// [`REPORT_VERSION`] (8 when it came in, 9 since FZ-STATESET; the report's own version refuses
-/// an older one), and is also written for a campaign that found no witness but whose cases
-/// crashed.
+/// [`REPORT_VERSION`] (8 when it came in, 9 since FZ-STATESET, 10 since FZ-REPLAY-WHOLE; the
+/// report's own version refuses an older one), and is also written for a campaign that found no
+/// witness but whose cases crashed.
 pub const WITNESS_VERSION: u32 = 2;
 
 /// Why a report older than version 9 is not replayed (FZ-STATESET): appended to its refusal.
@@ -46,6 +46,14 @@ const MODALITY_CHANGE: &str = concat!(
     "`at: any-state` pattern is matched against every reached state inside the run; so such a ",
     "witness's final configurations, steps and reaching leaf or configuration need not be what ",
     "this build reports; run the campaign again for a witness of this build)",
+);
+
+/// Why a version-9 report is not replayed (FZ-REPLAY-WHOLE): appended to its refusal.
+const SOURCE_NAMES_CHANGE: &str = concat!(
+    " (since version 10 the identity names the main module's file by its own name and records ",
+    "the k-rust-fuzz build, and the report names every source location relative to that file, ",
+    "so a version-9 witness's identity and rule names cannot be compared with this build's; run ",
+    "the campaign again for a witness of this build)",
 );
 
 /// What a change of `identity.execution-modality` means for a replay (FZ-STATESET), appended
@@ -131,10 +139,10 @@ impl WitnessFile {
                 path.display(),
                 head.report.schema,
                 head.report.version,
-                if head.report.schema == REPORT_SCHEMA && head.report.version < 9 {
-                    MODALITY_CHANGE
-                } else {
-                    ""
+                match (head.report.schema == REPORT_SCHEMA, head.report.version) {
+                    (true, ..9) => MODALITY_CHANGE,
+                    (true, 9) => SOURCE_NAMES_CHANGE,
+                    _ => "",
                 }
             ));
         }
@@ -175,7 +183,7 @@ impl WitnessFile {
 /// each with why it cannot change the replayed case ([`identity_mismatches`]). Every other field
 /// is an input of the replayed case's execution, of its assembly or of its judgement, so a
 /// difference makes the replay another campaign.
-pub const IDENTITY_EXCLUSIONS: [(&str, &str); 10] = [
+pub const IDENTITY_EXCLUSIONS: [(&str, &str); 11] = [
     (
         "engine-version",
         "it covers the proposer and generator code that chooses cases, and a replay runs a fixed \
@@ -211,6 +219,11 @@ pub const IDENTITY_EXCLUSIONS: [(&str, &str); 10] = [
          overlay they derive from are compared)",
     ),
     (
+        "parse-diagnostic-work",
+        "the parser's diagnostic work limit changes only the text of parse diagnostics, which no \
+         witness case or crash signature holds",
+    ),
+    (
         "filter",
         "the client's witness filter only chose which cases became witnesses: a confirmed witness \
          hits without it, and the replay runs none (the command notes a recorded one)",
@@ -234,6 +247,7 @@ pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> V
         let ReportIdentity {
             // Compared: inputs of the replayed case's execution, assembly or judgement.
             k_rust_revision: _,
+            fuzz_revision: _,
             definitions: _,
             program_digest: _,
             overlay_digest: _,
@@ -248,6 +262,7 @@ pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> V
             thread_stack_size: _,
             solver: _,
             // Not compared: IDENTITY_EXCLUSIONS.
+            parse_diagnostic_work: _,
             engine_version: _,
             proposers: _,
             budget: _,
@@ -413,7 +428,10 @@ pub fn replay(
         if mismatches.is_none() {
             // A campaign with no case reports the identity without running anything.
             let identity = campaign.run(Budget::Cases(0), None).identity;
-            let found = identity_mismatches(&file.report.identity, &identity);
+            let found = identity_mismatches(&file.report.identity, &identity)
+                .into_iter()
+                .map(|mismatch| explained(mismatch, file, loaded))
+                .collect::<Vec<_>>();
             if !found.is_empty() && !force {
                 return Ok(Replay {
                     mismatches: found,
@@ -443,6 +461,34 @@ pub fn replay(
         mismatches: mismatches.unwrap_or_default(),
         cases,
     })
+}
+
+/// `mismatch` with what a digest's difference means where only the replay knows it: a program
+/// digest covers the program's name, start sort and text and the configuration-variable
+/// bindings, which two hexadecimal digests do not show (FZ-REPLAY-WHOLE N3).
+fn explained(mismatch: String, file: &WitnessFile, loaded: &LoadedCampaign) -> String {
+    if !mismatch.starts_with("program-digest:") {
+        return mismatch;
+    }
+    let program = |campaign: &ResolvedCampaign| {
+        campaign.program.as_ref().map_or_else(
+            || "no program file".to_owned(),
+            |program| {
+                format!(
+                    "`{}` (start sort {}, read from `{}`)",
+                    program.name,
+                    program.sort,
+                    program.path.display()
+                )
+            },
+        )
+    };
+    format!(
+        "{mismatch}: the program's name, start sort, text or configuration-variable bindings are \
+         not the recorded ones; the witness ran {}, the replay runs {}",
+        program(&file.campaign),
+        program(&loaded.resolved)
+    )
 }
 
 /// The hole values of one replayed case, by hole name.

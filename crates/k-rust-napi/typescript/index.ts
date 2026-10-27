@@ -1422,6 +1422,11 @@ export interface FuzzDefinitionIdentity {
 export interface FuzzReportIdentity {
   'engine-version': number
   'k-rust-revision': string
+  /**
+   * The k-rust-fuzz build that classified, judged and reported (its version and a digest of its
+   * sources and krs-unparse's), which the k-rust revision does not cover (report version 10).
+   */
+  'fuzz-revision': string
   definitions: FuzzDefinitionIdentity[]
   'program-digest': string
   'overlay-digest': string
@@ -1449,6 +1454,12 @@ export interface FuzzReportIdentity {
   budget: FuzzBudget
   'thread-stack-size': string | null
   solver: 'z3' | 'none'
+  /**
+   * The parser's diagnostic work limit (`KRUST_PARSE_DIAGNOSTIC_WORK`; `unlimited`, or the floor
+   * in chart steps as a decimal string), which changes the text of parse diagnostics a warning
+   * may quote (report version 10).
+   */
+  'parse-diagnostic-work': string
   /** The dictionary proposer's fixed parameters; present exactly when its weight is positive. */
   dictionary?: FuzzDictionaryParameters
   /** The climb's fixed parameters; present exactly when its weight is positive. */
@@ -1911,7 +1922,14 @@ export interface FuzzTotals {
   'pattern-body-judged'?: number
   /** The best score of the scored `miss` cases; null when no proposer scores (climb, solve). */
   'best-score': FuzzBestScore | null
+  /**
+   * Cases a clock, a solver `unknown`, a stop for lack of stack or an allowance refusal decided,
+   * outside the determinism contract: a re-run with the same inputs may differ from the first of
+   * them on.
+   */
   'outside-determinism': number
+  /** The first case outside the determinism contract, counted from 0; absent when none (report version 10). */
+  'first-outside-determinism'?: number
   unconfirmed: number
   'case-sequence-digest': string
   /** The solve proposer's runs; present exactly when its weight is positive. */
@@ -1958,7 +1976,7 @@ export interface FuzzIncidentalCase {
   'baseline-run'?: boolean
 }
 
-/** A campaign's report: schema `krust-fuzz-report`, version 9 (docs/compatibility.md). */
+/** A campaign's report: schema `krust-fuzz-report`, version 10 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
   version: number

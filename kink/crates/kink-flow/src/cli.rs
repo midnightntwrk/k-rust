@@ -29,8 +29,9 @@ pub const EXIT_OK: u8 = 0;
 pub const EXIT_CORPUS: u8 = 1;
 pub const EXIT_USAGE: u8 = 2;
 
-pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FLOW.toml \
-                         [--verify] [--mutations MUTATIONS.toml] [--cache DIR] | kink-flow run \
+pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml | kink-flow \
+                         results FLOW.toml [--verify] [--mutations MUTATIONS.toml] [--cache DIR] \
+                         | kink-flow run \
                          FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] \
                          [--compile-workers N] [--no-memo] [--cache DIR] | kink-flow report \
                          FLOW.toml [--cache DIR] | kink-flow query FLOW.toml PATTERNS.toml \
@@ -48,6 +49,14 @@ pub fn execute(args: Vec<OsString>) -> u8 {
         .map(|arg| arg.into_string())
         .collect::<Result<Vec<_>, _>>();
     let (document, status) = match args.as_deref() {
+        // The builds a document's identity names, as `krust-fuzz --version` prints its own.
+        Ok([flag]) if flag == "--version" => {
+            println!(
+                "kink-flow {} (k-rust {K_RUST_REVISION})",
+                env!("CARGO_PKG_VERSION")
+            );
+            return EXIT_OK;
+        }
         Ok([command, manifest]) if command == "check" => {
             let manifest = PathBuf::from(manifest);
             if !manifest.is_file() {

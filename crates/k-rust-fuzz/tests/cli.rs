@@ -578,9 +578,11 @@ fn an_identity_mismatch_is_refused_unless_forced() {
 
     let forced = krust_fuzz(&directory, &["--replay", "witness.json", "--force"]);
     let stdout = text(&forced.stdout);
+    // FZ-REPLAY-WHOLE N5: the cases repeated, but on another identity, which confirms nothing
+    // the witness file claims: a status of its own.
     assert_eq!(
         forced.status.code(),
-        Some(0),
+        Some(3),
         "{stdout}{}",
         text(&forced.stderr)
     );
@@ -592,6 +594,21 @@ fn an_identity_mismatch_is_refused_unless_forced() {
     assert!(
         stdout.contains("forced: replayed despite 1 identity mismatch"),
         "a forced replay says so: {stdout}"
+    );
+
+    // A witness of another k-rust-fuzz build (FZ-REPLAY-WHOLE S4): its classification may
+    // differ, so the replay is another campaign.
+    let mut other_fuzz: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    other_fuzz["report"]["identity"]["k-rust-revision"] = k_rust::build_identity().into();
+    other_fuzz["report"]["identity"]["fuzz-revision"] = "0.8.0+src.another".into();
+    fs::write(directory.join("other-fuzz.json"), other_fuzz.to_string()).unwrap();
+    let refused = krust_fuzz(&directory, &["--replay", "other-fuzz.json"]);
+    let stderr = text(&refused.stderr);
+    assert_eq!(refused.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("identity mismatch: fuzz-revision: the witness has \"0.8.0+src.another\""),
+        "{stderr}"
     );
 
     // No flag lets a replay name its own revision and pass the check silently.
@@ -617,6 +634,12 @@ fn an_identity_mismatch_is_refused_unless_forced() {
     assert_eq!(refused.status.code(), Some(2), "{stderr}");
     assert!(
         stderr.contains("identity mismatch: program-digest"),
+        "{stderr}"
+    );
+    // FZ-REPLAY-WHOLE N3: the digests are explained by what they cover.
+    assert!(
+        stderr.contains("the program's name, start sort, text or configuration-variable bindings")
+            && stderr.contains("the witness ran `le.imp`"),
         "{stderr}"
     );
     assert!(!stderr.contains("k-rust-revision"), "{stderr}");
@@ -1079,6 +1102,56 @@ fn krust_fuzz_help_reaches_krust_fuzz() {
     assert!(stdout.contains("--replay <FILE>"), "{stdout}");
 }
 
+/// FZ-REPLAY-WHOLE (final review S10, N4): an unreadable parse diagnostic work limit is an
+/// environment error, refused with status 2 whether krust-fuzz runs alone or under `krust fuzz`:
+/// krust forwards before reading its own environment, so it never answers "no witness" (1) for
+/// it, and krust-fuzz no longer reads the value as the default. `--version` still answers.
+#[test]
+fn an_unreadable_parse_diagnostic_work_limit_is_refused_with_status_2() {
+    let directory = le_workspace("diagnostic-work");
+    let krust_fuzz_path = Path::new(env!("CARGO_BIN_EXE_krust-fuzz"));
+    let krust = krust_fuzz_path.with_file_name(format!("krust{}", std::env::consts::EXE_SUFFIX));
+    assert!(
+        krust.is_file(),
+        "`{}` is missing; see krust_fuzz_help_reaches_krust_fuzz",
+        krust.display()
+    );
+    let run = |program: &Path, prefix: &[&str], args: &[&str]| {
+        Command::new(program)
+            .current_dir(&directory)
+            .args(prefix)
+            .args(args)
+            .env("KRUST_PARSE_DIAGNOSTIC_WORK", "garbage")
+            .env_remove(FUZZ_PARENT_BUILD_ENV)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the executable runs")
+    };
+    for (program, prefix) in [(krust_fuzz_path, &[][..]), (krust.as_path(), &["fuzz"][..])] {
+        let refused = run(program, prefix, &["--campaign", "le.toml", "--cases", "1"]);
+        let stderr = text(&refused.stderr);
+        assert_eq!(refused.status.code(), Some(2), "{prefix:?}: {stderr}");
+        assert!(
+            stderr.contains("KRUST_PARSE_DIAGNOSTIC_WORK must be `unlimited` or a number"),
+            "{prefix:?}: {stderr}"
+        );
+        assert!(text(&refused.stdout).is_empty(), "nothing ran");
+        let version = run(program, prefix, &["--version"]);
+        assert!(version.status.success(), "{}", text(&version.stderr));
+    }
+    // A readable limit is recorded.
+    let output = Command::new(krust_fuzz_path)
+        .current_dir(&directory)
+        .args(["--campaign", "le.toml", "--cases", "1", "--json"])
+        .env("KRUST_PARSE_DIAGNOSTIC_WORK", "unlimited")
+        .env_remove(FUZZ_PARENT_BUILD_ENV)
+        .stdin(Stdio::null())
+        .output()
+        .expect("krust-fuzz runs");
+    let report = FuzzReport::from_json(text(&output.stdout).trim()).expect("a report");
+    assert_eq!(report.identity.parse_diagnostic_work, "unlimited");
+}
+
 /// Round 2, S2: every identity field the report holds is compared. A comment appended to the
 /// compiled `macros.kore` keeps the execution digest but is another assembly input (D22).
 #[test]
@@ -1123,10 +1196,15 @@ fn the_k_rust_revision_names_the_source_tree() {
         &["--campaign", "le.toml", "--cases", "1", "--json"],
     );
     assert_eq!(report.identity.k_rust_revision, identity);
+    // FZ-REPLAY-WHOLE S4: the report also names this crate's build, which the k-rust revision
+    // does not cover.
+    let fuzz = k_rust_fuzz::build_identity();
+    assert!(fuzz.contains("+src."), "{fuzz}");
+    assert_eq!(report.identity.fuzz_revision, fuzz);
     let version = krust_fuzz(&directory, &["--version"]);
     assert!(
-        text(&version.stdout).contains(&identity),
-        "--version names the k-rust build: {}",
+        text(&version.stdout).contains(&identity) && text(&version.stdout).contains(&fuzz),
+        "--version names the k-rust and the k-rust-fuzz builds: {}",
         text(&version.stdout)
     );
 }
@@ -1570,6 +1648,12 @@ fn a_witness_of_an_older_report_version_is_refused_by_its_version() {
         "{stderr}"
     );
     assert!(!stderr.contains("field"), "{stderr}");
+    if previous == 9 {
+        assert!(
+            stderr.contains("relative to that file") && stderr.contains("k-rust-fuzz build"),
+            "{stderr}"
+        );
+    }
     // A witness file of another version of its own is refused by that version too.
     let mut other = old;
     other["version"] = serde_json::json!(0);

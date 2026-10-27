@@ -2616,6 +2616,11 @@ impl State {
         }
         if run.outside_determinism {
             self.totals.outside_determinism += 1;
+            // Every record follows its case's count (`run_loop_filtered`), so this case is the last
+            // one counted.
+            self.totals
+                .first_outside_determinism
+                .get_or_insert(self.totals.cases.saturating_sub(1));
             return;
         }
         if let Some(count) = run.pattern_body_matches {
@@ -2962,8 +2967,20 @@ pub(crate) fn no_witness(
     if totals.outside_determinism > 0 {
         write!(
             text,
-            " {} outside the determinism contract.",
-            plural_were(totals.outside_determinism)
+            " {} outside the determinism contract (a clock, a solver `unknown`, a stop for lack of \
+             stack or an allowance refusal decided {}){}: such a case may end otherwise on another \
+             run, and every later case depends on the cases before it, so a re-run with the same \
+             inputs reproduces this report only up to that case and may differ from it on.",
+            plural_were(totals.outside_determinism),
+            if totals.outside_determinism == 1 {
+                "it"
+            } else {
+                "them"
+            },
+            totals
+                .first_outside_determinism
+                .map(|case| format!(", the first being case {case}"))
+                .unwrap_or_default()
         )
         .expect("writing to a String");
     }

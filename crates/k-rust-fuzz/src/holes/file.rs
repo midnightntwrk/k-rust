@@ -87,14 +87,53 @@ pub struct RangeFile {
     pub max: Option<IntText>,
 }
 
-/// An integer as written: an integer, or a decimal string for any size.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
+/// An integer as written: an integer, or a decimal string for any size. Anything else is
+/// refused with what a range bound may be (FZ-REPLAY-WHOLE N2), not with the name of this type.
+#[derive(Debug)]
 pub enum IntText {
     /// An integer.
     Integer(i64),
     /// A decimal string.
     Text(String),
+}
+
+impl<'de> Deserialize<'de> for IntText {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(IntTextVisitor)
+    }
+}
+
+/// Decodes an [`IntText`] by the shape of the data.
+struct IntTextVisitor;
+
+impl Visitor<'_> for IntTextVisitor {
+    type Value = IntText;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str(
+            "a range bound: an integer, or a decimal string for a bound beyond 64 bits \
+             (max = \"115792089237316195423570985008687907853269984665640564039457584007913129639935\")",
+        )
+    }
+
+    fn visit_i64<E: de::Error>(self, value: i64) -> Result<IntText, E> {
+        Ok(IntText::Integer(value))
+    }
+
+    fn visit_u64<E: de::Error>(self, value: u64) -> Result<IntText, E> {
+        Ok(
+            i64::try_from(value)
+                .map_or_else(|_| IntText::Text(value.to_string()), IntText::Integer),
+        )
+    }
+
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<IntText, E> {
+        Ok(IntText::Text(value.to_owned()))
+    }
+
+    fn visit_string<E: de::Error>(self, value: String) -> Result<IntText, E> {
+        Ok(IntText::Text(value))
+    }
 }
 
 /// Element sorts as written.

@@ -216,8 +216,15 @@ fn write_counters_if_requested() {
 }
 
 fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
+    // `krust fuzz` forwards before anything else: `krust-fuzz` reads the same environment and
+    // refuses it with its own status for errors (2), where krust's would be its "no witness"
+    // status (1).
+    let command = match cli.command {
+        Command::Fuzz(options) => return Ok(fuzz(options)),
+        command => command,
+    };
     k_rust::inner::DiagnosticWork::environment()?;
-    match cli.command {
+    match command {
         Command::Kcompile(options) => kcompile(options.into()).map(|()| ExitCode::SUCCESS),
         Command::Kast(options) => kast(options.into()).map(|()| ExitCode::SUCCESS),
         Command::Krun(options) => krun(options.into()),
