@@ -3,11 +3,12 @@
 //! A witness file holds the resolved campaign and the report that found the witness, or the
 //! report of a campaign whose cases crashed (FZ-CRASH). Replaying it rebuilds the campaign's
 //! specification from the recorded inputs, checks that the replay's identity is the witness's
-//! (every field of the report's identity but the five that only choose cases or that the replay
-//! sets itself; [`identity_mismatches`]), refuses on a mismatch unless forced, and runs each
-//! recorded witness case, and each crash's first and shrunk values, as the campaign's only
-//! explicit assignment. A witness case reproduces when the replay confirms a hit whose witness
-//! case, with its class and final configurations, equals the recorded one. A crash reproduces
+//! (every field of the report's identity but those of [`IDENTITY_EXCLUSIONS`], which only choose
+//! cases or which the replay sets itself; [`identity_mismatches`]), refuses on a mismatch unless
+//! forced, and runs each recorded witness case, and each crash's first and shrunk values, as the
+//! campaign's only explicit assignment. A witness case reproduces when the replay confirms a hit
+//! whose witness, compared whole but for a documented few fields ([`differences`]), equals the
+//! recorded one. A crash reproduces
 //! when the replay reports a crash of the same kind, side and stage, from a build with the same
 //! debug assertions, at the same site when both sites are locations ([`crash_reproduced`]); a
 //! crash of a confirmation or a comparability run re-enters through its own path, since the
@@ -19,7 +20,7 @@ use k_rust_fuzz::{
     Budget, Campaign, ProposerConfig,
     report::{
         Comparability, CrashFinding, CrashHole, FuzzReport, REPORT_SCHEMA, REPORT_VERSION,
-        ReportIdentity, SiteKind, WitnessCase,
+        ReportIdentity, SiteKind, Witness, WitnessCase, WitnessSide,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -170,55 +171,108 @@ impl WitnessFile {
     }
 }
 
+/// The fields of the report's identity a replay does not compare, by their path in the report,
+/// each with why it cannot change the replayed case ([`identity_mismatches`]). Every other field
+/// is an input of the replayed case's execution, of its assembly or of its judgement, so a
+/// difference makes the replay another campaign.
+pub const IDENTITY_EXCLUSIONS: [(&str, &str); 10] = [
+    (
+        "engine-version",
+        "it covers the proposer and generator code that chooses cases, and a replay runs a fixed \
+         assignment",
+    ),
+    (
+        "proposers",
+        "the replay sets its own: one explicit assignment",
+    ),
+    ("budget", "the replay sets its own: one case"),
+    ("options.shrink", "a replay does not shrink"),
+    (
+        "dictionary",
+        "the dictionary proposer's parameters only weigh its draws",
+    ),
+    (
+        "climb",
+        "the climb proposer's parameters only choose its moves (the condition records a climbing \
+         campaign asks for change no other field of a result)",
+    ),
+    (
+        "corpus",
+        "the corpus proposer's parameters only choose its mutations",
+    ),
+    (
+        "solve",
+        "the solve proposer's parameters only decide its queries",
+    ),
+    (
+        "effective-constraints",
+        "the generation bounds narrowed to the program's syntax only bound what is drawn (each \
+         case is still checked against the declared constraints, and the definitions, program and \
+         overlay they derive from are compared)",
+    ),
+    (
+        "filter",
+        "the client's witness filter only chose which cases became witnesses: a confirmed witness \
+         hits without it, and the replay runs none (the command notes a recorded one)",
+    ),
+];
+
 /// The identity fields of `recorded` that `now` does not have, one sentence each, named by
 /// their path in the report (`definitions[0].syntax-definition-digest`).
 ///
-/// Every field of the report's identity is compared except ten, and `target-rule`'s name: the
-/// proposers and the budget, which the replay sets itself (one explicit assignment, one case),
-/// `options.shrink` (a replay does not shrink), the engine version, which covers the proposer and
-/// generator code that chooses cases, `dictionary`, the dictionary proposer's parameters, which
-/// only weigh its draws, `climb`, the climb proposer's parameters, which only choose its moves (the
-/// condition records a climbing campaign asks for change no other field of a result),
-/// `corpus`, the corpus proposer's parameters, which only choose its mutations, and `solve`,
-/// the solve proposer's parameters, which only decide its queries, and `effective-constraints`,
-/// the generation bounds narrowed to the program's syntax, which only bound what is drawn (each
-/// case is still checked against the declared constraints, and the definitions, program and
-/// overlay they derive from are compared), and `filter`, the client's witness filter, which only
-/// chooses which cases become witnesses (a confirmed witness hits without it, and the replay
-/// runs none; the command notes a recorded one). None of the code the last seven describe runs when a
-/// fixed assignment is replayed, so they cannot
-/// change the replayed case. Of `target-rule`, only the id is compared: the rule is a function
-/// of the definitions and the target, which are compared, and its name is read from the
-/// catalog, whose source paths say where the definition was compiled (a definition compiled
-/// again elsewhere names the same rule by the same id). (Replaying with the recorded proposers
-/// instead would record a dictionary that chose nothing, and still no draw would differ.) Every
-/// other field is an input of the replayed case's execution or of its assembly, so a difference
-/// makes the replay another campaign. `execution-modality` is one of them (FZ-STATESET): its
-/// mismatch also says what a modality change means for the replayed case.
+/// Every field is compared except those of [`IDENTITY_EXCLUSIONS`]: none of the code they
+/// describe runs when a fixed assignment is replayed, so they cannot change the replayed case.
+/// (Replaying with the recorded proposers instead would record a dictionary that chose nothing,
+/// and still no draw would differ.) The identity is destructured field by field, so a field added
+/// to it must be decided here. `target-rule` is compared whole: its name is a function of the
+/// definitions and the target, its sources named relative to the main module's file
+/// (FZ-REPLAY-WHOLE S1). `execution-modality` is compared too (FZ-STATESET): its mismatch also
+/// says what a modality change means for the replayed case.
 pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> Vec<String> {
     let comparable = |identity: &ReportIdentity| {
-        let mut identity = identity.clone();
-        identity.proposers = ProposerConfig::default();
-        identity.budget = Budget::Cases(0);
-        identity.options.shrink = true;
-        identity.engine_version = 0;
-        identity.dictionary = None;
-        identity.climb = None;
-        identity.corpus = None;
-        identity.solve = None;
-        identity.effective_constraints = Vec::new();
-        // The witness filter only chose which cases became witnesses: a confirmed witness hits
-        // without it, and replay runs none (FZ-COMPARABLE-B). `main` notes a recorded filter.
-        identity.filter = None;
+        // Every field is named, so that a new one must be put on one side or the other.
+        let ReportIdentity {
+            // Compared: inputs of the replayed case's execution, assembly or judgement.
+            k_rust_revision: _,
+            definitions: _,
+            program_digest: _,
+            overlay_digest: _,
+            target_digest: _,
+            target_rule: _,
+            options: _,
+            execution_modality: _,
+            bounds: _,
+            caps: _,
+            rejection_cap: _,
+            seed: _,
+            thread_stack_size: _,
+            solver: _,
+            // Not compared: IDENTITY_EXCLUSIONS.
+            engine_version: _,
+            proposers: _,
+            budget: _,
+            dictionary: _,
+            climb: _,
+            corpus: _,
+            solve: _,
+            effective_constraints: _,
+            filter: _,
+        } = identity;
         let mut value = serde_json::to_value(identity).unwrap_or(serde_json::Value::Null);
-        // Of `target-rule`, only the id: its name (kind, label, source paths and references)
-        // is read from the definition's catalog, whose source paths name where the definition
-        // was compiled, not what it is.
-        if let Some(rule) = value
-            .get_mut("target-rule")
-            .and_then(serde_json::Value::as_object_mut)
-        {
-            rule.remove("name");
+        for (path, _) in IDENTITY_EXCLUSIONS {
+            let mut parent = &mut value;
+            let mut keys = path.split('.').peekable();
+            while let Some(key) = keys.next() {
+                if keys.peek().is_none() {
+                    if let Some(object) = parent.as_object_mut() {
+                        object.remove(key);
+                    }
+                } else if let Some(child) = parent.get_mut(key) {
+                    parent = child;
+                } else {
+                    break;
+                }
+            }
         }
         value
     };
@@ -315,13 +369,13 @@ pub fn replay(
     if let Some(witness) = file.report.witness() {
         recorded.push((
             "first witness".into(),
-            Recorded::Witness(&witness.first),
+            Recorded::Witness(WhichCase::First),
             named(&witness.first.holes),
         ));
         if let Some(shrunk) = &witness.shrunk {
             recorded.push((
                 "shrunk witness".into(),
-                Recorded::Witness(shrunk),
+                Recorded::Witness(WhichCase::Shrunk),
                 named(&shrunk.holes),
             ));
         }
@@ -370,7 +424,13 @@ pub fn replay(
         }
         let report = campaign.run(Budget::Cases(1), None);
         let differences = match case {
-            Recorded::Witness(case) => differences(case, &report),
+            Recorded::Witness(which) => {
+                let witness = file
+                    .report
+                    .witness()
+                    .ok_or("the witness file records no witness")?;
+                differences(witness, which, &report)
+            }
             Recorded::Crash(crash) => crash_differences(crash, &report),
         };
         cases.push(CaseReplay {
@@ -392,7 +452,7 @@ type Assignment = Vec<(String, k_rust_fuzz::Value)>;
 #[derive(Clone, Copy)]
 enum Recorded<'a> {
     /// A witness case.
-    Witness(&'a WitnessCase),
+    Witness(WhichCase),
     /// A crash's first or shrunk values.
     Crash(&'a CrashFinding),
 }
@@ -474,8 +534,42 @@ fn crash_difference(recorded: &CrashFinding, now: &[CrashFinding]) -> Vec<String
     )]
 }
 
-/// How the replay's report differs from the recorded witness case.
-fn differences(recorded: &WitnessCase, report: &FuzzReport) -> Vec<String> {
+/// How the replay's report differs from the recorded witness case `which` of `recorded`: empty
+/// when it reproduced.
+///
+/// The whole witness is compared, every field of [`Witness`], [`WitnessCase`] and
+/// [`WitnessSide`] being destructured, so that a field added to any of them must be decided here
+/// (FZ-REPLAY-WHOLE). A witness file is evidence, and a field a person or a program edited is one
+/// the replay must not certify. Every field is a function of the recorded inputs, which the
+/// identity check compares, and of the replayed case's own runs, with these exceptions:
+/// - `shrunk` is the second recorded case, which has its own replay;
+/// - `repaired-from` is the refused hit a client's witness filter repaired `first` from: it
+///   records the campaign's search, and the replay runs no filter ([`identity_mismatches`]), so
+///   nothing it runs can give it;
+/// - `krun-command` and `mutant-krun-command` re-run the shrunk case when there is one, so they
+///   are compared in the replay of the case they re-run;
+/// - `comparable` is compared only when both judgements were made inside the determinism
+///   contract ([`comparable_reproduced`]).
+///
+/// `undefined-rules` is compared whether or not the witness records it: an absent list is one
+/// whose every entry is `null`, which is how the report writes it.
+fn differences(recorded: &Witness, which: WhichCase, report: &FuzzReport) -> Vec<String> {
+    let Witness {
+        label,
+        first,
+        shrunk,
+        clean_leaf_facts,
+        krun_command,
+        mutant_krun_command,
+        repaired_from: _,
+    } = recorded;
+    let (case, krun_lines_compared) = match (which, shrunk) {
+        (WhichCase::Shrunk, Some(shrunk)) => (shrunk, true),
+        (WhichCase::Shrunk, None) => {
+            return vec!["the witness records no shrunk case".to_owned()];
+        }
+        (WhichCase::First, shrunk) => (first, shrunk.is_none()),
+    };
     let Some(witness) = report.witness() else {
         let classes = report
             .totals
@@ -493,47 +587,160 @@ fn differences(recorded: &WitnessCase, report: &FuzzReport) -> Vec<String> {
             }
         )];
     };
-    let replayed = &witness.first;
     let mut differences = Vec::new();
-    if replayed.class != recorded.class {
-        differences.push("the class differs".to_owned());
-    }
-    if replayed.holes != recorded.holes {
-        differences.push("the hole values differ".to_owned());
-    }
-    for (index, (now, then)) in replayed.sides.iter().zip(&recorded.sides).enumerate() {
-        if now.initial_configuration != then.initial_configuration {
-            differences.push(format!("the initial configuration of side {index} differs"));
+    let mut differ = |differs: bool, what: String| {
+        if differs {
+            differences.push(what);
         }
-        if now.final_configurations != then.final_configurations {
-            differences.push(format!("the final configurations of side {index} differ"));
+    };
+    differ(
+        witness.label != *label,
+        format!(
+            "the label differs: the witness has `{}`, the replay `{}`",
+            crate::serde_name(label),
+            crate::serde_name(&witness.label)
+        ),
+    );
+    differ(
+        witness.clean_leaf_facts != *clean_leaf_facts,
+        "the clean-leaf facts differ".to_owned(),
+    );
+    if krun_lines_compared {
+        differ(
+            witness.krun_command != *krun_command,
+            "the krun line (`krun-command`) differs from the one the replayed case gives"
+                .to_owned(),
+        );
+        differ(
+            witness.mutant_krun_command != *mutant_krun_command,
+            "the mutant's krun line (`mutant-krun-command`) differs from the one the replayed \
+             case gives"
+                .to_owned(),
+        );
+    }
+    differences.extend(case_differences(case, &witness.first));
+    differences
+}
+
+/// Which recorded witness case a replay re-runs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum WhichCase {
+    /// The first confirmed witness case.
+    First,
+    /// The shrunk witness case.
+    Shrunk,
+}
+
+/// How the replayed witness case `replayed` differs from the recorded `recorded` ([`differences`]).
+fn case_differences(recorded: &WitnessCase, replayed: &WitnessCase) -> Vec<String> {
+    let WitnessCase {
+        holes,
+        program,
+        config_vars,
+        class,
+        sides,
+        reaching,
+        kill,
+        steps,
+        comparable,
+    } = recorded;
+    let mut differences = Vec::new();
+    let mut differ = |differs: bool, what: String| {
+        if differs {
+            differences.push(what);
         }
+    };
+    differ(replayed.class != *class, "the class differs".to_owned());
+    differ(
+        replayed.holes != *holes,
+        "the hole values differ".to_owned(),
+    );
+    differ(
+        replayed.program != *program,
+        "the instantiated program differs from the one the hole values give".to_owned(),
+    );
+    differ(
+        replayed.config_vars != *config_vars,
+        "the instantiated configuration variables differ from the ones the hole values give"
+            .to_owned(),
+    );
+    differ(
+        replayed.sides.len() != sides.len(),
+        "the number of sides differs".to_owned(),
+    );
+    for (index, (then, now)) in sides.iter().zip(&replayed.sides).enumerate() {
+        let WitnessSide {
+            role,
+            initial_configuration,
+            final_configurations,
+            halts,
+            undefined_rules,
+            work,
+        } = then;
+        differ(
+            now.role != *role,
+            format!("the role of side {index} differs"),
+        );
+        differ(
+            now.initial_configuration != *initial_configuration,
+            format!("the initial configuration of side {index} differs"),
+        );
+        differ(
+            now.final_configurations != *final_configurations,
+            format!("the final configurations of side {index} differ"),
+        );
         // A differential kill rests on how each leaf ended (an undefined step is no end), so
         // the halts are part of the reproduction.
-        if now.halts != then.halts {
-            differences.push(format!("the halts of side {index} differ"));
-        }
-        // The rules of undefined steps, when the witness records them (FZ-COMPARABLE-B): a
-        // client judges an undefined step by its rule.
-        if then.undefined_rules.iter().any(Option::is_some)
-            && now.undefined_rules != then.undefined_rules
-        {
-            differences.push(format!("the undefined-step rules of side {index} differ"));
-        }
+        differ(
+            now.halts != *halts,
+            format!("the halts of side {index} differ"),
+        );
+        // A client judges an undefined step by its rule (FZ-COMPARABLE-B). The report leaves the
+        // list out when no leaf names a rule, so an absent list reads as all `null`.
+        let named = |rules: &[Option<String>]| rules.iter().any(Option::is_some);
+        differ(
+            (named(undefined_rules) || named(&now.undefined_rules))
+                && now.undefined_rules != *undefined_rules,
+            format!("the undefined-step rules of side {index} differ"),
+        );
+        // The states the side's run visited: a function of the run inside the determinism
+        // contract, which a client's work budget reads.
+        differ(
+            now.work != *work,
+            format!(
+                "the work of side {index} differs: the witness has {}, the replay {}",
+                shown(*work),
+                shown(now.work)
+            ),
+        );
     }
-    if replayed.sides.len() != recorded.sides.len() {
-        differences.push("the number of sides differs".to_owned());
-    }
-    if replayed.reaching != recorded.reaching
-        || replayed.kill != recorded.kill
-        || replayed.steps != recorded.steps
-    {
-        differences.push("where or how the target was reached differs".to_owned());
-    }
-    if !comparable_reproduced(recorded.comparable.as_ref(), replayed.comparable.as_ref()) {
-        differences.push("whether the run of every path is comparable differs".to_owned());
-    }
+    differ(
+        replayed.reaching != *reaching,
+        "where the target was reached differs (the reaching side, leaf, step or configuration)"
+            .to_owned(),
+    );
+    differ(
+        replayed.kill != *kill,
+        "the kind of kill differs".to_owned(),
+    );
+    differ(
+        replayed.steps != *steps,
+        format!(
+            "the step count differs: the witness has {}, the replay {}",
+            shown(*steps),
+            shown(replayed.steps)
+        ),
+    );
+    differ(
+        !comparable_reproduced(comparable.as_ref(), replayed.comparable.as_ref()),
+        "whether the run of every path is comparable differs".to_owned(),
+    );
     differences
+}
+
+/// A count of the witness for a message: the number, or `none`.
+fn shown(count: Option<u64>) -> String {
+    count.map_or_else(|| "none".to_owned(), |count| count.to_string())
 }
 
 /// Whether the replayed comparable judgement reproduces the recorded one (FZ-COMPARABLE-A).

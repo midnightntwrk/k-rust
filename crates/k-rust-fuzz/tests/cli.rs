@@ -30,7 +30,10 @@ use k_rust_fuzz::{
     target::{PatternAt, PatternTarget},
     values::{Constraints, GenerationBounds},
 };
-use support::{COIN, COIN_KILL, COIN_LAYOUT, Fixture, IMP, R3_PLAINQ, R3_PLAINQ_M};
+use support::{
+    COIN, COIN_KILL, COIN_LAYOUT, Fixture, IMP, IMP_DIFF, IMP_DIV_GUARD_DROPPED, R3_PLAINQ,
+    R3_PLAINQ_M,
+};
 
 /// `r` of `le.imp` is not 1 at a clean natural end (the anchors' `x <= y` branch is not taken),
 /// as `tests/campaign_m1.rs` states it.
@@ -265,6 +268,185 @@ fn a_replayed_witness_reproduces_its_class_and_final_configuration() {
         text(&replay.stderr)
     );
     assert!(stdout.contains("the halts of side 0 differ"), "{stdout}");
+}
+
+/// The guide's `krust fuzz` kill: IMP's `primes` with four holes against the mutant that drops
+/// the division's guard, whose witness is shrunk, has a krun line per side and names the
+/// mutant's undefined step's rule.
+const PRIMES_CAMPAIGN: &str = r#"
+definition = "imp-kompiled"
+mutant = "mutant-kompiled"
+program = "primes.imp"
+seed = 0
+cases = 100
+
+[options]
+max-work = 20000
+
+[[hole]]
+name = "M"
+sort = "Int"
+find = "m = 4;"
+literal = "4"
+range = { min = 0, max = 8 }
+
+[[hole]]
+name = "N"
+sort = "Int"
+find = "n = 2;"
+literal = "2"
+range = { min = 0, max = 8 }
+
+[[hole]]
+name = "I"
+sort = "Int"
+find = "i = 2;"
+literal = "2"
+range = { min = 0, max = 8 }
+
+[[hole]]
+name = "T"
+sort = "Int"
+find = "t = 1;"
+literal = "1"
+range = { min = 0, max = 3 }
+"#;
+
+/// FZ-REPLAY-WHOLE (final review B1): a replay compares the whole witness, so a witness file
+/// whose program, configuration variables, krun lines, label, clean-leaf facts, work or
+/// undefined-step rules were edited does not reproduce; only the documented exclusions
+/// (`repaired-from`) may differ.
+#[test]
+fn a_replay_compares_the_whole_witness() {
+    let primes = IMP_DIFF.program("imp-diff/primes.imp").text;
+    let directory = workspace(
+        "replay-whole",
+        &[
+            ("imp-kompiled", &IMP_DIFF),
+            ("mutant-kompiled", &IMP_DIV_GUARD_DROPPED),
+        ],
+        &[("primes.imp", primes), ("primes.toml", PRIMES_CAMPAIGN)],
+    );
+    let found = krust_fuzz(
+        &directory,
+        &["--campaign", "primes.toml", "--witness", "witness.json"],
+    );
+    assert_eq!(found.status.code(), Some(0), "{}", text(&found.stdout));
+    let recorded: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap()).unwrap();
+    let witness = &recorded["report"]["outcome"]["witness"];
+    assert!(witness["shrunk"].is_object(), "{witness}");
+    assert!(witness["mutant-krun-command"].is_string(), "{witness}");
+    assert!(
+        witness["shrunk"]["sides"][1]["undefined-rules"].is_array(),
+        "{witness}"
+    );
+    let replay = krust_fuzz(&directory, &["--replay", "witness.json"]);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{}{}",
+        text(&replay.stdout),
+        text(&replay.stderr)
+    );
+
+    type Tamper = fn(&mut serde_json::Value);
+    let tampers: [(&str, Tamper, &str); 10] = [
+        (
+            "program",
+            |w| {
+                let program = w["shrunk"]["program"]
+                    .as_str()
+                    .unwrap()
+                    .replace("m = 0;", "m = 7;");
+                w["shrunk"]["program"] = program.into();
+            },
+            "shrunk witness: not reproduced\n  the instantiated program differs",
+        ),
+        (
+            "first-program",
+            |w| w["first"]["program"] = "int x;".into(),
+            "first witness: not reproduced\n  the instantiated program differs",
+        ),
+        (
+            "config-vars",
+            |w| w["shrunk"]["config-vars"] = serde_json::json!({"$PGM": "int x;"}),
+            "the instantiated configuration variables differ",
+        ),
+        (
+            "krun-command",
+            |w| {
+                let line = format!("rm -rf / # {}", w["krun-command"].as_str().unwrap());
+                w["krun-command"] = line.into();
+            },
+            "the krun line (`krun-command`) differs",
+        ),
+        (
+            "mutant-krun-command",
+            |w| w["mutant-krun-command"] = "echo hi".into(),
+            "the mutant's krun line (`mutant-krun-command`) differs",
+        ),
+        (
+            "work",
+            |w| w["shrunk"]["sides"][0]["work"] = 1.into(),
+            "the work of side 0 differs: the witness has 1, the replay ",
+        ),
+        (
+            "clean-leaf-facts",
+            |w| w["clean-leaf-facts"] = serde_json::json!(["nothing-checked"]),
+            "the clean-leaf facts differ",
+        ),
+        (
+            "label",
+            |w| w["label"] = "property-failure".into(),
+            "the label differs: the witness has `property-failure`, the replay `hit`",
+        ),
+        (
+            "undefined-rules",
+            |w| {
+                w["shrunk"]["sides"][1]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("undefined-rules");
+            },
+            "shrunk witness: not reproduced\n  the undefined-step rules of side 1 differ",
+        ),
+        (
+            "steps",
+            |w| w["first"]["steps"] = 1.into(),
+            "the step count differs: the witness has 1, the replay ",
+        ),
+    ];
+    for (name, tamper, said) in tampers {
+        let mut tampered = recorded.clone();
+        tamper(&mut tampered["report"]["outcome"]["witness"]);
+        let file = format!("{name}.json");
+        fs::write(directory.join(&file), tampered.to_string()).unwrap();
+        let replay = krust_fuzz(&directory, &["--replay", &file]);
+        let stdout = text(&replay.stdout);
+        assert_eq!(
+            replay.status.code(),
+            Some(1),
+            "{name}: {stdout}{}",
+            text(&replay.stderr)
+        );
+        assert!(stdout.contains(said), "{name}: {said}: {stdout}");
+    }
+
+    // The documented exclusion: the refused hit a client's filter repaired `first` from records
+    // the campaign's search, which a replay does not repeat.
+    let mut tampered = recorded.clone();
+    tampered["report"]["outcome"]["witness"]["repaired-from"] =
+        serde_json::json!({"case": 3, "holes": [], "cause": "end-not-ascii"});
+    fs::write(directory.join("repaired.json"), tampered.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "repaired.json"]);
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "{}{}",
+        text(&replay.stdout),
+        text(&replay.stderr)
+    );
 }
 
 #[test]
