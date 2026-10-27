@@ -122,17 +122,6 @@ tier = "light"
 guarded = 7
 preserve = []
 
-[demo.SimpleEnv]
-tier = "heavy"
-guarded = 4
-preserve = [{ where = "SimpleEnv/Cases.lean:129", closed = 164, total = 169, open = [], hand = [
-  "«var X;»",
-  "«var X[N];»",
-  "«function F(Xs) S»",
-  "«++ loc(L)»",
-  "«loc(L) = V»",
-] }]
-
 [inv.krsimp]
 tier = "light"
 cases = 82
@@ -482,13 +471,13 @@ tier = "light"
 "generated/simpleenvs/KSimpleInv/Adequacy.lean" = { tier = "heavy", sha256 = "35a0f13297f93685e40d53ff7fb27c0b0ae011ba6a09e94332cee963859c20f0" }
 "generated/simpleenvs/KSimpleInv/Determinism.lean" = { tier = "heavy", sha256 = "d82f22c80b11e3e94e92af937370cacad95960cb24c69c4d8ff049c270f6e16b" }
 "generated/simpleenvs/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "c36dbc1766b308b81f1c02f54a2cf18193e08a93b687d3c1150c92d61b8e174b" }
-"generated/simpleenvs/KSimpleInv/Functions.lean" = { tier = "heavy", sha256 = "206ffeb523e18f39d0ca47289d4205308534ed593fc98b07ce92f733df5a0beb" }
+"generated/simpleenvs/KSimpleInv/Functions.lean" = { tier = "heavy", sha256 = "2b4b3e755c01333629305ea9c852b89e23c0356960f61fe48e7a481b034168e9" }
 "generated/simpleenvs/KSimpleInv/Init.lean" = { tier = "heavy", sha256 = "3c54c85db80269f846b804b5cf8cad7b49eaf5e3d67a2819c503b49e5a1d9787" }
-"generated/simpleenvs/KSimpleInv/InvariantDefs.lean" = { tier = "heavy", sha256 = "73fa0c5f6a52c14ee0fd6eeef345ad4b21b5237b8e594082b1b3e5f434f5fe2a" }
+"generated/simpleenvs/KSimpleInv/InvariantDefs.lean" = { tier = "heavy", sha256 = "5a33ba4c05ccb2144ce0fbd9534a959b323d34638ed24475a61da524bf597968" }
 "generated/simpleenvs/KSimpleInv/Invariants.lean" = { tier = "heavy", sha256 = "9a9b643a9649a8f8f5ab9b467168b7408d36354010080acf8945d39281a2dfbe" }
 "generated/simpleenvs/KSimpleInv/Preserves.lean" = { tier = "heavy", sha256 = "184e3629a226ed41c33c7b269dfbb231de0717589d1aa4364c940df4f64d0416" }
-"generated/simpleenvs/KSimpleInv/Rules.lean" = { tier = "heavy", sha256 = "77caf6514e07b8a64bdd7fdcb32710ba1bb1644deb2672a29815b5803b72260b" }
-"generated/simpleenvs/KSimpleInv/Terms.lean" = { tier = "heavy", sha256 = "6b58f7a2d1a03ae785e1cd0ccba28accd151fd903051b7582b1517a9a3b2dc0b" }
+"generated/simpleenvs/KSimpleInv/Rules.lean" = { tier = "heavy", sha256 = "deb7c4866c71d99767b524af9617e43977ebe7109197b44dc08464286dd4b0f7" }
+"generated/simpleenvs/KSimpleInv/Terms.lean" = { tier = "heavy", sha256 = "a83081741e6f784aaff2f2a8e0d4ec771293479de47268e0260a462c124d5053" }
 "generated/simpleenvs/KSimpleInvBench/Main.lean" = { tier = "heavy", sha256 = "5d91d61f08f69edd69a3ee9eeff6e9678f945a9c9e86ec50373ee8e2f03acb84" }
 "generated/simpleenvs/KSimpleInvBench/Programs.lean" = { tier = "heavy", sha256 = "3fa6acf0f5ee5f41402bf12403e74884340751a08f98a39ffbd3ac6ba52e438d" }
 "generated/simpleenvs/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "5857cae6ca25ccbebcb18d341bd950bbe11183e9d14a9904a195601aad156a28" }
