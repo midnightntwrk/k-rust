@@ -829,11 +829,6 @@ step = "S5"
 
 # S0-10: a term construct outside the positions it may stand at is refused with the generic parse code of the form that meets it (`rust-syntax`, `unsupported-term-expression`, `syntax::invalid-matches`, `syntax::invalid-let`, `unsupported-rule-signature`) instead of the construct's code
 
-["terms/cells/result/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "S0-10"
-deviation = "krs::expand::ml-placement @ spelling"
-step = "S3"
-
 ["terms/cells/subject/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-10"
 deviation = "krs::syntax::invalid-matches @ spelling"
