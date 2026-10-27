@@ -529,16 +529,7 @@ def k2lLeafRefuted (g : MVarId) : MetaM Bool := g.withContext do
   return false
 
 /-- Close `g` by `cases` on one of `fields` whose type is an inductive type without constructors. -/
-def k2lEmptyField (g : MVarId) (fields : Array Expr) : MetaM Bool := g.withContext do
-  for f in fields do
-    let .fvar fid := f | continue
-    let some d := (← getLCtx).find? fid | continue
-    let ty ← whnfD d.type
-    let .const n _ := ty.getAppFn | continue
-    let some (.inductInfo iv) := (← getEnv).find? n | continue
-    unless iv.ctors.isEmpty do continue
-    if (← try pure (← g.cases fid).isEmpty catch _ => pure false) then return true
-  return false
+abbrev k2lEmptyField (g : MVarId) (fields : Array Expr) : MetaM Bool := KPrelude.emptyField g fields
 
 /-- Replace each variable of `g` that is a value of a builtin leaf (`x : Term SortInt`: the family
 has a constructor `b_SortInt` at that index, and every other constructor is refuted there) by

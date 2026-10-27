@@ -42,6 +42,30 @@ def refuteLeaf (m : MVarId) : MetaM Bool := m.withContext do
       return true
   return false
 
+/-- Close `g` by `cases` on one of `fields` whose type is an inductive type without constructors
+(the enumeration `Ck t` of a constructor `ck` at an index `t` with no constructor of arity `k`). -/
+def emptyField (g : MVarId) (fields : Array Expr) : MetaM Bool := g.withContext do
+  for f in fields do
+    let .fvar fid := f | continue
+    let some d := (← getLCtx).find? fid | continue
+    let ty ← whnfD d.type
+    let .const n _ := ty.getAppFn | continue
+    let some (.inductInfo iv) := (← getEnv).find? n | continue
+    unless iv.ctors.isEmpty do continue
+    if (← try pure (← g.cases fid).isEmpty catch _ => pure false) then return true
+  return false
+
+/-- Close a case `g` of a split of the family whose constructor cannot build a value of the index:
+its enumeration field (one of `fields`) is empty (`emptyField`), or a hypothesis contradicts the
+case directly (two different constructors equated, `p` and `¬p`, `x ≠ x`, a closed proposition
+that decides to false). Not `contradiction`'s search for a hypothesis of an empty inductive type,
+which runs `cases` on every hypothesis of the context, each a term of the family or a relation
+over configurations, and costs seconds per case in large goals; a case only such a search refutes
+stays, as one more goal the caller closes. -/
+def refuteCase (g : MVarId) (fields : Array Expr) : MetaM Bool := do
+  if ← emptyField g fields then return true
+  try g.contradictionCore { emptyType := false } catch _ => pure false
+
 /-- When the term `a` of the family has a builtin carrier's tag (its only possible constructor is
 `b_… v`): the goal after splitting it, and `v`. -/
 def builtinLeaf (g : MVarId) (a : FVarId) : MetaM (Option (MVarId × Expr)) := do
@@ -53,8 +77,7 @@ def builtinLeaf (g : MVarId) (a : FVarId) : MetaM (Option (MVarId × Expr)) := d
     | some (.str _ "inj") => unless ← refuteLeaf sg.mvarId do kept := kept.push sg
     | some (.str _ c) =>
       if c.startsWith "b_" then kept := kept.push sg
-      else unless ← (try (do sg.mvarId.contradiction; pure true) catch _ => pure false) do
-        kept := kept.push sg
+      else unless ← refuteCase sg.mvarId sg.fields do kept := kept.push sg
     | _ => kept := kept.push sg
   match kept with
   | #[sg] =>
@@ -102,7 +125,7 @@ def familyCases (g : MVarId) (x : FVarId) (splitEnum := true) :
       match k with
       | some k =>
         -- `ck`: its enumeration `Ck t` is empty at most indices
-        if ← (try (do sg.mvarId.contradiction; pure true) catch _ => pure false) then continue
+        if ← refuteCase sg.mvarId sg.fields then continue
         let args := sg.fields.extract (n - k) n
         let e := sg.fields[n - k - 1]!
         if splitEnum && e.isFVar then
