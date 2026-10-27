@@ -18,6 +18,7 @@ use super::{RuleLocation, RuleMode, RuleName, RuleRef, rule_names};
 use crate::{
     error::{TargetProblem, UnknownRule},
     exec::{self, CaseResult, TargetNeeds},
+    source_names::SourceNames,
 };
 
 /// How many candidates a refusal of an unknown reference lists.
@@ -342,6 +343,26 @@ fn edit_distance(left: &str, right: &str) -> usize {
         previous = current;
     }
     previous[right.len()]
+}
+
+/// `catalog` with every origin's source named as the report names sources: by its path relative
+/// to the directory of the main module's file, without a leading `./` ([`SourceNames::location`];
+/// FZ-REPLAY-WHOLE S1). A catalog records the path the definition was compiled at, which says
+/// where the checkout lay, not what the definition is: resolution, rule names and references
+/// then read the same names wherever the definition was compiled, and the report holds no host
+/// path. A rule reference resolves against these names ([`files_named`]): a path relative to the
+/// main module's directory names its file, a suffix of one after a `/` names the files it ends,
+/// and an absolute path names the relative paths it ends with.
+pub(crate) fn relative_catalog(
+    mut catalog: Vec<CompiledRuleOutput>,
+    names: &SourceNames,
+) -> Vec<CompiledRuleOutput> {
+    for origin in catalog.iter_mut().flat_map(|entry| &mut entry.origins) {
+        if let Some(source) = &mut origin.source {
+            *source = names.location(catalog_path(source));
+        }
+    }
+    catalog
 }
 
 /// The path inside the catalog's source text `Source(path)`, or the text itself.

@@ -53,6 +53,7 @@ use crate::{
         DefinitionFinding, DefinitionRole, FindingInstance, FindingKind, FindingStuck,
         FindingVerdict,
     },
+    source_names::SourceNames,
     values::TextSyntax,
 };
 
@@ -301,11 +302,13 @@ pub(crate) fn named_findings(given: &str, heads: &DataHeads) -> BTreeSet<(Vec<St
 }
 
 /// The report entries of `heads`' findings for the definition `side`, the assumed ones marked,
-/// terms written with `text` where it prints them.
+/// terms written with `text` where it prints them, and each equation's written position with
+/// its source named by `names` ([`relative_position`]).
 pub(crate) fn report(
     side: DefinitionRole,
     heads: &DataHeads,
     text: Option<&TextSyntax>,
+    names: &SourceNames,
 ) -> Vec<DefinitionFinding> {
     heads
         .findings()
@@ -317,7 +320,35 @@ pub(crate) fn report(
                 .iter()
                 .map(|finding| entry(side, finding, true, text)),
         )
+        .map(|mut entry| {
+            for equation in &mut entry.equations {
+                let relative = relative_position(equation, names);
+                if relative != *equation {
+                    entry.reason = entry.reason.replace(equation.as_str(), &relative);
+                    *equation = relative;
+                }
+            }
+            entry
+        })
         .collect()
+}
+
+/// `position`, a written position `FILE:LINE:COLUMN`, with `FILE` named as the report names
+/// sources: relative to the directory of the main module's file ([`SourceNames::location`];
+/// FZ-REPLAY-WHOLE S1), so that a finding names no directory the definition was compiled in.
+/// Any other text (a label or a unique id naming an equation without a position) is kept.
+fn relative_position(position: &str, names: &SourceNames) -> String {
+    let mut parts = position.rsplitn(3, ':');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(column), Some(line), Some(file))
+            if [column, line]
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())) =>
+        {
+            format!("{}:{line}:{column}", names.location(file))
+        }
+        _ => position.to_owned(),
+    }
 }
 
 fn entry(

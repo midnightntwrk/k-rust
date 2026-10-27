@@ -179,14 +179,14 @@ impl CompiledDefinition {
     /// The SHA-256, as lowercase hexadecimal, of [`Self::frontend_definition`]'s canonical
     /// provenance JSON with [`Self::source_table`] (`k_rust::definition::json::
     /// to_provenance_string`, the serialization a compiled directory stores as `frontend.json`),
-    /// in which every source is named independently of where it lies: the file of the main
-    /// module as `<main>`, every other path relative to that file's directory (`./expr.k`,
+    /// in which every source is named independently of where it lies: by its path relative to
+    /// the directory of the main module's file (that file as `./imp.k`, others as `./expr.k`,
     /// `./../lib/x.k`), and a `krust-builtin://` URI as it is. The document holds every
     /// sentence, attribute, term and provenance record of the definition and reads back to an
     /// equal definition, and the sources' content hashes stay in it, so one definition compiled
-    /// in two directories, or in process under another entry name, gives one digest, and any
-    /// change of a source's bytes (a comment included) gives another. It is computed in time
-    /// linear in the document.
+    /// in two directories gives one digest, and any change of a source's bytes (a comment
+    /// included), or of the main file's name, which the report's source locations use, gives
+    /// another. It is computed in time linear in the document.
     ///
     /// # Errors
     ///
@@ -794,19 +794,22 @@ endmodule
     }
 
     /// FZ-SETUP fix round (S1): one definition compiled from two directories, or in process
-    /// under the bindings' default entry name, gives one identity; the digested documents name
-    /// no directory; a change of a source's text still changes it.
+    /// under the same entry name, gives one identity; the digested documents name no directory;
+    /// a change of a source's text still changes it. The main file's own name is part of the
+    /// identity (FZ-REPLAY-WHOLE S1): the report names source locations by it.
     #[test]
     fn the_identity_does_not_depend_on_where_the_sources_lie() {
         let at_a = split("/srv/a", None, SPLIT_SYNTAX);
         let at_b = split("/home/someone/b/deeper", None, SPLIT_SYNTAX);
-        let bound = split("", Some("definition.k"), SPLIT_SYNTAX);
+        let bound = split("", Some("coin.k"), SPLIT_SYNTAX);
         assert_ne!(
             at_a.frontend_definition, at_b.frontend_definition,
             "the definitions record different source paths"
         );
         assert_eq!(all_digests(&at_a), all_digests(&at_b));
         assert_eq!(all_digests(&at_a), all_digests(&bound));
+        let entry_renamed = split("", Some("definition.k"), SPLIT_SYNTAX);
+        assert_ne!(digests(&at_a), digests(&entry_renamed));
         let names = crate::source_names::SourceNames::of(&at_a.frontend_definition);
         let json = k_rust::definition::json::to_provenance_string(
             &at_a.frontend_definition,
@@ -817,7 +820,7 @@ endmodule
         let renamed = names.provenance_json(&json);
         assert!(!renamed.contains("/srv/a"), "no directory is digested");
         assert!(renamed.contains(r#""logical":"./../lib/coin-syntax.k""#));
-        assert!(renamed.contains(r#""logical":"<main>""#));
+        assert!(renamed.contains(r#""logical":"./coin.k""#));
         assert!(!names.kore(&at_a.syntax_definition_kore).contains("/srv/a"));
 
         // A comment appended to the required file changes no sentence, but the file's bytes.

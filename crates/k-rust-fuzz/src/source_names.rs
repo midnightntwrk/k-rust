@@ -1,23 +1,25 @@
 //! The location-independent names under which a campaign's identity digests a definition's
-//! sources (ARCHITECTURE 5.4, FZ-SETUP fix round).
+//! sources, and under which its report names them (ARCHITECTURE 5.4, FZ-SETUP fix round,
+//! FZ-REPLAY-WHOLE S1).
 //!
 //! `krust kcompile` records each source under its canonical absolute path, an in-process host
-//! under whatever name it gave (the bindings default to `definition.k`). The name a source sat
-//! under is not part of what a campaign does: what it does depends on the sources' contents, the
-//! sentences they hold, their positions and which source requires which. So the identity digests
-//! every source reference with the source named by its path relative to the directory of the
-//! main module's file, that file itself by [`MAIN`], and an unrelated name (a `krust-builtin://`
-//! URI) as it is. Relative names are injective on the sources of one definition, so the
-//! inclusion structure is kept; the contents stay digested through each source's content hash
-//! and the definitions' sentences, positions and provenance.
+//! under whatever name it gave (the bindings default to `definition.k`). Where the sources sit
+//! is not part of what a campaign does: what it does depends on the sources' contents, the
+//! sentences they hold, their positions and which source requires which. A source location is
+//! therefore named by the source's path relative to the directory of the main module's file
+//! (that file by its own name, `./imp.k`), which is the same wherever the checkout lies, and an
+//! unrelated name (a `krust-builtin://` URI) as it is. The identity digests every source
+//! reference so, and the report writes every source location so ([`SourceNames::location`]):
+//! the report's rule locations and finding positions are then functions of what the identity
+//! digests. The main file's own name is part of both, since the report and rule references name
+//! rules by it. Relative names are injective on the sources of one definition, so the inclusion
+//! structure is kept; the contents stay digested through each source's content hash and the
+//! definitions' sentences, positions and provenance.
 
 use std::borrow::Cow;
 
 use k_rust::definition::Definition;
 use k_rust::kore::{ast::KoreString, string};
-
-/// The name of the file holding the main module.
-pub(crate) const MAIN: &str = "<main>";
 
 /// The JSON keys of `KRUST-PROVENANCE` whose string values name a source: the `Source`
 /// attribute of a sentence or module, and a source-table entry's logical name.
@@ -62,9 +64,7 @@ impl LexicalPath {
 /// How one definition's source names are written into its identity.
 #[derive(Clone, Debug)]
 pub(crate) struct SourceNames {
-    /// The name of the main module's file, as recorded.
-    main: Option<String>,
-    /// That file's directory, when the name is a path.
+    /// The directory of the main module's file, when its recorded name is a path.
     base: Option<LexicalPath>,
 }
 
@@ -72,28 +72,23 @@ impl SourceNames {
     /// The names of `frontend`'s sources, relative to the file its main module is written in
     /// (its `Source` attribute). Without one, every name is kept as it is.
     pub(crate) fn of(frontend: &Definition) -> Self {
-        let main = frontend
+        let base = frontend
             .main_module()
             .and_then(|module| module.attributes.source())
-            .map(str::to_owned);
-        let base = main
-            .as_deref()
             .and_then(LexicalPath::parse)
             .map(|mut path| {
                 path.parts.pop();
                 path
             });
-        Self { main, base }
+        Self { base }
     }
 
-    /// The identity's name of the source recorded as `name`: [`MAIN`] for the main module's file;
-    /// `./` and the path relative to that file's directory for any other path (with `..` steps
-    /// for a source outside it); the name itself for a URI, or for a path that cannot be made
-    /// relative to the base (an absolute path under a relative base, or the reverse).
+    /// The identity's name of the source recorded as `name`: `./` and its path relative to the
+    /// directory of the main module's file (with `..` steps for a source outside it; the main
+    /// module's file is `./` and its own name); the name itself for a URI, or for a path that
+    /// cannot be made relative to the base (an absolute path under a relative base, or the
+    /// reverse).
     pub(crate) fn name<'a>(&self, name: &'a str) -> Cow<'a, str> {
-        if self.main.as_deref() == Some(name) {
-            return Cow::Borrowed(MAIN);
-        }
         let (Some(base), Some(path)) = (&self.base, LexicalPath::parse(name)) else {
             return Cow::Borrowed(name);
         };
@@ -120,6 +115,15 @@ impl SourceNames {
             relative.push_str(part);
         }
         Cow::Owned(relative)
+    }
+
+    /// The report's name of the source recorded as `name`: [`Self::name`] without its leading
+    /// `./` (`imp.k`, `lib/x.k`, `../lib/y.k`), so that a location prints as the path a reader
+    /// writes from the main module's directory, and a rule reference built from it names the
+    /// file ([`crate::target::RuleLocation`]).
+    pub(crate) fn location(&self, name: &str) -> String {
+        let named = self.name(name);
+        named.strip_prefix("./").unwrap_or(&named).to_owned()
     }
 
     /// `json`, a compact `KRUST-PROVENANCE` document, with every source name of [`JSON_KEYS`]
@@ -264,11 +268,10 @@ fn quoted_length(text: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{LexicalPath, MAIN, SourceNames};
+    use super::{LexicalPath, SourceNames};
 
     fn names(main: &str) -> SourceNames {
         SourceNames {
-            main: Some(main.to_owned()),
             base: LexicalPath::parse(main).map(|mut path| {
                 path.parts.pop();
                 path
@@ -289,13 +292,24 @@ mod tests {
         ] {
             assert_eq!(at_a.name(left), at_b.name(right), "{left} / {right}");
         }
-        assert_eq!(at_a.name("/a/src/imp.k"), MAIN);
+        assert_eq!(at_a.name("/a/src/imp.k"), "./imp.k");
+        assert_eq!(at_a.location("/a/src/imp.k"), "imp.k");
+        assert_eq!(at_a.location("/a/lib/y.k"), "../lib/y.k");
+        assert_eq!(
+            at_a.location("krust-builtin://domains.md"),
+            "krust-builtin://domains.md"
+        );
         assert_eq!(at_a.name("/a/src/expr.k"), "./expr.k");
         assert_eq!(at_a.name("/a/lib/y.k"), "./../lib/y.k");
         assert_eq!(at_a.name("/a/src/./sub/../expr.k"), "./expr.k");
-        // The bindings' default entry name, with its requires named relative to it.
+        // The bindings' default entry name, with its requires named relative to it: the main
+        // file's own name is part of the names.
         let virtual_names = names("definition.k");
-        assert_eq!(virtual_names.name("definition.k"), MAIN);
+        assert_eq!(virtual_names.name("definition.k"), "./definition.k");
+        assert_ne!(
+            virtual_names.name("definition.k"),
+            at_a.name("/a/src/imp.k")
+        );
         assert_eq!(virtual_names.name("expr.k"), at_a.name("/a/src/expr.k"));
         // A name that cannot be made relative is kept as it is.
         assert_eq!(virtual_names.name("/abs/z.k"), "/abs/z.k");
@@ -308,7 +322,7 @@ mod tests {
         let json = r#"{"att":{"org.kframework.attributes.Source":"/a/src/expr.k","s":"/a/src/expr.k"},"sources":[{"logical":"/a/src/imp.k","contentHash":"00"},{"logical":"krust-builtin://k.md"}],"t":"\"org.kframework.attributes.Source\":\"/a/src/expr.k\""}"#;
         assert_eq!(
             names.provenance_json(json),
-            r#"{"att":{"org.kframework.attributes.Source":"./expr.k","s":"/a/src/expr.k"},"sources":[{"logical":"<main>","contentHash":"00"},{"logical":"krust-builtin://k.md"}],"t":"\"org.kframework.attributes.Source\":\"/a/src/expr.k\""}"#
+            r#"{"att":{"org.kframework.attributes.Source":"./expr.k","s":"/a/src/expr.k"},"sources":[{"logical":"./imp.k","contentHash":"00"},{"logical":"krust-builtin://k.md"}],"t":"\"org.kframework.attributes.Source\":\"/a/src/expr.k\""}"#
         );
         let kore = "[org'Stop'kframework'Stop'attributes'Stop'Source{}(\n  \"Source(/a/src/expr.k)\"), other{}(\"Source(/a/src/expr.k)\")]";
         assert_eq!(

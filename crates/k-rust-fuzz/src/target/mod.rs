@@ -26,6 +26,7 @@ pub(crate) use observer::JudgedRun;
 pub use observer::{
     ConfigurationView, Observer, ObserverHandle, ObserverTarget, ObserverVerdict, contains_symbol,
 };
+pub(crate) use rule::relative_catalog;
 #[cfg(test)]
 pub(crate) use rule::resolve_rule;
 
@@ -37,6 +38,7 @@ use crate::{
         TargetNeeds, UncleanReason, UnjudgedReason,
     },
     report::{EngineDefect, ExecutionModality, ResultModality},
+    source_names::SourceNames,
     spec::{CompiledDefinition, PathMode},
 };
 
@@ -264,10 +266,12 @@ impl fmt::Display for Described<'_> {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct RuleLocation {
-    /// The source file as the catalog records it (the path inside its `Source(path)` text).
+    /// The source file, named by its path relative to the directory of the main module's file
+    /// (`imp.k`, `lib/expr.k`, `../lib/x.k`; a `krust-builtin://` URI as it is), not by the path
+    /// the catalog records, which says where the definition was compiled (FZ-REPLAY-WHOLE S1).
     pub source: String,
     /// The shortest reference that names this file alone among the catalog's files: its
-    /// shortest suffix after a `/`, or the whole path ([`RuleRef::Source`]).
+    /// shortest suffix after a `/`, or the whole relative path ([`RuleRef::Source`]).
     pub reference: String,
     /// The one-based line the entry starts on.
     pub line: u32,
@@ -708,6 +712,10 @@ impl ResolvedTarget {
                         message: format!("the rule catalog is not available: {error}"),
                     }
                 })?;
+                let catalog = rule::relative_catalog(
+                    catalog,
+                    &SourceNames::of(&definition.frontend_definition),
+                );
                 let id = rule::resolve_rule(&catalog, &rule_target.rule)
                     .map_err(CampaignError::Target)?;
                 Resolved::Rule {

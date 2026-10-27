@@ -449,6 +449,105 @@ fn a_replay_compares_the_whole_witness() {
     );
 }
 
+/// FZ-REPLAY-WHOLE (final review S1): one definition compiled in two directories gives
+/// byte-identical reports. A source location is named by its path relative to the main module's
+/// directory, as the identity's digests name it, so neither the rule names of
+/// `totals.coverage.names` and `identity.target-rule` nor the positions of `definition-findings`
+/// hold the directory the definition was compiled in.
+#[test]
+fn a_definition_compiled_in_two_directories_gives_one_report() {
+    let primes = IMP_DIFF.program("imp-diff/primes.imp").text;
+    let go = R3_PLAINQ.program("r3-plainq/go.pgm").text;
+    let rule_campaign = PRIMES_CAMPAIGN.replace("mutant = \"mutant-kompiled\"\n", "");
+    let pair_campaign =
+        "seed = 7\ncases = 4\n\n[[hole]]\nname = \"N\"\nsort = \"Int\"\nliteral = \"3\"\n";
+    let directory = workspace(
+        "two-directories",
+        &[],
+        &[
+            ("primes.imp", primes),
+            ("primes.toml", &rule_campaign),
+            ("go.pgm", go),
+            ("go.toml", pair_campaign),
+        ],
+    );
+    let root = directory.to_str().expect("a UTF-8 path").to_owned();
+    for (place, at) in [
+        ("a", format!("{root}/a")),
+        ("b", format!("{root}/b/deeper")),
+    ] {
+        // Each compiled under the absolute path of its source, as `krust kcompile` records it.
+        write_compiled_source(
+            &format!("{at}/imp.k"),
+            IMP_DIFF.source,
+            IMP_DIFF.main_module,
+            &directory.join(format!("imp-{place}")),
+        );
+        for (fixture, side) in [(&R3_PLAINQ, "b"), (&R3_PLAINQ_M, "m")] {
+            write_compiled_source(
+                &format!("{at}/{side}.k"),
+                fixture.source,
+                fixture.main_module,
+                &directory.join(format!("{side}-{place}")),
+            );
+        }
+    }
+    let report = |args: &[&str]| {
+        let output = krust_fuzz(&directory, args);
+        let stdout = text(&output.stdout);
+        assert!(
+            matches!(output.status.code(), Some(0 | 1)),
+            "{args:?}: {stdout}{}",
+            text(&output.stderr)
+        );
+        stdout
+    };
+    let rule = |place: &str| {
+        report(&[
+            "--campaign",
+            "primes.toml",
+            "--definition",
+            &format!("imp-{place}"),
+            "--reach-rule",
+            "imp.k:52",
+            "--run-to-completion",
+            "--json",
+        ])
+    };
+    let pair = |place: &str| {
+        report(&[
+            "--campaign",
+            "go.toml",
+            "--definition",
+            &format!("b-{place}"),
+            "--mutant",
+            &format!("m-{place}"),
+            "--program",
+            "go.pgm",
+            "--json",
+        ])
+    };
+    for (what, at_a, at_b) in [
+        ("rule", rule("a"), rule("b")),
+        ("pair", pair("a"), pair("b")),
+    ] {
+        assert!(!at_a.contains(&root), "{what}: a host path: {at_a}");
+        assert_eq!(at_a, at_b, "{what}: the reports differ");
+        let parsed = FuzzReport::from_json(at_a.trim()).expect("a report");
+        match what {
+            "rule" => {
+                let rule = parsed.identity.target_rule.expect("a target rule");
+                assert_eq!(rule.name.locations[0].source, "imp.k", "{rule:?}");
+                assert!(!parsed.totals.coverage.names.is_empty());
+            }
+            _ => {
+                let finding = &parsed.definition_findings[0];
+                assert_eq!(finding.equations[0], "b.k:16:3", "{finding:?}");
+            }
+        }
+    }
+}
+
 #[test]
 fn an_identity_mismatch_is_refused_unless_forced() {
     let directory = le_workspace("identity");
@@ -654,8 +753,8 @@ fn a_witness_replays_on_the_definition_compiled_elsewhere() {
 }
 
 /// INT7 (FZ-RULEREF review I2 with FZ-SETUP): a rule target's witness replays on its definition
-/// compiled elsewhere too, although the report names the target rule by the catalog's source
-/// path, which records where it was compiled; replay compares the target rule by its id.
+/// compiled elsewhere too: the report names the target rule's source relative to the main
+/// module's directory (FZ-REPLAY-WHOLE S1), not by the path the catalog records.
 #[test]
 fn a_rule_witness_replays_on_the_definition_compiled_elsewhere() {
     let directory = le_workspace("relocated-rule");
@@ -688,11 +787,9 @@ fn a_rule_witness_replays_on_the_definition_compiled_elsewhere() {
         serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap())
             .expect("the witness file is JSON");
     let source = &recorded["report"]["identity"]["target-rule"]["name"]["locations"][0]["source"];
-    assert!(
-        source
-            .as_str()
-            .is_some_and(|source| source.ends_with("/A/src/imp.k")),
-        "the target rule is named where it was compiled: {source}"
+    assert_eq!(
+        source, "imp.k",
+        "the target rule is named relative to the main module's directory"
     );
     let replay = krust_fuzz(
         &directory,
@@ -1719,10 +1816,11 @@ fn imp_rule_hits_stay_hits_under_comparable_end() {
     }
 }
 
-/// A replay compares the target rule by its id only (FZ-RULEREF review I2): its name is read
-/// from the definition's catalog, whose source paths say where the definition was compiled.
+/// A replay compares the target rule whole (FZ-REPLAY-WHOLE S1): its name, read from the
+/// definition's catalog with each source named relative to the main module's directory, is a
+/// function of the definitions and the target, as its id is.
 #[test]
-fn a_rule_witness_replay_compares_the_target_rule_by_id() {
+fn a_rule_witness_replay_compares_the_target_rule_whole() {
     let neg = kink_imp_campaign(
         "clamp.imp",
         "imp.k:47",
@@ -1740,14 +1838,7 @@ fn a_rule_witness_replay_compares_the_target_rule_by_id() {
     let recorded: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(directory.join("w.json")).unwrap())
             .expect("the witness file is JSON");
-    // Another path for the rule's source, as a definition compiled elsewhere records: the
-    // witness still reproduces.
-    let mut moved = recorded.clone();
-    let location = &mut moved["report"]["identity"]["target-rule"]["name"]["locations"][0];
-    location["source"] = serde_json::Value::String("/elsewhere/imp.k".to_owned());
-    location["reference"] = serde_json::Value::String("elsewhere/imp.k".to_owned());
-    fs::write(directory.join("moved.json"), moved.to_string()).unwrap();
-    let replay = krust_fuzz(&directory, &["--replay", "moved.json"]);
+    let replay = krust_fuzz(&directory, &["--replay", "w.json"]);
     let stdout = text(&replay.stdout);
     assert_eq!(
         replay.status.code(),
@@ -1756,6 +1847,18 @@ fn a_rule_witness_replay_compares_the_target_rule_by_id() {
         text(&replay.stderr)
     );
     assert!(stdout.contains("first witness: reproduced"), "{stdout}");
+    // Another source for the rule is another name: refused.
+    let mut moved = recorded.clone();
+    let location = &mut moved["report"]["identity"]["target-rule"]["name"]["locations"][0];
+    location["source"] = serde_json::Value::String("elsewhere/imp.k".to_owned());
+    fs::write(directory.join("moved.json"), moved.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "moved.json"]);
+    assert_eq!(replay.status.code(), Some(2), "{}", text(&replay.stdout));
+    assert!(
+        text(&replay.stderr).contains("target-rule.name.locations[0].source"),
+        "{}",
+        text(&replay.stderr)
+    );
     // Another id is another rule: refused.
     let mut other = recorded;
     other["report"]["identity"]["target-rule"]["id"] = serde_json::Value::String("0".repeat(64));

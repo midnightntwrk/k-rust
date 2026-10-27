@@ -679,7 +679,8 @@ impl LiveCases {
                     .warnings
                     .push(not_confluent_warning(side_name, heads));
             }
-            let entries = crate::findings::report(role, heads, text.as_ref());
+            let names = crate::source_names::SourceNames::of(&side.definition.frontend_definition);
+            let entries = crate::findings::report(role, heads, text.as_ref(), &names);
             // A pair the campaign assumes joined although the check shows it does not join: the
             // verdicts then hold for a reading its evaluation does not have.
             for entry in entries
@@ -729,6 +730,10 @@ impl LiveCases {
             .map_err(|error| CampaignError::Definition {
                 message: format!("the rule catalog is not available: {error}"),
             })?;
+        let catalog = target::relative_catalog(
+            catalog,
+            &crate::source_names::SourceNames::of(&side.definition.frontend_definition),
+        );
         let names = target::rule_names(&catalog);
         let target = target.and_then(|id| {
             let name = names.get(&id)?.clone();
