@@ -96,7 +96,7 @@ It prints one JSON document:
 
 Exit status: 0 when the specification is admitted and every program is ok;
 1 when the manifest, the specification or a program is refused; 2 on a usage error (message on stderr).
-`kink-flow --version` prints `kink-flow VERSION (k-rust REVISION)`, the k-rust build every document's `k_rust_revision` names, and exits 0.
+`kink-flow --version` prints `kink-flow VERSION (k-rust REVISION)`, the k-rust version every document's `k_rust_revision` names (except the `fuzz` document's, which names k-rust's full build identity; see "Killing a survivor with `fuzz`"), and exits 0.
 
 ## `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS.toml] [--cache DIR]`
 
@@ -734,7 +734,8 @@ program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort an
 
 ### The document
 
-`{schema: "kink-flow-fuzz", version: 4, k_rust_revision, profile, kink_build, kink, spec, template, job, sides, assembly, findings, assumed, attempts: [{seed, fuzz, candidate, confirmation}], program, stopped, action, warnings}`:
+`{schema: "kink-flow-fuzz", version: 4, k_rust_revision, profile, kink_build, kink, spec, template, job, sides, assembly, findings, assumed, attempts: [{seed, fuzz, candidate, confirmation}], program, stopped, action, warnings}`.
+`k_rust_revision` is k-rust's build identity (`k_rust::build_identity`: its version and a digest of its sources), the value the embedded report's `identity.k-rust-revision` records (GUIDE-USABILITY 5, within version 4); `kink.k_rust_revision`, the semantics identity's component, is the version alone, and `kink_build` pins the whole executable:
 - `spec`: admitted, with the flow's `assume_joined`, whether the baseline has data under them (`has_data`) and its unnamed findings, as `run` reads them; or the refusal.
 - `template`: its id, source, the start sort used and where it came from (`template`, `program` or `default`), its variables, its hole declarations and `last_run` (`{found, current, template: {program, class, cause}, mutation: {status, reason, reaching}, suggested_templates}`, or `{found: false, detail}`).
 - `job`: `{kind: "kill", mutation, outcome: fuzzed | refused, path_mode, filter: {on, id}}` (`id`: the witness filter's identity, `null` with `--no-filter`), with kink's `status`, `reason`, `claims` and `inconsistent_pairs` when kink refuses the mutation, and the claims the mutant withdrew otherwise. A reach job has `kind: "reach"` and `rule: {module, index, file, start_line, label, id, mode: condition-reached | covered, untargeted_ids}`; a pattern job `kind: "pattern"` and `pattern: {id, text, kore}`. Both have `sides.baseline` only and no `mutant_anchor`.

@@ -16,7 +16,8 @@ use k_rust::{
 };
 use kink_campaign::{Campaign, CampaignFailureKind, CampaignOptions, TestCase, run_campaign_multi};
 use kink_native::{
-    CensusError, CensusVerdict, DeclarationCensus, NativeValidator, ValidatedDefinition,
+    CensusClass, CensusError, CensusVerdict, DeclarationCensus, NativeValidator,
+    ValidatedDefinition,
     bridge::validate_test_initial_state,
     declaration_census,
     execution::SolverProfile,
@@ -371,16 +372,77 @@ pub fn compile_definition_with(
     record.representation = Some(json!("admitted"));
     let census = census(&compiled)
         .map_err(|e| AdmissionRefusal::new("declaration-census", "census-error", e))?;
-    let flagged = census.verdict() == CensusVerdict::Flagged;
+    let flagged = (census.verdict() == CensusVerdict::Flagged).then(|| census_detail(&census));
     record.census = Some(census);
-    if flagged {
+    if let Some(detail) = flagged {
         return Err(AdmissionRefusal::new(
             "declaration-census",
             "vi-t13",
-            "non-natural declarations; see census findings",
+            detail,
         ));
     }
     Ok(compiled)
+}
+
+/// The most census findings a refusal's detail names; the admission record's `census` holds them
+/// all.
+const CENSUS_DETAIL_FINDINGS: usize = 8;
+
+/// The detail of a census refusal: the census's findings, each with its rule, symbol, hook,
+/// declared signature, what the rule expected and where it is declared, so that an author whose
+/// document shows only the refusal (`kink-flow check`) can tell which declaration to fix
+/// (GUIDE-USABILITY 1: the detail used to say "see census findings", which that document does
+/// not print).
+fn census_detail(census: &DeclarationCensus) -> String {
+    let findings = census.findings();
+    let rule = |class: CensusClass| match class {
+        CensusClass::N => "N (sort name)",
+        CensusClass::H => "H (signature)",
+        CensusClass::C => "C (role)",
+        CensusClass::U => "U (unknown hook)",
+    };
+    let mut detail = format!(
+        "{} non-natural declaration finding(s) of the declaration census:",
+        findings.len()
+    );
+    for finding in findings.iter().take(CENSUS_DETAIL_FINDINGS) {
+        // The compiled KORE's `source` attribute value, `Source(FILE)`, as the census reads it.
+        let source = finding.source.as_deref().map(|source| {
+            source
+                .strip_prefix("Source(")
+                .and_then(|inner| inner.strip_suffix(')'))
+                .unwrap_or(source)
+        });
+        detail.push_str(&format!(
+            "\n  rule {}: {}{} declared ({}) -> {}{}{}",
+            rule(finding.class),
+            finding.symbol,
+            finding
+                .hook
+                .as_deref()
+                .map_or_else(String::new, |hook| format!(" [hook {hook}]")),
+            finding.arguments.join(", "),
+            finding.result,
+            finding
+                .expected
+                .as_deref()
+                .map_or_else(String::new, |expected| format!(", expected {expected}")),
+            match (source, finding.location) {
+                (Some(source), Some([line, column, _, _])) => {
+                    format!(" at {source}:{line}:{column}")
+                }
+                (Some(source), None) => format!(" in {source}"),
+                (None, _) => String::new(),
+            },
+        ));
+    }
+    if findings.len() > CENSUS_DETAIL_FINDINGS {
+        detail.push_str(&format!(
+            "\n  and {} more (the admission record's census lists every finding)",
+            findings.len() - CENSUS_DETAIL_FINDINGS
+        ));
+    }
+    detail
 }
 
 /// The backend that gates test inputs of the compiled definition's `main_module`.

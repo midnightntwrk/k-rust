@@ -147,6 +147,16 @@ fn every_refusal_stage_and_first_failure() {
     );
     let r = refused(&named("t13owk.k", "T13OWK"), "declaration-census", "vi-t13");
     assert_eq!(r.record.value()["census"]["verdict"], "flagged");
+    // GUIDE-USABILITY 1: the detail names the flagged declaration, its hook and where it is,
+    // since `kink-flow check` prints the refusal and not the record's census.
+    let detail = &r.record.refusal.as_ref().unwrap().detail;
+    assert!(
+        detail.contains("rule H (signature)")
+            && detail.contains("[hook INT.add]")
+            && detail.contains("-> SortBool")
+            && detail.contains("t13owk.k:"),
+        "{detail}"
+    );
     v = clean();
     v["definitions"][0]["tests"][0]["input"]["program"]["text"] = json!("???");
     refused(&v, "inputs", "parse");
