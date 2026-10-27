@@ -115,6 +115,7 @@ use kink_native::{
     exclusion::{DefinitionExclusions, Exclusion, ValidatedLoad},
     execution::SolverProfile,
 };
+use kink_patch::SentenceRef;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1258,8 +1259,8 @@ pub enum FuzzJob<'a> {
         mutation: &'a str,
     },
     /// `--reach RULE [--fired]`: hole values whose program's all-paths baseline run is comparable
-    /// and reaches the rule's condition (kink's `reached_by`), or applies it with `fired`
-    /// (`fired_by`).
+    /// and reaches the rule's condition (kink's `reached_by`), or with `fired` takes the rule's
+    /// step on some path (`fired_by`, k-rust `committed`).
     Reach { rule: &'a str, fired: bool },
     /// `--pattern ID --patterns PATTERNS.toml`: hole values whose program reaches a configuration
     /// matching the pattern (a `hit` of kink's `query`).
@@ -1433,12 +1434,15 @@ pub fn fuzz_job(
     }
     document["warnings"] = json!(warnings);
 
-    // The job's own target, resolved against the baseline before any campaign.
+    // The job's own target, resolved against the baseline before any campaign; a reach's
+    // authored rule is the one whose `results` entry its confirmation reads.
+    let mut reach_at = None;
     let kind = match job {
         FuzzJob::Kill { .. } => None,
         FuzzJob::Reach { rule, fired } => match resolve_reach(manifest, &spec, rule, fired) {
             Ok(reach) => {
                 document["job"]["rule"] = reach.value();
+                reach_at = Some(reach.at.at.clone());
                 Some(TargetKind::Rule(RuleTarget {
                     rule: RuleRef::UniqueId(reach.id),
                     mode: if fired {
@@ -1998,7 +2002,8 @@ pub fn fuzz_job(
                     offered_case = Some(case);
                     break;
                 }
-                let mut confirmation = confirm(manifest, options, job, &fragment);
+                let mut confirmation =
+                    confirm(manifest, options, job, reach_at.as_ref(), &fragment.program);
                 confirmation["case"] = json!(which);
                 let confirmed = confirmation["confirmed"] == true;
                 attempt["candidate"] = candidate;
@@ -2254,8 +2259,8 @@ pub fn fuzz_job(
 struct ReachRule {
     /// The targeted rewrite id.
     id: String,
-    /// The authored rule the id belongs to, when the id names one.
-    at: Option<RuleText>,
+    /// The authored rule the id belongs to: `results` lists programs under authored rules only.
+    at: RuleText,
     /// Equation ids of the same sentence, which the target does not read.
     untargeted: Vec<String>,
     fired: bool,
@@ -2264,11 +2269,11 @@ struct ReachRule {
 impl ReachRule {
     fn value(&self) -> Value {
         json!({
-            "module": self.at.as_ref().map(|r| r.at.module.clone()),
-            "index": self.at.as_ref().map(|r| r.at.index),
-            "file": self.at.as_ref().and_then(|r| r.file.clone()),
-            "start_line": self.at.as_ref().and_then(|r| r.start_line),
-            "label": self.at.as_ref().and_then(|r| r.label.clone()),
+            "module": self.at.at.module,
+            "index": self.at.at.index,
+            "file": self.at.file,
+            "start_line": self.at.start_line,
+            "label": self.at.label,
             "id": self.id,
             "mode": if self.fired { "covered" } else { "condition-reached" },
             "untargeted_ids": self.untargeted,
@@ -2332,17 +2337,29 @@ fn resolve_reach(
     let domain = coverage_domain(&spec.compiled);
     let rewrites = rewrite_ids(&spec.compiled);
     let texts = rule_texts(manifest, &spec.loaded);
-    let (at, ids): (Option<RuleText>, Vec<String>) = if is_rule_id(rule) {
+    let (at, ids): (RuleText, Vec<String>) = if is_rule_id(rule) {
         if authors.get(rule).is_none() {
             return Err(refused(
                 "unknown-rule-id",
                 format!("no axiom of the baseline has the id {rule}"),
             ));
         }
-        let at = texts
+        let Some(at) = texts
             .iter()
             .find(|text| authors.ids_of(&text.at).any(|id| id == rule))
-            .cloned();
+            .cloned()
+        else {
+            // `results` lists programs under the specification's authored rules only, so no
+            // program is ever listed for this id and no reach of it can be confirmed.
+            return Err(refused(
+                "no-authored-rule",
+                format!(
+                    "the axiom {rule} was written by no authored rule of the specification (a \
+                     prelude rule, or a sentence that is not a rule), and kink's `results` lists \
+                     programs under authored rules only"
+                ),
+            ));
+        };
         (at, vec![rule.to_owned()])
     } else {
         let by_line = rule
@@ -2417,7 +2434,7 @@ fn resolve_reach(
             }
         };
         let ids = authors.ids_of(&one.at).map(str::to_owned).collect();
-        (Some(one), ids)
+        (one, ids)
     };
     let signalled = ids
         .into_iter()
@@ -2501,19 +2518,53 @@ impl Drop for Scratch {
     }
 }
 
+/// kink's own verdict on `program` for `job`, as the fuzz confirms a candidate ([`confirm`]):
+/// the seam for checking a program written by hand, or one the fuzz did not find. A reach job's
+/// rule is resolved on the admitted baseline as the fuzz resolves it; a specification kink does
+/// not admit, or a rule that does not resolve, gives `{confirmed: false, status: "refused",
+/// reason, cause}`.
+pub fn confirm_program(
+    manifest: &FlowManifest,
+    options: &FuzzOptions,
+    job: FuzzJob<'_>,
+    program: &Program,
+) -> Value {
+    let refused = |reason: &str, cause: String| json!({"confirmed": false, "status": "refused", "reason": reason, "cause": cause});
+    let reach_at = match job {
+        FuzzJob::Reach { rule, fired } => {
+            let (record, admitted) = admit_spec(manifest);
+            let Some((spec, _)) = admitted else {
+                return record.refusal.as_ref().map_or_else(
+                    || refused("refused", String::new()),
+                    |r| refused(&r.reason, format!("{}: {}", r.stage, r.detail)),
+                );
+            };
+            match resolve_reach(manifest, &spec, rule, fired) {
+                Ok(reach) => Some(reach.at.at),
+                Err(refusal) => return refused(&refusal.reason, refusal.detail),
+            }
+        }
+        FuzzJob::Kill { .. } | FuzzJob::Pattern { .. } => None,
+    };
+    confirm(manifest, options, job, reach_at.as_ref(), program)
+}
+
 /// kink's own verdict on a candidate (KF-T4), by kink's code on an overlay of the flow: its
 /// `[spec]` with the flow's names and the command line's assumed (sorted, without repeats), its
-/// `[budget]`, and the fragment as the only `[[program]]`, with a fresh scratch cache removed on
-/// every path, so nothing under the flow's directory or `--cache` changes. A kill is confirmed
-/// when `run` kills the mutation with the fragment as killer; a reach when `results` gives the
-/// fragment class `comparable` and lists it in the rule's `reached_by` (`fired_by`); a pattern
-/// when `query`, asked with `programs = [fragment]`, confirms the claim. The value is
-/// `{confirmed, status, reason, cause}` and the job's `killer`, `class` or `answer`.
+/// `[budget]`, and `program` (the candidate's fragment) as the only `[[program]]`, with a fresh
+/// scratch cache removed on every path, so nothing under the flow's directory or `--cache`
+/// changes. A kill is confirmed when `run` kills the mutation with the program as killer; a reach
+/// when `results` gives the program class `comparable` and lists it in the `reached_by`
+/// (`fired_by`) of the targeted rule, `reach_at`, the authored rule the job resolved (final
+/// review S1: a listing under any other rule confirms nothing about the target); a pattern when
+/// `query`, asked with `programs = [program]`, confirms the claim. The value is `{confirmed,
+/// status, reason, cause}` and the job's `killer`, `class` or `answer`.
 fn confirm(
     manifest: &FlowManifest,
     options: &FuzzOptions,
     job: FuzzJob<'_>,
-    fragment: &Fragment,
+    reach_at: Option<&SentenceRef>,
+    program: &Program,
 ) -> Value {
     let scratch = match Scratch::new() {
         Ok(scratch) => scratch,
@@ -2527,14 +2578,14 @@ fn confirm(
         }
     };
     let mut overlay = manifest.clone();
-    overlay.programs = vec![fragment.program.clone()];
+    overlay.programs = vec![program.clone()];
     let mut names = manifest.spec.assume_joined.clone();
     names.extend(options.assume_joined.iter().cloned());
     names.sort();
     names.dedup();
     overlay.spec.assume_joined = names;
     let cache = Some(scratch.0.clone());
-    let id = fragment.id.as_str();
+    let id = program.id.as_str();
     match job {
         FuzzJob::Kill { list, mutation } => {
             let list = MutationList {
@@ -2598,11 +2649,17 @@ fn confirm(
                 .cloned()
                 .unwrap_or(Value::Null);
             let key = if fired { "fired_by" } else { "reached_by" };
-            let listed = document["rules"].as_array().is_some_and(|rules| {
-                rules.iter().any(|rule| {
-                    rule[key]
-                        .as_array()
-                        .is_some_and(|programs| programs.iter().any(|p| p == id))
+            // The targeted rule's own entry: `results` lists each authored rule once, by its
+            // `(module, index)`. Without the resolved rule nothing is listed for the target.
+            let listed = reach_at.is_some_and(|at| {
+                document["rules"].as_array().is_some_and(|rules| {
+                    rules.iter().any(|rule| {
+                        rule["module"] == at.module.as_str()
+                            && rule["index"] == u64::from(at.index)
+                            && rule[key]
+                                .as_array()
+                                .is_some_and(|programs| programs.iter().any(|p| p == id))
+                    })
                 })
             });
             let comparable = program["class"] == "comparable";

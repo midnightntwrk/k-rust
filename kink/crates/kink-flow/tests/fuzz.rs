@@ -30,7 +30,7 @@ use kink_flow::{
     cli::{EXIT_USAGE, execute},
     fuzz::{
         AssemblyCheck, FuzzJob, FuzzOptions, TemplateList, TemplateSource, check_assembly,
-        compiled_side, fuzz_job, kill,
+        compiled_side, confirm_program, fuzz_job, kill,
     },
     pattern::PatternList,
     query::{QueryOptions, query},
@@ -1517,6 +1517,48 @@ endmodule
                 .any(|p| p == id.as_str()),
             "{big:#}"
         );
+    }
+
+    /// Final review S1: a reach confirmation reads the targeted rule's own `results` entry.
+    /// `run(1)` steps to `step(2)`, so `small` fires and `big` never does; the program is
+    /// comparable and listed under `go`, `small` and others, yet `big --fired` must not confirm
+    /// it. Before the fix a listing under any rule confirmed it (`listed`).
+    #[test]
+    #[ignore = "kink"]
+    fn a_reach_confirmation_reads_the_targeted_rules_entry_only() {
+        let dir = steps_flow("reach-target");
+        let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+        let confirm = |rule: &'static str, fired: bool| {
+            let manifest = manifest.clone();
+            on_stack(move || {
+                let program = kink_flow::Program {
+                    id: "probe".to_owned(),
+                    source: ProgramSource::Text("run(1)".to_owned()),
+                    start_sort: None,
+                    variables: Vec::new(),
+                };
+                confirm_program(
+                    &manifest,
+                    &FuzzOptions::default(),
+                    FuzzJob::Reach { rule, fired },
+                    &program,
+                )
+            })
+        };
+        let big = confirm("big", true);
+        assert_eq!(big["confirmed"], false, "{big:#}");
+        assert_eq!(big["status"], "unreached", "{big:#}");
+        assert_eq!(big["reason"], "not-listed", "{big:#}");
+        assert_eq!(big["class"], "comparable", "{big:#}");
+        let small = confirm("small", true);
+        assert_eq!(small["confirmed"], true, "{small:#}");
+        assert_eq!(small["reason"], "listed", "{small:#}");
+        // Without --fired the target is `big`'s condition, which `step(2)` reaches.
+        let reached = confirm("big", false);
+        assert_eq!(reached["confirmed"], true, "{reached:#}");
+        let unknown = confirm("nothing", false);
+        assert_eq!(unknown["status"], "refused", "{unknown:#}");
+        assert_eq!(unknown["reason"], "unknown-label", "{unknown:#}");
     }
 
     /// The reach job refuses a rule it cannot target before any campaign: a macro has no
