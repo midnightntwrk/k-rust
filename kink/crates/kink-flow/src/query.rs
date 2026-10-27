@@ -67,8 +67,11 @@ pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
 /// no changes (v2, flow F-18 tail: a matched state holding a term-level `\and` is not a hit; v3,
 /// fz26 KRUST-ANYWHERE-HEAD: a matched state is defined when k-rust's `ground_defined` holds,
-/// which also accepts an irreducible `value-production` application such as SIMPLE's `a[4]`).
-pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v3";
+/// which also accepts an irreducible `value-production` application such as SIMPLE's `a[4]`; v4,
+/// KINK-R4: a match is no hit when the search left a hook application unevaluated, its
+/// `unsupportedHooks` or `allowanceRefusals` list not empty, so a v3 `hit` may no longer be one,
+/// and a `no` needs the definition to have data, its check complete as well as finding-free).
+pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v4";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
 /// The cache's directory in the cache directory.
@@ -436,7 +439,7 @@ fn ask(
             |record| record["cause"].as_str(),
         ),
         profile: SolverProfile::BUILD,
-        unnamed_findings: spec.data.heads().findings().len(),
+        no_data: crate::pattern::no_data(&spec.data),
     };
     let keyed = context.build.map(|build| {
         (

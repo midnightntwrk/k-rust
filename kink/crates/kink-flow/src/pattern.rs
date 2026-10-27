@@ -46,7 +46,8 @@
 //! **Answers** ([`judge`]):
 //! - `hit`: the search returned a decided match: no condition (`constraints` empty), no
 //!   diagnostic of the match or of the matching state's path, a state that carries no predicate,
-//!   a state whose term is defined (below), and the watchdog did not fire. A hit is sound even
+//!   a state whose term is defined (below), no hook application the search left unevaluated
+//!   (below), and the watchdog did not fire. A hit is sound even
 //!   when the run read a value the definition leaves open (an implementation-chosen hook, the
 //!   short-circuit reading, an initial state flagged for either): k-rust's choice is one model of
 //!   the definition, and the claim is existential. For the short-circuit reading this is K's own
@@ -80,6 +81,16 @@
 //!   reached). A state that is not, or whose definedness kink cannot read (it does not
 //!   decode, verify or internalize on that definition, k-rust provides no stack for it, or
 //!   k-rust panics), makes the answer `unknown` (`undefined-state`).
+//!
+//!   **An unevaluated hook** (KINK-R4, KINK-HOOKED-VP-QUERY-HIT). `ground_defined` counts an
+//!   irreducible `value-production` application as a value from its declaration alone, also when
+//!   its symbol is hooked and k-rust left it unevaluated (a hook k-rust does not evaluate, or a
+//!   `Bytes` result its memory allowance refused). Where such a hook is undefined at its
+//!   arguments, the state denotes no configuration and the step to it has no successor, which
+//!   k-rust did not compute; no path diagnostic records it. So a match is a hit only when the
+//!   search response's `unsupportedHooks` and `allowanceRefusals` lists are empty; otherwise the
+//!   answer is `unknown` (`unsupported-hook`). The lists are the search's as a whole, so an entry
+//!   on another branch also refuses the hit (fail-closed).
 //! - `no`: the exploration completed (k-rust's `incomplete` list is empty and the watchdog did not
 //!   fire), and also the program's baseline run, kink's plain state-set run of the same initial
 //!   state under the same budget (the result cache), is `comparable`: complete and free of every
@@ -403,7 +414,10 @@ impl Lowering {
     }
 
     /// Lower `text` (module docs), checking the target against `definition`, the baseline
-    /// definition every search runs on. The error is k-rust's message.
+    /// definition every search runs on. The error is k-rust's message; a position in it is a
+    /// line and column of the pattern's own text, its surrounding whitespace removed, under the
+    /// source name [`PATTERN_SOURCE`], never a line of the file the pattern list came from
+    /// (GUIDE-USABILITY 4).
     pub fn lower(
         &self,
         text: &str,
@@ -420,7 +434,13 @@ impl Lowering {
             )
         }))
         .map_err(|_| "k-rust panicked while compiling the pattern".to_owned())?
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            format!(
+                "{e} (a position `{PATTERN_SOURCE}:LINE:COLUMN` is a line and column of the \
+                 pattern's text, its surrounding whitespace removed, not of the pattern list's \
+                 file)"
+            )
+        })?;
         definition
             .verify_standalone_pattern(&compiled.pattern, &[])
             .map_err(|e| format!("the compiled pattern is not a pattern of the baseline: {e}"))?
@@ -445,6 +465,10 @@ impl Lowering {
     }
 }
 
+/// The source name of a pattern's text in k-rust's messages: a pattern list can come from any
+/// file, and the text's positions are its own, not that file's.
+pub const PATTERN_SOURCE: &str = "pattern";
+
 /// The source attributes of a pattern's text, as `krun` gives a command-line pattern.
 fn pattern_attributes(contents: &str) -> Attributes {
     let (mut end_line, mut end_column) = (1_u32, 1_u32);
@@ -457,7 +481,7 @@ fn pattern_attributes(contents: &str) -> Attributes {
         }
     }
     let mut attributes = Attributes::default();
-    attributes.set(AttributeKey::Source, json!("PATTERNS.toml"));
+    attributes.set(AttributeKey::Source, json!(PATTERN_SOURCE));
     attributes.set(AttributeKey::SourceId, json!(0));
     attributes.set(AttributeKey::Location, json!([1, 1, end_line, end_column]));
     attributes.set(AttributeKey::ContentStartOffset, json!(0));
@@ -481,7 +505,7 @@ pub enum SearchOutcome {
 }
 
 /// What the answer rules read besides the search ([`judge`]).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Facts<'a> {
     /// The definition exclusions of the backend the search ran on.
     pub exclusions: &'a DefinitionExclusions,
@@ -492,9 +516,33 @@ pub struct Facts<'a> {
     pub baseline_cause: Option<&'a str>,
     /// The build's solver profile.
     pub profile: SolverProfile,
-    /// The findings of the definition's full critical-pair check no `[spec] assume_joined` name
-    /// assumes (fz26 KINK-BASELINE-FINDINGS): while there is one, no `no` is given.
-    pub unnamed_findings: usize,
+    /// Why the definition has no data under `[spec] assume_joined` (kink-native
+    /// `DataFacts::has_data` is false: its full critical-pair check has a finding no name assumes,
+    /// fz26 KINK-BASELINE-FINDINGS, or did not read the whole definition), `None` when it has:
+    /// while it has none, no `no` is given ([`no_data`]).
+    pub no_data: Option<String>,
+}
+
+/// [`Facts::no_data`] of `data`: the gate `run` and `results` read for an end
+/// (kink-native `data_ends`), so a `no` rests on the same facts a kill does (final review K3).
+pub fn no_data(data: &kink_native::data::DataFacts) -> Option<String> {
+    if data.has_data() {
+        return None;
+    }
+    let unnamed = data.heads().findings().len();
+    Some(if unnamed > 0 {
+        format!(
+            "the definition's full critical-pair check has {unnamed} finding(s) no [spec] \
+             assume_joined name assumes (baseline-findings; the document's data lists them)"
+        )
+    } else {
+        format!(
+            "the definition's full critical-pair check did not read the whole definition ({}), \
+             so a pair it did not read may not join",
+            data.incomplete()
+                .unwrap_or_else(|| "k-rust does not show it complete".to_owned())
+        )
+    })
 }
 
 /// An answer: `hit`, `no`, `unknown`, `invalid-pattern` or `error`, with its cause (null for
@@ -599,13 +647,10 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
             // fz26 KINK-BASELINE-FINDINGS: matching is syntactic, while a pair that does not join
             // can identify a reached state with an instance of the pattern in every model; a hit
             // stays a hit (k-rust reached that configuration).
-            if facts.unnamed_findings > 0 {
+            if let Some(why) = &facts.no_data {
                 return Answer::unknown(format!(
-                    "{would}: the definition's full critical-pair check has {} finding(s) no \
-                     [spec] assume_joined name assumes (baseline-findings; the document's data \
-                     lists them), so the definition may identify a reached configuration with \
-                     an instance of the pattern",
-                    facts.unnamed_findings
+                    "{would}: {why}, so the definition may identify a reached configuration with \
+                     an instance of the pattern"
                 ));
             }
             if let Some(exclusion) = facts.state {
@@ -945,6 +990,14 @@ fn outcome(
         );
     }
     if let Some(found) = matches.first() {
+        if let Some(why) = unevaluated(&response) {
+            return SearchOutcome::Incomplete(format!(
+                "the first matching state the search found (depth {}) is not shown to be a \
+                 configuration: {why}; the search stops at its first match, so no other state was \
+                 asked",
+                found["state"]["depth"]
+            ));
+        }
         return match decided(found).and_then(|()| defined(&found["state"]["state"])) {
             Ok(()) => SearchOutcome::Hit(witness(found, lowered, rule_names)),
             Err(why) => SearchOutcome::Incomplete(format!(
@@ -958,6 +1011,35 @@ fn outcome(
         return SearchOutcome::Complete;
     }
     SearchOutcome::Incomplete(incomplete_cause(incomplete, budget))
+}
+
+/// The cause a hit is refused for when the search left a hook application unevaluated.
+const UNSUPPORTED_HOOK: &str = "unsupported-hook";
+
+/// Why the search's states are not shown to be configurations because k-rust left a hook
+/// application unevaluated, or `None` (module docs, KINK-HOOKED-VP-QUERY-HIT): the response's
+/// `unsupportedHooks` (a hook k-rust does not evaluate) and `allowanceRefusals` (a `Bytes` result
+/// the memory allowance refused) lists. Such an application stays in the state as written, and
+/// `ground_defined` counts an irreducible application of a `value-production` symbol as a value
+/// from its declaration alone, hooked or not; but where the hook is undefined at its arguments the
+/// state denotes no configuration and the step to it has no successor, which k-rust did not
+/// compute. No path diagnostic records it, and the lists are the search's as a whole, so any entry
+/// refuses the hit (a fail-closed loss when the entry is on another branch).
+fn unevaluated(response: &Value) -> Option<String> {
+    let hooks = ["unsupportedHooks", "allowanceRefusals"]
+        .iter()
+        .flat_map(|key| response[*key].as_array().into_iter().flatten())
+        .map(|entry| entry["hook"].as_str().unwrap_or("?").to_owned())
+        .collect::<BTreeSet<_>>();
+    (!hooks.is_empty()).then(|| {
+        format!(
+            "k-rust left applications of {} unevaluated in the search ({UNSUPPORTED_HOOK}: a hook \
+             it does not evaluate, or a result its memory allowance refused), and a state holding \
+             one denotes a configuration only where the hook is defined at its arguments, which \
+             k-rust did not compute",
+            hooks.into_iter().collect::<Vec<_>>().join(", ")
+        )
+    })
 }
 
 /// Why a match is not a decided hit, or `Ok`.
@@ -1218,6 +1300,25 @@ mod tests {
         ] {
             // The definedness check is not what refuses these.
             incomplete(&run(&response(vec![found], vec![]), &always), cause);
+        }
+    }
+
+    /// KINK-HOOKED-VP-QUERY-HIT (final review S2): a match beside a hook application k-rust
+    /// left unevaluated is not a hit, whatever list names it; a completed exploration is still
+    /// judged by the answer rules (a `no` needs a comparable baseline run, which such a hook
+    /// excludes). Before the fix both matches were hits.
+    #[test]
+    fn a_match_beside_an_unevaluated_hook_is_not_a_hit() {
+        let record = json!({"hook": "FOO.bar", "reason": "unsupported", "observedIn": "run"});
+        for key in ["unsupportedHooks", "allowanceRefusals"] {
+            let mut hooked = response(vec![decided_match()], vec![]);
+            hooked[key] = json!([record]);
+            let outcome = run(&hooked, &always);
+            incomplete(&outcome, UNSUPPORTED_HOOK);
+            incomplete(&outcome, "FOO.bar");
+            let mut complete = response(vec![], vec![]);
+            complete[key] = json!([record]);
+            assert_eq!(run(&complete, &always), SearchOutcome::Complete);
         }
     }
 

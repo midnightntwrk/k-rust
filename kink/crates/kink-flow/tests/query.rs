@@ -404,7 +404,7 @@ fn facts<'a>(
         baseline_class: Some(class),
         baseline_cause: None,
         profile,
-        unnamed_findings: 0,
+        no_data: None,
     }
 }
 
@@ -471,6 +471,20 @@ fn the_answer_rules() {
     };
     assert_eq!(judge(&complete, &state).answer, "unknown");
     assert_eq!(judge(&hit, &state).answer, "hit");
+    // Final review K3: a definition without data (a finding no name assumes, or a check that did
+    // not read the whole definition) gives no `no`, whichever made it so; a hit stands.
+    let without_data = Facts {
+        no_data: Some(
+            "the definition's full critical-pair check did not read the whole \
+                       definition (2 simplifications of the check ran out of native stack)"
+                .into(),
+        ),
+        ..facts(&clean, "comparable", SolverProfile::NoZ3)
+    };
+    let answer = judge(&complete, &without_data);
+    assert_eq!(answer.answer, "unknown");
+    assert!(answer.cause.unwrap().contains("ran out of native stack"));
+    assert_eq!(judge(&hit, &without_data).answer, "hit");
 
     let mut load = exclusions();
     load.load_stack_stops = 1;
@@ -957,6 +971,20 @@ programs = ["add"]
         }
         assert_eq!(document["counts"]["invalid-pattern"], 4);
         assert!(records(&dir).is_empty());
+        // GUIDE-USABILITY 4: the position names the pattern's own text, not `PATTERNS.toml`
+        // (which this list is not), and says so.
+        let syntax = row(&document, "syntax", "add")["cause"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            syntax.contains("pattern:1:") && !syntax.contains("PATTERNS.toml"),
+            "{syntax}"
+        );
+        assert!(
+            syntax.contains("a line and column of the pattern's text"),
+            "{syntax}"
+        );
     }
 
     /// Flow F-18 deliverable 3: a witness reports the bindings of the variables the author wrote
