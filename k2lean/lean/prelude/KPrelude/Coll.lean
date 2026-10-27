@@ -126,6 +126,18 @@ theorem lookup_of_concat_element {k : K} {v : V} {r m : M} (h : concat (element 
   obtain ⟨_, _, rfl⟩ := concat_element_iff.1 h
   rw [lookup_def, update_def, toList_ofList]; exact SAL.lookup_insert_self k v _
 
+/-- `_Map_` is associative where defined: a match of `a (b c)` is one of `(a b) c` (a pattern
+`A B C` of map variables and elements is left-nested). -/
+theorem concat_bind_of_concat {a b c bc m : M} (h₁ : concat b c = some bc)
+    (h₂ : concat a bc = some m) : (concat a b).bind (fun r => concat r c) = some m := by
+  unfold concat at *
+  simp only [Option.map_eq_some_iff] at h₁ h₂
+  obtain ⟨l₁, e₁, rfl⟩ := h₁
+  obtain ⟨l₂, e₂, rfl⟩ := h₂
+  rw [toList_ofList] at e₂
+  obtain ⟨ab, hab, habc⟩ := SAL.concat_assoc_left e₁ e₂
+  simp [hab, toList_ofList, habc]
+
 /-- `M[K <- V][K]` is `V`. -/
 theorem lookup_update_self (m : M) (k : K) (v : V) : lookup (update m k v) k = some v := by
   rw [lookup_def, update_def, toList_ofList]; exact SAL.lookup_insert_self k v _

@@ -149,6 +149,11 @@ module TERM
   syntax Int ::= headOr(List, Int) [function, total, symbol(headOr)]
   rule headOr(ListItem(X:Int) _, _) => X
   rule headOr(_, D) => D [owise]
+  // An `owise` rule after a sort cast `I:Int` of a `KItem` argument: the other rule's pattern is
+  // an alias (the injection of `I`, named), stated in the no-match premise as the injection.
+  syntax Int ::= itemOr(KItem, Int) [function, total, symbol(itemOr)]
+  rule itemOr(I:Int, _) => I
+  rule itemOr(_, D) => D [owise]
 
   // Types read from a table: an array's alignment is its element's, its size the element's size
   // times its length, and the element's description is read from the table. The table is an
@@ -173,5 +178,5 @@ module TERM
   rule <k> run(B, L, Xs, N) => scan(B, 0, 0) ~> isort(L) ~> total(Xs, 0) ~> series(1, 0, N, N) ~> dec(B) </k>
   rule <k> runN(N) => popcount(N) ~> popcounts(N, 0 -Int N) </k>
   rule <k> runT(M, T) => sizeTy(M, T) ~> align(M, info(M, T)) </k>
-  rule <k> runL(L) => allPos(L) ~> ends(L) ~> sumPairs(L) ~> lastSum(L) ~> edgeSum(L) ~> headOr(L, 0) </k>
+  rule <k> runL(L) => allPos(L) ~> ends(L) ~> sumPairs(L) ~> lastSum(L) ~> edgeSum(L) ~> headOr(L, 0) ~> itemOr(grpOf(L), 0) </k>
 endmodule

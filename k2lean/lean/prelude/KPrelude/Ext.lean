@@ -181,6 +181,33 @@ def firstNonempty {β : Type} : List (List β) → List β
   | [] :: ls => firstNonempty ls
   | (a :: t) :: _ => a :: t
 
+open Lean Meta in
+/-- A proof of `ty` by a hypothesis of the context, or, for a map pattern `A B C` (left-nested,
+`(A B).bind fun r => r C`), by `MapHook.concat_bind_of_concat` from hypotheses `A R = some m`
+and `B C = some R` (the matches of two free-key patterns, one in the other's rest). -/
+partial def byHypOrAssoc (ty : Expr) : MetaM (Option Expr) := do
+  let hyp ← (← getLCtx).findDeclM? fun h => do
+    if h.isImplementationDetail then return none
+    return if ← withReducible (isDefEq ty h.type) then some h.toExpr else none
+  if hyp.isSome then return hyp
+  let some (_, lhs, _) := ty.eq? | return none
+  unless lhs.isAppOfArity ``Option.bind 4 do return none
+  let lem ← mkConstWithFreshMVarLevels ``MapHook.concat_bind_of_concat
+  let (largs, bis, lconcl) ← forallMetaTelescopeReducing (← inferType lem)
+  unless ← isDefEq lconcl ty do return none
+  -- the order laws do not occur in the conclusion
+  for (a, bi) in largs.zip bis do
+    if bi.isInstImplicit && !(← a.mvarId!.isAssigned) then
+      let some i ← synthInstance? (← inferType a) | return none
+      a.mvarId!.assign i
+  -- `A R = some m` first: `m` is known, so it fixes `R` for the other
+  for i in [largs.size - 1, largs.size - 2] do
+    let some h ← byHypOrAssoc (← instantiateMVars (← inferType largs[i]!)) | return none
+    unless ← isDefEq largs[i]! h do return none
+  let pf ← instantiateMVars (mkAppN lem largs)
+  if (← hasAssignableMVar pf) then return none
+  return some pf
+
 open Lean Meta Elab Tactic in
 /-- Close the goal by a hypothesis `∀ xs, a₁ = x₁ → … → aₙ = xₙ → False` (or ending in `¬ aₙ = xₙ`)
 whose equations all hold, once the bound variables are instantiated, by reflexivity or by a
@@ -201,10 +228,7 @@ elab "k2l_no_arm" : tactic => liftMetaFinishingTactic fun g => g.withContext do
         let ty ← instantiateMVars (← inferType a)
         let some (_, lhs, _) := ty.eq? | continue
         if ← isDefEq a (← mkEqRefl lhs) then continue
-        let hyp ← (← getLCtx).findDeclM? fun h => do
-          if h.isImplementationDetail then return none
-          return if ← withReducible (isDefEq ty h.type) then some h.toExpr else none
-        let some h := hyp | return none
+        let some h ← byHypOrAssoc ty | return none
         unless (← isDefEq a h) do return none
       let pf ← instantiateMVars (mkAppN d.toExpr args)
       if (← hasAssignableMVar pf) then return none

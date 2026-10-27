@@ -489,6 +489,66 @@ theorem mem_insert_unit {k : α} {p : α × Unit} {m : List (α × Unit)} :
       exact mem_insert_self _ _ _
     · exact mem_insert_of_mem_ne (h.resolve_left hk) hk
 
+/-! ### Associativity of `_Map_` (for the no-match premises of `owise` equations) -/
+
+/-- In a sorted list, a key without a binding is the key of no member. -/
+theorem lookup_eq_none_iff {k : α} {m : List (α × β)} (hs : Sorted m) :
+    lookup k m = none ↔ ∀ p ∈ m, p.1 ≠ k := by
+  constructor
+  · intro h p hp e
+    rw [← e, lookup_of_mem hs hp] at h
+    cases h
+  · intro h
+    cases hl : lookup k m with
+    | none => rfl
+    | some v => exact absurd rfl (h _ (lookup_mem hl))
+
+/-- When `_Map_` is defined: both operands sorted, no key of the first a key of the second. -/
+theorem concat_eq_some_iff {a b m : List (α × β)} :
+    concat a b = some m ↔ Sorted a ∧ Sorted b ∧ (∀ p ∈ a, lookup p.1 b = none) ∧
+      m = a.foldr (fun q acc => insert q.1 q.2 acc) b := by
+  unfold concat
+  split
+  · next hc =>
+    simp only [Bool.and_eq_true, List.all_eq_true, sortedb_iff, Option.isNone_iff_eq_none] at hc
+    simp only [Option.some.injEq]
+    exact ⟨fun h => ⟨hc.1.1, hc.1.2, hc.2, h.symm⟩, fun h => h.2.2.2.symm⟩
+  · next hc =>
+    simp only [reduceCtorEq, false_iff]
+    rintro ⟨h1, h2, h3, -⟩
+    apply hc
+    simp only [Bool.and_eq_true, List.all_eq_true, sortedb_iff, Option.isNone_iff_eq_none]
+    exact ⟨⟨h1, h2⟩, h3⟩
+
+theorem sorted_of_concat {a b m : List (α × β)} (h : concat a b = some m) : Sorted m := by
+  obtain ⟨-, hb, -, rfl⟩ := concat_eq_some_iff.1 h
+  exact sorted_foldr_insert hb a
+
+/-- `_Map_` is associative where defined: `a (b c)` defined gives `(a b) c`, the same map. -/
+theorem concat_assoc_left {a b c bc m : List (α × β)} (h₁ : concat b c = some bc)
+    (h₂ : concat a bc = some m) : ∃ ab, concat a b = some ab ∧ concat ab c = some m := by
+  obtain ⟨sb, sc, dbc, -⟩ := concat_eq_some_iff.1 h₁
+  obtain ⟨sa, sbc, dabc, -⟩ := concat_eq_some_iff.1 h₂
+  -- a key of `a` is no key of `b c`, so none of `b` and none of `c`
+  have nb : ∀ p ∈ a, lookup p.1 b = none := fun p hp =>
+    (lookup_eq_none_iff sb).2 fun q hq => (lookup_eq_none_iff sbc).1 (dabc p hp) q
+      ((mem_concat h₁).2 (Or.inl hq))
+  have nc : ∀ p ∈ a, lookup p.1 c = none := fun p hp =>
+    (lookup_eq_none_iff sc).2 fun q hq => (lookup_eq_none_iff sbc).1 (dabc p hp) q
+      ((mem_concat h₁).2 (Or.inr hq))
+  have hab := concat_eq_some_iff.2 ⟨sa, sb, nb, rfl⟩
+  refine ⟨_, hab, ?_⟩
+  have dab : ∀ p ∈ a.foldr (fun q acc => insert q.1 q.2 acc) b, lookup p.1 c = none := by
+    intro p hp
+    rcases (mem_concat hab).1 hp with hp | hp
+    · exact nc p hp
+    · exact dbc p hp
+  have hm := concat_eq_some_iff.2 ⟨sorted_of_concat hab, sc, dab, rfl⟩
+  rw [hm]
+  congr 1
+  refine eq_of_mem_iff (sorted_of_concat hm) (sorted_of_concat h₂) fun p => ?_
+  rw [mem_concat hm, mem_concat hab, mem_concat h₂, mem_concat h₁, or_assoc]
+
 end Laws
 
 end KPrelude.SAL

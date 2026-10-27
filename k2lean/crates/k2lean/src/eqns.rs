@@ -277,32 +277,44 @@ fn state_one(
     let mut guards = Vec::new();
     for (j, c) in comps.iter().enumerate() {
         let mut lc = Lower::new(m, fns, &[]);
+        let mut casv = BTreeMap::new();
+        let c_args: Vec<P> = c.args.iter().map(|a| strip_as(a, &mut casv)).collect();
+        let c_requires: Vec<P> = c.requires.iter().map(|r| subst_vars(r, &casv)).collect();
         let mut cv = BTreeMap::new();
-        for a in &c.args {
+        for a in &c_args {
             vars_of(a, &mut cv);
         }
-        for r in &c.requires {
+        for r in &c_requires {
             vars_of(r, &mut cv);
         }
         let cb = bind_vars(&mut lc, &cv, &format!("o{j}_"))?;
-        // the guard's own variables must not capture the equation's: rename the equation's args
-        // into the competitor's Lower by rendering them as raw text
-        let mut eqs = Vec::new();
-        for (a, s) in c.args.iter().zip(&sig.args) {
+        // the competitor's argument `a` matches the equation's `x`: `x = a`, or, when `a` has partial
+        // calls (a map or set pattern's concatenation), `a` is defined and is `x`
+        let mut body = Vec::new();
+        for ((x, a), s) in args.iter().zip(&c_args).zip(&sig.args) {
+            let start = lc.steps.len();
             let ca = lc.expr(a, s)?;
-            let _ = s;
-            eqs.push(ca);
+            let st: Vec<Step> = lc.steps.drain(start..).collect();
+            if st.is_empty() {
+                body.push(format!("{} = {}", x.render(), ca.render()));
+                continue;
+            }
+            // `bind e fun r => some r` is `e`
+            let oe = match (st.split_last(), &ca) {
+                (Some((Step::Bind { expr, var, .. }, init)), L::Var(v)) if v == var => {
+                    init.iter().rev().try_fold(expr.render(), |e, s| match s {
+                        Step::Bind { expr, var, .. } => {
+                            Some(format!("(Option.bind {} fun {var} => {e})", expr.render_arg()))
+                        }
+                        _ => None,
+                    })
+                }
+                _ => option_expr(&st, &ca),
+            }
+            .ok_or("owise competitor with a partial argument")?;
+            body.push(format!("{oe} = some {}", x.render_arg()));
         }
-        if !lc.steps.is_empty() {
-            return Err("owise competitor with a partial argument".into());
-        }
-        let ch = cond_props(&mut lc, &c.requires)?;
-        let mut body: Vec<String> = args
-            .iter()
-            .zip(&eqs)
-            .map(|(x, y)| format!("{} = {}", x.render(), y.render()))
-            .collect();
-        body.extend(ch);
+        body.extend(cond_props(&mut lc, &c_requires)?);
         let quant: Vec<String> = cb.iter().map(|(n, t)| format!("({n} : {t})")).collect();
         let q = if quant.is_empty() {
             String::new()
@@ -799,7 +811,7 @@ all_goals first\n      \
 | rfl\n      \
 | k2l_owise_arm\n      \
 | (simp_all [{u}]; done)\n      \
-| ((repeat' (first | split | k2l_split_hyps)) <;> first | rfl | k2l_owise_arm | (simp_all [{u}]; done) | ((try simp_all [{u}]) <;> omega))))\n\n"
+| ((repeat' (first | split | k2l_split_hyps | k2l_case_choose)) <;> first | rfl | k2l_owise_arm | (simp_all [{u}]; done) | ((try simp_all [{u}]) <;> omega))))\n\n"
         ));
     }
     for s in stated {
@@ -1064,6 +1076,7 @@ mod tests {
         let o = emit("N", &ss, &BTreeSet::new(), &unfold, &rec);
         assert!(o.contains("local macro \"k2l_eqn_o\""), "{o}");
         assert!(o.contains("| k2l_case_list | k2l_case_lvar |"), "{o}");
+        assert!(o.contains("k2l_split_hyps | k2l_case_choose"), "{o}");
         // a recursive function's: unfolded by its equation lemma, after the recursive proof
         assert!(o.contains(
             "K.f Gen0 = none := by\n  intros\n  first\n  | k2l_eqn_r K.f [K.f]\n  | ((conv => lhs; rw [K.f.eq_def]); k2l_eqn_o [K.f])\n"
