@@ -18,9 +18,10 @@
 //!   or `B`), `div-eq` (an ML precondition `#Not({ B #Equals 0 })` and an ML
 //!   postcondition `{ ?R #Equals A /Int B }`), and `div-small`, whose
 //!   postcondition quantifies with `#Exists`.
-//! - `KRS-L22-ABLATION` states `branch` again without the lemmas, and the
-//!   prover cannot close it: it cannot show that the two stores are equal
-//!   only if `?C` is `B`.
+//! - `KRS-L22-ABLATION` states `branch` again without the lemmas. It still
+//!   holds: a prover that matches the two stores key by key finds `?C` without
+//!   `update-injective`, while one that needs the lemma to equate the stores
+//!   cannot close it.
 
 use k::builtin::{Int, Map, bool, int, map};
 use k::ml::{self, Predicate};
@@ -130,7 +131,7 @@ mod spec {
     }
 }
 
-/// The ablation: `branch` without the lemmas, which the prover cannot close.
+/// The ablation: `branch` without the lemmas, which holds all the same.
 #[k::spec_module(name = "KRS-L22-ABLATION", imports = [crate])]
 mod ablation {
     use super::{Int, Machine, Map, Op, StmtSyntax, Term, bool, int, map, ml};

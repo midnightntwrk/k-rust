@@ -8,9 +8,9 @@ The fixture packages are K tutorial lesson 1.21 in both layers:
   rewrites an integer of at least 10 to `5`; `foo_bounded` (term fn form)
   rewrites `foo` to `?X` with `ensures ?X <Int 5`; the claim
   `foo-reaches-below-five` says every path from `foo` reaches some
-  `?Y <Int 5`, and the spec module `KRS-LESSON-21-GOTCHA` holds the
-  unprovable `zero-reaches-nonzero` (every path from `0` reaches some
-  `?Y =/=Int 0`).
+  `?Y <Int 5`, and the spec module `KRS-LESSON-21-GOTCHA` holds
+  `zero-reaches-nonzero` (every path from `0` reaches some `?Y =/=Int 0`),
+  whose start matches the target's pattern but not its condition.
 - `l21-readable`: the two lesson rules as readable `k::rules!` clauses, whose
   `#[k::exists]` and `#[k::ensures]` helpers `krs expand` keeps verbatim
   before `#[k::rule(..)]`.
@@ -37,10 +37,13 @@ two lesson states.
 The claim `foo-reaches-below-five` is proven on both routes (`krs prove`,
 and Java `kprove` prints `#Top`): its start `foo` is not an `Int`, so it
 cannot match the target before `foo-bounded` steps. The gotcha
-`zero-reaches-nonzero` is proven on neither: the start `0` already unifies with
-the target `?Y`, and K's reachability check stops at such a state when the
-ensures condition fails there (Java: WarnStuckClaimState). Both routes report
-it stuck at depth 0 on `<k> 0 ~> Tail </k>`, which is pinned.
+`zero-reaches-nonzero` holds too: `<k> 0 ~> Tail </k>` is not in the target
+(`0 =/=Int 0` is false), its only step is `zero-to-unknown`, and every
+successor `?X` with `?X =/=Int 0` is. `krs prove` takes that step and proves it.
+Java `kprove` stops at depth 0 instead: its stuck-state check (WarnStuckClaimState)
+ends a proof at a state that matches the target's pattern but fails its
+condition, before trying a rule. The gate requires exactly that pinned
+divergence: proven natively, stuck at depth 0 on `<k> 0 ~> Tail </k>` by kprove.
 
 Concrete execution refuses the rules: `krs build --backend llvm` stops with
 `krs::capability::unavailable`, Java `kompile --backend llvm` reports "Found
@@ -133,7 +136,10 @@ that steps only for a nonzero divisor, and the partial function `pf`), and
 /Int B:Int }`), and `div-small`, whose postcondition is `#Exists Q:Int . ( ..
 )`. Every claim is proved natively (`krs prove --spec-module`) and by Java
 `kprove --claims` on the emitted files. `KRS-L22-ABLATION` states `branch`
-without the lemmas, and both routes fail to prove it. Negative fixtures pin
+without the lemmas. The claim still holds (each branch stores `?C` as `B` or
+`A`); `krs prove` closes it by matching the two stores key by key, while
+Java `kprove` needs `update-injective` to equate them and fails, a pinned
+divergence. Negative fixtures pin
 each KF-039 diagnostic: a predicate on a transition or equation condition, a
 predicate as an object operand, a Bool where a predicate is expected,
 `ml::equals` operands without a common sort, a shadowing or untyped
@@ -213,8 +219,8 @@ READABLE_HELPERS = (
     "#[k::exists(x:Int)]\n#[k::ensures(int::ne(x, 0))]\n"
     '#[k::rule(label = "zero-to-unknown")]\n'
 )
-# (spec module, claim label): (proven, emitted claim). The lesson's claim is
-# provable; the gotcha's start already matches its target, so it is stuck.
+# (spec module, claim label): (proven, emitted claim). Both claims hold, and
+# `krs prove` proves both.
 L21_CLAIMS = {
     ("KRS-LESSON-21-SPEC", "foo-reaches-below-five"): (
         True,
@@ -223,12 +229,16 @@ L21_CLAIMS = {
         "    ensures ?Y:Int <Int 5\n",
     ),
     ("KRS-LESSON-21-GOTCHA", "zero-reaches-nonzero"): (
-        False,
+        True,
         "  claim [zero-reaches-nonzero]:\n"
         "    <k> 0 ~> Tail:K => ?Y:Int ~> Tail:K </k>\n"
         "    ensures ?Y:Int =/=Int 0\n",
     ),
 }
+# Claims kprove does not prove although they hold: its stuck-state check stops
+# at a start that matches the target's pattern but not its condition, at depth 0,
+# before the step that reaches the target (see the module documentation).
+KPROVE_STOPS_AT_START = {"zero-reaches-nonzero"}
 JAVA_LLVM_REJECTION = "[Error] Compiler: Found existential variable not supported by concrete backend."
 
 TRUSTED = Fixture(MANIFEST, "krs-verification-surface-trusted")
@@ -803,7 +813,7 @@ def verify_package(harness: FixtureGate, fixture: Fixture, *, claim: bool) -> No
 def verify_l21_claims(
     harness: FixtureGate, fixture: Fixture, emitted: Emitted, java_proofs: dict[str, dict[str, Any]],
 ) -> None:
-    """The lesson's claim is proven and the gotcha is stuck at depth 0, natively and by kprove."""
+    """Both claims are proven natively; kprove agrees, except that it stops the gotcha at depth 0."""
 
     source = emitted.source.read_text(encoding="utf-8")
     spec = (emitted.directory / "spec.k").read_text(encoding="utf-8")
@@ -813,10 +823,17 @@ def verify_l21_claims(
         if fragment not in body or f"module {module}\n" in source:
             raise GateError(f"{fixture.package}: spec module {module} in spec.k omits:\n{fragment}\n{spec}")
         native = native_claim(harness, fixture, module, label)
-        if native != java_proofs[label]:
-            raise GateError(f"{fixture.package}: claim {label} native {native} differs from kprove {java_proofs[label]}")
-        if native["proven"] != provable or (not provable and not (native["stuck"] and native["depth"] == 0)):
+        java = java_proofs[label]
+        if native["proven"] != provable:
             raise GateError(f"{fixture.package}: claim {label} reported {native}")
+        if label in KPROVE_STOPS_AT_START:
+            if java["proven"] or not java["stuck"] or java["depth"] != 0:
+                raise GateError(f"{fixture.package}: claim {label}: kprove no longer stops at depth 0: {java}")
+            outcomes[label] = {"native": native, "java": java}
+            print(f"PASS {fixture.package}: claim {module}.{label} proven; kprove stops at depth 0 as pinned: {java}")
+            continue
+        if native != java:
+            raise GateError(f"{fixture.package}: claim {label} native {native} differs from kprove {java}")
         outcomes[label] = native
         print(f"PASS {fixture.package}: claim {module}.{label} agrees with kprove: {native}")
     harness.pins.expect(("claims", fixture.package), outcomes)
@@ -839,11 +856,14 @@ L22 = Fixture(
     dependencies=("krs-verification-surface-l22:main",),
 )
 L22_MODULES = ["KRS-L22-ABLATION", "KRS-L22-LEMMAS", "KRS-L22-CLAIMS"]
-# spec module: (claim labels, native statuses and Java kprove outcomes)
+# spec module: claim labels and native statuses. Every claim holds.
 L22_EXPECTED = {
     "KRS-L22-CLAIMS": {"branch": "proven", "div-eq": "proven", "div-small": "proven"},
-    "KRS-L22-ABLATION": {"branch-ablation": "failed"},
+    "KRS-L22-ABLATION": {"branch-ablation": "proven"},
 }
+# Claims Java kprove does not prove although they hold: without
+# `update-injective` it cannot equate the two stores (see the module documentation).
+L22_KPROVE_UNPROVEN = {("KRS-L22-ABLATION", "branch-ablation")}
 L22_FRAGMENTS = (
     "  imports ML-SYNTAX\n",
     "  rule { M:Map [ Key:KItem <- V:KItem ] #Equals M:Map [ Key:KItem <- W:KItem ] }"
@@ -1089,11 +1109,17 @@ def verify_ml_predicates(harness: FixtureGate, fixture: Fixture) -> None:
     harness.pins.expect(("ml_proofs", fixture.package), native)
     java = java_module_proofs(harness, emitted, {module: tuple(labels) for module, labels in L22_EXPECTED.items()})
     for module, expected in L22_EXPECTED.items():
-        agreed = {label: status == "proven" for label, status in expected.items()}
+        agreed = {
+            label: status == "proven" and (module, label) not in L22_KPROVE_UNPROVEN
+            for label, status in expected.items()
+        }
         if java[module] != agreed:
             raise GateError(f"{fixture.package}: kprove {module} reported {json.dumps(java[module])}, native {json.dumps(expected)}")
     harness.pins.expect(("ml_kprove", fixture.package), java)
-    print(f"PASS {fixture.package}: KRS-L22-CLAIMS proven and KRS-L22-ABLATION failed, natively and by kprove")
+    print(
+        f"PASS {fixture.package}: every claim proven natively; kprove proves KRS-L22-CLAIMS"
+        " and fails KRS-L22-ABLATION as pinned"
+    )
 
 
 def verify_conc(harness: FixtureGate, fixture: Fixture) -> None:

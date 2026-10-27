@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "expand": {
-    "krs-verification-surface-l21": "b25b3c778d2a99b64ba072aa215afbe46921d5a28aa8ac300d35ef82a8cfd9df",
+    "krs-verification-surface-l21": "e4f64e7deb707255d933166a4e1e7130e6d11ff7d02b950e76a1f52ca18bdd03",
     "krs-verification-surface-l21-readable": "2b92db2200faeeaa3dcbf588a5d6160dfbcc07e59f1564ba3c853e7c11d8fae7",
     "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7",
-    "krs-verification-surface-l22-verification": "ce49d8cc10acace996e8e70b05c80df99cb9fc61d4daf94edff38dc3170c84b8"
+    "krs-verification-surface-l22-verification": "e675635a7d37be255111d5a2902c64ba128f80a7402c143d41599120aa1de973"
   },
   "emitted": {
     "krs-verification-surface-l21": {
@@ -133,10 +133,18 @@
         "k": null
       },
       "zero-reaches-nonzero": {
-        "proven": false,
-        "stuck": true,
-        "depth": 0,
-        "k": "0 ~> Tail"
+        "native": {
+          "proven": true,
+          "stuck": false,
+          "depth": null,
+          "k": null
+        },
+        "java": {
+          "proven": false,
+          "stuck": true,
+          "depth": 0,
+          "k": "0 ~> Tail"
+        }
       }
     }
   },
@@ -401,11 +409,11 @@
       },
       "KRS-L22-ABLATION": {
         "statuses": {
-          "branch-ablation": "failed"
+          "branch-ablation": "proven"
         },
-        "exit": 1,
+        "exit": 0,
         "summary": [
-          "krs prove: 0 of 1 claim proven"
+          "krs prove: 1 of 1 claim proven"
         ],
         "warnings": []
       }

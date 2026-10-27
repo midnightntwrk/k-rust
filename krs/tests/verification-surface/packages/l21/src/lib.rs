@@ -80,18 +80,17 @@ pub fn foo_reaches_below_five(
     k::cells! { k: k::configuration::KCell(y, ..tail), ..state }
 }
 
-/// A gotcha, kept to pin that both engines agree on it: this claim is NOT
-/// provable. From `0`, every path does reach a non-zero integer, but the
-/// start `0` is itself an `Int`, so it already unifies with the target `?Y`.
-/// K's reachability check stops at a state that matches the target and
-/// fails there when `ensures` does not hold (`0 =/=Int 0` is false), so the
-/// claim is stuck at depth 0 before any rule fires. A provable claim needs a
-/// start that cannot match its target, as `foo-reaches-below-five` has.
+/// A gotcha: the start `0` is itself an `Int`, so it matches the target's
+/// pattern `?Y`, but not its condition (`0 =/=Int 0` is false). The claim
+/// holds: the start is not in the target, `zero-to-unknown` is the only rule
+/// that applies to it, and every state it reaches, `?X` with `?X =/=Int 0`,
+/// is in the target. A prover must therefore take that step rather than stop
+/// where the pattern first matches.
 #[k::spec_module(name = "KRS-LESSON-21-GOTCHA", imports = [crate])]
 mod gotcha {
     use super::{Int, Machine, int};
 
-    /// Stuck at depth 0: the start already matches the target.
+    /// Holds after one step, although the start already matches the target's pattern.
     #[k::claim(all_paths, label = "zero-reaches-nonzero")]
     #[k::exists(y: Int)]
     #[k::ensures(int::ne(y, 0))]
