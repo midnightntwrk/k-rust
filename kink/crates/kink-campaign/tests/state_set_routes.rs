@@ -13,10 +13,10 @@
 //!   only from exactly one terminal leaf. Two paths to one crash configuration are one leaf in a
 //!   state set and two in a path set, so the state set gives a crash side where the path set gives
 //!   `Unknown`.
-//! - Mixed modality: kink replaces a state set by its path set per side, from that side's own
-//!   leaves (kink-native `ExecutionAdapter::execute_result`), so one test can compare a state-set
-//!   baseline with a path-set mutant. Comparison is on sets, so this alone changes nothing under
-//!   decision 3; with the single-crash rule it kills where both path sets refuse.
+//! - An undefined step on a merged state (before fz26 KINK-PATHSET-FALLBACK, mixed modality: kink
+//!   replaced a state set with an undefined step by its path set, per side). Two paths to one
+//!   undefined step are one `Trivial` leaf in a state set, so with the single-crash rule a crash
+//!   side is compared with a single undefined-step side, where both path sets refuse.
 //! - Absorbed depth bound: in a state set an earlier stuck leaf stands for a later depth-bound
 //!   leaf of the same configuration (k-rust `docs/backend-port.md`, "Final search depth cuts"),
 //!   which then leaves no leaf, so kink reads the state set as complete where the path set of the
@@ -252,7 +252,7 @@ fn leaves(
     )
     .unwrap();
     let execution = match run {
-        Some(run) => adapter.execute_once(&mut backend, state, budget, run),
+        Some(run) => adapter.execute_result(&mut backend, state, budget, run),
         None => adapter.execute(&mut backend, state, budget),
     }
     .unwrap();
@@ -333,16 +333,18 @@ mod kink_tier {
         });
     }
 
-    /// Route 2, mixed modality (L1-1 review 1 minor 2). conv.k's state set has no undefined step and
-    /// stays a state set; convz.k (what conv.k's mutant `mc: 1 -> 0` compiles to) ends in undefined
-    /// steps, so its state set is replaced by its path set. Within the one test of the campaign the
-    /// baseline is then a state set (one crash terminal, a `SemanticCrash` side) and the mutant a path
-    /// set (two undefined steps, a `Normal` side of class `UndefinedStep`), and `CrashPolicy::
-    /// Distinguish` kills. Both sides as path sets refuse the baseline (route 1). Premise: decision 3
-    /// (the two sides' leaf sets are their sets of final configurations, whatever the modality).
+    /// Route 2 (L1-1 review 1 minor 2; re-pinned by fz26 KINK-PATHSET-FALLBACK), an undefined step
+    /// on a merged state. conv.k's state set is one crash terminal; convz.k (what conv.k's mutant
+    /// `mc: 1 -> 0` compiles to) ends both converging paths in one undefined step at depth 2, one
+    /// `Trivial` leaf of its state set (two in its path set). Within the one test of the campaign
+    /// the baseline is a `SemanticCrash` side and the mutant a single undefined-step `Normal` side,
+    /// and `CrashPolicy::Distinguish` kills. Both sides as path sets refuse the baseline (route 1).
+    /// Before the ticket the mutant's state set was replaced by its path set, so the test compared
+    /// a state set with a path set. Premise: decision 3 (the two sides' leaf sets are their sets of
+    /// final configurations).
     #[test]
     #[ignore = "kink"]
-    fn route_2_one_test_compares_a_state_set_with_a_path_set() {
+    fn route_2_an_undefined_step_on_a_merged_state_is_one_leaf() {
         on_a_big_stack(|| {
             let tests = test("a3", "Lbla", 3, CrashPolicy::Distinguish);
             let state = &tests[0].initial_state;
@@ -355,10 +357,7 @@ mod kink_tier {
                 (
                     "convz",
                     "CONVZ",
-                    (
-                        ResultModality::PathSet,
-                        vec![(HaltClass::Trivial, 2), (HaltClass::Trivial, 2)],
-                    ),
+                    (ResultModality::StateSet, vec![(HaltClass::Trivial, 2)]),
                 ),
             ] {
                 let side = validator(name, module).compile_baseline().unwrap();
@@ -380,14 +379,14 @@ mod kink_tier {
             };
             let [path_set, state_set] =
                 MODALITIES.map(|modality| run(&campaign, &generation, modality));
-            assert_refused(&path_set, "mixed modality");
+            assert_refused(&path_set, "undefined step on a merged state");
             let state_set = state_set.expect("the state set admits the baseline");
             assert!(
                 matches!(baseline_side(&state_set), OracleSide::SemanticCrash(_)),
                 "{:?}",
                 baseline_side(&state_set)
             );
-            assert_killed(&state_set, "a3", "mixed modality");
+            assert_killed(&state_set, "a3", "undefined step on a merged state");
         });
     }
 
@@ -474,6 +473,149 @@ mod kink_tier {
                 vec![Some("4".to_owned())]
             );
             assert_killed(&state_set, "s3", "absorbed depth bound");
+        });
+    }
+
+    /// fz26 KINK-PATHSET-FALLBACK (D39), the remainder counterexample at admission
+    /// (`testdata/k/stateset/remainder.k`, module REMAINDER-RECORD; kink-native
+    /// `tests/exclusion.rs` pins the exclusions). The baseline run's remainder below the merged
+    /// `p(X)` names the rule that produced `p(X)`: `g1` in the state set, `g1` and the
+    /// `preserves-definedness` rule `g2` in the path set, and a covered candidate puts a record
+    /// on the run's list. The path set's leaf rule reads a contradiction on `g2`, whose result is
+    /// defined, so it keeps the baseline and fails only the test; the state set is excluded by
+    /// the list alone and refuses the baseline. The move is fail-closed: the per-test granularity
+    /// the path set kept rests on a contradiction nothing shows. Z3-only: without a solver there
+    /// is no remainder.
+    #[cfg(feature = "z3")]
+    #[test]
+    #[ignore = "kink"]
+    fn a_refuted_remainder_below_a_merged_state_refuses_a_state_set_baseline() {
+        on_a_big_stack(|| {
+            use kink_campaign::ExecutionFailureKind;
+            let validator = NativeValidator::bind(
+                support::load_path(
+                    &Path::new(support::DIR).join("stateset/remainder.k"),
+                    "REMAINDER-RECORD",
+                ),
+                CompileOptions::default(),
+            );
+            let condition = k_rust::kore::parser::parse_pattern(
+                r#"\equals{SortBool{}, SortGeneratedTopCell{}}(\dv{SortBool{}}("true"), Lbl'UndsEqlsSlshEqls'Int'Unds'{}(Lblh{}(VarX:SortInt{}), \dv{SortInt{}}("3")))"#,
+            )
+            .unwrap();
+            let tests = vec![TestCase {
+                id: "x".into(),
+                initial_state: Pattern::And {
+                    sort: k_rust::kore::ast::Sort::Application {
+                        name: "SortGeneratedTopCell".into(),
+                        arguments: Vec::new(),
+                    },
+                    arguments: vec![
+                        support::initial_state(
+                            support::app("Lblx", vec![support::var("VarX", "SortInt")]),
+                            "SortProg",
+                        ),
+                        condition,
+                    ],
+                },
+                oracles: vec![
+                    OracleDeclaration::new(
+                        CrashPolicy::Reject,
+                        Projection::State(StateProjection::WholeTerm),
+                    )
+                    .unwrap(),
+                ],
+            }];
+            let generation = replace(validator.baseline(), "REMAINDER.pr", "0", "1");
+            let campaign = Campaign {
+                validator: &validator,
+                module: "REMAINDER-RECORD",
+                observation: &[],
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let [path_set, state_set] =
+                MODALITIES.map(|modality| run(&campaign, &generation, modality));
+            let path_set = path_set.expect("the path set keeps the baseline per test");
+            assert_eq!(
+                path_set.baseline[0].run,
+                SideRun::Failed(ExecutionFailureKind::ContradictedClaim)
+            );
+            assert!(path_set.baseline[0].notes.leaf_contradiction);
+            assert_eq!(
+                state_set.err(),
+                Some(CampaignFailureKind::BaselineOracleFailed),
+                "the state set refuses the baseline"
+            );
+        });
+    }
+
+    /// fz26 KINK-PATHSET-FALLBACK, the soundness guards at admission
+    /// (`testdata/k/stateset/guards.k`; kink-native `tests/exclusion.rs` pins the exclusions): on
+    /// each leaf kind kink reads, reached by two converging paths, a state-set campaign admits the
+    /// baseline exactly as the path-set campaign does.
+    /// - `two(0)` (a `preserves-definedness` undefined step) and `tc(0)` (a contradicted `total`):
+    ///   a leaf contradiction, so the baseline is kept and only the test fails.
+    /// - `ab(0)` (the record on an absorbed arrival's prefix only): excluded by the list alone, so
+    ///   the baseline is refused.
+    /// - `cr(0)` (a crash beside a feasible undefined step, under `CompareIdentity`): two
+    ///   terminals in both modalities, so the side is `Unknown` and the baseline is refused.
+    #[test]
+    #[ignore = "kink"]
+    fn the_soundness_guards_admit_a_baseline_alike_in_both_modalities() {
+        on_a_big_stack(|| {
+            use kink_campaign::ExecutionFailureKind;
+            let validator = NativeValidator::bind(
+                support::load_path(&Path::new(support::DIR).join("stateset/guards.k"), "GUARDS"),
+                CompileOptions::default(),
+            );
+            let generation = replace(validator.baseline(), "GUARDS.join", "0", "1");
+            let side = validator.compile_baseline().unwrap();
+            for (symbol, policy, kept) in [
+                ("Lbltwo", CrashPolicy::Reject, true),
+                ("Lbltc", CrashPolicy::Reject, true),
+                ("Lblab", CrashPolicy::Reject, false),
+                ("Lblcr", CrashPolicy::CompareIdentity, false),
+            ] {
+                let tests = test("g", symbol, 0, policy);
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "GUARDS",
+                    observation: &[],
+                    classify: &crash_is_a_crash,
+                    tests: &tests,
+                    budget: BUDGET,
+                };
+                for modality in MODALITIES {
+                    let outcome = run(&campaign, &generation, modality);
+                    if kept {
+                        let run =
+                            outcome.unwrap_or_else(|e| panic!("{symbol} {modality:?}: {e:?}"));
+                        assert_eq!(
+                            run.baseline[0].run,
+                            SideRun::Failed(ExecutionFailureKind::ContradictedClaim),
+                            "{symbol} {modality:?}"
+                        );
+                        assert!(run.baseline[0].notes.leaf_contradiction, "{symbol}");
+                    } else {
+                        assert_eq!(
+                            outcome.err(),
+                            Some(CampaignFailureKind::BaselineOracleFailed),
+                            "{symbol} {modality:?}"
+                        );
+                    }
+                }
+                if symbol == "Lblcr" {
+                    assert_eq!(
+                        leaves(&side, "GUARDS", &tests[0].initial_state, BUDGET, None),
+                        (
+                            ResultModality::StateSet,
+                            vec![(HaltClass::Trivial, 1), (HaltClass::Stuck, 1)]
+                        )
+                    );
+                }
+            }
         });
     }
 }

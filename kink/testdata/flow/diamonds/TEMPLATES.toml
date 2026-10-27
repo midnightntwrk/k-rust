@@ -1,0 +1,12 @@
+# kink-flow fuzz templates for the diamonds fixture (fz26 KINK-PATHSET-FALLBACK, S9): the
+# divisor of `go(14, D)`.
+[[template]]
+id = "divisor"
+program = "equal-ends"
+
+  [[template.hole]]
+  name = "D"
+  sort = "Int"
+  find = "go(14, 3)"
+  literal = "3"
+  range = { min = 0, max = 8 }

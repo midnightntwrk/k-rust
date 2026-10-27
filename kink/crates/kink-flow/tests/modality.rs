@@ -12,14 +12,17 @@
 //!   really happens on the mutant side, with a classifier that reads crashes;
 //! - `#[ignore]`d for its cost, `examples/imp` and its mutants.
 //!
-//! For each (side, program) it compares the raw runs (no replacement of a state set by its path
-//! set) under the side's budget:
+//! For each (side, program) it compares the two result runs (kink-native `execute_result` under
+//! each modality, which since fz26 KINK-PATHSET-FALLBACK is the run k-rust answers) under the
+//! side's budget:
 //!
 //! - equal timeout (a state set that finishes where the path set timed out is counted, never
 //!   compared; the reverse fails);
 //! - the complete leaves as sets of (terminal class, depth for undefined steps and vacuous leaves,
-//!   configuration): the class of a stuck leaf is the classifier's (normal, stuck, crash), so the
-//!   deduplicated finals and their terminal classes are equal;
+//!   configuration, and for those the rule an undefined step names and the `total` claim a leaf
+//!   contradicts): the class of a stuck leaf is the classifier's (normal, stuck, crash), so the
+//!   deduplicated finals and their terminal classes are equal, and kink's exclusions read the
+//!   same rules and claims on either run;
 //! - the bounded and other incomplete leaves as sets of (halt, configuration): equal, except that
 //!   a path-set leaf the state set lacks must be one k-rust documents as absorbed (an earlier
 //!   stuck leaf of the same configuration stands for it; k-rust `docs/backend-port.md`, "Final
@@ -135,8 +138,14 @@ fn state_text(leaf: &AdaptedLeaf) -> String {
 }
 
 /// A complete leaf as the differential compares it: its terminal class (a stuck leaf's is the
-/// classifier's), its depth for undefined steps and vacuous leaves, and its configuration.
-type CompleteKey = (String, Option<u64>, String);
+/// classifier's), its depth for undefined steps and vacuous leaves, its configuration, and for
+/// those the rule an undefined step names (`undefined_rule`) and the `total` claim the leaf
+/// contradicts (`contradicted_total`), which kink's exclusions read. k-rust's leaf of an
+/// undefined step names the step's rule from its own configuration, the same on every path; a
+/// leaf of a remainder its own normalization refutes names the rule that produced its parent,
+/// which under a state set is the witness path's (k-rust `docs/backend-port.md`), but such a
+/// remainder needs a symbolic state the solver misjudges, which no input here has.
+type CompleteKey = (String, Option<u64>, String, Option<String>, Option<String>);
 
 /// The complete leaves of `execution`, and its other leaves as (halt, configuration).
 fn leaf_sets(
@@ -151,10 +160,18 @@ fn leaf_sets(
                 let class = codec::from_value(&leaf.branch.state)
                     .map(|term: Pattern| format!("{:?}", classify(&term)))
                     .unwrap_or_else(|_| "undecodable".into());
-                complete.insert((class, None, state));
+                complete.insert((class, None, state, None, None));
             }
             HaltClass::Trivial | HaltClass::Vacuous => {
-                complete.insert((format!("{:?}", leaf.halt), Some(leaf.branch.depth), state));
+                complete.insert((
+                    format!("{:?}", leaf.halt),
+                    Some(leaf.branch.depth),
+                    state,
+                    leaf.undefined_rule.as_ref().map(|rule| rule.id.clone()),
+                    leaf.contradicted_total
+                        .as_ref()
+                        .map(|claim| format!("{claim:?}")),
+                ));
             }
             other => {
                 bounded.insert((format!("{other:?}"), state));
@@ -191,9 +208,9 @@ struct Tally {
     /// Pairs whose state set has fewer leaves than the path set: k-rust's merge happened.
     merged: Vec<String>,
     merged_on_mutants: Vec<String>,
-    /// Pairs whose state set kink replaces by its path set (an undefined step, a vacuous leaf or
-    /// a contradicted claim).
-    replaced: Vec<String>,
+    /// Pairs whose state set has an undefined step, a vacuous leaf or a contradicted claim on a
+    /// leaf: the runs kink replaced by their path sets before fz26 KINK-PATHSET-FALLBACK.
+    undefined: Vec<String>,
     /// Pairs where an earlier stuck leaf absorbed a later bounded leaf of its configuration.
     absorbed: Vec<String>,
     /// Pairs a run of which the adapter refused, with the failures (never compared).
@@ -217,7 +234,7 @@ impl Tally {
         self.faster.extend(other.faster);
         self.merged.extend(other.merged);
         self.merged_on_mutants.extend(other.merged_on_mutants);
-        self.replaced.extend(other.replaced);
+        self.undefined.extend(other.undefined);
         self.absorbed.extend(other.absorbed);
         self.failed.extend(other.failed);
         self.mutant_timeouts.extend(other.mutant_timeouts);
@@ -266,7 +283,7 @@ fn compare_side(
     for (program, state) in programs {
         let id = format!("{} {program}", side.label);
         let run = |backend: &mut _, modality| {
-            adapter.execute_once(
+            adapter.execute_result(
                 backend,
                 state,
                 budget,
@@ -338,8 +355,8 @@ fn compare_side(
         );
         let stuck = state_complete
             .iter()
-            .filter(|(_, depth, _)| depth.is_none())
-            .map(|(_, _, state)| state)
+            .filter(|(_, depth, ..)| depth.is_none())
+            .map(|(_, _, state, ..)| state)
             .collect::<BTreeSet<_>>();
         let absorbed = path_bounded.difference(&state_bounded).collect::<Vec<_>>();
         for (halt, state) in &absorbed {
@@ -356,7 +373,7 @@ fn compare_side(
             matches!(leaf.halt, HaltClass::Trivial | HaltClass::Vacuous)
                 || leaf.contradicted_total.is_some()
         }) {
-            tally.replaced.push(id.clone());
+            tally.undefined.push(id.clone());
         }
         assert_eq!(diagnosed(&path_set), diagnosed(&state_set), "{id}");
         assert_eq!(
@@ -794,7 +811,7 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 25] = [
+const CORPUS: [(&str, &[&str], Minimums); 27] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "calc",
@@ -810,6 +827,12 @@ const CORPUS: [(&str, &[&str], Minimums); 25] = [
         at_least(90, 81, 9, 0),
     ),
     ("compile-error", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    // fz26 KINK-PATHSET-FALLBACK, S9 (no minimum: they are there for `tests/work_budget.rs` and
+    // `tests/fuzz.rs`). Listed but not run by a differential test: their programs are 2^14
+    // converging paths, whose path sets the work budget or (on the unguarded baseline) the 500 ms
+    // bound cuts by design, so a path set would time out where the state set finishes.
+    ("diamonds", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    ("diamonds/unguarded", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("divide", &["FLOW.toml"], at_least(4, 2, 1, 1)),
     (
         "loop",

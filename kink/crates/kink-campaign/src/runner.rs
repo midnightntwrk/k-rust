@@ -11,9 +11,10 @@
 //!   state-set result run (re-pin L1-1, [`RunOptions`]): k-rust merges equal final
 //!   configurations, and a complete state set has exactly the distinct final configurations of
 //!   the path set of the same request, diagnostics included (re-pin decision 3; kink-flow
-//!   `tests/modality.rs` checks it on the corpus). A state set with an undefined step, a vacuous
-//!   leaf or a contradicted claim is replaced by its path set, whose leaves name their own rules
-//!   for the exclusions. A test with a pattern oracle runs as a stepped path set on both sides.
+//!   `tests/modality.rs` checks it on the corpus). That holds whatever the leaves (fz26
+//!   KINK-PATHSET-FALLBACK): a state set's undefined steps and vacuous leaves are leaves of the
+//!   path set, and its `contradictedClaims` list holds absorbed arrivals' records, which the
+//!   exclusions read. A test with a pattern oracle runs as a stepped path set on both sides.
 //!   A run the time bound cancelled is `Failed(TimeLimit)` (k-rust answers a cancellation with an
 //!   error and publishes no leaf), a mutant's run its work budget stopped ([`WorkBudget`]) ends in
 //!   a `work-bound` leaf, and every other incomplete run is `Unknown`, including a backend
@@ -367,16 +368,14 @@ pub struct RunOptions {
     /// The modality requested for every result run: the run of a test with no pattern oracle,
     /// on the baseline and on every mutant (k-rust's state set by default). A test with a pattern
     /// oracle runs as a stepped path set on both sides, and its fallback run when stepping fails
-    /// is a path set too. A state set whose leaves include an undefined step, a vacuous leaf or a
-    /// contradicted claim is replaced by the path set of the same request (kink-native
-    /// `ExecutionAdapter::execute_result`). That replacement is decided per side, from that
-    /// side's own leaves, so the two sides of one test can differ: a baseline state set without
-    /// an undefined step is compared with a mutant path set that has one (re-pin L1-1-fix-1,
-    /// kink-campaign `tests/state_set_routes.rs` route 2). Sides are compared as sets of
-    /// projected final configurations, which decision 3 makes the same in both modalities; the
+    /// is a path set too. Both sides of a test run in this modality, whatever their leaves (fz26
+    /// KINK-PATHSET-FALLBACK removed the per-side replacement of a state set with an undefined,
+    /// vacuous or contradicted leaf by its path set). Sides are compared as sets of projected
+    /// final configurations, which decision 3 makes the same in both modalities; the
     /// single-crash rule of [`state_side`] reads the number of terminal leaves, though, so a
-    /// state-set side can be a crash side where the path set of the same request is `Unknown`
-    /// (route 1). `PathSet` is the reading at 1ee9955, kept for the modality differential.
+    /// state-set side can be a crash side, or a single undefined-step side, where the path set of
+    /// the same request is `Unknown` or has two leaves (`tests/state_set_routes.rs` routes 1 and
+    /// 2). `PathSet` is the reading at 1ee9955, kept for the modality differential.
     pub result_modality: ResultModality,
     /// The work budget of every mutant result run ([`WorkBudget`]).
     pub work: WorkBudget,
@@ -2823,10 +2822,8 @@ impl Runtime {
     /// The request is a function of the test (re-pin L1-1): a test with a pattern oracle runs as
     /// a stepped path set, and when stepping fails its run is a path-set result run, so both
     /// sides of such a test are path sets; any other test runs as a result run in this side's
-    /// modality, which is the campaign's. The leaves need not be in that modality: a state set
-    /// with an undefined step, a vacuous leaf or a contradicted claim is replaced by its path set
-    /// on this side alone ([`RunOptions::result_modality`]). `max_work` bounds result runs only,
-    /// never a stepped run ([`WorkBudget`]).
+    /// modality, which is the campaign's, whatever its leaves ([`RunOptions::result_modality`]).
+    /// `max_work` bounds result runs only, never a stepped run ([`WorkBudget`]).
     fn execute(
         &mut self,
         campaign: &Campaign<'_>,

@@ -85,8 +85,7 @@ fn call(symbol: &str, argument: i64) -> Pattern {
     support::app(&format!("Lbl{symbol}"), vec![support::int(argument)])
 }
 
-/// One default result run (a state set, replaced by its path set where kink's exclusions read a
-/// leaf's rule) of `program`.
+/// One default result run (a state set) of `program`.
 fn run(side: &ValidatedDefinition, module: &str, program: Pattern) -> AdaptedExecution {
     ExecutionAdapter::with_profile(SolverProfile::BUILD)
         .execute(&mut backend(side, module), &state(program), budget())
@@ -394,17 +393,18 @@ mod kink_tier {
         });
     }
 
-    /// A state set replaced by its path set (`tv(0)`: an undefined step naming the contradicted
-    /// `total`, a `Trivial` leaf) keeps the facts: the record is on the replacement's list, and the
-    /// leaf's contradiction is decision 2's leaf rule, the per-test case of admission.
+    /// A state set with an undefined step naming the contradicted `total` (`tv(0)`, a `Trivial`
+    /// leaf) stays the state set (fz26 KINK-PATHSET-FALLBACK) and keeps its own facts: the record
+    /// is on its list, and the leaf's contradiction is decision 2's leaf rule, the per-test case
+    /// of admission.
     #[test]
     #[ignore = "kink"]
-    fn a_replaced_state_set_keeps_its_facts() {
+    fn a_state_set_with_an_undefined_step_keeps_its_facts() {
         on_a_big_stack(|| {
             let (side, module) = fixture("a1claims");
             let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
             let execution = run(&side, &module, call("tv", 0));
-            assert_eq!(execution.modality(), ResultModality::PathSet);
+            assert_eq!(execution.modality(), ResultModality::StateSet);
             assert_eq!(
                 records(&execution),
                 [td_record("A1CLAIMS", Some("tv"), ObservedInOutput::Run)]
@@ -422,17 +422,17 @@ mod kink_tier {
         });
     }
 
-    /// Re-pin adoption A-1b (review A-1-review-1 finding 6): the replacement keeps a fact only the
-    /// state set it replaces reached. Under a work budget of 13 states (`testdata/k/a1/replace.k`,
-    /// `s(0)`), the state set merges the diamond's second arrival at `c`, completes (the `Trivial`
-    /// leaf `val(10 /Int 0)` and the stuck `done`) and lists `ytd`'s record; the path set of the same
-    /// request explores the chain under `c` twice and stops at its `work-bound` leaf before it reaches
-    /// `y`, so its own list is empty and alone it would be no excluded run. `execute_result` replaces
-    /// the state set by that path set (the `Trivial` leaf), and the result must still list the record
-    /// and so be excluded (`contradicted-claim`). Dropping the union in the replacement fails here.
+    /// Re-pin adoption A-1b (review A-1-review-1 finding 6), re-read for fz26
+    /// KINK-PATHSET-FALLBACK: under a work budget of 13 states (`testdata/k/a1/replace.k`, `s(0)`),
+    /// the state set merges the diamond's second arrival at `c`, completes (the `Trivial` leaf
+    /// `val(10 /Int 0)` and the stuck `done`) and lists `ytd`'s record, so the result run is
+    /// excluded (`contradicted-claim`) by its own list, with no union of two runs' facts. The path
+    /// set of the same request explores the chain under `c` twice and stops at its `work-bound`
+    /// leaf before it reaches `y`: its own list is empty, and alone it is no excluded run. Before
+    /// the ticket the result run was that path set, with the state set's facts united into it.
     #[test]
     #[ignore = "kink"]
-    fn a_replacement_keeps_a_fact_only_the_state_set_reached() {
+    fn a_work_bound_state_set_is_excluded_by_its_own_list() {
         on_a_big_stack(|| {
             let (side, module) = fixture("replace");
             let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
@@ -444,65 +444,46 @@ mod kink_tier {
                 max_work: Some(13),
             };
             let expected = [td_record("REPLACE", Some("ytd"), ObservedInOutput::Run)];
+            let execute = |modality| {
+                adapter
+                    .execute_result(
+                        &mut backend(&side, &module),
+                        &initial,
+                        budget(),
+                        bounded(modality),
+                    )
+                    .unwrap()
+            };
+            let halts = |execution: &AdaptedExecution| {
+                execution
+                    .leaves()
+                    .iter()
+                    .map(|leaf| leaf.halt)
+                    .collect::<Vec<_>>()
+            };
 
-            let state_set = adapter
-                .execute_once(
-                    &mut backend(&side, &module),
-                    &initial,
-                    budget(),
-                    bounded(ResultModality::StateSet),
-                )
-                .unwrap();
+            let state_set = execute(ResultModality::StateSet);
             assert_eq!(state_set.modality(), ResultModality::StateSet);
             assert_eq!(records(&state_set), expected);
-            let halts = state_set
-                .leaves()
-                .iter()
-                .map(|leaf| leaf.halt)
-                .collect::<Vec<_>>();
             assert_eq!(
-                halts,
+                halts(&state_set),
                 [HaltClass::Trivial, HaltClass::Stuck],
                 "{state_set:?}"
             );
+            assert_eq!(
+                exclusions.run_exclusion(&state_set),
+                Some(Exclusion::ContradictedClaim)
+            );
 
-            let path_set = adapter
-                .execute_once(
-                    &mut backend(&side, &module),
-                    &initial,
-                    budget(),
-                    bounded(ResultModality::PathSet),
-                )
-                .unwrap();
+            let path_set = execute(ResultModality::PathSet);
             assert_eq!(path_set.modality(), ResultModality::PathSet);
             assert!(records(&path_set).is_empty(), "{path_set:?}");
-            let halts = path_set
-                .leaves()
-                .iter()
-                .map(|leaf| leaf.halt)
-                .collect::<Vec<_>>();
             assert_eq!(
-                halts,
+                halts(&path_set),
                 [HaltClass::Trivial, HaltClass::WorkBound],
                 "{path_set:?}"
             );
             assert_eq!(exclusions.run_exclusion(&path_set), None);
-
-            let replaced = adapter
-                .execute_result(
-                    &mut backend(&side, &module),
-                    &initial,
-                    budget(),
-                    bounded(ResultModality::StateSet),
-                )
-                .unwrap();
-            assert_eq!(replaced.modality(), ResultModality::PathSet);
-            assert_eq!(replaced.leaves(), path_set.leaves());
-            assert_eq!(records(&replaced), expected);
-            assert_eq!(
-                exclusions.run_exclusion(&replaced),
-                Some(Exclusion::ContradictedClaim)
-            );
         });
     }
 

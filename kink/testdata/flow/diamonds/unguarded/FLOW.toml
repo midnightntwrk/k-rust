@@ -1,0 +1,22 @@
+# kink-flow corpus manifest for the unguarded diamonds fixture (fz26 KINK-PATHSET-FALLBACK, S9,
+# the baseline direction). The baseline's run of `go(14, 0)` ends in an undefined step; its state
+# set visits about 60 states in milliseconds, its path set about 49 000 (about 2 s in a release
+# build on a 32-CPU host, 600 MB). A baseline run has no work budget, so only the clock separates
+# the two: `time_ms = 500` keeps a wide margin on both sides, so a baseline path set times out on
+# any host and a state set finishes on any host.
+[spec]
+entry = "diamonds.k"
+main_module = "DIAMONDS"
+syntax_module = "DIAMONDS-SYNTAX"
+
+[budget]
+time_ms = 500
+work_factor = 4
+
+[[program]]
+id = "equal-ends"
+text = "go(14, 3)"
+
+[[program]]
+id = "by-zero"
+text = "go(14, 0)"

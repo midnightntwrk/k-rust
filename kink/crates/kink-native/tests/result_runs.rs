@@ -2,8 +2,8 @@
 //! a cancellation with an error, and optionally under a work budget.
 //!
 //! - A state set whose leaves hold an undefined step (`Trivial`), a vacuous leaf or a
-//!   contradicted claim is replaced by the path set of the same request, so kink's exclusions read
-//!   each such leaf's own rule (k-rust reports it under a state set only as witness metadata).
+//!   contradicted claim stays the state set k-rust answers (fz26 KINK-PATHSET-FALLBACK): its leaf
+//!   of an undefined step names the rule of the step from its own configuration.
 //! - A work budget at least the unbounded run's work changes nothing; below it the run ends in
 //!   one `work-bound` leaf, which the adapter admits only under `max_work` and the bridge reads as
 //!   an incomplete path without a real prefix or a term, so the run is never complete.
@@ -90,33 +90,47 @@ fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
 }
 
 /// A state set with an undefined step, plain (`half(0)`) or contradicting `td`'s `total` claim
-/// (`tdiv(-1)`), is replaced by its path set, whose leaf names its own rule; a run without one
-/// (`half(2)`) stays a state set. k-rust's own state set of the same request is a state set
-/// (`execute_once`).
+/// (`tdiv(-1)`), stays a state set (fz26 KINK-PATHSET-FALLBACK): its one `Trivial` leaf names the
+/// rule of the step, and the second carries the claim; the path set of the same request has the
+/// same leaf. A run without one (`half(2)`) is a state set too.
 #[test]
-fn a_state_set_with_an_undefined_step_is_replaced_by_its_path_set() {
+fn a_state_set_with_an_undefined_step_stays_a_state_set() {
     on_a_big_stack(|| {
         let (side, module) = fixture("r0b", "tdiv");
         let mut backend = backend(&side, &module);
         let adapter = adapter();
-        for (symbol, argument) in [("Lblhalf", 0), ("Lbltdiv", -1)] {
+        for (symbol, argument, rule, claim) in [
+            ("Lblhalf", 0, "TDIV.half", false),
+            ("Lbltdiv", -1, "TDIV.tdiv", true),
+        ] {
             let initial = state(symbol, argument);
             let run = adapter.execute(&mut backend, &initial, budget()).unwrap();
-            assert_eq!(run.modality(), ResultModality::PathSet, "{symbol}");
+            assert_eq!(run.modality(), ResultModality::StateSet, "{symbol}");
             let [leaf] = run.leaves() else {
                 panic!("{symbol}: {run:?}")
             };
             assert_eq!(leaf.halt, HaltClass::Trivial);
-            assert!(leaf.undefined_rule.is_some(), "{symbol}: names its rule");
-            let raw = adapter
-                .execute_once(&mut backend, &initial, budget(), ResultRun::default())
-                .unwrap();
-            assert_eq!(raw.modality(), ResultModality::StateSet);
-            assert!(
-                raw.leaves()
-                    .iter()
-                    .any(|leaf| leaf.halt == HaltClass::Trivial)
+            assert_eq!(
+                leaf.undefined_rule
+                    .as_ref()
+                    .and_then(|rule| rule.label.as_deref()),
+                Some(rule),
+                "{symbol}"
             );
+            assert_eq!(leaf.contradicted_total.is_some(), claim, "{symbol}");
+            let path_set = adapter
+                .execute_result(
+                    &mut backend,
+                    &initial,
+                    budget(),
+                    ResultRun {
+                        modality: ResultModality::PathSet,
+                        max_work: None,
+                    },
+                )
+                .unwrap();
+            assert_eq!(path_set.modality(), ResultModality::PathSet);
+            assert_eq!(path_set.leaves(), run.leaves(), "{symbol}");
         }
         let defined = adapter
             .execute(&mut backend, &state("Lblhalf", 2), budget())
@@ -129,6 +143,82 @@ fn a_state_set_with_an_undefined_step_is_replaced_by_its_path_set() {
                 .map(|leaf| leaf.halt)
                 .collect::<Vec<_>>(),
             [HaltClass::Stuck]
+        );
+    });
+}
+
+/// fz26 KINK-PATHSET-FALLBACK, S9 (`testdata/flow/diamonds`): the unguarded definition is what
+/// the mutation `end-guard-dropped` compiles to. Its run of `go(14, 0)`, under the mutant's work
+/// budget `4 * W + 10000` (W the guarded baseline's work on the same program, as kink-flow's
+/// `work_factor = 4`), is a complete state set: one `Trivial` leaf at depth 28 naming
+/// `DIAMONDS.end`, in under 100 states. Its path set needs about 49 000 states and ends
+/// work-bound; before the ticket that path set was the result run.
+#[test]
+fn an_undefined_step_after_converging_diamonds_is_one_leaf_of_a_complete_state_set() {
+    on_a_big_stack(|| {
+        let compile = |path: &str| {
+            let loaded = support::load_path(
+                &Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../testdata/flow/diamonds")
+                    .join(path),
+                "DIAMONDS",
+            );
+            NativeValidator::bind(loaded, CompileOptions::default())
+                .compile_baseline()
+                .unwrap_or_else(|e| panic!("{path}: {e}"))
+        };
+        let module = k_rust::kast::identifier::encode("DIAMONDS");
+        let initial = support::initial_state(
+            support::app("Lblgo", vec![support::int(14), support::int(0)]),
+            "SortProg",
+        );
+        let adapter = adapter();
+        let baseline = compile("diamonds.k");
+        let base_run = adapter
+            .execute(&mut backend(&baseline, &module), &initial, budget())
+            .unwrap();
+        assert_eq!(
+            base_run
+                .leaves()
+                .iter()
+                .map(|leaf| leaf.halt)
+                .collect::<Vec<_>>(),
+            [HaltClass::Stuck]
+        );
+        let max_work = 4 * base_run.work() + 10_000;
+        let mutant = compile("unguarded/diamonds.k");
+        let run = |modality| {
+            adapter
+                .execute_result(
+                    &mut backend(&mutant, &module),
+                    &initial,
+                    budget(),
+                    ResultRun {
+                        modality,
+                        max_work: Some(max_work),
+                    },
+                )
+                .unwrap()
+        };
+        let state_set = run(ResultModality::StateSet);
+        assert_eq!(state_set.modality(), ResultModality::StateSet);
+        let [leaf] = state_set.leaves() else {
+            panic!("one leaf: {:?}", halts(&state_set))
+        };
+        assert_eq!(leaf.halt, HaltClass::Trivial);
+        assert_eq!(leaf.branch.depth, 28);
+        assert_eq!(
+            leaf.undefined_rule
+                .as_ref()
+                .and_then(|rule| rule.label.as_deref()),
+            Some("DIAMONDS.end")
+        );
+        assert!(state_set.work() < 100, "{}", state_set.work());
+        let path_set = run(ResultModality::PathSet);
+        assert_eq!(
+            path_set.leaves().last().map(|leaf| leaf.halt),
+            Some(HaltClass::WorkBound),
+            "{max_work}"
         );
     });
 }

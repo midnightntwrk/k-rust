@@ -675,6 +675,36 @@ mod kink_tier {
         assert_eq!(totals(&document)["cases"], 300);
     }
 
+    /// fz26 KINK-PATHSET-FALLBACK, S9 (`testdata/flow/diamonds`): the removed-end job of
+    /// `end-guard-dropped` on `go(14, $D)` finds `D = 0`, whose mutant state set ends in one
+    /// undefined step after 14 converging diamonds; the witness filter accepts it (the mutant's
+    /// work is within `4 * W + 10000`), and kink's confirmation, which runs the same state set,
+    /// kills with the fragment. Before the ticket kink ran that side as a path set, about 49 000
+    /// states, which the work budget cut, and the job stopped `unconfirmed`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_kill_through_an_undefined_step_after_converging_paths_is_confirmed() {
+        let (document, ok) = fuzz_kill(
+            &flow("diamonds"),
+            "MUTATIONS.toml",
+            None,
+            "divisor",
+            "end-guard-dropped",
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(100)
+            },
+        );
+        assert!(ok, "{:#}", document["action"]);
+        assert_eq!(document["stopped"], Value::Null, "{document:#}");
+        let confirmation = &document["attempts"][0]["confirmation"];
+        assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
+        assert_eq!(confirmation["status"], "killed");
+        assert_eq!(confirmation["killer"], document["program"]["id"]);
+        let fragment = document["program"]["fragment"].as_str().unwrap();
+        assert!(fragment.contains("go(14, 0)"), "{fragment}");
+    }
+
     /// A mutation kink refuses ends the command with kink's status and reason; nothing is fuzzed.
     #[test]
     #[ignore = "kink"]

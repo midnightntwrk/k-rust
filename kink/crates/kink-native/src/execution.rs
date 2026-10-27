@@ -2,12 +2,13 @@
 //!
 //! A result run ([`ExecutionAdapter::execute`], [`ExecutionAdapter::execute_result`]) is one
 //! unobserved run whose leaves are, by default, k-rust's state set: structurally equal final
-//! configurations merged ([`ResultModality::StateSet`]). A state set whose leaves include an
-//! undefined step (`Trivial`), a `Vacuous` leaf or a contradicted `total` claim is replaced by the
-//! path set of the same request, because under StateSet such a leaf's rule is witness metadata
-//! and its multiplicity differs (k-rust section_2_2_summary (4)), while kink's exclusions read
-//! that rule ([`crate::exclusion`]). A stepped run ([`ExecutionAdapter::execute_steps`]) stays an
-//! observed path set: one leaf per path, each with its own configuration sequence.
+//! configurations merged ([`ResultModality::StateSet`]), whatever its leaves (fz26
+//! KINK-PATHSET-FALLBACK). A state set's undefined steps (`Trivial`) and `Vacuous` leaves are
+//! never merged: the leaf of an undefined step names the rule of the step from its own
+//! configuration, which every path to that configuration and depth takes, and every contradicted
+//! claim the run met, absorbed arrivals' included, is on its `contradictedClaims` list, which the
+//! exclusions read ([`crate::exclusion`]). A stepped run ([`ExecutionAdapter::execute_steps`])
+//! stays an observed path set: one leaf per path, each with its own configuration sequence.
 //! Every run carries no trace and collects k-rust's run coverage ([`RunCoverage`]), and a
 //! cancelled run answers an error, so a timed-out run publishes no leaf. A watchdog cancels
 //! execution when the time budget expires; a result run may also carry a work budget
@@ -194,9 +195,7 @@ impl SolverProfile {
 /// Limits of one execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionBudget {
-    /// Wall-clock budget of one run (the watchdog's). A result run whose state set is replaced
-    /// by its path set ([`ExecutionAdapter::execute_result`]) is two runs, each with this whole
-    /// budget and a fresh watchdog, so it can take up to twice as long.
+    /// Wall-clock budget of one run (the watchdog's).
     pub time: Duration,
     /// Simplifier iterations per rewrite step. Exhaustion is a backend diagnostic.
     pub max_simplification_iterations: usize,
@@ -291,8 +290,8 @@ impl RunCoverage {
 
 /// The run-level facts of one run (re-pin adoption A-1, `draft/tasks/repin-58720d2e/ADOPTION.md`):
 /// the lists and the count k-rust 58720d2e5 added to `ExecutionResult` (KINK-17/1, KINK-18/2,
-/// KINK-19/1), as k-rust answers them, for every run kink judges: a result run, the path set that
-/// replaces a state set, a stepped run and an unobserved run. Each list holds what the run's leaves
+/// KINK-19/1), as k-rust answers them, for every run kink judges: a result run, a stepped run and
+/// an unobserved run. Each list holds what the run's leaves
 /// carry and also what no leaf carries (k-rust `docs/compatibility.md` at 0068938b1, lines 92,
 /// 1659 and 1913): work that ended on no reported leaf (a candidate a defined sibling covered, a
 /// state a state-set merge absorbed), an attempt undone or an equation passed over, and the load of
@@ -330,29 +329,6 @@ impl RunFacts {
             allowance_refusals: std::mem::take(&mut result.allowance_refusals),
             unsupported_hooks: std::mem::take(&mut result.unsupported_hooks),
         }
-    }
-
-    /// The facts of two runs of one request together: each list without repeats, in first
-    /// order, and the counts summed. A state set replaced by its path set keeps what the
-    /// discarded state set noted ([`ExecutionAdapter::execute_result`]), so nothing either run
-    /// met is lost.
-    fn union(mut self, other: Self) -> Self {
-        fn extend<T: PartialEq>(into: &mut Vec<T>, from: Vec<T>) {
-            for item in from {
-                if !into.contains(&item) {
-                    into.push(item);
-                }
-            }
-        }
-        self.smt_unknowns += other.smt_unknowns;
-        extend(
-            &mut self.implementation_chosen_values,
-            other.implementation_chosen_values,
-        );
-        extend(&mut self.contradicted_claims, other.contradicted_claims);
-        extend(&mut self.allowance_refusals, other.allowance_refusals);
-        extend(&mut self.unsupported_hooks, other.unsupported_hooks);
-        self
     }
 
     /// The contradicted-claim records the definition's load observed (`observedIn: load`): facts
@@ -427,8 +403,7 @@ pub struct AdaptedExecution {
     /// k-rust's count of the stops for lack of native stack the run met (`stackStops`), whether
     /// or not a site dismissed them (re-pin finding A-06).
     pub(crate) stack_stops: usize,
-    /// The modality of `leaves`: the request's, or `PathSet` when a state set was replaced by
-    /// the path set of the same request ([`ExecutionAdapter::execute_result`]).
+    /// The modality of `leaves`: the request's.
     pub(crate) modality: ResultModality,
     /// k-rust's count of the states the run visited (`work`, the unit `max_work` bounds); 0 for
     /// a timed-out run, which reports no result.
@@ -651,33 +626,24 @@ fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRe
 /// The version of the execution request kink sends for a run, and of how a result run's
 /// modality and work budget are chosen: a run's leaves, and so a verdict, depend on it, so kink's
 /// semantics identity names it (kink-campaign `identity`). Bump it whenever `request`,
-/// [`ExecutionAdapter::execute_result`]'s path-set replacement, or kink-campaign's choice of a
-/// test's modality and of a mutant's work budget (`RunOptions`, `WorkBudget`) changes what a run
-/// returns. v1 (re-pin L1-1 and L1-1-fix-1; L1-1 review 1 minor 5): a result run is a state set
-/// (path-set replacement on an undefined step, a vacuous leaf or a contradicted claim, decided per
-/// side), a stepped run an observed path set; no trace; run coverage collected; a cancellation
+/// [`ExecutionAdapter::execute_result`]'s choice of the run it returns, or kink-campaign's choice
+/// of a test's modality and of a mutant's work budget (`RunOptions`, `WorkBudget`) changes what a
+/// run returns. v1 (re-pin L1-1 and L1-1-fix-1; L1-1 review 1 minor 5): a result run is a state
+/// set (path-set replacement on an undefined step, a vacuous leaf or a contradicted claim, decided
+/// per side), a stepped run an observed path set; no trace; run coverage collected; a cancellation
 /// answers an error; `max_work` only on a mutant's result run, calibrated from the baseline's run
-/// of the test. A campaign that stores reports (kink-corpus, replay) runs the default
-/// `RunOptions`; kink-flow's tier-1 context names its work budget. Builds before packet CACHE-ID
-/// name no version (1ee9955 ran path sets with traces).
-pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v1";
+/// of the test. v2 (fz26 KINK-PATHSET-FALLBACK): a result run is the state set k-rust answers,
+/// whatever its leaves; no path-set replacement, so a baseline with an undefined step also
+/// calibrates a mutant's `max_work` from its state set. A campaign that stores reports
+/// (kink-corpus, replay) runs the default `RunOptions`; kink-flow's tier-1 context names its work
+/// budget. Builds before packet CACHE-ID name no version (1ee9955 ran path sets with traces).
+pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v2";
 
 /// The request of a stepped run: an observed path set without a work budget.
 const STEPPED: ResultRun = ResultRun {
     modality: ResultModality::PathSet,
     max_work: None,
 };
-
-/// Whether a state-set leaf is one whose rule or multiplicity kink's exclusions read, which
-/// k-rust's state set reports only as witness metadata (k-rust section_2_2_summary (4); KINK-01
-/// criterion 2: Trivial and Vacuous leaves agree with the path set as sets of (depth, state,
-/// obligation), their rule ids as witness metadata): an undefined step (decision 2's
-/// `preserves-definedness` check and the short-circuit check read its rule), a vacuous leaf, or a
-/// leaf naming a contradicted `total` claim.
-fn path_set_leaf(leaf: &AdaptedLeaf) -> bool {
-    matches!(leaf.halt, HaltClass::Trivial | HaltClass::Vacuous)
-        || leaf.contradicted_total.is_some()
-}
 
 /// Event-free and stepped execution in one expected solver profile.
 #[derive(Clone, Debug, PartialEq)]
@@ -725,61 +691,14 @@ impl ExecutionAdapter {
     }
 
     /// Executes `state` from the backend's default module as one unobserved result run under
-    /// `run`. A state set none of whose leaves is an undefined step, a vacuous leaf or a
-    /// contradicted claim ([`path_set_leaf`]) is returned as it is; otherwise the path set of the
-    /// same request replaces it, so every such leaf kink's exclusions read has its own rule and
-    /// multiplicity. A timed-out state set is returned as it is: it publishes no leaf. The
-    /// replacement reads this run's leaves only, so the baseline's and a mutant's runs of one
-    /// test can end in different modalities ([`AdaptedExecution::modality`]); a replaced run
-    /// takes up to twice `budget.time` ([`ExecutionBudget::time`]).
+    /// `run`, exactly as k-rust answers it, in the request's modality whatever its leaves (fz26
+    /// KINK-PATHSET-FALLBACK, which removed the replacement of a state set with an undefined,
+    /// vacuous or contradicted leaf by its path set). Under a state set every `Trivial` and
+    /// `Vacuous` leaf is a leaf of the path set of the same request, so a leaf contradiction on the
+    /// state set implies one on the path set; and the run's lists hold every record of the run,
+    /// absorbed arrivals' included, so the exclusions lose nothing a contradicted claim shows
+    /// ([`crate::exclusion`]).
     pub fn execute_result(
-        &self,
-        backend: &mut Backend,
-        state: &Pattern,
-        budget: ExecutionBudget,
-        run: ResultRun,
-    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
-        self.check_profile(backend)?;
-        let (inhabitation, rewrites) = with_definition(backend, |definition| {
-            let inhabitation = Inhabitation::of(definition);
-            match uninhabited_variable(definition, &inhabitation, state) {
-                Ok(None) => Ok((inhabitation, rewrite_unique_ids(definition))),
-                Ok(Some(variable)) => Err(ExecutionAdapterFailure::UninhabitedVariable(variable)),
-                Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
-            }
-        })?;
-        let execution = self.result_once(backend, state, budget, run, &inhabitation, &rewrites)?;
-        if run.modality == ResultModality::StateSet
-            && !execution.timed_out
-            && execution.leaves.iter().any(path_set_leaf)
-        {
-            let mut replaced = self.result_once(
-                backend,
-                state,
-                budget,
-                ResultRun {
-                    modality: ResultModality::PathSet,
-                    ..run
-                },
-                &inhabitation,
-                &rewrites,
-            )?;
-            // Re-pin adoption A-1: the replacement keeps the run-level facts of the state set it
-            // replaces, so nothing the discarded run noted is lost (a timed-out replacement keeps
-            // none: it is a timeout).
-            if !replaced.timed_out {
-                replaced.facts = execution.facts.union(std::mem::take(&mut replaced.facts));
-            }
-            return Ok(replaced);
-        }
-        Ok(execution)
-    }
-
-    /// One result run under `run` exactly as k-rust answers it, without replacing a state set
-    /// whose leaves the exclusions read by its path set (`execute_result` does that). For the
-    /// modality differential (re-pin decision 3, finding A-01) and for tools; never a verdict's
-    /// run.
-    pub fn execute_once(
         &self,
         backend: &mut Backend,
         state: &Pattern,

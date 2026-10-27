@@ -739,6 +739,85 @@ mod kink_tier {
         });
     }
 
+    /// fz26 KINK-PATHSET-FALLBACK: the rule on a work-bound state set that holds an undefined step
+    /// (`testdata/k/stateset/onesidedz.k`, START = 10; the baseline's complete set holds the
+    /// undefined step's terminal `zm(10)`). With early's 7 made 8 the run, cut in the loop, holds
+    /// the clean leaf `done(18)` the baseline lacks beside the `Trivial` leaf, and kills
+    /// one-sidedly, as its unbounded run kills. With zc's 0 made 1 the cut run holds the clean
+    /// `done(111)` the baseline lacks, but the undefined step `td(11)` on another explored path
+    /// contradicts td's `total` (a leaf contradiction, and a record on the run's list, which every
+    /// leaf of a work-bound run also carries): the run is excluded, so the fact voids the kill and
+    /// the test is `Unknown`, as the unbounded run is.
+    #[test]
+    #[ignore = "kink"]
+    fn a_work_bound_state_set_with_an_undefined_step_kills_one_sidedly_unless_a_fact_voids_it() {
+        on_a_big_stack(|| {
+            let validator = NativeValidator::bind(
+                support::load_path(
+                    &Path::new(support::DIR).join("stateset/onesidedz.k"),
+                    "ONESIDEDZ",
+                ),
+                CompileOptions::default(),
+            );
+            let tests = flow_slots();
+            let campaign = campaign_of("ONESIDEDZ", &validator, &tests, &normal);
+            let baseline = validator.baseline();
+            for (rule, from, to, unbounded_expected, bounded_expected) in [
+                (
+                    "ONESIDEDZ.early",
+                    "7",
+                    "8",
+                    (
+                        TestRun::Compared(vec![Agree, Distinguish]),
+                        MutantStatus::Killed,
+                    ),
+                    (
+                        TestRun::Compared(vec![Unknown, Distinguish]),
+                        MutantStatus::Killed,
+                    ),
+                ),
+                (
+                    "ONESIDEDZ.zc",
+                    "0",
+                    "1",
+                    (
+                        TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
+                        MutantStatus::Unknown,
+                    ),
+                    (
+                        TestRun::Failed(ExecutionFailureKind::ContradictedClaim),
+                        MutantStatus::Unknown,
+                    ),
+                ),
+            ] {
+                let generation = replace(baseline, rule, from, to);
+                let (unbounded, work) = run(
+                    &campaign,
+                    &generation,
+                    ScheduleMode::Full,
+                    options(None, ON),
+                );
+                assert_eq!(verdict(&unbounded), unbounded_expected, "{rule}");
+                let work = work.expect("the mutant's work");
+                // The loop counts 40 steps down, after every other branch: 10 short of the work
+                // cuts it there.
+                let budget = work - 10;
+                let (on, _) = run(
+                    &campaign,
+                    &generation,
+                    ScheduleMode::Full,
+                    options(Some(budget), ON),
+                );
+                assert_eq!(verdict(&on), bounded_expected, "{rule} budget {budget}");
+                assert_eq!(
+                    on.mutants[0].evidence[0].notes.leaf_contradiction,
+                    rule == "ONESIDEDZ.zc",
+                    "{rule}"
+                );
+            }
+        });
+    }
+
     /// The rule's other conditions, each pinned by a slot or a classifier that breaks it, with the
     /// early mutant under half its work.
     /// - A term-path slot: a projection that can fail on an unexplored configuration is refused

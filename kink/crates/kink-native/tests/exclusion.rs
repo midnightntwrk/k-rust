@@ -2168,3 +2168,257 @@ mod kink_tier {
         });
     }
 }
+
+/// KINK-PATHSET-FALLBACK (D39), the counterexample of k-rust's merge differential at kink's
+/// level (`testdata/k/stateset/remainder.k`; k-rust
+/// `a_refuted_remainder_below_a_merged_state_names_the_witness_paths_producing_rule`). The
+/// remainder of `pr` below the merged `p(X)` is refuted by its own normalization, so its `Trivial`
+/// leaf names the rule that produced `p(X)`: the state set names the witness path's `g1`, the path
+/// set `g1` and `g2`. `g2` carries `preserves-definedness`, so the path set's leaf rule reads a
+/// contradiction that nothing shows (`g2`'s result is defined); the state set reads none.
+///
+/// - REMAINDER (no record on the list): the path set is excluded with a leaf contradiction; the
+///   state set is not excluded, which is the first-principles answer.
+/// - REMAINDER-RECORD (a covered candidate contradicts `tz`'s `total` claim, a record on the list
+///   that no leaf carries): both are excluded; only the path set has a leaf contradiction, so
+///   kink-campaign keeps a path-set baseline per test and refuses a state-set one (fail-closed).
+///
+/// A remainder exists only where the solver finds it satisfiable, so the test is Z3-only.
+#[cfg(feature = "z3")]
+#[test]
+fn a_refuted_remainder_below_a_merged_state_is_read_on_the_state_set() {
+    use kink_native::execution::{ResultModality, ResultRun};
+    on_a_big_stack(|| {
+        for (module, record) in [("REMAINDER", false), ("REMAINDER-RECORD", true)] {
+            let loaded = support::load_path(
+                &Path::new(support::DIR).join("stateset/remainder.k"),
+                module,
+            );
+            let side = NativeValidator::bind(loaded, CompileOptions::default())
+                .compile_baseline()
+                .unwrap_or_else(|e| panic!("{module}: {e}"));
+            let module = k_rust::kast::identifier::encode(module);
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            let catalog = backend(&side, &module).rule_catalog(None).unwrap();
+            let label = |id: &str| {
+                catalog
+                    .iter()
+                    .find(|rule| rule.id == id)
+                    .and_then(|rule| rule.label.clone())
+                    .unwrap_or_default()
+            };
+            let condition = parse_pattern(
+                r#"\equals{SortBool{}, SortGeneratedTopCell{}}(\dv{SortBool{}}("true"), Lbl'UndsEqlsSlshEqls'Int'Unds'{}(Lblh{}(VarX:SortInt{}), \dv{SortInt{}}("3")))"#,
+            )
+            .unwrap();
+            let state = Pattern::And {
+                sort: k_rust::kore::ast::Sort::Application {
+                    name: "SortGeneratedTopCell".into(),
+                    arguments: Vec::new(),
+                },
+                arguments: vec![
+                    support::initial_state(
+                        support::app("Lblx", vec![support::var("VarX", "SortInt")]),
+                        "SortProg",
+                    ),
+                    condition,
+                ],
+            };
+            let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+            let read = |modality| {
+                let execution = adapter
+                    .execute_result(
+                        &mut backend(&side, &module),
+                        &state,
+                        budget(),
+                        ResultRun {
+                            modality,
+                            max_work: None,
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(execution.modality(), modality, "{module}");
+                let named = execution
+                    .leaves()
+                    .iter()
+                    .filter(|leaf| leaf.halt == HaltClass::Trivial)
+                    .map(|leaf| label(&leaf.undefined_rule.as_ref().expect("names a rule").id))
+                    .collect::<Vec<_>>();
+                (
+                    named,
+                    exclusions.contradiction_on_a_leaf(&execution),
+                    exclusions.run_exclusion(&execution),
+                )
+            };
+            let excluded = record.then_some(Exclusion::ContradictedClaim);
+            assert_eq!(
+                read(ResultModality::StateSet),
+                (vec!["REMAINDER.g1".to_owned()], false, excluded),
+                "{module}"
+            );
+            assert_eq!(
+                read(ResultModality::PathSet),
+                (
+                    vec!["REMAINDER.g1".to_owned(), "REMAINDER.g2".to_owned()],
+                    true,
+                    Some(Exclusion::ContradictedClaim)
+                ),
+                "{module}"
+            );
+        }
+    });
+}
+
+/// fz26 KINK-PATHSET-FALLBACK, the soundness guards (`testdata/k/stateset/guards.k`): each leaf
+/// kind kink reads, reached by two converging paths, gives the same exclusion and the same leaf
+/// contradiction (which admission reads) on the state set as on the path set of the same request,
+/// and every state-set leaf without a configuration is one of the path set's.
+/// - `two(0)`: one `Trivial` leaf naming the `preserves-definedness` rule `join` (no producing
+///   rule) against two; excluded with a leaf contradiction.
+/// - `tc(0)`: one `Trivial` leaf with `contradictedTotal` against two; excluded with a leaf
+///   contradiction.
+/// - `ab(0)`: the record is on an absorbed arrival's prefix only: the state set's one leaf is clean
+///   and the run's list holds the record, so the run is excluded with no leaf contradiction, as the
+///   path set's, whose leaf of that path carries the record only as a diagnostic.
+#[test]
+fn a_state_set_with_converging_undefined_leaves_is_excluded_as_its_path_set() {
+    use kink_native::execution::{ResultModality, ResultRun};
+    on_a_big_stack(|| {
+        let (side, module) = fixture("stateset", "guards");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let catalog = backend(&side, &module).rule_catalog(None).unwrap();
+        let label = |id: &str| {
+            catalog
+                .iter()
+                .find(|rule| rule.id == id)
+                .and_then(|rule| rule.label.clone())
+                .unwrap_or_default()
+        };
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        for (symbol, leaves, rule, leaf_contradiction) in [
+            ("Lbltwo", 1, Some("GUARDS.join"), true),
+            ("Lbltc", 1, Some("GUARDS.tmv"), true),
+            ("Lblab", 1, None, false),
+        ] {
+            let state =
+                support::initial_state(support::app(symbol, vec![support::int(0)]), "SortProg");
+            let read = |modality| {
+                adapter
+                    .execute_result(
+                        &mut backend(&side, &module),
+                        &state,
+                        budget(),
+                        ResultRun {
+                            modality,
+                            max_work: None,
+                        },
+                    )
+                    .unwrap()
+            };
+            let (state_set, path_set) = (
+                read(ResultModality::StateSet),
+                read(ResultModality::PathSet),
+            );
+            assert_eq!(state_set.modality(), ResultModality::StateSet, "{symbol}");
+            assert_eq!(state_set.leaves().len(), leaves, "{symbol}");
+            assert_eq!(path_set.leaves().len(), 2 * leaves, "{symbol}");
+            for leaf in state_set.leaves() {
+                assert_eq!(
+                    leaf.undefined_rule
+                        .as_ref()
+                        .map(|r| label(&r.id))
+                        .as_deref(),
+                    rule,
+                    "{symbol}"
+                );
+                if leaf.halt == HaltClass::Trivial {
+                    assert!(path_set.leaves().contains(leaf), "{symbol}: {leaf:?}");
+                }
+            }
+            for execution in [&state_set, &path_set] {
+                assert_eq!(
+                    exclusions.contradiction_on_a_leaf(execution),
+                    leaf_contradiction,
+                    "{symbol} {:?}",
+                    execution.modality()
+                );
+                assert_eq!(
+                    exclusions.run_exclusion(execution),
+                    Some(Exclusion::ContradictedClaim),
+                    "{symbol} {:?}",
+                    execution.modality()
+                );
+                assert!(
+                    !execution.facts().contradicted_claims.is_empty(),
+                    "{symbol}"
+                );
+            }
+            if symbol == "Lbltc" {
+                assert!(state_set.leaves()[0].contradicted_total.is_some());
+            }
+        }
+    });
+}
+
+/// fz26 KINK-PATHSET-FALLBACK, the `Vacuous` guard (`testdata/k/stateset/remainder.k` with the
+/// initial condition on `g`): a remainder below the merged `p(X)` that its normalization refutes with no
+/// undefined term is a `Vacuous` leaf, one in the state set and one per path in the path set; the
+/// bridge discards it, and neither run is excluded. Z3-only, as the remainder needs a solver.
+#[cfg(feature = "z3")]
+#[test]
+fn a_vacuous_remainder_below_a_merged_state_excludes_neither_run() {
+    use kink_native::execution::{ResultModality, ResultRun};
+    on_a_big_stack(|| {
+        let loaded = support::load_path(
+            &Path::new(support::DIR).join("stateset/remainder.k"),
+            "REMAINDER",
+        );
+        let side = NativeValidator::bind(loaded, CompileOptions::default())
+            .compile_baseline()
+            .unwrap();
+        let module = k_rust::kast::identifier::encode("REMAINDER");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let condition = parse_pattern(
+            r#"\equals{SortBool{}, SortGeneratedTopCell{}}(\dv{SortBool{}}("true"), Lbl'UndsEqlsSlshEqls'Int'Unds'{}(Lblg{}(VarX:SortInt{}), \dv{SortInt{}}("3")))"#,
+        )
+        .unwrap();
+        let state = Pattern::And {
+            sort: k_rust::kore::ast::Sort::Application {
+                name: "SortGeneratedTopCell".into(),
+                arguments: Vec::new(),
+            },
+            arguments: vec![
+                support::initial_state(
+                    support::app("Lblx", vec![support::var("VarX", "SortInt")]),
+                    "SortProg",
+                ),
+                condition,
+            ],
+        };
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        for (modality, vacuous) in [(ResultModality::StateSet, 1), (ResultModality::PathSet, 2)] {
+            let execution = adapter
+                .execute_result(
+                    &mut backend(&side, &module),
+                    &state,
+                    budget(),
+                    ResultRun {
+                        modality,
+                        max_work: None,
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                execution
+                    .leaves()
+                    .iter()
+                    .filter(|leaf| leaf.halt == HaltClass::Vacuous)
+                    .count(),
+                vacuous,
+                "{modality:?}"
+            );
+            assert!(!exclusions.contradiction_on_a_leaf(&execution));
+            assert_eq!(exclusions.run_exclusion(&execution), None, "{modality:?}");
+        }
+    });
+}

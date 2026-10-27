@@ -55,8 +55,8 @@
 //! the fragment stays the verdict (KF-T4). A difference costs a witness or leaves kink's refusal
 //! to its confirmation, never a claim kink does not make:
 //! - stricter: the work-factor check reads the fuzz's work for kink's, which differs where kink
-//!   runs a side as a path set (an undefined, vacuous or contradicted leaf, KINK-PATHSET-FALLBACK)
-//!   or with another execution request; and a term past the backend's depth is refused (`too-deep`)
+//!   sends another execution request (both read the state set of the same request whatever its
+//!   leaves since KINK-PATHSET-FALLBACK); and a term past the backend's depth is refused (`too-deep`)
 //!   where kink's runner, judging it without a stack sized for it, may overflow instead. (Leaves
 //!   kink drops as solver-refuted, `Unsat`, never reach TV-01 here either: [`leaf_term`] gives a
 //!   term only for a decided state, which the adapter never refutes.)

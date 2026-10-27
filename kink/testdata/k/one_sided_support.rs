@@ -72,8 +72,8 @@ fn ordinal(key: Option<&str>) -> Option<usize> {
 /// Explains the one-sided kill of slot `slot` of the test `initial` on the claim-free mutant
 /// `compiled` (its main module `module`, encoded) under the work budget `max_work`, whose
 /// unbounded two-sided run was `unbounded` (with `slot`, one argument); `Err` says what is not explained. It re-runs both
-/// runs as the campaign runner does (a state set, replaced by its path set when a leaf is an
-/// undefined step, vacuous or contradicted) and bridges them with the mutant's own decider.
+/// runs as the campaign runner does (state sets, whatever their leaves) and bridges them with the
+/// mutant's own decider.
 pub fn explain_one_sided_kill(
     compiled: &ValidatedDefinition,
     module: &str,

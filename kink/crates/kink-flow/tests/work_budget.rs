@@ -159,4 +159,83 @@ mod kink_tier {
         let third = executed(&search(&manifest));
         assert!(third.iter().all(|(.., cached)| !cached), "{third:?}");
     }
+
+    /// A private copy of `testdata/flow/diamonds` (or its `unguarded` directory) and its manifest.
+    fn diamonds(test: &str, unguarded: bool) -> PathBuf {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("kink-flow-work-{}", std::process::id()))
+            .join(test);
+        let _ = fs::remove_dir_all(&dir);
+        let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/diamonds");
+        copy_dir(
+            &if unguarded {
+                from.join("unguarded")
+            } else {
+                from
+            },
+            &dir,
+        );
+        dir.join("FLOW.toml")
+    }
+
+    /// `(status, killer, by-zero's outcome)` of the one mutation of the document.
+    fn verdict(document: &Value) -> (String, Option<String>, String) {
+        let [mutation] = document["mutations"].as_array().unwrap().as_slice() else {
+            panic!("one mutation: {document:#}");
+        };
+        let outcome = mutation["executed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["program"] == "by-zero")
+            .map(|e| e["outcome"].as_str().unwrap().to_owned())
+            .unwrap_or_default();
+        (
+            mutation["status"].as_str().unwrap().to_owned(),
+            mutation["killer"].as_str().map(str::to_owned),
+            outcome,
+        )
+    }
+
+    /// fz26 KINK-PATHSET-FALLBACK, S9 (`testdata/flow/diamonds`): `end-guard-dropped` makes
+    /// `go(14, 0)` end in one undefined step after 14 converging diamonds. The mutant's state set
+    /// is complete in about 60 states, within `4 * W + 10000`, and `by-zero` kills through the
+    /// exit stop (`{Stuck}` against `{UndefinedStep}`; the whole term `go(0, 0)` agrees). Before
+    /// the ticket kink replaced that state set by its path set, about 49 000 states, which the work
+    /// budget cut: `by-zero` was `unknown` (2554 `trivial` leaves and one `work-bound`), and so
+    /// was the mutation.
+    #[test]
+    #[ignore = "kink"]
+    fn a_dropped_guard_after_converging_diamonds_is_killed_under_the_work_budget() {
+        let manifest = diamonds("diamonds", false);
+        assert_eq!(
+            verdict(&search(&manifest)),
+            (
+                "killed".to_owned(),
+                Some("by-zero".to_owned()),
+                "distinguish".to_owned()
+            )
+        );
+    }
+
+    /// fz26 KINK-PATHSET-FALLBACK, S9, the baseline direction (`testdata/flow/diamonds/unguarded`):
+    /// the baseline's run of `go(14, 0)` ends in one undefined step after 14 converging diamonds,
+    /// and `end-guard-added` makes it stuck there. Both sides are complete state sets and `by-zero`
+    /// kills. Before the ticket the baseline's state set was replaced by its path set, about
+    /// 49 000 states, which the flow's 500 ms bound cuts (a baseline run has no work budget, so
+    /// the clock is what separates the two; the margin is wide on both sides): `by-zero` was not
+    /// comparable and the mutation survived.
+    #[test]
+    #[ignore = "kink"]
+    fn an_added_guard_on_a_baseline_with_an_undefined_step_is_killed() {
+        let manifest = diamonds("diamonds-unguarded", true);
+        assert_eq!(
+            verdict(&search(&manifest)),
+            (
+                "killed".to_owned(),
+                Some("by-zero".to_owned()),
+                "distinguish".to_owned()
+            )
+        );
+    }
 }

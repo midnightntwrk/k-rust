@@ -1,7 +1,7 @@
 // Re-pin L1-1-fix-1 (L1-1 review 1, minor 2): conv.k with `mc` dividing by 0, the definition the
 // mutant `mc: 1 -> 0` of conv.k compiles to. Both converging paths end in an undefined step at
-// depth 2, so kink replaces its state set by the path set of the same request: two Trivial
-// leaves, where conv.k's state set stays a state set (kink-campaign tests/state_set_routes.rs).
+// depth 2: one Trivial leaf in a state set, two in a path set (kink-campaign
+// tests/state_set_routes.rs, route 2).
 module CONVZ-SYNTAX
   imports INT-SYNTAX
   syntax Prog ::= a(Int) [symbol(a)]

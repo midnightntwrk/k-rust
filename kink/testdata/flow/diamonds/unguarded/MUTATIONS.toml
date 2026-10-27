@@ -1,0 +1,10 @@
+# kink-flow mutation list for the unguarded diamonds fixture (fz26 KINK-PATHSET-FALLBACK, S9).
+
+[[mutation]]
+id = "end-guard-added"
+note = "the end rule gains the guard: go(N, 0) is stuck after N diamonds"
+
+  [[mutation.edit]]
+  rule = "end"
+  find = "fin(100 /Int D)"
+  replace = "fin(100 /Int D) requires D =/=Int 0"

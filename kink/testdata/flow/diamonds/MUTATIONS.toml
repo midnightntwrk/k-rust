@@ -1,0 +1,10 @@
+# kink-flow mutation list for the diamonds fixture (fz26 KINK-PATHSET-FALLBACK, S9).
+
+[[mutation]]
+id = "end-guard-dropped"
+note = "the end rule loses its guard: go(N, 0) ends in an undefined step after N diamonds"
+
+  [[mutation.edit]]
+  rule = "end"
+  find = " requires D =/=Int 0"
+  replace = ""

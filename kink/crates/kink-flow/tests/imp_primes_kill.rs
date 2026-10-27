@@ -167,7 +167,7 @@ fn confirm() {
     };
     let run = |backend: &mut Backend, modality| {
         adapter
-            .execute_once(
+            .execute_result(
                 backend,
                 &primes,
                 long,

@@ -1,12 +1,13 @@
-// Re-pin adoption A-1b (review A-1-review-1 finding 6): a state set replaced by its path set
-// under a work budget keeps a fact only the state set reached. `s(I)` branches to `x(I)`, explored
-// first, and `y(I)`. Under `x` the diamond `x -> a -> c`, `x -> b -> c` meets `c` twice: a state
-// set merges the second arrival, a path set explores the chain `c -> c1 -> c2 -> c3 -> c4` again.
-// The chain ends in `val(10 /Int I)`, an undefined step at 0 (a `Trivial` leaf), so the state set
-// is replaced by the path set of the same request. Under `y`, as `sib` in a1claims.k, `ytd`'s
-// result `val(td(I))` is undefined at 0 beside the defined `yok`: only the run's list holds `ytd`'s
-// record. With a work budget between the two runs' counts, the state set reaches `y` and lists the
-// record; the path set spends the budget on the second chain and does not.
+// Re-pin adoption A-1b (review A-1-review-1 finding 6), re-read for fz26 KINK-PATHSET-FALLBACK:
+// under a work budget a state set reaches a fact its path set misses. `s(I)` branches to `x(I)`,
+// explored first, and `y(I)`. Under `x` the diamond `x -> a -> c`, `x -> b -> c` meets `c` twice:
+// a state set merges the second arrival, a path set explores the chain `c -> c1 -> c2 -> c3 -> c4`
+// again. The chain ends in `val(10 /Int I)`, an undefined step at 0 (a `Trivial` leaf). Under `y`,
+// as `sib` in a1claims.k, `ytd`'s result `val(td(I))` is undefined at 0 beside the defined `yok`:
+// only the run's list holds `ytd`'s record. With a work budget between the two runs' counts, the
+// state set reaches `y` and lists the record; the path set spends the budget on the second chain
+// and does not. (Before the ticket kink replaced that state set by the path set and united their
+// facts.)
 module REPLACE-SYNTAX
   imports INT-SYNTAX
   syntax Prog ::= s(Int) [symbol(s)]
