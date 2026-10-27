@@ -439,6 +439,12 @@ pub struct ComputedRuleAttributes {
     pub definedness_discharged: bool,
     /// The rule's shared identity, built at its first use (`path_facts::RuleIdentity::of`).
     pub identity: crate::path_facts::RuleIdentityCell,
+    /// For a rewrite rule, whether it is association-open ([`association_open`]): its
+    /// right-hand side advances the `<generatedCounter>` cell by an integer literal of two or
+    /// more, the compiled form of a rule with as many distinct `!` names, whose association of
+    /// names to counter offsets the definition leaves open. False for every other rule. Set
+    /// when the definition is loaded, on every route.
+    pub association_open: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1838,22 +1844,22 @@ pub fn internalize_axiom(
                 .collect::<BTreeSet<_>>();
             live.into_iter()
                 .map(|(index, lhs, requires)| {
-                    Ok(InternalizedRule::Term(
-                        RuleKind::Rewrite,
-                        make_rule(
-                            rename_term(&lhs, |variable| {
-                                variable.with_provenance(VariableProvenance::Rule)
-                            }),
-                            rhs.clone(),
-                            rename_predicates(&requires, |variable| {
-                                variable.with_provenance(VariableProvenance::Rule)
-                            }),
-                            ensures.clone(),
-                            attributes.clone(),
-                            existentials.clone(),
-                            split.then_some(index),
-                        ),
-                    ))
+                    let mut rule = make_rule(
+                        rename_term(&lhs, |variable| {
+                            variable.with_provenance(VariableProvenance::Rule)
+                        }),
+                        rhs.clone(),
+                        rename_predicates(&requires, |variable| {
+                            variable.with_provenance(VariableProvenance::Rule)
+                        }),
+                        ensures.clone(),
+                        attributes.clone(),
+                        existentials.clone(),
+                        split.then_some(index),
+                    );
+                    rule.computed_attributes.association_open =
+                        association_open(&rule.lhs, &rule.rhs);
+                    Ok(InternalizedRule::Term(RuleKind::Rewrite, rule))
                 })
                 .collect()
         }
@@ -3938,6 +3944,84 @@ fn binder_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
         .collect()
 }
 
+/// The KORE symbol of the cell compilation adds to a configuration to number fresh values.
+const GENERATED_COUNTER: &str = "Lbl'-LT-'generatedCounter'-GT-'";
+
+/// Whether a rewrite rule with left-hand side `lhs` and right-hand side `rhs` is
+/// association-open: some alternative of `rhs` sets the `<generatedCounter>` cell to `V + n`
+/// (an application of the `INT.add` hook, in either operand order), where `V` is the variable
+/// `lhs`'s counter cell holds and `n` an integer literal of at least 2.
+///
+/// That is the compiled form of a rule with `n` distinct `!` names: the counter `V` is the
+/// first value not yet minted, each name stands for `V` plus a distinct offset below `n`, and
+/// the counter advances by `n` (`docs/compatibility.md`, "Compiler-resolved fresh constants").
+/// Which name gets which offset is not fixed, so the rule denotes one axiom per association;
+/// with one name the offset is 0 and there is one. A rule an author wrote in this form is
+/// classified alike: its compiled axiom is indistinguishable, and a mark where none is needed
+/// only refuses a comparison. A counter cell found nowhere, or a right-hand side of another
+/// form, gives `false`.
+pub(crate) fn association_open(lhs: &Term, rhs: &RuleRhs) -> bool {
+    let Some(before) = generated_counter(lhs) else {
+        return false;
+    };
+    let TermKind::Variable(counter) = before.kind() else {
+        return false;
+    };
+    let advances = |term: &Term| {
+        let Some(after) = generated_counter(term) else {
+            return false;
+        };
+        let TermKind::Application {
+            symbol, arguments, ..
+        } = after.kind()
+        else {
+            return false;
+        };
+        if symbol.attributes.hook.as_deref() != Some("INT.add") {
+            return false;
+        }
+        let [left, right] = &arguments[..] else {
+            return false;
+        };
+        let at_least_two = |term: &Term| match term.kind() {
+            TermKind::DomainValue { value, .. } => std::str::from_utf8(value.as_bytes())
+                .ok()
+                .and_then(|text| text.parse::<num_bigint::BigInt>().ok())
+                .is_some_and(|n| n >= num_bigint::BigInt::from(2)),
+            _ => false,
+        };
+        let is_counter = |term: &Term| matches!(term.kind(), TermKind::Variable(variable) if variable == counter);
+        (is_counter(left) && at_least_two(right)) || (is_counter(right) && at_least_two(left))
+    };
+    match rhs {
+        RuleRhs::Term(term) => advances(term),
+        RuleRhs::Disjunction(alternatives) => alternatives
+            .iter()
+            .any(|alternative| advances(&alternative.term)),
+        RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => false,
+    }
+}
+
+/// The content of the first `<generatedCounter>` cell of `term`, searched through applications
+/// and injections from the root.
+fn generated_counter(term: &Term) -> Option<&Term> {
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if &*symbol.name == GENERATED_COUNTER {
+                return match &arguments[..] {
+                    [content] => Some(content),
+                    _ => None,
+                };
+            }
+            arguments.iter().find_map(generated_counter)
+        }
+        TermKind::Injection { term, .. } => generated_counter(term),
+        _ => None,
+    }
+}
+
 pub(crate) fn make_rule(
     lhs: Term,
     rhs: RuleRhs,
@@ -4286,6 +4370,7 @@ where
             definedness_discharged: computed.definedness_discharged,
             // A renaming of variables keeps the rule's id, label, origin and claim.
             identity: computed.identity.sharing(),
+            association_open: computed.association_open,
         },
         existentials: rename_set(&rule.existentials),
     };

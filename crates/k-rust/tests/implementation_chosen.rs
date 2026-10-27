@@ -1036,6 +1036,137 @@ fn the_capability_is_advertised() {
     assert_eq!(capabilities["implementationChosenValues"], true);
 }
 
+/// A rule with two `!` names (`mk`), whose association of names to counter offsets the
+/// definition leaves open (`fresh-association`); two rules with one name each, applied on two
+/// steps (`one`, then `again`); and, for `go`, a two-name rule whose right-hand side is
+/// undefined where `!A` is 0, beside a plain sibling (FZ-FRESH design, probe P-RB).
+const FRESH: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= mk(Int) | one(Int) | go(Int)
+  syntax KItem ::= "again"
+  configuration <T> <k> $PGM:Pgm </k> <a> 7 </a> <b> 7 </b> <r> 7 </r> </T>
+  rule [mk]: <k> mk(_) => .K ... </k> <a> _ => !_A:Int </a> <b> _ => !_B:Int </b>
+  rule <k> one(_) => again ... </k> <a> _ => !_A:Int </a>
+  rule <k> again => .K ... </k> <b> _ => !_B:Int </b>
+  rule [div]: <k> go(_) => .K ... </k> <r> _ => 10 /Int !_A:Int </r> <b> _ => !_B:Int </b>
+  rule <k> go(_) => .K ... </k>
+endmodule
+"#;
+
+/// The attributes of the axiom of `kore` labelled `label`.
+fn axiom_attributes(kore: &str, label: &str) -> Vec<Pattern> {
+    let definition = k_rust::kore::parser::parse_definition(kore).unwrap();
+    let labelled = |attributes: &[Pattern]| {
+        attributes
+            .iter()
+            .any(|attribute| attribute_string(attribute, "label").as_deref() == Some(label))
+    };
+    let axioms = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            k_rust::kore::ast::Sentence::Axiom { attributes, .. } if labelled(&attributes.0) => {
+                Some(attributes.0.clone())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let [attributes] = &axioms[..] else {
+        panic!("one axiom is labelled {label}: {axioms:?}");
+    };
+    attributes.clone()
+}
+
+/// The string argument of `attribute` when it is an application of `name` to one string.
+fn attribute_string(attribute: &Pattern, name: &str) -> Option<String> {
+    match attribute {
+        Pattern::Application { symbol, arguments } if symbol.name == name => match &arguments[..] {
+            [Pattern::String(value)] => {
+                Some(String::from_utf8_lossy(value.as_bytes()).into_owned())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The `UNIQUE_ID` of the rewrite axiom of `kore` labelled `label`, the hook a
+/// `fresh-association` mark of that rule names.
+fn unique_id(kore: &str, label: &str) -> String {
+    axiom_attributes(kore, label)
+        .iter()
+        .find_map(|attribute| attribute_string(attribute, "UNIQUE'Unds'ID"))
+        .expect("the axiom has a UNIQUE_ID")
+}
+
+/// KR-MARK (FZ-FRESH): a step that builds a candidate of a rule with two `!` names takes k-rust's
+/// association of the names to counter offsets, which the definition leaves open
+/// (`docs/compatibility.md`, "Compiler-resolved fresh constants"): the leaf and the run's list
+/// carry the mark `fresh-association`, whose hook is the rule's `UNIQUE_ID`.
+#[test]
+fn a_step_of_a_rule_with_two_fresh_names_is_marked_with_the_rule() {
+    let (kore, _) = compile(FRESH, "mk(3)");
+    let rule = unique_id(&kore, "MAIN.mk");
+    assert_marked(FRESH, "mk(3)", &[mark(&rule, "fresh-association")]);
+}
+
+/// G-ONE-NAME (FZ-FRESH): a rule with one `!` name has one association, so a run that applies
+/// two such rules (each mints one value, two values in all) is unmarked.
+#[test]
+fn rules_with_one_fresh_name_each_are_not_marked() {
+    assert_marked(FRESH, "one(3)", &[]);
+}
+
+/// KR-ROLLBACK (FZ-FRESH): `go`'s two-name candidate is undefined under k-rust's association
+/// (`!A` is 0, `10 /Int 0`) and vanishes beside its plain sibling, so the one leaf (`<r> 7`) is
+/// a leaf under every association and unmarked; under the other association the candidate gives
+/// a second end, so the run's list names the mark.
+#[test]
+fn a_vanished_two_name_candidates_mark_is_on_the_result_list_and_on_no_leaf() {
+    let (kore, initial) = compile(FRESH, "go(3)");
+    let rule = unique_id(&kore, "MAIN.div");
+    for modality in MODALITIES {
+        let result = execute(&kore, &initial, modality);
+        let context = format!("{modality:?}: {result:#}");
+        assert_eq!(leaves(&result).len(), 1, "{context}");
+        assert_eq!(marks(&leaves(&result)[0]), BTreeSet::new(), "{context}");
+        assert_eq!(
+            run_marks(&result),
+            [mark(&rule, "fresh-association")],
+            "{context}"
+        );
+    }
+}
+
+/// G-NO-DIGEST (FZ-FRESH): a two-name rule is classified when the definition is loaded, from the
+/// compiled counter advance, so compilation records nothing of it: the axiom carries only its id,
+/// its label and its source location, and the compiled definition (and with it the execution digest) is
+/// the one compiled before the mark existed.
+#[test]
+fn a_two_name_rule_compiles_without_an_attribute_for_its_association() {
+    let (kore, _) = compile(FRESH, "mk(3)");
+    let attributes = axiom_attributes(&kore, "MAIN.mk");
+    let names = attributes
+        .iter()
+        .map(|attribute| match attribute {
+            Pattern::Application { symbol, .. } => symbol.name.as_str(),
+            other => panic!("an attribute that is no application: {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "UNIQUE'Unds'ID",
+            "label",
+            "org'Stop'kframework'Stop'attributes'Stop'Location",
+            "org'Stop'kframework'Stop'attributes'Stop'Source",
+        ]
+    );
+}
+
 /// The backend's own executions, for what the facade does not reach: several initial patterns
 /// sharing one run, and a console.
 mod backend_runs {

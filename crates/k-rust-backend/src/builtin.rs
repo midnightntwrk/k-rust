@@ -389,6 +389,12 @@ pub enum ChosenClass {
     /// Whether a decided `andBool`, `orBool`, `impliesBool` or `#if` performs the effects of the
     /// operand it makes irrelevant. Not a value, so [`chosen_value`] never returns it.
     EffectOrder,
+    /// Which of a rewrite rule's two or more `!` names gets which offset from the
+    /// `<generatedCounter>` cell (`docs/compatibility.md`, "Compiler-resolved fresh constants").
+    /// A choice of the compiler, not a hook value: [`chosen_value`] never returns it, and the
+    /// mark's `hook` is the rule's `UNIQUE_ID`. An execution notes it where a step builds a
+    /// candidate of such a rule (`crate::rule::ComputedRuleAttributes::association_open`).
+    FreshAssociation,
 }
 
 impl ChosenClass {
@@ -404,6 +410,7 @@ impl ChosenClass {
             Self::FreshName => "fresh-name",
             Self::ReadCount => "read-count",
             Self::EffectOrder => "effect-order",
+            Self::FreshAssociation => "fresh-association",
         }
     }
 }
@@ -429,8 +436,12 @@ impl ChosenValue {
             class,
             // Every class that is a value but `ReadCount`: a proof route has no console, and an
             // execution of the backend that runs in `Proof` by default reads the console it is
-            // given.
-            withheld_in_proof: class != ChosenClass::ReadCount,
+            // given. `FreshAssociation` is fixed when the definition is compiled, so no
+            // evaluation can leave it open.
+            withheld_in_proof: !matches!(
+                class,
+                ChosenClass::ReadCount | ChosenClass::FreshAssociation
+            ),
         }
     }
 }

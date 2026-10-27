@@ -1873,6 +1873,7 @@ fn instantiate(
         let (attempt, own_diagnostics) = context.nested(|| {
             diagnostic::collect_unit(|| {
                 let (attempt, facts) = crate::path_facts::owned(|| {
+                    note_fresh_association(rule);
                     apply_rhs_alternative(
                         context.definition,
                         rule,
@@ -1956,6 +1957,29 @@ fn instantiate(
             trivial_work,
         }],
     })
+}
+
+/// Note, in an execution, that the candidate being built is one of an association-open rule
+/// ([`crate::rule::ComputedRuleAttributes::association_open`]): its right-hand side and `ensures`
+/// hold k-rust's association of the rule's two or more `!` names with counter offsets, which
+/// the definition leaves open (`docs/compatibility.md`, "Compiler-resolved fresh constants"), so
+/// the candidate's result is one association's (`ChosenClass::FreshAssociation`, named by the
+/// rule's `UNIQUE_ID`). The caller notes it inside the candidate-owned scope, before the
+/// right-hand side is built, so it covers the right-hand side's construction and
+/// simplification, the `ensures` and the undefined-step entry, and `crate::path_facts`
+/// attributes it as any fact of the candidate's own work. A proof route takes k-rust's
+/// association as the definition's and notes nothing (no execution).
+fn note_fresh_association(rule: &RewriteRule) {
+    if rule.computed_attributes.association_open
+        && crate::evaluation::current() == crate::evaluation::EvaluationMode::Execution
+    {
+        crate::path_facts::note(crate::path_facts::PathFact::ChosenValue(
+            crate::builtin::ChosenValue::new(
+                Arc::from(rule.attributes.unique_id.as_str()),
+                crate::builtin::ChosenClass::FreshAssociation,
+            ),
+        ));
+    }
 }
 
 /// Whether a step assumed nothing but `\top` of its instance: the pattern's `constraints` are

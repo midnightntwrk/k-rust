@@ -246,6 +246,62 @@ impl Default for BackendOptions {
     }
 }
 
+/// The KORE symbol of a compiled configuration's top cell.
+const GENERATED_TOP: &str = "Lbl'-LT-'generatedTop'-GT-'";
+/// The KORE symbol of the cell compilation adds to a configuration to number fresh values.
+const GENERATED_COUNTER: &str = "Lbl'-LT-'generatedCounter'-GT-'";
+
+/// `pattern`, a configuration, with the content of its `<generatedCounter>` cell erased: when
+/// `pattern` is a `<generatedTop>` application whose last argument is a `<generatedCounter>`
+/// application of one argument, `pattern` with that argument replaced by `\dv{SortInt{}}("0")`;
+/// otherwise `pattern` unchanged. Two configurations have equal erasures exactly when they are
+/// equal outside the counter's content.
+///
+/// The counter is how compilation encodes a rule's `!` variables (`docs/compatibility.md`,
+/// "Compiler-resolved fresh constants"): it holds the first value not yet minted, so that a
+/// later step mints none of the values minted before. The definition's author does not declare
+/// it, and at a final configuration, from which no step follows, it constrains nothing: two final
+/// configurations that differ only in the counter have the same declared content and the same
+/// (empty) future. How many values a run minted shows only through the cells the minted values
+/// reach, which the erasure keeps. A client that compares the final configurations of two
+/// definitions (the fuzz's differential target, kink's whole-term projection) compares their
+/// erasures, through this one function.
+#[must_use]
+pub fn counter_erased(pattern: &KorePattern) -> std::borrow::Cow<'_, KorePattern> {
+    use std::borrow::Cow;
+    let KorePattern::Application { symbol, arguments } = pattern else {
+        return Cow::Borrowed(pattern);
+    };
+    let Some(KorePattern::Application {
+        symbol: counter,
+        arguments: content,
+    }) = arguments.last()
+    else {
+        return Cow::Borrowed(pattern);
+    };
+    if symbol.name != GENERATED_TOP || counter.name != GENERATED_COUNTER || content.len() != 1 {
+        return Cow::Borrowed(pattern);
+    }
+    let erased = KorePattern::DomainValue {
+        sort: crate::kore::ast::Sort::Application {
+            name: "SortInt".to_owned(),
+            arguments: Vec::new(),
+        },
+        value: "0".into(),
+    };
+    if content[0] == erased {
+        return Cow::Borrowed(pattern);
+    }
+    let mut arguments = arguments.clone();
+    if let Some(KorePattern::Application { arguments, .. }) = arguments.last_mut() {
+        arguments[0] = erased;
+    }
+    Cow::Owned(KorePattern::Application {
+        symbol: symbol.clone(),
+        arguments,
+    })
+}
+
 /// The version of the Z3 library this build links, as Z3 reports it, which counts the resource
 /// units of [`BackendOptions::smt_resource_limit`]; `None` in a build without Z3.
 #[must_use]
@@ -765,7 +821,9 @@ impl From<&k_rust_backend::path_facts::UnevaluatedHook> for UnevaluatedHookOutpu
 /// A value the definition leaves open that a run read: the hook that computed it and what the
 /// definition leaves open about it (`class`, docs/compatibility.md, "Implementation-chosen hook
 /// values": `order`, `item`, `float-destination`, `nan-sign`, `letter-case`, `signed-zero`,
-/// `fresh-name`, `read-count`, `effect-order`).
+/// `fresh-name`, `read-count`, `effect-order`, `fresh-association`). For `fresh-association`, the
+/// compiler's association of a rule's two or more `!` names with counter offsets, `hook` is that
+/// rule's `UNIQUE_ID`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ChosenValueOutput {
@@ -3274,6 +3332,42 @@ mod tests {
     use crate::kore::{parser::parse_pattern, printer::Printer};
     use std::collections::BTreeSet;
 
+    /// `counter_erased` replaces the content of the top `<generatedCounter>` cell with 0, so two
+    /// configurations that differ only there have one erasure, and leaves every other pattern,
+    /// a counter that is not the top cell's last argument included, as it is.
+    #[test]
+    fn the_counter_erasure_identifies_configurations_only_up_to_the_counter() {
+        let config = |a: &str, counter: &str| {
+            parse_pattern(&format!(
+                r#"Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'a'-GT-'{{}}(\dv{{SortInt{{}}}}("{a}")), Lbl'-LT-'generatedCounter'-GT-'{{}}({counter}))"#
+            ))
+            .unwrap()
+        };
+        let zero = config("3", r#"\dv{SortInt{}}("0")"#);
+        let seven = config("3", r#"\dv{SortInt{}}("7")"#);
+        assert_eq!(*counter_erased(&seven), zero);
+        assert!(matches!(
+            counter_erased(&zero),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        assert_eq!(*counter_erased(&config("3", "X:SortInt{}")), zero);
+        assert_ne!(
+            *counter_erased(&config("4", r#"\dv{SortInt{}}("7")"#)),
+            zero
+        );
+        for unchanged in [
+            r#"Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("5")), Lbl'-LT-'a'-GT-'{}(\dv{SortInt{}}("3")))"#,
+            r#"Lbl'-LT-'T'-GT-'{}(Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("5")))"#,
+            r#"\dv{SortInt{}}("5")"#,
+        ] {
+            let pattern = parse_pattern(unchanged).unwrap();
+            assert!(
+                matches!(counter_erased(&pattern), std::borrow::Cow::Borrowed(same) if *same == pattern),
+                "{unchanged}"
+            );
+        }
+    }
+
     /// The clock-free mode is off by default and read from `smtResourceLimit`, a positive unit
     /// count (0, Z3's "no limit", is refused rather than read as unbounded).
     #[test]
@@ -3691,6 +3785,7 @@ mod tests {
             ChosenClass::FreshName,
             ChosenClass::ReadCount,
             ChosenClass::EffectOrder,
+            ChosenClass::FreshAssociation,
         ]
         .map(|class| class.name().to_owned())
         .into_iter()
