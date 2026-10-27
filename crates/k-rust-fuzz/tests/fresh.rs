@@ -29,7 +29,8 @@ use k_rust_fuzz::{
 };
 use support::{
     FRESH_BASE, FRESH_CMPB, FRESH_CMPM, FRESH_CONST0, FRESH_CONST5, FRESH_DISC0, FRESH_DISC1,
-    FRESH_MINT, FRESH_MINT2, FRESH_MUT, FRESH_RB1, FRESH_RB2, FRESH_SHIFT, Fixture,
+    FRESH_LIT, FRESH_LIT_M, FRESH_MINT, FRESH_MINT2, FRESH_MUT, FRESH_RB0, FRESH_RB1, FRESH_RB2,
+    FRESH_SHIFT, FRESH_SWAP, Fixture,
 };
 
 const PROGRAM: &str = "fresh/mk.pgm";
@@ -184,6 +185,95 @@ fn a_rule_reordered_with_two_fresh_names_is_never_killed() {
         UnjudgedReason::ImplementationChosenValue,
         &rule_id(&FRESH_BASE, "mk"),
     );
+}
+
+/// F-REORDER-LIT (FZ-FRESH fix round, review B1): as F-REORDER, with a cell `<c> 2 </c>` that the
+/// rule matches as the literal 2. Term-construction minimization, which runs after the fresh
+/// names are numbered, then compiles the counter advance as a variable bound to that 2 on the
+/// left-hand side; k-rust reads the advance through the binding, so the step is marked all the
+/// same and every case is `baseline-incomplete`. Before the fix round the rule went unmarked and
+/// the anchor was killed by an added end (`<a> 1 <b> 0` against `<a> 0 <b> 1`).
+#[test]
+fn a_reordered_rule_whose_left_hand_side_holds_its_advance_is_never_killed() {
+    let report = report_of(&FRESH_LIT, &FRESH_LIT_M, PathMode::OnePath);
+    assert_fresh_baseline_incomplete(
+        &report,
+        UnjudgedReason::ImplementationChosenValue,
+        &rule_id(&FRESH_LIT, "mk"),
+    );
+}
+
+/// Every case of `report` is `unsupported` with `reason`, no witness is found, and the reason's
+/// hooks are `hooks`.
+fn assert_unsupported(report: &FuzzReport, reason: UnjudgedReason, hooks: &[ReasonHook]) {
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_eq!(
+        report.totals.classes,
+        BTreeMap::from([(OutcomeClass::Unsupported, 8)]),
+        "{:?}",
+        report.totals
+    );
+    assert_eq!(
+        report.totals.unsupported_reasons,
+        BTreeMap::from([(reason, 8)]),
+        "{:?}",
+        report.totals
+    );
+    assert_eq!(
+        report.totals.unsupported_hooks[&reason].hooks, hooks,
+        "{:?}",
+        report.totals
+    );
+}
+
+/// F-MUTANT (FZ-FRESH fix round, review S1): the baseline `swap.k` writes the constants
+/// `<a> 1 <b> 0` and is unmarked; the mutant is `base.k`'s two-name rule, whose end is
+/// `<a> 0 <b> 1` under k-rust's numbering and the baseline's end under the other. The mutant's
+/// end outside the baseline's set carries the mark itself, so it is no end that can kill: every
+/// case is `unsupported` with the leaf's reason, `implementation-chosen-value`, naming the rule
+/// with the class `fresh-association`, in both path modes.
+#[test]
+fn a_mutant_end_through_a_rule_with_two_fresh_names_is_never_killed() {
+    let hooks = [ReasonHook::chosen(
+        &rule_id(&FRESH_BASE, "mk"),
+        "fresh-association",
+    )];
+    for paths in [PathMode::OnePath, PathMode::AllPaths] {
+        let report = report_of(&FRESH_SWAP, &FRESH_BASE, paths);
+        assert_unsupported(&report, UnjudgedReason::ImplementationChosenValue, &hooks);
+    }
+}
+
+/// F-MUTANT-OFF-LEAF (FZ-FRESH fix round, review S1): the baseline `rb0.k` ends in `<r> 8 <s> 7`;
+/// the mutant `rb1.k`'s two-name candidate `div` vanishes under k-rust's numbering, beside its
+/// plain sibling, and its one end `<r> 7 <s> 7` would kill. Another numbering also gives the end
+/// `<r> 10 <s> 0`, so the mutant's result is no evidence, under a depth bound and no work bound:
+/// - on all paths the end's path is clean and the mark is on the run's list only, so the would-be
+///   kill is `kill-without-evidence` (condition 3 read on the whole result);
+/// - on one path the end rests on which candidate survived to be the first, so the leaf carries
+///   the mark and is no end that can kill: `implementation-chosen-value`.
+#[test]
+fn a_mutant_whose_run_is_marked_off_its_killing_end_is_no_evidence() {
+    let hooks = [ReasonHook::chosen(
+        &rule_id(&FRESH_RB1, "div"),
+        "fresh-association",
+    )];
+    for (paths, reason) in [
+        (PathMode::AllPaths, UnjudgedReason::KillWithoutEvidence),
+        (PathMode::OnePath, UnjudgedReason::ImplementationChosenValue),
+    ] {
+        let mut bounded = spec(&FRESH_RB0, &FRESH_RB1, paths);
+        bounded.options.max_depth = Some(100);
+        let report = Campaign::new(bounded)
+            .expect("valid")
+            .run(Budget::Cases(8), None);
+        assert!(
+            report.engine_defects.is_empty(),
+            "{:?}",
+            report.engine_defects
+        );
+        assert_unsupported(&report, reason, &hooks);
+    }
 }
 
 /// F-CMP: as F-REORDER, with a later rule that compares the two minted values (`<r> X <Int Y`):

@@ -440,10 +440,12 @@ pub struct ComputedRuleAttributes {
     /// The rule's shared identity, built at its first use (`path_facts::RuleIdentity::of`).
     pub identity: crate::path_facts::RuleIdentityCell,
     /// For a rewrite rule, whether it is association-open ([`association_open`]): its
-    /// right-hand side advances the `<generatedCounter>` cell by an integer literal of two or
-    /// more, the compiled form of a rule with as many distinct `!` names, whose association of
-    /// names to counter offsets the definition leaves open. False for every other rule. Set
-    /// when the definition is loaded, on every route.
+    /// right-hand side sets the `<generatedCounter>` cell to something other than the left-hand
+    /// side's counter advanced by 0 or 1, read through the left-hand side's bindings of
+    /// literals, which covers every compiled rule with two or more distinct `!` names (whose
+    /// association of names to counter offsets the definition leaves open) and fails closed on
+    /// any other form. False for every other rule. Set when the definition is loaded, on every
+    /// route.
     pub association_open: bool,
 }
 
@@ -3948,62 +3950,190 @@ fn binder_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
 const GENERATED_COUNTER: &str = "Lbl'-LT-'generatedCounter'-GT-'";
 
 /// Whether a rewrite rule with left-hand side `lhs` and right-hand side `rhs` is
-/// association-open: some alternative of `rhs` sets the `<generatedCounter>` cell to `V + n`
-/// (an application of the `INT.add` hook, in either operand order), where `V` is the variable
-/// `lhs`'s counter cell holds and `n` an integer literal of at least 2.
+/// association-open, so that a step building a candidate of it is marked `fresh-association`.
 ///
-/// That is the compiled form of a rule with `n` distinct `!` names: the counter `V` is the
-/// first value not yet minted, each name stands for `V` plus a distinct offset below `n`, and
-/// the counter advances by `n` (`docs/compatibility.md`, "Compiler-resolved fresh constants").
-/// Which name gets which offset is not fixed, so the rule denotes one axiom per association;
-/// with one name the offset is 0 and there is one. A rule an author wrote in this form is
-/// classified alike: its compiled axiom is indistinguishable, and a mark where none is needed
-/// only refuses a comparison. A counter cell found nowhere, or a right-hand side of another
-/// form, gives `false`.
+/// Compilation lowers a rule with `n` distinct `!` names by matching the `<generatedCounter>`
+/// cell on the left-hand side as a variable `V`, the first value not yet minted, giving each
+/// name `V` plus a distinct offset below `n`, and setting the counter to `V + n` on the
+/// right-hand side (`docs/compatibility.md`, "Compiler-resolved fresh constants"). Which name
+/// gets which offset is not fixed, so for `n ≥ 2` the rule denotes one axiom per association;
+/// with one name the offset is 0 and there is one axiom, and a rule with none leaves the
+/// counter as it is.
+///
+/// The compiled advance is not always the literal `n`: passes that run after the lowering keep
+/// what the right-hand side denotes but not its spelling (term-construction minimization
+/// replaces the literal by a variable bound to it on the left-hand side when the left-hand side
+/// holds the same token). So the classification reads what the right-hand side's counter
+/// denotes and fails closed: some alternative of `rhs` sets a `<generatedCounter>` cell, and
+/// that cell's content is not one of the forms that denote an advance by 0 or 1, namely
+/// - exactly `V`, the variable `lhs`'s counter cell holds;
+/// - `V + k` or `k + V` (an application of the `INT.add` hook), where `k` is the integer
+///   literal 0 or 1, or a variable that `lhs` binds to such a literal by a conjunction
+///   (`\and(\dv("1"), K)`, the compiled form of `1 #as K`) ([`resolved_literal`]).
+///
+/// Every other form is open: an advance by another literal, by a variable `lhs` does not bind
+/// to one literal, by another function, a counter cell `lhs` holds as anything but a variable
+/// or does not hold. Such a form is either a rule with two or more names or one written by an
+/// author, whose compiled axiom k-rust cannot tell apart; a mark where none is needed only
+/// refuses a comparison, a missing mark lets one association's result count as the
+/// definition's. A right-hand side that sets no counter cell (one holding no such cell, or no
+/// term) leaves the counter as matched and gives `false`.
 pub(crate) fn association_open(lhs: &Term, rhs: &RuleRhs) -> bool {
+    let opens = |term: &Term| {
+        generated_counter(term).is_some_and(|after| !advances_by_at_most_one(lhs, after))
+    };
+    match rhs {
+        RuleRhs::Term(term) => opens(term),
+        RuleRhs::Disjunction(alternatives) => alternatives
+            .iter()
+            .any(|alternative| opens(&alternative.term)),
+        RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => false,
+    }
+}
+
+/// Whether `after`, the content of a right-hand side's `<generatedCounter>` cell, is one of the
+/// forms [`association_open`] reads as an advance by 0 or 1 of the variable `lhs`'s counter
+/// cell holds.
+fn advances_by_at_most_one(lhs: &Term, after: &Term) -> bool {
     let Some(before) = generated_counter(lhs) else {
         return false;
     };
     let TermKind::Variable(counter) = before.kind() else {
         return false;
     };
-    let advances = |term: &Term| {
-        let Some(after) = generated_counter(term) else {
-            return false;
-        };
-        let TermKind::Application {
-            symbol, arguments, ..
-        } = after.kind()
-        else {
-            return false;
-        };
-        if symbol.attributes.hook.as_deref() != Some("INT.add") {
-            return false;
-        }
-        let [left, right] = &arguments[..] else {
-            return false;
-        };
-        let at_least_two = |term: &Term| match term.kind() {
-            TermKind::DomainValue { value, .. } => std::str::from_utf8(value.as_bytes())
-                .ok()
-                .and_then(|text| text.parse::<num_bigint::BigInt>().ok())
-                .is_some_and(|n| n >= num_bigint::BigInt::from(2)),
-            _ => false,
-        };
-        let is_counter = |term: &Term| matches!(term.kind(), TermKind::Variable(variable) if variable == counter);
-        (is_counter(left) && at_least_two(right)) || (is_counter(right) && at_least_two(left))
+    let is_counter =
+        |term: &Term| matches!(term.kind(), TermKind::Variable(variable) if variable == counter);
+    if is_counter(after) {
+        return true;
+    }
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = after.kind()
+    else {
+        return false;
     };
-    match rhs {
-        RuleRhs::Term(term) => advances(term),
-        RuleRhs::Disjunction(alternatives) => alternatives
-            .iter()
-            .any(|alternative| advances(&alternative.term)),
-        RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => false,
+    if symbol.attributes.hook.as_deref() != Some("INT.add") {
+        return false;
+    }
+    let [left, right] = &arguments[..] else {
+        return false;
+    };
+    let at_most_one = |term: &Term| {
+        resolved_literal(lhs, term)
+            .is_some_and(|n| n == num_bigint::BigInt::from(0) || n == num_bigint::BigInt::from(1))
+    };
+    (is_counter(left) && at_most_one(right)) || (is_counter(right) && at_most_one(left))
+}
+
+/// The integer `term` denotes wherever a rule with left-hand side `lhs` applies, when that is
+/// fixed by its spelling: an integer literal's value; for a variable, the value of the integer
+/// literals `lhs` conjoins it with (`\and(\dv("n"), K)`, at any depth and in either order),
+/// when there is at least one and they all agree, since a match binds the variable to that
+/// value. `None` otherwise.
+fn resolved_literal(lhs: &Term, term: &Term) -> Option<num_bigint::BigInt> {
+    match term.kind() {
+        TermKind::DomainValue { value, .. } => integer_literal(value),
+        TermKind::Variable(variable) => {
+            let mut literals = Vec::new();
+            conjoined_literals(lhs, variable, &mut literals);
+            let first = literals.first()?.clone()?;
+            literals
+                .iter()
+                .all(|literal| literal.as_ref() == Some(&first))
+                .then_some(first)
+        }
+        TermKind::And(..)
+        | TermKind::Application { .. }
+        | TermKind::Injection { .. }
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. } => None,
     }
 }
 
-/// The content of the first `<generatedCounter>` cell of `term`, searched through applications
-/// and injections from the root.
+/// The value of a domain value's text read as an integer, `None` when it is no integer.
+fn integer_literal(value: &KoreString) -> Option<num_bigint::BigInt> {
+    std::str::from_utf8(value.as_bytes())
+        .ok()
+        .and_then(|text| text.parse::<num_bigint::BigInt>().ok())
+}
+
+/// Push, for each conjunction of `term` (nested conjunctions flattened) with `variable` among
+/// its conjuncts, each of its domain-value conjuncts read as an integer (`None` for one that is
+/// no integer).
+fn conjoined_literals(
+    term: &Term,
+    variable: &Variable,
+    literals: &mut Vec<Option<num_bigint::BigInt>>,
+) {
+    match term.kind() {
+        TermKind::And(..) => {
+            let mut conjuncts = Vec::new();
+            flatten_term_and(term, &mut conjuncts);
+            if conjuncts
+                .iter()
+                .any(|conjunct| matches!(conjunct.kind(), TermKind::Variable(bound) if bound == variable))
+            {
+                literals.extend(conjuncts.iter().filter_map(|conjunct| match conjunct.kind() {
+                    TermKind::DomainValue { value, .. } => Some(integer_literal(value)),
+                    _ => None,
+                }));
+            }
+            for conjunct in conjuncts {
+                conjoined_literals(conjunct, variable, literals);
+            }
+        }
+        TermKind::Application { arguments, .. } => {
+            for argument in arguments {
+                conjoined_literals(argument, variable, literals);
+            }
+        }
+        TermKind::Injection { term, .. } => conjoined_literals(term, variable, literals),
+        TermKind::Map { entries, rest, .. } => {
+            for (key, value) in entries {
+                conjoined_literals(key, variable, literals);
+                conjoined_literals(value, variable, literals);
+            }
+            if let Some(rest) = rest {
+                conjoined_literals(rest, variable, literals);
+            }
+        }
+        TermKind::List { heads, rest, .. } => {
+            for head in heads {
+                conjoined_literals(head, variable, literals);
+            }
+            if let Some((middle, tails)) = rest {
+                conjoined_literals(middle, variable, literals);
+                for tail in tails {
+                    conjoined_literals(tail, variable, literals);
+                }
+            }
+        }
+        TermKind::Set { elements, rest, .. } => {
+            for element in elements {
+                conjoined_literals(element, variable, literals);
+            }
+            if let Some(rest) = rest {
+                conjoined_literals(rest, variable, literals);
+            }
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+    }
+}
+
+/// The conjuncts of `term`, nested conjunctions flattened, none of them a conjunction.
+fn flatten_term_and<'t>(term: &'t Term, conjuncts: &mut Vec<&'t Term>) {
+    match term.kind() {
+        TermKind::And(left, right) => {
+            flatten_term_and(left, conjuncts);
+            flatten_term_and(right, conjuncts);
+        }
+        _ => conjuncts.push(term),
+    }
+}
+
+/// The content of the first `<generatedCounter>` cell of `term`, searched through applications,
+/// injections and the conjuncts of conjunctions from the root.
 fn generated_counter(term: &Term) -> Option<&Term> {
     match term.kind() {
         TermKind::Application {
@@ -4018,6 +4148,7 @@ fn generated_counter(term: &Term) -> Option<&Term> {
             arguments.iter().find_map(generated_counter)
         }
         TermKind::Injection { term, .. } => generated_counter(term),
+        TermKind::And(left, right) => generated_counter(left).or_else(|| generated_counter(right)),
         _ => None,
     }
 }
@@ -6753,5 +6884,132 @@ mod unbound_equation_tests {
                 .unbound_result_variables
                 .is_empty()
         );
+    }
+}
+
+#[cfg(test)]
+mod association_tests {
+    use k_rust_kore::kore::parser::parse_definition;
+
+    use super::*;
+
+    /// Whether the one rewrite rule of `left => right`, two `SortTop` terms, is loaded
+    /// association-open.
+    fn open(left: &str, right: &str) -> bool {
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                sort SortCounter{{}} []
+                sort SortTop{{}} []
+                hooked-symbol add{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.add")]
+                hooked-symbol mul{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.mul")]
+                symbol Lbl'-LT-'generatedCounter'-GT-'{{}}(SortInt{{}}) : SortCounter{{}}
+                    [constructor{{}}(), functional{{}}()]
+                symbol top{{}}(SortInt{{}}, SortCounter{{}}) : SortTop{{}}
+                    [constructor{{}}(), functional{{}}()]
+                symbol other{{}}(SortInt{{}}) : SortTop{{}} [constructor{{}}(), functional{{}}()]
+                axiom{{}} \rewrites{{SortTop{{}}}}(
+                    \and{{SortTop{{}}}}({left}, \top{{SortTop{{}}}}()),
+                    \and{{SortTop{{}}}}({right}, \top{{SortTop{{}}}}())
+                ) []
+            endmodule []"#
+        );
+        let definition =
+            BackendDefinition::internalize(&parse_definition(&source).unwrap(), "MAIN")
+                .unwrap_or_else(|error| panic!("{left} => {right} loads: {error:?}"));
+        let rules = definition
+            .rewrite_theory()
+            .values()
+            .flat_map(BTreeMap::values)
+            .flatten()
+            .map(|rule| rule.computed_attributes.association_open)
+            .collect::<Vec<_>>();
+        let [open] = rules[..] else {
+            panic!("one rewrite rule: {rules:?}");
+        };
+        open
+    }
+
+    /// `top(left, <generatedCounter>(counter))`.
+    fn side(left: &str, counter: &str) -> String {
+        format!("top{{}}({left}, Lbl'-LT-'generatedCounter'-GT-'{{}}({counter}))")
+    }
+
+    const V: &str = "V:SortInt{}";
+    const K: &str = "K:SortInt{}";
+
+    fn int(value: &str) -> String {
+        format!(r#"\dv{{SortInt{{}}}}("{value}")"#)
+    }
+
+    fn add(left: &str, right: &str) -> String {
+        format!("add{{}}({left}, {right})")
+    }
+
+    /// `\and(literal, K)`, the compiled form of `literal #as K`, in either order.
+    fn bound(literal: &str, literal_first: bool) -> String {
+        if literal_first {
+            format!(r"\and{{SortInt{{}}}}({}, {K})", int(literal))
+        } else {
+            format!(r"\and{{SortInt{{}}}}({K}, {})", int(literal))
+        }
+    }
+
+    /// A right-hand side that leaves the counter as matched or advances it by 0 or 1, the
+    /// literal written or bound to a variable on the left-hand side, is not association-open;
+    /// an advance by a literal of two or more is, also when the literal is bound on the left-hand
+    /// side (the form term-construction minimization gives a two-name rule whose left-hand side
+    /// holds the advance's token, FZ-FRESH review B1).
+    #[test]
+    fn an_advance_is_read_through_the_left_hand_sides_bindings_of_literals() {
+        let zero = int("0");
+        for (left, after, expected) in [
+            (side(&zero, V), V.to_owned(), false),
+            (side(&zero, V), add(V, &int("1")), false),
+            (side(&zero, V), add(&int("1"), V), false),
+            (side(&zero, V), add(V, &int("0")), false),
+            (side(&bound("1", true), V), add(V, K), false),
+            (side(&bound("1", false), V), add(K, V), false),
+            (side(&zero, V), add(V, &int("2")), true),
+            (side(&zero, V), add(&int("3"), V), true),
+            (side(&bound("2", true), V), add(V, K), true),
+            (side(&bound("2", false), V), add(K, V), true),
+        ] {
+            let right = side(&zero, &after);
+            assert_eq!(open(&left, &right), expected, "{left} => {right}");
+        }
+    }
+
+    /// Every other form of the right-hand side's counter is association-open (fail closed): an
+    /// advance by a variable the left-hand side does not bind to a literal, or binds to two
+    /// different ones, by another function, a counter set to a literal, a left-hand side whose
+    /// counter is no variable or that has no counter cell. A right-hand side without a counter
+    /// cell leaves the counter as matched and is not.
+    #[test]
+    fn any_other_form_of_the_counter_is_association_open() {
+        let zero = int("0");
+        let conflicting = format!(
+            r"\and{{SortInt{{}}}}({}, \and{{SortInt{{}}}}({K}, {}))",
+            int("1"),
+            int("0")
+        );
+        for (left, right) in [
+            (side(K, V), side(&zero, &add(V, K))),
+            (side(&conflicting, V), side(&zero, &add(V, K))),
+            (
+                side(&zero, V),
+                side(&zero, &format!("mul{{}}({V}, {})", int("1"))),
+            ),
+            (side(&zero, V), side(&zero, &int("1"))),
+            (side(&zero, V), side(&zero, &add(V, V))),
+            (side(&zero, &zero), side(&zero, &zero)),
+            (format!("other{{}}({V})"), side(&zero, V)),
+        ] {
+            assert!(open(&left, &right), "{left} => {right}");
+        }
+        assert!(!open(&side(&zero, V), &format!("other{{}}({V})")));
     }
 }

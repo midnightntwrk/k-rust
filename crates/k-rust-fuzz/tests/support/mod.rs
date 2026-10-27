@@ -711,6 +711,10 @@ fixture!(FRESH_MINT2, "fresh/mint2.k", "FRESH", FRESH_PROGRAMS);
 fixture!(FRESH_SHIFT, "fresh/shift.k", "FRESH", FRESH_PROGRAMS);
 fixture!(FRESH_CONST5, "fresh/const5.k", "FRESH", FRESH_PROGRAMS);
 fixture!(FRESH_CONST0, "fresh/const0.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_LIT, "fresh/lit.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_LIT_M, "fresh/litm.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_SWAP, "fresh/swap.k", "FRESH", FRESH_PROGRAMS);
+fixture!(FRESH_RB0, "fresh/rb0.k", "FRESH", FRESH_PROGRAMS);
 
 /// Branches that meet in one configuration at one depth (FZ-STATESET): a state set keeps the
 /// arrival it meets first, so a rule fired on the other is on no leaf's trace (B1), and the leaf
@@ -1348,7 +1352,7 @@ fixture!(HALTCAUSE, "haltcause/haltcause.k", "HC", HALTCAUSE_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 118] = [
+pub static ALL: [&Fixture; 122] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1467,4 +1471,8 @@ pub static ALL: [&Fixture; 118] = [
     &FRESH_SHIFT,
     &FRESH_CONST5,
     &FRESH_CONST0,
+    &FRESH_LIT,
+    &FRESH_LIT_M,
+    &FRESH_SWAP,
+    &FRESH_RB0,
 ];

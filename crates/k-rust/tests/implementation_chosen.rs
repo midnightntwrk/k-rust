@@ -1141,6 +1141,70 @@ fn a_vanished_two_name_candidates_mark_is_on_the_result_list_and_on_no_leaf() {
     }
 }
 
+/// Rules whose left-hand side holds the token of their counter advance, so that
+/// term-construction minimization, which runs after the fresh names are numbered, compiles the
+/// advance as a variable bound on the left-hand side to that literal (FZ-FRESH review B1): a
+/// two-name rule matching the literal `2` in a cell (`mk`) and as an argument (`foo`), and a
+/// one-name rule matching the literal `1` (`one`).
+const FRESH_ALIASED: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pgm ::= mk(Int) | foo(Int) | one(Int)
+  syntax KItem ::= bar(Int, Int)
+  configuration <T> <k> $PGM:Pgm </k> <c> 2 </c> <a> 7 </a> <b> 7 </b> </T>
+  rule [mk]: <k> mk(_) => .K ... </k> <c> 2 </c> <a> _ => !_A:Int </a> <b> _ => !_B:Int </b>
+  rule [foo]: foo(2) => bar(!_I:Int, !_J:Int)
+  rule [one]: <k> one(1) => .K ... </k> <a> _ => !_A:Int </a>
+endmodule
+"#;
+
+/// Asserts that the rewrite axiom of `kore` labelled `label` sets `<generatedCounter>` to the
+/// counter plus a variable, not a literal: the compiled form these tests are about.
+fn assert_advance_is_a_variable(kore: &str, label: &str) {
+    let at = kore
+        .find(&format!("label{{}}(\"{label}\")"))
+        .unwrap_or_else(|| panic!("an axiom is labelled {label}"));
+    let axiom = &kore[kore[..at].rfind("axiom{").unwrap()..at];
+    let axiom = axiom.split_whitespace().collect::<String>();
+    assert!(
+        axiom.contains(
+            "Lbl'-LT-'generatedCounter'-GT-'{}(Lbl'UndsPlus'Int'Unds'{}(Var'Hash'Fresh:SortInt{},Var'Unds'Gen"
+        ),
+        "{label}'s advance is a variable: {axiom}"
+    );
+}
+
+/// B1 (FZ-FRESH fix round): a two-name rule whose left-hand side holds the literal 2 in a cell
+/// advances the counter by a variable bound to it there; the advance is 2 all the same, so the
+/// rule is association-open and its step is marked.
+#[test]
+fn a_two_name_rule_whose_left_hand_side_holds_its_advance_is_marked() {
+    let (kore, _) = compile(FRESH_ALIASED, "mk(3)");
+    assert_advance_is_a_variable(&kore, "MAIN.mk");
+    let rule = unique_id(&kore, "MAIN.mk");
+    assert_marked(FRESH_ALIASED, "mk(3)", &[mark(&rule, "fresh-association")]);
+}
+
+/// B1 (FZ-FRESH fix round): `rule foo(2) => bar(!I, !J)`, the literal as an argument.
+#[test]
+fn a_two_name_rule_matching_its_advance_as_an_argument_is_marked() {
+    let (kore, _) = compile(FRESH_ALIASED, "foo(2)");
+    assert_advance_is_a_variable(&kore, "MAIN.foo");
+    let rule = unique_id(&kore, "MAIN.foo");
+    assert_marked(FRESH_ALIASED, "foo(2)", &[mark(&rule, "fresh-association")]);
+}
+
+/// The precision of reading the advance through the left-hand side (FZ-FRESH fix round): a
+/// one-name rule whose left-hand side holds the literal 1 advances the counter by a variable
+/// bound to 1 there, an advance by one, and is not marked.
+#[test]
+fn a_one_name_rule_whose_left_hand_side_holds_its_advance_is_not_marked() {
+    let (kore, _) = compile(FRESH_ALIASED, "one(1)");
+    assert_advance_is_a_variable(&kore, "MAIN.one");
+    assert_marked(FRESH_ALIASED, "one(1)", &[]);
+}
+
 /// G-NO-DIGEST (FZ-FRESH): a two-name rule is classified when the definition is loaded, from the
 /// compiled counter advance, so compilation records nothing of it: the axiom carries only its id,
 /// its label and its source location, and the compiled definition (and with it the execution digest) is
