@@ -631,8 +631,7 @@ impl<'a> StateRuleBuilder<'a> {
         Self {
             facade,
             side,
-            terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings, form)
-                .without_unbound_names(),
+            terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings, form),
         }
     }
 

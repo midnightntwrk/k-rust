@@ -546,9 +546,6 @@ pub(super) struct TermBuilder<'a> {
     pub(super) tooling_binding_references: Vec<Path>,
     /// Whether a `k::rewrite!` is being expanded.
     in_rewrite: bool,
-    /// Whether an unbound bare snake-case name is refused here, rather than
-    /// left to rustc as a path.
-    checks_unbound_names: bool,
 }
 
 impl<'a> TermBuilder<'a> {
@@ -579,7 +576,6 @@ impl<'a> TermBuilder<'a> {
             lexical_imports: None,
             tooling_binding_references: Vec::new(),
             in_rewrite: false,
-            checks_unbound_names: true,
         }
     }
 
@@ -684,12 +680,6 @@ impl<'a> TermBuilder<'a> {
 
     pub(super) fn with_associated_keys(mut self) -> Self {
         self.associated_keys = true;
-        self
-    }
-
-    /// Leaves an unbound bare snake-case name to rustc as a path.
-    pub(super) const fn without_unbound_names(mut self) -> Self {
-        self.checks_unbound_names = false;
         self
     }
 
@@ -1035,9 +1025,7 @@ impl<'a> TermBuilder<'a> {
                         path_key,
                         name: binder_spelling(path),
                     })
-                } else if let Some(name) = snake_case_bare_name(path)
-                    && self.checks_unbound_names
-                {
+                } else if let Some(name) = snake_case_bare_name(path) {
                     // A bare snake-case name is a binder by KRS's spelling
                     // rule, never a Rust item, so an unbound one is a free
                     // variable of the sentence, not a path for rustc.
