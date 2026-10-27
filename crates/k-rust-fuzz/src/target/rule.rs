@@ -497,7 +497,8 @@ pub(crate) fn rule_needs(id: &str, mode: RuleMode, run_to_completion: bool) -> T
 ///
 /// - `fired`: the leaf's trace has a `Rewrite` entry of the rule. A `terminal` halt decides
 ///   nothing by itself: the early stop of [`rule_needs`] ends the trace with the rule's entry.
-/// - `covered` and `condition-reached`: the run's coverage `applied`, respectively `matched`,
+/// - `covered` and `condition-reached`: the run's coverage `committed` (a step took the rule on
+///   some explored path; `applied` also holds rolled-back candidates), respectively `matched`,
 ///   holds the rule. Coverage is a fact of the whole run, not of one leaf (ARCHITECTURE 5.3,
 ///   D13). A run with one leaf is that leaf's path, so the leaf reaches the target exactly when
 ///   the coverage holds the rule. A run with several leaves (all paths, or several right-hand
@@ -554,9 +555,14 @@ pub(crate) fn rule_reached_ends(
             .iter()
             .map(|leaf| leaf.rewrites.iter().any(|entry| entry == id))
             .collect(),
-        RuleMode::Covered => {
-            run_reached(id, covered(|coverage| &coverage.applied), qualifies, result)
-        }
+        // A run without the committed transitions (a request that did not ask for them) shows
+        // no step that took the rule: a candidate in `applied` may have been rolled back.
+        RuleMode::Covered => run_reached(
+            id,
+            committed(id, result.coverage.as_ref()) == Some(true),
+            qualifies,
+            result,
+        ),
         RuleMode::ConditionReached => {
             run_reached(id, covered(|coverage| &coverage.matched), qualifies, result)
         }

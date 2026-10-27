@@ -308,7 +308,12 @@ pub enum RuleMode {
     /// A clean leaf's trace contains a `Rewrite` entry with the rule's id, or the run halted
     /// `terminal` on the rule as the only stop rule.
     Fired,
-    /// The rule is in coverage `applied` (kink's `fired_by`); weaker than `fired`.
+    /// Some explored step took the rule: it is in coverage `committed`, a step built a successor
+    /// of it that denotes a configuration, on some path the run explored (absorbed arrivals
+    /// included). Coverage `applied` also holds a candidate whose successor normalized to
+    /// `\bottom` and was rolled back, which no path takes, so it is not read. Every rule this
+    /// mode counts is in `applied` too (kink's `fired_by`). Weaker than `fired`, which also
+    /// needs the step on a retained clean leaf's path.
     Covered,
     /// The rule is in coverage `matched` (kink's `reached_by`).
     ConditionReached,
@@ -776,8 +781,9 @@ impl ResolvedTarget {
         let needs = match &self.resolved {
             Resolved::Rule { id, mode } => TargetNeeds {
                 // A `fired` hit or miss on a state set reads the committed transitions too
-                // (`judge_run`).
-                collect_committed: state_set && *mode == RuleMode::Fired,
+                // (`judge_run`); `covered` reads them on every run (`rule::rule_reached_ends`).
+                collect_committed: (state_set && *mode == RuleMode::Fired)
+                    || *mode == RuleMode::Covered,
                 ..rule::rule_needs(id, *mode, self.target.run_to_completion)
             },
             Resolved::PatternAnyState => {

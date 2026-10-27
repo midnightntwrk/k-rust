@@ -353,6 +353,9 @@ fn natural_end_not_data() -> LeafReport {
     }
 }
 
+/// A result whose coverage `applied` and `matched` are `applied` and `matched`, and whose
+/// committed transitions are every applied rule (each built a defined successor; a test of an
+/// undefined step or a rolled-back candidate removes its rule, as k-rust does).
 fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResult {
     let ids = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect();
     CaseResult {
@@ -364,7 +367,7 @@ fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResu
             offered: None,
             conditions: None,
             applied_counts: None,
-            committed: None,
+            committed: Some(ids(applied)),
         }),
         stack_stops: 0,
         smt_unknowns: 0,
@@ -377,11 +380,21 @@ fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResu
     }
 }
 
+/// [`case`] without the committed transitions: a run whose request did not ask for them (a
+/// `fired` target on a path set), so a `fired` judgement falls back to coverage `applied`.
+fn uncommitted(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResult {
+    let mut result = case(leaves, applied, matched);
+    if let Some(coverage) = &mut result.coverage {
+        coverage.committed = None;
+    }
+    result
+}
+
 /// `div(10, 0)` on one path: the undefined step leaves the state before it as a `trivial` leaf,
 /// not on whose path the step is, while coverage `applied` records the rule that built the
-/// undefined-step entry.
+/// undefined-step entry; no step took the rule, so it is not committed.
 fn undefined_div() -> CaseResult {
-    case(
+    let mut result = case(
         vec![leaf(
             HaltReasonOutput::Trivial,
             vec![UncleanReason::Halt],
@@ -389,7 +402,11 @@ fn undefined_div() -> CaseResult {
         )],
         &["id-div"],
         &["id-div"],
-    )
+    );
+    if let Some(coverage) = &mut result.coverage {
+        coverage.committed = Some(Vec::new());
+    }
+    result
 }
 
 /// `check(7)`: `check-hit`'s guard is entered and fails; `check-miss` fires and the run ends
@@ -404,8 +421,11 @@ fn failing_guard() -> CaseResult {
     )
 }
 
+/// An undefined step applied the rule with an empty result, so no step took it: neither `fired`
+/// nor `covered` (which reads the committed transitions since FZ-ENGINE-R4) reaches it, while
+/// its condition was reached.
 #[test]
-fn fired_and_covered_differ_on_an_undefined_step() {
+fn fired_and_covered_agree_on_an_undefined_step() {
     let result = undefined_div();
     for run_to_completion in [false, true] {
         assert_eq!(
@@ -414,7 +434,7 @@ fn fired_and_covered_differ_on_an_undefined_step() {
         );
         assert_eq!(
             rule_reached("id-div", RuleMode::Covered, run_to_completion, &result),
-            [true]
+            [false]
         );
         assert_eq!(
             rule_reached(
@@ -576,10 +596,19 @@ fn needs_follow_the_resolved_rule() {
             ..rule_needs("id-div", RuleMode::Fired, false)
         }
     );
+    // `covered` reads the committed transitions in both path modes (FZ-ENGINE-R4).
     assert_eq!(
         rule_target("id-div", RuleMode::Covered, false).needs(PathMode::AllPaths),
         TargetNeeds {
             state_set: true,
+            collect_committed: true,
+            ..TargetNeeds::default()
+        }
+    );
+    assert_eq!(
+        rule_target("id-div", RuleMode::Covered, false).needs(PathMode::OnePath),
+        TargetNeeds {
+            collect_committed: true,
             ..TargetNeeds::default()
         }
     );
@@ -592,12 +621,19 @@ fn needs_follow_the_resolved_rule() {
         rule_target("id-div", RuleMode::Covered, true).needs(PathMode::OnePath),
         TargetNeeds {
             data_end: true,
+            collect_committed: true,
             ..TargetNeeds::default()
         }
     );
     let mut reach_only = rule_target("id-div", RuleMode::Covered, true);
     reach_only.target.data_end = false;
-    assert_eq!(reach_only.needs(PathMode::OnePath), TargetNeeds::default());
+    assert_eq!(
+        reach_only.needs(PathMode::OnePath),
+        TargetNeeds {
+            collect_committed: true,
+            ..TargetNeeds::default()
+        }
+    );
 }
 
 /// FZ-DATAEND (TRIAL2 S-T2): under run-to-completion a rule hit's natural end must be data, as
@@ -648,14 +684,15 @@ fn a_run_to_completion_hit_needs_a_data_end_unless_the_target_waives_it() {
 }
 
 #[test]
-fn the_undefined_step_is_undefined_when_fired_and_an_unclean_reach_when_covered() {
+fn the_undefined_step_is_undefined_when_fired_and_when_covered() {
     let result = undefined_div();
     let fired = judge(&rule_target("id-div", RuleMode::Fired, false), &result);
     assert_eq!(fired.class, OutcomeClass::Undefined);
     assert_eq!(fired.hit_site, None);
-    // Covered reaches the rule, but on a leaf that is not clean: never a hit.
+    // No step took the rule (its result was empty), so `covered` does not reach it either
+    // (FZ-ENGINE-R4): the leaf takes its own class.
     let covered = judge(&rule_target("id-div", RuleMode::Covered, false), &result);
-    assert_eq!(covered.class, OutcomeClass::Unsupported);
+    assert_eq!(covered.class, OutcomeClass::Undefined);
     assert_eq!(covered.hit_site, None);
     assert!(!covered.blocked);
 }
@@ -765,7 +802,7 @@ fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
             .expect("no engine defect");
         (judgement.class, judgement.reason)
     };
-    let off_trace = case(vec![natural_end()], &["id-div"], &["id-div"]);
+    let off_trace = uncommitted(vec![natural_end()], &["id-div"], &["id-div"]);
     assert_eq!(
         judged(&off_trace, true),
         (
@@ -776,7 +813,7 @@ fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
     assert_eq!(judged(&off_trace, false), (OutcomeClass::Miss, None));
     let mut stuck = natural_end();
     stuck.natural_end = false;
-    let stuck_case = case(vec![stuck.clone()], &["id-div"], &[]);
+    let stuck_case = uncommitted(vec![stuck.clone()], &["id-div"], &[]);
     assert_eq!(
         judged(&stuck_case, true),
         (
@@ -796,7 +833,7 @@ fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
     // the rule, so `reached-unfinished` is not judged either (review S1).
     let mut unfinished = stuck;
     unfinished.rewrites = vec!["id-div".to_owned()];
-    let unfinished_case = case(vec![natural_end(), unfinished], &["id-div"], &[]);
+    let unfinished_case = uncommitted(vec![natural_end(), unfinished], &["id-div"], &[]);
     let completing = rule_target("id-div", RuleMode::Fired, true);
     let on_state_set = completing
         .judge_run(&unfinished_case, true, true)
@@ -821,13 +858,13 @@ fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
         (OutcomeClass::ReachedUnfinished, None)
     );
     assert_eq!(
-        judged(&case(vec![natural_end()], &["other"], &[]), true),
+        judged(&uncommitted(vec![natural_end()], &["other"], &[]), true),
         (OutcomeClass::Miss, None)
     );
     let mut traced = natural_end();
     traced.rewrites = vec!["id-div".to_owned()];
     assert_eq!(
-        judged(&case(vec![natural_end(), traced], &["id-div"], &[]), true),
+        judged(&uncommitted(vec![natural_end(), traced], &["id-div"], &[]), true),
         (OutcomeClass::Hit, None)
     );
     // A cut run stays cut: no class claims the rule was not fired.
@@ -836,19 +873,23 @@ fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
     cut.natural_end = false;
     cut.unclean = vec![UncleanReason::Halt];
     assert_eq!(
-        judged(&case(vec![cut.clone()], &["id-div"], &[]), true),
+        judged(&uncommitted(vec![cut.clone()], &["id-div"], &[]), true),
         (OutcomeClass::DepthBound, None)
     );
     // So does a cut beside a clean natural end that might stand for an absorbed reach: a cut
     // class concedes the run is incomplete, and claims no miss (V7).
     assert_eq!(
-        judged(&case(vec![natural_end(), cut], &["id-div"], &[]), true),
+        judged(&uncommitted(vec![natural_end(), cut], &["id-div"], &[]), true),
         (OutcomeClass::DepthBound, None)
     );
-    // A coverage mode reads `applied` itself, whatever the modality.
+    // A coverage mode reads the committed transitions itself, whatever the modality.
     assert_eq!(
         rule_target("id-div", RuleMode::Covered, false)
-            .judge_run(&off_trace, true, true)
+            .judge_run(
+                &case(vec![natural_end()], &["id-div"], &["id-div"]),
+                true,
+                true
+            )
             .expect("no engine defect")
             .class,
         OutcomeClass::Hit

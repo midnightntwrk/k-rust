@@ -304,7 +304,8 @@ const FIRED_OFF_TRACE_REMEDY: &str = concat!(
     "ends as the target needs: the state set kept another path to the same configuration, so ",
     "whether a path that fired it ends that way is not shown; ",
     "target mode `covered` (campaign key `mode`, command line `--rule-mode`, library ",
-    "`RuleMode::Covered`) asks whether any explored step applied the rule, and another program ",
+    "`RuleMode::Covered`) asks whether any explored step took the rule (built a successor of ",
+    "it that denotes a configuration), and another program ",
     "or hole range may fire it on a path the result keeps",
 );
 

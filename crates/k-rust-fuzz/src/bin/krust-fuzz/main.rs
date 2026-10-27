@@ -277,7 +277,8 @@ struct Args {
 enum RuleModeArg {
     /// A clean leaf's trace contains a rewrite with the rule.
     Fired,
-    /// The rule is in the run's coverage `applied`.
+    /// Some explored step took the rule: it is in the run's coverage `committed` (a candidate
+    /// whose result was empty and rolled back is not).
     Covered,
     /// The rule is in the run's coverage `matched`.
     ConditionReached,

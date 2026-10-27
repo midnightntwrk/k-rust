@@ -141,7 +141,7 @@ fn class(judgement: &Judgement) -> OutcomeClass {
 }
 
 #[test]
-fn fired_and_covered_differ_on_the_undefined_right_hand_side() {
+fn fired_and_covered_agree_on_the_undefined_right_hand_side() {
     let mut rules = Harness::new(RULES.compiled());
     let undefined = |rules: &mut Harness, mode, run_to_completion| {
         rules.judge(
@@ -155,17 +155,11 @@ fn fired_and_covered_differ_on_the_undefined_right_hand_side() {
         // The undefined step is on no leaf's path: the rule did not fire.
         let fired = undefined(&mut rules, RuleMode::Fired, run_to_completion);
         assert_eq!(class(&fired), OutcomeClass::Undefined, "{fired:?}");
-        // Coverage `applied` holds the rule, but the only leaf is an undefined step, which
-        // cannot carry a hit: `unsupported` (a reaching leaf that is not clean), and under
-        // run-to-completion `reached-unfinished`, since the leaf is clean in every respect
-        // except its halt and that halt is an undefined step (ARCHITECTURE 5.3, step 2).
+        // Coverage `applied` holds the rule, but its result was empty, so no step took it and
+        // it is not committed: `covered` does not reach it either (FZ-ENGINE-R4, final review
+        // S2), and the undefined step keeps its own class.
         let covered = undefined(&mut rules, RuleMode::Covered, run_to_completion);
-        let expected = if run_to_completion {
-            OutcomeClass::ReachedUnfinished
-        } else {
-            OutcomeClass::Unsupported
-        };
-        assert_eq!(class(&covered), expected, "{covered:?}");
+        assert_eq!(class(&covered), OutcomeClass::Undefined, "{covered:?}");
         assert_eq!(covered.hit_site, None);
     }
     // On the anchor `div(10, 2)` the rule fires: a terminal halt on it as the only stop rule,

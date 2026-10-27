@@ -431,24 +431,30 @@ fn a_depth_only_merge_keeps_the_first_arrivals_facts_and_max_work_moves_nothing(
 /// Guard (B1, review N6), and FZ-STATESET-MATCH test 5. MERGE `pick(0)`: `bad`'s successor is
 /// undefined beside `good`'s, so it is rolled back; it is in coverage `applied`, on no path, and
 /// not in the committed transitions. `fired` on it is never a hit: `miss` on the state set (at
-/// C1, `fired-off-trace`) and on one path. On `pick(1)` it fires and is a hit.
+/// C1, `fired-off-trace`) and on one path. On `pick(1)` it fires and is a hit. `covered` asks
+/// whether some explored step took the rule, which no path does on `pick(0)`, so it is no hit
+/// either (FZ-ENGINE-R4, final review S2: it read `applied`, which holds the rolled-back
+/// candidate).
 #[test]
 fn a_rolled_back_target_rule_is_never_a_hit() {
-    let pick = |value, paths| {
+    let pick = |value, mode, paths| {
         verdict(&run(fixture_spec(
             &MERGE,
             "merge/pick.pgm",
             ("pick(1)", "1", value),
-            rule(label("bad"), RuleMode::Fired),
+            rule(label("bad"), mode),
             CaseOptions {
                 paths,
                 ..CaseOptions::default()
             },
         )))
     };
-    assert_eq!(pick(0, PathMode::AllPaths), (OutcomeClass::Miss, None));
-    assert_eq!(pick(0, PathMode::OnePath), (OutcomeClass::Miss, None));
-    assert_eq!(pick(1, PathMode::AllPaths), (OutcomeClass::Hit, None));
+    for mode in [RuleMode::Fired, RuleMode::Covered] {
+        assert_eq!(pick(0, mode, PathMode::AllPaths), (OutcomeClass::Miss, None));
+        assert_eq!(pick(0, mode, PathMode::OnePath), (OutcomeClass::Miss, None));
+        assert_eq!(pick(1, mode, PathMode::AllPaths), (OutcomeClass::Hit, None));
+        assert_eq!(pick(1, mode, PathMode::OnePath), (OutcomeClass::Hit, None));
+    }
 }
 
 fn any_state(pattern: &str) -> Target {
