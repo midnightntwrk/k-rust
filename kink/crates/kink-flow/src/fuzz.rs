@@ -2161,8 +2161,20 @@ pub fn fuzz_job(
         }
         CampaignOutcome::NoWitnessFound { no_witness } => {
             document["stopped"] = json!("budget");
+            // More cases help only a campaign whose cases still found something new: not one
+            // whose coverage stopped growing long ago (the statement says so), nor one where the
+            // mutant ran out of work where the baseline ended, which no bound decides (the mutant
+            // may not terminate on this program, so more cases of it repeat that). Advising more
+            // cases there contradicts the statement it follows (final review ux S5).
+            let hint = if report.totals.coverage_stalled_since().is_some()
+                || report.totals.diverging.is_some()
+            {
+                "Rather than raising --cases or --work, mark other literals as holes"
+            } else {
+                "Raise --cases or --work, mark more literals as holes"
+            };
             document["action"] = json!(format!(
-                "no witness: {} Raise --cases or --work, mark more literals as holes, or {sought}",
+                "no witness: {} {hint}, or {sought}",
                 no_witness.statement
             ));
             true

@@ -1266,6 +1266,29 @@ pub struct Totals {
     pub coverage_last_grew: Option<u64>,
 }
 
+/// The fewest cases after the last one that added a rule to the coverage for a campaign to say
+/// that coverage stopped growing ([`Totals::coverage_stalled_since`]). By the rule of three,
+/// after `n` consecutive cases with no new rule, a constant chance per case of a new rule is below
+/// `3 / n` at 95 % confidence, so 30 such cases put it below one in ten. The cases are no
+/// independent draws (the proposers adapt), so this is a threshold for a hint, not a bound.
+pub const STALLED_CASES: u64 = 30;
+
+impl Totals {
+    /// The last case that added a rule to the coverage ([`Self::coverage_last_grew`]), when the
+    /// cases after it are many enough to say that coverage stopped growing: at least
+    /// [`STALLED_CASES`], and at least as many as the cases up to and including it, so that the
+    /// campaign spent as long without a new rule as it took to reach every rule it reached.
+    /// `None` otherwise, or when no case added a rule. The no-witness statement says that more
+    /// cases are unlikely to reach a new rule exactly when this is `Some` and the campaign ended
+    /// on its budget (GUIDE-USABILITY 3).
+    #[must_use]
+    pub fn coverage_stalled_since(&self) -> Option<u64> {
+        let last = self.coverage_last_grew?;
+        let after = self.cases.checked_sub(last.checked_add(1)?)?;
+        (after >= STALLED_CASES && after > last).then_some(last)
+    }
+}
+
 /// The holes' finite domain ([`Totals::domain`]).
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]

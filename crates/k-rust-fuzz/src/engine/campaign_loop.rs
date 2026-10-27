@@ -3311,21 +3311,9 @@ fn bound_advice(
 const TERMINATES: &str = " if the program ends on those values (a hole value can make it loop, \
                           which no bound changes)";
 
-/// The fewest cases after the last one that added a rule to the coverage for the statement to
-/// say that coverage stopped growing ([`stalled_since`]). By the rule of three, after `n`
-/// consecutive cases with no new rule, a constant chance per case of a new rule is below `3 / n`
-/// at 95 % confidence, so 30 such cases put it below one in ten. The cases are no independent
-/// draws (the proposers adapt), so this is a threshold for a hint, not a bound.
-const STALLED_CASES: u64 = 30;
-
-/// The last case that added a rule to the coverage, when the cases after it are many enough to
-/// say that coverage stopped growing: at least [`STALLED_CASES`], and at least as many as the
-/// cases up to and including it, so that the campaign spent as long without a new rule as it
-/// took to reach every rule it reached. `None` otherwise, or when no case added a rule.
+/// [`Totals::coverage_stalled_since`], which a client reads too (kink-flow's action).
 fn stalled_since(totals: &Totals) -> Option<u64> {
-    let last = totals.coverage_last_grew?;
-    let after = totals.cases.checked_sub(last.checked_add(1)?)?;
-    (after >= STALLED_CASES && after > last).then_some(last)
+    totals.coverage_stalled_since()
 }
 
 /// "1 case was" or "N cases were".

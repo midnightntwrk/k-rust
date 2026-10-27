@@ -1756,6 +1756,75 @@ endmodule
         assert!(!action.contains("Raise --cases"), "{action}");
     }
 
+    /// Final review ux S5: the action after a `budget` stop advises more cases only when the
+    /// statement does not say they would not help. `big --fired` on `run(X)` with `X <= 5` never
+    /// fires (`dbl(5) = 10`), and every case reaches the same rules from the first on: after 10
+    /// cases more cases are advised, after 40 (39 cases with no new rule) the statement says
+    /// coverage stopped growing and the action no longer advises raising --cases. Before the fix
+    /// it always did.
+    #[test]
+    #[ignore = "kink"]
+    fn the_budget_action_advises_more_cases_only_while_coverage_grows() {
+        let dir = steps_flow("stalled");
+        let templates = "[[template]]\nid = \"wide\"\nprogram = \"one\"\n[[template.hole]]\n\
+                         name = \"X\"\nsort = \"Int\"\nfind = \"1\"\nliteral = \"1\"\n\
+                         range = { min = -100000, max = 5 }\n";
+        let job = |cases| {
+            run_job(
+                &dir,
+                templates,
+                "wide",
+                Job::Reach("big".into(), true),
+                imp_options(cases),
+            )
+        };
+        let (early, ok) = job(10);
+        assert!(ok, "{early:#}");
+        assert_eq!(early["stopped"], "budget", "{early:#}");
+        let action = early["action"].as_str().unwrap();
+        assert!(action.contains("Raise --cases or --work"), "{action}");
+        let (stalled, ok) = job(40);
+        assert!(ok, "{stalled:#}");
+        assert_eq!(stalled["stopped"], "budget", "{stalled:#}");
+        assert_eq!(totals(&stalled)["coverage-last-grew"], 0, "{stalled:#}");
+        let action = stalled["action"].as_str().unwrap();
+        assert!(action.contains("unlikely to reach a new rule"), "{action}");
+        assert!(!action.contains("Raise --cases"), "{action}");
+        assert!(
+            action.contains("Rather than raising --cases or --work"),
+            "{action}"
+        );
+    }
+
+    /// Final review ux S5 on the guide's `sum` example: the mutant `add-becomes-sub` runs out of
+    /// work where the definition ends, so the statement says it may not terminate on this
+    /// program, and the action does not advise raising --cases or --work after it.
+    #[test]
+    #[ignore = "kink"]
+    fn the_budget_action_advises_no_bound_after_a_diverging_mutant() {
+        let (document, ok) = fuzz_kill(
+            &flow("fuzz/imp"),
+            "MUTATIONS.toml",
+            None,
+            "sum-holes",
+            "add-becomes-sub",
+            FuzzOptions {
+                budget: k_rust_fuzz::Budget::Cases(20),
+                max_work: Some(2000),
+                ..FuzzOptions::default()
+            },
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["stopped"], "budget", "{document:#}");
+        assert!(totals(&document)["diverging"].is_object(), "{document:#}");
+        let action = document["action"].as_str().unwrap();
+        assert!(
+            action.contains("may not terminate on this program"),
+            "{action}"
+        );
+        assert!(!action.contains("Raise --cases"), "{action}");
+    }
+
     /// Final review ux S8 (FZ-ENGINE-R4): on `run(0)` the program reaches `spin(0)`, which
     /// rewrites to itself forever, so the pattern witness is a hit whose run of every path
     /// stops at the work bound: kink-flow warns `witness-not-terminating`. A witness whose run
