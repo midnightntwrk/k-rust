@@ -15,6 +15,7 @@ type Page =
   | { path: '/imp/sorts-and-values'; render: 'static' }
   | { path: '/'; render: 'static' }
   | { path: '/k-rust/compatibility'; render: 'static' }
+  | { path: '/k-rust/fuzzing'; render: 'static' }
   | { path: '/k-rust'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }

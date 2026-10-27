@@ -1995,3 +1995,146 @@ fn a_simple_rule_is_targeted_by_any_line() {
         );
     }
 }
+
+/// The fenced blocks of the guide: (language, opening line, lines).
+fn guide_blocks(guide: &str) -> Vec<(String, usize, Vec<&str>)> {
+    let mut blocks = Vec::new();
+    let mut open = None;
+    for (index, line) in guide.lines().enumerate() {
+        match (line.strip_prefix("```"), open.take()) {
+            (Some(_), Some(block)) => blocks.push(block),
+            (Some(info), None) => open = Some((info.to_owned(), index + 1, Vec::new())),
+            (None, Some((info, at, mut lines))) => {
+                lines.push(line);
+                open = Some((info, at, lines));
+            }
+            (None, None) => {}
+        }
+    }
+    blocks
+}
+
+/// The words of a guide command, single quotes grouping one.
+fn guide_words(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut rest = command.trim();
+    while !rest.is_empty() {
+        if let Some(quoted) = rest.strip_prefix('\'') {
+            let end = quoted.find('\'').expect("a closed quote");
+            words.push(quoted[..end].to_owned());
+            rest = quoted[end + 1..].trim_start();
+        } else {
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            words.push(rest[..end].to_owned());
+            rest = rest[end..].trim_start();
+        }
+    }
+    words
+}
+
+/// fz26 FZ-GUIDE: the `krust` commands of the user guide, `docs/fuzzing.md`, run as written, in
+/// order, and give the exit status and output lines the guide states. The guide's forms are those
+/// kink-flow's `tests/guide.rs` documents and checks (it runs the guide's `kink-flow` blocks):
+/// an `sh` block is `cp -r SOURCE DIRECTORY` (SOURCE a repository path), `cd DIRECTORY`,
+/// `cat > FILE <<'EOF'` up to `EOF`, and commands with an optional trailing `# exit N`, a path
+/// under `/tmp/` naming one under this test's scratch directory; a `text` block after it lists
+/// lines of the last command's output, in order. `krust kcompile FILE -m MODULE -o DIRECTORY`
+/// compiles in process as `krust kcompile` does (this package has no `krust` executable), and
+/// `krust fuzz ARGS` runs `krust-fuzz ARGS`.
+#[test]
+fn the_guide_krust_commands_give_the_stated_outcomes() {
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let guide = fs::read_to_string(repository.join("docs/fuzzing.md")).expect("the guide reads");
+    let scratch = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join("cli")
+        .join("guide");
+    let _ = fs::remove_dir_all(&scratch);
+    fs::create_dir_all(&scratch).expect("the scratch directory is created");
+    let resolve = |cwd: &Path, word: &str| -> PathBuf {
+        let path = match word.strip_prefix("/tmp/") {
+            Some(rest) => scratch.join(rest),
+            None => cwd.join(word),
+        };
+        assert!(path.starts_with(&scratch), "`{word}` is outside /tmp");
+        path
+    };
+    let blocks = guide_blocks(&guide);
+    let mut cwd = repository.clone();
+    let mut stdout = String::new();
+    let mut checked = 0;
+    for (index, (language, at, lines)) in blocks.iter().enumerate() {
+        let krust = lines
+            .iter()
+            .any(|line| line.split_whitespace().next() == Some("krust"));
+        if language != "sh" || !krust {
+            continue;
+        }
+        let mut lines = lines.iter();
+        while let Some(line) = lines.next() {
+            let (command, status) = match line.split_once(" # exit ") {
+                Some((command, status)) => (command, status.trim().parse().unwrap()),
+                None => (*line, 0),
+            };
+            let words = guide_words(command);
+            let words = words.iter().map(String::as_str).collect::<Vec<_>>();
+            match words.as_slice() {
+                [] => {}
+                ["cp", "-r", source, target] => {
+                    let target = resolve(&cwd, target);
+                    fs::create_dir_all(&target).unwrap();
+                    for entry in fs::read_dir(repository.join(source)).unwrap() {
+                        let entry = entry.unwrap();
+                        assert!(entry.file_type().unwrap().is_file(), "{source} is flat");
+                        fs::copy(entry.path(), target.join(entry.file_name())).unwrap();
+                    }
+                }
+                ["cd", directory] => cwd = resolve(&cwd, directory),
+                ["cat", ">", file, "<<'EOF'"] => {
+                    let mut text = String::new();
+                    for line in lines.by_ref().take_while(|line| **line != "EOF") {
+                        text.push_str(line);
+                        text.push('\n');
+                    }
+                    fs::write(resolve(&cwd, file), text).unwrap();
+                }
+                ["krust", "kcompile", file, "-m", module, "-o", directory] => {
+                    let source = fs::read_to_string(cwd.join(file)).unwrap();
+                    write_compiled_source(file, &source, module, &resolve(&cwd, directory));
+                }
+                ["krust", "fuzz", args @ ..] => {
+                    assert!(
+                        cwd.starts_with(&scratch),
+                        "guide line {at}: `cd` into /tmp first"
+                    );
+                    let output = krust_fuzz(&cwd, args);
+                    stdout = text(&output.stdout);
+                    assert_eq!(
+                        output.status.code(),
+                        Some(status),
+                        "guide line {at}: `{line}`: {stdout}{}",
+                        text(&output.stderr)
+                    );
+                }
+                _ => panic!("guide line {at}: `{line}` is none of the guide's forms"),
+            }
+        }
+        let Some((language, at, excerpt)) = blocks.get(index + 1) else {
+            continue;
+        };
+        assert_ne!(
+            language, "json",
+            "guide line {at}: `krust fuzz` prints text"
+        );
+        if language == "text" {
+            let mut output = stdout.lines();
+            for line in excerpt {
+                assert!(
+                    output.any(|out| out == *line),
+                    "guide line {at}: `{line}` is not in the output (in order):\n{stdout}"
+                );
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= 5, "{checked} excerpts checked");
+}

@@ -1,0 +1,4 @@
+// Flag x when it is not small.
+int x, r;
+x = 5;
+if (!(x <= 3)) { r = 1; } else { r = 0; }

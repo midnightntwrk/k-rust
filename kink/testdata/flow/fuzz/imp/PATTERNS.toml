@@ -1,0 +1,5 @@
+# A pattern for `kink-flow fuzz --pattern` and `kink-flow query` (docs/fuzzing.md):
+# a division by zero is about to run.
+[[pattern]]
+id = "divzero"
+pattern = "<k> _:Int / 0 ~> _ </k>"

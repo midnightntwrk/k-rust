@@ -11,7 +11,7 @@ definitions and programs, runs the frontend checking and lowering pipeline, emit
 and includes an in-process symbolic backend.
 
 The documentation site in [`docs-site/`](docs-site/README.md) publishes KRS's tour and reference and
-k-rust's [compatibility contract](docs/compatibility.md), mirrored by `docs-site/scripts/sync-k-rust.py`
+k-rust's [compatibility contract](docs/compatibility.md) and [fuzzing guide](docs/fuzzing.md), mirrored by `docs-site/scripts/sync-k-rust.py`
 (`bun run --cwd docs-site sync:snippets` after editing it).
 
 [`krs/`](krs/README.md) holds KRS, a Rust-shaped language for authoring K semantic definitions
@@ -209,7 +209,7 @@ The artifact records its main and syntax modules, configuration variables, front
 Recompile the directory when validation fails.
 The files inside the directory are private implementation details; compatibility is provided through the `kcompile` and `krun` CLI and library interfaces.
 `--emit-json` remains the opt-in external KAST JSON output and is independent of the runtime payload.
-`krust fuzz --definition definition-kompiled --program program.exp --campaign holes.toml --reach-rule MAIN.rule` crafts input values that make the program reach a target; it runs the `krust-fuzz` executable, which releases ship beside `krust` ([Install and build](#install-and-build); [crates/k-rust-fuzz/README.md](crates/k-rust-fuzz/README.md#command-line)). The Node-API and WebAssembly packages run the same campaigns in-process with `runFuzzCampaign`.
+`krust fuzz --definition definition-kompiled --program program.exp --campaign holes.toml --reach-rule MAIN.rule` crafts input values that make the program reach a target; it runs the `krust-fuzz` executable, which releases ship beside `krust` ([Install and build](#install-and-build); [crates/k-rust-fuzz/README.md](crates/k-rust-fuzz/README.md#command-line)). The Node-API and WebAssembly packages run the same campaigns in-process with `runFuzzCampaign`. [docs/fuzzing.md](docs/fuzzing.md) is the user guide to `krust fuzz` and kink's `kink-flow fuzz`: marking holes, choosing a template, killing a mutant, reaching a rule, hitting a pattern, and reading and replaying the result.
 
 Generate an executable parser or a shared library for the `$PGM` sort through the system Bison, Flex, and C compiler:
 

@@ -87,6 +87,7 @@ export default defineConfig({
       items: [
         { text: 'Overview', link: '/k-rust' },
         { text: 'Compatibility contract', link: '/k-rust/compatibility' },
+        { text: 'Fuzzing guide', link: '/k-rust/fuzzing' },
       ],
     },
   ],

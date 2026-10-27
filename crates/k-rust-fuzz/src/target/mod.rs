@@ -91,8 +91,9 @@ pub struct Target {
     /// For a pattern target (`query-confirmable`): a hit also requires that no leaf of the run
     /// carries a diagnostic of any kind, that the run's lists hold no fact (a chosen value or
     /// contradicted claim on no leaf, an allowance refusal, an unsupported hook, a stop for lack
-    /// of stack, also in the definition's load), and that the matched state holds no term-level
-    /// `\and` (P7-ADDENDUM section 4, conditions Q2', Q4', Q5';
+    /// of stack), that the definition's load counted no stop for lack of stack (its other records
+    /// do not refuse the hit), and that the matched state holds no term-level `\and`
+    /// (P7-ADDENDUM section 4, conditions Q2', Q4', Q5';
     /// [`crate::exec::comparable::query_conditions`]). The run is read whole because kink's
     /// search absorbs the facts of converging paths into a matching state. This is necessary
     /// for kink's query to confirm the hit, not sufficient: kink's search stops at its first

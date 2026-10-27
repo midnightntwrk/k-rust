@@ -37,3 +37,23 @@ program = "guard"
   find = "y = 8;"
   literal = "8"
   range = { min = 0, max = 1000 }
+
+# A three-line program written for imp.k:50 (`! T`), which no corpus U program
+# contains (TRIAL3): no hole value of clamp or guard can reach it.
+[[template]]
+id = "bang-holes"
+file = "templates/bang.imp"
+
+  [[template.hole]]
+  name = "X"
+  sort = "Int"
+  find = "x = 5;"
+  literal = "5"
+  range = { min = 0, max = 1000 }
+
+  [[template.hole]]
+  name = "K"
+  sort = "Int"
+  find = "x <= 3"
+  literal = "3"
+  range = { min = 0, max = 1000 }

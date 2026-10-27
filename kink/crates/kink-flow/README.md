@@ -174,7 +174,7 @@ a different `run_sha256`, or a record whose `run_sha256` is not the digest of it
 row is a mismatch. Mismatches are listed (program, record path, detail) and records are never
 rewritten by `--verify`; delete a mismatching record (or the cache) to recompute it.
 
-The document (version 2 since re-pin L2-1) lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns}` (the last two from the result record since re-pin adoption A-1, so absent on a `refused` row, which has none; a `comparable` row also has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made), the baseline's findings (`data`, see "The report: the run document"), every authored
+The document (version 2 since re-pin L2-1; the row field `unable_to_kill` and the member `data`, fz26 KINK-BASELINE-FINDINGS, were added to version 2 without a new version, since they are additive and no command reads a `results` document back) lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns}` (the last two from the result record since re-pin adoption A-1, so absent on a `refused` row, which has none; a `comparable` row also has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made), the baseline's findings (`data`, see "The report: the run document"), every authored
 rule `{module, index, label, file, start_line, end_line, status, reached_by, fired_by}` with status
 `uncovered` (no comparable program reaches it: the next program to write) first, then
 `covered`, then `no-coverage-signal` (none of the rule's compiled ids can appear in a run's coverage: it
@@ -591,7 +591,7 @@ pattern = "<k> I:Int </k> requires I >Int 5"
 
 The command prints one document, `{schema: "kink-flow-query", version: 1, k_rust_revision, profile, kink_build, kink, spec, programs, patterns, rows, counts, refuted_claims, mismatches, pattern_cache, baseline_runs, data}`:
 `programs` are the `results` rows (the result cache is brought up to date first),
-`data` is the baseline's full critical-pair check under the premises, as in the run document (fz26 KINK-BASELINE-FINDINGS). A refused specification prints the document without `data` (the member is absent, not null; `spec.outcome` is `refused` and `programs`, `patterns` and `rows` are empty), and a pattern list that does not decode prints only `{schema, version, k_rust_revision, profile, pattern_list}`.
+`data` is the baseline's full critical-pair check under the premises, as in the run document (fz26 KINK-BASELINE-FINDINGS). `data` was added to version 1 without a new version, since it is additive and no command reads a `query` document back. A refused specification prints the document without `data` (the member is absent, not null; `spec.outcome` is `refused` and `programs`, `patterns` and `rows` are empty), and a pattern list that does not decode prints only `{schema, version, k_rust_revision, profile, pattern_list}`.
 `patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus}` (`kore` is the compiled target),
 and `rows` one row per (pattern, program asked) `{pattern, program, claimed, answer, cause, witness, cached, wall_ms, claim}`.
 
@@ -674,6 +674,7 @@ Exit status: 0 when every selected (pattern, program) got its answer (`hit`, `no
 When a mutation survives or is unknown because no corpus program tells the two definitions apart, write (or pick) a program that reaches the edited rule, mark its literals as holes, and let `fuzz` look for hole values that kill the mutation.
 It runs a k-rust-fuzz campaign in process on kink's own two sides, confirms the candidate with kink's own code, and prints the program as a `[[program]]` fragment for `FLOW.toml`.
 The same command can also look for a program that reaches a rule or hits a pattern ("Reaching a rule and hitting a pattern" below).
+k-rust's [docs/fuzzing.md](../../../docs/fuzzing.md) is the user guide: it walks through the three jobs on `testdata/flow/fuzz/imp` and `impu`, how to choose a template, and how to read the document; this section is the reference.
 
 ### `TEMPLATES.toml`
 
@@ -697,7 +698,7 @@ program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort an
 - Decoding is strict, as for `FLOW.toml`: an unknown key, a value of the wrong type, a duplicate id, a template with not exactly one of `program`, `file` and `text`, or a path leaving the directory is an error naming the key.
 - Each `[[template.hole]]` is decoded by k-rust-fuzz's own decoder, so a hole means what it means for `krust fuzz`; its messages are prefixed with `template "ID".hole[INDEX]`. A span hole addresses the template's text (leave `program` out); a `config-var` hole makes a whole configuration variable the hole. `program = "$NAME"` puts a span hole inside the text of the template's variable `NAME` (k-rust-fuzz's witness carries each binding as instantiated, `config-vars`, and the fragment writes it). A TOML date is refused.
 - Mark every data literal: in TRIAL2 the killing value was usually one nobody would have guessed (`t = 0` in `primes`). A template is not a corpus program: it gets no record, and nothing is cached for it.
-- `testdata/flow/fuzz/imp` (TRIAL2's IMP thin corpus, its survivors and their templates) and `testdata/flow/fuzz/impu` are complete examples.
+- `testdata/flow/fuzz/imp` (TRIAL2's IMP thin corpus, its survivors, their templates and a pattern) and `testdata/flow/fuzz/impu` (three uncovered rules and templates that reach them) are complete examples; the user guide runs every command it shows on them (`tests/guide.rs`).
 
 ### Reaching a rule and hitting a pattern
 
