@@ -183,10 +183,13 @@ def firstNonempty {β : Type} : List (List β) → List β
 
 open Lean Meta Elab Tactic in
 /-- Close the goal by a hypothesis `∀ xs, a₁ = x₁ → … → aₙ = xₙ → False` (or ending in `¬ aₙ = xₙ`)
-whose equations all hold by reflexivity once the bound variables are instantiated. `split` on a
-`match` with a fallback arm leaves one in the fallback's case: the earlier arm does not match, which
-is false when the scrutinee is that arm's pattern. `simp_all` does not use it when each equation
-comes after all the binders (a cell of five or more cells, each bound by its own variable). -/
+whose equations all hold, once the bound variables are instantiated, by reflexivity or by a
+hypothesis of the context (a rule's `requires` clause, `c = true`, which the case's own split
+established). `split` on a `match` with a fallback arm leaves one in the fallback's case: the
+earlier arm does not match, which is false when the scrutinee is that arm's pattern; so does the
+statement of an `owise` rule, one per rule tried before it. `simp_all` does not use it when each
+equation comes after all the binders (a cell of five or more cells, each bound by its own
+variable). -/
 elab "k2l_no_arm" : tactic => liftMetaFinishingTactic fun g => g.withContext do
   for d in (← getLCtx) do
     if d.isImplementationDetail then continue
@@ -195,8 +198,14 @@ elab "k2l_no_arm" : tactic => liftMetaFinishingTactic fun g => g.withContext do
       let (args, _, concl) ← forallMetaTelescopeReducing d.type
       unless concl.isConstOf ``False do return none
       for a in args do
-        let some (_, lhs, _) := (← instantiateMVars (← inferType a)).eq? | continue
-        unless (← isDefEq a (← mkEqRefl lhs)) do return none
+        let ty ← instantiateMVars (← inferType a)
+        let some (_, lhs, _) := ty.eq? | continue
+        if ← isDefEq a (← mkEqRefl lhs) then continue
+        let hyp ← (← getLCtx).findDeclM? fun h => do
+          if h.isImplementationDetail then return none
+          return if ← withReducible (isDefEq ty h.type) then some h.toExpr else none
+        let some h := hyp | return none
+        unless (← isDefEq a h) do return none
       let pf ← instantiateMVars (mkAppN d.toExpr args)
       if (← hasAssignableMVar pf) then return none
       return some pf
@@ -442,6 +451,35 @@ theorem concat_eq_unit_iff (a b : L) : concat a b = unit ↔ a = unit ∧ b = un
     exact ⟨by rw [← ofList_toList a, h'.1]; rfl, by rw [← ofList_toList b, h'.2]; rfl⟩
   · rintro ⟨rfl, rfl⟩
     exact concat_unit_left _
+
+/-! A list that is not built from the constructors (a variable) is `.List` or has a first
+element, and is `.List` or has a last element: the two ways a generated definition takes it apart
+(`uncons`, `unsnoc`), as equations that `subst` can use (`k2l_case_lvar` in `KPrelude.Tactic`).
+With associativity and the unit laws, two such constructions are equal when their sequences of
+elements and variables are. -/
+
+theorem cases_front (l : L) : l = unit ∨ ∃ x t, l = concat (element x) t := by
+  cases h : uncons l with
+  | none =>
+    left
+    unfold uncons at h
+    split at h
+    · next hl => rw [← ofList_toList l, hl]; rfl
+    · simp at h
+  | some p => exact .inr ⟨p.1, p.2, (concat_element_of_uncons h).symm⟩
+
+theorem cases_back (l : L) : l = unit ∨ ∃ t x, l = concat t (element x) := by
+  cases h : unsnoc l with
+  | none =>
+    left
+    unfold unsnoc at h
+    split at h
+    · next hl => rw [← ofList_toList l, List.getLast?_eq_none_iff.1 hl]; rfl
+    · simp at h
+  | some p => exact .inr ⟨p.1, p.2, (concat_element_of_unsnoc h).symm⟩
+
+theorem concat_assoc (a b c : L) : concat (concat a b) c = concat a (concat b c) := by
+  simp [concat, toList_ofList, List.append_assoc]
 
 end ListHook
 
