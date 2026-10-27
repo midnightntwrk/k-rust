@@ -899,12 +899,18 @@ impl<'a> StateRuleBuilder<'a> {
         match tree {
             TermTree::Application(application) => {
                 // A `cells!` term keys no path: the head's key stands for it.
-                keys.pass_path(application.head())?;
+                let path = keys.path(application.head())?;
                 let node = keys.node(
                     NodeKind::ApplicationHead,
                     TokenRange::for_tokens(application.head())?,
                 )?;
-                let key = node.key(self.term_role(TermRole::ApplicationHead))?;
+                let (key, path_key) = node.head(path)?;
+                let chosen = node.chosen(self.term_role(TermRole::ApplicationHead));
+                debug_assert_eq!(
+                    (Some(&key), Some(&path_key)),
+                    (chosen, chosen),
+                    "a `cells!` term's head takes its node's key for its path too"
+                );
                 let target = self.terms.application_wire_slot(
                     application.head(),
                     application.is_notation(),
@@ -945,25 +951,30 @@ impl<'a> StateRuleBuilder<'a> {
                     instance,
                     head_class: DescriptorApplicationHeadClass::Applied,
                     reference: WireApplicationReference {
-                        key: key.clone(),
+                        key,
                         target,
                         authored_path,
                     },
-                    path_key: key,
+                    path_key,
                     arguments,
                     update: None,
                     open: application.is_open(),
                 })
             }
             TermTree::Reference(path) => {
-                keys.pass_path(path)?;
-                let key = keys
-                    .node(NodeKind::Reference, TokenRange::for_tokens(path)?)?
-                    .key(self.term_role(TermRole::Reference))?;
+                let path_read = keys.path(path)?;
+                let node = keys.node(NodeKind::Reference, TokenRange::for_tokens(path)?)?;
+                let (key, path_key) = node.head(path_read)?;
+                let chosen = node.chosen(self.term_role(TermRole::Reference));
+                debug_assert_eq!(
+                    (Some(&key), Some(&path_key)),
+                    (chosen, chosen),
+                    "a `cells!` term's reference takes its node's key for its path too"
+                );
                 if is_bound_ident_path(path, self.bindings) {
                     Ok(WireTerm::Variable {
-                        key: key.clone(),
-                        path_key: key,
+                        key,
+                        path_key,
                         name: super::terms::binder_spelling(path),
                     })
                 } else {
@@ -972,23 +983,30 @@ impl<'a> StateRuleBuilder<'a> {
                         instance: Vec::new(),
                         head_class: DescriptorApplicationHeadClass::BareReference,
                         reference: WireApplicationReference {
-                            key: key.clone(),
+                            key,
                             target,
                             authored_path: spelling(path),
                         },
-                        path_key: key,
+                        path_key,
                         arguments: krs_ir::Arguments::default(),
                         update: None,
                         open: false,
                     })
                 }
             }
-            TermTree::Literal(literal) => Ok(WireTerm::Literal {
-                key: keys
-                    .node(NodeKind::Literal, literal.range()?)?
-                    .key(self.term_role(TermRole::Literal))?,
-                literal: wire_literal(literal),
-            }),
+            TermTree::Literal(literal) => {
+                let node = keys.node(NodeKind::Literal, literal.range()?)?;
+                let key = node.own_key()?;
+                debug_assert_eq!(
+                    Some(&key),
+                    node.chosen(self.term_role(TermRole::Literal)),
+                    "a `cells!` term's literal takes its node's key"
+                );
+                Ok(WireTerm::Literal {
+                    key,
+                    literal: wire_literal(literal),
+                })
+            }
             TermTree::Wildcard(range) => {
                 if matches!(self.side, RuleSide::Right) {
                     return Err(ExpandError::at_range(
@@ -1156,13 +1174,18 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
             TermTree::Cell(cell) => {
-                keys.pass_path(cell.owner())?;
-                let key = keys
-                    .node(
-                        NodeKind::ApplicationHead,
-                        TokenRange::for_tokens(cell.owner())?,
-                    )?
-                    .key(self.term_role(TermRole::ApplicationHead))?;
+                let path = keys.path(cell.owner())?;
+                let node = keys.node(
+                    NodeKind::ApplicationHead,
+                    TokenRange::for_tokens(cell.owner())?,
+                )?;
+                let (key, path_key) = node.head(path)?;
+                let chosen = node.chosen(self.term_role(TermRole::ApplicationHead));
+                debug_assert_eq!(
+                    (Some(&key), Some(&path_key)),
+                    (chosen, chosen),
+                    "a `cells!` fragment's head takes its node's key for its path too"
+                );
                 let declaration = self.terms.cell_declaration_reference(cell.owner(), slots)?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
@@ -1181,8 +1204,8 @@ impl<'a> StateRuleBuilder<'a> {
                 }
                 // A cell value keys no path: the path names the head's node.
                 Ok(WireTerm::Cell {
-                    key: key.clone(),
-                    path_key: key,
+                    key,
+                    path_key,
                     declaration,
                     fields,
                     open: false,

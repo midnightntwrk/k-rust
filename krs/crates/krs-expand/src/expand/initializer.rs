@@ -614,11 +614,17 @@ impl<'a> InitializerBuilder<'a> {
         match tree {
             TermTree::Application(application) => {
                 // The head's path key stands for the application.
-                let key = keys.path(application.head())?;
+                let path = keys.path(application.head())?;
                 let node = keys.node(
                     NodeKind::ApplicationHead,
                     TokenRange::for_tokens(application.head())?,
                 )?;
+                let (key, path_key) = node.head(path.clone())?;
+                debug_assert_eq!(
+                    (Some(&key), Some(&path_key)),
+                    (path.as_ref(), path.as_ref()),
+                    "an initializer term's head takes its path's key"
+                );
                 let target = self.terms.application_wire_slot(
                     application.head(),
                     application.is_notation(),
@@ -666,23 +672,30 @@ impl<'a> InitializerBuilder<'a> {
                     instance: Vec::new(),
                     head_class: DescriptorApplicationHeadClass::Applied,
                     reference: WireApplicationReference {
-                        key: key.clone(),
+                        key,
                         target,
                         authored_path,
                     },
-                    path_key: key,
+                    path_key,
                     arguments,
                     update: None,
                     open: false,
                 })
             }
             TermTree::Reference(path) => {
-                let key = keys.path(path)?;
+                let path_read = keys.path(path)?;
+                let node = keys.node(NodeKind::Reference, TokenRange::for_tokens(path)?)?;
+                let (key, path_key) = node.head(path_read.clone())?;
+                debug_assert_eq!(
+                    (Some(&key), Some(&path_key)),
+                    (path_read.as_ref(), path_read.as_ref()),
+                    "an initializer term's reference takes its path's key"
+                );
                 let name = spelling(path);
                 if is_bound_ident_path(path, self.bindings) {
                     Ok(WireTerm::Variable {
-                        key: key.clone(),
-                        path_key: key,
+                        key,
+                        path_key,
                         name,
                     })
                 } else if let Some(name) = super::terms::snake_case_bare_name(path) {
@@ -705,23 +718,30 @@ impl<'a> InitializerBuilder<'a> {
                         instance: Vec::new(),
                         head_class: DescriptorApplicationHeadClass::BareReference,
                         reference: WireApplicationReference {
-                            key: key.clone(),
+                            key,
                             target,
                             authored_path,
                         },
-                        path_key: key,
+                        path_key,
                         arguments: krs_ir::Arguments::default(),
                         update: None,
                         open: false,
                     })
                 }
             }
-            TermTree::Literal(literal) => Ok(WireTerm::Literal {
-                key: keys
-                    .node(NodeKind::Literal, literal.range()?)?
-                    .key(ProvenanceRole::InitializerTermLiteral)?,
-                literal: wire_literal(literal),
-            }),
+            TermTree::Literal(literal) => {
+                let node = keys.node(NodeKind::Literal, literal.range()?)?;
+                let key = node.own_key()?;
+                debug_assert_eq!(
+                    Some(&key),
+                    node.chosen(ProvenanceRole::InitializerTermLiteral),
+                    "an initializer term's literal takes its node's key"
+                );
+                Ok(WireTerm::Literal {
+                    key,
+                    literal: wire_literal(literal),
+                })
+            }
             TermTree::Wildcard(range) => Err(ExpandError::at_range(
                 expand::INITIALIZER_WILDCARD,
                 *range,

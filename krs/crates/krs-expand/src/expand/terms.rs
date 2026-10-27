@@ -286,18 +286,12 @@ pub(super) struct TermKeyReader<'t> {
 }
 
 impl<'t> TermKeyReader<'t> {
-    /// The key of `path`, the next path: an application head's or a
-    /// reference's, which the wire node's `path_key` defines.
-    pub(super) fn path(&mut self, path: &Path) -> crate::Result<ProvenanceKey> {
-        let at = TokenRange::for_tokens(path)?;
-        let index = self.next_path(at)?;
-        self.ledger
-            .define_key(located_key(self.keys.symbol(index), at)?)
-    }
-
-    /// Passes `path`, the next path, which a `cells!` term keys not at all.
-    pub(super) fn pass_path(&mut self, path: &Path) -> crate::Result<()> {
-        self.next_path(TokenRange::for_tokens(path)?).map(drop)
+    /// The key its sentence gave `path`, the next path (an application
+    /// head's or a reference's), or `None` where the sentence keys the path
+    /// not at all, as a `cells!` term does: [`NodeKeys::head`] takes it.
+    pub(super) fn path(&mut self, path: &Path) -> crate::Result<Option<ProvenanceKey>> {
+        let index = self.next_path(TokenRange::for_tokens(path)?)?;
+        Ok(self.keys.symbol(index).cloned())
     }
 
     fn next_path(&mut self, at: TokenRange) -> crate::Result<usize> {
@@ -400,6 +394,48 @@ impl<'t> NodeKeys<'t> {
     pub(super) fn key(self, role: ProvenanceRole) -> crate::Result<ProvenanceKey> {
         self.ledger
             .define_key(located_key(self.keys.node_key(self.index, role), self.at)?)
+    }
+
+    /// The key the sentence gave the node itself, whatever its role, as
+    /// opposed to the keys of its parts (an application head's turbofish
+    /// instances), or `None` where the sentence keys the node not at all.
+    fn own(self) -> Option<&'t ProvenanceKey> {
+        self.keys
+            .node(self.index)
+            .iter()
+            .find(|key| key.role() != ProvenanceRole::ApplicationInstance)
+    }
+
+    /// The node's own key, which the wire node that denotes the node takes
+    /// as its own: a literal's, under whichever role its sentence gave it.
+    pub(super) fn own_key(self) -> crate::Result<ProvenanceKey> {
+        self.ledger.define_key(located_key(self.own(), self.at)?)
+    }
+
+    /// The keys of the wire node of an application head or a reference
+    /// whose path its sentence keyed `path`: its `reference.key`, the node's
+    /// own key if the sentence keyed the node and the path's otherwise, and
+    /// its `path_key`, the path's if the sentence keyed it and
+    /// `reference.key` otherwise.
+    pub(super) fn head(
+        self,
+        path: Option<ProvenanceKey>,
+    ) -> crate::Result<(ProvenanceKey, ProvenanceKey)> {
+        let own = self.own();
+        let reference = self
+            .ledger
+            .define_key(located_key(own.or(path.as_ref()), self.at)?)?;
+        let path_key = match path {
+            Some(path) if own.is_some() => self.ledger.define_key(path)?,
+            _ => reference.clone(),
+        };
+        Ok((reference, path_key))
+    }
+
+    /// The node's key of `role`, without taking it: what a walker chose
+    /// before the keys were read as data, which a debug assertion compares.
+    pub(super) fn chosen(self, role: ProvenanceRole) -> Option<&'t ProvenanceKey> {
+        self.keys.node_key(self.index, role)
     }
 
     /// The node's keys of `role`, in allocation order, each read as the
@@ -943,9 +979,17 @@ impl<'a> TermBuilder<'a> {
                     application.is_open(),
                     head_range,
                 )?;
-                let path_key = keys.path(application.head())?;
+                let path = keys.path(application.head())?;
                 let node = keys.node(NodeKind::ApplicationHead, head_range)?;
-                let key = node.key(side.role(TermRole::ApplicationHead))?;
+                let (key, path_key) = node.head(path.clone())?;
+                debug_assert_eq!(
+                    (Some(&key), Some(&path_key)),
+                    (
+                        node.chosen(side.role(TermRole::ApplicationHead)),
+                        path.as_ref()
+                    ),
+                    "a term's head takes its node's key, and its path its path's"
+                );
                 let lexical = if self.lexical_imports.is_some() {
                     !application.is_notation()
                         && application.head().leading_colon.is_none()
@@ -1010,10 +1054,17 @@ impl<'a> TermBuilder<'a> {
             }
             TermTree::Reference(path) => {
                 let lexical = self.take_lexical_rule_head(path);
-                let path_key = keys.path(path)?;
-                let key = keys
-                    .node(NodeKind::Reference, TokenRange::for_tokens(path)?)?
-                    .key(side.role(TermRole::Reference))?;
+                let path_read = keys.path(path)?;
+                let node = keys.node(NodeKind::Reference, TokenRange::for_tokens(path)?)?;
+                let (key, path_key) = node.head(path_read.clone())?;
+                debug_assert_eq!(
+                    (Some(&key), Some(&path_key)),
+                    (
+                        node.chosen(side.role(TermRole::Reference)),
+                        path_read.as_ref()
+                    ),
+                    "a term's reference takes its node's key, and its path its path's"
+                );
                 if self.is_local_binder(path) {
                     // A local binder has no Rust binding for tooling to use.
                     Ok(WireTerm::Variable {
@@ -1066,10 +1117,15 @@ impl<'a> TermBuilder<'a> {
             TermTree::Literal(literal) => {
                 let range = literal.range()?;
                 self.admit(side, Construct::Literal, range)?;
+                let node = keys.node(NodeKind::Literal, range)?;
+                let key = node.own_key()?;
+                debug_assert_eq!(
+                    Some(&key),
+                    node.chosen(side.role(TermRole::Literal)),
+                    "a term's literal takes its node's key"
+                );
                 Ok(WireTerm::Literal {
-                    key: keys
-                        .node(NodeKind::Literal, range)?
-                        .key(side.role(TermRole::Literal))?,
+                    key,
                     literal: wire_literal(literal),
                 })
             }
@@ -1250,10 +1306,17 @@ impl<'a> TermBuilder<'a> {
                 let owner_range = TokenRange::for_tokens(cell.owner())?;
                 self.admit(side, Construct::Fragment, owner_range)?;
                 self.admit_record(side, cell.update(), cell.is_open(), owner_range)?;
-                let path_key = keys.path(cell.owner())?;
-                let key = keys
-                    .node(NodeKind::ApplicationHead, owner_range)?
-                    .key(side.role(TermRole::ApplicationHead))?;
+                let path = keys.path(cell.owner())?;
+                let node = keys.node(NodeKind::ApplicationHead, owner_range)?;
+                let (key, path_key) = node.head(path.clone())?;
+                debug_assert_eq!(
+                    (Some(&key), Some(&path_key)),
+                    (
+                        node.chosen(side.role(TermRole::ApplicationHead)),
+                        path.as_ref()
+                    ),
+                    "a fragment's head takes its node's key, and its path its path's"
+                );
                 let declaration = self.cell_declaration_reference(cell.owner(), slots)?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
@@ -1972,13 +2035,13 @@ mod tests {
             .expect("`g` is not the next application head");
         assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
         let mut keys = KeyedTerm::of(&term).reader(&ledger);
-        let misread = keys.pass_path(g.head()).unwrap_err();
+        let misread = keys.path(g.head()).unwrap_err();
         assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
 
         let mut keys = KeyedTerm::of(&term).reader(&ledger);
         assert!(keys.node(NodeKind::Matches, *range).is_ok());
         for application in [f, g] {
-            assert!(keys.pass_path(application.head()).is_ok());
+            assert!(keys.path(application.head()).is_ok());
             assert!(
                 keys.node(NodeKind::ApplicationHead, at(application.head()))
                     .is_ok()
@@ -1989,7 +2052,7 @@ mod tests {
             let TermTree::Reference(argument) = &arguments[0] else {
                 panic!("a reference");
             };
-            assert!(keys.pass_path(argument).is_ok());
+            assert!(keys.path(argument).is_ok());
         }
         // Every node of the kind has been read.
         let misread = keys
