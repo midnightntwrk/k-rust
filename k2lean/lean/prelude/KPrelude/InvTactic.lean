@@ -361,10 +361,14 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
             return true
           s.restore
     -- first a lemma whose premises are all hypotheses (one step, no search below it), then the
-    -- search: a lemma that closes from the context is not missed behind one that searches deep
+    -- search: a lemma that closes from the context is not missed behind one that searches deep.
+    -- The step matches the lemma's conclusion up to reducible unfolding only: it looks for a
+    -- syntactic fit, and unfolding a recursive function of the goal (`writesK x k = false` against
+    -- a lemma concluding `inKeys x S = true`) cost ImpWrites a rule's whole budget
     if depth > 0 then
       for L in lemmas do
-        if ← closes (← `(tactic| (apply $(mkIdent L):ident <;> assumption))) then return true
+        if ← closes (← `(tactic| (with_reducible apply $(mkIdent L):ident) <;> assumption)) then
+          return true
       for L in lemmas do
         let s ← saveState
         let ok ← tryRec (do
