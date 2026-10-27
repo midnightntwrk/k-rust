@@ -617,6 +617,32 @@ end KEqHook
 
 /-! ## Inverting a translation -/
 
+open Lean in
+/-- Whether `e` contains a translation (a constant whose name's last component starts with `tr`:
+`tr_S`, `trL_S`). -/
+def hasTr (e : Expr) : Bool :=
+  (e.find? fun x => x.constName?.any fun n =>
+    (n.components.getLast?.map (·.toString.startsWith "tr")).getD false).isSome
+
+open Lean in
+/-- The injectivity lemma `tr_eq_iff_S` of the translation `n` (`tr_S`, or `trL_S` on a
+collection's list), when `env` has it: a translation that moves a constructor has none. -/
+def trInjLemma (env : Environment) (n : Name) : Option Name := do
+  let .str p last := n | none
+  unless last.startsWith "tr" do none
+  let some i := last.toList.idxOf? '_' | none
+  let lem := p ++ Name.mkSimple ("tr_eq_iff_" ++ last.drop (i + 1))
+  if env.contains lem then some lem else none
+
+open Lean in
+/-- Whether `e` contains a translation into an injective one (`trInjLemma`). -/
+def hasInjTr (env : Environment) (e : Expr) : Bool :=
+  (e.find? fun x => x.constName?.any fun n => (trInjLemma env n).isSome).isSome
+
+/-- Whether `e` is a collection's unit of the prelude (`MapHook.unit`, `SetHook.unit`, …). -/
+def isPreludeUnit (e : Lean.Expr) : Bool :=
+  e.getAppFn.constName?.any fun n => (`KPrelude).isPrefixOf n && n.components.getLast? == some `unit
+
 open Lean Meta Elab Tactic in
 /-- `k2l_inv`: repeatedly (1) substitute variables, (2) split conjunctions, (3) for a hypothesis
 `h : f a = f b` where `f` is a translation function (its name has a component starting with
@@ -719,6 +745,29 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
           break
         catch _ => s.restore
       if done then return true
+    -- a collection's unit against a term: a term with translations inside is folded (`k2l_rel`:
+    -- `comm_unit_S`, the folds), so that injectivity gives the equation of the translated terms;
+    -- a term of the arity-indexed family against the unit (`coll_S l = MapHook.unit`), whose
+    -- definition reduces to the family's constructor, is inverted (`l = []`)
+    for ldecl in (← getLCtx) do
+      if ldecl.isImplementationDetail then continue
+      let ty ← instantiateMVars ldecl.type
+      let some (_, l, r) := ty.eq? | continue
+      unless isPreludeUnit r != isPreludeUnit l do continue
+      let other := if isPreludeUnit r then l else r
+      let hid := mkIdent ldecl.userName
+      let s ← saveState
+      let env ← getEnv
+      -- folded only into an injective translation (`tr_eq_iff_S`), which then removes it
+      let tac? ← if hasInjTr env other then some <$> `(tactic| simp only [k2l_rel] at $hid:ident)
+        else if other.getAppFn.constName?.any (isFamilyName env ·.getPrefix) then
+          some <$> `(tactic| injection $hid:ident)
+        else pure none
+      let some tac := tac? | continue
+      try
+        evalTactic tac
+        return true
+      catch _ => s.restore
     -- a case split where the other side is a constructor term
     for ldecl in (← getLCtx) do
       if ldecl.isImplementationDetail then continue
@@ -733,7 +782,18 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
       let other := if (isTr r).isSome then l else r
       let hid := mkIdent ldecl.userName
       if (← whnfR (← inferType x)).getAppFn.constName?.any (isFamilyName (← getEnv)) then
-        -- on the arity-indexed family: the cases of the sort's values only (`familyCases`)
+        -- on the arity-indexed family, where no K constructor is a constructor: a term with
+        -- translations inside (an injection between sorts of a translation, a constructor applied
+        -- to translations) is folded into a translation first (`k2l_rel`), which injectivity then
+        -- removes, instead of splitting `x` over its sort's values; only where the translation is
+        -- injective (`tr_eq_iff_S` beside it: a translation that moves a constructor has none)
+        if hasTr other && (trInjLemma (← getEnv) fn).isSome then
+          let s ← saveState
+          try
+            evalTactic (← `(tactic| simp only [k2l_rel] at $hid:ident))
+            return true
+          catch _ => s.restore
+        -- else the cases of the sort's values only (`familyCases`)
         let s ← saveState
         try
           let gs ← familyCases (← getMainGoal) x.fvarId!
