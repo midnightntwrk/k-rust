@@ -2,14 +2,17 @@
 //!
 //! A catalog borrows one actual immutable definition. It has no query facts, SMT names, widths
 //! or models. Admission sees every offered function/simplification equation and requires the
-//! definition's equation-selection completeness token. Only matcher refutations discard rows.
-//! Remaining rows must partition total Boolean tests; every body/guard dependency is admitted
+//! definition's equation-selection completeness token. Only matcher refutations discard unmatched
+//! source patterns. Remaining row guards must partition globally defined Boolean tests; every body/guard dependency is admitted
 //! recursively on its specialized signature. Each leaf retains its canonical source domain.
 //! Partial helpers use the selected domain; total declarations retain an opaque total value
 //! outside the source-safe region. Neither caller bounds nor branch guards become totality. This module does not install summaries as equations or axioms.
 //!
 //! Discovery and decision-tree construction are explicitly bounded. Every new node/candidate
 //! polls the request stop; cancellation is propagated and never cached as ineligibility.
+//! Boolean conjunction/disjunction guards retain both polarities as bounded DAGs. Partitioning
+//! takes Shannon cofactors without eager DNF expansion; guard visits and copied child handles
+//! consume the existing catalog work allowance, in addition to structural atom comparisons.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -176,8 +179,37 @@ pub(super) struct Catalog<'d> {
 
 #[derive(Clone)]
 struct Row {
-    tests: BTreeSet<Test>,
+    guard: Arc<Guard>,
     value: Term,
+}
+
+/// Propositional structure of globally defined source tests. Keeping a guard as a DAG
+/// avoids expanding disjunctions to DNF before the bounded partition walk needs them.
+#[derive(Clone)]
+enum Guard {
+    Constant(bool),
+    Test(Test),
+    And(Vec<Arc<Guard>>),
+    Or(Vec<Arc<Guard>>),
+}
+
+impl Guard {
+    fn junction(parts: Vec<Arc<Self>>, and: bool) -> Arc<Self> {
+        let mut kept = Vec::new();
+        for part in parts {
+            match part.as_ref() {
+                Self::Constant(value) if *value != and => return part,
+                Self::Constant(_) => {}
+                Self::Test(_) | Self::And(_) | Self::Or(_) => kept.push(part),
+            }
+        }
+        match kept.len() {
+            0 => Arc::new(Self::Constant(and)),
+            1 => kept.pop().unwrap(),
+            _ if and => Arc::new(Self::And(kept)),
+            _ => Arc::new(Self::Or(kept)),
+        }
+    }
 }
 
 struct Specialization {
@@ -438,7 +470,7 @@ impl<'d> Catalog<'d> {
                 Ok(predicates) => predicates,
                 Err(_) => return Ok(Err(Rejected::Partial)),
             };
-            let mut tests = BTreeSet::new();
+            let mut guards = Vec::new();
             for predicate in condition {
                 let predicate = admitted!(self.check_guard(
                     &predicate,
@@ -447,7 +479,7 @@ impl<'d> Catalog<'d> {
                     &mut dependencies,
                     0
                 ));
-                admitted!(tests_of(&predicate, true, &mut tests));
+                guards.push(admitted!(self.guard_of(&predicate, true, 0)));
             }
             for (left, right) in remainder {
                 // Only Boolean literal patterns become finite scalar tests. Other contingent
@@ -460,9 +492,12 @@ impl<'d> Catalog<'d> {
                     return Ok(Err(Rejected::Unsupported));
                 };
                 admitted!(self.check_body(&term, &parameters, &mut seen, &mut dependencies, false));
-                admitted!(tests_of(&Predicate::Term(term), value, &mut tests));
+                guards.push(admitted!(self.guard_of(&Predicate::Term(term), value, 0)));
             }
-            rows.push(Row { tests, value });
+            rows.push(Row {
+                guard: Guard::junction(guards, true),
+                value,
+            });
             source_rules.push(source);
         }
         let domain_total = domains
@@ -746,25 +781,51 @@ impl<'d> Catalog<'d> {
         Ok(Ok(crate::simplify::normalize_predicate(checked)))
     }
 
+    /// ```toml algorithm-site
+    /// id = "backend.smt.check"
+    /// role = "part"
+    /// sites = ["Catalog::partition", "Catalog::split_rows", "Catalog::cofactor", "guard_of", "term_guard", "Guard::junction"]
+    /// ```
     fn partition(
         &mut self,
-        rows: Vec<Row>,
+        mut rows: Vec<Row>,
         depth: usize,
     ) -> Stoppable<Result<Arc<Decision>, Rejected>> {
         admitted!(self.work());
         if depth >= self.limits.depth {
             return Ok(Err(Rejected::Limit));
         }
+        rows.retain(|row| !matches!(row.guard.as_ref(), Guard::Constant(false)));
         if rows.is_empty() {
             return Ok(Err(Rejected::Incomplete));
         }
-        if rows.len() == 1 && rows[0].tests.is_empty() {
+        if rows.len() == 1 && matches!(rows[0].guard.as_ref(), Guard::Constant(true)) {
             return Ok(Ok(Arc::new(Decision::Value(rows[0].value.clone()))));
         }
-        if rows.iter().any(|row| row.tests.is_empty()) {
+        if rows
+            .iter()
+            .filter(|row| matches!(row.guard.as_ref(), Guard::Constant(true)))
+            .count()
+            > 1
+        {
             return Ok(Err(Rejected::Overlapping));
         }
-        let atom = rows[0].tests.first().expect("nonempty tests").atom.clone();
+        // A nonconstant guard may still be contradictory. An unconditional row overlaps
+        // it only if some cofactor reaches a second true row; do not assume satisfiability.
+        let mut first = rows
+            .iter()
+            .find(|row| !matches!(row.guard.as_ref(), Guard::Constant(true)))
+            .expect("a sole unconditional row was handled above")
+            .guard
+            .as_ref();
+        let atom = loop {
+            admitted!(self.work());
+            match first {
+                Guard::Test(test) => break test.atom.clone(),
+                Guard::And(parts) | Guard::Or(parts) => first = parts[0].as_ref(),
+                Guard::Constant(_) => unreachable!("constant rows handled above"),
+            }
+        };
         let yes_rows = admitted!(self.split_rows(&rows, &atom, true));
         let no_rows = admitted!(self.split_rows(&rows, &atom, false));
         let yes = admitted!(self.partition(yes_rows, depth + 1));
@@ -785,26 +846,61 @@ impl<'d> Catalog<'d> {
         let mut result = Vec::new();
         for row in rows {
             admitted!(self.work());
-            if row.tests.contains(&Test {
-                atom: atom.clone(),
-                positive: !positive,
-            }) {
-                continue;
+            let guard = admitted!(self.cofactor(&row.guard, atom, positive));
+            if !matches!(guard.as_ref(), Guard::Constant(false)) {
+                result.push(Row {
+                    guard,
+                    value: row.value.clone(),
+                });
             }
-            // Shannon expansion can copy rows that do not mention the chosen atom. Charge
-            // copied test entries before allocation, not merely the number of decision nodes.
-            if row.tests.len() > self.remaining {
-                return Ok(Err(Rejected::Limit));
-            }
-            self.remaining -= row.tests.len();
-            let mut row = row.clone();
-            row.tests.remove(&Test {
-                atom: atom.clone(),
-                positive,
-            });
-            result.push(row);
         }
         Ok(Ok(result))
+    }
+
+    fn guard_of(
+        &mut self,
+        predicate: &Predicate,
+        positive: bool,
+        depth: usize,
+    ) -> Stoppable<Result<Arc<Guard>, Rejected>> {
+        guard_of(
+            predicate,
+            positive,
+            &mut self.remaining,
+            depth,
+            self.limits.depth,
+        )
+    }
+
+    /// One Shannon cofactor. Every visited guard node and copied child handle pays the
+    /// definition-local work allowance; exhausted walks decline the entire summary.
+    fn cofactor(
+        &mut self,
+        guard: &Arc<Guard>,
+        atom: &Atom,
+        positive: bool,
+    ) -> Stoppable<Result<Arc<Guard>, Rejected>> {
+        admitted!(self.work());
+        match guard.as_ref() {
+            Guard::Constant(_) => Ok(Ok(guard.clone())),
+            Guard::Test(test) if &test.atom == atom => {
+                Ok(Ok(Arc::new(Guard::Constant(test.positive == positive))))
+            }
+            Guard::Test(_) => Ok(Ok(guard.clone())),
+            Guard::And(parts) | Guard::Or(parts) => {
+                if parts.len() > self.remaining {
+                    return Ok(Err(Rejected::Limit));
+                }
+                let mut reduced = Vec::with_capacity(parts.len());
+                for part in parts {
+                    reduced.push(admitted!(self.cofactor(part, atom, positive)));
+                }
+                Ok(Ok(Guard::junction(
+                    reduced,
+                    matches!(guard.as_ref(), Guard::And(_)),
+                )))
+            }
+        }
     }
 }
 
@@ -818,80 +914,97 @@ fn standard_scalar(definition: &BackendDefinition, sort: Sort) -> bool {
             && definition.domain_kind(&sort) == Some(DomainKind::Bool))
 }
 
-fn tests_of(
+/// Read only Boolean structure whose operands the catalog has already established globally
+/// defined and pure. Other total Boolean values remain atoms; no caller facts enter a guard.
+fn guard_of(
     predicate: &Predicate,
     positive: bool,
-    tests: &mut BTreeSet<Test>,
-) -> Stoppable<Result<(), Rejected>> {
+    remaining: &mut usize,
+    depth: usize,
+    limit: usize,
+) -> Stoppable<Result<Arc<Guard>, Rejected>> {
     stop::check()?;
-    match predicate {
-        Predicate::True if positive => {}
-        Predicate::False if !positive => {}
-        Predicate::Not(p) => return tests_of(p, !positive, tests),
-        Predicate::And(parts) if positive => {
-            for part in parts.iter() {
-                admitted!(tests_of(part, true, tests));
+    if depth >= limit || *remaining == 0 {
+        return Ok(Err(Rejected::Limit));
+    }
+    *remaining -= 1;
+    let atom = match predicate {
+        Predicate::True => return Ok(Ok(Arc::new(Guard::Constant(positive)))),
+        Predicate::False => return Ok(Ok(Arc::new(Guard::Constant(!positive)))),
+        Predicate::Not(p) => return guard_of(p, !positive, remaining, depth + 1, limit),
+        Predicate::And(parts) | Predicate::Or(parts) => {
+            if parts.len() > *remaining {
+                return Ok(Err(Rejected::Limit));
             }
+            let mut guards = Vec::with_capacity(parts.len());
+            for part in parts.iter() {
+                guards.push(admitted!(guard_of(
+                    part,
+                    positive,
+                    remaining,
+                    depth + 1,
+                    limit
+                )));
+            }
+            return Ok(Ok(Guard::junction(
+                guards,
+                matches!(predicate, Predicate::And(_)) == positive,
+            )));
         }
         Predicate::Equals(left, right) if boolean(right).is_some() => {
-            return term_test(left, positive == boolean(right).unwrap(), tests);
+            return term_guard(
+                left,
+                positive == boolean(right).unwrap(),
+                remaining,
+                depth + 1,
+                limit,
+            );
         }
         Predicate::Equals(left, right) if boolean(left).is_some() => {
-            return term_test(right, positive == boolean(left).unwrap(), tests);
+            return term_guard(
+                right,
+                positive == boolean(left).unwrap(),
+                remaining,
+                depth + 1,
+                limit,
+            );
         }
         Predicate::Equals(a, b) if a.sort() == b.sort() && scalar(a.sort()) => {
-            let atom = if a <= b {
+            if a <= b {
                 Atom::Equal(a.clone(), b.clone())
             } else {
                 Atom::Equal(b.clone(), a.clone())
-            };
-            return insert(tests, atom, positive);
+            }
         }
-        Predicate::Term(term) => return term_test(term, positive, tests),
-        Predicate::True
-        | Predicate::False
-        | Predicate::And(_)
-        | Predicate::Equals(..)
+        Predicate::Term(term) => return term_guard(term, positive, remaining, depth + 1, limit),
+        Predicate::Equals(..)
         | Predicate::Ceil(_)
         | Predicate::Floor(_)
         | Predicate::In(..)
-        | Predicate::Or(_)
         | Predicate::Implies(..)
         | Predicate::Iff(..)
         | Predicate::Exists(..)
         | Predicate::Forall(..)
         | Predicate::Absent(_)
         | Predicate::Defined(_) => return Ok(Err(Rejected::Unsupported)),
-    }
-    Ok(Ok(()))
+    };
+    Ok(Ok(Arc::new(Guard::Test(Test { atom, positive }))))
 }
 
-fn term_test(
-    mut term: &Term,
+fn term_guard(
+    term: &Term,
     mut positive: bool,
-    tests: &mut BTreeSet<Test>,
-) -> Stoppable<Result<(), Rejected>> {
-    loop {
-        stop::check()?;
-        if let TermKind::Application {
-            symbol, arguments, ..
-        } = term.kind()
-            && symbol.attributes.hook.as_deref() == Some("BOOL.not")
-            && let [inner] = arguments.as_slice()
-            && inner.sort().is_builtin(BuiltinSort::Bool)
-        {
-            term = inner;
-            positive = !positive;
-        } else {
-            break;
-        }
+    remaining: &mut usize,
+    depth: usize,
+    limit: usize,
+) -> Stoppable<Result<Arc<Guard>, Rejected>> {
+    stop::check()?;
+    if depth >= limit || *remaining == 0 {
+        return Ok(Err(Rejected::Limit));
     }
+    *remaining -= 1;
     if let Some(value) = boolean(term) {
-        return Ok(if value == positive {
-            Ok(())
-        } else {
-            Err(Rejected::Unsupported)
-        });
+        return Ok(Ok(Arc::new(Guard::Constant(value == positive))));
     }
     if !term.sort().is_builtin(BuiltinSort::Bool) {
         return Ok(Err(Rejected::Unsupported));
@@ -901,45 +1014,48 @@ fn term_test(
     } = term.kind()
     {
         match (symbol.attributes.hook.as_deref(), arguments.as_slice()) {
+            (Some("BOOL.not"), [inner]) if inner.sort().is_builtin(BuiltinSort::Bool) => {
+                return term_guard(inner, !positive, remaining, depth + 1, limit);
+            }
+            (
+                Some(hook @ ("BOOL.and" | "BOOL.andThen" | "BOOL.or" | "BOOL.orElse")),
+                [left, right],
+            ) if left.sort().is_builtin(BuiltinSort::Bool)
+                && right.sort().is_builtin(BuiltinSort::Bool) =>
+            {
+                let a = admitted!(term_guard(left, positive, remaining, depth + 1, limit));
+                let b = admitted!(term_guard(right, positive, remaining, depth + 1, limit));
+                return Ok(Ok(Guard::junction(
+                    vec![a, b],
+                    matches!(hook, "BOOL.and" | "BOOL.andThen") == positive,
+                )));
+            }
             (Some("INT.lt"), [a, b]) if integer_pair(a, b) => Atom::Less(a.clone(), b.clone()),
             (Some("INT.ge"), [a, b]) if integer_pair(a, b) => {
-                return insert(tests, Atom::Less(a.clone(), b.clone()), !positive);
+                positive = !positive;
+                Atom::Less(a.clone(), b.clone())
             }
             (Some("INT.gt"), [a, b]) if integer_pair(a, b) => Atom::Less(b.clone(), a.clone()),
             (Some("INT.le"), [a, b]) if integer_pair(a, b) => {
-                return insert(tests, Atom::Less(b.clone(), a.clone()), !positive);
+                positive = !positive;
+                Atom::Less(b.clone(), a.clone())
             }
             (Some("INT.eq" | "INT.ne"), [a, b]) if integer_pair(a, b) => {
-                let atom = if a <= b {
+                if symbol.attributes.hook.as_deref() == Some("INT.ne") {
+                    positive = !positive;
+                }
+                if a <= b {
                     Atom::Equal(a.clone(), b.clone())
                 } else {
                     Atom::Equal(b.clone(), a.clone())
-                };
-                return insert(
-                    tests,
-                    atom,
-                    if symbol.attributes.hook.as_deref() == Some("INT.ne") {
-                        !positive
-                    } else {
-                        positive
-                    },
-                );
+                }
             }
             _ => Atom::Bool(term.clone()),
         }
     } else {
         Atom::Bool(term.clone())
     };
-    insert(tests, atom, positive)
-}
-
-fn insert(
-    tests: &mut BTreeSet<Test>,
-    atom: Atom,
-    positive: bool,
-) -> Stoppable<Result<(), Rejected>> {
-    tests.insert(Test { atom, positive });
-    Ok(Ok(()))
+    Ok(Ok(Arc::new(Guard::Test(Test { atom, positive }))))
 }
 
 fn integer_pair(a: &Term, b: &Term) -> bool {

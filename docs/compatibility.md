@@ -3099,6 +3099,9 @@ No application-specific axiom or execution step is added by a solver reading.
 Native definition-aware queries may derive an `Int` or `Bool` function reading from the actual loaded source equations.
 Admission considers every offered function and simplification row, including wildcard rows, and refuses an obstructing predicate equation or undecided static case.
 The admitted cases are an unrestricted variable equation, exhaustive Boolean literal cases, or supported complementary pure total guards, specialized at known constructor arguments.
+Boolean conjunction, disjunction and negation in source path guards retain their propositional structure, including both polarities of strict and short-circuit connectives.
+Every guard operand must first be shown pure and globally defined; caller assumptions do not certify the partition.
+Partition checking uses bounded cofactors and may decline on exhaustion, without expanding a disjunctive normal form eagerly.
 Partition tests must be defined for all defined scalar formals; a complete source-derived helper whose domain is globally true may supply such a test even when its declaration is partial.
 Branch bodies may be partial: each leaf retains its canonical source domain, and a decision has the selected branch's domain under its total test.
 This logical decision graph does not make a strict K conditional lazy, and every call retains all original argument domains, including ignored arguments.
@@ -3152,6 +3155,9 @@ These laws compose when observed scalar values compute keys, flags or written va
 Reading an overwrite at its written key returns the new value; at a distinct key it returns the original lookup.
 Presence is true at the written key and unchanged at a distinct key, with all original operand and lookup domains retained.
 Equal defined arguments imply equal application domains and equal values where defined; this is forward congruence, not injectivity of an arbitrary function.
+For a positive map equality, the solver may check sufficient conditions through common pure source-owned application and injection contexts, retaining both original map domains.
+Scalar observations remain whole expressions: equal reads do not require their underlying maps to be equal.
+The bounded attempt checks the sufficient conjunction, then independent conditions if necessary; an unsuccessful condition falls back to the original map reasoning and does not refute the map equality.
 For an unresolved key alias, the corresponding observation/update law remains guarded rather than choosing an alias or enumerating every partition.
 A structural entry/rest match must justify its type, presence, disjoint remainder and reconstruction against the original subject; a proposed witness cannot establish its own applicability or bind away the subject map.
 The builtin list tail is `range(L,1,0)`: `LIST.range` removes counts from the front and back, not an end-index slice.

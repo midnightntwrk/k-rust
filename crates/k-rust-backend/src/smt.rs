@@ -30,6 +30,8 @@ use crate::{
 };
 
 #[cfg(feature = "z3")]
+mod congruence;
+#[cfg(feature = "z3")]
 mod query;
 #[cfg(feature = "z3")]
 mod z3;
@@ -829,6 +831,12 @@ impl TranslationState {
     }
 
     fn functional_head(&mut self, term: &Term) -> Option<CongruenceHead> {
+        let head = self.functional_head_rank(term)?;
+        self.eligible_operand(term).then_some(head)
+    }
+
+    /// The local rank/policy checks, before the complete operand-purity walk.
+    fn functional_head_rank(&self, term: &Term) -> Option<CongruenceHead> {
         let policy = self.congruence.clone()?;
         let head = match term.kind() {
             TermKind::Application {
@@ -890,7 +898,6 @@ impl TranslationState {
         let (arguments, result) = head.rank();
         if sort_denotation(&result).is_err()
             || arguments.iter().any(|sort| sort_denotation(sort).is_err())
-            || !self.eligible_operand(term)
         {
             return None;
         }

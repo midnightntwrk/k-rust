@@ -4492,7 +4492,7 @@ kind = "algorithm"
 id = "backend.smt.check"
 provenance = "declared"
 area = "backend"
-name = "Z3 satisfiability check"
+name = "bounded sufficient proof attempt and Z3 satisfiability check"
 variable = "R = Z3 resource-limit units consumed by one check"
 invariant = "the rlimit delta is read around each check from the cumulative statistics of its context"
 span = "per call"
@@ -4503,6 +4503,41 @@ registry_name = "BackendSmtCheck"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt/z3.rs"
 symbol = "measured_check"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/congruence.rs"
+symbol = "sufficient"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/summary.rs"
+symbol = "Catalog::partition"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/summary.rs"
+symbol = "Catalog::split_rows"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/summary.rs"
+symbol = "Catalog::cofactor"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/summary.rs"
+symbol = "guard_of"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/summary.rs"
+symbol = "term_guard"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/summary.rs"
+symbol = "Guard::junction"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -4522,6 +4557,14 @@ symbol = "Z3Solver::solve_model"
 [[node.cost]]
 mode = "solver check"
 bound = "O(R) solver work as reported by Z3"
+
+[[node.cost]]
+mode = "positive map-context sufficient proof"
+bound = "At most 4096 graph/structural-comparison work units and 32 sufficient goals per attempt. The sufficient conjunction is checked once, then at most 32 independent goals on failure, each using the ordinary typed cache and query preparation/solver path, including both original map domains. Common pure source-owned contexts are removed without entering scalar observations, binders or negative contexts. Residual map goals cannot repeat a removed context plan. Unless the conjunction or every independent goal is Valid, fall back to the original query; no model uses the attempt."
+
+[[node.cost]]
+mode = "source scalar guard partitions during preparation"
+bound = "The definition-local catalog shares its 16384-work allowance across at most 128 specializations, 64 rows and depth 64. Reading Boolean DAG guards and taking Shannon cofactors charge each node visit and child handle; guards are not eagerly expanded to DNF. Structural source-atom comparisons and matching/domain-plan costs remain additional work. Exhaustion refuses the summary and retains ordinary conservative translation."
 
 [[node]]
 kind = "algorithm"

@@ -42,7 +42,7 @@
 //!
 //! ```toml algorithm
 //! id = "backend.smt.check"
-//! name = "Z3 satisfiability check"
+//! name = "bounded sufficient proof attempt and Z3 satisfiability check"
 //! sites = ["measured_check", "Z3Solver::solve_uncached", "Z3Solver::solve_model"]
 //! variable = "R = Z3 resource-limit units consumed by one check"
 //! counters = ["SmtSolverRuns", "SmtRlimitCount"]
@@ -52,6 +52,14 @@
 //! [[cost]]
 //! mode = "solver check"
 //! bound = "O(R) solver work as reported by Z3"
+//!
+//! [[cost]]
+//! mode = "positive map-context sufficient proof"
+//! bound = "At most 4096 graph/structural-comparison work units and 32 sufficient goals per attempt. The sufficient conjunction is checked once, then at most 32 independent goals on failure, each using the ordinary typed cache and query preparation/solver path, including both original map domains. Common pure source-owned contexts are removed without entering scalar observations, binders or negative contexts. Residual map goals cannot repeat a removed context plan. Unless the conjunction or every independent goal is Valid, fall back to the original query; no model uses the attempt."
+//!
+//! [[cost]]
+//! mode = "source scalar guard partitions during preparation"
+//! bound = "The definition-local catalog shares its 16384-work allowance across at most 128 specializations, 64 rows and depth 64. Reading Boolean DAG guards and taking Shannon cofactors charge each node visit and child handle; guards are not eagerly expanded to DNF. Structural source-atom comparisons and matching/domain-plan costs remain additional work. Exhaustion refuses the summary and retains ordinary conservative translation."
 //! ```
 
 #![deny(clippy::wildcard_enum_match_arm)]
@@ -963,6 +971,41 @@ impl SmtSolver for Z3Solver {
         let inputs = typed_cache::Query::new(true, known, substitution, checked);
         if let Some(typed_cache::Answer::Validity(answer)) = self.typed_answer(&inputs)? {
             return Ok(Ok(answer));
+        }
+        if let Some(goals) = super::congruence::sufficient(&self.prelude, checked)? {
+            // Preparing the sufficient conjunction together can demand useful source/domain
+            // links shared by its conditions. If that does not prove it, try independently:
+            // smaller queries and cached field checks can avoid the larger solver search.
+            let mut valid = matches!(
+                self.check_predicates(known, substitution, &goals)?,
+                Ok(Validity::Valid)
+            );
+            if !valid {
+                valid = true;
+                for goal in goals {
+                    match self.check_predicates(known, substitution, std::slice::from_ref(&goal))? {
+                        Ok(Validity::Valid) => {}
+                        // These are sufficient conditions, not equivalent obligations. No failure,
+                        // refutation, contingency or Unknown of this attempt refutes the original.
+                        Ok(
+                            Validity::Refuted
+                            | Validity::InconsistentGroundTruth
+                            | Validity::Contingent
+                            | Validity::Unknown(_),
+                        )
+                        | Err(_) => {
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if valid {
+                self.check_prelude()?;
+                stop::check()?;
+                self.remember_typed(&inputs, typed_cache::Answer::Validity(Validity::Valid))?;
+                return Ok(Ok(Validity::Valid));
+            }
         }
         #[cfg(test)]
         self.preparation_count.fetch_add(1, Ordering::Relaxed);

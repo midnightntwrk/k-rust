@@ -106,7 +106,7 @@ algorithms! {
     BackendImplicationCheck => "backend.implication.check",
     /// Bounded FIFO memoization of SMT query scripts.
     BackendSmtCache => "backend.smt.cache",
-    /// Z3 satisfiability check after parsing the script.
+    /// Bounded sufficient proof attempts and Z3 satisfiability checks.
     BackendSmtCheck => "backend.smt.check",
     /// Structural definedness constraint generation and discharge.
     BackendDefinedness => "backend.definedness.discharge",

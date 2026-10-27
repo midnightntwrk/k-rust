@@ -155,6 +155,184 @@ fn bit_rows() -> String {
     .join("\n")
 }
 
+fn compound_guard_rows(hook: &str) -> String {
+    let connectives = format!(
+        r#"
+      hooked-symbol both{{}}(SortBool{{}},SortBool{{}}) : SortBool{{}}
+        [function{{}}(),total{{}}(),hook{{}}("{hook}")]
+    "#
+    );
+    [
+        connectives,
+        equation(
+            "twoBits{}(P:SortBool{},Q:SortBool{})",
+            &int(1),
+            Some("P:SortBool{}"),
+            "",
+        ),
+        equation(
+            "twoBits{}(P:SortBool{},Q:SortBool{})",
+            &int(2),
+            Some("both{}(not{}(P:SortBool{}),Q:SortBool{})"),
+            "",
+        ),
+        equation(
+            "twoBits{}(P:SortBool{},Q:SortBool{})",
+            &int(0),
+            Some("both{}(not{}(P:SortBool{}),not{}(Q:SortBool{}))"),
+            "",
+        ),
+    ]
+    .join("\n")
+}
+
+#[test]
+fn compound_boolean_path_guards_form_their_actual_source_partition() {
+    for hook in ["BOOL.and", "BOOL.andThen"] {
+        let d = definition(&compound_guard_rows(hook));
+        let summary = Catalog::new(&d)
+            .admit(&term(&d, "twoBits{}(P:SortBool{},Q:SortBool{})"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(summary.source_rules.len(), 3);
+        for p in [false, true] {
+            for q in [false, true] {
+                assert_eq!(
+                    evaluate(&d, &summary, vec![Term::bool(p), Term::bool(q)]),
+                    Term::int(if p {
+                        1
+                    } else if q {
+                        2
+                    } else {
+                        0
+                    })
+                );
+            }
+        }
+    }
+    let incomplete = compound_guard_rows("BOOL.andThen");
+    let incomplete = incomplete
+        .lines()
+        .filter(|line| !line.contains("not{}(Q:SortBool{})"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let d = definition(&incomplete);
+    assert_eq!(
+        Catalog::new(&d)
+            .admit(&term(&d, "twoBits{}(P:SortBool{},Q:SortBool{})"))
+            .unwrap(),
+        Err(Rejected::Incomplete)
+    );
+    // The same spelling with a changed source hook has a different truth table: these
+    // rows then really overlap. A name or a total declaration does not supply conjunction.
+    let d = definition(&compound_guard_rows("BOOL.orElse"));
+    assert_eq!(
+        Catalog::new(&d)
+            .admit(&term(&d, "twoBits{}(P:SortBool{},Q:SortBool{})"))
+            .unwrap(),
+        Err(Rejected::Overlapping)
+    );
+    let text = compound_guard_rows("BOOL.andThen").replace(
+        "total{}(),hook{}(\"BOOL.andThen\")",
+        "total{}(),impure{}(),hook{}(\"BOOL.andThen\")",
+    );
+    let d = definition(&text);
+    assert_eq!(
+        Catalog::new(&d)
+            .admit(&term(&d, "twoBits{}(P:SortBool{},Q:SortBool{})"))
+            .unwrap(),
+        Err(Rejected::Unsupported)
+    );
+}
+
+#[test]
+fn compound_guard_complements_keep_both_boolean_polarities() {
+    for hook in ["BOOL.and", "BOOL.andThen", "BOOL.or", "BOOL.orElse"] {
+        let rows = format!(
+            r#"hooked-symbol both{{}}(SortBool{{}},SortBool{{}}) : SortBool{{}} [function{{}}(),total{{}}(),hook{{}}("{hook}")]"#
+        );
+        let guard = "both{}(P:SortBool{},Q:SortBool{})";
+        let d = definition(
+            &[
+                rows,
+                equation(
+                    "twoBits{}(P:SortBool{},Q:SortBool{})",
+                    &int(1),
+                    Some(guard),
+                    "",
+                ),
+                equation(
+                    "twoBits{}(P:SortBool{},Q:SortBool{})",
+                    &int(0),
+                    Some(&format!("not{{}}({guard})")),
+                    "",
+                ),
+            ]
+            .join("\n"),
+        );
+        let summary = Catalog::new(&d)
+            .admit(&term(&d, "twoBits{}(P:SortBool{},Q:SortBool{})"))
+            .unwrap()
+            .unwrap();
+        for p in [false, true] {
+            for q in [false, true] {
+                let expected = if matches!(hook, "BOOL.and" | "BOOL.andThen") {
+                    p && q
+                } else {
+                    p || q
+                };
+                assert_eq!(
+                    evaluate(&d, &summary, vec![Term::bool(p), Term::bool(q)]),
+                    Term::int(i64::from(expected))
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn contradictory_boolean_guards_do_not_overlap_an_unconditional_row() {
+    let d = definition(
+        &[
+            r#"hooked-symbol both{}(SortBool{},SortBool{}) : SortBool{} [function{}(),total{}(),hook{}("BOOL.andThen")]"#.to_owned(),
+            equation("twoBits{}(P:SortBool{},Q:SortBool{})", &int(1), None, ""),
+            equation(
+                "twoBits{}(P:SortBool{},Q:SortBool{})",
+                &int(0),
+                Some("both{}(P:SortBool{},not{}(P:SortBool{}))"),
+                "",
+            ),
+        ]
+        .join("\n"),
+    );
+    let summary = Catalog::new(&d)
+        .admit(&term(&d, "twoBits{}(P:SortBool{},Q:SortBool{})"))
+        .unwrap()
+        .unwrap();
+    for p in [false, true] {
+        assert_eq!(
+            evaluate(&d, &summary, vec![Term::bool(p), Term::bool(false)]),
+            Term::int(1)
+        );
+    }
+}
+
+#[test]
+fn shared_compound_guards_stop_at_the_work_allowance() {
+    let d = definition(&compound_guard_rows("BOOL.andThen"));
+    let head = d.symbols()["both"].clone();
+    let mut guard = term(&d, "P:SortBool{}");
+    for _ in 0..30 {
+        guard = Term::application(head.clone(), vec![], vec![guard.clone(), guard]);
+    }
+    let mut work = 128;
+    assert!(matches!(
+        term_guard(&guard, true, &mut work, 0, 64).unwrap(),
+        Err(Rejected::Limit)
+    ));
+    assert_eq!(work, 0);
+}
+
 #[test]
 fn boolean_rows_and_complementary_comparisons_derive_finite_decisions() {
     let zero = int(0);
