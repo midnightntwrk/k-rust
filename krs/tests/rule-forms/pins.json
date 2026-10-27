@@ -221,14 +221,8 @@
         "run": "4"
       },
       "baz-undefined": {
-        "native": {
-          "parse": "accepted",
-          "run": "branches: stuck, trivial"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "undefined"
-        }
+        "parse": "accepted",
+        "run": "undefined"
       }
     },
     "krs-rule-forms-fresh": {
@@ -916,18 +910,6 @@
         "java": {
           "parse": "accepted",
           "run": "wrap(b ; c ; d)"
-        }
-      }
-    },
-    "krs-rule-forms-casts": {
-      "baz-undefined": {
-        "native": {
-          "parse": "accepted",
-          "run": "branches: stuck, trivial"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "undefined"
         }
       }
     },

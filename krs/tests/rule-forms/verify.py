@@ -34,10 +34,8 @@ the outcomes must agree:
   `bar`'s `Exp` field, so `bar(0)` steps through the projection
   `{foo(I +Int 1)}:>Int` to `bar(3)` and `bar(1 + 2)` does not match; the
   emitted rules carry `_E:Exp` and `I:Int`. `baz(12)` projects the block
-  `foo(12)` into `Int`, which has no value: a pinned divergence, as for
-  KF-013's failing projections (Java K aborts, `undefined`; k-rust ends in a
-  stuck leaf and a `#Bottom` leaf; upstream k-rust/undefined-projection-stuck-leaf,
-  reviewed, not a request);
+  `foo(12)` into `Int`, which has no value: the projection is defined exactly
+  on its sort's values, so `baz(12)` is `undefined` on both routes;
 - `fresh`: a readable clause with `#[k::fresh(l: Loc)]` and a reference
   `#[k::rule]` fn with `#[k::fresh(t: Int)]` draw from the one shared
   generated counter, so `alloc a; tx; alloc b; tx;` ends with store
@@ -170,7 +168,6 @@ CASTS_PROGRAMS = (
     Program("bar", "bar(0)", "accepted", "bar(3)"),
     Program("bar-not-int", "bar(1 + 2)", "accepted", "bar(1 + 2)"),
     Program("baz", "baz(4)", "accepted", "4"),
-    # A pinned divergence (see pins.json and the module documentation).
     Program("baz-undefined", "baz(12)", "accepted", "undefined"),
 )
 
@@ -676,7 +673,7 @@ def main() -> int:
             "rule baz ( I:Int ) => {foo ( I:Int )}:>Int [label(",
         ))
         harness.compare(casts, CASTS_PROGRAMS, sort="Phrase")
-        print("PASS casts: typed binders narrow isExpression and bar, projections step bar(0) to bar(3), baz(12) a pinned divergence")
+        print("PASS casts: typed binders narrow isExpression and bar, projections step bar(0) to bar(3), baz(12) undefined")
 
         harness.check(PRIORITY)
         harness.expand(PRIORITY)

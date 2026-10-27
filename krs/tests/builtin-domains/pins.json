@@ -880,28 +880,6 @@
           "run": "1"
         }
       }
-    },
-    "krs-builtin-sort-tests": {
-      "prj-undefined": {
-        "native": {
-          "parse": "accepted",
-          "run": "branches: stuck, trivial"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "undefined"
-        }
-      },
-      "unbox-undefined": {
-        "native": {
-          "parse": "accepted",
-          "run": "branches: stuck, trivial"
-        },
-        "java": {
-          "parse": "accepted",
-          "run": "undefined"
-        }
-      }
     }
   },
   "capability_refusals": {
