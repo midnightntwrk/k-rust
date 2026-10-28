@@ -615,7 +615,7 @@ fn new_invariant_writes_the_skeleton_once_and_adds_stubs_for_open_rules() {
     let lake = std::fs::read_to_string(p.join("lakefile.lean")).unwrap();
     assert!(
         lake.contains(
-            "require KPrelude from \"../../prelude\"\nrequire «Peano» from \"../../lib\"\n"
+            "require k2lean from \"../../prelude\"\nrequire «Peano» from \"../../lib\"\n"
         ),
         "{lake}"
     );

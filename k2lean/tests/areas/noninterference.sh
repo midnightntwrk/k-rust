@@ -19,7 +19,7 @@ name_noninterference() {
 gen_noninterference() {
   case $1 in
     impsec) GEN_ARGS=(--kore "$(kore_dir imp-sec)/definition.kore" --runtime "$(kore_dir imp-sec)/runtime.json"
-            --out "$o" --name KImpSec --prelude ../../lean/prelude
+            --out "$o" --name KImpSec --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --extra-fns "lev,sec,conf") ;;
     *) return 1 ;;
   esac

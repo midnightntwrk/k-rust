@@ -57,7 +57,7 @@ fn load_lib(dir: &Path) -> Result<Lib, String> {
         .ok_or_else(|| format!("{}: no `package`", dir.display()))?;
     let prelude = lake
         .lines()
-        .find_map(|l| l.strip_prefix("require KPrelude from \""))
+        .find_map(|l| l.strip_prefix("require k2lean from \""))
         .map(|l| dir.join(l.trim_end_matches('"')));
     let g = casediff::load(dir)?;
     if g.ns != ns {
@@ -162,7 +162,7 @@ fn skeleton(
     files.push((
         PathBuf::from("lakefile.lean"),
         format!(
-            "import Lake\nopen Lake DSL\n\n/-- A kind 2 invariant of `{ns}`: a predicate written in Lean, proved to be kept by every rule\n(skeleton written by `k2lean new-invariant`; every file is hand-written from here on). -/\npackage «{name}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n\nrequire KPrelude from \"{}\"\nrequire «{ns}» from \"{}\"\n\n@[default_target]\nlean_lib {name}\n",
+            "import Lake\nopen Lake DSL\n\n/-- A kind 2 invariant of `{ns}`: a predicate written in Lean, proved to be kept by every rule\n(skeleton written by `k2lean new-invariant`; every file is hand-written from here on). -/\npackage «{name}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n\nrequire k2lean from \"{}\"\nrequire «{ns}» from \"{}\"\n\n@[default_target]\nlean_lib {name}\n",
             quote_rel(prelude_rel),
             quote_rel(lib_rel)
         ),

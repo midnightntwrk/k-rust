@@ -7,7 +7,7 @@ closer step that reaches the recursion-depth limit fails like any other step. -/
 package «InvBudget» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «KRange» from "../../generated/range"
 
 @[default_target]

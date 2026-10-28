@@ -25,7 +25,7 @@ name_claims() {
 gen_claims() {
   case $1 in
     kstrict) GEN_ARGS=(--kore "$(kore_dir kstrict)/definition.kore" --runtime "$(kore_dir kstrict)/runtime.json"
-            --out "$o" --name KStrict --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+            --out "$o" --name KStrict --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     *) return 1 ;;
   esac
 }
@@ -73,7 +73,7 @@ kimp_claims() {
       --spec "$KO/imp-inv-spec/definition.kore" \
       --induction "$T/demos/claims/kimp-expr-eval.toml" --induction "$T/demos/claims/kimp-expr-div.toml" \
       --induction "$T/demos/claims/kimp-expr-vars.toml" \
-      --out "$out" --name KImpClaims --semantics KImp --semantics-path "$sem" --kclaims-path ../../lean/claims \
+      --out "$out" --name KImpClaims --semantics KImp --semantics-path "$sem" --kclaims-path ../../lean \
       --open "$T/demos/claims/kimp-open.txt" "$@" \
       --hand Hand --hand Replay.Addition2 --hand Replay.Branching --hand Replay.SumLoop > "$L/$log" 2>&1
   }
@@ -128,7 +128,7 @@ kimpinv_claims() {
   if lbuild "$GEN/kimpinv" build-kimpinv-full KImpInv; then
     ok "build kimpinv" "$L/build-kimpinv-full.log"
     if "$G" claims --kore "$KO/kimp-inv/definition.kore" --spec "$KO/imp-inv-spec/definition.kore" \
-        --out "$OUTI" --name KImpInvClaims --semantics KImpInv --semantics-path ../kimpinv --kclaims-path ../../lean/claims \
+        --out "$OUTI" --name KImpInvClaims --semantics KImpInv --semantics-path ../kimpinv --kclaims-path ../../lean \
         --assume-invariant Invariant > "$L/claims-inv-gen.log" 2>&1; then
       ok "claims-inv gen"
       cp "$OUTI/claims.toml" "$MEAS/claims-inv.toml"
@@ -156,7 +156,7 @@ impplus_claims() {
   fi
   if "$G" claims --kore "$KO/impplus/definition.kore" --spec "$KO/impplus-spec/definition.kore" \
       --out "$OUTP" --name KImpPlusClaims --semantics KImpPlus --semantics-path ../impplus \
-      --kclaims-path ../../lean/claims > "$L/claims-impplus-gen.log" 2>&1; then
+      --kclaims-path ../../lean > "$L/claims-impplus-gen.log" 2>&1; then
     ok "claims-impplus gen"
     cp "$OUTP/claims.toml" "$MEAS/claims-impplus.toml"
     if lbuild "$OUTP" build-claims-impplus; then
@@ -183,7 +183,7 @@ strict_claims() {
   fi
   if "$G" claims --kore "$(kore_dir kstrict)/definition.kore" --spec "$KO/strict-spec/definition.kore" \
       --out "$OUTP" --name KStrictClaims --semantics KStrict --semantics-path ../kstrict \
-      --kclaims-path ../../lean/claims > "$L/claims-strict-gen.log" 2>&1; then
+      --kclaims-path ../../lean > "$L/claims-strict-gen.log" 2>&1; then
     ok "claims-strict gen"
     cp "$OUTP/claims.toml" "$MEAS/claims-strict.toml"
     if lbuild "$OUTP" build-claims-strict; then
@@ -203,7 +203,7 @@ gate_claims() {
   if runs record strict-claims; then
     kc kstrict && strict_claims
     # importing KClaims leaves common names usable (lean/claims/KClaimsTest/Keywords.lean)
-    if lbuild "$T/lean/claims" build-kclaims-test KClaimsTest; then ok "KClaims importers" "$L/build-kclaims-test.log"
+    if lbuild "$T/lean" build-kclaims-test KClaimsTest; then ok "KClaims importers" "$L/build-kclaims-test.log"
     else bad "KClaims importers" "$L/build-kclaims-test.log"; fi
   fi
   if runs record impplus-claims; then

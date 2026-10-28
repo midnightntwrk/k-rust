@@ -7,7 +7,7 @@ counter and every thread's `<id>` at most it, so the next fresh value is not alr
 package «ImpPlusFresh» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «KImpPlus» from "../../generated/impplus"
 
 @[default_target]

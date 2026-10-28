@@ -88,7 +88,7 @@ case $step in
     term=$here/kevm-termination.toml hb=$here/kevm-heartbeats.txt
     gen() {
       "$RT" "$K2LEAN" gen --kore "$OUT/kore/definition.kore" --runtime "$OUT/kore/runtime.json" --out "$lib" \
-        --name KEvm --prelude "$root/k2lean/lean/prelude" --arity-terms --termination "$term" \
+        --name KEvm --prelude "$root/k2lean/lean" --arity-terms --termination "$term" \
         --open-obligations "$OUT/open-obligations.txt" ${EQ_WEIGHT:+--equations-part-weight "$EQ_WEIGHT"} \
         --equations-heartbeats-file "$hb" ${EQ_HB:+--equations-heartbeats "$EQ_HB"} \
         ${GEN_ARGS:-} > "$logs/gen.log" 2>&1

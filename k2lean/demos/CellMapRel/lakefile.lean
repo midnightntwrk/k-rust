@@ -5,7 +5,7 @@ open Lake DSL
 package «CellMapRel» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «CellMap» from "../../generated/cellmap"
 require «CellMapB» from "../../generated/cellmapb"
 

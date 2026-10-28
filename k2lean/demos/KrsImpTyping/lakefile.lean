@@ -6,7 +6,7 @@ declared cell type `env: Map<Id, Value>` (`Step.wt`), and the typed view loses n
 package «KrsImpTyping» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «KrsImp» from "../../generated/krsimp"
 
 @[default_target]

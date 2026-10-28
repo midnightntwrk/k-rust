@@ -6,7 +6,7 @@ checker `k/impplus-typing.k`. -/
 package «ImpPlusTypes» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «KImpPlus» from "../../generated/impplus"
 require «KImpPlusTypes» from "../../generated/impplustypes"
 

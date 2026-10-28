@@ -6,7 +6,7 @@ package «Params» where
   leanOptions := #[⟨`autoImplicit, false⟩]
   weakLeanArgs := #["-DmaxErrors=0"]
 
-require KPrelude from "../../prelude"
+require k2lean from "../../prelude"
 
 /-- The generated semantics: terms, functions, rules, adequacy, determinism. -/
 @[default_target]

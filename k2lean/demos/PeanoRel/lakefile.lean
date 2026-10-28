@@ -5,7 +5,7 @@ open Lake DSL
 package «PeanoRel» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «Peano» from "../../generated/peano"
 require «PeanoB» from "../../generated/peanob"
 

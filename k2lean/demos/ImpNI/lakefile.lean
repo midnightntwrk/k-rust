@@ -5,7 +5,7 @@ open Lake DSL
 package «ImpNI» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «KImp» from "../../generated/kimp"
 require «KImpSec» from "../../generated/impsec"
 

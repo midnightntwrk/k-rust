@@ -6,7 +6,7 @@ generically, given the joins left open (`k2lean confluence --threads procs`). -/
 package «UtxoConf» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «Utxo» from "../../generated/utxo"
 
 @[default_target]

@@ -6,7 +6,7 @@ open Lake DSL
 package «ExprTypes» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «KExpr» from "../../generated/kexpr"
 require «KExprTypes» from "../../generated/exprtypes"
 

@@ -9,8 +9,7 @@ It is part of k-rust's repository: the generator is a member of k-rust's workspa
 | path | content |
 |---|---|
 | `crates/k2lean` | the generator (`k2lean gen`, and the commands of `docs/design.md`, §4), with its unit and snapshot tests |
-| `lean/prelude` | `KPrelude`: the hooks, matching combinators and tactics every generated library uses, and the invariant core (`Preserved`, `k2l_preserve`) |
-| `lean/claims` | `KClaims`: K reachability claims over a transition relation, and the claim tactic |
+| `lean` | the Lake package `k2lean`, which every generated library requires: `KPrelude` (`lean/prelude`), the hooks, matching combinators and tactics every generated library uses, and the invariant core (`Preserved`, `k2l_preserve`); `KClaims` (`lean/claims`), K reachability claims over a transition relation, and the claim tactic |
 | `demos` | K inputs, hand-written Lean projects over generated libraries, and `regen.sh`, which regenerates and builds them |
 | `generated` | where the libraries are generated; git tracks only each library's open lists and hand-written invariant module |
 | `tests` | the gate (`gate.sh`, `gate-check.py`, `libs.sh`, and each area's registrations in `areas/`), its baseline and recorded outputs (one file and directory per area), kimp's golden cases, and the generator's fixtures |
@@ -33,9 +32,9 @@ To generate a library of your own definition:
 
 ```sh
 target/release/krust kcompile my.k --main-module MY --syntax-module MY-SYNTAX --output-directory out/my
-mkdir -p out/lean && cp -a k2lean/lean/prelude out/lean/
+mkdir -p out && cp -a k2lean/lean out/
 target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime.json \
-  --out out/generated/my --name My --prelude ../../lean/prelude
+  --out out/generated/my --name My --prelude ../../lean
 (cd out/generated/my && lake build My.Equations > build.log 2>&1)
 ```
 
@@ -46,7 +45,7 @@ touch out/generated/my/open-obligations.txt
 target/release/k2lean open-from-log out/generated/my/My/Equations.lean out/generated/my/build.log \
   out/generated/my/open-obligations.txt
 target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime.json \
-  --out out/generated/my --name My --prelude ../../lean/prelude \
+  --out out/generated/my --name My --prelude ../../lean \
   --open-obligations out/generated/my/open-obligations.txt
 (cd out/generated/my && lake build My My.Equations MyTest.Axioms)
 ```
@@ -83,7 +82,7 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 ```sh
 target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/definition.kore \
   --out out/generated/my-claims --name MyClaims --semantics My --semantics-path ../my \
-  --kclaims-path ../../lean/claims [--open OPEN.txt] [--hand MODULE]…
+  --kclaims-path ../../lean [--open OPEN.txt] [--hand MODULE]…
 ```
 
 | option | does |

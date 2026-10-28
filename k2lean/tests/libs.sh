@@ -86,7 +86,7 @@ libs_fixture() {
 libs_fixture_args() {
   local fx; fx=$(libs_fixture "$1")
   GEN_ARGS=(--kore "$fx/definition.kore" --runtime "$fx/runtime.json"
-    --out "$o" --name "$(libs_name "$1")" --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt")
+    --out "$o" --name "$(libs_name "$1")" --prelude ../../lean --open-obligations "$o/open-obligations.txt")
 }
 
 # libs_relate NS: the relation of demo NS and its correspondence report. An area's relate_AREA sets

@@ -5,7 +5,7 @@ open Lake DSL
 package «ImpRelClaims» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KClaims from "../../lean/claims"
+require k2lean from "../../lean"
 require «ImpRel» from "../ImpRel"
 require «KImpClaims» from "../../generated/kimp-claims"
 

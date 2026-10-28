@@ -27,28 +27,28 @@ name_core() {
 gen_core() {
   case $1 in
     kimp) GEN_ARGS=(--kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json"
-            --out "$o" --name KImp --prelude ../../lean/prelude
+            --out "$o" --name KImp --prelude ../../lean
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt") ;;
     # kimp with one exclusive pair of rules listed as overlapping (`--det2-overlap`), so that the
     # conditional statements of determinism (`Step.deterministic_of`) are built too;
     # and its Equations in parts of weight at most 30 (kimp's whole is 84), so that the parts, their
     # aggregating module and `open-from-log` over them are built and checked against kimp's counts
     kimp-d2) GEN_ARGS=(--kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json"
-            --out "$o" --name KImp --prelude ../../lean/prelude
+            --out "$o" --name KImp --prelude ../../lean
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt"
             --det2 --det2-overlap "IMP.if-true,IMP.if-false" --equations-part-weight 30) ;;
-    krsimp) GEN_ARGS=(--kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude
+    krsimp) GEN_ARGS=(--kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json") ;;
     # a definition with two genuine overlaps (witnessed; one reads a map cell), one joinable pair
     # and exclusive pairs (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
     ovl) GEN_ARGS=(--kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json"
-            --out "$o" --name KOvl --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+            --out "$o" --name KOvl --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     # rules with `ensures` clauses (demos/k/ensures.k): steps only where the ensures holds, apart
     # by their ensures, and an overlap where both hold (witnessed)
     ens) GEN_ARGS=(--kore "$(kore_dir ens)/definition.kore" --runtime "$(kore_dir ens)/runtime.json"
-            --out "$o" --name KEns --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+            --out "$o" --name KEns --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     simple) GEN_ARGS=(--kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json"
-            --out "$o" --name KSimple --prelude ../../lean/prelude
+            --out "$o" --name KSimple --prelude ../../lean
             --open-obligations "$o/open-obligations.txt") ;;
     # the generator's fixture whose functions walk maps by free-key patterns (tests/fixtures/freekey)
     freekey) libs_fixture_args "$1" ;;
@@ -61,7 +61,7 @@ gen_core() {
     # recursive functions whose termination measures the generator synthesizes (demos/k/term),
     # and least fixed points where K's rewriting diverges (term-termination.toml)
     kterm-ar) GEN_ARGS=(--kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json"
-            --out "$o" --name KTerm --prelude ../../lean/prelude
+            --out "$o" --name KTerm --prelude ../../lean
             --termination "$DEMOS/k/term/term-termination.toml" --open-obligations "$o/open-obligations.txt") ;;
     *) return 1 ;;
   esac
@@ -203,10 +203,10 @@ gate_core() {
   # checked under the axiom guard (KTermTest/Diverges.lean)
   runs lib kterm-ar && kc kterm && lib kterm-ar KTerm
   # the checks of `#k2l_refuted` (a refutation's form, restatements, the parameters' closure, sorry)
-  if (cd "$T/lean/prelude" && "$RT" lake env lean "$D/k/refuted/refuted-check.lean") > "$L/refuted-check.log" 2>&1
+  if (cd "$T/lean" && "$RT" lake env lean "$D/k/refuted/refuted-check.lean") > "$L/refuted-check.log" 2>&1
   then ok "refuted check" "$L/refuted-check.log"; else bad "refuted check" "$L/refuted-check.log"; fi
   # the checks of `#k2l_proves` (a proof's form: the statement named or written out, its closure, axioms)
-  if (cd "$T/lean/prelude" && "$RT" lake env lean "$D/k/proves/proves-check.lean") > "$L/proves-check.log" 2>&1
+  if (cd "$T/lean" && "$RT" lake env lean "$D/k/proves/proves-check.lean") > "$L/proves-check.log" 2>&1
   then ok "proves check" "$L/proves-check.log"; else bad "proves check" "$L/proves-check.log"; fi
   if runs lib simple; then
     phase "lib simple"

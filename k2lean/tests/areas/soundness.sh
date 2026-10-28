@@ -33,21 +33,21 @@ name_soundness() {
 gen_soundness() {
   case $1 in
     imptypes) GEN_ARGS=(--kore "$(kore_dir imp-typing)/definition.kore" --runtime "$(kore_dir imp-typing)/runtime.json"
-            --out "$o" --name KImpTypes --prelude ../../lean/prelude
+            --out "$o" --name KImpTypes --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,wt") ;;
     # EXPR and its checker, for ExprTypes
     kexpr) GEN_ARGS=(--kore "$(kore_dir expr)/definition.kore" --runtime "$(kore_dir expr)/runtime.json"
-            --out "$o" --name KExpr --prelude ../../lean/prelude
+            --out "$o" --name KExpr --prelude ../../lean
             --open-obligations "$o/open-obligations.txt") ;;
     exprtypes) GEN_ARGS=(--kore "$(kore_dir expr-typing)/definition.kore" --runtime "$(kore_dir expr-typing)/runtime.json"
-            --out "$o" --name KExprTypes --prelude ../../lean/prelude
+            --out "$o" --name KExprTypes --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf") ;;
     # IMP++ and its checker, for ImpPlusTypes
     impplus) GEN_ARGS=(--kore "$(kore_dir impplus)/definition.kore" --runtime "$(kore_dir impplus)/runtime.json"
-            --out "$o" --name KImpPlus --prelude ../../lean/prelude
+            --out "$o" --name KImpPlus --prelude ../../lean
             --open-obligations "$o/open-obligations.txt") ;;
     impplustypes) GEN_ARGS=(--kore "$(kore_dir impplus-typing)/definition.kore" --runtime "$(kore_dir impplus-typing)/runtime.json"
-            --out "$o" --name KImpPlusTypes --prelude ../../lean/prelude
+            --out "$o" --name KImpPlusTypes --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,typeOfB,wt,wts,printable") ;;
     *) return 1 ;;
   esac

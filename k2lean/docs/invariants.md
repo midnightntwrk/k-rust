@@ -100,12 +100,12 @@ The binary is `$G`; it is self-contained.
 ### 2.3 A work tree
 
 Work outside the checkout: `lake build` writes into the `.lake/` directory of every package it builds, including the dependencies.
-A generated library requires the prelude as `../../lean/prelude`, so the work tree keeps the layout of `k2lean/`.
+A generated library requires the package `k2lean` as `../../lean`, so the work tree keeps the layout of `k2lean/`.
 The generated libraries are not in git: `demos/regen.sh` and the gate (§10) regenerate them, and git keeps only each library's open-obligation lists and hand-written invariant module, which are inputs of the generation.
 
 ```sh
-mkdir -p $GEN/kimp $W/k2lean/lean
-cp -a $K/lean/prelude $W/k2lean/lean/
+mkdir -p $GEN/kimp $W/k2lean
+cp -a $K/lean $W/k2lean/
 cp $K/generated/kimp/open-obligations.txt $GEN/kimp/
 ```
 
@@ -125,11 +125,11 @@ libs_kcompile kimp && libs_kcompile kimp-verif && libs_gen kimp
 
 ```text
 $G gen --kore $W/kore/kimp/definition.kore --runtime $W/kore/kimp/runtime.json \
-  --out $GEN/kimp --name KImp --prelude ../../lean/prelude \
+  --out $GEN/kimp --name KImp --prelude ../../lean \
   --lemmas-kore $W/kore/kimp-verif/definition.kore --open-obligations $GEN/kimp/open-obligations.txt
 ```
 
-- `--name` is the Lean namespace; `--prelude` is the prelude's path relative to `--out`.
+- `--name` is the Lean namespace; `--prelude` is the path of the `k2lean` package (`lean`) relative to `--out`.
 - `--open-obligations FILE` lists the K equations whose generated proofs fail; they are emitted as statements only.
   A library generated with an empty list whose `Equations.lean` then fails to build is fixed by `$G open-from-log NS/Equations.lean BUILD.log open-obligations.txt` and a second `gen`; starting from an existing library's list (kimp has 1) avoids the round.
 - The files an invariant uses are `NS/Rules.lean` (`Step`), `NS/Preserves.lean` (one `Step.Case.r P` per rule and `Step.preserves_of`) and `NS/Init.lean` (`init`, one parameter per configuration variable).
@@ -193,7 +193,7 @@ $KRUST kcompile $W/k/imp-keys.k --main-module IMP-KEYS --syntax-module IMP-SYNTA
 mkdir -p $GEN/kimpkeys
 cp $K/generated/kimp/open-obligations.txt $GEN/kimpkeys/
 $G gen --kore $W/kore/kimp-keys/definition.kore --runtime $W/kore/kimp-keys/runtime.json \
-  --out $GEN/kimpkeys --name KImpKeys --prelude ../../lean/prelude \
+  --out $GEN/kimpkeys --name KImpKeys --prelude ../../lean \
   --open-obligations $GEN/kimpkeys/open-obligations.txt --invariant envKeysOk@env
 ```
 
@@ -257,7 +257,7 @@ Every case of `envKeysOk` closes, so to see the hand path, list `CALC.assign` yo
 cd $GEN/kimpkeys
 echo '«CALC.assign» | Step.Case.«CALC.assign» Invariant | calc.k:32:3' >> open-invariant-cases.txt
 $G gen --kore $W/kore/kimp-keys/definition.kore --runtime $W/kore/kimp-keys/runtime.json \
-  --out $GEN/kimpkeys --name KImpKeys --prelude ../../lean/prelude \
+  --out $GEN/kimpkeys --name KImpKeys --prelude ../../lean \
   --open-obligations $GEN/kimpkeys/open-obligations.txt --invariant envKeysOk@env
 grep -v '^#' open-invariant-cases.txt
 ```
@@ -347,7 +347,7 @@ The recorded KRS IMP definition and its sidecar are in `$K/demos/k/krs-imp/`; th
 mkdir -p $GEN/krsimp && cp $K/generated/krsimp/open-*.txt $GEN/krsimp/
 mkdir -p $W/k2lean/demos/k && cp -a $K/demos/k/krs-imp $W/k2lean/demos/k/
 KRS=$W/k2lean/demos/k/krs-imp
-$G gen --kore $KRS/definition.kore --out $GEN/krsimp --name KrsImp --prelude ../../lean/prelude \
+$G gen --kore $KRS/definition.kore --out $GEN/krsimp --name KrsImp --prelude ../../lean \
   --open-obligations $GEN/krsimp/open-obligations.txt --sidecar $KRS/k2lean-sidecar.json
 (cd $GEN/krsimp && lake build KrsImp.Invariants 2>&1 | grep -E "depends on|^error|Build completed")
 ```
@@ -776,7 +776,7 @@ Regenerate both libraries in the copy, then compare:
   $KRUST kcompile $W2/k/imp-keys.k --main-module IMP-KEYS --syntax-module IMP-SYNTAX \
     --output-directory $W2/kore/kimp-keys --builtin-directory $BUILTIN -I $KIMP
   $G gen --kore $W2/kore/kimp-keys/definition.kore --runtime $W2/kore/kimp-keys/runtime.json \
-    --out $GEN/kimpkeys --name KImpKeys --prelude ../../lean/prelude \
+    --out $GEN/kimpkeys --name KImpKeys --prelude ../../lean \
     --open-obligations $GEN/kimpkeys/open-obligations.txt --invariant envKeysOk@env
 )
 $G diff $GEN/kimp $W2/k2lean/generated/kimp --hand $W2/EnvBound
@@ -899,7 +899,7 @@ The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same l
    T/demos/EnvBound/{lakefile.lean,lean-toolchain}
    ```
 
-   A kind 2 project under `demos/` must require `../../lean/prelude` and `../../generated/kimp`; copy the three modules first and then run `$G new-invariant --lib $T/generated/kimp --out $T/demos/EnvBound` with a generated kimp in `$T/generated/kimp` (from `demos/regen.sh`), which writes the lakefile with those paths and keeps the modules.
+   A kind 2 project under `demos/` must require `../../lean` (the package `k2lean`) and `../../generated/kimp`; copy the three modules first and then run `$G new-invariant --lib $T/generated/kimp --out $T/demos/EnvBound` with a generated kimp in `$T/generated/kimp` (from `demos/regen.sh`), which writes the lakefile with those paths and keeps the modules.
 2. The registrations, in the two files of the gate's invariants area (`docs/testing.md` of the repository lists the areas): `tests/areas/invariants.sh` (how to compile and generate, and the phase that builds the entry) and `tests/areas/invariants.py` (what is measured, and the entry's tier).
    The `kimpkeys` lines show the shape of a kind 1 library's registration (the tree has them, with `kimpkeys-hand` beside them); the `EnvBound` lines are the ones to add:
 
@@ -913,7 +913,7 @@ The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same l
    +    kimpkeys|kimpkeys-hand) echo KImpKeys ;;
    @@ gen_invariants
    +    kimpkeys|kimpkeys-hand) GEN_ARGS=(--kore "$(kore_dir kimp-keys)/definition.kore" --runtime "$(kore_dir kimp-keys)/runtime.json"
-   +            --out "$o" --name KImpKeys --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+   +            --out "$o" --name KImpKeys --prelude ../../lean --open-obligations "$o/open-obligations.txt"
    +            --invariant envKeysOk@env) ;;
    @@ gate_invariants
    +  runs lib kimpkeys && kc kimp-keys && inv_lib kimpkeys KImpKeys

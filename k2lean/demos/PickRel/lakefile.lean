@@ -5,7 +5,7 @@ open Lake DSL
 package «PickRel» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «Pick» from "../../generated/pick"
 require «PickB» from "../../generated/pickb"
 

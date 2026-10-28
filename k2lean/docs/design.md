@@ -8,7 +8,7 @@ What k2lean is for, and where a piece of work belongs, is in [`product.md`](prod
 ## 1. Input and output
 
 The input is krust's compiled definition: `definition.kore` and `runtime.json` from `krust kcompile` (the KORE theory of the definition, and its configuration variables).
-The output of `k2lean gen --kore definition.kore --runtime runtime.json --out DIR --name NS` is a Lake project in `DIR` that requires the prelude `KPrelude` (`lean/prelude`) by relative path (`--prelude`, relative to `DIR`):
+The output of `k2lean gen --kore definition.kore --runtime runtime.json --out DIR --name NS` is a Lake project in `DIR` that requires the Lake package `k2lean` (`lean`: `KPrelude` and `KClaims`) by relative path (`--prelude`, relative to `DIR`):
 
 | module | content |
 |---|---|

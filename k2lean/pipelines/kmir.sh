@@ -76,7 +76,7 @@ case $step in
     ;;
   terms)
     "$K2LEAN" terms --kore "$OUT/kore/definition.kore" --out "$OUT/terms" --name KMir \
-      --prelude "$root/k2lean/lean/prelude" --arity-terms > "$logs/terms-gen.log" 2>&1
+      --prelude "$root/k2lean/lean" --arity-terms > "$logs/terms-gen.log" 2>&1
     sed -i 's/^  leanOptions := #\[⟨`autoImplicit, false⟩\]$/&\n  moreLeanArgs := #["-j", "'"$LEAN_J"'"]/' "$OUT/terms/lakefile.lean"
     (cd "$OUT/terms" && timeout "$CAP" "$RT" lake build) > "$logs/terms-build.log" 2>&1 || true
     grep -E 'error|rtime' "$logs/terms-build.log" | tail -n 5
@@ -90,7 +90,7 @@ case $step in
     # by its leaf until the key reduces, the second search of k2l_key_cases) needs between 468,000
     # and 868,000 (2026-10-25), above the default 400,000 plus its inversions
     "$RT" "$K2LEAN" gen --kore "$OUT/kore/definition.kore" --runtime "$OUT/kore/runtime.json" --out "$lib" \
-      --name KMir --prelude "$root/k2lean/lean/prelude" --arity-terms --det2-heartbeats 800000 "${term[@]}" \
+      --name KMir --prelude "$root/k2lean/lean" --arity-terms --det2-heartbeats 800000 "${term[@]}" \
       --open-obligations "$OUT/open-obligations.txt" > "$logs/gen.log" 2>&1 || { tail -n 5 "$logs/gen.log" >&2; exit 1; }
     sed -i 's/^  leanOptions := #\[⟨`autoImplicit, false⟩\]$/&\n  moreLeanArgs := #["-j", "'"$LEAN_J"'"]/' "$lib/lakefile.lean"
     grep -q moreLeanArgs "$lib/lakefile.lean"

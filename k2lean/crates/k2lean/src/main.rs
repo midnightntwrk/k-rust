@@ -47,7 +47,7 @@ mod terms_arity;
 
 use std::path::PathBuf;
 
-/// The Lean toolchain of every generated project (and of `k2lean/lean/prelude` and `k2lean/lean/claims`).
+/// The Lean toolchain of every generated project (and of the `k2lean` package, `k2lean/lean`).
 pub const LEAN_TOOLCHAIN: &str = "leanprover/lean4:v4.34.0\n";
 
 /// The default bound on the weight of one module of `Equations` (`eqns::weight`,
@@ -77,7 +77,7 @@ fn parse_args() -> Args {
         runtime: None,
         out: None,
         name: "KDef".into(),
-        prelude: "../prelude".into(),
+        prelude: "../lean".into(),
         open: None,
         lemmas: None,
         termination: None,
@@ -938,7 +938,7 @@ fn main() {
             write(
                 &out.join("lakefile.lean"),
                 &format!(
-                    "import Lake\nopen Lake DSL\n\npackage «{ns}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n\nrequire KPrelude from \"{}\"\n\n@[default_target]\nlean_lib {ns}\n",
+                    "import Lake\nopen Lake DSL\n\npackage «{ns}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n\nrequire k2lean from \"{}\"\n\n@[default_target]\nlean_lib {ns}\n",
                     a.prelude
                 ),
             );

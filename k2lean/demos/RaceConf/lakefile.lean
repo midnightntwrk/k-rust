@@ -5,7 +5,7 @@ open Lake DSL
 package «RaceConf» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KPrelude from "../../lean/prelude"
+require k2lean from "../../lean"
 require «Race» from "../../generated/race"
 
 @[default_target]

@@ -26,62 +26,62 @@ name_invariants() {
 gen_invariants() {
   case $1 in
     kimpinv) GEN_ARGS=(--kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json"
-            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KImpInv --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant envOk@env --invariant storeNoIds@env) ;;
     # kimp with the K function `envKeysOk` (demos/k/kimp-keys, the walkthrough of
     # docs/invariants.md, §3); kimpkeys-hand is the same library with one case listed in its
     # open-invariant-cases.txt, so that the case is taken from its hand module
     kimpkeys|kimpkeys-hand) GEN_ARGS=(--kore "$(kore_dir kimp-keys)/definition.kore" --runtime "$(kore_dir kimp-keys)/runtime.json"
-            --out "$o" --name KImpKeys --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KImpKeys --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant envKeysOk@env) ;;
     # the same definition with the invariant as a fold with a parameter (`allIs(L, B)`), and as a
     # function of the whole configuration (the top-cell form, `topEnvOk`)
     kimpfold) GEN_ARGS=(--kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json"
-            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KImpInv --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant envAll@env) ;;
     kimptop) GEN_ARGS=(--kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json"
-            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KImpInv --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant topEnvOk) ;;
     # the top-cell form whose right-hand side conjoins two partial calls (demos/k/kimp-inv/imp-both.k)
     kimpboth) GEN_ARGS=(--kore "$(kore_dir kimp-both)/definition.kore" --runtime "$(kore_dir kimp-both)/runtime.json"
-            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KImpInv --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant topBoth) ;;
     # a cell inside two nested cell maps (tests/fixtures/nested, whose compiled KORE is committed)
     nested) GEN_ARGS=(--kore "$FIXTURES/nested/definition.kore" --runtime "$FIXTURES/nested/runtime.json"
-            --out "$o" --name KNested --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KNested --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant even@v) ;;
     # a fold over `<k>` whose test of one item is a partial function (tests/fixtures/kfold)
     kfold) GEN_ARGS=(--kore "$FIXTURES/kfold/definition.kore" --runtime "$FIXTURES/kfold/runtime.json"
-            --out "$o" --name KKFold --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KKFold --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant ok) ;;
     # `orBool` list folds, read under `notBool` and as they are (tests/fixtures/anyfold)
     anyfold) GEN_ARGS=(--kore "$FIXTURES/anyfold/definition.kore" --runtime "$FIXTURES/anyfold/runtime.json"
-            --out "$o" --name KAnyFold --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KAnyFold --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant ok) ;;
     # a map extended by a map built by recursion on an `Int` range (tests/fixtures/range)
     range) GEN_ARGS=(--kore "$FIXTURES/range/definition.kore" --runtime "$FIXTURES/range/runtime.json"
-            --out "$o" --name KRange --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KRange --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant storeNat@store) ;;
     # walks over a cell map and over maps by free-key patterns (tests/fixtures/walk)
     walk) GEN_ARGS=(--kore "$FIXTURES/walk/definition.kore" --runtime "$FIXTURES/walk/runtime.json"
-            --out "$o" --name KWalk --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --out "$o" --name KWalk --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant envsOk) ;;
     # SIMPLE with the K function `holdsOk` (demos/k/simple-inv): a cell predicate of `<holds>`, which
     # is inside the `<thread>` cell map, so it is lifted to "every thread"
     simpleinv) GEN_ARGS=(--kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json"
-            --out "$o" --name KSimpleInv --prelude ../../lean/prelude
+            --out "$o" --name KSimpleInv --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --invariant holdsOk@holds) ;;
     # the same definition with "every store value is a Val or undefined", as a function of the `<store>` cell's
     # content and as a function of SIMPLE's top cell `<T>`
     simplestore|simplet) GEN_ARGS=(--kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json"
-            --out "$o" --name KSimpleInv --prelude ../../lean/prelude
+            --out "$o" --name KSimpleInv --prelude ../../lean
             --open-obligations "$o/open-obligations.txt"
             --invariant "$([ "$1" = simplet ] && echo tStoreOk@T || echo storeOk@store)") ;;
     # SIMPLE with `envsOk` (demos/k/simple-inv/simple-envs.k): every environment, of every thread and
     # of every stack frame, maps into the store, through walks, folds over `K` and lists, and their
     # monotonicity in the store
     simpleenvs) GEN_ARGS=(--kore "$(kore_dir simple-envs)/definition.kore" --runtime "$(kore_dir simple-envs)/runtime.json"
-            --out "$o" --name KSimpleInv --prelude ../../lean/prelude
+            --out "$o" --name KSimpleInv --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --invariant envsOk@T) ;;
     *) return 1 ;;
   esac
@@ -93,7 +93,7 @@ gen_invariants() {
 # declared cell type must fail at `KRS-IMP.assign` (the gate's negative check).
 libs_gen_ill_typed() {
   python3 -I "$LIBS_DIR/krs-imp-ill-typed.py" "$KRS/definition.kore" "$1/definition.kore" &&
-  "$G" gen --kore "$1/definition.kore" --out "$1" --name KrsImp --prelude ../../lean/prelude \
+  "$G" gen --kore "$1/definition.kore" --out "$1" --name KrsImp --prelude ../../lean \
     --open-obligations "$1/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json"
 }
 

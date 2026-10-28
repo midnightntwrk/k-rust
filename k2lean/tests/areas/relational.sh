@@ -32,12 +32,12 @@ name_relational() {
 gen_relational() {
   case $1 in
     kmut) GEN_ARGS=(--kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json"
-            --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+            --out "$o" --name KMut --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     kunroll) GEN_ARGS=(--kore "$(kore_dir kimp-unroll)/definition.kore" --runtime "$(kore_dir kimp-unroll)/runtime.json"
-            --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+            --out "$o" --name KUnroll --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     # the variant of SIMPLE (tests/simple-variant.py), related to SIMPLE by demos/SimpleRel
     simplev) GEN_ARGS=(--kore "$(kore_dir simple-variant)/definition.kore" --runtime "$(kore_dir simple-variant)/runtime.json"
-            --out "$o" --name KSimpleV --prelude ../../lean/prelude
+            --out "$o" --name KSimpleV --prelude ../../lean
             --open-obligations "$o/open-obligations.txt") ;;
     # the generator's fixtures peano, cellmap and pick, each generated twice under two namespaces:
     # the two sides of the self-relations demos/PeanoRel, demos/CellMapRel and demos/PickRel

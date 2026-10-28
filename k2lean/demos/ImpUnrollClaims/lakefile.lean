@@ -8,7 +8,7 @@ KUnroll.Determinism`, which writes `ImpUnrollClaims/Transfers.lean`). -/
 package «ImpUnrollClaims» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
-require KClaims from "../../lean/claims"
+require k2lean from "../../lean"
 require «ImpUnroll» from "../ImpUnroll"
 require «KImpClaims» from "../../generated/kimp-claims"
 
