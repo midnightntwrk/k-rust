@@ -1,6 +1,6 @@
 # k2lean
 
-k2lean generates a Lean 4 library from a K definition compiled by krust: one Lean type per sort, the definition's functions as Lean definitions, its rewrite rules as an inductive `Step` relation with an executable `step`, its K equations as proved theorems, and proofs that tie them together.
+k2lean generates a Lean 4 library from a K definition compiled by krust: its sorts as one term family indexed by sort, the definition's functions as Lean definitions, its rewrite rules as an inductive `Step` relation with an executable `step`, its K equations as proved theorems, and proofs that tie them together.
 On top of a generated library it proves preserved invariants (a property kept by every rule, for every program), written either as a K function or as a Lean predicate.
 It is part of k-rust's repository: the generator is a member of k-rust's workspace and reads KORE through `k-rust-kore`, at whatever commit the checkout is.
 
@@ -15,7 +15,7 @@ It is part of k-rust's repository: the generator is a member of k-rust's workspa
 | `generated` | where the libraries are generated; git tracks only each library's open lists and hand-written invariant module |
 | `tests` | the gate (`gate.sh`, `gate-check.py`, `libs.sh`, and each area's registrations in `areas/`), its baseline and recorded outputs (one file and directory per area), kimp's golden cases, and the generator's fixtures |
 | `pipelines` | human-run scripts that generate and build KEVM (`kevm.sh`, with KEVM's termination file) and KMIR (`kmir.sh`) in the arity-indexed term universe; not gate tiers |
-| `docs` | `design.md` (what is generated and why it is sound, the encodings, measured costs, and what is open) and `invariants.md` (the user guide to preserved invariants) |
+| `docs` | `contract.md` (what a generated library promises: the specification, the checked proofs and the derived definitions, and what may be optimized after generation), `design.md` (what is generated and why it is sound, the encodings, measured costs, and what is open) and `invariants.md` (the user guide to preserved invariants) |
 
 ## Quick start
 

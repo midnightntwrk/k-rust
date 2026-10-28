@@ -3,6 +3,7 @@
 k2lean turns a K definition, as krust compiles it to KORE, into a Lean 4 library that models the definition and proves facts about the model.
 This note says what the generator writes, why the encoding is sound, how the generated proofs are checked, and where the limits are.
 How to state and prove invariants of a generated semantics is in [`invariants.md`](invariants.md).
+What a generated library promises, which of its parts are specification and which may be optimized after generation, is in [`contract.md`](contract.md); a design decision is judged by it.
 
 ## 1. Input and output
 
