@@ -89,6 +89,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
                 cell,
                 declarations,
                 &InitializerTables {
+                    declarations,
                     sort_parents,
                     catalog,
                     binding_sorts: &binding_sorts,
@@ -485,6 +486,7 @@ fn lower_cell_declaration(
 
 /// What the terms of a configuration's initializer are lowered against.
 struct InitializerTables<'a> {
+    declarations: &'a DescriptorIndex<'a>,
     sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     /// The configuration variables' sorts.
@@ -857,6 +859,7 @@ fn lower_initializer_term(
     tables: &InitializerTables<'_>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
     let InitializerTables {
+        declarations,
         sort_parents,
         catalog,
         binding_sorts,
@@ -866,7 +869,7 @@ fn lower_initializer_term(
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
-        declarations: None,
+        declarations,
         k_item_sort: None,
         sort_parents,
         binding_names: &binding_names,

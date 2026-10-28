@@ -25,7 +25,7 @@ const PATTERN_OR_OUTSIDE_LHS: &str = "`|` is a pattern alternative (K's #Or) and
 pub(super) struct StructuredTermBuilder<'a> {
     pub(super) descriptor: &'a Descriptor,
     pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
-    pub(super) declarations: Option<&'a DescriptorIndex<'a>>,
+    pub(super) declarations: &'a DescriptorIndex<'a>,
     pub(super) k_item_sort: Option<SemanticSortRef>,
     pub(super) sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     pub(super) binding_names: &'a BTreeSet<String>,
@@ -2309,11 +2309,7 @@ impl StructuredTermBuilder<'_> {
         &self,
         owner: &StableItemId,
     ) -> Result<&krs_ir::DescriptorCellDeclaration, DescriptorLoweringError> {
-        let declarations = self.declarations.ok_or_else(|| {
-            self.invalid_term("fragment! is supported only where cell declarations are available")
-        })?;
-        let declaration = declarations.cell(owner)?;
-        Ok(declaration)
+        Ok(self.declarations.cell(owner)?)
     }
 
     fn infer_cell_fields(
@@ -2747,10 +2743,8 @@ impl StructuredTermBuilder<'_> {
         &self,
         owner: &StableItemId,
     ) -> Result<&krs_ir::DescriptorCellIdentity, DescriptorLoweringError> {
-        let declarations = self
+        let mut matches = self
             .declarations
-            .ok_or_else(|| self.invalid_term("fragment! has no cell-declaration catalog"))?;
-        let mut matches = declarations
             .values()
             .flat_map(|descriptor| {
                 let declaration = match descriptor.payload() {

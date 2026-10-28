@@ -477,7 +477,7 @@ fn check_constant(
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
-        declarations: Some(declarations),
+        declarations,
         k_item_sort: Some(super::rules::framework_k_item_sort(declarations)?),
         sort_parents,
         binding_names: &binding_names,

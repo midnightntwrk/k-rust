@@ -70,7 +70,7 @@ impl StateRuleTerms<'_> {
         let mut builder = StructuredTermBuilder {
             descriptor: self.descriptor,
             catalog: self.catalog,
-            declarations: Some(self.declarations),
+            declarations: self.declarations,
             k_item_sort: Some(framework_k_item_sort(self.declarations)?),
             sort_parents: self.sort_parents,
             binding_names: &binding_names,
@@ -124,7 +124,7 @@ impl StateRuleTerms<'_> {
         let mut builder = StructuredTermBuilder {
             descriptor: self.descriptor,
             catalog: self.catalog,
-            declarations: Some(self.declarations),
+            declarations: self.declarations,
             k_item_sort: Some(framework_k_item_sort(self.declarations)?),
             sort_parents: self.sort_parents,
             binding_names: &binding_names,

@@ -519,7 +519,7 @@ pub(super) fn lower_head_rule_descriptor(
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
-        declarations: Some(declarations),
+        declarations,
         k_item_sort: Some(framework_k_item_sort(declarations)?),
         sort_parents,
         binding_names: &binding_names,
@@ -1179,9 +1179,7 @@ fn infer_head_rule(
                     after,
                     ..
                 } => {
-                    let declarations = builder
-                        .declarations
-                        .expect("head rules lower with declarations");
+                    let declarations = builder.declarations;
                     let field = require_cell_field(&cell.cell, declarations)?;
                     infer_readable_state(builder, declarations, field, before, true)?;
                     if let Some(after) = after {
@@ -1976,7 +1974,7 @@ pub(super) fn lower_structured_rule_descriptor(
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
-        declarations: None,
+        declarations,
         k_item_sort: None,
         sort_parents,
         binding_names: &binding_names,
