@@ -142,7 +142,7 @@ A language feature (variables, scopes, functions, exceptions, objects, threads) 
    - the generated semantics as a dependency of other Lean projects;
    - incremental regeneration that keeps hand and loop proofs;
    - notation from the K grammar, so that statements read like the K source.
-3. Is specification written in Lean accepted where K cannot express the property, or must every language fact move into K functions (§6)? Cases today: a kind 2 invariant's `P`; noninterference's `lowEq` and `secure`; refine's `X`; confluence's hypothesis `H`.
+3. Is specification written in Lean accepted where K cannot express the property, or must every language fact move into K functions (§6)? Cases today: a kind 2 invariant's `P`; noninterference's `Good`, `lowEq`, `HiOnly` and `secure` (C proposes moving them into K functions beside the security checker, NI-4, sharing SND-7's mechanism); refine's `X`; confluence's program hypothesis `H` (C plans it as a K function).
 4. Restate G1's "no open obligation" as "every obligation proved or refuted" (§4)?
 5. Should the specification's build cost on KEVM and KMIR have an acceptance bar, now that proof cost is the loop's?
 6. Should options that weaken a statement for testing (`--det2-overlap`, `--det2-long-*`) leave the user interface (§3.2, 7)?

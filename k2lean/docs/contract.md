@@ -60,6 +60,7 @@ The second kind is the one frozen part that no regeneration reproduces, so the l
    A proof must not change the statement it proves: no dropped or added premise, no specialization, no weaker conclusion.
    An agent that cannot prove a statement reports it as open; it never restates it.
    Changing a statement is a generator decision recorded in `design.md`.
+   The one change that needs no such decision is a stronger statement: a premise replaced by one it implies, or a conclusion by one that implies it.
    Collection carriers and the `WF` premise are a worked case (`design.md` §8):
    - a premise is part of what the statement says;
    - a function proved equal to a generated one only at well-formed values can replace it in statements about K values;
@@ -90,6 +91,8 @@ The second kind is the one frozen part that no regeneration reproduces, so the l
 | the hook models in `KPrelude` | specification | checked against K by the differential tests; the laws K states of them are theorems (`HookLaws`) |
 | `class Hooks` (hooks with no model, functions with no equations) | specification, unconstrained | an instance is the user's assumption, outside what k2lean checks |
 | open obligations | a statement with no proof yet | closing one is checked-layer work; restating it is not closing it |
+| hypotheses that bundle what is not proved yet (confluence's `OpenJoins` and `SameThreadJoins`, refine's hand cases) | specification: premises of the theorem | a generator change that implies the old premises from new ones strengthens the theorem and is allowed; a loop cannot fill one case of a bundle, so each case should become a statement of its own, from which the bundle is derived (C's CNF-4) |
+| witnesses a theorem's statement names but its corollaries do not use (refine's `X`, `μ`, `ν` in `bisim`) | specification, while they appear in the statement | stating the theorem with them existentially quantified moves them into the checked layer |
 | tactics, heartbeat budgets, module parts | checked | tune freely; the gate's counts say whether a change loses a proof |
 | termination | the function is specification; its measure and proof are checked | a hand proof only where K itself diverges, and then a divergence theorem, which is a statement |
 | determinism and its overlap list | the list is part of the statement; the witnesses and disjointness proofs are checked | a witnessed overlap is a fact about K, not a gap |
