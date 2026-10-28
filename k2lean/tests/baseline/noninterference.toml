@@ -13,10 +13,10 @@ preserve = []
 [sources]
 
 [sources.sha256]
-"demos/ImpNI/ImpNI/Levels.lean" = { tier = "light", sha256 = "a8ad24787cf49c4f355a7f5f76084da465cc382a7fd97bf11d3ffe94bb097b9f" }
+"demos/ImpNI/ImpNI/Levels.lean" = { tier = "light", sha256 = "d91a5186229ea55280cf21437d9874e1322e460ec139bccc75bdd3422dbb12b6" }
 "demos/ImpNI/ImpNI/NI.lean" = { tier = "light", sha256 = "52e8e55408360978e075b8cc220d7613fa2b37791e4f85738d73b784575c4ea2" }
-"demos/ImpNI/ImpNI/Proof.lean" = { tier = "light", sha256 = "82cc23ef5a95f6229e1213f1e26e65358703ed7490501e9cca2a38fe74c8da10" }
-"demos/ImpNI/ImpNI/Stack.lean" = { tier = "light", sha256 = "561135b97ee145b01254532bc0e597f63ec01c60c0f84c1aefa6fc037b7d2ca6" }
+"demos/ImpNI/ImpNI/Proof.lean" = { tier = "light", sha256 = "a8ce5055175142c19e7e3375501676243847818b2660c4517fce4bc97c150708" }
+"demos/ImpNI/ImpNI/Stack.lean" = { tier = "light", sha256 = "a94995d4b687f49e95fb01544917434361d2bd0cb7a5a866dcd492667906f1d2" }
 "demos/ImpNI/ImpNI/Tr.lean" = { tier = "light", sha256 = "1917c5e93afb753dc9573e6caa52b1d3d0a25774dc368be135b848330584f830" }
 "demos/ImpNI/correspondence.toml" = { tier = "light", sha256 = "af335c3322979a0642c657e1775e1c32428dc36a0b0c57b94309cf3064f5af48" }
 "demos/ImpNI/noninterference.toml" = { tier = "light", sha256 = "1849015b9fd6bafb16d314a69d59ba1d05c050f0b33d768ec3a578909aac3abc" }
