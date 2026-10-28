@@ -6,12 +6,14 @@
 //! are exactly the known findings ([`KNOWN`]), each on the red list (`pending.toml`) under its
 //! finding, so the spec and the product cannot drift apart silently.
 //!
-//! The coverage tests: every form of the product's table has a generated position, and every slot
-//! of every form its root and an argument, apart from the listed exceptions with their reasons.
+//! The coverage tests: every form of the product's table has a generated position, every slot of
+//! every form its root and an argument, and every construct of the table and every notation form
+//! of `krs_syntax::notation` a spelling, apart from the listed exceptions with their reasons.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use krs_ir::BuiltinOperator;
 use krs_syntax::positions::{
     self as product_table, Admission, Class, Construct, Form, Nesting, Position, RootConstruct,
     Rule, Slot, admits,
@@ -20,7 +22,7 @@ use krs_test_support::class_matrix::invariants::registry_kind;
 use krs_test_support::class_matrix::oracle::{self, Stage};
 use krs_test_support::class_matrix::pending::Pending;
 use krs_test_support::class_matrix::positions::{
-    self as model, Entry, Kind, LocalPattern, Opening, PatternRoot, RewriteSide,
+    self as model, Entry, Kind, LocalPattern, Notation, Opening, PatternRoot, RewriteSide,
 };
 use krs_test_support::class_matrix::table::{Glob, Table};
 use krs_test_support::class_matrix::{self, Case, Family};
@@ -564,4 +566,68 @@ fn every_slot_has_a_root_and_an_argument_case() {
         stale.is_empty(),
         "excepted positions that have a case: {stale:?}"
     );
+}
+
+/// The notation form a builtin operator's spelling is, by its symbol; `|` is the alternatives'
+/// spelling where no pattern is read, [`model::Construct::Or`].
+fn notation_of(operator: BuiltinOperator) -> Option<model::Construct> {
+    Some(match operator.symbol() {
+        "+" | "-" if operator.arity() == 2 => model::Construct::Notation(Notation::Arithmetic),
+        "*" | "/" | "%" => model::Construct::Notation(Notation::Arithmetic),
+        "&" | "^" => model::Construct::Notation(Notation::Bitwise),
+        "|" => model::Construct::Or,
+        "<<" | ">>" => model::Construct::Notation(Notation::Shift),
+        "<" | "<=" | ">" | ">=" => model::Construct::Notation(Notation::Comparison),
+        "==" | "!=" => model::Construct::Notation(Notation::Equality),
+        "!" => model::Construct::Notation(Notation::Not),
+        "-" => model::Construct::Notation(Notation::Negation),
+        _ => return None,
+    })
+}
+
+/// Every construct of the product's table and of the model, every notation form and every
+/// builtin operator has a spelling, and so do the collection forms.
+#[test]
+fn every_construct_and_notation_has_a_spelling() {
+    let cases = class_matrix::cases();
+    let spelled = term_cases(&cases)
+        .filter_map(|case| case.term.as_ref())
+        .flat_map(|term| term.nodes.iter().map(|node| node.construct))
+        .collect::<BTreeSet<_>>();
+    let mut missing = model::Construct::ALL
+        .iter()
+        .filter(|construct| !spelled.contains(construct))
+        .map(|construct| format!("{construct:?}"))
+        .collect::<Vec<_>>();
+    let products = spelled
+        .iter()
+        .filter_map(|construct| product_construct(*construct))
+        .collect::<BTreeSet<_>>();
+    missing.extend(
+        Construct::ALL
+            .iter()
+            .filter(|construct| !products.contains(construct))
+            .map(|construct| format!("the table's {construct:?}")),
+    );
+    for operator in BuiltinOperator::ALL {
+        match notation_of(operator) {
+            Some(construct) if spelled.contains(&construct) => {}
+            _ => missing.push(format!("the operator `{}`", operator.symbol())),
+        }
+    }
+    let constructs = cases
+        .iter()
+        .map(|case| case.construct.as_str())
+        .collect::<BTreeSet<_>>();
+    for collection in ["k::map![", "map![", "[x, ..]", "k::builtin::set::item("] {
+        if !constructs.iter().any(|text| text.starts_with(collection)) {
+            missing.push(format!("the collection form `{collection}`"));
+        }
+    }
+    let notations = Notation::ALL
+        .iter()
+        .filter(|notation| !spelled.contains(&model::Construct::Notation(**notation)))
+        .map(|notation| format!("the notation {notation:?}"));
+    missing.extend(notations);
+    assert!(missing.is_empty(), "without a spelling: {missing:#?}");
 }

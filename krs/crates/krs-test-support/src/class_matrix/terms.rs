@@ -38,7 +38,7 @@ use super::positions::Opening::{
     UpdateBase, UpdateField,
 };
 use super::positions::Slot as Part;
-use super::positions::{Form, Node, Opening, Position, TermCase, node};
+use super::positions::{Form, Node, Notation, Opening, Position, TermCase, node};
 use super::{
     Base, BaseText, Case, CaseSpec, Command, Family, ItemBuilder, OwnReason, Packaging, Side,
 };
@@ -100,6 +100,12 @@ pub struct Probe {
 #[k::function(partial, sort = Int, syntax = "size({a})")]
 pub struct Size {
     pub a: Term<KItem>,
+}
+
+/// A parametric constructor, whose turbofish names its instance.
+#[k::constructor(sort = S, syntax = "wrap({inner})")]
+pub struct Wrap<S: ?Sized> {
+    pub inner: Term<S>,
 }
 
 /// A nested group, for `k::fragment!`.
@@ -176,6 +182,18 @@ fn spelling(text: &'static str, nodes: &[Node]) -> Spelling {
     }
 }
 
+/// A binary notation form over the binder and a literal, `x + 1`.
+fn binary(text: &'static str, notation: Notation) -> Spelling {
+    spelling(
+        text,
+        &[
+            node(C::Notation(notation), &[]),
+            node(C::Reference, &[FunctionArgument]),
+            node(C::Literal, &[FunctionArgument]),
+        ],
+    )
+}
+
 /// The constructs: one or more spellings of each `TermTree` shape, every literal kind, every
 /// construct of `Construct`, every notation form, and the collection forms, each with its nodes.
 /// Every spelling that reads a binder reads `x`, which each template binds.
@@ -184,7 +202,7 @@ fn spelling(text: &'static str, nodes: &[Node]) -> Spelling {
     reason = "One list of the closed catalog; each entry is one spelling and its nodes."
 )]
 fn spellings() -> Vec<Spelling> {
-    vec![
+    let mut spellings = vec![
         // Reference: a binder, and a zero-argument variant named by its path alone.
         spelling("x", &[node(C::Reference, &[])]),
         spelling("Cmd::Go", &[node(C::Constructor, &[])]),
@@ -326,7 +344,7 @@ fn spellings() -> Vec<Spelling> {
                 node(C::Reference, &[LetBody]),
             ],
         ),
-        // A record update, whose base `x` is no alias of a matched record.
+        // A record update, whose base `x` is no alias of a matched record, and an open record.
         spelling(
             "Cmd::Pair { a: x, ..x }",
             &[
@@ -335,7 +353,96 @@ fn spellings() -> Vec<Spelling> {
                 node(C::Reference, &[UpdateBase]),
             ],
         ),
-    ]
+        spelling(
+            "Cmd::Pair { a: x, .. }",
+            &[node(C::OpenRecord, &[]), node(C::Reference, &[Argument])],
+        ),
+        // A turbofish instance of the parametric `Wrap`: the marker in reference code, the sort
+        // in a readable clause.
+        Spelling {
+            text: "Wrap::<dyn k::KItemSort>(x)",
+            readable: Some("Wrap::<KItem>(x)"),
+            nodes: vec![node(C::Turbofish, &[]), node(C::Reference, &[Argument])],
+        },
+        // The notation forms (`krs_syntax::notation`), each with the call it denotes: a binary
+        // operator of each class, the connectives, the unary operators over a term the
+        // position does not sort (`!x` and `-x` over a `KItem` choose no domain), and a method.
+        binary("x + 1", Notation::Arithmetic),
+        binary("x & 1", Notation::Bitwise),
+        binary("x << 1", Notation::Shift),
+        binary("x < 1", Notation::Comparison),
+        binary("x == 1", Notation::Equality),
+        spelling(
+            "x && true",
+            &[
+                node(C::Notation(Notation::AndThen), &[]),
+                node(C::Reference, &[FunctionArgument]),
+                node(C::Literal, &[FunctionArgument]),
+            ],
+        ),
+        spelling(
+            "x || true",
+            &[
+                node(C::Notation(Notation::OrElse), &[]),
+                node(C::Reference, &[FunctionArgument]),
+                node(C::Literal, &[FunctionArgument]),
+            ],
+        ),
+        spelling(
+            "!(x < 1)",
+            &[
+                node(C::Notation(Notation::Not), &[]),
+                node(C::Notation(Notation::Comparison), &[FunctionArgument]),
+                node(C::Reference, &[FunctionArgument, FunctionArgument]),
+                node(C::Literal, &[FunctionArgument, FunctionArgument]),
+            ],
+        ),
+        spelling(
+            "-(x + 1)",
+            &[
+                node(C::Notation(Notation::Negation), &[]),
+                node(C::Notation(Notation::Arithmetic), &[FunctionArgument]),
+                node(C::Reference, &[FunctionArgument, FunctionArgument]),
+                node(C::Literal, &[FunctionArgument, FunctionArgument]),
+            ],
+        ),
+        binary("x.add::<Int>(1)", Notation::Method),
+        // The call `x + 1` and `x.add::<Int>(1)` denote.
+        spelling(
+            "k::builtin::int::add(x, 1)",
+            &[
+                node(C::BuiltinApplication, &[]),
+                node(C::Reference, &[FunctionArgument]),
+                node(C::Literal, &[FunctionArgument]),
+            ],
+        ),
+        // A set's element, K's `SetItem(x)`: the constructor of a set's elements, a value, which
+        // a pattern matches as any constructor's application.
+        spelling(
+            "k::builtin::set::item(x)",
+            &[node(C::Constructor, &[]), node(C::Reference, &[Argument])],
+        ),
+    ];
+    // A map literal, in the facade's path and bare, and list brackets with a rest.
+    for text in ["k::map![x -> 1]", "map![x -> 1]"] {
+        spellings.push(spelling(
+            text,
+            &[
+                node(C::MapLiteral, &[]),
+                node(C::Reference, &[MapKey]),
+                node(C::Literal, &[MapValue]),
+            ],
+        ));
+    }
+    spellings.push(spelling(
+        "[x, ..]",
+        &[
+            node(C::ListBrackets, &[]),
+            node(C::Reference, &[ListElement]),
+            node(C::Rest, &[ListElement]),
+        ],
+    ));
+    spellings
 }
 
 /// The constructs of the import axis: bare variants, which only a module-level import names.

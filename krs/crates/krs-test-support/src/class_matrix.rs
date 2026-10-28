@@ -77,9 +77,13 @@ mod terms;
 use std::fmt::Write as _;
 use std::ops::Range;
 
-/// The most cases [`cases`] may generate: at about 5.6 ms per case in-process, 4,000 cases fit
-/// the fast tier's budget single-threaded.
-pub const FRONT_CASE_CAP: usize = 4_000;
+/// The most cases [`cases`] may generate. The fast tier runs every case in-process: measured with
+/// NT-2's term positions, 5,279 cases take 39.8 s on one CPU (7.5 ms a case, the term family's
+/// roots and depth-2 cases being larger items than S0's) and 2.6 s on 32 threads. 6,000 cases are
+/// 45 s single-threaded, the budget of a test a developer runs after each change, and leave room
+/// for the cases NT-5 and NT-6's notations add; past it the term family is split into shards
+/// rather than the cap raised.
+pub const FRONT_CASE_CAP: usize = 6_000;
 
 /// The family a case belongs to: its form, which fixes its base and its templates.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
