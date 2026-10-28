@@ -7,99 +7,99 @@
 
 [lib.kimpinv]
 tier = "light"
-stated = 86
+stated = 100
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.kimpkeys]
 tier = "light"
-stated = 81
+stated = 95
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.kimpkeys-hand]
 tier = "light"
-stated = 81
+stated = 95
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.kimpfold]
 tier = "light"
-stated = 81
+stated = 95
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.kimptop]
 tier = "light"
-stated = 81
+stated = 95
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.kimpboth]
 tier = "light"
-stated = 85
+stated = 99
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.nested]
 tier = "light"
-stated = 31
+stated = 42
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.range]
 tier = "light"
-stated = 81
+stated = 95
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.kfold]
 tier = "light"
-stated = 84
+stated = 98
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.anyfold]
 tier = "light"
-stated = 83
+stated = 97
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.walk]
 tier = "light"
-stated = 78
+stated = 93
 open = []
 overlaps = 0
 unwitnessed = 0
 
 [lib.simpleinv]
 tier = "heavy"
-stated = 114
+stated = 129
 open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [lib.simplestore]
 tier = "heavy"
-stated = 114
+stated = 129
 open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [lib.simplet]
 tier = "heavy"
-stated = 114
+stated = 129
 open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [lib.simpleenvs]
 tier = "heavy"
-stated = 124
+stated = 139
 open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [demo.KrsImpTyping]
@@ -248,7 +248,7 @@ tier = "light"
 "generated/anyfold/KAnyFold/Determinism.lean" = { tier = "light", sha256 = "084358b1281ef9129689f8337be5e4842cd92f0bb106cd8a1da30de2893cd53b" }
 "generated/anyfold/KAnyFold/Determinism/L1.lean" = { tier = "light", sha256 = "119177d4b9a6d6b208473df2310b6dae8a82fa567879c1ef801af4eaef7eef49" }
 "generated/anyfold/KAnyFold/Determinism/Pre.lean" = { tier = "light", sha256 = "3b0177e99351bafebd65e7a77bebbf3c58f2758a95e3c265e4155706b7dca5ea" }
-"generated/anyfold/KAnyFold/Equations.lean" = { tier = "light", sha256 = "c027165811ca0a87899334c198ad383fdddb2cadc3159e1b03542883b4e6c18c" }
+"generated/anyfold/KAnyFold/Equations.lean" = { tier = "light", sha256 = "b3bdd13b42658869deb5c5cbe923cb014e3dcc0d38353fa018a1da45e09f7de1" }
 "generated/anyfold/KAnyFold/Functions.lean" = { tier = "light", sha256 = "0c53ea0c48ef32078b6bbceece250d83135a9585714146de2bf5b67f67ed1a2c" }
 "generated/anyfold/KAnyFold/Init.lean" = { tier = "light", sha256 = "979ca9a2e53c580c25bb401e963040ffc0916a331de42317a620575e07eafed6" }
 "generated/anyfold/KAnyFold/InvariantDefs.lean" = { tier = "light", sha256 = "4e591f7d8f902dfbdd8097d861c972ed37deb5bdce1c57f6dc858fd0b5a8ad4e" }
@@ -257,7 +257,7 @@ tier = "light"
 "generated/anyfold/KAnyFold/Rules.lean" = { tier = "light", sha256 = "0d6e8d4a5c95667ff66119549d2547e4030e01c6f19e6a328ee8d15b15fa51e2" }
 "generated/anyfold/KAnyFold/Terms.lean" = { tier = "light", sha256 = "0b8c7b46cc5251d7327c1c4ef0b3b9248f264a3c02e7c4e7d916e9aa45575e40" }
 "generated/anyfold/KAnyFoldBench/Main.lean" = { tier = "light", sha256 = "0e58376a7f3f2fae6bb6f1ea4f062aa32e885201f41150a53112691673b9dae5" }
-"generated/anyfold/KAnyFoldTest/Axioms.lean" = { tier = "light", sha256 = "c0f64ae9759c5636786016a5c2723cc74d7a387295ff1dda7917b523629b0734" }
+"generated/anyfold/KAnyFoldTest/Axioms.lean" = { tier = "light", sha256 = "6904bdd1e113e66244defe99d06a945c2c4162314e361d24b57e713258df785e" }
 "generated/anyfold/KAnyFoldTest/DetAxioms.lean" = { tier = "light", sha256 = "0949b7c2dfd8f376c9dd9bdbe557f2a5f4f51c2601bafc08ae2712f625c37103" }
 "generated/anyfold/KAnyFoldTest/Main.lean" = { tier = "light", sha256 = "662a1d1d8e51b2614e418a90fb0abe9f0e6a74a268a643c7ea21f2788f094f9c" }
 "generated/anyfold/invariant-unfold.txt" = { tier = "light", sha256 = "ab4cdb79f6655ff60c60a666f3ce7b6bf91f9474364cb078677ebd9466f5ac03" }
@@ -268,7 +268,7 @@ tier = "light"
 "generated/kfold/KKFold/Determinism.lean" = { tier = "light", sha256 = "50b8b74277404ffa8ae7b2dcdcaa8b943eea89755c18cfc2be77efa3232b43a2" }
 "generated/kfold/KKFold/Determinism/L1.lean" = { tier = "light", sha256 = "8450febbba77fc6b523107459c30153e84a4be7db2bd0bb572b4bd28ec89afbd" }
 "generated/kfold/KKFold/Determinism/Pre.lean" = { tier = "light", sha256 = "3627011dceb59618b1df5334545737a16e6eec96fdd8f9e72cec5d8b170c24e6" }
-"generated/kfold/KKFold/Equations.lean" = { tier = "light", sha256 = "d95cd0b28ee927e2b6e13df29eb2d59815dbb79ed75230aff7a59639a64eef91" }
+"generated/kfold/KKFold/Equations.lean" = { tier = "light", sha256 = "c19daed3eb0d79e09e97c7b5ee20439551ff92119baf24b8d5c1391422915d0f" }
 "generated/kfold/KKFold/Functions.lean" = { tier = "light", sha256 = "4136235d611c41f62cd25a7dec231726e2a2032a50ef6504d4ed584d0c4560c2" }
 "generated/kfold/KKFold/Init.lean" = { tier = "light", sha256 = "53994cf4493ec765521527d8ec6d0fdb686cfbee5a4a60f7bc5830253961dab2" }
 "generated/kfold/KKFold/InvariantDefs.lean" = { tier = "light", sha256 = "6db1cf7b40b17244385827fa83bfb8c3f52219a7e9217d4889f3e07815a1ed9e" }
@@ -277,7 +277,7 @@ tier = "light"
 "generated/kfold/KKFold/Rules.lean" = { tier = "light", sha256 = "62582a84dd5f398f4affdb36f1f1daf31dcf7f464141b93001c194ac28a854d1" }
 "generated/kfold/KKFold/Terms.lean" = { tier = "light", sha256 = "45d7522bb810b193bf73c3ec20dfa6674e2d4ba65b0495d0d4fec46290548f7d" }
 "generated/kfold/KKFoldBench/Main.lean" = { tier = "light", sha256 = "8abbf5974533a707d42e4183a144b704bba7c87687f7731d7b01dcf8bb26e4ab" }
-"generated/kfold/KKFoldTest/Axioms.lean" = { tier = "light", sha256 = "b48c206bf5b96609cc6fec58cf579907c323dfacf8f3a6ba421ffa7d337377ba" }
+"generated/kfold/KKFoldTest/Axioms.lean" = { tier = "light", sha256 = "296a5718fee654df7da7f1be9a1a8e2c999672ecb04c3791c00eafcc34189074" }
 "generated/kfold/KKFoldTest/DetAxioms.lean" = { tier = "light", sha256 = "8526872629590efa5ea57736e20d334f020a9e3b1e0230e60a52224e818e0d84" }
 "generated/kfold/KKFoldTest/Main.lean" = { tier = "light", sha256 = "a5d7560f1f68892f94e9f00d523b97f5cc5fbb84aad3db0bc6b5277c481f43cf" }
 "generated/kfold/invariant-unfold.txt" = { tier = "light", sha256 = "a64e0a2d4d67251967abdf6f081e163faf6f733801319d4e1ecf49fe49e856ae" }
@@ -292,7 +292,7 @@ tier = "light"
 "generated/kimpboth/KImpInv/Determinism/L4.lean" = { tier = "light", sha256 = "2447c82310d52dd63dc9938ad2373c87437f4a3604de0ef624f4e5e084db9dd5" }
 "generated/kimpboth/KImpInv/Determinism/L5.lean" = { tier = "light", sha256 = "3bebe954527e475e0a5fd21b72507a8aab35fc953f514cb51885ea7fe14b7b97" }
 "generated/kimpboth/KImpInv/Determinism/Pre.lean" = { tier = "light", sha256 = "ffbb01f475066c5f89b2fcdf44b98ff632e77cba4559f62ae75ac26c94d78a5c" }
-"generated/kimpboth/KImpInv/Equations.lean" = { tier = "light", sha256 = "2f599dea7ddb4bc2f57dbe3d47cd1725905d57f4cbdf7633f896879d7ee105b6" }
+"generated/kimpboth/KImpInv/Equations.lean" = { tier = "light", sha256 = "c353d0c0ad97087ae9e743f5826a7ed3cefd5ed7bc54fd60240a1a99c30ca4ed" }
 "generated/kimpboth/KImpInv/Functions.lean" = { tier = "light", sha256 = "af9aab8780b6bd44386f07850a66ef3daca4d51223d22d5118363b0a1b5e920e" }
 "generated/kimpboth/KImpInv/Init.lean" = { tier = "light", sha256 = "d076cdbc65ba32232075f7a6b306fcf44472095d6b187c4c5b9ac452314c8eb9" }
 "generated/kimpboth/KImpInv/InvariantDefs.lean" = { tier = "light", sha256 = "7626e0a87cd9faf17f3bb4f2d78054430b70235b7e717f01216558a9a554ec1f" }
@@ -301,7 +301,7 @@ tier = "light"
 "generated/kimpboth/KImpInv/Rules.lean" = { tier = "light", sha256 = "cb16f95c31a8a793f9f70b62daa5bc82bd874794b193f32be910335668997ebb" }
 "generated/kimpboth/KImpInv/Terms.lean" = { tier = "light", sha256 = "a13b4f9a4b96180f4938b639f423c5145435de47642b391251d8d5ff8fe046d0" }
 "generated/kimpboth/KImpInvBench/Main.lean" = { tier = "light", sha256 = "1c28774df6f1602ce240d4b72d23c93607c114cc904c7750bcd0943fb2d5d360" }
-"generated/kimpboth/KImpInvTest/Axioms.lean" = { tier = "light", sha256 = "4ddc22ca073473ae29629ed5df5157a77220ce64da31442ee0c15c5cb7aaf78c" }
+"generated/kimpboth/KImpInvTest/Axioms.lean" = { tier = "light", sha256 = "127d8a8df3085b81ddec43f660fddb00f2176b1845a5af2870e7846f0c181735" }
 "generated/kimpboth/KImpInvTest/DetAxioms.lean" = { tier = "light", sha256 = "a95f2caa64661af2efad9007f586b8af8b4a8ba67d2a61e28df00c736b8db295" }
 "generated/kimpboth/KImpInvTest/Main.lean" = { tier = "light", sha256 = "df4c5dd789fecab65fb06a98e9255ba4ec2537c277a0ba0a6a106c9096750921" }
 "generated/kimpboth/invariant-unfold.txt" = { tier = "light", sha256 = "23c36e6d414ebd4e0537792e72065eb3f0f93a18e15a4bdcbf4d83f8664af6af" }
@@ -316,7 +316,7 @@ tier = "light"
 "generated/kimpfold/KImpInv/Determinism/L4.lean" = { tier = "light", sha256 = "2447c82310d52dd63dc9938ad2373c87437f4a3604de0ef624f4e5e084db9dd5" }
 "generated/kimpfold/KImpInv/Determinism/L5.lean" = { tier = "light", sha256 = "3bebe954527e475e0a5fd21b72507a8aab35fc953f514cb51885ea7fe14b7b97" }
 "generated/kimpfold/KImpInv/Determinism/Pre.lean" = { tier = "light", sha256 = "ffbb01f475066c5f89b2fcdf44b98ff632e77cba4559f62ae75ac26c94d78a5c" }
-"generated/kimpfold/KImpInv/Equations.lean" = { tier = "light", sha256 = "3f0d35675552a3d3cab78f8f379443761b941c4f4a41f702c140bc4ad7173f3a" }
+"generated/kimpfold/KImpInv/Equations.lean" = { tier = "light", sha256 = "291d09a6d4b929dab7bb03bc56d3a00344d1ca6519b07f9f17c3531272879f86" }
 "generated/kimpfold/KImpInv/Functions.lean" = { tier = "light", sha256 = "d86bf2e50e54985d4bf70dbad0993f13a00208d72af6cba575ffa194869308ee" }
 "generated/kimpfold/KImpInv/Init.lean" = { tier = "light", sha256 = "d076cdbc65ba32232075f7a6b306fcf44472095d6b187c4c5b9ac452314c8eb9" }
 "generated/kimpfold/KImpInv/InvariantDefs.lean" = { tier = "light", sha256 = "851449b4755dc57b1dd25a1aa506febe76a7637c82db83ef51533480623dda68" }
@@ -325,7 +325,7 @@ tier = "light"
 "generated/kimpfold/KImpInv/Rules.lean" = { tier = "light", sha256 = "cb16f95c31a8a793f9f70b62daa5bc82bd874794b193f32be910335668997ebb" }
 "generated/kimpfold/KImpInv/Terms.lean" = { tier = "light", sha256 = "a13b4f9a4b96180f4938b639f423c5145435de47642b391251d8d5ff8fe046d0" }
 "generated/kimpfold/KImpInvBench/Main.lean" = { tier = "light", sha256 = "1c28774df6f1602ce240d4b72d23c93607c114cc904c7750bcd0943fb2d5d360" }
-"generated/kimpfold/KImpInvTest/Axioms.lean" = { tier = "light", sha256 = "30474ba03e4fd3e698e1b492ca9a6492c3eae63082596c23c1720a186948a79e" }
+"generated/kimpfold/KImpInvTest/Axioms.lean" = { tier = "light", sha256 = "c1bd14df25083bdc9ec27174c04887ded0ccf018a6e44d60024c363b82a56cf6" }
 "generated/kimpfold/KImpInvTest/DetAxioms.lean" = { tier = "light", sha256 = "a95f2caa64661af2efad9007f586b8af8b4a8ba67d2a61e28df00c736b8db295" }
 "generated/kimpfold/KImpInvTest/Main.lean" = { tier = "light", sha256 = "df4c5dd789fecab65fb06a98e9255ba4ec2537c277a0ba0a6a106c9096750921" }
 "generated/kimpfold/invariant-unfold.txt" = { tier = "light", sha256 = "2bfb15a7184c9e0df1794dd688193f018ee53935ed78639054d79c04d5ccc555" }
@@ -340,7 +340,7 @@ tier = "light"
 "generated/kimpinv/KImpInv/Determinism/L4.lean" = { tier = "light", sha256 = "2447c82310d52dd63dc9938ad2373c87437f4a3604de0ef624f4e5e084db9dd5" }
 "generated/kimpinv/KImpInv/Determinism/L5.lean" = { tier = "light", sha256 = "3bebe954527e475e0a5fd21b72507a8aab35fc953f514cb51885ea7fe14b7b97" }
 "generated/kimpinv/KImpInv/Determinism/Pre.lean" = { tier = "light", sha256 = "ffbb01f475066c5f89b2fcdf44b98ff632e77cba4559f62ae75ac26c94d78a5c" }
-"generated/kimpinv/KImpInv/Equations.lean" = { tier = "light", sha256 = "acd80a6520a5ef21ea87dd173f75156dff42a3d2e747f1bcc0cdc4a93b4e82d8" }
+"generated/kimpinv/KImpInv/Equations.lean" = { tier = "light", sha256 = "5272970ba3ca03c591c57827553c304d7b825933c87fe4f40bbd13c732f560cf" }
 "generated/kimpinv/KImpInv/Functions.lean" = { tier = "light", sha256 = "f67a10f0aca8c677c26a853453ac271e862a114e413acf606484d569694ca5f9" }
 "generated/kimpinv/KImpInv/Init.lean" = { tier = "light", sha256 = "d076cdbc65ba32232075f7a6b306fcf44472095d6b187c4c5b9ac452314c8eb9" }
 "generated/kimpinv/KImpInv/InvariantDefs.lean" = { tier = "light", sha256 = "c1a663366a49e2c0ce26d91b61f1ee7a2907eeb51ef69bf3e416b562d6e59900" }
@@ -349,7 +349,7 @@ tier = "light"
 "generated/kimpinv/KImpInv/Rules.lean" = { tier = "light", sha256 = "cb16f95c31a8a793f9f70b62daa5bc82bd874794b193f32be910335668997ebb" }
 "generated/kimpinv/KImpInv/Terms.lean" = { tier = "light", sha256 = "a13b4f9a4b96180f4938b639f423c5145435de47642b391251d8d5ff8fe046d0" }
 "generated/kimpinv/KImpInvBench/Main.lean" = { tier = "light", sha256 = "1c28774df6f1602ce240d4b72d23c93607c114cc904c7750bcd0943fb2d5d360" }
-"generated/kimpinv/KImpInvTest/Axioms.lean" = { tier = "light", sha256 = "cb25fb1db2a85d35c2a18dea781153e59442f303eaa31aa060f38d9e5860b7b8" }
+"generated/kimpinv/KImpInvTest/Axioms.lean" = { tier = "light", sha256 = "c1710e44c52654c847477ca1b1a5c3913cbd1681e22fbe9934df6326ee1b6047" }
 "generated/kimpinv/KImpInvTest/DetAxioms.lean" = { tier = "light", sha256 = "a95f2caa64661af2efad9007f586b8af8b4a8ba67d2a61e28df00c736b8db295" }
 "generated/kimpinv/KImpInvTest/Main.lean" = { tier = "light", sha256 = "df4c5dd789fecab65fb06a98e9255ba4ec2537c277a0ba0a6a106c9096750921" }
 "generated/kimpinv/invariant-unfold.txt" = { tier = "light", sha256 = "8e9c73350149d74a3f158ace709b41a0f8b1f2a87ecbadc4ec37990b17abcd68" }
@@ -364,7 +364,7 @@ tier = "light"
 "generated/kimpkeys-hand/KImpKeys/Determinism/L4.lean" = { tier = "light", sha256 = "c60f34c53f89257aa9c3cc539cd8005b88c2837806e3f1873cfa7826df4de31a" }
 "generated/kimpkeys-hand/KImpKeys/Determinism/L5.lean" = { tier = "light", sha256 = "d9912d2aa109bbc1b21dd4a9f20793f3ab681cf558c41be4aa7b316fb7154e87" }
 "generated/kimpkeys-hand/KImpKeys/Determinism/Pre.lean" = { tier = "light", sha256 = "87371294e3309505794eda5dd782cebef4a2c506476e144d6ebe58994cef880a" }
-"generated/kimpkeys-hand/KImpKeys/Equations.lean" = { tier = "light", sha256 = "f5b43576df72282169b288b5b8104799500b510d4fb48700147f7a7a221e0f99" }
+"generated/kimpkeys-hand/KImpKeys/Equations.lean" = { tier = "light", sha256 = "31da261ac4c845e1e055b8c3af011b6cb3ebd295012ac5c7fd557fa1e3ae1f5b" }
 "generated/kimpkeys-hand/KImpKeys/Functions.lean" = { tier = "light", sha256 = "833b008442a298754c6ef0d99263789664855c0585cbb852d4198944c11e9ad4" }
 "generated/kimpkeys-hand/KImpKeys/Init.lean" = { tier = "light", sha256 = "dbad5cee8245cec30f460f59cf5476361a8cab62b54f5b46bbc3336d40630dbc" }
 "generated/kimpkeys-hand/KImpKeys/InvariantDefs.lean" = { tier = "light", sha256 = "55704ac92baa34c13730e205a85074e379d10fa802aaabea5f3b27ca73c03747" }
@@ -373,7 +373,7 @@ tier = "light"
 "generated/kimpkeys-hand/KImpKeys/Rules.lean" = { tier = "light", sha256 = "9b6e42902ea522f76b6ba15f38e529ba5a3bcbc7412a6bad123025b74e93d3de" }
 "generated/kimpkeys-hand/KImpKeys/Terms.lean" = { tier = "light", sha256 = "1a0765def709fe3ff09ed72769c887143cb97dd33e94b37afe3d170bbeec58b1" }
 "generated/kimpkeys-hand/KImpKeysBench/Main.lean" = { tier = "light", sha256 = "00c618f649a17e4d8fcc7322e1435ffcdb9ef23a3fc4eabc0070a4627df505ad" }
-"generated/kimpkeys-hand/KImpKeysTest/Axioms.lean" = { tier = "light", sha256 = "1445455ff2840e6184c8f984651e1280307b0e17c82f18b5f78cb9496b990155" }
+"generated/kimpkeys-hand/KImpKeysTest/Axioms.lean" = { tier = "light", sha256 = "f4a464c54bd6cea2c5aee7597675ccb4153fb4572ffaa2953fec3afd1278f295" }
 "generated/kimpkeys-hand/KImpKeysTest/DetAxioms.lean" = { tier = "light", sha256 = "92a7c385f585bae73202fc54a8f9ff2185a1c70cf059411c7794d8ae2007a9e9" }
 "generated/kimpkeys-hand/KImpKeysTest/Main.lean" = { tier = "light", sha256 = "cb9feeb8aa24077747e0cfe3d6d26edc71559af9691866bcb70891f01057aacd" }
 "generated/kimpkeys-hand/invariant-unfold.txt" = { tier = "light", sha256 = "0b2557c95f1032d4c4bcd4fd32d54c0322fa4892ed5e7c554389265356267f72" }
@@ -388,7 +388,7 @@ tier = "light"
 "generated/kimpkeys/KImpKeys/Determinism/L4.lean" = { tier = "light", sha256 = "c60f34c53f89257aa9c3cc539cd8005b88c2837806e3f1873cfa7826df4de31a" }
 "generated/kimpkeys/KImpKeys/Determinism/L5.lean" = { tier = "light", sha256 = "d9912d2aa109bbc1b21dd4a9f20793f3ab681cf558c41be4aa7b316fb7154e87" }
 "generated/kimpkeys/KImpKeys/Determinism/Pre.lean" = { tier = "light", sha256 = "87371294e3309505794eda5dd782cebef4a2c506476e144d6ebe58994cef880a" }
-"generated/kimpkeys/KImpKeys/Equations.lean" = { tier = "light", sha256 = "f5b43576df72282169b288b5b8104799500b510d4fb48700147f7a7a221e0f99" }
+"generated/kimpkeys/KImpKeys/Equations.lean" = { tier = "light", sha256 = "31da261ac4c845e1e055b8c3af011b6cb3ebd295012ac5c7fd557fa1e3ae1f5b" }
 "generated/kimpkeys/KImpKeys/Functions.lean" = { tier = "light", sha256 = "833b008442a298754c6ef0d99263789664855c0585cbb852d4198944c11e9ad4" }
 "generated/kimpkeys/KImpKeys/Init.lean" = { tier = "light", sha256 = "dbad5cee8245cec30f460f59cf5476361a8cab62b54f5b46bbc3336d40630dbc" }
 "generated/kimpkeys/KImpKeys/InvariantDefs.lean" = { tier = "light", sha256 = "55704ac92baa34c13730e205a85074e379d10fa802aaabea5f3b27ca73c03747" }
@@ -397,7 +397,7 @@ tier = "light"
 "generated/kimpkeys/KImpKeys/Rules.lean" = { tier = "light", sha256 = "9b6e42902ea522f76b6ba15f38e529ba5a3bcbc7412a6bad123025b74e93d3de" }
 "generated/kimpkeys/KImpKeys/Terms.lean" = { tier = "light", sha256 = "1a0765def709fe3ff09ed72769c887143cb97dd33e94b37afe3d170bbeec58b1" }
 "generated/kimpkeys/KImpKeysBench/Main.lean" = { tier = "light", sha256 = "00c618f649a17e4d8fcc7322e1435ffcdb9ef23a3fc4eabc0070a4627df505ad" }
-"generated/kimpkeys/KImpKeysTest/Axioms.lean" = { tier = "light", sha256 = "1445455ff2840e6184c8f984651e1280307b0e17c82f18b5f78cb9496b990155" }
+"generated/kimpkeys/KImpKeysTest/Axioms.lean" = { tier = "light", sha256 = "f4a464c54bd6cea2c5aee7597675ccb4153fb4572ffaa2953fec3afd1278f295" }
 "generated/kimpkeys/KImpKeysTest/DetAxioms.lean" = { tier = "light", sha256 = "92a7c385f585bae73202fc54a8f9ff2185a1c70cf059411c7794d8ae2007a9e9" }
 "generated/kimpkeys/KImpKeysTest/Main.lean" = { tier = "light", sha256 = "cb9feeb8aa24077747e0cfe3d6d26edc71559af9691866bcb70891f01057aacd" }
 "generated/kimpkeys/invariant-unfold.txt" = { tier = "light", sha256 = "0b2557c95f1032d4c4bcd4fd32d54c0322fa4892ed5e7c554389265356267f72" }
@@ -412,7 +412,7 @@ tier = "light"
 "generated/kimptop/KImpInv/Determinism/L4.lean" = { tier = "light", sha256 = "2447c82310d52dd63dc9938ad2373c87437f4a3604de0ef624f4e5e084db9dd5" }
 "generated/kimptop/KImpInv/Determinism/L5.lean" = { tier = "light", sha256 = "3bebe954527e475e0a5fd21b72507a8aab35fc953f514cb51885ea7fe14b7b97" }
 "generated/kimptop/KImpInv/Determinism/Pre.lean" = { tier = "light", sha256 = "ffbb01f475066c5f89b2fcdf44b98ff632e77cba4559f62ae75ac26c94d78a5c" }
-"generated/kimptop/KImpInv/Equations.lean" = { tier = "light", sha256 = "28ba2ae95f37d35ed7fd151df0972d91e509d61c112513dad6a33daec216fd77" }
+"generated/kimptop/KImpInv/Equations.lean" = { tier = "light", sha256 = "e675663b564e0003acbfea337f67802a99792a767668beef21f9ba9353ae27ed" }
 "generated/kimptop/KImpInv/Functions.lean" = { tier = "light", sha256 = "b9782ad0827ec3d0df177cd5a09136523f2be4b7504af1ed709a31f3a19687f5" }
 "generated/kimptop/KImpInv/Init.lean" = { tier = "light", sha256 = "d076cdbc65ba32232075f7a6b306fcf44472095d6b187c4c5b9ac452314c8eb9" }
 "generated/kimptop/KImpInv/InvariantDefs.lean" = { tier = "light", sha256 = "6862dccd85d449559b0edbda5be0544830ff0223d0937ea3899204e3e2346f94" }
@@ -421,7 +421,7 @@ tier = "light"
 "generated/kimptop/KImpInv/Rules.lean" = { tier = "light", sha256 = "cb16f95c31a8a793f9f70b62daa5bc82bd874794b193f32be910335668997ebb" }
 "generated/kimptop/KImpInv/Terms.lean" = { tier = "light", sha256 = "a13b4f9a4b96180f4938b639f423c5145435de47642b391251d8d5ff8fe046d0" }
 "generated/kimptop/KImpInvBench/Main.lean" = { tier = "light", sha256 = "1c28774df6f1602ce240d4b72d23c93607c114cc904c7750bcd0943fb2d5d360" }
-"generated/kimptop/KImpInvTest/Axioms.lean" = { tier = "light", sha256 = "1e80ea03b8392b1ae7f6e756d09cd44e54f6307105176b8fca0edf5257e6651d" }
+"generated/kimptop/KImpInvTest/Axioms.lean" = { tier = "light", sha256 = "5e6d2fd73a3578a8a483e88dc66e915c71f8dcd0d5e5113dac7e38cb62d01a80" }
 "generated/kimptop/KImpInvTest/DetAxioms.lean" = { tier = "light", sha256 = "a95f2caa64661af2efad9007f586b8af8b4a8ba67d2a61e28df00c736b8db295" }
 "generated/kimptop/KImpInvTest/Main.lean" = { tier = "light", sha256 = "df4c5dd789fecab65fb06a98e9255ba4ec2537c277a0ba0a6a106c9096750921" }
 "generated/kimptop/invariant-unfold.txt" = { tier = "light", sha256 = "eddbf2051d81907cc1e2152fc00045c60fb8cc81560c55902e356a486fa64a10" }
@@ -432,7 +432,7 @@ tier = "light"
 "generated/nested/KNested/Determinism.lean" = { tier = "light", sha256 = "f119452bebbb3e8691cfdc8c02992f8c2ad93eab651ba6c836d7a33403e227ed" }
 "generated/nested/KNested/Determinism/L1.lean" = { tier = "light", sha256 = "106d82eee19bb260c5827447a7ef8c57e42312b8c7a24993e73fe0613ba90761" }
 "generated/nested/KNested/Determinism/Pre.lean" = { tier = "light", sha256 = "e80921ac171e3ec20d970ea441fd9e015af8627faf67483db4039ddff5e0e43d" }
-"generated/nested/KNested/Equations.lean" = { tier = "light", sha256 = "21f820101642098635a209f9bbc24877d7c8f261501ee7a92e6c3caa5fc468e6" }
+"generated/nested/KNested/Equations.lean" = { tier = "light", sha256 = "9dfc2f967501f0e29df7ea013b1ecaa502a1187de151d70f4c39a9c5611093c5" }
 "generated/nested/KNested/Functions.lean" = { tier = "light", sha256 = "3f353745b4b70c495f9c6215968155f9e7dbbb1171958c3941afbe0b01d2f511" }
 "generated/nested/KNested/Init.lean" = { tier = "light", sha256 = "58b96ea384b813fd8f64874a4e5baba82182991621f77cbd8f98b10a607d0eb4" }
 "generated/nested/KNested/InvariantDefs.lean" = { tier = "light", sha256 = "82ca36c826fd3729bd758ac2a9880403e93510b52097d5d5b060168e8f22e605" }
@@ -441,7 +441,7 @@ tier = "light"
 "generated/nested/KNested/Rules.lean" = { tier = "light", sha256 = "0aeb1715bdf3c86c5a4dc116bca606d98f0f31158dbd1149f922c9ff9d195dbd" }
 "generated/nested/KNested/Terms.lean" = { tier = "light", sha256 = "a7652d54cd4efb14d250fa08df13cec27316fd6362d1ac1e953ad59a047b2e6c" }
 "generated/nested/KNestedBench/Main.lean" = { tier = "light", sha256 = "b90108d53c7a2f38c87c6e17ceb6148fbd7ad3eddc4ffce427e9a07fc34e08b0" }
-"generated/nested/KNestedTest/Axioms.lean" = { tier = "light", sha256 = "d7fc67e5ba4231a94fae1509b3b7c621e4b3f8bb2d06d1dbe2d22bf19880b888" }
+"generated/nested/KNestedTest/Axioms.lean" = { tier = "light", sha256 = "b8102f889f7f4df2c4f7afaff6d203e1031f5712c9e2847b543fcb22f5d887b1" }
 "generated/nested/KNestedTest/DetAxioms.lean" = { tier = "light", sha256 = "e46595bb062534a1db3e10872a616449845034770d237a72983892253e709c61" }
 "generated/nested/KNestedTest/Main.lean" = { tier = "light", sha256 = "82155268a585cd39aa7cdd4d90eedd6c32ae2af32855a3b8818d88f7fc979725" }
 "generated/nested/invariant-unfold.txt" = { tier = "light", sha256 = "a75dc2ff022f97f6401251229a8c3013e0ac7c1777bc487643df13f2a541ad5f" }
@@ -452,7 +452,7 @@ tier = "light"
 "generated/range/KRange/Determinism.lean" = { tier = "light", sha256 = "e7997f70b0eceb5e71946a210fd32af820023f9d755a2dd99ddb264f2d83dac0" }
 "generated/range/KRange/Determinism/L1.lean" = { tier = "light", sha256 = "03d02110f8cd082ac60f666b101ffb5b293cc9627ea46afa8cd8bc34e654eb93" }
 "generated/range/KRange/Determinism/Pre.lean" = { tier = "light", sha256 = "134a184d80670567eaf1db51ee9d08f744b9e1166d937f5473140173691959c0" }
-"generated/range/KRange/Equations.lean" = { tier = "light", sha256 = "cfff93d5b1330a87653d93eabc06ba30a3e1086fe0a228a821eb4e608bc5ec09" }
+"generated/range/KRange/Equations.lean" = { tier = "light", sha256 = "ca804b8c2821b7566fac94b6758f628067e09916ffa972fd6dc3a7fec60998a0" }
 "generated/range/KRange/Functions.lean" = { tier = "light", sha256 = "3232124d41066676f5f24840dd5ffa7f783d44ad7a56cf90827e171c79ea5da2" }
 "generated/range/KRange/Init.lean" = { tier = "light", sha256 = "779403fbcbdb45a1e3b1c5ea935b89b5d58dee4ddcd139626573a1beb1395fc7" }
 "generated/range/KRange/InvariantDefs.lean" = { tier = "light", sha256 = "338ea6d3c5fd4c2b842b23a65ba0c6a758e4719eca3b308ef5c7f71f99b148b2" }
@@ -461,7 +461,7 @@ tier = "light"
 "generated/range/KRange/Rules.lean" = { tier = "light", sha256 = "e73dbb3f48d4426b93ea0e6e94a821e0a7c35ac763cabe6ebefb61cbc0a48c0b" }
 "generated/range/KRange/Terms.lean" = { tier = "light", sha256 = "dab44bbae651fb22fc8d0a193dcd429c96e0cdc7bcdc33177f5bf359914d7d2d" }
 "generated/range/KRangeBench/Main.lean" = { tier = "light", sha256 = "b338d12057345acdc3d996d5bb7b42669d093ec4ce81fe64b9b98a31c4fdb82d" }
-"generated/range/KRangeTest/Axioms.lean" = { tier = "light", sha256 = "f5da59a027931b3a0a3b335c43969a87545c79c7b21b3191f6c5f7826ecbb831" }
+"generated/range/KRangeTest/Axioms.lean" = { tier = "light", sha256 = "4de65d299163ef9d9d83b1d56801739248555bfbaa207a39f05f36771a9d704f" }
 "generated/range/KRangeTest/DetAxioms.lean" = { tier = "light", sha256 = "89e05d56195186e2715984892a332edcc91ac69772fab744deb6772e138897a7" }
 "generated/range/KRangeTest/Main.lean" = { tier = "light", sha256 = "e78c8cfa7a634d1dfc26a8290b6b1d91b0d193197c664b7e4b49f2034c4e0381" }
 "generated/range/invariant-unfold.txt" = { tier = "light", sha256 = "1320184f292a76fcc58d2c06cd60b3b16ff0cd19bd3b1072d7aaeaf08ea1c248" }
@@ -470,7 +470,7 @@ tier = "light"
 "generated/simpleenvs/KSimpleInv.lean" = { tier = "heavy", sha256 = "cdb5c360350c16c1c750676ff5a1296fee1dda18cb8dfaa1625c2946c648fd7d" }
 "generated/simpleenvs/KSimpleInv/Adequacy.lean" = { tier = "heavy", sha256 = "35a0f13297f93685e40d53ff7fb27c0b0ae011ba6a09e94332cee963859c20f0" }
 "generated/simpleenvs/KSimpleInv/Determinism.lean" = { tier = "heavy", sha256 = "d82f22c80b11e3e94e92af937370cacad95960cb24c69c4d8ff049c270f6e16b" }
-"generated/simpleenvs/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "5e4831fa2821830bb97bba7c92c957274006a8c139166298711b99ccda452896" }
+"generated/simpleenvs/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "410faf581bd1a2ad44a46cbe535fc5985b381226563510a7a4dad67029a6e6c1" }
 "generated/simpleenvs/KSimpleInv/Functions.lean" = { tier = "heavy", sha256 = "2b4b3e755c01333629305ea9c852b89e23c0356960f61fe48e7a481b034168e9" }
 "generated/simpleenvs/KSimpleInv/Init.lean" = { tier = "heavy", sha256 = "3c54c85db80269f846b804b5cf8cad7b49eaf5e3d67a2819c503b49e5a1d9787" }
 "generated/simpleenvs/KSimpleInv/InvariantDefs.lean" = { tier = "heavy", sha256 = "5a33ba4c05ccb2144ce0fbd9534a959b323d34638ed24475a61da524bf597968" }
@@ -480,7 +480,7 @@ tier = "light"
 "generated/simpleenvs/KSimpleInv/Terms.lean" = { tier = "heavy", sha256 = "a83081741e6f784aaff2f2a8e0d4ec771293479de47268e0260a462c124d5053" }
 "generated/simpleenvs/KSimpleInvBench/Main.lean" = { tier = "heavy", sha256 = "5d91d61f08f69edd69a3ee9eeff6e9678f945a9c9e86ec50373ee8e2f03acb84" }
 "generated/simpleenvs/KSimpleInvBench/Programs.lean" = { tier = "heavy", sha256 = "3fa6acf0f5ee5f41402bf12403e74884340751a08f98a39ffbd3ac6ba52e438d" }
-"generated/simpleenvs/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "5857cae6ca25ccbebcb18d341bd950bbe11183e9d14a9904a195601aad156a28" }
+"generated/simpleenvs/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "db40a0cff380d0914a50af59410cd64a0aa276ef929388f5cfbac7ab0138f0f2" }
 "generated/simpleenvs/KSimpleInvTest/Main.lean" = { tier = "heavy", sha256 = "c38c0e546d17016d6bb4538251d5cca2b4183f3a668e41e4f62e7503cf8de4f2" }
 "generated/simpleenvs/invariant-unfold.txt" = { tier = "heavy", sha256 = "eaeffcc33573aa1eae7f41c2469896449f262807c440128f8fe361dde78dfb58" }
 "generated/simpleenvs/lakefile.lean" = { tier = "heavy", sha256 = "b644c607beffcf9f3c134b81a5957550ce79dff05663ec8e4ba492caddb7e1fc" }
@@ -488,7 +488,7 @@ tier = "light"
 "generated/simpleinv/KSimpleInv.lean" = { tier = "heavy", sha256 = "cdb5c360350c16c1c750676ff5a1296fee1dda18cb8dfaa1625c2946c648fd7d" }
 "generated/simpleinv/KSimpleInv/Adequacy.lean" = { tier = "heavy", sha256 = "35a0f13297f93685e40d53ff7fb27c0b0ae011ba6a09e94332cee963859c20f0" }
 "generated/simpleinv/KSimpleInv/Determinism.lean" = { tier = "heavy", sha256 = "d82f22c80b11e3e94e92af937370cacad95960cb24c69c4d8ff049c270f6e16b" }
-"generated/simpleinv/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "73015ea3984dd7c710dbb8114710b74db58ae801132be02c2059222874565a57" }
+"generated/simpleinv/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "cb532ac1824d77cfabe7d73ea8cd4636a6108edfabe71edd48237e8d88ddd880" }
 "generated/simpleinv/KSimpleInv/Functions.lean" = { tier = "heavy", sha256 = "a2db7a172339320322c87dd315bd78007ed54adbace3202b5997db332f1da27c" }
 "generated/simpleinv/KSimpleInv/Init.lean" = { tier = "heavy", sha256 = "3c54c85db80269f846b804b5cf8cad7b49eaf5e3d67a2819c503b49e5a1d9787" }
 "generated/simpleinv/KSimpleInv/InvariantDefs.lean" = { tier = "heavy", sha256 = "bce0eec7dbb1b956e80f9bf27f1caceb29bcfded1faffd4ee9d3191b55d12e0e" }
@@ -498,7 +498,7 @@ tier = "light"
 "generated/simpleinv/KSimpleInv/Terms.lean" = { tier = "heavy", sha256 = "a83081741e6f784aaff2f2a8e0d4ec771293479de47268e0260a462c124d5053" }
 "generated/simpleinv/KSimpleInvBench/Main.lean" = { tier = "heavy", sha256 = "5d91d61f08f69edd69a3ee9eeff6e9678f945a9c9e86ec50373ee8e2f03acb84" }
 "generated/simpleinv/KSimpleInvBench/Programs.lean" = { tier = "heavy", sha256 = "3fa6acf0f5ee5f41402bf12403e74884340751a08f98a39ffbd3ac6ba52e438d" }
-"generated/simpleinv/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "04011b5b61b69fe90fbb86cfc2a560753cb2f993a87cc0b989bd2d52fcfff6a8" }
+"generated/simpleinv/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "cc362d759499a9fdbfb00557284a395839d637b61bb724a2e874a433f7f1c674" }
 "generated/simpleinv/KSimpleInvTest/Main.lean" = { tier = "heavy", sha256 = "c38c0e546d17016d6bb4538251d5cca2b4183f3a668e41e4f62e7503cf8de4f2" }
 "generated/simpleinv/invariant-unfold.txt" = { tier = "heavy", sha256 = "61d4ebbbabb0d3e82831ad4e9dc7bfded663c80692851f04e0315f60b138a0a8" }
 "generated/simpleinv/lakefile.lean" = { tier = "heavy", sha256 = "b644c607beffcf9f3c134b81a5957550ce79dff05663ec8e4ba492caddb7e1fc" }
@@ -506,7 +506,7 @@ tier = "light"
 "generated/simplestore/KSimpleInv.lean" = { tier = "heavy", sha256 = "cdb5c360350c16c1c750676ff5a1296fee1dda18cb8dfaa1625c2946c648fd7d" }
 "generated/simplestore/KSimpleInv/Adequacy.lean" = { tier = "heavy", sha256 = "35a0f13297f93685e40d53ff7fb27c0b0ae011ba6a09e94332cee963859c20f0" }
 "generated/simplestore/KSimpleInv/Determinism.lean" = { tier = "heavy", sha256 = "d82f22c80b11e3e94e92af937370cacad95960cb24c69c4d8ff049c270f6e16b" }
-"generated/simplestore/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "5427108d09a3eb81844c57d95b5253f2ec8aa366585e902e928189b030bc54a0" }
+"generated/simplestore/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "f32790f74d169d1604cc33f192de71b04dc7de2d23a3d6c2b448ecd91d701a40" }
 "generated/simplestore/KSimpleInv/Functions.lean" = { tier = "heavy", sha256 = "004e6c5bd15dcc9cf504d0e7b0b7fdd570949671996e140c960c4e406434c501" }
 "generated/simplestore/KSimpleInv/Init.lean" = { tier = "heavy", sha256 = "3c54c85db80269f846b804b5cf8cad7b49eaf5e3d67a2819c503b49e5a1d9787" }
 "generated/simplestore/KSimpleInv/InvariantDefs.lean" = { tier = "heavy", sha256 = "b52a0751b20f7ebf26b3f121478df036f34508baddbbe579ad249090cf99a630" }
@@ -516,7 +516,7 @@ tier = "light"
 "generated/simplestore/KSimpleInv/Terms.lean" = { tier = "heavy", sha256 = "a83081741e6f784aaff2f2a8e0d4ec771293479de47268e0260a462c124d5053" }
 "generated/simplestore/KSimpleInvBench/Main.lean" = { tier = "heavy", sha256 = "5d91d61f08f69edd69a3ee9eeff6e9678f945a9c9e86ec50373ee8e2f03acb84" }
 "generated/simplestore/KSimpleInvBench/Programs.lean" = { tier = "heavy", sha256 = "3fa6acf0f5ee5f41402bf12403e74884340751a08f98a39ffbd3ac6ba52e438d" }
-"generated/simplestore/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "2e018b6e4905c1ff9921fe44b54369c217af754657109915d62a032619e3fab7" }
+"generated/simplestore/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "cc575f8845773b34a09166bc063f65b4537b3b623b3ad63f4539f08854f3e9b8" }
 "generated/simplestore/KSimpleInvTest/Main.lean" = { tier = "heavy", sha256 = "c38c0e546d17016d6bb4538251d5cca2b4183f3a668e41e4f62e7503cf8de4f2" }
 "generated/simplestore/invariant-unfold.txt" = { tier = "heavy", sha256 = "00a7d45aba2ee655a29e306c572367ab1e5d7139fe505eed755c983a3bed2d5c" }
 "generated/simplestore/lakefile.lean" = { tier = "heavy", sha256 = "b644c607beffcf9f3c134b81a5957550ce79dff05663ec8e4ba492caddb7e1fc" }
@@ -524,7 +524,7 @@ tier = "light"
 "generated/simplet/KSimpleInv.lean" = { tier = "heavy", sha256 = "cdb5c360350c16c1c750676ff5a1296fee1dda18cb8dfaa1625c2946c648fd7d" }
 "generated/simplet/KSimpleInv/Adequacy.lean" = { tier = "heavy", sha256 = "35a0f13297f93685e40d53ff7fb27c0b0ae011ba6a09e94332cee963859c20f0" }
 "generated/simplet/KSimpleInv/Determinism.lean" = { tier = "heavy", sha256 = "d82f22c80b11e3e94e92af937370cacad95960cb24c69c4d8ff049c270f6e16b" }
-"generated/simplet/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "690e3dd99b651e57456db6e8d1a34586d6c94ca68c8e7a78da033ef2c0917ee1" }
+"generated/simplet/KSimpleInv/Equations.lean" = { tier = "heavy", sha256 = "f8866116375ce7777048af8f4dd0dbf2d2a8105cfed19baf8af5c362f843d815" }
 "generated/simplet/KSimpleInv/Functions.lean" = { tier = "heavy", sha256 = "93dec7ff655e40bea85bd565ac4e691fecb042241551bf349a1adb7d95658ba7" }
 "generated/simplet/KSimpleInv/Init.lean" = { tier = "heavy", sha256 = "3c54c85db80269f846b804b5cf8cad7b49eaf5e3d67a2819c503b49e5a1d9787" }
 "generated/simplet/KSimpleInv/InvariantDefs.lean" = { tier = "heavy", sha256 = "e1c13f99f3477bdb84c500526f6391e61b29120bda70c32d22a49b35b7c5d4ff" }
@@ -534,7 +534,7 @@ tier = "light"
 "generated/simplet/KSimpleInv/Terms.lean" = { tier = "heavy", sha256 = "a83081741e6f784aaff2f2a8e0d4ec771293479de47268e0260a462c124d5053" }
 "generated/simplet/KSimpleInvBench/Main.lean" = { tier = "heavy", sha256 = "5d91d61f08f69edd69a3ee9eeff6e9678f945a9c9e86ec50373ee8e2f03acb84" }
 "generated/simplet/KSimpleInvBench/Programs.lean" = { tier = "heavy", sha256 = "3fa6acf0f5ee5f41402bf12403e74884340751a08f98a39ffbd3ac6ba52e438d" }
-"generated/simplet/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "c63b4d3997fd9bb6f45a2a5b2230eaf049388df19ebdd12610d7242ca78e69e4" }
+"generated/simplet/KSimpleInvTest/Axioms.lean" = { tier = "heavy", sha256 = "5a969342228afbb4eca7750fd0762bdd27f28460b5626e588bb628712c61b4b6" }
 "generated/simplet/KSimpleInvTest/Main.lean" = { tier = "heavy", sha256 = "c38c0e546d17016d6bb4538251d5cca2b4183f3a668e41e4f62e7503cf8de4f2" }
 "generated/simplet/invariant-unfold.txt" = { tier = "heavy", sha256 = "2d0f75bb38055a9537e25880aec0e85136620c9d08d115520ea8e39ead425c97" }
 "generated/simplet/lakefile.lean" = { tier = "heavy", sha256 = "b644c607beffcf9f3c134b81a5957550ce79dff05663ec8e4ba492caddb7e1fc" }
@@ -544,7 +544,7 @@ tier = "light"
 "generated/walk/KWalk/Determinism.lean" = { tier = "light", sha256 = "b20db7914b5b36e20f6cc0c8a515c52cb5f1409d03cb050da517e73fffa6d08c" }
 "generated/walk/KWalk/Determinism/L1.lean" = { tier = "light", sha256 = "1945b2ab516d660baea079eee31abe48257b6749b4680c93f3903ecdf0498358" }
 "generated/walk/KWalk/Determinism/Pre.lean" = { tier = "light", sha256 = "906f15dc1ecd49d9bc6da07599d5905961684c7264e04d707dc82449db063bdf" }
-"generated/walk/KWalk/Equations.lean" = { tier = "light", sha256 = "4383383593d882b8b6d5f6e45ff33477da44e2a8221a6a6ac9eff8365436e883" }
+"generated/walk/KWalk/Equations.lean" = { tier = "light", sha256 = "ade3b11f7e9b5d8eb68756aa7449da4fc6ddfcc69e23caec23a193171b4db1a1" }
 "generated/walk/KWalk/Functions.lean" = { tier = "light", sha256 = "c22a2bd264b5f54f3051caa82dc162b93c58d017868689bf32c8dabf6221feb3" }
 "generated/walk/KWalk/Init.lean" = { tier = "light", sha256 = "26f94b1fa16f7d4e704407c6ab2cb0bfd0a699ef2e6b3edef8d3abe903779d44" }
 "generated/walk/KWalk/InvariantDefs.lean" = { tier = "light", sha256 = "3d364d3214a486c99f311d6fdce2c1b55562b598b05e5027469565a0f5f4da02" }
@@ -553,7 +553,7 @@ tier = "light"
 "generated/walk/KWalk/Rules.lean" = { tier = "light", sha256 = "ff8b60b5e9d20c685eed2be0eaea7cc506aa0a917c9a697da17ec60cc5b2d87e" }
 "generated/walk/KWalk/Terms.lean" = { tier = "light", sha256 = "4d0ecd36628eee214c85ba95f242b682cf6278cff978e9da6c1ccba3caa87c72" }
 "generated/walk/KWalkBench/Main.lean" = { tier = "light", sha256 = "fda895327eb5c37d5a68d71958661146784c9e9329c917dba96847e684eb90b5" }
-"generated/walk/KWalkTest/Axioms.lean" = { tier = "light", sha256 = "18e2a485b3783db7346f982e7c67b50da0c78166427831c203e26c4d4f428325" }
+"generated/walk/KWalkTest/Axioms.lean" = { tier = "light", sha256 = "2bbd5772c93ec4e24a87a2f70bb8f5ec4e55f690fce37087dcfe69ab87e6984e" }
 "generated/walk/KWalkTest/DetAxioms.lean" = { tier = "light", sha256 = "2e99beed830d483f36de34d61b2a58a7e5751bdadb47ee043f7624df15d98b91" }
 "generated/walk/KWalkTest/Main.lean" = { tier = "light", sha256 = "c37d92caa00733c2a132f05bcb01fcd90b20cc004cccefc6ea560f968b0859ba" }
 "generated/walk/invariant-unfold.txt" = { tier = "light", sha256 = "b362e540462029f7ad80b655d9a80ae4212d3c9d9547dfad372e8fb78d16f974" }
