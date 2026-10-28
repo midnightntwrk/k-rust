@@ -11,7 +11,6 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use super::island_checks::{nested_state_island_import_checks, wrapper_type_check};
-use super::tokens::call_site_path;
 use crate::environment::MacroEnvironment;
 
 pub(crate) fn term(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
@@ -83,10 +82,6 @@ pub(crate) fn cells(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
         collect_state_expressions(entry.value(), &mut expressions, &mut owners);
     }
     let wrapper_checks = wrappers.map(wrapper_type_check);
-    let owners = owners
-        .into_iter()
-        .map(call_site_path)
-        .collect::<Result<Vec<_>, _>>()?;
     let builtin = builtin_path(env)?;
     let expressions = expressions
         .into_iter()
@@ -138,7 +133,7 @@ pub(crate) fn fragment(
             "fragment! requires `Parent { field: value, ... }`",
         ));
     };
-    let owner = call_site_path(cell.owner())?;
+    let owner = cell.owner();
     let builtin = builtin_path(env)?;
     let expressions = record.fields.iter().map(|field| {
         let mut expression = field.expr.clone();

@@ -22,8 +22,7 @@ use super::nonce::{expansion_nonce, rule_application_selector};
 use super::productions::{production_documentation_wire, strictness_key_function, strictness_wire};
 use super::terms::{WireSlots, wire_sort_reference};
 use super::tokens::{
-    call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens,
-    variant_marker_function,
+    call_site_cfg_attributes, call_site_ident, sort_type_tokens, variant_marker_function,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -358,8 +357,8 @@ impl ListContext<'_> {
                     let ty = if field.term_sort().is_dynamic() {
                         field.term_sort().ty().to_token_stream()
                     } else {
-                        let path = call_site_path(field.term_sort().sort())?;
-                        sort_type_tokens(facade, &path, false)
+                        let path = field.term_sort().sort();
+                        sort_type_tokens(facade, path, false)
                     };
                     field_key_functions.push(quote! {
                         #(#cfg)*

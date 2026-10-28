@@ -22,7 +22,7 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::terms::WireSlots;
-use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, spelling};
+use super::tokens::{call_site_cfg_attributes, call_site_ident, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -480,8 +480,7 @@ fn configuration_content(
             computation,
             ..
         } => {
-            let sort = call_site_path(sort)?;
-            let authored_path = spelling(&sort);
+            let authored_path = spelling(sort);
             let sort_key = format_ident!("__krs_configuration_sort_{}_{}", owner_key, index);
             helpers.push(quote! {
                 #[doc(hidden)]
@@ -520,7 +519,7 @@ fn configuration_content(
             }
         }
         ConfigurationCellContent::Nested { declaration } => {
-            let generated = call_site_path(declaration)?;
+            let generated = declaration;
             let authored_path = spelling(declaration);
             let nested_key = format_ident!("__krs_configuration_nested_{}_{}", owner_key, index);
             helpers.push(quote! {
@@ -572,8 +571,8 @@ pub(super) fn configuration_sort_arguments(
     for argument in arguments {
         let facade = context.facade;
         let owner = context.owner;
-        let generated = call_site_path(&argument.path)?;
-        let ty = super::tokens::sort_type_tokens(facade, &generated, argument.dynamic);
+        let generated = &argument.path;
+        let ty = super::tokens::sort_type_tokens(facade, generated, argument.dynamic);
         let authored_path = spelling(&argument.path);
         let key = format_ident!(
             "__krs_configuration_sort_argument_{}_{}",

@@ -28,8 +28,7 @@ use super::nonce::{expansion_nonce, rule_application_selector};
 use super::productions::strictness_key_function;
 use super::terms::{WireSlots, wire_sort_reference};
 use super::tokens::{
-    call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
-    variant_marker_function,
+    call_site_cfg_attributes, call_site_ident, sort_type_tokens, spelling, variant_marker_function,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -513,8 +512,8 @@ fn expand_enum_variant(
         let ty = if declaration.is_reference_family() && field.term_sort().is_dynamic() {
             field.term_sort().ty().to_token_stream()
         } else {
-            let path = call_site_path(field.term_sort().sort())?;
-            sort_type_tokens(facade, &path, field.term_sort().is_dynamic())
+            let path = field.term_sort().sort();
+            sort_type_tokens(facade, path, field.term_sort().is_dynamic())
         };
         let spelling = field.term_sort().sort_token_text();
         let field_name = field.name().to_string();

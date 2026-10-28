@@ -12,7 +12,7 @@ use syn::{Attribute, Path};
 
 use super::ledger::KeyLedger;
 use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
-use super::tokens::{call_site_path, spelling};
+use super::tokens::spelling;
 
 /// The wire binders of a transition's existentials and the hidden sort-key
 /// functions that let rustc resolve each binder's sort.
@@ -51,7 +51,7 @@ pub(super) fn evaluation_step(
         .expect("the rule attribute requires a hole on a heat or cool rule");
     let (result, key_function) = match attribute.result_sort() {
         Some(sort) => {
-            let path = call_site_path(sort)?;
+            let path = sort;
             let key_fn = format_ident!("__krs_rule_evaluation_result_{nonce:016x}");
             (
                 Some(wire_sort_reference(
@@ -110,7 +110,7 @@ fn scoped_binders(
     let mut binders = Vec::new();
     let mut key_functions = Vec::new();
     for (index, binder) in declared.iter().enumerate() {
-        let path = call_site_path(binder.sort())?;
+        let path = binder.sort();
         let key_fn = format_ident!("__krs_rule_{kind}_sort_{nonce:016x}_{index}");
         key_functions.push(quote! {
             #(#cfg)*

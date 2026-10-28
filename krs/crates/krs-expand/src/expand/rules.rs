@@ -25,9 +25,7 @@ use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::state_rules::{StateRuleBuilder, configuration_rule};
 use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
-use super::tokens::{
-    call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
-};
+use super::tokens::{call_site_cfg_attributes, call_site_ident, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -402,11 +400,8 @@ fn expand_ordinary_rule(
     let predicate = predicate_rule(rule, sentence_kind)?;
     let parameter_key = format_ident!("__krs_rule_subject_sort_{nonce:016x}");
     let result_key = format_ident!("__krs_rule_result_sort_{nonce:016x}");
-    let parameter_sort_path = call_site_path(rule.parameter().term_sort.sort())?;
-    let result_sort_path = rule
-        .result_sort()
-        .map(|sort| call_site_path(sort.sort()))
-        .transpose()?;
+    let parameter_sort_path = rule.parameter().term_sort.sort();
+    let result_sort_path = rule.result_sort().map(krs_syntax::TermSort::sort);
     // A predicate simplification's `ml::Predicate` types are no sorts: the
     // descriptor carries Bool placeholders, and rustc checks that both
     // types are the facade's `ml::Predicate` (KF-039). A single-body rule
@@ -432,7 +427,7 @@ fn expand_ordinary_rule(
         (
             sort_type_tokens(
                 &facade,
-                &parameter_sort_path,
+                parameter_sort_path,
                 rule.parameter().term_sort.is_dynamic(),
             ),
             rule.result_sort()
@@ -494,7 +489,7 @@ fn expand_ordinary_rule(
         });
     }
     for narrowing in narrowings {
-        let sort = call_site_path(narrowing.sort())?;
+        let sort = narrowing.sort();
         binding_checks.push(quote! {
             let _: ::core::marker::PhantomData<#sort> = ::core::marker::PhantomData;
         });
@@ -859,7 +854,7 @@ fn function_context(
     slots: &mut WireSlots,
 ) -> crate::Result<(krs_ir::wire::WireFunctionContext, ContextTokens)> {
     let FunctionContextExpansion { facade, nonce, cfg } = expansion;
-    let configuration_type = call_site_path(context.configuration_type())?;
+    let configuration_type = context.configuration_type();
     let configuration_key = format_ident!("__krs_function_context_configuration_{nonce:016x}");
     let subject = rule.parameter().pattern.bindings();
     let mut context_bindings = Vec::new();
@@ -914,7 +909,7 @@ fn function_context(
         Form::EquationFn,
     );
     builder.continue_subject(term_builder);
-    let cells = builder.expand_cells(context.pattern(), &configuration_type, slots)?;
+    let cells = builder.expand_cells(context.pattern(), configuration_type, slots)?;
     term_builder.next_key = builder.terms.next_key;
     let mut items = std::mem::take(&mut builder.terms.key_functions);
     items.push(quote! {
@@ -927,8 +922,8 @@ fn function_context(
     let mut checks = context
         .wrapper_paths()
         .into_iter()
-        .map(|path| call_site_path(path).map(|path| wrapper_type_check(&path)))
-        .collect::<crate::Result<Vec<_>>>()?;
+        .map(wrapper_type_check)
+        .collect::<Vec<_>>();
     checks.extend(consumed_state_island_import_checks(rule.item()));
     let wire = krs_ir::wire::WireFunctionContext {
         key: term_builder.ledger.define(context.key())?,
@@ -965,8 +960,8 @@ fn typed_binders(
     let mut key_functions = Vec::new();
     for (index, binder) in rule.binders().iter().enumerate() {
         let sort = binder.term_sort();
-        let path = call_site_path(sort.sort())?;
-        let ty = sort_type_tokens(facade, &path, sort.is_dynamic());
+        let path = sort.sort();
+        let ty = sort_type_tokens(facade, path, sort.is_dynamic());
         let key_fn = format_ident!("__krs_rule_binder_sort_{nonce:016x}_{index}");
         key_functions.push(quote! {
             #(#cfg)*

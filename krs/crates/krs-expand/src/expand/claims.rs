@@ -21,7 +21,7 @@ use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::state_rules::StateRuleBuilder;
 use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
-use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
+use super::tokens::{call_site_cfg_attributes, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -58,11 +58,11 @@ fn configuration_claim(
     let subject_key = format_ident!("__krs_claim_configuration_left_{nonce:016x}");
     let result_key = format_ident!("__krs_claim_configuration_right_{nonce:016x}");
     let cfg = call_site_cfg_attributes(&rule.item().attrs)?;
-    let subject_type = call_site_path(rule.subject_type())?;
+    let subject_type = rule.subject_type();
     let declared_result_type = rule
         .result_type()
         .expect("a claim parses only with a result");
-    let result_type = call_site_path(declared_result_type)?;
+    let result_type = declared_result_type;
     let subject_spelling = spelling(rule.subject_type());
     let result_spelling = spelling(declared_result_type);
 
@@ -92,8 +92,8 @@ fn configuration_claim(
         let kind = match binding.kind() {
             StateRuleBindingKind::Term => {
                 let sort = binding.term_sort().expect("term binding sort");
-                let path = call_site_path(sort.sort())?;
-                let ty = sort_type_tokens(&facade, &path, sort.is_dynamic());
+                let path = sort.sort();
+                let ty = sort_type_tokens(&facade, path, sort.is_dynamic());
                 let key_fn =
                     format_ident!("__krs_claim_universal_sort_{nonce:016x}_{term_ordinal}");
                 key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#ty>() } });
@@ -130,7 +130,7 @@ fn configuration_claim(
     }
     let mut existential_metadata = Vec::new();
     for (index, binder) in claim.existentials().iter().enumerate() {
-        let path = call_site_path(binder.sort())?;
+        let path = binder.sort();
         let key_fn = format_ident!("__krs_claim_existential_sort_{nonce:016x}_{index}");
         key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
         let authored = spelling(binder.sort());
@@ -159,7 +159,7 @@ fn configuration_claim(
         RuleSide::Left,
         Form::CellsClaim,
     );
-    let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
+    let subject = left.expand_cells(rule.subject(), subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
         &ledger,
@@ -171,7 +171,7 @@ fn configuration_claim(
     );
     let result = right.expand_cells(
         rule.result().expect("a claim parses only with a result"),
-        &result_type,
+        result_type,
         &mut slots,
     )?;
     let mut condition_builder = TermBuilder::new(
@@ -258,8 +258,8 @@ fn configuration_claim(
     let mut wrapper_checks = Vec::new();
     for candidate in rule.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {
-            let path = call_site_path(candidate.path())?;
-            wrapper_checks.push(wrapper_type_check(&path));
+            let path = candidate.path();
+            wrapper_checks.push(wrapper_type_check(path));
         }
     }
     let island_import_checks = consumed_state_island_import_checks(original);

@@ -33,7 +33,7 @@ use super::island_checks::{consumed_state_island_import_checks, wrapper_type_che
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
-use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
+use super::tokens::{call_site_cfg_attributes, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -59,7 +59,7 @@ pub(crate) fn context_alias(
     let factory = format_ident!("__krs_context_alias_{nonce:016x}");
     let configuration_key = format_ident!("__krs_context_alias_configuration_{nonce:016x}");
     let cfg = call_site_cfg_attributes(&alias.item().attrs)?;
-    let configuration_type = call_site_path(alias.configuration_type())?;
+    let configuration_type = alias.configuration_type();
     let configuration_spelling = spelling(alias.configuration_type());
     let binding_idents = alias
         .bindings()
@@ -81,8 +81,8 @@ pub(crate) fn context_alias(
                     let sort = binding
                         .term_sort()
                         .expect("non-HERE terms retain explicit sorts");
-                    let path = call_site_path(sort.sort())?;
-                    let ty = sort_type_tokens(&facade, &path, sort.is_dynamic());
+                    let path = sort.sort();
+                    let ty = sort_type_tokens(&facade, path, sort.is_dynamic());
                     let key_fn =
                         format_ident!("__krs_context_alias_binding_{nonce:016x}_{term_ordinal}");
                     key_functions.push(quote! {
@@ -134,13 +134,13 @@ pub(crate) fn context_alias(
         RuleSide::Left,
         Form::ContextAlias,
     );
-    let pattern = builder.expand_cells(alias.pattern(), &configuration_type, &mut slots)?;
+    let pattern = builder.expand_cells(alias.pattern(), configuration_type, &mut slots)?;
     key_functions.extend(builder.terms.key_functions);
     let mut wrapper_checks = Vec::new();
     for candidate in alias.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {
-            let path = call_site_path(candidate.path())?;
-            wrapper_checks.push(wrapper_type_check(&path));
+            let path = candidate.path();
+            wrapper_checks.push(wrapper_type_check(path));
         }
     }
     let original = alias.item();
@@ -155,7 +155,7 @@ pub(crate) fn context_alias(
     // `result = S`, K's `result(S)` (KF-021).
     let result = match attribute.result_sort() {
         Some(sort) => {
-            let path = call_site_path(sort)?;
+            let path = sort;
             let key_fn = format_ident!("__krs_context_alias_result_{nonce:016x}");
             key_functions.push(quote! {
                 #(#cfg)*
@@ -286,9 +286,9 @@ pub(super) fn configuration_rule(
     let subject_key = format_ident!("__krs_rule_configuration_left_{nonce:016x}");
     let result_key = format_ident!("__krs_rule_configuration_right_{nonce:016x}");
     let cfg = call_site_cfg_attributes(&rule.item().attrs)?;
-    let subject_type = call_site_path(rule.subject_type())?;
+    let subject_type = rule.subject_type();
     // A single-body rule (KF-011) has no result; its fn returns `()`.
-    let result_type = rule.result_type().map(call_site_path).transpose()?;
+    let result_type = rule.result_type().cloned();
     let subject_spelling = spelling(rule.subject_type());
     let result_spelling = rule.result_type().map(spelling);
     let binding_idents = rule
@@ -308,8 +308,8 @@ pub(super) fn configuration_rule(
                 let sort = binding
                     .term_sort()
                     .expect("term bindings retain explicit sorts");
-                let path = call_site_path(sort.sort())?;
-                let ty = sort_type_tokens(&facade, &path, sort.is_dynamic());
+                let path = sort.sort();
+                let ty = sort_type_tokens(&facade, path, sort.is_dynamic());
                 let key_fn = format_ident!("__krs_rule_binding_sort_{nonce:016x}_{term_ordinal}");
                 binding_key_functions.push(quote! {
                     #(#cfg)*
@@ -404,7 +404,7 @@ pub(super) fn configuration_rule(
         RuleSide::Left,
         form,
     );
-    let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
+    let subject = left.expand_cells(rule.subject(), subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
         &ledger,
@@ -490,8 +490,8 @@ pub(super) fn configuration_rule(
     let mut wrapper_checks = Vec::new();
     for candidate in rule.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {
-            let path = call_site_path(candidate.path())?;
-            wrapper_checks.push(wrapper_type_check(&path));
+            let path = candidate.path();
+            wrapper_checks.push(wrapper_type_check(path));
         }
     }
     let island_import_checks = consumed_state_island_import_checks(original);
@@ -660,8 +660,8 @@ impl<'a> StateRuleBuilder<'a> {
         let mut output = Vec::new();
         for entry in cells.entries() {
             let field_key = ledger.define(entry.name_key())?;
-            let marker = cell_marker_function(entry.name());
             let cell_owner = entry.owner().unwrap_or(owner);
+            let marker = cell_marker_function(entry.name());
             let (wrapper_key, wrapper) = if let Some(path) = entry.wrapper() {
                 let computation = path.segments.iter().any(|segment| segment.ident == "KCell");
                 if computation != matches!(entry.value(), StateTerm::KSequence(_)) {

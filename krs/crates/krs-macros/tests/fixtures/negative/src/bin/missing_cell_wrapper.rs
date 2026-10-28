@@ -5,11 +5,11 @@ use renamed_krs::Term;
 
 pub struct Machine;
 
-#[rule] //~ ERROR cannot find type `KCell`
+#[rule]
 pub fn missing_wrapper(
     value: Term<renamed_krs::builtin::Id>,
     cells! {
-        k: KCell(value, tail @ ..),
+        k: KCell(value, tail @ ..), //~ ERROR cannot find type `KCell`
         state @ ..
     }: Machine,
 ) -> Machine {

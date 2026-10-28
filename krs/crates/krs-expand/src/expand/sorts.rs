@@ -21,9 +21,7 @@ use syn::{Attribute, Ident, ItemTrait, Path, parse_quote};
 
 use super::constructors::{reject_unexpanded_symbol, take_explicit_symbol_helper};
 use super::nonce::expansion_nonce;
-use super::tokens::{
-    call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, spelling,
-};
+use super::tokens::{call_site_cfg_attributes, call_site_ident, helper_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -77,7 +75,7 @@ pub(crate) fn sort(
             "__krs_sort_parent_{nonce:016x}_{index}",
             span = Span::call_site()
         );
-        let parent_type = call_site_path(parent)?;
+        let parent_type = parent;
         let spelling = spelling(parent);
         key_functions.push(quote! {
             #(#cfg)*
@@ -221,7 +219,6 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
                         let marker_key = spelling(&marker);
                         let member_key = spelling(member);
                         if emitted_rust_memberships.insert((marker_key, member_key)) {
-                            let member = call_site_path(member)?;
                             rust_memberships.push(quote!(impl #marker for #member {}));
                         }
                     }
@@ -580,7 +577,7 @@ fn readable_sort_marker_path(facade: &Path, path: &Path) -> crate::Result<Path> 
         let marker = format_ident!("{name}Sort", span = Span::call_site());
         return Ok(parse_quote!(#facade::#marker));
     }
-    let mut marker = call_site_path(path)?;
+    let mut marker = path.clone();
     let Some(last) = marker.segments.last_mut() else {
         return Err(ExpandError::new(
             expand::EMPTY_SORT_PATH,
@@ -641,8 +638,8 @@ pub(crate) fn subsort(
     let factory = format_ident!("__krs_subsort_descriptor_{}", identity.rust_key);
     let grammar_name = identity.item_name;
     let semantic_super = reference.sort();
-    let super_path = call_site_path(semantic_super)?;
-    let sub_path = call_site_path(declaration.sub_sort())?;
+    let super_path = semantic_super;
+    let sub_path = declaration.sub_sort();
     let super_spelling = spelling(semantic_super);
     let sub_spelling = spelling(declaration.sub_sort());
     let item = declaration.item();

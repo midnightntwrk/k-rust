@@ -32,7 +32,7 @@ use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots};
 use super::tokens::{
-    call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
+    call_site_cfg_attributes, is_bound_ident_path, respanned, sort_type_tokens, spelling,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -103,10 +103,10 @@ fn init_inner(
     let arguments_key = format_ident!("initializer_variable_{nonce:016x}");
     let mut argument_ordinal = 0;
     for (index, variable) in initializer.variables().iter().enumerate() {
-        let sort_path = call_site_path(variable.sort())?;
+        let sort_path = variable.sort();
         let sort_type = variable.optional_term_sort().map_or_else(
             || quote!(#sort_path),
-            |term_sort| sort_type_tokens(&facade, &sort_path, term_sort.is_dynamic()),
+            |term_sort| sort_type_tokens(&facade, sort_path, term_sort.is_dynamic()),
         );
         let sort_key = format_ident!("__krs_initializer_variable_{nonce:016x}_{index}");
         builder.key_functions.push(quote! {
@@ -289,12 +289,21 @@ fn inject_initializer_value(
             inferred_constructor: true,
             ..
         } => {
+            // The wrapper stands for the value the author wrote, so rustc
+            // reports a value whose kind is not the cell's (a `k!` sequence
+            // in a leaf cell) at that value.
             let value = initializer_value_stand_in(value, facade, bindings);
-            *expression = if *computation {
-                parse_quote!(#facade::configuration::KCell::new(#value))
+            let wrapper = if *computation {
+                quote!(#facade::configuration::KCell::new)
             } else {
-                parse_quote!(#facade::configuration::Cell::new(#value))
+                quote!(#facade::configuration::Cell::new)
             };
+            let span = expression.span();
+            let wrapper = respanned(wrapper, span);
+            let mut argument =
+                proc_macro2::Group::new(proc_macro2::Delimiter::Parenthesis, quote!(#value));
+            argument.set_span(span);
+            *expression = parse_quote!(#wrapper #argument);
         }
         InitializerCellContent::Leaf {
             value,
@@ -429,7 +438,7 @@ impl<'a> InitializerBuilder<'a> {
                     constructor,
                     children,
                 } => {
-                    let path = call_site_path(constructor)?;
+                    let path = constructor;
                     let authored = spelling(constructor);
                     let declaration = WireCellDeclarationReference {
                         key: ledger.define(cell.constructor_key())?,

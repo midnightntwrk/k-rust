@@ -24,8 +24,7 @@ use super::nonce::expansion_nonce;
 use super::productions::strictness_key_function;
 use super::terms::{SortArgumentSink, WireSlots, production_sort_arguments, wire_sort_reference};
 use super::tokens::{
-    call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, sort_type_tokens,
-    spelling,
+    call_site_cfg_attributes, call_site_ident, helper_tokens, sort_type_tokens, spelling,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -445,7 +444,7 @@ fn constructor_like(
     let name = declaration.name().to_string();
     let declared = call_site_ident(declaration.name())?;
     let authored_sort = &attribute.sort;
-    let generated_sort = call_site_path(&attribute.sort)?;
+    let generated_sort = &attribute.sort;
     // A K sort parameter (KF-027) has no `TypeId` in a free function, so each
     // one is a generated marker type whose key the collector joins back to
     // the parameter's name.
@@ -493,8 +492,8 @@ fn constructor_like(
             let marker = &parameter_markers[parameter].0;
             quote!(#marker)
         } else {
-            let generated = call_site_path(field.term_sort().sort())?;
-            sort_type_tokens(&facade, &generated, field.term_sort().is_dynamic())
+            let generated = field.term_sort().sort();
+            sort_type_tokens(&facade, generated, field.term_sort().is_dynamic())
         };
         let spelling = field.term_sort().sort_token_text();
         let field_name = field.name().to_string();

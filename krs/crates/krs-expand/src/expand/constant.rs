@@ -17,7 +17,7 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots};
-use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens};
+use super::tokens::{call_site_cfg_attributes, call_site_ident, sort_type_tokens};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -53,7 +53,7 @@ pub(crate) fn constant(
     let cfg = call_site_cfg_attributes(&item.attrs)?;
     let declared = call_site_ident(constant.name())?;
     let sort = constant.sort();
-    let sort_type = sort_type_tokens(&facade, &call_site_path(sort.sort())?, sort.is_dynamic());
+    let sort_type = sort_type_tokens(&facade, sort.sort(), sort.is_dynamic());
 
     let mut slots = WireSlots::new(&facade);
     let sort_reference = WireSortReference {

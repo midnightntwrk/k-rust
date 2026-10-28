@@ -3,7 +3,7 @@
 use crate::ExpandError;
 use krs_diagnostic::codes::expand;
 use krs_syntax::TermLiteral;
-use proc_macro2::TokenStream;
+use proc_macro2::{Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote};
 use syn::parse::Parser;
 use syn::spanned::Spanned;
@@ -80,12 +80,28 @@ pub(super) fn helper_tokens(attribute: &Attribute, name: &str) -> crate::Result<
     Ok(list.tokens.clone())
 }
 
-pub(super) fn spelling(tokens: &impl ToTokens) -> String {
-    tokens.to_token_stream().to_string()
+/// `tokens` with every token, delimiters included, at `span`: a generated
+/// expression that stands for an authored one is reported where the author
+/// wrote it, whichever of its tokens rustc's diagnostic covers.
+pub(super) fn respanned(tokens: impl ToTokens, span: Span) -> TokenStream {
+    tokens
+        .into_token_stream()
+        .into_iter()
+        .map(|mut token| {
+            if let TokenTree::Group(group) = &token {
+                let mut rebuilt = Group::new(group.delimiter(), respanned(group.stream(), span));
+                rebuilt.set_span(span);
+                token = TokenTree::Group(rebuilt);
+            } else {
+                token.set_span(span);
+            }
+            token
+        })
+        .collect()
 }
 
-pub(super) fn call_site_path(path: &Path) -> crate::Result<Path> {
-    syn::parse_str(&path.to_token_stream().to_string()).map_err(ExpandError::from)
+pub(super) fn spelling(tokens: &impl ToTokens) -> String {
+    tokens.to_token_stream().to_string()
 }
 
 pub(super) fn call_site_ident(ident: &Ident) -> crate::Result<Ident> {

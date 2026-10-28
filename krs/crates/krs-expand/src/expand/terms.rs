@@ -24,8 +24,7 @@ use syn::{Attribute, Ident, Path};
 use super::ledger::KeyLedger;
 use super::nonce::rule_application_selector;
 use super::tokens::{
-    call_site_path, enum_variant_parts, is_bound_ident_path, spelling, variant_marker_function,
-    wire_literal,
+    enum_variant_parts, is_bound_ident_path, spelling, variant_marker_function, wire_literal,
 };
 
 /// Resolved expressions retained by a factory's static host wire.
@@ -762,7 +761,10 @@ impl<'a> TermBuilder<'a> {
         let node = keys.node(NodeKind::Let, range)?;
         self.admit(side, Construct::Let, range)?;
         let sort = sort
-            .map(|sort| self.local_sort_reference(node.key(ProvenanceRole::LetSort)?, sort, slots))
+            .map(|sort| {
+                node.key(ProvenanceRole::LetSort)
+                    .map(|key| self.local_sort_reference(key, sort, slots))
+            })
             .transpose()?;
         self.let_pattern_binders = Some(binders.to_vec());
         let pattern = self.expand_node(pattern, keys, side, slots);
@@ -788,8 +790,7 @@ impl<'a> TermBuilder<'a> {
         key: ProvenanceKey,
         sort: &Path,
         slots: &mut WireSlots,
-    ) -> crate::Result<krs_ir::wire::WireSortReference> {
-        let generated = call_site_path(sort)?;
+    ) -> krs_ir::wire::WireSortReference {
         let key_fn = format_ident!("__krs_let_sort_{:016x}_{}", self.nonce, self.next_key);
         self.next_key += 1;
         let cfg = self.cfg;
@@ -797,7 +798,7 @@ impl<'a> TermBuilder<'a> {
             #(#cfg)*
             #[doc(hidden)]
             fn #key_fn() -> ::core::any::TypeId {
-                ::core::any::TypeId::of::<#generated>()
+                ::core::any::TypeId::of::<#sort>()
             }
         });
         let key_reference = if self.associated_keys {
@@ -806,13 +807,13 @@ impl<'a> TermBuilder<'a> {
             quote!(#key_fn)
         };
         let facade = self.facade;
-        Ok(krs_ir::wire::WireSortReference {
+        krs_ir::wire::WireSortReference {
             key,
             target: krs_ir::wire::WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                 authored_path: spelling(sort),
             },
-        })
+        }
     }
 
     /// Expands the closure `|binder: Sort| body` of an `ml::exists`
@@ -833,8 +834,7 @@ impl<'a> TermBuilder<'a> {
     ) -> crate::Result<WireTerm> {
         let node = keys.node(NodeKind::Closure, range)?;
         self.admit(side, Construct::MlPredicate, range)?;
-        let sort =
-            self.local_sort_reference(node.key(ProvenanceRole::MlBinderSort)?, sort, slots)?;
+        let sort = self.local_sort_reference(node.key(ProvenanceRole::MlBinderSort)?, sort, slots);
         self.let_scopes.push(vec![binder.clone()]);
         let body = self.expand_node(body, keys, side, slots);
         self.let_scopes.pop();
@@ -1116,7 +1116,7 @@ impl<'a> TermBuilder<'a> {
                 let key = node.key(ProvenanceRole::ClaimAnonymous)?;
                 let sort_key = node.key(ProvenanceRole::ClaimAnonymousSort)?;
                 let spelling_key = node.key(ProvenanceRole::ClaimAnonymousSpelling)?;
-                let path = call_site_path(sort)?;
+                let path = sort;
                 let key_fn = format_ident!(
                     "__krs_claim_anonymous_sort_{:016x}_{}",
                     self.nonce,
@@ -1242,7 +1242,7 @@ impl<'a> TermBuilder<'a> {
                 let path_key = keys.path(cell.owner())?;
                 let node = keys.node(NodeKind::ApplicationHead, owner_range)?;
                 let (key, path_key) = node.head(path_key)?;
-                let declaration = self.cell_declaration_reference(cell.owner(), slots)?;
+                let declaration = self.cell_declaration_reference(cell.owner(), slots);
                 let mut fields = Vec::new();
                 for field in cell.fields() {
                     let name = ProductionFieldId::new(field.name().to_string())
@@ -1350,7 +1350,7 @@ impl<'a> TermBuilder<'a> {
         node: NodeKeys<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        let generated = call_site_path(sort)?;
+        let generated = sort;
         let key_fn = format_ident!("__krs_lexeme_sort_{:016x}_{}", self.nonce, self.next_key);
         self.next_key += 1;
         let cfg = self.cfg;
@@ -1389,7 +1389,7 @@ impl<'a> TermBuilder<'a> {
         node: NodeKeys<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<(krs_ir::ProvenanceKey, krs_ir::wire::WireSortReference)> {
-        let generated = call_site_path(sort)?;
+        let generated = sort;
         let key_fn = format_ident!("__krs_sort_test_sort_{:016x}_{}", self.nonce, self.next_key);
         self.next_key += 1;
         let cfg = self.cfg;
@@ -1422,8 +1422,7 @@ impl<'a> TermBuilder<'a> {
         &mut self,
         authored: &Path,
         slots: &mut WireSlots,
-    ) -> crate::Result<WireTypeReference> {
-        let generated = call_site_path(authored)?;
+    ) -> WireTypeReference {
         let key_fn = format_ident!("__krs_rule_cell_{:016x}_{}", self.nonce, self.next_key);
         self.next_key += 1;
         let cfg = self.cfg;
@@ -1431,7 +1430,7 @@ impl<'a> TermBuilder<'a> {
             #(#cfg)*
             #[doc(hidden)]
             fn #key_fn() -> ::core::any::TypeId {
-                ::core::any::TypeId::of::<#generated>()
+                ::core::any::TypeId::of::<#authored>()
             }
         });
         let key_reference = if self.associated_keys {
@@ -1440,10 +1439,10 @@ impl<'a> TermBuilder<'a> {
             quote!(#key_fn)
         };
         let facade = self.facade;
-        Ok(WireTypeReference {
+        WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
             authored_path: spelling(authored),
-        })
+        }
     }
 
     /// The target slot of an application head; `notation` marks the head of
@@ -1580,7 +1579,7 @@ impl<'a> TermBuilder<'a> {
             if !self.readable_instances() && !sort.is_dynamic() {
                 self.reference_marker_check(application, index);
             }
-            let generated = call_site_path(sort.sort())?;
+            let generated = sort.sort();
             let generated = if sort.is_dynamic() {
                 quote!(#facade::Term<dyn #generated>)
             } else {
@@ -1914,8 +1913,8 @@ pub(super) fn production_sort_arguments(
     for argument in arguments {
         let facade = sink.facade;
         let cfg = sink.cfg;
-        let generated = super::tokens::call_site_path(&argument.path)?;
-        let ty = super::tokens::sort_type_tokens(facade, &generated, argument.dynamic);
+        let generated = &argument.path;
+        let ty = super::tokens::sort_type_tokens(facade, generated, argument.dynamic);
         let key = quote::format_ident!("{}_{}", sink.prefix, sink.ordinal);
         sink.helpers.push(quote! {
             #(#cfg)*
