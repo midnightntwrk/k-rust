@@ -1,4 +1,2 @@
 # countAllOccurrences equation 2 is false: at an empty ToCount it makes countAllOccurrences(S, "") its own successor (KPrelude.StringHook.countAllOccurrences_eqn2_false)
 Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2» | refuted
-# wt equation 8: k2l_eqn_o proves it between 100,000 and 400,000 heartbeats (EQ-16); open until the library gets a per-theorem budget (gen --equations-heartbeats-file)
-Eqn.«wt(_,_)_IMPPLUS-TYPING_Bool_Stmt_Map_8»

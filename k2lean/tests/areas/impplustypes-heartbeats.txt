@@ -1,0 +1,7 @@
+# The theorems of impplustypes' Equations whose generic proofs need more than the default heartbeat
+# budget (`eqns::DEFAULT_HEARTBEATS`, 100,000), each with 400,000, as pipelines/kevm-heartbeats.txt
+# gives the KEVM ones over two thirds of it. `gen --equations-heartbeats-file` (soundness.sh), lines
+# `NAME HEARTBEATS`.
+# 252,024 heartbeats (elaborated alone with Elab.async off, 2026-10-29, main 9296ca763; out of
+# heartbeats at 240,000): k2l_eqn_o, after the no-match premises of the seven equations before it
+Eqn.«wt(_,_)_IMPPLUS-TYPING_Bool_Stmt_Map_8» 400000
