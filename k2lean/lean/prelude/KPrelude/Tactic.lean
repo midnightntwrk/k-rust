@@ -565,6 +565,43 @@ elab "#k2l_refuted " s:ident r:ident : command => do
   let rn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo r
   checkRefuted sn rn
 
+/-- Fail unless the theorem `pn` proves the obligation `sn` and depends only on Lean's three
+axioms: its type is the statement's closure over its own binders (`∀ xs, S xs`), or the
+statement's body written out (`∀ xs, body`), compared structurally (binder names aside). -/
+def checkProves (sn pn : Name) : CommandElabM Unit := do
+  let s ← getConstInfo sn
+  let some p := (← getEnv).find? pn | throwError m!"{pn}: no such theorem"
+  unless p matches .thmInfo _ do throwError m!"{pn} is not a theorem"
+  let lvls := s.levelParams.map mkLevelParam
+  let some v := s.value? | throwError m!"{sn} is not a definition"
+  let (named, literal) ← liftTermElabM <| Meta.forallTelescope s.type fun xs _ => do
+    let body := (v.instantiateLevelParams s.levelParams lvls).beta xs
+    return (← Meta.mkForallFVars xs (mkAppN (mkConst sn lvls) xs), ← Meta.mkForallFVars xs body)
+  unless p.type == named || p.type == literal do
+    throwError m!"{pn} : {p.type}, but the obligation {sn} is {named}, or {literal}"
+  let axs ← liftCoreM <| Lean.collectAxioms pn
+  let allowed := [``propext, ``Quot.sound, ``Classical.choice]
+  let bad := axs.filter (fun a => !allowed.contains a)
+  unless bad.isEmpty do
+    throwError m!"{pn} depends on disallowed axioms {bad}"
+  logInfo m!"{pn} proves {sn}; depends on axioms: {axs}"
+
+/-- `#k2l_proves X`: fail unless the theorem `X` proves the obligation `X.statement` as stated,
+and depends only on `propext`, `Quot.sound` and `Classical.choice` (CT-3). The theorem is
+`theorem X : X.statement`, or the statement written out, as the generator writes its proofs;
+compared structurally, not up to definitional unfolding, so a theorem that states something else
+(a weaker conclusion, an extra premise) is rejected even where it would unfold to the statement.
+With `[Hooks]`, the statement's closure is over the instance, and so is the theorem's.
+`#k2l_proves S P`: the same for the statement constant `S` and the theorem `P`. -/
+elab "#k2l_proves " id:ident : command => do
+  let sn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo (mkIdent (id.getId ++ `statement))
+  checkProves sn sn.getPrefix
+
+elab "#k2l_proves " s:ident p:ident : command => do
+  let sn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo s
+  let pn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo p
+  checkProves sn pn
+
 end KPrelude
 
 namespace KPrelude
