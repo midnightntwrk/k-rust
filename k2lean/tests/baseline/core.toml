@@ -7,7 +7,7 @@
 
 [unit]
 tier = "light"
-passed = 94
+passed = 97
 
 [lib.kimp]
 tier = "light"
@@ -60,6 +60,14 @@ tier = "light"
 stated = 118
 open = []
 guarded = 133
+overlaps = 0
+unwitnessed = 0
+
+[lib.alias]
+tier = "light"
+stated = 116
+open = []
+guarded = 134
 overlaps = 0
 unwitnessed = 0
 
@@ -123,6 +131,23 @@ lean_out_eq_out = 30
 allowed_axioms = []
 
 [sources.sha256]
+"generated/alias/KAlias.lean" = { tier = "light", sha256 = "99d7a9254c7d9089b107a87a965f40f3c01945b296a5e6d1fcfa7b4771f0bf24" }
+"generated/alias/KAlias/Adequacy.lean" = { tier = "light", sha256 = "5ff47ce6ef44ba493bf9e06f21e9646a8cfed8d4da38989762c676b21df0df1c" }
+"generated/alias/KAlias/Determinism.lean" = { tier = "light", sha256 = "d996380db5df7020e7fb87e848b0e8694cb5cc31831a233f663575aea6b16ffb" }
+"generated/alias/KAlias/Determinism/L1.lean" = { tier = "light", sha256 = "f35a53feede3a0ca6aacfb119bb7ce57471f83ebb6048fa43dcacd02ef149f60" }
+"generated/alias/KAlias/Determinism/Pre.lean" = { tier = "light", sha256 = "1071b735a2b1a9edc60e44014abed011f1895199f465c896fc7d1011da7c83be" }
+"generated/alias/KAlias/Equations.lean" = { tier = "light", sha256 = "1a41a7f32bf9aca566dc1f36016585f13952c42cbac1c785bdddae568611894f" }
+"generated/alias/KAlias/Functions.lean" = { tier = "light", sha256 = "8824fd0525c91f7285cd2ae87c8702cf3c32d20059456218f8dbe523cf61d2bf" }
+"generated/alias/KAlias/Init.lean" = { tier = "light", sha256 = "c96150db4e7b65e0aecaed6dc74a861b593dda0f45ece51913a941f1e73c1582" }
+"generated/alias/KAlias/Preserves.lean" = { tier = "light", sha256 = "4e4fa33654921ba8da535b0059e838fcdb5210bed9faa16d53dafb9b761d5e80" }
+"generated/alias/KAlias/Rules.lean" = { tier = "light", sha256 = "38077e75291c2d516fbdfbd135b917ae9bfe69bfd507f17e8b55ce8ca4a8f64a" }
+"generated/alias/KAlias/Terms.lean" = { tier = "light", sha256 = "f38b5d23c024c3a96d81c152cb386874b59885f4d35769c6238b52a09f1d51e5" }
+"generated/alias/KAliasBench/Main.lean" = { tier = "light", sha256 = "0383efb6dac9a6cbbf202509e2f9e403f477bb9ac7ff1d2af4f69e2308e01397" }
+"generated/alias/KAliasTest/Axioms.lean" = { tier = "light", sha256 = "2a66bb87ca907f29e566cc64ac152f8c352b7dfe85857399ed1f62914b8c2aec" }
+"generated/alias/KAliasTest/DetAxioms.lean" = { tier = "light", sha256 = "26df5c2b04902121a78900603832151ec2f2d1f7a75d745430a9707e2b5a3846" }
+"generated/alias/KAliasTest/Main.lean" = { tier = "light", sha256 = "37b28fb9de255203733dedcacb97a3717476f08ef8f976571be1b7cdc1ce8e4f" }
+"generated/alias/lakefile.lean" = { tier = "light", sha256 = "d34e1cbf397447330b0f624b6ba5f98f292b1f7bb47d627384c7cbce658f402c" }
+"generated/alias/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/ens/KEns.lean" = { tier = "light", sha256 = "49d4b3acfbf57c1dcd49bc3faff6dce5c43f742b26210702e3d7c146a60452d8" }
 "generated/ens/KEns/Adequacy.lean" = { tier = "light", sha256 = "0d2eedc5629d6b3991f7753ad3ec2f802a52e3c029179a8aff2afb95a228f1a9" }
 "generated/ens/KEns/Determinism.lean" = { tier = "light", sha256 = "ae840677539f38571bf2357b502bc126c6aa8fc40a3bbbadcc110ce6f2064bb9" }
