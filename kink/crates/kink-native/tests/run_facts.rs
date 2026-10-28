@@ -229,12 +229,14 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// (MAIN-KINK-GATE-RED: those passages moved, byte-identical, and are not re-pinned here); its
 /// fix round restated, in place, that sentence for the classification as built (an
 /// association-open rule, every rule with two or more names among them, failing closed), so the
-/// mark passage is re-pinned by digest again at the same lines):
+/// mark passage is re-pinned by digest again at the same lines; MAIN-KINK-GATE-RED's five moved
+/// passages were re-pinned by digest before the kink hand-over (fz26 KINK-REPINS, main `602746a9d`:
+/// 859 down 5, the other four down 22, byte-identical; the mark passage still at its lines)):
 /// - 92: the run-level record keeps what the diagnostic channel drops (`allowanceRefusals`,
 ///   `unsupportedHooks`, of the run and of the load);
-/// - 859: a result whose `allowanceRefusals` is empty is the result under every allowance of at
+/// - 864: a result whose `allowanceRefusals` is empty is the result under every allowance of at
 ///   least as many bytes, so a refusal-free record may be reused on any host (decision 5 stands);
-/// - 1673-1681: a record is a path fact; the load's records are on every run's list and on no
+/// - 1695-1703: a record is a path fact; the load's records are on every run's list and on no
 ///   leaf; the list holds those of work that ended on no reported leaf; it is complete for ground
 ///   contradictions and says nothing about a symbolic run;
 /// - 1946-1970: a mark is noted where the evaluator takes the value, and a `fresh-association`
@@ -244,11 +246,11 @@ fn every_adapted_run_carries_the_run_level_facts() {
 ///   included; the guarantee for a run whose list is empty (FZ-FRESH: the association of such a
 ///   rule's names with counter offsets is open, so a run on whose list it is not noted is the
 ///   same under every association, which A-1's exclusion of a non-empty list relies on);
-/// - 2563: a run under another allowance is outside the determinism contract when a bounded
+/// - 2585: a run under another allowance is outside the determinism contract when a bounded
 ///   `Bytes` hook may refuse;
-/// - 2420-2423 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
+/// - 2442-2445 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
 ///   of every run with a larger budget, at the same position, which the one-sided kill rests on;
-/// - 2153-2158 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
+/// - 2175-2180 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
 ///   leaves were all merged into an earlier stuck leaf of their configuration is complete, which
 ///   README route 3 rests on.
 const A1_PASSAGES: [(usize, usize, &str); 7] = [
@@ -258,13 +260,13 @@ const A1_PASSAGES: [(usize, usize, &str); 7] = [
         "72de04feec0bbb7c220d11713ecf4ce5c2acf01464c5a948448fdd73f7bdced8",
     ),
     (
-        859,
-        859,
+        864,
+        864,
         "8398220da3f64af5a820407732a493f31703b3c5821d1323aa8101011a864c52",
     ),
     (
-        1673,
-        1681,
+        1695,
+        1703,
         "61a132b02858ecd84dba10c1341bd64effab638b78bc5857102340a016d2edc0",
     ),
     (
@@ -273,18 +275,18 @@ const A1_PASSAGES: [(usize, usize, &str); 7] = [
         "95a011afcd589c8552438021f5104e582e9997f1e66d5d714af6aee6a6a67c28",
     ),
     (
-        2563,
-        2563,
+        2585,
+        2585,
         "7447a2082d4fdcd5cdfac1143465021b97160d5520cd5c10c84272a371253bc4",
     ),
     (
-        2420,
-        2423,
+        2442,
+        2445,
         "cdafee84ebdbccd1180f763b8b672650f6c6fa1319981c9b47b38cfcc3bdbf66",
     ),
     (
-        2153,
-        2158,
+        2175,
+        2180,
         "b7ea1c2b5ca5d494cd4245286fafe9a068b0ad4f9f6f18cef4a5a505cb73795e",
     ),
 ];

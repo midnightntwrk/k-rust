@@ -590,6 +590,16 @@ fn trusted_claims_are_pinned() {
 /// `TRUSTED_CLAIMS`' citations move alike. At the branch base `16014aab4` the ranges already did
 /// not hold their pinned text, the test being red there (moved by later k-rust documentation),
 /// so this moves no verdict.
+///
+/// Re-pin fz26 KINK-REPINS (before the kink hand-over, main `602746a9d`): the fourteen
+/// compatibility.md, smt.rs and module_to_kore.rs passages that moved byte-identical are
+/// re-pinned at the lines their digests now hold, and `TRUSTED_CLAIMS`' citations name the
+/// passages the pins locate (several had drifted from their pins before: `total`'s 1649-1659 and
+/// `functional`'s 1651 named the contradicted-`total` passage, the docs' 2291 and 1183-1186 the
+/// refused-claim and derived-`functional` passages). compatibility.md 2954-2956 is not re-pinned:
+/// 6058eb6bb rewrote its abstraction sentence ("pure total contexts" became "pure functional
+/// contexts ... with separate source-aware partial domains"), which the WORD-03 review below rests
+/// on, so the contract must be read again by that change's owner; the test stays red there.
 // WORD-03 also reviews the SMT-03 congruence paragraph: a K valuation extends to the
 // query-local UF interpretation of a pure total context. No constructor injectivity or
 // model exactness follows. The trusted hook/lemma/prelude sentence is unchanged; the old
@@ -601,62 +611,62 @@ fn trusted_claims_are_pinned() {
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     (
         "docs/compatibility.md",
-        1073,
-        1073,
+        1078,
+        1078,
         "bcee9ac9986b1b5c90868e046c36afc8da3dc45638790a4926d7ef624b18e8b7",
     ),
     (
         "docs/compatibility.md",
-        1151,
-        1151,
+        1156,
+        1156,
         "9fa7fb1ee4fde986bdc71fd04e907f47fe0d37e800774563526ce8a8bfaaeef3",
     ),
     (
         "docs/compatibility.md",
-        1153,
-        1153,
+        1158,
+        1158,
         "6ac61e27f16d7f63164621e446aa193f3d769bd4ce09ba332bf23b95c7c6fd13",
     ),
     (
         "docs/compatibility.md",
-        1183,
         1188,
+        1193,
         "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
     ),
     (
         "docs/compatibility.md",
-        1201,
-        1201,
+        1206,
+        1206,
         "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
     ),
     (
         "docs/compatibility.md",
-        1407,
-        1407,
+        1412,
+        1412,
         "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
     ),
     (
         "docs/compatibility.md",
-        1561,
-        1561,
+        1566,
+        1566,
         "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
     ),
     (
         "docs/compatibility.md",
-        1586,
-        1586,
+        1591,
+        1591,
         "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
     ),
     (
         "docs/compatibility.md",
-        1666,
-        1676,
+        1671,
+        1681,
         "1c61218ca52c52d4e182fd7c3b475ebd3129ff57d44c41bb280f022eff21fb32",
     ),
     (
         "docs/compatibility.md",
-        2308,
-        2308,
+        2313,
+        2313,
         "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
     ),
     (
@@ -685,26 +695,26 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     ),
     (
         "crates/k-rust-backend/src/smt.rs",
-        223,
-        223,
+        230,
+        230,
         "1caeb7f3044a3c36838e03391db8bd8d4a3d57a57c386b6479dd73af441d909c",
     ),
     (
         "crates/k-rust-backend/src/smt.rs",
-        1520,
-        1531,
+        1852,
+        1863,
         "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
     ),
     (
         "crates/k-rust/src/kompile/module_to_kore.rs",
-        1512,
-        1523,
+        1520,
+        1531,
         "57fb9f4beb1240e4987bfa6175dbfcc3b4ce218b3b8cd24147c85628b3ec740d",
     ),
     (
         "crates/k-rust/src/kompile/module_to_kore.rs",
-        1539,
-        1545,
+        1547,
+        1553,
         "f8374d89dd45e5237e10cba035a7513c592452cb734a31bac411d7fe4a1dda08",
     ),
 ];

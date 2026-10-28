@@ -116,10 +116,10 @@ pub enum ClaimRemoval {
 /// state, re-pin P-1 of repin-0068938b). Not claims:
 /// `constructor` (kompile drops a source `constructor` and derives freeness itself,
 /// `k-rust/src/kompile/module_to_kore.rs` 1512-1523 and 1539-1545), a value production's
-/// `functional` (derived from its equations, `compatibility.md` 1183-1186), `trusted` (on
-/// reachability claims, which execution never reads, `compatibility.md` 2291), the `assoc`,
+/// `functional` (derived from its equations, `compatibility.md` 1188-1191), `trusted` (on
+/// reachability claims, which execution never reads, `compatibility.md` 2313), the `assoc`,
 /// `unit` and `idem` axioms of a function (emitted but never used by the backend, which
-/// evaluates it by its equations, `compatibility.md` 1561; `comm` is not emitted on a function)
+/// evaluates it by its equations, `compatibility.md` 1566; `comm` is not emitted on a function)
 /// and kompile's generated lambdas (KK-71). A rewrite rule's `ensures` is the rule's meaning,
 /// and `freshGenerator`, `impure`, `memo` and `no-evaluators` are not consistency axioms.
 /// Termination and the SMT prelude stay premises. kink-patch's test `trusted_claims_are_pinned`
@@ -128,27 +128,27 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "total",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1151, 1649-1659; backend-port.md 323",
+        citation: "compatibility.md 1156, 1671-1681; backend-port.md 323",
     },
     TrustedClaim {
         claim: "functional",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1188, 1651; backend-port.md 323",
+        citation: "compatibility.md 1193, 1673; backend-port.md 323",
     },
     TrustedClaim {
         claim: "injective",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1201 (a user-written injective is an axiom)",
+        citation: "compatibility.md 1206 (a user-written injective is an axiom)",
     },
     TrustedClaim {
         claim: "smt-hook",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2954; backend-port.md 316; k-rust-backend/src/smt.rs 223",
+        citation: "compatibility.md 2954; backend-port.md 316; k-rust-backend/src/smt.rs 230",
     },
     TrustedClaim {
         claim: "smtlib",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2954-2956; k-rust-backend/src/smt.rs 223",
+        citation: "compatibility.md 2954-2956; k-rust-backend/src/smt.rs 230",
     },
     TrustedClaim {
         claim: "preserves-definedness",
@@ -158,27 +158,27 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "smt-lemma",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2954; backend-port.md 316; k-rust-backend/src/smt.rs 223, 1520-1531",
+        citation: "compatibility.md 2954; backend-port.md 316; k-rust-backend/src/smt.rs 230, 1852-1863",
     },
     TrustedClaim {
         claim: "simplification",
         removal: ClaimRemoval::Sentence,
-        citation: "compatibility.md 1151, 1407, 1586",
+        citation: "compatibility.md 1156, 1412, 1591",
     },
     TrustedClaim {
         claim: "ensures",
         removal: ClaimRemoval::Refused,
-        citation: "backend-port.md 342; compatibility.md 1073 (a false ensures makes the application bottom)",
+        citation: "backend-port.md 342; compatibility.md 1078 (a false ensures makes the application bottom)",
     },
     TrustedClaim {
         claim: "concrete-equation",
         removal: ClaimRemoval::Refused,
-        citation: "compatibility.md 1151 (concrete or symbolic equations are theorems of the executable equations)",
+        citation: "compatibility.md 1156 (concrete or symbolic equations are theorems of the executable equations)",
     },
     TrustedClaim {
         claim: "hooked-equation",
         removal: ClaimRemoval::Refused,
-        citation: "compatibility.md 1153 (a hooked symbol's equations are paired with the builtin it denotes)",
+        citation: "compatibility.md 1158 (a hooked symbol's equations are paired with the builtin it denotes)",
     },
 ];
 
