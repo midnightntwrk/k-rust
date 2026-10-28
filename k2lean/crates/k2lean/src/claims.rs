@@ -26,7 +26,10 @@
 //! the hypotheses, `Q` the target predicate of the same valuation), the bridge
 //! `Claim.<label>.of_inst`, and a generic proof attempt: the claim's own circularity
 //! (`AF.circularity_inst`) and the claims proved before it as lemmas, explored by `kc_auto`.
-//! Claims listed in `--open` get no generic proof (their statement stays a `Prop`).
+//! Claims listed in `--open` get no generic proof (their statement stays a `Prop`). An entry
+//! `NAME | refuted R` names the hand theorem `R` that refutes it, and `NAME | proved R` the one
+//! that proves it; `NSTest/Hand.lean` checks each (`#k2l_refuted`, or the type and the axioms),
+//! and `claims.toml` records the claim as refuted, proved by hand, or open.
 
 use crate::ir::{self, P};
 use crate::lower::{self, Fns, Lower, Step};
@@ -740,6 +743,57 @@ fn post_lambda(c: &Claim) -> String {
     }
 }
 
+/// What the open list says of an entry beyond "no generic proof": the hand theorem (a name
+/// relative to the package's namespace) that refutes it, or that proves it.
+#[derive(Clone, Debug, PartialEq)]
+enum Mark {
+    Refuted(String),
+    Proved(String),
+}
+
+impl Mark {
+    /// The entry's status line in `claims.toml`.
+    fn report(&self) -> String {
+        match self {
+            Mark::Refuted(r) => format!("refuted = {r:?}\n"),
+            Mark::Proved(r) => format!("hand = {r:?}\n"),
+        }
+    }
+}
+
+/// The `--open` list: one entry per line, `NAME`, `NAME | refuted R` or `NAME | proved R`; `#`
+/// starts a comment.
+fn open_list(path: Option<&std::path::Path>) -> BTreeMap<String, Option<Mark>> {
+    let Some(p) = path else {
+        return BTreeMap::new();
+    };
+    let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+    let mut out = BTreeMap::new();
+    for l in text.lines() {
+        let l = l.split('#').next().unwrap_or("").trim();
+        if l.is_empty() {
+            continue;
+        }
+        let (name, mark) = match l.split_once('|') {
+            None => (l, None),
+            Some((n, m)) => {
+                let m: Vec<&str> = m.split_whitespace().collect();
+                let mark = match m.as_slice() {
+                    ["refuted", r] => Mark::Refuted(r.to_string()),
+                    ["proved", r] => Mark::Proved(r.to_string()),
+                    _ => panic!(
+                        "{}: `{l}`: the mark is `refuted THEOREM` or `proved THEOREM`",
+                        p.display()
+                    ),
+                };
+                (n.trim(), Some(mark))
+            }
+        };
+        out.insert(name.to_string(), mark);
+    }
+    out
+}
+
 fn module_ns(module: &str) -> String {
     module
         .split('-')
@@ -1121,15 +1175,11 @@ pub fn main(args: &[String]) {
         );
     }
     let top = rules::top_sort(&def).unwrap();
-    let open: BTreeSet<String> = match &a.open {
-        Some(p) => std::fs::read_to_string(p)
-            .unwrap_or_default()
-            .lines()
-            .map(|l| l.split('#').next().unwrap_or("").trim().to_string())
-            .filter(|l| !l.is_empty())
-            .collect(),
-        None => Default::default(),
-    };
+    let marks = open_list(a.open.as_deref());
+    let open: BTreeSet<String> = marks.keys().cloned().collect();
+    // the statements whose hand theorem the open list names, with that mark
+    let mut checked: Vec<(String, Mark)> = vec![];
+    let mut marked_used: BTreeSet<String> = BTreeSet::new();
     let ns = &a.name;
     // a semantics with parameters (`class Hooks`: hooks with no model, such as KEVM's
     // `ecdsaPubKey`): `Step` takes the instance, so every claim is stated, and every instance
@@ -1170,9 +1220,22 @@ pub fn main(args: &[String]) {
         for r in &raws {
             match translate(r, &m, &fns, &top) {
                 Ok(c) => {
+                    let mns = module_ns(&c.module);
+                    let key = format!("{mns}.{}", c.label);
+                    let entry = [&c.label, &key].into_iter().find(|k| open.contains(*k));
+                    let status = match entry.and_then(|k| marks[k].clone()) {
+                        Some(mk) => {
+                            marked_used.insert(entry.unwrap().clone());
+                            let line = mk.report();
+                            checked.push((format!("{ns}.{mns}.Claim.{}", c.lean), mk));
+                            line
+                        }
+                        None if entry.is_some() => "open = true\n".to_string(),
+                        None => String::new(),
+                    };
                     let _ = writeln!(
                         report,
-                        "[[claim]]\nlabel = {:?}\nstated = true\nall_path = {}\n",
+                        "[[claim]]\nlabel = {:?}\nstated = true\nall_path = {}\n{status}",
                         c.label, c.all_path
                     );
                     by_module.entry(c.module.clone()).or_default().push(c)
@@ -1283,10 +1346,26 @@ explored.",
             n - opened.len(),
             opened
         );
+        // the obligations without a generic proof: refuted, proved by hand, or open
+        let (mut refuted, mut by_hand, mut still) = (vec![], vec![], vec![]);
+        for key in &opened {
+            let o = key.strip_prefix(&format!("{}.", spec.name)).unwrap_or(key);
+            match marks.get(key).cloned().flatten() {
+                Some(mk) => {
+                    marked_used.insert(key.clone());
+                    match &mk {
+                        Mark::Refuted(_) => refuted.push(key.clone()),
+                        Mark::Proved(_) => by_hand.push(key.clone()),
+                    }
+                    checked.push((format!("{ns}.{}.Obl.{}", spec.name, names::ident(o)), mk));
+                }
+                None => still.push(key.clone()),
+            }
+        }
         let _ = writeln!(
             report,
-            "[[induction]]\nname = {:?}\nsort = {:?}\nobligations = {}\nopen = {:?}\n",
-            spec.name, spec.sort, n, opened
+            "[[induction]]\nname = {:?}\nsort = {:?}\nobligations = {}\nopen = {:?}\nrefuted = {:?}\nhand = {:?}\n",
+            spec.name, spec.sort, n, still, refuted, by_hand
         );
         modules.push(spec.name.clone());
         proved_all.extend(proved);
@@ -1344,13 +1423,45 @@ explored.",
     }
     axioms.push('\n');
     write(a.out.join(format!("{ns}Test")).join("Axioms.lean"), &axioms);
+    let unused: Vec<&String> = marks
+        .iter()
+        .filter(|(k, m)| m.is_some() && !marked_used.contains(*k))
+        .map(|(k, _)| k)
+        .collect();
+    if !unused.is_empty() {
+        panic!("claims: --open marks entries that name no claim or obligation: {unused:?}");
+    }
+    let mut test_roots = format!("`{ns}Test.Axioms");
+    if !checked.is_empty() {
+        let mut hand = format!(
+            "import {ns}\n\n/-! Generated: the hand theorems that the open list names. A refutation is checked by\n\
+             `#k2l_refuted` (the negation of the generated statement itself, Lean's three axioms); a hand\n\
+             proof by its type and its axioms. -/\n"
+        );
+        for (s, mk) in &checked {
+            match mk {
+                Mark::Refuted(r) => {
+                    let _ = write!(hand, "\n#k2l_refuted {s} {ns}.{r}\n");
+                }
+                Mark::Proved(r) => {
+                    let _ = write!(
+                        hand,
+                        "\nexample : {s} := {ns}.{r}\n#k2l_assert_axioms {ns}.{r}\n"
+                    );
+                }
+            }
+        }
+        write(a.out.join(format!("{ns}Test")).join("Hand.lean"), &hand);
+        test_roots.push_str(&format!(", `{ns}Test.Hand"));
+    }
     write(
         a.out.join("lakefile.lean"),
         &format!(
             "import Lake\nopen Lake DSL\n\n/-- Generated by `k2lean claims`; do not edit. K claims over `{sem}`. -/\n\
              package «{ns}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n\n\
              require {sem} from \"{}\"\nrequire KClaims from \"{}\"\n\n@[default_target]\nlean_lib {ns}\n\n\
-             /-- The axiom guard over the generic proofs. -/\nlean_lib {ns}Test where\n  roots := #[`{ns}Test.Axioms]\n",
+             /-- The axiom guard over the generic proofs, and the check of the hand theorems the open list names. -/\n\
+             lean_lib {ns}Test where\n  roots := #[{test_roots}]\n",
             a.sem_path,
             a.kclaims_path,
             sem = a.sem
@@ -2479,8 +2590,30 @@ mod induction {
 
 #[cfg(test)]
 mod tests {
-    use super::{functions_list, lexical, read_functions, read_unfold, split_names};
+    use super::{
+        Mark, functions_list, lexical, open_list, read_functions, read_unfold, split_names,
+    };
     use std::path::{Path, PathBuf};
+
+    /// The `--open` list: a plain entry, the two marks, comments, and a name with `/` and `.`.
+    #[test]
+    fn open_list_marks() {
+        let dir = std::env::temp_dir().join(format!("k2lean-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("open.txt");
+        std::fs::write(
+            &p,
+            "# header\nM.a  # open\nM.b | refuted Hand.b_false  # false\n\nExprDiv.AExp._/_ | proved Hand.d\n",
+        )
+        .unwrap();
+        let m = open_list(Some(&p));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(m.len(), 3);
+        assert_eq!(m["M.a"], None);
+        assert_eq!(m["M.b"], Some(Mark::Refuted("Hand.b_false".into())));
+        assert_eq!(m["ExprDiv.AExp._/_"], Some(Mark::Proved("Hand.d".into())));
+        assert!(open_list(None).is_empty());
+    }
 
     /// `invariant-unfold.txt` as `gen --invariant` writes it: comment lines, then one name per
     /// line; a `#` inside a name is part of it.

@@ -1,11 +1,12 @@
 # Claims of the kimp specs that get no generic proof (`k2lean claims --open`).
-# Format: <K module>.<label>, or <induction name>.<class>.<constructor> for an obligation of `--induction`.
-# Each is either proved by hand in `demos/claims/hand/Hand.lean` or false.
-IMP-SUM-SPEC.two-sum-spec          # true; no claim re-matches after one iteration (imp-two-sum-aux-spec.k); Hand.two_sum_spec
-IMP-SIMPLE-SPEC.bmc-loop-concrete  # false: ?N = -1; Hand.bmc_loop_concrete_false
-IMP-SIMPLE-SPEC.bmc-loop-symbolic  # false for S in {0, 1}; Hand.bmc_loop_symbolic_false
-IMP-DIV0-SPEC.div0-seven           # false: `5 / 0` has no successor (undefined step); Hand.div0_seven_false
-IMP-DIV0-SPEC.div0-any-int         # false for the same reason; Hand.div0_any_int_false
-IMP-INV-SPEC.copy                  # false over all configurations: a store value that is not a Value is evaluated; Hand.copy_false
-IMP-INV-SPEC.copy-loop             # false for the same reason; Hand.copy_loop_false (true under the invariant: generated/kimpinv-claims)
-ExprDiv.AExp._/_                   # false: `1 / 0` has no successor; Hand.expr_div_false
+# Format: <K module>.<label>, or <induction name>.<class>.<constructor> for an obligation of `--induction`;
+# `| refuted THEOREM` names the hand theorem (in `demos/claims/hand/Hand.lean`, relative to KImpClaims) that
+# refutes it, `| proved THEOREM` the one that proves it; `KImpClaimsTest/Hand.lean` checks each.
+IMP-SUM-SPEC.two-sum-spec          | proved Hand.two_sum_spec               # true; no claim re-matches after one iteration (imp-two-sum-aux-spec.k)
+IMP-SIMPLE-SPEC.bmc-loop-concrete  | refuted Hand.bmc_loop_concrete_false   # false: ?N = -1
+IMP-SIMPLE-SPEC.bmc-loop-symbolic  | refuted Hand.bmc_loop_symbolic_false   # false for S in {0, 1}
+IMP-DIV0-SPEC.div0-seven           | refuted Hand.div0_seven_false          # false: `5 / 0` has no successor (undefined step)
+IMP-DIV0-SPEC.div0-any-int         | refuted Hand.div0_any_int_false        # false for the same reason
+IMP-INV-SPEC.copy                  | refuted Hand.copy_false                # false over all configurations: a store value that is not a Value is evaluated
+IMP-INV-SPEC.copy-loop             | refuted Hand.copy_loop_false           # false for the same reason (true under the invariant: generated/kimpinv-claims)
+ExprDiv.AExp._/_                   | refuted Hand.expr_div_false            # false: `1 / 0` has no successor

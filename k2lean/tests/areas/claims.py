@@ -14,19 +14,33 @@ DEMOS = {
 }
 
 
+def listed(ct, key):
+    """The entries of claims.toml with status KEY: a claim's `KEY = …` line (`open = true`,
+    `refuted = "R"`, `hand = "R"`), and the names in an induction's `KEY = [...]`."""
+    claims = len(re.findall(rf"^{key} = (?:true|\")", ct, re.M))
+    obls = sum(len(re.findall(r'"[^"]*"', x)) for x in re.findall(rf"^{key} = \[(.*)\]$", ct, re.M))
+    return claims + obls
+
+
 def measure_claims(c):
-    """kimp's claims (claims.toml), kimpinv's (claims-inv.toml), their guards and kc_auto lines."""
+    """kimp's claims (claims.toml), kimpinv's (claims-inv.toml), their guards and kc_auto lines;
+    of the open list's entries, those refuted (as the guard checked them, refuted.txt), proved by
+    hand, and open."""
     ct = read(c.meas / "claims.toml")
     ci = read(c.meas / "claims-inv.toml")
     ax = read(c.meas / "axioms.txt")
     kc = read(c.meas / "kc-auto-stats.txt")
+    rf = read(c.meas / "refuted.txt")
     return {"claims": len(re.findall(r"^\[\[claim\]\]", ct, re.M)) if ct else None,
             "stated": len(re.findall(r"^stated = true", ct, re.M)) if ct else None,
             "inv_stated": len(re.findall(r"^stated = true", ci, re.M)) if ci else None,
             "induction_obligations": sum(int(x) for x in re.findall(r"^obligations = (\d+)", ct, re.M)) if ct else None,
             "guarded": len([l for l in ax.splitlines() if l.strip()]) if ax else None,
             "kc_auto": len([l for l in kc.splitlines() if "kc_auto" in l]) if kc else None,
-            "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}
+            "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None,
+            "refuted": len([l for l in rf.splitlines() if l.strip()]) if rf is not None else None,
+            "hand": listed(ct, "hand") if ct else None,
+            "open": listed(ct, "open") if ct else None}
 
 
 def measure_spec(tag):
@@ -62,6 +76,7 @@ OUTPUTS = {
     "kprove.txt": {"tier": "heavy", "compare": "exact"},
     "kc-auto-stats.txt": {"tier": "heavy", "compare": "sorted-lines"},  # Lake replays logs in build order
     "axioms.txt": {"tier": "heavy", "compare": "axiom-sets"},
+    "refuted.txt": {"tier": "heavy", "compare": "axiom-sets"},
     "replay/addition-2.toml": {"tier": "heavy", "compare": "strip-seconds"},
     "replay/branching.toml": {"tier": "heavy", "compare": "strip-seconds"},
     "replay/sum-loop.toml": {"tier": "heavy", "compare": "strip-seconds"},

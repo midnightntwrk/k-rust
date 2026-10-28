@@ -87,7 +87,7 @@ target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/de
 
 | option | does |
 |---|---|
-| `--open FILE` | claims (and induction obligations) that get no generic proof: false ones, or ones proved by hand in a `--hand` module |
+| `--open FILE` | claims (and induction obligations) that get no generic proof: false ones, or ones proved by hand in a `--hand` module; `NAME \| refuted R` and `NAME \| proved R` name the hand theorem, which `NSTest/Hand.lean` checks (`#k2l_refuted`) |
 | `--assume-invariant NAME` | every claim is stated for the configurations satisfying the preserved invariant `NAME` (`NAME.preserved : Preserved Step NAME`; `--invariant-preserved`, `--invariant-module`), which its proof carries along every step; `--invariant-unfold FILE` gives the unfolding set, one Lean name per line (default: the `invariant-unfold.txt` that `gen --invariant` writes in the semantics' library, `--semantics-path`) |
 | `--induction FILE` | the termination of a sublanguage of a syntax sort (TOML: classes and constructor typings), by structural induction, one obligation per typing |
 | `--transfer REL` | every proved claim carried to the definition `--transfer-target B` along `REL.bisim`, one theorem per claim, into the module `--transfer-out FILE` (namespace `--transfer-ns`); repeatable, the other `--transfer-…` options apply to the last one |

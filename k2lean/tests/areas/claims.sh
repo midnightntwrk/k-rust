@@ -108,6 +108,11 @@ kimp_claims() {
       else bad "guard claims" "$L/build-claims-guard.log"; fi
       grep -o 'KImpClaims[^ ]*\.holds depends on axioms: .*' "$L/build-claims-guard.log" > "$MEAS/axioms.txt" || true
       grep -o 'KImpClaims.Hand[^ ]* depends on axioms: .*' "$L/build-claims.log" >> "$MEAS/axioms.txt" || true
+      # the refutations of the open list's false claims, as the guard checked them (`#k2l_refuted`);
+      # Lake wraps a long message, so a line is joined up to the end of its axiom list
+      awk '/KImpClaims\.Hand[^ ]* refutes / { s = $0; while (s !~ /\]/ && (getline l) > 0) s = s " " l
+             sub(/.*KImpClaims\.Hand/, "KImpClaims.Hand", s); gsub(/ +/, " ", s); print s }' \
+        "$L/build-claims-guard.log" > "$MEAS/refuted.txt"
       grep -E 'kc_auto' "$L/build-claims.log" > "$MEAS/kc-auto-stats.txt" || true
     else bad "build claims" "$L/build-claims.log"; fi
   else bad "claims gen" "$L/claims-gen.log"; fi
