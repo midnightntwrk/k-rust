@@ -68,6 +68,17 @@ pub(crate) fn level_head(first: Option<Span>, list: Span) -> Path {
     }
 }
 
+/// Whether `head` is the marker of a level of list notation, which denotes a
+/// list's constructors rather than an operation.
+pub(crate) fn is_level_head(head: &Path) -> bool {
+    head.leading_colon.is_none()
+        && head.segments.len() == 2
+        && head.segments[0].ident == "__list"
+        && ["cons", "snoc", "empty"]
+            .iter()
+            .any(|name| head.segments[1].ident == name)
+}
+
 /// The marker path of a level taken from the back, `__list::snoc`, from the
 /// level's last element to the end of the authored brackets. Each
 /// element is the head of exactly one level, so no two levels of one

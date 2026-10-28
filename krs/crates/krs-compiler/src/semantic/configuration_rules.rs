@@ -66,6 +66,19 @@ impl StateRuleTerms<'_> {
         binding_sorts: &BTreeMap<String, SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        self.term_in(term, expected_sort, binding_sorts, subject, false)
+    }
+
+    /// [`Self::term`], `in_key` when the term is the key of a map a pattern
+    /// looks up.
+    fn term_in(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        binding_sorts: &BTreeMap<String, SemanticSortRef>,
+        subject: bool,
+        in_key: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
         let mut builder = StructuredTermBuilder {
             descriptor: self.descriptor,
@@ -82,6 +95,7 @@ impl StateRuleTerms<'_> {
             wildcards: Vec::new(),
             result_wildcards: false,
             locals: super::infer::LocalBinders::default(),
+            in_key,
             head_pending: false,
             operators: super::operators::OperatorInference::default(),
             declared_binders: self.declared_binders.clone(),
@@ -108,6 +122,17 @@ impl StateRuleTerms<'_> {
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let sort = self.collections.element_sort(term);
         self.term(term, sort.as_ref(), binding_sorts, subject)
+    }
+
+    /// [`Self::element`] for a key, which a pattern looks up.
+    fn key(
+        &mut self,
+        term: &DescriptorTerm,
+        binding_sorts: &BTreeMap<String, SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let sort = self.collections.element_sort(term);
+        self.term_in(term, sort.as_ref(), binding_sorts, subject, subject)
     }
 
     /// Infers and lowers one `requires` or `ensures` condition: an object
@@ -137,6 +162,7 @@ impl StateRuleTerms<'_> {
             wildcards: Vec::new(),
             result_wildcards: false,
             locals: super::infer::LocalBinders::default(),
+            in_key: false,
             head_pending: false,
             operators: super::operators::OperatorInference::default(),
             declared_binders: self.declared_binders.clone(),
@@ -246,7 +272,7 @@ impl StateRuleTerms<'_> {
                         let mut entries = Vec::with_capacity(items.len());
                         for item in items {
                             entries.push(MapEntry {
-                                key: self.element(&item.key, binding_sorts, subject)?,
+                                key: self.key(&item.key, binding_sorts, subject)?,
                                 value: self.element(&item.value, binding_sorts, subject)?,
                             });
                         }

@@ -15,6 +15,11 @@
 //! reads a value and binds nothing: `set::concat(set::item(Size(n)), rest)`
 //! reads `n`.
 //!
+//! A key that computes its value reads the names below the construct that
+//! computes it as a function application's arguments: a sort test's operand
+//! and a record update's fields. A key holds no `let` block or `k::matches!`
+//! (`krs_syntax::positions`, finding NT-3-2).
+//!
 //! Whether an application in a key is a function's is a fact of the
 //! declaration its head resolves to, so this is decided here, after
 //! resolution: the front binds every name of a key, since it cannot tell
@@ -53,8 +58,20 @@ pub(super) fn check(
         catalog,
         bound: BTreeSet::new(),
         read: Vec::new(),
+        open: None,
     };
     names.sentence(payload);
+    if let Some(open) = &names.open {
+        return Err(DescriptorLoweringError::OpenRecordInComputedKey {
+            item: Box::new(descriptor.id().clone()),
+            reason: format!(
+                "`..` leaves a record's other fields open, which only a pattern can: this record stands below {function} in {place}, which computes the value looked up, and has no value for the fields `..` leaves open; name every field",
+                function = open.function,
+                place = open.lookup.place(),
+            ),
+            range: key_range(descriptor, open.key).map(Box::new),
+        });
+    }
     let Some(read) = names
         .read
         .iter()
@@ -62,15 +79,10 @@ pub(super) fn check(
     else {
         return Ok(());
     };
-    let (place, why) = match read.lookup {
-        Lookup::MapKey => (
-            "a map key",
-            "a key is evaluated to look its entry up, so the key",
-        ),
-        Lookup::SetElement => (
-            "a set element",
-            "an element is evaluated to look it up in the set, so the element",
-        ),
+    let place = read.lookup.place();
+    let why = match read.lookup {
+        Lookup::MapKey => "a key is evaluated to look its entry up, so the key",
+        Lookup::SetElement => "an element is evaluated to look it up in the set, so the element",
     };
     Err(DescriptorLoweringError::UnboundKeyName {
         item: Box::new(descriptor.id().clone()),
@@ -90,6 +102,8 @@ struct Names<'a, 't> {
     bound: BTreeSet<&'t str>,
     /// The names a key reads below a function application, in pattern order.
     read: Vec<Read<'t>>,
+    /// The first open record a key holds below a function application.
+    open: Option<Read<'t>>,
 }
 
 /// A name a key reads below a function application.
@@ -109,6 +123,30 @@ enum Lookup {
     MapKey,
     /// A set's element.
     SetElement,
+}
+
+impl Lookup {
+    /// The lookup's place, for a diagnostic.
+    const fn place(self) -> &'static str {
+        match self {
+            Self::MapKey => "a map key",
+            Self::SetElement => "a set element",
+        }
+    }
+}
+
+/// Where the operands of a construct that computes, `what`, stand when the
+/// construct stands `in_key` below `function`: in a key, they are read below
+/// it, as a function application's arguments are.
+const fn computed<'f>(
+    in_key: InKey,
+    function: Option<&'f str>,
+    what: &'f str,
+) -> (InKey, Option<&'f str>) {
+    match in_key {
+        InKey::Matched(lookup) | InKey::Read(lookup) => (InKey::Read(lookup), Some(what)),
+        InKey::No => (in_key, function),
+    }
 }
 
 /// Where in a key a term stands.
@@ -140,6 +178,7 @@ impl<'t> Names<'_, 't> {
                 }
             }
             DescriptorPayload::ConfigurationRule(rule) => self.cells(&rule.subject),
+            DescriptorPayload::ContextAlias(alias) => self.cells(&alias.pattern),
             _ => {}
         }
     }
@@ -259,9 +298,29 @@ impl<'t> Names<'_, 't> {
             DescriptorTerm::Application {
                 reference,
                 arguments,
+                open,
+                update,
                 ..
             } => {
+                if *open
+                    && self.open.is_none()
+                    && let (InKey::Read(lookup), Some(function)) = (in_key, function)
+                {
+                    self.open = Some(Read {
+                        name: "",
+                        key: &reference.key,
+                        function: function.to_owned(),
+                        lookup,
+                    });
+                }
                 let applied = applied_function(&reference.application, self.catalog);
+                // A record update builds its record from a matched one: a key
+                // computes it.
+                let (in_key, function) = if update.is_some() {
+                    computed(in_key, function, "a record update")
+                } else {
+                    (in_key, function)
+                };
                 let (in_key, function) = match (&applied, in_key) {
                     (Applied::Function(applied), InKey::Matched(lookup) | InKey::Read(lookup)) => {
                         (InKey::Read(lookup), Some(applied.as_str()))
@@ -292,13 +351,17 @@ impl<'t> Names<'_, 't> {
                     self.term(&field.value, in_key, function);
                 }
             }
+            // A key computes its value from the operand of a sort test.
+            DescriptorTerm::SortTest { operand, .. } => {
+                let (in_key, function) = computed(in_key, function, "a sort test");
+                self.term(operand, in_key, function);
+            }
             DescriptorTerm::Literal { .. }
             | DescriptorTerm::Wildcard { .. }
             | DescriptorTerm::BuiltinToken { .. }
             | DescriptorTerm::Anonymous { .. }
             | DescriptorTerm::OrBool { .. }
             | DescriptorTerm::Lexeme { .. }
-            | DescriptorTerm::SortTest { .. }
             | DescriptorTerm::Matches { .. }
             | DescriptorTerm::Let { .. }
             | DescriptorTerm::Closure { .. } => {}

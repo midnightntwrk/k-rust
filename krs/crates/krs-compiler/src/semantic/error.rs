@@ -394,6 +394,17 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the name.
         range: Option<Box<SourceRange>>,
     },
+    /// An open record `Ctor { f: e, .. }` below a function application in
+    /// a map key or a set element: the key computes the value looked up
+    /// there, which has no value for the fields `..` leaves open.
+    OpenRecordInComputedKey {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the function.
+        reason: String,
+        /// Sole exact authored range of the record's head.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `let` statement's (K's `#let`) pattern cannot meet its value's sort,
     /// one of its names has no single sort, or a let-bound name is used at a
     /// sort it does not have (KF-032).
@@ -885,6 +896,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::OpenRecordInComputedKey {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::SubjectRootNotFunction {
                 range: $named_range,
                 item: $named_item,
@@ -1346,6 +1362,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidMatches { reason, .. }
             | Self::FunctionInPattern { reason, .. }
             | Self::UnboundKeyName { reason, .. }
+            | Self::OpenRecordInComputedKey { reason, .. }
             | Self::SubjectRootNotFunction { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
@@ -1440,6 +1457,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
             Self::FunctionInPattern { .. } => codes::analysis::FUNCTION_IN_PATTERN,
             Self::UnboundKeyName { .. } => codes::expand::UNBOUND_NAME,
+            Self::OpenRecordInComputedKey { .. } => codes::syntax::INVALID_RECORD_UPDATE,
             Self::SubjectRootNotFunction { .. } => codes::analysis::SUBJECT_ROOT_NOT_FUNCTION,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,

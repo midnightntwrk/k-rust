@@ -12,7 +12,7 @@ fn positions() -> Vec<Position> {
             _ => &[Slot::Subject, Slot::Result, Slot::Requires, Slot::Ensures],
         };
         for &slot in slots {
-            for bits in 0_u8..32 {
+            for bits in 0_u8..64 {
                 positions.push(Position {
                     form,
                     slot,
@@ -20,8 +20,9 @@ fn positions() -> Vec<Position> {
                         in_matches_pattern: bits & 1 != 0,
                         in_let_pattern: bits & 2 != 0,
                         in_rewrite: bits & 4 != 0,
-                        in_collection_entry: bits & 8 != 0,
-                        in_map_key: bits & 16 != 0,
+                        in_map_key: bits & 8 != 0,
+                        in_computed_key: bits & 16 != 0,
+                        in_selected_key: bits & 32 != 0,
                     },
                 });
             }
@@ -95,17 +96,134 @@ fn a_pattern_admits_what_matches_and_refuses_what_computes() {
         admits(subject, Construct::FunctionApplication),
         Admission::After(Rule::FunctionInPattern)
     );
-    let entry = Position {
+    let key = Position {
         nesting: Nesting {
-            in_collection_entry: true,
+            in_map_key: true,
             ..subject.nesting
         },
         ..subject
     };
     assert_eq!(
-        admits(entry, Construct::FunctionApplication),
+        admits(key, Construct::FunctionApplication),
         Admission::Admit
     );
+}
+
+#[test]
+fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
+    let key = Position {
+        nesting: Nesting {
+            in_map_key: true,
+            ..Position::root(Form::ReadableRule, Slot::Subject).nesting
+        },
+        ..Position::root(Form::ReadableRule, Slot::Subject)
+    };
+    // A name or a pattern-only construct selects an entry by matching the map's keys; a
+    // computed construct computes the key looked up.
+    for construct in [
+        Construct::Wildcard,
+        Construct::As,
+        Construct::Or,
+        Construct::SortTest,
+        Construct::RecordUpdate,
+        Construct::FunctionApplication,
+    ] {
+        assert_eq!(admits(key, construct), Admission::Admit, "{construct:?}");
+    }
+    let computed = Position {
+        nesting: Nesting {
+            in_computed_key: true,
+            ..key.nesting
+        },
+        ..key
+    };
+    assert_eq!(
+        admits(computed, Construct::Wildcard),
+        Admission::Refuse(Class::WildcardOutsidePattern)
+    );
+    assert_eq!(
+        admits(computed, Construct::As),
+        Admission::Refuse(Class::AliasOutsidePattern)
+    );
+    assert_eq!(
+        admits(computed, Construct::Or),
+        Admission::After(Rule::AlternativesOutsidePattern)
+    );
+    assert_eq!(
+        admits(computed, Construct::OpenRecord),
+        Admission::Refuse(Class::OpenRecordOutsidePattern)
+    );
+    assert_eq!(admits(key, Construct::OpenRecord), Admission::Admit);
+    assert_eq!(admits(computed, Construct::SortTest), Admission::Admit);
+    // K's `#let` and `:=K` stand in built terms and conditions only: no key holds them, at any
+    // depth (NT-3-2).
+    for position in [key, computed] {
+        assert_eq!(
+            admits(position, Construct::Let),
+            Admission::Refuse(Class::LetOutsideTerm)
+        );
+        assert_eq!(
+            admits(position, Construct::Matches),
+            Admission::Refuse(Class::MatchesOutsideCondition)
+        );
+    }
+    // Below `@` or `|`, a key selects an entry by matching: what computes is refused.
+    let selected = Position {
+        nesting: Nesting {
+            in_selected_key: true,
+            ..key.nesting
+        },
+        ..key
+    };
+    assert_eq!(admits(selected, Construct::Wildcard), Admission::Admit);
+    assert_eq!(
+        admits(selected, Construct::Let),
+        Admission::Refuse(Class::LetOutsideTerm)
+    );
+    // A `cells!` key is a cell's content, which holds no `let` (S0-17's boundary).
+    let cells_key = Position {
+        form: Form::CellsRule,
+        ..key
+    };
+    assert_eq!(
+        admits(cells_key, Construct::Let),
+        Admission::Refuse(Class::LetOutsideTerm)
+    );
+    assert_eq!(admits(cells_key, Construct::SortTest), Admission::Admit);
+}
+
+#[test]
+fn a_map_value_a_list_element_and_a_local_pattern_match_evaluated_terms() {
+    let subject = Position::root(Form::CellsRule, Slot::Subject);
+    // A map's value and a list's element are matched as a constructor's field is.
+    assert_eq!(
+        admits(subject, Construct::FunctionApplication),
+        Admission::After(Rule::FunctionInPattern)
+    );
+    // A local pattern matches a value a rule computed, in a result or a condition too.
+    for slot in [Slot::Result, Slot::Requires] {
+        for local in [
+            Nesting {
+                in_let_pattern: true,
+                ..subject.nesting
+            },
+            Nesting {
+                in_matches_pattern: true,
+                ..subject.nesting
+            },
+        ] {
+            let position = Position {
+                form: Form::SortRule,
+                slot,
+                nesting: local,
+            };
+            assert_eq!(
+                admits(position, Construct::FunctionApplication),
+                Admission::After(Rule::FunctionInPattern),
+                "{position:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -121,6 +239,8 @@ fn a_function_application_where_a_rule_or_an_equation_matches_is_left_to_the_com
         Form::CellsLocalRule,
         Form::EquationFn,
         Form::EquationTable,
+        Form::Context,
+        Form::ContextAlias,
     ] {
         let subject = Position::root(form, Slot::Subject);
         assert_eq!(
@@ -138,7 +258,6 @@ fn a_function_application_where_a_rule_or_an_equation_matches_is_left_to_the_com
         Form::Simplification,
         Form::ReadableClaim,
         Form::CellsClaim,
-        Form::Context,
         Form::Alias,
         Form::Desugar,
     ] {
@@ -147,6 +266,12 @@ fn a_function_application_where_a_rule_or_an_equation_matches_is_left_to_the_com
                 Position::root(form, Slot::Subject),
                 Construct::FunctionApplication
             ),
+            Admission::Admit,
+            "{form:?}"
+        );
+        // A sort test is an application, which these subjects hold.
+        assert_eq!(
+            admits(Position::root(form, Slot::Subject), Construct::SortTest),
             Admission::Admit,
             "{form:?}"
         );
@@ -323,7 +448,6 @@ fn a_rewrite_changes_a_map_value_and_never_a_key() {
     let subject = Position::root(Form::CellsLocalRule, Slot::Subject);
     let entry = |in_map_key| Position {
         nesting: Nesting {
-            in_collection_entry: true,
             in_map_key,
             ..Nesting::default()
         },

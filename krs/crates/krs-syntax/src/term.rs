@@ -493,6 +493,13 @@ impl TermApplication {
         self.notation
     }
 
+    /// Whether the application is a level of list notation (`[a, ..]`),
+    /// which denotes a list's constructors, not an operation.
+    #[must_use]
+    pub fn is_list_notation(&self) -> bool {
+        self.notation && crate::list_notation::is_level_head(&self.head)
+    }
+
     /// Returns the base `t` of a record update `Ctor { f: e, ..t }`: the
     /// record is the matched record `t` with the listed fields replaced.
     #[must_use]
@@ -1404,6 +1411,28 @@ impl TermExpression {
                     }
                     Self::from_pattern_expression(expression)
                 }
+                Err(_) => Err(error.into()),
+            },
+        }
+    }
+
+    /// Parses and validates the key of a map a pattern reads: a pattern, or
+    /// else a term expression, notation included. A key is what the map is
+    /// looked up by, so a computed key is the value it computes, and
+    /// notation there is the builtin call it denotes, as in a readable map
+    /// read's key; the position table judges each construct by the reading
+    /// the key's construct gives (`crate::positions`, "Keys").
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured error at the first term outside the closed
+    /// named-term subset.
+    pub(crate) fn parse_key_pattern_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
+        match Pat::parse_multi.parse2(tokens.clone()) {
+            Ok(pattern) => Self::from_pattern_at(pattern, tokens, signs, PatternRoot::Value),
+            Err(error) => match syn::parse2::<Expr>(tokens) {
+                Ok(expression) => Self::from_pattern_expression(expression),
                 Err(_) => Err(error.into()),
             },
         }
@@ -3930,7 +3959,8 @@ fn validate_record(
         instance,
         notation: false,
         update,
-        open: false,
+        // `..` with no base leaves the record's other fields open, as in a pattern.
+        open: record.rest.is_none() && record.dot2_token.is_some(),
     }))
 }
 

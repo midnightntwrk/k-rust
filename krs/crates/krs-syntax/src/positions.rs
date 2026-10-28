@@ -36,6 +36,15 @@
 //! `k::rewrite!`'s left side matches, as the subject around it does; its right side is what the
 //! matched term becomes, a term built in place, so it is judged as a result is
 //! ([`Position::rewrite_right`]).
+//!
+//! **Keys.** A map's key in a pattern is what the map is looked up by, and reads by what stands
+//! at its root: a name or a pattern-only construct (`_`, `@`, `|`) selects an entry by matching
+//! the map's keys, which are evaluated values, so the positions below it are matched
+//! ([`Nesting::in_selected_key`]); a computed construct (a sort test, a record update, an
+//! operator or a method) computes the value looked up, so the positions below it are built
+//! ([`Nesting::in_computed_key`]). A constructor's fields read as the key does. A key of a map
+//! that is built is built with it. A `let` block and `k::matches!` compute too, but stand in no
+//! key (finding NT-3-2).
 
 use std::fmt;
 
@@ -140,8 +149,10 @@ impl Form {
         matches!(self, Self::LocalRule | Self::CellsLocalRule | Self::Context)
     }
 
-    /// Whether the form's subject is the pattern of a rewrite rule or an equation, which every
-    /// term it applies to matches with its functions evaluated.
+    /// Whether the form's subject is the pattern of a rewrite rule, an equation or a context,
+    /// which every term it applies to matches with its functions evaluated: a context matches the
+    /// configuration's terms as a rule does. A simplification's and a claim's subjects hold
+    /// symbolic terms, and a static clause's the program as written, before anything runs.
     const fn matches_evaluated_terms(self) -> bool {
         matches!(
             self,
@@ -153,6 +164,8 @@ impl Form {
                 | Self::CellsLocalRule
                 | Self::EquationFn
                 | Self::EquationTable
+                | Self::Context
+                | Self::ContextAlias
         )
     }
 
@@ -231,11 +244,14 @@ pub struct Nesting {
     /// Inside a `k::rewrite!`: its left side, in the slot of the rewrite, or its right side, in
     /// [`Slot::Result`] ([`Position::rewrite_right`]).
     pub in_rewrite: bool,
-    /// Inside a key, value or element of a collection (a readable map read's key, a List cell's
-    /// element).
-    pub in_collection_entry: bool,
     /// Inside a map's key, which the map is looked up by.
     pub in_map_key: bool,
+    /// Inside a key a pattern looks up, below a construct that computes it (a sort test, a record
+    /// update, an operator or a method): a term built to be looked up.
+    pub in_computed_key: bool,
+    /// Inside a key a pattern looks up, below a pattern-only construct (`name @ pattern`, `A |
+    /// B`), which selects an entry by matching the map's keys: matched.
+    pub in_selected_key: bool,
 }
 
 /// Where a construct stands.
@@ -260,8 +276,9 @@ impl Position {
                 in_matches_pattern: false,
                 in_let_pattern: false,
                 in_rewrite: false,
-                in_collection_entry: false,
                 in_map_key: false,
+                in_computed_key: false,
+                in_selected_key: false,
             },
         }
     }
@@ -286,10 +303,34 @@ impl Position {
         position
     }
 
-    /// Whether the construct is matched against a term: the form's subject, or a local pattern.
+    /// Whether the construct is matched against a term: the form's subject, but below a
+    /// construct a key computes, or a local pattern.
     #[must_use]
     pub const fn is_pattern(self) -> bool {
-        matches!(self.slot, Slot::Subject) || self.in_local_pattern()
+        (matches!(self.slot, Slot::Subject) && !self.nesting.in_computed_key)
+            || self.in_local_pattern()
+    }
+
+    /// Whether the construct stands where a pattern looks a map up: a key of a map the subject
+    /// matches, at the reading its own construct gives, which a computed construct may give.
+    #[must_use]
+    pub const fn is_looked_up(self) -> bool {
+        matches!(self.slot, Slot::Subject)
+            && self.nesting.in_map_key
+            && !self.nesting.in_computed_key
+            && !self.nesting.in_selected_key
+            && !self.in_local_pattern()
+    }
+
+    /// Whether the construct is matched against terms whose functions are evaluated: the subject
+    /// of a rewrite rule, an equation or a context, outside a key or where a key selects an entry
+    /// by matching, or a local pattern, which matches a value a rule computed.
+    #[must_use]
+    pub const fn matches_evaluated_terms(self) -> bool {
+        (matches!(self.slot, Slot::Subject)
+            && self.form.matches_evaluated_terms()
+            && (!self.nesting.in_map_key || self.nesting.in_selected_key))
+            || self.in_local_pattern()
     }
 
     /// Whether the construct is inside a `k::matches!` or `let` pattern.
@@ -489,6 +530,8 @@ pub enum Class {
     LetOutsideTerm,
     /// `matches-outside-condition`.
     MatchesOutsideCondition,
+    /// `open-record-outside-pattern`.
+    OpenRecordOutsidePattern,
     /// `ml-in-initializer`.
     MlInInitializer,
     /// `ml-predicate-as-term`.
@@ -515,7 +558,7 @@ pub enum Class {
 
 impl Class {
     /// Every class.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::AliasInLetPattern,
         Self::AliasOutsidePattern,
         Self::AlternativesInLetPattern,
@@ -526,6 +569,7 @@ impl Class {
         Self::FragmentInInitializer,
         Self::LetOutsideTerm,
         Self::MatchesOutsideCondition,
+        Self::OpenRecordOutsidePattern,
         Self::MlInInitializer,
         Self::MlPredicateAsTerm,
         Self::RecordRemainderInCellsTerm,
@@ -553,6 +597,7 @@ impl Class {
             Self::FragmentInInitializer => "fragment-in-initializer",
             Self::LetOutsideTerm => "let-outside-term",
             Self::MatchesOutsideCondition => "matches-outside-condition",
+            Self::OpenRecordOutsidePattern => "open-record-outside-pattern",
             Self::MlInInitializer => "ml-in-initializer",
             Self::MlPredicateAsTerm => "ml-predicate-as-term",
             Self::RecordRemainderInCellsTerm => "record-remainder-in-cells-term",
@@ -584,7 +629,9 @@ impl Class {
             Self::MlPredicateAsTerm => codes::analysis::INVALID_ML_PREDICATE,
             Self::RecordRemainderInCellsTerm => codes::analysis::INVALID_RECORD_UPDATE,
             Self::RecordRemainderInInitializer => codes::expand::INITIALIZER_RECORD_UPDATE,
-            Self::RecordUpdateInPattern => codes::syntax::INVALID_RECORD_UPDATE,
+            Self::RecordUpdateInPattern | Self::OpenRecordOutsidePattern => {
+                codes::syntax::INVALID_RECORD_UPDATE
+            }
             Self::RewriteInMapKey | Self::RewriteOutsideLocalRule => {
                 codes::syntax::INVALID_LOCAL_REWRITE
             }
@@ -634,6 +681,9 @@ impl Class {
             }
             Self::MlPredicateAsTerm => {
                 "a matching-logic predicate is a formula about terms, no term itself, so a pattern cannot match it"
+            }
+            Self::OpenRecordOutsidePattern => {
+                "`..` leaves a record's other fields open, which only a pattern can: a built term has no value for them, so name every field"
             }
             Self::RecordRemainderInCellsTerm => {
                 "a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained; `..base` and `..` are readable-record notation"
@@ -732,6 +782,8 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
     let form = position.form;
     let nesting = position.nesting;
     let pattern = position.is_pattern();
+    let looked_up = position.is_looked_up();
+    let in_pattern_key = matches!(position.slot, Slot::Subject) && nesting.in_map_key;
     match construct {
         // `_` names no term; a desugar clause's result lists it in `unbound_variables`, where it
         // is K's anonymous variable of the rewritten program.
@@ -753,7 +805,7 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 }
             } else if nesting.in_let_pattern {
                 Refuse(Class::AliasInLetPattern)
-            } else if matches!(position.slot, Slot::Subject) {
+            } else if pattern {
                 if form.is_single_body() && !nesting.in_rewrite {
                     Refuse(Class::AliasOutsidePattern)
                 } else {
@@ -767,10 +819,7 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // stands for the one term it matched, and a `let` reads its value by one shape. Outside a
         // pattern `A | B` is the bitwise operator.
         Construct::Or => {
-            if matches!(position.slot, Slot::Subject)
-                && !position.in_local_pattern()
-                && form.rewrites_one_term()
-            {
+            if pattern && !position.in_local_pattern() && form.rewrites_one_term() {
                 Refuse(Class::AlternativesInOneTermRewrite)
             } else if nesting.in_let_pattern {
                 Refuse(Class::AlternativesInLetPattern)
@@ -783,16 +832,19 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // `k::matches!` tests and `let` computes from terms a match has bound, so neither stands
         // in a pattern; a claim's sides and conditions describe symbolic states the prover
         // reaches rather than compute from one match, and a `cells!` value is a cell's content
-        // (S6 decides whether that changes for readable rules written as `cells!` rules).
+        // (S6 decides whether that changes for readable rules written as `cells!` rules). A key a
+        // pattern looks up computes its value, but K's `#let` and `:=K` stand in built terms and
+        // conditions only, so a key holds neither, at any depth, a boundary kept pending finding
+        // NT-3-2.
         Construct::Matches => {
-            if pattern || form.is_claim() || cells_value(position) {
+            if pattern || in_pattern_key || form.is_claim() || cells_value(position) {
                 Refuse(Class::MatchesOutsideCondition)
             } else {
                 Admit
             }
         }
         Construct::Let => {
-            if pattern || form.is_claim() || cells_value(position) {
+            if pattern || in_pattern_key || form.is_claim() || cells_value(position) {
                 Refuse(Class::LetOutsideTerm)
             } else {
                 Admit
@@ -823,8 +875,11 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 Admit
             }
         }
+        // A sort test applies the sort's generated predicate or projection, a function: a pattern
+        // over evaluated terms never meets it, while a simplification's, a claim's and a static
+        // clause's subjects hold applications, and a key computes it.
         Construct::SortTest => {
-            if pattern {
+            if position.matches_evaluated_terms() && !looked_up {
                 Refuse(Class::SortTestInPattern)
             } else {
                 Admit
@@ -833,7 +888,8 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // A claim's start state may hold values nothing determines, and its conditions may be
         // disjunctions of symbolic conditions; no other sentence quantifies over its state.
         Construct::Anonymous => {
-            if form.is_claim() && matches!(position.slot, Slot::Subject) {
+            if form.is_claim() && matches!(position.slot, Slot::Subject) && !nesting.in_computed_key
+            {
                 Admit
             } else {
                 Refuse(Class::ClaimSubjectOnlyTerm)
@@ -851,30 +907,33 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         Construct::RecordUpdate => {
             if cells_value(position) {
                 Refuse(Class::RecordRemainderInCellsTerm)
-            } else if pattern {
+            } else if pattern && !looked_up {
                 Refuse(Class::RecordUpdateInPattern)
             } else {
                 Admit
             }
         }
+        // Below a construct a key computes, the record is built, and `..` names no value for the
+        // fields it leaves open.
         Construct::OpenRecord => {
             if cells_value(position) {
                 Refuse(Class::RecordRemainderInCellsTerm)
+            } else if nesting.in_computed_key && !position.in_local_pattern() {
+                Refuse(Class::OpenRecordOutsidePattern)
             } else {
                 Admit
             }
         }
-        // A rule's or an equation's pattern matches terms with their functions evaluated, so an
-        // application where it matches a term, at a slot's root as below it, matches only if it
-        // is a constructor's, which resolution decides. The root of an equation's subject is the
+        // A rule's, an equation's and a context's pattern matches terms with their functions
+        // evaluated, and so does a local pattern, which matches a value a rule computed: an
+        // application where a pattern matches a term, at a slot's root as below it, in a map's
+        // value or a list's element as in a constructor's field, matches only if it is a
+        // constructor's, which resolution decides. The root of an equation's subject is the
         // function it defines, which the compiler tells from the root of a function-context cell;
-        // a simplification's and a claim's subjects hold unevaluated applications; a collection
-        // lookup evaluates its key.
+        // a simplification's and a claim's subjects hold unevaluated applications; a lookup
+        // evaluates a map's key, and a set's element, which the compiler tells by its head.
         Construct::FunctionApplication => {
-            if matches!(position.slot, Slot::Subject)
-                && form.matches_evaluated_terms()
-                && !nesting.in_collection_entry
-            {
+            if position.matches_evaluated_terms() {
                 After(Rule::FunctionInPattern)
             } else {
                 Admit

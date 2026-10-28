@@ -342,15 +342,15 @@ fn a_left_hand_side_rejects_notation_by_name() {
     for (source, expected) in [
         (
             "fn r(k::term![Check(a && b)]: Term<Bool>) -> Term<Bool> { a }",
-            "`&&` is not a pattern: a pattern writes `bool::and_then` as the call `bool::and_then(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
+            "`&&` is not a pattern: a pattern writes `bool::and_then` as the call `bool::and_then(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a map's key or a set's element, which are looked up",
         ),
         (
             "fn r(k::term![Check(a || b)]: Term<Bool>) -> Term<Bool> { a }",
-            "`||` is not a pattern: a pattern writes `bool::or_else` as the call `bool::or_else(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
+            "`||` is not a pattern: a pattern writes `bool::or_else` as the call `bool::or_else(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a map's key or a set's element, which are looked up",
         ),
         (
             "fn r(k::term![Check(a.lt::<Int>(b))]: Term<Bool>) -> Term<Bool> { a }",
-            "a method call is not a pattern: a pattern writes `int::lt` as the call `int::lt(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
+            "a method call is not a pattern: a pattern writes `int::lt` as the call `int::lt(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a map's key or a set's element, which are looked up",
         ),
         (
             "fn r(k::term![Check(a.lt(b))]: Term<Bool>) -> Term<Bool> { a }",
@@ -554,7 +554,7 @@ fn a_left_hand_side_rejects_operators_naming_their_calls() {
     for (source, expected) in [
         (
             "fn r(k::term![Check(n + 1)]: Term<Bool>) -> Term<Bool> { n }",
-            "`+` is not a pattern: a pattern writes a builtin operation as its call, `int::add(..)`, `string::concat(..)`, or `float::add(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
+            "`+` is not a pattern: a pattern writes a builtin operation as its call, `int::add(..)`, `string::concat(..)`, or `float::add(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a map's key or a set's element, which are looked up",
         ),
         (
             "fn r(k::term![Check(a == b)]: Term<Bool>) -> Term<Bool> { a }",
@@ -562,7 +562,7 @@ fn a_left_hand_side_rejects_operators_naming_their_calls() {
         ),
         (
             "fn r(k::term![Check(-n)]: Term<Bool>) -> Term<Bool> { n }",
-            "`-` is not a pattern: a pattern writes a builtin operation as its call, `int::sub(0, ..)` or `float::neg(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
+            "`-` is not a pattern: a pattern writes a builtin operation as its call, `int::sub(0, ..)` or `float::neg(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a map's key or a set's element, which are looked up",
         ),
         (
             "fn r(k::term![Check(!b)]: Term<Bool>) -> Term<Bool> { b }",

@@ -489,6 +489,7 @@ fn check_constant(
         wildcards: Vec::new(),
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
+        in_key: false,
         head_pending: false,
         declared_binders: BTreeMap::new(),
         configuration_variables: BTreeMap::new(),

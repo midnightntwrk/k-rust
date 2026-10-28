@@ -265,7 +265,7 @@ fn expand_head_rule(
             krs_syntax::RuleExtra::RewriteList { cell, before, .. } => {
                 let mut items = Vec::with_capacity(before.items().len());
                 for item in before.items() {
-                    items.push(builder.expand_entry_wire(
+                    items.push(builder.expand_wire(
                         KeyedTerm::pattern(item.pattern(), item.tree()),
                         TermSide::Left,
                         &mut slots,
@@ -284,7 +284,7 @@ fn expand_head_rule(
                 };
                 let mut back = Vec::with_capacity(before.back().len());
                 for item in before.back() {
-                    back.push(builder.expand_entry_wire(
+                    back.push(builder.expand_wire(
                         KeyedTerm::pattern(item.pattern(), item.tree()),
                         TermSide::Left,
                         &mut slots,
@@ -424,7 +424,7 @@ fn expand_head_rule(
                     (Some(_), Some(after)) => {
                         let mut items = Vec::with_capacity(after.items().len());
                         for item in after.items() {
-                            items.push(builder.expand_entry_wire(
+                            items.push(builder.expand_wire(
                                 KeyedTerm::of(item),
                                 TermSide::Right,
                                 &mut slots,
@@ -447,7 +447,7 @@ fn expand_head_rule(
                         };
                         let mut back = Vec::with_capacity(after.back().len());
                         for item in after.back() {
-                            back.push(builder.expand_entry_wire(
+                            back.push(builder.expand_wire(
                                 KeyedTerm::of(item),
                                 TermSide::Right,
                                 &mut slots,

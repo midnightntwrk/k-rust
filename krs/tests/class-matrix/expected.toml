@@ -154,7 +154,7 @@ doc = "`k::fragment!` in an initializer, which builds nested cells with their st
 
 [class.function-in-pattern]
 code = "krs::analysis::function-in-pattern"
-doc = "a function application at a matched position of a rewrite rule's or equation's pattern, a slot's root as below it, a collection's value or element included, other than an equation's subject root (the function it defines) and a map key, which is computed and looked up: a pattern matches terms as written, and an application is evaluated"
+doc = "a function application at a matched position of a rewrite rule's, an equation's or a context's pattern, or of a `let` or `k::matches!` pattern, a slot's root as below it, a collection's value or element included, other than an equation's subject root (the function it defines) and a map key or a set element, which is computed and looked up: a pattern matches terms as written, and an application is evaluated"
 
 [class.initializer-remainder]
 code = "krs::syntax::unsupported-initializer-body"
@@ -316,7 +316,7 @@ doc = "a turbofish whose instance gives the application a sort its position does
 
 [class.unbound-name]
 code = "krs::expand::unbound-name"
-doc = "a binder that nothing in the sentence or initializer binds, a name a map key or a set element reads only below a function application included"
+doc = "a binder that nothing in the sentence or initializer binds, a name a map key or a set element reads only below a function application or another construct that computes it included"
 
 [class.unused-configuration-variable]
 code = "krs::analysis::unused-configuration-variable"

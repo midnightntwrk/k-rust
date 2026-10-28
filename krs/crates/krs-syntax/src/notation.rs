@@ -447,8 +447,9 @@ pub(crate) fn notation_at(input: ParseStream<'_>) -> Option<SyntaxError> {
 
 /// Where a pattern holds an application of an operation at all: elsewhere it is evaluated in
 /// every term the sentence is applied to, so no pattern matches it
-/// (`krs::analysis::function-in-pattern`).
-const PATTERN_APPLICATIONS: &str = "where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element";
+/// (`krs::analysis::function-in-pattern`). A `cells!` map's key reads notation itself, as the
+/// call it denotes (`TermExpression::parse_key_pattern_tokens`).
+const PATTERN_APPLICATIONS: &str = "where a pattern holds an application at all: in a simplification's or a claim's subject, or in a map's key or a set's element, which are looked up";
 
 fn pattern_error(expression: &Expr) -> SyntaxError {
     let call = match denoted_call(expression) {

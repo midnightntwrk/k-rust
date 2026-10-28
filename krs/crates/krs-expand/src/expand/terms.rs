@@ -501,6 +501,10 @@ impl TermSide {
     }
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Each flag records one independent fact of the walk: the keys' form, and the key the walk is in."
+)]
 pub(super) struct TermBuilder<'a> {
     facade: &'a Path,
     /// The ledger of the descriptor whose terms this builder expands.
@@ -518,10 +522,15 @@ pub(super) struct TermBuilder<'a> {
     /// How many term nodes enclose the one being expanded, itself
     /// included: a slot's root has depth 1.
     depth: usize,
-    /// Whether a collection's key, value or element is being expanded.
-    in_collection_entry: bool,
     /// Whether a map's key is being expanded.
     in_map_key: bool,
+    /// Whether the key being expanded is computed here: below a `let`
+    /// block, a `k::matches!`, a sort test, a record update or notation
+    /// in it ([`Nesting::in_computed_key`]).
+    in_computed_key: bool,
+    /// Whether the key being expanded selects an entry here: below `@` or
+    /// `|` in it ([`Nesting::in_selected_key`]).
+    in_selected_key: bool,
     /// The local binders (BIND-1) of the `k::matches!` pattern being
     /// expanded, or `None` outside one.
     local_binders: Option<Vec<Ident>>,
@@ -579,8 +588,9 @@ impl<'a> TermBuilder<'a> {
             associated_keys: false,
             form,
             depth: 0,
-            in_collection_entry: false,
             in_map_key: false,
+            in_computed_key: false,
+            in_selected_key: false,
             local_binders: None,
             let_pattern_binders: None,
             let_scopes: Vec::new(),
@@ -600,8 +610,9 @@ impl<'a> TermBuilder<'a> {
                 in_matches_pattern: self.in_matches_pattern(),
                 in_let_pattern: self.in_let_pattern(),
                 in_rewrite: false,
-                in_collection_entry: self.in_collection_entry,
                 in_map_key: self.in_map_key,
+                in_computed_key: self.in_computed_key,
+                in_selected_key: self.in_selected_key,
             },
         };
         match self.rewrite {
@@ -774,9 +785,9 @@ impl<'a> TermBuilder<'a> {
         let pattern = self.expand_node(pattern, keys, side, slots);
         self.let_pattern_binders = None;
         let pattern = pattern?;
-        let value = self.expand_node(value, keys, side, slots)?;
+        let value = self.below_computed(true, |this| this.expand_node(value, keys, side, slots))?;
         self.let_scopes.push(binders.to_vec());
-        let body = self.expand_node(body, keys, side, slots);
+        let body = self.below_computed(true, |this| this.expand_node(body, keys, side, slots));
         self.let_scopes.pop();
         Ok(WireTerm::Let {
             key: node.key(ProvenanceRole::Let)?,
@@ -875,7 +886,8 @@ impl<'a> TermBuilder<'a> {
     ) -> crate::Result<WireTerm> {
         let node = keys.node(NodeKind::Matches, range)?;
         self.admit(side, Construct::Matches, range)?;
-        let subject = self.expand_node(subject, keys, side, slots)?;
+        let subject =
+            self.below_computed(true, |this| this.expand_node(subject, keys, side, slots))?;
         self.local_binders = Some(binders.to_vec());
         let pattern = self.expand_node(pattern, keys, side, slots);
         self.local_binders = None;
@@ -897,23 +909,10 @@ impl<'a> TermBuilder<'a> {
         self.expand_node(term.tree(), &mut term.reader(self.ledger), side, slots)
     }
 
-    /// [`Self::expand_wire`] for a collection's key, value or element: a
-    /// lookup evaluates it, so the table admits there what it leaves to
-    /// resolution in a pattern.
-    pub(super) fn expand_entry_wire(
-        &mut self,
-        term: KeyedTerm<'_>,
-        side: TermSide,
-        slots: &mut WireSlots,
-    ) -> crate::Result<WireTerm> {
-        let enclosing = ::core::mem::replace(&mut self.in_collection_entry, true);
-        let wire = self.expand_wire(term, side, slots);
-        self.in_collection_entry = enclosing;
-        wire
-    }
-
-    /// [`Self::expand_entry_wire`] for a map's key, which the map is looked
-    /// up by.
+    /// [`Self::expand_wire`] for a map's key, which the map is looked up
+    /// by: in a pattern it reads by its construct, a selection among the
+    /// map's keys or a value computed to be looked up
+    /// (`krs_syntax::positions`, "Keys").
     pub(super) fn expand_key_wire(
         &mut self,
         term: KeyedTerm<'_>,
@@ -921,9 +920,31 @@ impl<'a> TermBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         let enclosing = ::core::mem::replace(&mut self.in_map_key, true);
-        let wire = self.expand_entry_wire(term, side, slots);
+        let wire = self.expand_wire(term, side, slots);
         self.in_map_key = enclosing;
         wire
+    }
+
+    /// Runs `expand` on the operands of a construct that computes them
+    /// when `computes`: inside a key, they are built, the value the key
+    /// looks up.
+    fn below_computed<T>(&mut self, computes: bool, expand: impl FnOnce(&mut Self) -> T) -> T {
+        let enclosing = self.in_computed_key;
+        self.in_computed_key |= computes && self.in_map_key;
+        let result = expand(self);
+        self.in_computed_key = enclosing;
+        result
+    }
+
+    /// Runs `expand` on the pattern of `name @ pattern` or the alternatives
+    /// of `A | B`: inside a key that is not computed there, they select an
+    /// entry by matching the map's keys.
+    fn below_selection<T>(&mut self, expand: impl FnOnce(&mut Self) -> T) -> T {
+        let enclosing = self.in_selected_key;
+        self.in_selected_key |= self.in_map_key && !self.in_computed_key;
+        let result = expand(self);
+        self.in_selected_key = enclosing;
+        result
     }
 
     /// Expands one term node, after the position table admits each
@@ -984,34 +1005,48 @@ impl<'a> TermBuilder<'a> {
                     )?
                 };
                 let instance = self.application_instance_wire(application, node, side, slots)?;
-                let arguments = match application.arguments() {
-                    TermArguments::Positional(values) => {
-                        let mut arguments = Vec::new();
-                        for value in values {
-                            arguments.push(Box::new(self.expand_node(value, keys, side, slots)?));
+                // Notation applies a builtin operation, and a record update
+                // builds a record from a matched one: in a key, both compute
+                // the value looked up. List notation denotes constructors.
+                let computes = (application.is_notation() && !application.is_list_notation())
+                    || application.update().is_some();
+                let enclosing = self.in_computed_key;
+                self.in_computed_key |= computes && self.in_map_key;
+                let parts = (|| {
+                    let arguments = match application.arguments() {
+                        TermArguments::Positional(values) => {
+                            let mut arguments = Vec::new();
+                            for value in values {
+                                arguments
+                                    .push(Box::new(self.expand_node(value, keys, side, slots)?));
+                            }
+                            krs_ir::Arguments::Positional(arguments)
                         }
-                        krs_ir::Arguments::Positional(arguments)
-                    }
-                    TermArguments::Named(values) => {
-                        let mut arguments = Vec::new();
-                        for argument in values {
-                            let field = ProductionFieldId::new(argument.name().to_string())
-                                .expect("Rust field identifiers are valid production fields");
-                            arguments.push(krs_ir::NamedTermArgument {
-                                key: keys.record_field(argument.name())?,
-                                field,
-                                value: Box::new(self.expand_node(
-                                    argument.value(),
-                                    keys,
-                                    side,
-                                    slots,
-                                )?),
-                            });
+                        TermArguments::Named(values) => {
+                            let mut arguments = Vec::new();
+                            for argument in values {
+                                let field = ProductionFieldId::new(argument.name().to_string())
+                                    .expect("Rust field identifiers are valid production fields");
+                                arguments.push(krs_ir::NamedTermArgument {
+                                    key: keys.record_field(argument.name())?,
+                                    field,
+                                    value: Box::new(self.expand_node(
+                                        argument.value(),
+                                        keys,
+                                        side,
+                                        slots,
+                                    )?),
+                                });
+                            }
+                            krs_ir::Arguments::named(arguments)
                         }
-                        krs_ir::Arguments::named(arguments)
-                    }
-                };
-                let update = self.expand_record_update(application.update(), keys, side, slots)?;
+                    };
+                    let update =
+                        self.expand_record_update(application.update(), keys, side, slots)?;
+                    crate::Result::Ok((arguments, update))
+                })();
+                self.in_computed_key = enclosing;
+                let (arguments, update) = parts?;
                 Ok(WireTerm::Application {
                     instance,
                     head_class: DescriptorApplicationHeadClass::Applied,
@@ -1182,7 +1217,9 @@ impl<'a> TermBuilder<'a> {
                     key,
                     kind: *kind,
                     sort,
-                    operand: Box::new(self.expand_node(operand, keys, side, slots)?),
+                    operand: Box::new(self.below_computed(true, |this| {
+                        this.expand_node(operand, keys, side, slots)
+                    })?),
                 })
             }
             TermTree::As { binding, pattern } => {
@@ -1194,7 +1231,9 @@ impl<'a> TermBuilder<'a> {
                     key,
                     binding_key,
                     name: binding.unraw().to_string(),
-                    pattern: Box::new(self.expand_node(pattern, keys, side, slots)?),
+                    pattern: Box::new(
+                        self.below_selection(|this| this.expand_node(pattern, keys, side, slots))?,
+                    ),
                 })
             }
             TermTree::Or {
@@ -1206,8 +1245,10 @@ impl<'a> TermBuilder<'a> {
                 let key = Self::take_pattern_or(node)?;
                 Ok(WireTerm::Or {
                     key,
-                    alternatives: alternatives.try_map_ref(|alternative| {
-                        self.expand_node(alternative, keys, side, slots)
+                    alternatives: self.below_selection(|this| {
+                        alternatives.try_map_ref(|alternative| {
+                            this.expand_node(alternative, keys, side, slots)
+                        })
                     })?,
                 })
             }

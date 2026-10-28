@@ -29,65 +29,28 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 21] = [
-    (
-        r"terms/cells/map-key/{k::is!(Int\, x),k::project!(Int\, x)}",
-        "NT-1-1",
-    ),
-    (
-        r"terms/{readable/map-key,rule/subject/set-element}/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
-        "NT-1-1",
-    ),
-    (
-        r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, ..x \},_,k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
-        "NT-1-1",
-    ),
-    (
-        r#"terms/{readable/map-key/let-body,readable/map-key/update-field}/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x | 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}"#,
-        "NT-1-1",
-    ),
-    (
-        r#"terms/readable/map-key/let-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,y @ Cmd::Hold(_)}"#,
-        "NT-1-1",
-    ),
-    (
-        r#"terms/readable/map-key/matches-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x | 1,y @ Cmd::Hold(_)}"#,
-        "NT-1-1",
-    ),
-    (
-        r"terms/{cells/map-value,readable/collection-child,readable/cons-element,readable/list-element}/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
-        "NT-1-2",
-    ),
-    (
-        r"terms/{alias/subject,cells-claim/item-root,cells-claim/subject,claim/item-root,claim/subject,desugar/subject,simplification/subject}/{k::is!(Int\, x),k::project!(Int\, x)}",
-        "NT-1-3",
-    ),
-    (
-        r"terms/{rule/guard/let-pattern,rule/guard/matches-pattern,sort-rule/result/let-pattern,sort-rule/result/matches-pattern}/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
-        "NT-2-1",
-    ),
-    (
-        r"terms/readable/map-key/function-argument/Cmd::Pair \{ a: x\, .. \}",
-        "NT-2-2",
-    ),
-    (
-        r"terms/{context-alias/item-root,context-alias/subject}/{Size(x),k::builtin::int::add(1\, 2)}",
-        "NT-2-3",
-    ),
-    (
-        r"terms/context/subject/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
-        "NT-2-3",
-    ),
+const KNOWN: [(&str, &str); 15] = [
     (
         r"terms/{alias/result,alias/result-root,cells-claim/guard,cells-claim/guard/closure-body,claim/result,claim/result-item-root,context/guard,desugar/result,desugar/result-root,equation/guard,equation/result,local-rule/subject/rewrite-right,readable/guard,readable/result,readable/result-item-root,readable/result-list-element,rule/guard,rule/guard/closure-body,rule/guard/let-body,rule/result,rule/result-root,shorthand/result,shorthand/result-root,simplification/guard,simplification/result,simplification/result-root,sort-rule/result,sort-rule/result-root,sort-rule/result/function-argument,sort-rule/result/let-body,sort-rule/result/update-field,table/result}/Cmd::Pair \{ a: x\, .. \}",
         "NT-2-4",
     ),
     (
-        r"terms/cells/map-key/{!(x < 1),-(x + 1),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}",
-        "NT-2-5",
+        r"terms/{sort-rule/subject-root,sort-rule/subject-root-term}/_",
+        "NT-2-9",
+    ),
+    // A function's argument in a key is built, and the table cannot tell it from a constructor's
+    // before resolution: the compiler refuses the open record there (`key_names`), and the readable
+    // key's reader, which reads an expression, refuses `_`, alternatives and a closure first.
+    (
+        r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0))}",
+        "NT-2-2",
     ),
     (
-        r"terms/{readable/map-key/function-argument,readable/map-key/let-body,readable/map-key/update-field}/y @ Cmd::Hold(_)",
+        r"terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
+        "NT-2-6",
+    ),
+    (
+        r"terms/readable/map-key/let-body/y @ Cmd::Hold(_)",
         "NT-2-6",
     ),
     (
@@ -98,28 +61,52 @@ const KNOWN: [(&str, &str); 21] = [
         r"terms/readable/map-key/matches-pattern/{!(x < 1),-(x + 1),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
         "NT-2-6",
     ),
-    (
-        r"terms/{sort-rule/subject-root,sort-rule/subject-root-term}/_",
-        "NT-2-9",
-    ),
     (r"terms/readable/map-key/let-pattern/x | 1", "NT-2-25"),
+    // A set's element reads as a constructor's argument to the product, which cannot tell
+    // `set::item` before resolution (NT-3-1).
     (
-        r"terms/{context-alias/item-root,context-alias/subject}/k::builtin::int::add(x\, 1)",
-        "NT-2-27",
+        r"terms/rule/subject/set-element/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        "NT-3-1",
+    ),
+    // A pattern's key holds no `let` block or `k::matches!` (NT-3-2's boundary), which the oracle
+    // admits as a computed key.
+    (
+        r"terms/readable/map-key/function-argument/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        "NT-3-2",
     ),
     (
-        r"terms/{readable/map-key/as-body,readable/map-key/or-branch}/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
-        "S0-14",
+        r"terms/readable/map-key/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        "NT-3-2",
+    ),
+    (
+        r#"terms/readable/map-key/let-body/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x | 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}"#,
+        "NT-3-2",
+    ),
+    (
+        r#"terms/readable/map-key/let-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,y @ Cmd::Hold(_)}"#,
+        "NT-3-2",
+    ),
+    (
+        r#"terms/readable/map-key/matches-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x | 1,y @ Cmd::Hold(_)}"#,
+        "NT-3-2",
+    ),
+    (
+        r"terms/readable/map-key/update-field/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        "NT-3-2",
     ),
 ];
 
-/// The disagreements a reader of the product decides before the table's row, which are not red:
-/// the table reads a readable key's `let` block, `k::matches!` and record update as a pattern,
-/// and refuses them, while the term reader refuses the construct inside first, with the class the
-/// oracle gives it (`_`, a map literal, a rest outside a pattern), or a name rule of the class
-/// table does (`x | 1`'s alternatives binding other names in a `k::matches!` pattern).
-const DECIDED_BEFORE_THE_TABLE: [&str; 18] = [
+/// The disagreements the product decides before or outside the table's row, which are not red:
+/// the table refuses a `let` block and `k::matches!` in a readable key (NT-3-2), and the term
+/// reader refuses the construct inside first, with the class the oracle gives it (`_`, a map
+/// literal, a rest outside a pattern), or a name rule of the class table does (`x | 1`'s
+/// alternatives binding other names in a `k::matches!` pattern); the readable key's reader, which
+/// reads an expression, refuses `_`, alternatives and a closure below a function's application;
+/// and the compiler refuses an open record there (`key_names`), which the table cannot tell from a
+/// constructor's argument before resolution.
+const DECIDED_BEFORE_THE_TABLE: [&str; 14] = [
     "terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)",
+    "terms/readable/map-key/function-argument/Cmd::Pair { a: x, .. }",
     "terms/readable/map-key/function-argument/_",
     "terms/readable/map-key/function-argument/k::ml::exists(|v: Int| k::ml::equals(v, 0))",
     "terms/readable/map-key/let-body/Cmd::Go() | Cmd::Hold(_)",
@@ -132,11 +119,6 @@ const DECIDED_BEFORE_THE_TABLE: [&str; 18] = [
     "terms/readable/map-key/matches-pattern/k::map![x -> 1]",
     "terms/readable/map-key/matches-pattern/map![x -> 1]",
     "terms/readable/map-key/matches-pattern/x | 1",
-    "terms/readable/map-key/update-field/Cmd::Go() | Cmd::Hold(_)",
-    "terms/readable/map-key/update-field/[x, ..]",
-    "terms/readable/map-key/update-field/_",
-    "terms/readable/map-key/update-field/k::map![x -> 1]",
-    "terms/readable/map-key/update-field/map![x -> 1]",
 ];
 
 fn read_class_matrix(file: &str) -> String {
@@ -214,8 +196,9 @@ fn product_form(form: model::Form) -> Form {
         .unwrap_or_else(|| panic!("the product's table has no form {form:?}"))
 }
 
-/// The product's position of a model position.
-fn product_position(position: model::Position) -> Position {
+/// The product's position of a model position, `in_computed` when an opening below the key is a
+/// construct the walker reads as computing it.
+fn product_position(position: model::Position, in_computed: bool) -> Position {
     let form = product_form(position.form);
     let slot = match position.slot {
         model::Slot::Subject => Slot::Subject,
@@ -225,7 +208,12 @@ fn product_position(position: model::Position) -> Position {
         model::Slot::Value => Slot::InitializerValue,
     };
     let nesting = position.nesting;
-    let entries = nesting.entries;
+    // A map's key reads by its construct, which the model's kind there says: built below a
+    // computed one, matched below a pattern-only one. The walker knows a construct computes by
+    // its syntax (a `let` block, `k::matches!`, a sort test, a record update, notation), not a
+    // function's application, which resolution alone tells from a constructor's; so is a set's
+    // element, an application's argument to the table.
+    let in_map_key = nesting.entries.contains(Entry::MapKey) && slot == Slot::Subject;
     let product = Position {
         form,
         slot,
@@ -233,12 +221,13 @@ fn product_position(position: model::Position) -> Position {
             in_matches_pattern: nesting.local == Some(LocalPattern::Matches),
             in_let_pattern: nesting.local == Some(LocalPattern::Let),
             in_rewrite: nesting.rewrite.is_some(),
-            // The computation cell's items are no collection's entries to the table.
-            in_collection_entry: entries.contains(Entry::MapKey)
-                || entries.contains(Entry::MapValue)
-                || entries.contains(Entry::ListElement)
-                || entries.contains(Entry::SetElement),
-            in_map_key: entries.contains(Entry::MapKey),
+            in_map_key,
+            in_computed_key: in_map_key
+                && in_computed
+                && matches!(position.kind, Kind::Built | Kind::Guard),
+            in_selected_key: in_map_key
+                && position.kind == Kind::Matched
+                && nesting.local.is_none(),
         },
     };
     if nesting.rewrite == Some(RewriteSide::Right) {
@@ -294,10 +283,10 @@ enum Read {
 /// The product's own rules outside the table, which its readers apply before it:
 /// - `krs_syntax::positions::PatternRoot::admits`, the pattern reader's rule for a subject's
 ///   whole root ([`root_rule`]);
-/// - `krs_syntax::notation::notation_in_pattern`: where a pattern is parsed, a subject, a local
-///   pattern or a `cells!` map's key (a readable map read parses its key as an expression), a
-///   notation form is no pattern; elsewhere it is the application it denotes, which the table's
-///   application row decides;
+/// - `krs_syntax::notation::notation_in_pattern`: where a pattern is parsed, a subject or a local
+///   pattern, a notation form is no pattern; elsewhere it is the application it denotes, which
+///   the table's application row decides, in a key too (a readable map read parses its key as an
+///   expression, and a `cells!` map's as a pattern or else an expression);
 /// - a constant's value reader refuses an operator and a map literal as no ground term;
 /// - the term reader takes no macro but the compiler-owned islands, so a map literal is refused
 ///   at every term position;
@@ -309,9 +298,11 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
         return Read::Refuses(refused);
     }
     let pattern = matches!(position.kind, Kind::Matched | Kind::Evaluated);
-    // A readable map read's key is read as an expression, a `cells!` map's as a pattern.
-    let parsed_as_pattern = position.kind == Kind::Matched
-        || (position.kind == Kind::Evaluated && position.form.writes_cells());
+    // A readable map read's key is read as an expression, a `cells!` map's as a pattern, or as
+    // an expression where no pattern parses: `x | 1` is alternatives there, `x + 1` the call.
+    let parsed_as_pattern = position.kind == Kind::Matched;
+    let or_is_alternatives =
+        parsed_as_pattern || (position.kind == Kind::Evaluated && position.form.writes_cells());
     let readable_value = matches!(
         position.form,
         model::Form::ReadableRule | model::Form::ReadableClaim
@@ -322,7 +313,7 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
     }
     let constant = position.form == model::Form::Constant;
     match construct {
-        M::Notation(Notation::BitwiseOr) if parsed_as_pattern => Read::Table,
+        M::Notation(Notation::BitwiseOr) if or_is_alternatives => Read::Table,
         M::Notation(_) if parsed_as_pattern => Read::Refuses("notation-in-pattern"),
         M::Notation(_) | M::MapLiteral | M::Rest if constant => {
             Read::Refuses("constant-not-ground")
@@ -366,7 +357,7 @@ struct Answer {
 }
 
 /// The product's answer for `nodes` at `hole`: its readers' rules, then its table.
-fn product(hole: model::Position, nodes: &[model::Node]) -> Answer {
+fn product(hole: model::Position, path: &[Opening], nodes: &[model::Node]) -> Answer {
     let mut answer = Answer::default();
     for node in nodes {
         let position = hole.enter_all(&node.path);
@@ -379,10 +370,10 @@ fn product(hole: model::Position, nodes: &[model::Node]) -> Answer {
             Read::Table => {}
         }
         // Where a pattern is parsed, `x | 1` is alternatives, the table's `|` row.
-        let parsed_as_pattern = position.kind == Kind::Matched
+        let or_is_alternatives = position.kind == Kind::Matched
             || (position.kind == Kind::Evaluated && position.form.writes_cells());
         let read = match node.construct {
-            model::Construct::Notation(Notation::BitwiseOr) if parsed_as_pattern => {
+            model::Construct::Notation(Notation::BitwiseOr) if or_is_alternatives => {
                 model::Construct::Or
             }
             construct => construct,
@@ -390,7 +381,22 @@ fn product(hole: model::Position, nodes: &[model::Node]) -> Answer {
         let Some(construct) = product_construct(read) else {
             continue;
         };
-        match admits(product_position(position), construct) {
+        let mut openings = path.iter().chain(&node.path);
+        let in_computed = openings.by_ref().any(|opening| *opening == Opening::MapKey)
+            && openings.any(|opening| {
+                matches!(
+                    opening,
+                    Opening::LetValue
+                        | Opening::LetBody
+                        | Opening::MatchesSubject
+                        | Opening::SortTestOperand
+                        | Opening::UpdateField
+                        | Opening::UpdateBase
+                        | Opening::PredicateBody
+                        | Opening::PredicateOperand
+                )
+            });
+        match admits(product_position(position, in_computed), construct) {
             Admission::Refuse(class) => {
                 answer.refused = Some(class.name());
                 break;
@@ -439,7 +445,7 @@ fn the_table_decides_every_term_case_as_the_oracle_does() {
     let mut judged = 0;
     for case in term_cases(&cases) {
         let term = case.term.as_ref().expect("a term case has a position");
-        let product = product(term.position, &term.nodes);
+        let product = product(term.position, &term.path, &term.nodes);
         let oracle = oracle(term.position, &term.nodes);
         // The product refuses where the oracle tells a placement mistake, and leaves to the
         // compiler what the oracle refuses by resolution. Which class the compiler then answers

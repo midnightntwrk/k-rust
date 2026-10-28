@@ -851,7 +851,7 @@ impl<'a> StateRuleBuilder<'a> {
                         key_key: ledger.define(item.key().keys().payload())?,
                         key: self.expand_key(KeyedTerm::of(item.key()), slots)?,
                         value_key: ledger.define(item.value().keys().payload())?,
-                        value: self.expand_entry(KeyedTerm::of(item.value()), slots)?,
+                        value: self.expand_keyed(KeyedTerm::of(item.value()), slots)?,
                     });
                 }
                 ProtocolRuleMapBody::Items {
@@ -865,7 +865,7 @@ impl<'a> StateRuleBuilder<'a> {
                 key_key: ledger.define(key.keys().payload())?,
                 key: self.expand_key(KeyedTerm::of(key), slots)?,
                 value_key: ledger.define(value.keys().payload())?,
-                value: self.expand_entry(KeyedTerm::of(value), slots)?,
+                value: self.expand_keyed(KeyedTerm::of(value), slots)?,
             },
         };
         Ok(ProtocolRuleMap { payload_key, body })
@@ -878,15 +878,6 @@ impl<'a> StateRuleBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         self.terms.expand_wire(term, self.term_side(), slots)
-    }
-
-    /// Expands a map's value, a collection entry.
-    fn expand_entry(
-        &mut self,
-        term: KeyedTerm<'_>,
-        slots: &mut WireSlots,
-    ) -> crate::Result<WireTerm> {
-        self.terms.expand_entry_wire(term, self.term_side(), slots)
     }
 
     /// Expands a map's key, a collection entry the map is looked up by.

@@ -883,6 +883,7 @@ fn lower_initializer_term(
         wildcards: Vec::new(),
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
+        in_key: false,
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
         declared_binders: BTreeMap::new(),

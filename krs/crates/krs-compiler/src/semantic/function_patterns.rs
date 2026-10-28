@@ -13,6 +13,14 @@
 //! resolution; the term walker admits the application
 //! (`krs_syntax::positions`, `After(FunctionInPattern)`).
 //!
+//! A context matches the configuration's terms as a rule does, so its subject
+//! is such a pattern too. A collection's value or element in a pattern is
+//! matched against the values the collection holds, which are evaluated: a
+//! map's value, a list's element (a List cell's, a cons list's), and a child
+//! of a cell collection's instance, which K writes as the cells it holds,
+//! whatever the collection's type. A `let` or `k::matches!` pattern matches the value its term
+//! computed, evaluated as well, wherever it stands ([`check_local_pattern`]).
+//!
 //! The application is the meaning, and is admitted, where:
 //! - it is the root of an equation's subject: the function the equation
 //!   defines;
@@ -20,16 +28,13 @@
 //!   whose applications stand unevaluated;
 //! - it stands in a claim's subject, a symbolic state whose applications
 //!   denote values;
-//! - it stands in a collection's key, value or element: a collection is
-//!   matched through its entries, so a lookup evaluates the key, and an
-//!   entry is compared as the value it denotes.
+//! - it stands in a map's key or a set's element, which a lookup evaluates:
+//!   a map read's or a `cells!` map's key, the operand of a set's element.
 //!
 //! The positions are the sentence's own shape, which each descriptor carries:
 //! every term of a subject the walker reads as one slot (a fn rule's or an
 //! equation's subject, a computation item, a cell's content) is matched from
-//! its root down; a collection's entries are the keys and values of a map,
-//! the elements of a list cell, the instances of a collection cell, and the
-//! operands of the collection's unit, element and concatenation. A
+//! its root down, a collection's values and elements with it. A
 //! `k::rewrite!`'s left side is matched where it stands; its right side is
 //! built and is no pattern.
 //!
@@ -42,8 +47,9 @@ use std::collections::BTreeMap;
 use krs_ir::{
     BuiltinOperation, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
     DescriptorHeadRuleExtra, DescriptorPayload, DescriptorTerm, ListOperation,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolRuleMapBody, ProtocolRuleStateTerm,
-    SentenceKind, SetOperation, StableItemId, TermArgumentRef, TermMapOperation,
+    ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolRuleInstances, ProtocolRuleMapBody,
+    ProtocolRuleStateTerm, SentenceKind, SetOperation, StableItemId, TermArgumentRef,
+    TermMapOperation,
 };
 
 use super::catalog::ProductionSignature;
@@ -67,17 +73,44 @@ pub(super) fn check_function_patterns(
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<(), DescriptorLoweringError> {
     for descriptor in descriptors {
-        sentence_patterns(descriptor.payload(), &Patterns { catalog })
+        let patterns = Patterns {
+            catalog,
+            place: Place::Pattern,
+        };
+        sentence_patterns(descriptor.payload(), &patterns)
             .map_err(|found| refusal(descriptor, &found))?;
         key_names::check(descriptor, catalog)?;
     }
     Ok(())
 }
 
+/// Refuses the first function application in `pattern`, the pattern of a
+/// `let` or a `k::matches!` of `descriptor`'s sentence, wherever it stands:
+/// a local pattern matches the value its term computed, whose functions are
+/// evaluated.
+///
+/// # Errors
+///
+/// Returns [`DescriptorLoweringError::FunctionInPattern`] at the first such
+/// application's head.
+pub(super) fn check_local_pattern(
+    descriptor: &Descriptor,
+    pattern: &DescriptorTerm,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> Result<(), DescriptorLoweringError> {
+    let patterns = Patterns {
+        catalog,
+        place: Place::Local,
+    };
+    patterns
+        .term(pattern, None)
+        .map_err(|found| refusal(descriptor, &found))
+}
+
 /// Whether the payload is a sentence whose subject matches every term it
 /// applies to with the term's functions evaluated: a transition or an
 /// equation, but neither a claim nor a predicate simplification.
-fn matches_evaluated_sentence(payload: &DescriptorPayload) -> bool {
+pub(super) fn matches_evaluated_sentence(payload: &DescriptorPayload) -> bool {
     match payload {
         DescriptorPayload::StructuredRule(rule) => {
             matches_evaluated_terms(rule.sentence_kind, false) && !rule.predicate
@@ -88,6 +121,8 @@ fn matches_evaluated_sentence(payload: &DescriptorPayload) -> bool {
         DescriptorPayload::ConfigurationRule(rule) => {
             matches_evaluated_terms(rule.sentence_kind.sentence_kind(), rule.claim.is_some())
         }
+        // A named configuration context, which a context's subject names.
+        DescriptorPayload::ContextAlias(_) => true,
         _ => false,
     }
 }
@@ -105,9 +140,12 @@ fn sentence_patterns<'t>(
         DescriptorPayload::StructuredRule(rule) => {
             // An equation's subject applies the function it defines; a
             // rule's subject is a term of the configuration, which a
-            // single-body rule rewrites in place.
+            // single-body rule rewrites in place, and a context's the one
+            // whose hole it heats.
             let root = if rule.sentence_kind == SentenceKind::Equation {
                 Root::Defined
+            } else if rule.sentence_kind == SentenceKind::Context {
+                Root::Slot
             } else if rule.result.is_some() {
                 Root::RuleSubject
             } else {
@@ -139,42 +177,77 @@ fn sentence_patterns<'t>(
             .cells
             .iter()
             .try_for_each(|cell| patterns.state(&cell.value)),
+        DescriptorPayload::ContextAlias(alias) => alias
+            .pattern
+            .cells
+            .iter()
+            .try_for_each(|cell| patterns.state(&cell.value)),
         _ => Ok(()),
     }
 }
 
 /// The refusal of the application `found` names.
 fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringError {
-    let instead = match found.root {
-        Some(Root::RuleSubject) => {
-            "match a variable and relate it to the application in a guard (`requires`), or, to define the function, write an equation (`#[k::equation]`, or a `k::equations!` row)"
-        }
-        _ => {
-            "match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`"
+    let function = &found.function;
+    let reason = match (found.place, found.root) {
+        (Place::Local, _) => format!(
+            "{function} stands in a `let` or `k::matches!` pattern, which matches the value its term computed; a function application denotes the value evaluation produces, and a computed value has its functions evaluated, so this pattern describes a term that never occurs and never matches: match a variable here and compare it with the application (`==`), or apply the function in the value"
+        ),
+        (Place::Entry, _) => format!(
+            "{function} stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes"
+        ),
+        (Place::Pattern, root) => {
+            let instead = match root {
+                Some(Root::RuleSubject) => {
+                    "match a variable and relate it to the application in a guard (`requires`), or, to define the function, write an equation (`#[k::equation]`, or a `k::equations!` row)"
+                }
+                _ => {
+                    "match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`"
+                }
+            };
+            format!(
+                "{function} stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: {instead}"
+            )
         }
     };
     DescriptorLoweringError::FunctionInPattern {
         item: Box::new(descriptor.id().clone()),
-        reason: format!(
-            "{} stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: {instead}",
-            found.function
-        ),
+        reason,
         range: key_range(descriptor, &found.reference.key).map(Box::new),
     }
 }
 
 /// Whether a sentence of `kind` matches every term it applies to with the
-/// term's functions evaluated: a transition and an equation, but no claim,
-/// whose subject is a symbolic state, and no simplification, which rewrites
-/// unevaluated applications. An alias, a desugar clause and a context rewrite
+/// term's functions evaluated: a transition, an equation and a context,
+/// which matches the configuration a computation reached as a rule does, but
+/// no claim, whose subject is a symbolic state, and no simplification, which
+/// rewrites unevaluated applications. An alias and a desugar clause rewrite
 /// the program as written, before any evaluation.
 const fn matches_evaluated_terms(kind: SentenceKind, claim: bool) -> bool {
-    !claim && matches!(kind, SentenceKind::Transition | SentenceKind::Equation)
+    !claim
+        && matches!(
+            kind,
+            SentenceKind::Transition | SentenceKind::Equation | SentenceKind::Context
+        )
 }
 
 /// The patterns of one sentence.
+#[derive(Clone, Copy)]
 struct Patterns<'a> {
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+    /// What the terms walked are matched as.
+    place: Place,
+}
+
+/// What a matched term is part of, which the refusal explains.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Place {
+    /// A sentence's subject.
+    Pattern,
+    /// A collection's value or element in the subject.
+    Entry,
+    /// A `let` or `k::matches!` pattern.
+    Local,
 }
 
 /// The root of a matched slot.
@@ -199,12 +272,23 @@ struct Found<'t> {
     function: String,
     /// The root it stands at, or `None` below a root.
     root: Option<Root>,
+    /// What the pattern it stands in is.
+    place: Place,
 }
 
 impl Patterns<'_> {
-    /// One state of a cell a pattern names: its term, its computation items,
-    /// or its map's base. A map's keys and values and a collection cell's
-    /// instances are entries.
+    /// These patterns, matching a collection's values and elements.
+    const fn entries(self) -> Self {
+        Self {
+            place: Place::Entry,
+            ..self
+        }
+    }
+
+    /// One state of a cell a pattern names, `cell` when the pattern names it
+    /// as a field: its term, its computation items, its map's base and
+    /// values, a collection cell's matched children. A map's keys and a Set
+    /// collection's instances are looked up.
     fn state<'t>(&self, state: &'t ProtocolRuleStateTerm<DescriptorTerm>) -> Result<(), Found<'t>> {
         let root = Some(Root::Slot);
         match state {
@@ -217,26 +301,53 @@ impl Patterns<'_> {
                 .try_for_each(|item| self.term(&item.value, root)),
             ProtocolRuleStateTerm::Map(map) => match &map.body {
                 ProtocolRuleMapBody::Update { base, .. } => self.term(base, root),
-                ProtocolRuleMapBody::Empty { .. } | ProtocolRuleMapBody::Items { .. } => Ok(()),
+                ProtocolRuleMapBody::Items { items, .. } => items
+                    .iter()
+                    .try_for_each(|item| self.entries().term(&item.value, None)),
+                ProtocolRuleMapBody::Empty { .. } => Ok(()),
             },
             ProtocolRuleStateTerm::Present { value } => self.state(value),
-            ProtocolRuleStateTerm::Absent | ProtocolRuleStateTerm::Instances(_) => Ok(()),
+            ProtocolRuleStateTerm::Instances(instances) => self.instances(instances),
+            ProtocolRuleStateTerm::Absent => Ok(()),
         }
     }
 
+    /// The instances of a collection cell, whose children are cells a
+    /// pattern matches as the collection holds them, whatever the
+    /// collection's type: the instance is no key or element term, but the
+    /// cells K writes where the collection stands.
+    fn instances<'t>(
+        &self,
+        instances: &'t ProtocolRuleInstances<DescriptorTerm>,
+    ) -> Result<(), Found<'t>> {
+        instances
+            .front
+            .iter()
+            .chain(&instances.back)
+            .flat_map(|instance| &instance.fields)
+            .try_for_each(|child| self.entries().state(&child.value))
+    }
+
     /// The matched side of a readable rule's cell: a cell's content, an
-    /// optional cell's state, a list cell's rest. A map read's keys and a
-    /// list cell's elements are entries, and a map update is what the result
-    /// writes.
+    /// optional cell's state, a list cell's elements and rest. A map read's
+    /// keys are looked up, its values are binders, and a map update is what
+    /// the result writes.
     fn extra<'t>(&self, extra: &'t DescriptorHeadRuleExtra) -> Result<(), Found<'t>> {
         let root = Some(Root::Slot);
         match extra {
             ProtocolHeadRuleExtra::RewriteCell { before, .. } => self.term(before, root),
             ProtocolHeadRuleExtra::RewriteState { before, .. } => self.state(before),
-            ProtocolHeadRuleExtra::RewriteList { before, .. } => match &before.rest {
-                ProtocolHeadRuleListRest::Term(rest) => self.term(rest, root),
-                ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => Ok(()),
-            },
+            ProtocolHeadRuleExtra::RewriteList { before, .. } => {
+                before
+                    .items
+                    .iter()
+                    .chain(&before.back)
+                    .try_for_each(|element| self.entries().term(element, None))?;
+                match &before.rest {
+                    ProtocolHeadRuleListRest::Term(rest) => self.term(rest, root),
+                    ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => Ok(()),
+                }
+            }
             ProtocolHeadRuleExtra::HaveMap { .. } | ProtocolHeadRuleExtra::UpdateMap { .. } => {
                 Ok(())
             }
@@ -251,22 +362,24 @@ impl Patterns<'_> {
                 arguments,
                 ..
             } => {
-                match applied_function(&reference.application, self.catalog) {
+                let below = match applied_function(&reference.application, self.catalog) {
                     Applied::Collection => return Ok(()),
-                    Applied::Function(_) if root == Some(Root::Defined) => {}
+                    Applied::Function(_) if root == Some(Root::Defined) => *self,
                     Applied::Function(function) => {
                         return Err(Found {
                             reference,
                             function,
                             root,
+                            place: self.place,
                         });
                     }
-                    Applied::Constructor => {}
-                }
+                    Applied::Constructor => *self,
+                    Applied::Elements => self.entries(),
+                };
                 arguments.iter().try_for_each(|argument| {
                     let (TermArgumentRef::Positional { value }
                     | TermArgumentRef::Named { value, .. }) = argument;
-                    self.term(value, None)
+                    below.term(value, None)
                 })
             }
             // An alias names the term its pattern matches, each alternative
@@ -304,8 +417,12 @@ enum Applied {
     Function(String),
     /// A constructor, matched as written.
     Constructor,
-    /// A collection's unit, element or concatenation, whose operands are its
-    /// entries.
+    /// A list's unit, element or concatenation, or a level of list notation:
+    /// constructors whose operands are the list's elements, matched as the
+    /// values the list holds.
+    Elements,
+    /// A set's or a map's unit, element or concatenation, whose operands are
+    /// what the collection is looked up by.
     Collection,
 }
 
@@ -344,16 +461,14 @@ fn applied_function(
             other => collection_function(other.facade_marker()),
         },
         DescriptorApplicationRef::List(operation) => match operation {
-            ListOperation::Empty | ListOperation::Item | ListOperation::Concat => {
-                Applied::Collection
-            }
+            ListOperation::Empty | ListOperation::Item | ListOperation::Concat => Applied::Elements,
             other => collection_function(other.facade_marker()),
         },
         DescriptorApplicationRef::Set(operation) => match operation {
             SetOperation::Empty | SetOperation::Item | SetOperation::Concat => Applied::Collection,
             other => collection_function(other.facade_marker()),
         },
-        DescriptorApplicationRef::ListNotation(_) => Applied::Collection,
+        DescriptorApplicationRef::ListNotation(_) => Applied::Elements,
         // A predicate is no term; the term walker refuses it in a pattern.
         DescriptorApplicationRef::Ml(_) => Applied::Constructor,
     }

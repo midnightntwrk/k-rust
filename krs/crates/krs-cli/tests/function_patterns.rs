@@ -2,8 +2,8 @@
 //! (`krs::analysis::function-in-pattern`), and a name a map key or a set element reads below one
 //! (`krs::expand::unbound-name`), end to end: authored packages through `krs check`. The class
 //! tests cover the computation cell of every sentence form below its root; these cover the roots
-//! of the slots a rule matches, the other places a rule matches, and the places the application is
-//! the meaning.
+//! of the slots a rule matches, the other places a rule matches, the places the application is
+//! the meaning, and the instances of a cell collection.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -68,10 +68,10 @@ fn krs_path() -> String {
     serde_json::to_string(krs.to_str().unwrap()).unwrap()
 }
 
-/// A one-package workspace named `patterns` whose library is the preamble and `source`.
-fn package(root: &Path, source: &str) -> PathBuf {
+/// A one-package workspace named `patterns` whose library is `preamble` and `source`.
+fn package(root: &Path, preamble: &str, source: &str) -> PathBuf {
     fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src/lib.rs"), format!("{PREAMBLE}{source}")).unwrap();
+    fs::write(root.join("src/lib.rs"), format!("{preamble}{source}")).unwrap();
     let manifest = root.join("Cargo.toml");
     fs::write(
         &manifest,
@@ -111,10 +111,18 @@ fn check(target: &Path, manifest: &Path) -> (bool, Vec<String>) {
 fn outcomes<const N: usize>(
     cases: [(&'static str, &str); N],
 ) -> [(&'static str, (bool, Vec<String>)); N] {
+    outcomes_after(PREAMBLE, cases)
+}
+
+/// [`outcomes`] with each case after `preamble`.
+fn outcomes_after<const N: usize>(
+    preamble: &str,
+    cases: [(&'static str, &str); N],
+) -> [(&'static str, (bool, Vec<String>)); N] {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     cases.map(|(name, source)| {
-        let manifest = package(&temporary.path().join(name), source);
+        let manifest = package(&temporary.path().join(name), preamble, source);
         (name, check(target.path(), &manifest))
     })
 }
@@ -158,7 +166,7 @@ fn a_function_at_the_root_of_any_slot_a_rule_matches_is_refused() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable and relate it to the application in a guard (`requires`), or, to define the function, write an equation (`#[k::equation]`, or a `k::equations!` row)",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable and relate it to the application in a guard (`requires`), or, to define the function, write an equation (`#[k::equation]`, or a `k::equations!` row)",
                         "--> src/lib.rs:50:19",
                     ],
                 ),
@@ -168,7 +176,7 @@ fn a_function_at_the_root_of_any_slot_a_rule_matches_is_refused() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
                         "--> src/lib.rs:50:19",
                     ],
                 ),
@@ -178,7 +186,7 @@ fn a_function_at_the_root_of_any_slot_a_rule_matches_is_refused() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
                         "--> src/lib.rs:52:37",
                     ],
                 ),
@@ -188,7 +196,7 @@ fn a_function_at_the_root_of_any_slot_a_rule_matches_is_refused() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
                         "--> src/lib.rs:52:104",
                     ],
                 ),
@@ -198,7 +206,7 @@ fn a_function_at_the_root_of_any_slot_a_rule_matches_is_refused() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
                         "--> src/lib.rs:53:45",
                     ],
                 ),
@@ -234,7 +242,7 @@ fn a_function_below_the_root_of_any_pattern_a_rule_matches_is_refused() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
                         "--> src/lib.rs:52:41",
                     ],
                 ),
@@ -244,7 +252,7 @@ fn a_function_below_the_root_of_any_pattern_a_rule_matches_is_refused() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
                         "--> src/lib.rs:52:119",
                     ],
                 ),
@@ -254,7 +262,7 @@ fn a_function_below_the_root_of_any_pattern_a_rule_matches_is_refused() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
                         "--> src/lib.rs:53:61",
                     ],
                 ),
@@ -264,7 +272,7 @@ fn a_function_below_the_root_of_any_pattern_a_rule_matches_is_refused() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::list::size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::list::size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
                         "--> src/lib.rs:50:35",
                     ],
                 ),
@@ -317,7 +325,7 @@ k::claims! {
     sized_root: { k: [Size(x), ..] } => { k: [..] };
 }
 ";
-    let manifest = package(&temporary.path().join("accepted"), source);
+    let manifest = package(&temporary.path().join("accepted"), PREAMBLE, source);
     let (success, errors) = check(target.path(), &manifest);
     assert!(success, "{errors:#?}");
 }
@@ -473,4 +481,175 @@ fn a_name_a_set_element_reads_may_be_bound_elsewhere() {
     );
     let [(_, (success, errors))] = outcomes([("bound", source.as_str())]);
     assert!(success, "{errors:#?}");
+}
+
+/// A configuration of a Set, a Map and a List collection, each its parent's only child.
+const COLLECTIONS: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("wrap({e})")]
+    Wrap { e: KItem },
+    #[k::syntax("done")]
+    Done(),
+}
+
+#[k::function(partial, sort = Int, syntax = "size({a})")]
+pub struct Size {
+    pub a: Term<KItem>,
+}
+
+#[k::cell]
+pub struct Pool {
+    #[k::cell(multiplicity = "*", cell_type = "Set", nested)]
+    pub member: Member,
+}
+
+#[k::cell]
+pub struct Member {
+    #[k::cell]
+    pub item: Exp,
+}
+
+#[k::cell]
+pub struct Table {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub row: Row,
+}
+
+#[k::cell]
+pub struct Row {
+    #[k::cell]
+    pub id: Exp,
+    #[k::cell]
+    pub value: Exp,
+}
+
+#[k::cell]
+pub struct Queue {
+    #[k::cell(multiplicity = "*", cell_type = "List", nested)]
+    pub job: Job,
+}
+
+#[k::cell]
+pub struct Job {
+    #[k::cell]
+    pub payload: Exp,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub pool: Pool,
+    #[k::cell(nested)]
+    pub table: Table,
+    #[k::cell(nested)]
+    pub queue: Queue,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            pool: Pool { member: Member { item: ExpSyntax::Done() } },
+            table: Table { row: Row { id: ExpSyntax::Done(), value: ExpSyntax::Done() } },
+            queue: Queue { job: Job { payload: ExpSyntax::Done() } },
+        }
+    }
+}
+"#;
+
+/// A cell collection's instance is the cells K writes where the collection stands, which a
+/// pattern matches as the collection holds them, whatever its type: a function in a child of a
+/// List, a Map (its key included) or a Set collection's instance never matches and is refused
+/// (decision D1), so no name stands only below one (X4 has nothing to read there).
+#[test]
+fn a_cell_collection_matches_the_cells_of_its_instances() {
+    let outcomes = outcomes_after(
+        COLLECTIONS,
+        [
+            (
+                "list-child",
+                "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    take: { k: [Wrap(n), ..], job: [Job { payload: Size(n) }, ..] } => { k: [..] };\n}\n",
+            ),
+            (
+                "map-key",
+                "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    take: { k: [Wrap(n), ..], row: { Row { id: Size(n), value: Done() }, .. } } => { k: [..] };\n}\n",
+            ),
+            (
+                "map-value",
+                "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    take: { k: [Wrap(n), ..], row: { Row { id: n, value: Size(n) }, .. } } => { k: [..] };\n}\n",
+            ),
+            (
+                "set-instance",
+                "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    take: { k: [Wrap(n), ..], member: { Member { item: Size(n) }, .. } } => { k: [..] };\n}\n",
+            ),
+            (
+                "constructor",
+                "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    take: { k: [Wrap(n), ..], member: { Member { item: Wrap(n) }, .. } } => { k: [..] };\n}\n",
+            ),
+        ],
+    );
+    expect_test::expect![[r#"
+        [
+            (
+                "list-child",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes",
+                        "--> src/lib.rs:88:52",
+                    ],
+                ),
+            ),
+            (
+                "map-key",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes",
+                        "--> src/lib.rs:88:48",
+                    ],
+                ),
+            ),
+            (
+                "map-value",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes",
+                        "--> src/lib.rs:88:58",
+                    ],
+                ),
+            ),
+            (
+                "set-instance",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes",
+                        "--> src/lib.rs:88:56",
+                    ],
+                ),
+            ),
+            (
+                "constructor",
+                (
+                    true,
+                    [],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
 }

@@ -3,12 +3,13 @@ use std::collections::BTreeMap;
 use krs_ir::{
     Arguments, BuiltinOperation, BuiltinOperator, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorLiteral, DescriptorTerm,
-    ItemKind, ListOperation, OperatorDomain, PackageId, ProvenanceKey, SentenceKind, StableItemId,
+    ItemKind, ListOperation, OperatorDomain, PackageId, ProvenanceKey, SentenceKind, SetOperation,
+    StableItemId,
 };
 use krs_ir_levels::SemanticSortRef;
 use krs_syntax::ProvenanceRole;
 
-use super::{Patterns, Root, matches_evaluated_terms};
+use super::{Patterns, Place, Root, matches_evaluated_terms};
 use crate::semantic::catalog::ProductionSignature;
 
 fn item(name: &str) -> StableItemId {
@@ -110,10 +111,13 @@ fn rewrite(from: DescriptorTerm, to: DescriptorTerm) -> DescriptorTerm {
 /// `root`, refuses, and the root it stands at (`None` below it).
 fn refused_at(term: &DescriptorTerm, root: Root) -> Option<(u32, Option<Root>)> {
     let catalog = catalog();
-    Patterns { catalog: &catalog }
-        .term(term, Some(root))
-        .err()
-        .map(|found| (found.reference.key.ordinal(), found.root))
+    Patterns {
+        catalog: &catalog,
+        place: Place::Pattern,
+    }
+    .term(term, Some(root))
+    .err()
+    .map(|found| (found.reference.key.ordinal(), found.root))
 }
 
 /// The head ordinal of the application the pattern rooted at `term`, a
@@ -201,13 +205,21 @@ fn every_operator_reading_is_a_builtin_function() {
 }
 
 #[test]
-fn a_collection_entry_may_apply_a_function() {
+fn a_set_element_may_apply_a_function_and_a_list_element_not() {
+    // A set is looked up by its elements.
+    let element = apply(
+        DescriptorApplicationRef::Set(SetOperation::Item),
+        5,
+        vec![size()],
+    );
+    assert_eq!(refused(&declared("Hold", 0, vec![element])), None);
+    // A list's element is matched against the values the list holds.
     let element = apply(
         DescriptorApplicationRef::List(ListOperation::Item),
         5,
         vec![size()],
     );
-    assert_eq!(refused(&declared("Hold", 0, vec![element])), None);
+    assert_eq!(refused(&declared("Hold", 0, vec![element])), Some(9));
     // A collection's other operations are its functions.
     let length = apply(
         DescriptorApplicationRef::List(ListOperation::Size),
@@ -249,8 +261,12 @@ fn an_alias_and_alternatives_stand_where_they_are_written() {
 }
 
 #[test]
-fn only_rules_and_equations_match_evaluated_terms() {
-    for kind in [SentenceKind::Transition, SentenceKind::Equation] {
+fn rules_equations_and_contexts_match_evaluated_terms() {
+    for kind in [
+        SentenceKind::Transition,
+        SentenceKind::Equation,
+        SentenceKind::Context,
+    ] {
         assert!(matches_evaluated_terms(kind, false), "{kind:?}");
         // A readable or `cells!` claim is a transition-shaped claim.
         assert!(!matches_evaluated_terms(kind, true), "{kind:?} claim");
@@ -260,7 +276,6 @@ fn only_rules_and_equations_match_evaluated_terms() {
         SentenceKind::Claim,
         SentenceKind::Alias,
         SentenceKind::Desugar,
-        SentenceKind::Context,
     ] {
         assert!(!matches_evaluated_terms(kind, false), "{kind:?}");
     }

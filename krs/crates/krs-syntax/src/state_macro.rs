@@ -1462,7 +1462,7 @@ fn parse_unkeyed_map(
             parse_map_item_arrow(input)?;
             let value = parse_state_item(input, context)?;
             let mut items = vec![MapItem {
-                key: state_term_tokens(first, context)?,
+                key: state_key_tokens(first, context)?,
                 value,
             }];
             let mut remainder = StateMacroRemainder::Exact;
@@ -1492,7 +1492,7 @@ fn parse_unkeyed_map(
                 parse_map_item_arrow(input)?;
                 let value = parse_state_item(input, context)?;
                 items.push(MapItem {
-                    key: state_term_tokens(key, context)?,
+                    key: state_key_tokens(key, context)?,
                     value,
                 });
             }
@@ -2222,6 +2222,18 @@ fn state_term_tokens(
 ) -> Result<TermExpression, SyntaxError> {
     match context {
         StateMacroContext::Pattern => TermExpression::parse_pattern_tokens(tokens),
+        StateMacroContext::Expression => TermExpression::parse_tokens(tokens),
+    }
+}
+
+/// A map item's key: in a pattern, the key a map is looked up by, which a
+/// computed term may be ([`TermExpression::parse_key_pattern_tokens`]).
+fn state_key_tokens(
+    tokens: TokenStream,
+    context: StateMacroContext,
+) -> Result<TermExpression, SyntaxError> {
+    match context {
+        StateMacroContext::Pattern => TermExpression::parse_key_pattern_tokens(tokens),
         StateMacroContext::Expression => TermExpression::parse_tokens(tokens),
     }
 }

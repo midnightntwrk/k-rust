@@ -56,6 +56,10 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) result_wildcards: bool,
     /// Scopes of `k::matches!` local binders (BIND-1).
     pub(super) locals: LocalBinders,
+    /// Whether a map's key a pattern looks up is being inferred or lowered
+    /// ([`Self::infer_key`]): a sort test there computes the value looked
+    /// up, so it and its operand are built.
+    pub(super) in_key: bool,
     /// Whether the next term lowered is the head of an equation or rule,
     /// whose parametric instance its turbofish fixes (KF-027).
     pub(super) head_pending: bool,
@@ -272,6 +276,31 @@ impl StructuredTermBuilder<'_> {
         self.invalid_term(detail)
     }
 
+    /// [`Self::infer`] for the key of a map a pattern looks up, matched at
+    /// its root as a pattern is.
+    pub(super) fn infer_key(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+    ) -> Result<(), DescriptorLoweringError> {
+        let enclosing = std::mem::replace(&mut self.in_key, true);
+        let inferred = self.infer(term, expected_sort, true);
+        self.in_key = enclosing;
+        inferred
+    }
+
+    /// [`Self::lower`] for the key of a map a pattern looks up.
+    pub(super) fn lower_key(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let enclosing = std::mem::replace(&mut self.in_key, true);
+        let lowered = self.lower(term, expected_sort, true);
+        self.in_key = enclosing;
+        lowered
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Exhaustive inference over the closed descriptor term sum."
@@ -423,6 +452,7 @@ impl StructuredTermBuilder<'_> {
                 sort,
                 operand,
             } => {
+                let subject = subject && !self.in_key;
                 let result = self.sort_test_result(key, *kind, sort, subject)?;
                 self.admit_term(term, &result, expected_sort, |expected| {
                     format!(
@@ -430,7 +460,7 @@ impl StructuredTermBuilder<'_> {
                         sort_test_macro(*kind)
                     )
                 })?;
-                let operand_sort = self.sort_test_operand_sort(operand);
+                let operand_sort = self.sort_test_operand_sort(operand, subject);
                 self.infer(operand, operand_sort.as_ref(), subject)?;
             }
             DescriptorTerm::As {
@@ -703,6 +733,7 @@ impl StructuredTermBuilder<'_> {
         if subject || self.locals.inferring.is_some() || self.locals.scope.is_some() {
             return Err(self.refused_position(key, "a `let` block"));
         }
+        super::function_patterns::check_local_pattern(self.descriptor, pattern, self.catalog)?;
         let ascribed = sort.map(|sort| semantic_sort_ref(&sort.sort));
         let mut occurrences = Vec::new();
         pattern_names(pattern, &mut occurrences);
@@ -895,6 +926,7 @@ impl StructuredTermBuilder<'_> {
                 );
             }
         }
+        super::function_patterns::check_local_pattern(self.descriptor, pattern, self.catalog)?;
         let names = counts
             .keys()
             .map(|name| (*name).to_owned())
@@ -1944,9 +1976,10 @@ impl StructuredTermBuilder<'_> {
                 sort,
                 operand,
             } => {
+                let subject = subject && !self.in_key;
                 let result = self.sort_test_result(key, *kind, sort, subject)?;
                 let target = semantic_sort_ref(&sort.sort);
-                let operand_sort = self.sort_test_operand_sort(operand);
+                let operand_sort = self.sort_test_operand_sort(operand, subject);
                 let operand = self.lower(operand, operand_sort.as_ref(), subject)?;
                 let operation = match kind {
                     SortTestKind::Predicate => GeneratedOperation::SortPredicate(target),
@@ -2047,7 +2080,11 @@ impl StructuredTermBuilder<'_> {
     ) -> Result<SemanticSortRef, DescriptorLoweringError> {
         let target = semantic_sort_ref(&sort.sort);
         let name = super::overload::sort_name(&target);
-        let reason = if subject {
+        // A simplification's, a claim's and a static clause's subjects hold
+        // applications, which a sort test is.
+        let reason = if subject
+            && super::function_patterns::matches_evaluated_sentence(self.descriptor.payload())
+        {
             Some(match kind {
                 SortTestKind::Projection => format!(
                     "`k::project!({name}, ..)` is a projection, which is a function call and cannot be matched; restrict the binder with a typed parameter or `where x: {name}`"
@@ -2089,9 +2126,16 @@ impl StructuredTermBuilder<'_> {
     /// unconstrained, except that a projected collection lookup (`map::get`,
     /// `list::get`) keeps its declared result sort `KItem`: the sort test then
     /// supplies the term's one cast.
-    fn sort_test_operand_sort(&self, operand: &DescriptorTerm) -> Option<SemanticSortRef> {
+    fn sort_test_operand_sort(
+        &self,
+        operand: &DescriptorTerm,
+        subject: bool,
+    ) -> Option<SemanticSortRef> {
+        // A subject's operand is matched as an item: a binder it alone binds
+        // is a `KItem`.
+        let matched = subject.then(|| self.k_item_sort.clone());
         let DescriptorTerm::Application { reference, .. } = operand else {
-            return None;
+            return matched;
         };
         let projected = match &reference.application {
             DescriptorApplicationRef::Map(operation) => operation.spec().is_projected(),
@@ -2103,7 +2147,7 @@ impl StructuredTermBuilder<'_> {
             | DescriptorApplicationRef::Operator(_)
             | DescriptorApplicationRef::ListNotation(_) => false,
         };
-        projected.then(|| self.k_item_sort.clone())
+        projected.then(|| self.k_item_sort.clone()).or(matched)
     }
 
     #[expect(

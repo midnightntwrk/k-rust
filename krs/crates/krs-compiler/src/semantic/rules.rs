@@ -534,6 +534,7 @@ pub(super) fn lower_head_rule_descriptor(
         wildcards: Vec::new(),
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
+        in_key: false,
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
         declared_binders,
@@ -1130,7 +1131,7 @@ fn infer_head_rule(
                 krs_ir::ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
                     for entry in entries {
                         let expected = builder.collections.element_sort(&entry.key);
-                        builder.infer(&entry.key, expected.as_ref(), true)?;
+                        builder.infer_key(&entry.key, expected.as_ref())?;
                         // A value read from a bare map is any `KItem`; a typed
                         // map's value binder is seeded with its value sort.
                         if !builder.binding_sorts.contains_key(&entry.value_binding)
@@ -1636,7 +1637,7 @@ fn lower_head_rule_map_read(
     let mut items = Vec::with_capacity(entries.len());
     for (index, entry) in entries.iter().enumerate() {
         let expected = builder.collections.element_sort(&entry.key);
-        let key = builder.lower(&entry.key, expected.as_ref(), true)?;
+        let key = builder.lower_key(&entry.key, expected.as_ref())?;
         let value_binding = &entry.value_binding;
         let value_sort = builder
             .binding_sorts
@@ -1991,6 +1992,7 @@ pub(super) fn lower_structured_rule_descriptor(
             .as_ref()
             .is_some_and(krs_ir::DescriptorUnboundVariables::lists_wildcard),
         locals: super::infer::LocalBinders::default(),
+        in_key: false,
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
         declared_binders,
