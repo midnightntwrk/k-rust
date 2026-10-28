@@ -26,6 +26,7 @@ mod model;
 mod multi;
 mod names;
 mod noninterference;
+mod normal;
 mod overload;
 mod pairs;
 mod preserves;

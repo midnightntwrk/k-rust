@@ -34,6 +34,9 @@ pub struct Stated {
     /// (`K.f`, `K.f.rule1`, …): a match on a normalizer's application decides only once it is
     /// unfolded, which a recursive function's proof then tries (EQ-17).
     pub normalizers: Vec<String>,
+    /// The lemmas that decide its `Term.nf` premises and fold a value back into a normalizer's
+    /// application (`normal::lemmas`), when it has such premises (EQ-18).
+    pub nf: Vec<String>,
 }
 
 /// Whether symbol `g` occurs in `p`.
@@ -45,7 +48,7 @@ fn mentions(p: &P, g: &str) -> bool {
     }
 }
 
-fn vars_of(p: &P, out: &mut BTreeMap<String, S>) {
+pub(crate) fn vars_of(p: &P, out: &mut BTreeMap<String, S>) {
     match p {
         P::Var(n, s) => {
             out.insert(n.clone(), s.clone());
@@ -113,6 +116,9 @@ pub fn equation_theorems(
 ) -> Vec<Stated> {
     let mut out = Vec::new();
     let supers = crate::funcs::overload_supers(def);
+    // the sorts whose values can be no K value, modulo the overload axioms (EQ-18)
+    let nf_sorts = crate::normal::sorts(def, m, fns, eqs);
+    let nf_lemmas = crate::normal::lemmas(def, m, fns, eqs);
     for (f, es) in eqs {
         let Some(sig) = fns.get(f) else { continue };
         if sig.args.iter().any(|a| a == "?") {
@@ -145,8 +151,14 @@ pub fn equation_theorems(
             } else {
                 vec![]
             };
-            match state_one(def, m, fns, f, sig, e, if e.owise { &comps } else { &[] }) {
+            let comps = if e.owise { &comps[..] } else { &[] };
+            match state_one(def, m, fns, f, sig, e, comps, &nf_sorts) {
                 Ok(statement) => out.push(Stated {
+                    nf: if statement.contains("\n    (hnf") {
+                        nf_lemmas.clone()
+                    } else {
+                        vec![]
+                    },
                     name: format!(
                         "Eqn.{}",
                         names::ident(&format!("{}_{}", names::demangle(f), i + 1))
@@ -165,7 +177,7 @@ pub fn equation_theorems(
     out
 }
 
-fn bind_vars(
+pub(crate) fn bind_vars(
     lw: &mut Lower,
     vars: &BTreeMap<String, S>,
     prefix: &str,
@@ -447,6 +459,7 @@ fn subst_vars(p: &P, subst: &BTreeMap<String, P>) -> P {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn state_one(
     _def: &Def,
     m: &Model,
@@ -455,6 +468,7 @@ fn state_one(
     sig: &crate::lower::FnSig,
     e: &Equation,
     comps: &[&Equation],
+    nf_sorts: &BTreeSet<String>,
 ) -> Result<String, String> {
     let mut lw = Lower::new(m, fns, &[]);
     let (e_args, asv, alias_pats) = strip_aliases(&e.args)?;
@@ -569,6 +583,17 @@ fn state_one(
     for (k, h) in wf.iter().enumerate() {
         stmt.push_str(&format!("\n    (hwf{k} : {h})"));
     }
+    // the no-match premises are about K values: each variable that can hold a term at which an
+    // overload rule applies (no K value) is assumed in normal form, as `WF` is assumed of a set
+    // (EQ-18, `normal.rs`)
+    if !guards.is_empty() {
+        let nf = binders
+            .iter()
+            .filter(|(_, t)| crate::normal::reaches(m, t, nf_sorts));
+        for (k, (n, _)) in nf.enumerate() {
+            stmt.push_str(&format!("\n    (hnf{k} : Term.nf {n} = true)"));
+        }
+    }
     for (k, h) in hyps.iter().enumerate() {
         stmt.push_str(&format!("\n    (hreq{k} : {h})"));
     }
@@ -625,6 +650,7 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
                     case_first,
                     simp_with: simp_with(&st),
                     normalizers: vec![],
+                    nf: vec![],
                     statement: st,
                 })
             }
@@ -1041,6 +1067,28 @@ all_goals first\n      \
         } else {
             format!(" | (k2l_case_rec [{r}] <;> try simp only [Option.bind])")
         };
+        // a statement with `Term.nf` premises (EQ-18): a match on a term with a variable inside
+        // (`inj_Exps a` against a nested pattern) cases that variable, and a case the no-match
+        // premises refute only once its value is read as K's term (the normalizer's
+        // application) is closed after deciding `Term.nf` and folding the value
+        let nf = stated
+            .iter()
+            .find(|s| !s.nf.is_empty())
+            .map(|s| s.nf.join(", "));
+        let (case_sub, nf_arm) = match &nf {
+            Some(nf) => (
+                " | (k2l_case_sub <;> try simp only [])".to_string(),
+                format!(
+                    " | ((simp_all only [{nf}]); first | rfl | k2l_no_arm | (simp_all [{u}]; done))"
+                ),
+            ),
+            None => (String::new(), String::new()),
+        };
+        let nf_arm_top = if nf_arm.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n      ", nf_arm.trim_start())
+        };
         o.push_str(&format!(
             "/-- The proof of an equation with no-match premises (an `owise` rule's, whose left-hand side\n\
 is usually a variable), after the function is unfolded: reduce the cascade as `k2l_eqn_r` does,\n\
@@ -1049,12 +1097,12 @@ reduction, by the no-match premise of the rule whose arm the case is (`k2l_owise
 generic tactics do, after splitting the remaining `if`s and `match`es (a rule's `requires`). -/\n\
 local macro \"k2l_eqn_o\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| (\n    \
 (try simp only [])\n    \
-(try (repeat' (first | k2l_case_list | k2l_case_lvar | (k2l_case_discr <;> try simp only []){case_rec} | (k2l_case_call <;> try simp only [Option.bind]))))\n    \
+(try (repeat' (first | k2l_case_list | k2l_case_lvar | (k2l_case_discr <;> try simp only []){case_sub}{case_rec} | (k2l_case_call <;> try simp only [Option.bind]))))\n    \
 all_goals first\n      \
 | rfl\n      \
 | k2l_owise_arm\n      \
-| (simp_all [{u}]; done)\n      \
-| ((repeat' (first | split | k2l_split_hyps | k2l_case_choose)) <;> first | rfl | k2l_owise_arm | (simp_all [{u}]; done) | ((try simp_all [{u}]) <;> omega))))\n\n"
+{nf_arm_top}| (simp_all [{u}]; done)\n      \
+| ((repeat' (first | split | k2l_split_hyps | k2l_case_choose)) <;> first | rfl | k2l_owise_arm{nf_arm} | (simp_all [{u}]; done) | ((try simp_all [{u}]) <;> omega))))\n\n"
         ));
     }
     for s in stated {
@@ -1349,6 +1397,7 @@ mod tests {
             case_first: vec![],
             simp_with: vec![],
             normalizers: vec![],
+            nf: vec![],
         }
     }
 

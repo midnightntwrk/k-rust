@@ -412,7 +412,7 @@ fn lower_equation(
 }
 
 /// The constructor term of an `anywhere` symbol applied to the parameters.
-fn anywhere_ctor(m: &Model, f: &str, params: &[String]) -> crate::lower::L {
+pub(crate) fn anywhere_ctor(m: &Model, f: &str, params: &[String]) -> crate::lower::L {
     let ci = &m.ctors[f];
     let own = crate::lower::L::app(
         m.ctor_path(f),
@@ -1751,6 +1751,8 @@ pub fn generate_with(
         agree_thms.extend(thms);
         notes.push(crate::agree::note(fk));
     }
+    // the K values among the terms, modulo the overload axioms (EQ-18), after the normalizers
+    lean.push_str(&crate::normal::emit(def, m, &fns, &eqs)?);
     let recursive = recursive.iter().map(|f| fns[f].lean.clone()).collect();
     Ok(Generated {
         fns,

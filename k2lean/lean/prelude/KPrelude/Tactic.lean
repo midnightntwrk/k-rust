@@ -360,6 +360,52 @@ elab "k2l_case_discr" : tactic => do
       | throwError "k2l_case_discr: no match on a variable"
     return (← familyCases g d.fvarId!).toList.map (·.1)
 
+/-- A variable that `isVar` accepts in `e` under constructors only, at most `fuel` deep. -/
+private partial def underCtors (isVar : Expr → Bool) (fuel : Nat) (e : Expr) : MetaM (Option Expr) := do
+  if isVar e then return some e
+  match fuel with
+  | 0 => return none
+  | fuel + 1 =>
+    let e ← whnfR e
+    let .const c _ := e.getAppFn | return none
+    unless (← getEnv).isConstructor c do return none
+    for a in e.getAppArgs do
+      if let some v ← underCtors isVar fuel a then return some v
+    return none
+
+/-- `k2l_case_sub`: case on a variable of a generated sort that occurs inside a discriminant of a
+`match` in the goal, a term of the family against a nested pattern (`inj_Exps a`, matched against
+`inj_Exps (_,_ (inj_Id x) y)`), which `k2l_case_discr` does not split; run after it. A variable under a call is not cased: casing
+it does not reduce the match, and would go on with the new variables. -/
+elab "k2l_case_sub" : tactic => do
+  liftMetaTactic fun g => g.withContext do
+    let env ← getEnv
+    let tgt ← instantiateMVars (← g.getType)
+    let lctx ← getLCtx
+    let family (n : Name) : Bool := isFamilyName env n ||
+      (match env.find? n with
+        | some (.defnInfo v) => v.value.getAppFn.constName?.any (isFamilyName env)
+        | _ => false)
+    let sortVar (d : Expr) : Bool :=
+      d.isFVar && (match lctx.find? d.fvarId! with
+        | some decl => match decl.type.getAppFn with
+          | .const n _ => family n
+          | _ => false
+        | none => false)
+    let apps ← IO.mkRef (#[] : Array Expr)
+    tgt.forEachWhere (fun s => match s.getAppFn with
+        | .const n _ => (Lean.Meta.Match.Extension.getMatcherInfo? env n).isSome
+        | _ => false) fun s => apps.modify (·.push s)
+    let mut found : Option Expr := none
+    for s in ← apps.get do
+      let .const n _ := s.getAppFn | continue
+      let some info := Lean.Meta.Match.Extension.getMatcherInfo? env n | continue
+      for a in s.getAppArgs.extract (info.numParams + 1) (info.numParams + 1 + info.numDiscrs) do
+        if found.isNone then found ← underCtors sortVar 16 a
+    let some d := found
+      | throwError "k2l_case_sub: no match on a constructor term with a variable"
+    return (← familyCases g d.fvarId!).toList.map (·.1)
+
 /-! ## Equations that need more than unfolding -/
 
 /-- Close a generated equation statement with a law of `KPrelude.HookLaws`: an equation of
