@@ -196,7 +196,7 @@ Each lemma is proved by unfolding the function in its hypothesis and splitting i
 - Test data from krust runs compares the model with krust's executions: `k2lean goldens` (initial configurations by `krust krun --depth 0`, expected finals recorded from kimp, and step traces against krust and K's LLVM backend), `k2lean cases` (SIMPLE's tests, krust's final configurations, with search) and `k2lean configs` (benchmark programs).
 - `k2lean claims` states K reachability claims (`claim` sentences of a `--for-proving` definition) as Lean propositions over `Step` (`KClaims`, `lean/claims`), proves those its tactic can, and lists the others for hand proofs; `k2lean claims replay` turns a proof that `krust kore-rpc` explores into a Lean script of named steps.
 - `k2lean relate` pairs the rules and symbols of two definitions of one language and generates the translation and, when every rule pairs, a bisimulation proof (`demos/ImpRel`).
-- `k2lean soundness` generates the type soundness of a semantics for a type checker written in K, but for the store typing and the rules that read or write the store (§3.3, `demos/ImpTypes`).
+- `k2lean soundness` generates the type soundness of a semantics for a type checker written in K, but, for a language with a store, the store typing and the rules that read or write the store (§3.3, `demos/ImpTypes`; ExprTypes and ImpPlusTypes have no hand module).
 
 **What a generator knows.** The generators handle K's constructs, each from what it means in K. Examples:
 - cells and their nesting, and cell collections;
@@ -645,7 +645,7 @@ The repository's own Lean proofs (`lean/`) are a separate project with a toolcha
 
 ## 9. Large definitions: cost and what is open
 
-KEVM through `pipelines/kevm.sh` (krust's compilation of `driver.md`, `gen --arity-terms --termination kevm-termination.toml`, the matchers split into four modules, `lean -j 8`), measured on 2026-10-24 on a shared 32-CPU host:
+KEVM through `pipelines/kevm.sh` (krust's compilation of `driver.md`, `gen --termination kevm-termination.toml`, the matchers split into four modules, `lean -j 8`), measured on 2026-10-24 on a shared 32-CPU host:
 
 | module | wall | CPU | peak | load |
 |---|---|---|---|---|
@@ -661,7 +661,7 @@ KEVM through `pipelines/kevm.sh` (krust's compilation of `driver.md`, `gen --ari
 Every module builds without an error, a `sorry` or an axiom beyond Lean's three; KEVM's 13 `KRYPTO` hooks are the parameters of `class Hooks`, and `senderTxData`, whose rewriting diverges at chain id −4, is a least fixed point (`pipelines/kevm-sender-diverges.lean` proves it has no value there).
 That is the only entry of `kevm-termination.toml`: the five groups that needed a hand-written measure (`qsortJSONs`, `computeValidJumpDests*`, `#bloomFilterAux`, `#fakeExponential`, `#rlpDecode*`) get theirs from the generator (§2.2), and the other recursive groups are unchanged.
 The `Functions` row with synthesized measures was measured from a built `Terms` under a lower load than the row above it, so the two rows' times are not comparable (2026-10-24, `lean -j 8`, 12 GB cap).
-KMIR's concrete target through `pipelines/kmir.sh` (krust's compilation of `kmir.md` with the selector `k & ! symbolic`, `gen --arity-terms --termination kmir-termination.toml --det2-heartbeats 800000`, `lean -j 8`, nice 10, each step in its own scope of 14 GB), 2026-10-25, Lean v4.34.0:
+KMIR's concrete target through `pipelines/kmir.sh` (krust's compilation of `kmir.md` with the selector `k & ! symbolic`, `gen --termination kmir-termination.toml --det2-heartbeats 800000`, `lean -j 8`, nice 10, each step in its own scope of 14 GB), 2026-10-25, Lean v4.34.0:
 
 | step | wall | CPU | peak | load |
 |---|---|---|---|---|

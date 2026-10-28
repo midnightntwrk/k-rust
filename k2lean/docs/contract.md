@@ -38,7 +38,7 @@ Weigh the cost only when it lies in the specification layer, which cannot be opt
 Specification the user writes is frozen too, like what the generator writes; like an instance of `class Hooks`, it is the user's assumption:
 - K functions the user adds to the definition so that a generator can state a theorem about them (a type checker, a kind 1 invariant, a relation between the checker's typing and the runtime state; `design.md` §3, "What a generator knows"): they are generated into the library like the rest of the definition;
 - Lean the user writes to state a property, such as a kind 2 invariant's `P` (`invariants.md`), kept in its own module apart from its proofs;
-- the options that select which theorem is stated (`claims --assume-invariant`, `--induction`, `--transfer`, …): each states a different theorem, not a weaker form of the same one.
+- the options that select which theorem is stated (`claims --assume-invariant`, `--induction`, `--transfer`, …): each states a different theorem, and where that theorem is weaker than the K original (a claim under `--assume-invariant`), the design notes say so (`product.md` §3.2).
 
 The second kind is the one frozen part that no regeneration reproduces, so the loop has to pin it on its own (§5).
 

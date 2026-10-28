@@ -1,6 +1,6 @@
 # k2lean
 
-k2lean generates a Lean 4 library from a K definition compiled by krust: its sorts as one term family indexed by sort, the definition's functions as Lean definitions, its rewrite rules as an inductive `Step` relation with an executable `step`, its K equations as proved theorems, and proofs that tie them together.
+k2lean generates a Lean 4 library from a K definition compiled by krust: its sorts as one term family indexed by sort, the definition's functions as Lean definitions, its rewrite rules as an inductive `Step` relation with an executable `step`, its K equations as theorems (proved by generic tactics where they reach, and listed as open obligations where they do not), and proofs that tie them together.
 On top of a generated library it proves preserved invariants (a property kept by every rule, for every program), written either as a K function or as a Lean predicate.
 It is part of k-rust's repository: the generator is a member of k-rust's workspace and reads KORE through `k-rust-kore`, at whatever commit the checkout is.
 
@@ -58,7 +58,7 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | demo | shows |
 |---|---|
 | `demos/ImpRel` | the KRS IMP port (`demos/k/krs-imp`) and kimp are bisimilar: `k2lean relate` pairs their rules and generates the proof |
-| `demos/SimpleRel` | SIMPLE and a variant of it (`tests/simple-variant.py`: constructors with other symbols, rules in another order) are bisimilar (priorities, free-key matches on the thread cell map, typed cell maps): `k2lean relate --split true` generates the proof, one module per simulation; human-run (`pipelines/simple-rel.sh`, per-sort), 7 minutes and 9 GB on top of the two libraries (`docs/design.md`, §9) |
+| `demos/SimpleRel` | SIMPLE and a variant of it (`tests/simple-variant.py`: constructors with other symbols, rules in another order) are bisimilar (priorities, free-key matches on the thread cell map, typed cell maps): `k2lean relate --split true` generates the proof, one module per simulation; a targeted check, not a gate tier (`pipelines/simple-rel.sh`, run when `relate`'s emitters or the family's case and split tactics change), about 17 minutes with `Base` at 771 s and 10.7 GB on top of the two libraries (`docs/design.md`, §9) |
 | `demos/PeanoRel`, `demos/CellMapRel`, `demos/PickRel` | the fixtures `tests/fixtures/peano` (an `owise` priority, recursive and mutual functions), `tests/fixtures/cellmap` (a free-key rule over the typed cell map of `<worker>`s) and `tests/fixtures/pick` (functions with free-key map patterns) are each bisimilar to themselves under two namespaces: the light gate's cheap pins of `relate` |
 | `demos/ImpTypes` | kimp is type-sound for a K type checker (`demos/k/imp-typing.k`): `k2lean soundness` generates the runtime typing, preservation, progress and `soundness`; `Store.lean` holds the store typing and the cases of the three rules that read or write the store |
 | `demos/ImpPlusTypes` | IMP++ of K's tutorial (threads in a cell map, `spawn`/`join`, blocks, K's I/O streams) is type-sound for a K type checker of its programs without variables (`demos/k/impplus-typing.k`): all generated, no hand module (`docs/design.md`, §3.3, "A semantics with threads") |
@@ -97,7 +97,7 @@ A claim proved on one definition holds on another that `k2lean relate` proves bi
 
 ## Type soundness
 
-`k2lean soundness` generates the type soundness of a semantics for a type checker written as a second K definition over its syntax, except what is specific to the language's store: the hand module types the store and proves the cases of the rules that read or write it (`demos/ImpTypes`, `tests/areas/soundness.sh`, `libs_soundness`):
+`k2lean soundness` generates the type soundness of a semantics for a type checker written as a second K definition over its syntax, except, for a language with a store, what is specific to it: a hand module types the store and proves the cases of the rules that read or write it (`demos/ImpTypes`; `demos/ExprTypes` and `demos/ImpPlusTypes` need none; `tests/areas/soundness.sh`, `libs_soundness`):
 
 ```sh
 target/release/k2lean soundness --kore-a out/my/definition.kore --name-a My \
@@ -142,7 +142,7 @@ target/release/k2lean noninterference --kore A/definition.kore --name A --ns ANI
 
 ## Large definitions
 
-The default term universe is one inductive family indexed by the sorts, which Lean builds at KEVM's size; `gen --per-sort-terms` writes one Lean type per sort instead, in one `mutual` block, the default until 2026-10-25, which some of the gate's libraries and demos still use (`docs/design.md`, §2.1, lists them and why); `gen --arity-terms`, the former opt-in, changes nothing.
+The default term universe is one inductive family indexed by the sorts, which Lean builds at KEVM's size; `gen --per-sort-terms` writes one Lean type per sort instead, in one `mutual` block, the default until 2026-10-25, which only the gate's per-sort regression libraries and six snapshot tests still use (`docs/design.md`, §2.1); `gen --arity-terms`, the former opt-in, changes nothing.
 Determinism is proved along the rule index rather than over all pairs of rules, on both encodings (`gen --det-pairs` keeps the proof by pairs for the per-sort one); `docs/design.md`, §2.1 and §3.1, describes both and what they cost.
 `pipelines/kevm.sh` and `pipelines/kmir.sh` run KEVM and KMIR through the generator and Lean, step by step, `pipelines/simple-rel.sh` relates SIMPLE to its variant (`demos/SimpleRel`), and `pipelines/kevm-inv.sh` proves an invariant of KEVM's semantics, every account stored under its own `<acctID>`, for all 358 rules (`docs/invariants.md`, §5.3); `docs/design.md`, §9, lists what is open.
 `pipelines/kevm.sh` builds KEVM's test driver (`driver.md`) by default and the semantics alone (`evm.md`, main module `EVM`) with `TARGET=evm`; its `equations` step builds KEVM's `Equations` part by part, and its `det` step builds the determinism modules and then `KEvmTest.DetAxioms`, the axiom guard of determinism alone, which does not need KEVM's `Equations`.
