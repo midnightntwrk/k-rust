@@ -293,46 +293,127 @@ fn cond_props(lw: &mut Lower, requires: &[P]) -> Result<Vec<String>, String> {
     Ok(props)
 }
 
-/// `\and(t, V)` (an `#as` pattern) in a term position: the value is `t`, also named `V`.
-fn strip_as(p: &P, subst: &mut BTreeMap<String, P>) -> P {
-    match p {
-        P::And(_, ps) if ps.len() == 2 => {
-            let (vars, terms): (Vec<&P>, Vec<&P>) =
-                ps.iter().partition(|q| matches!(q, P::Var(..)));
-            match (vars.as_slice(), terms.as_slice()) {
-                ([P::Var(v, _)], [t]) => {
-                    let t = strip_as(t, subst);
-                    subst.insert(v.clone(), t.clone());
-                    t
+/// The aliases of an equation's arguments eliminated (`P #as X`, KORE `\and(P, X)` in a term
+/// position): the arguments with every alias replaced by its pattern, and the substitution that
+/// replaces each alias variable by its pattern, to apply to the requires and the right-hand side.
+///
+/// `\and(P, X)` matches a value that matches `P` and is the value of `X`; `P` is functional (a
+/// constructor term, a literal, a list pattern: it denotes one value), so the axiom over `X` is the
+/// one with `P` for `X` everywhere `X` occurs: in this argument, the other arguments (`f(c(N) #as X,
+/// X)` constrains both), the requires and the right-hand side. `X #as Y` (no term) identifies the
+/// two variables; nested aliases bind every variable to the one pattern. A variable inside its own
+/// pattern, and a conjunction of two non-variable patterns, are refused.
+/// Also returns each alias pattern with its sort.
+type Aliases = (Vec<P>, BTreeMap<String, P>, Vec<(P, S)>);
+fn strip_aliases(args: &[P]) -> Result<Aliases, String> {
+    fn walk(p: &P, raw: &mut Vec<(String, P)>, pats: &mut Vec<(P, S)>) -> Result<P, String> {
+        Ok(match p {
+            P::And(sort, ps) => {
+                let mut flat = Vec::new();
+                flatten_and(ps, &mut flat);
+                let (vars, terms): (Vec<&P>, Vec<&P>) =
+                    flat.into_iter().partition(|q| matches!(q, P::Var(..)));
+                let value = match terms.as_slice() {
+                    [t] => {
+                        let t = walk(t, raw, pats)?;
+                        pats.push((t.clone(), sort.clone()));
+                        t
+                    }
+                    [] => (*vars.first().ok_or("an empty conjunction")?).clone(),
+                    _ => return Err("conjunction of two non-variable patterns".into()),
+                };
+                for v in vars {
+                    if let P::Var(n, _) = v
+                        && *v != value
+                    {
+                        raw.push((n.clone(), value.clone()));
+                    }
                 }
-                _ => p.clone(),
+                value
+            }
+            P::App(f, sp, args) => P::App(
+                f.clone(),
+                sp.clone(),
+                args.iter()
+                    .map(|a| walk(a, raw, pats))
+                    .collect::<Result<_, _>>()?,
+            ),
+            other => other.clone(),
+        })
+    }
+    fn flatten_and<'a>(ps: &'a [P], out: &mut Vec<&'a P>) {
+        for q in ps {
+            match q {
+                P::And(_, qs) => flatten_and(qs, out),
+                other => out.push(other),
             }
         }
-        P::App(f, sp, args) => P::App(
-            f.clone(),
-            sp.clone(),
-            args.iter().map(|a| strip_as(a, subst)).collect(),
-        ),
-        other => other.clone(),
     }
+    let (mut raw, mut pats) = (Vec::new(), Vec::new());
+    let stripped: Vec<P> = args
+        .iter()
+        .map(|a| walk(a, &mut raw, &mut pats))
+        .collect::<Result<_, _>>()?;
+    // one binding per variable (a variable aliased twice is bound to its first pattern, the second
+    // occurrence then equates the two: substituted, both name the same value)
+    let mut subst: BTreeMap<String, P> = BTreeMap::new();
+    for (v, t) in raw {
+        subst.entry(v).or_insert(t);
+    }
+    // closed under itself (`Y := wrap(X)`, `X := c(N)`), with the occurs check
+    let keys: Vec<String> = subst.keys().cloned().collect();
+    for _ in 0..=keys.len() {
+        let next: BTreeMap<String, P> = subst
+            .iter()
+            .map(|(k, t)| (k.clone(), subst_vars(t, &subst)))
+            .collect();
+        if next == subst {
+            break;
+        }
+        subst = next;
+    }
+    for (k, t) in &subst {
+        let mut vs = BTreeMap::new();
+        vars_of(t, &mut vs);
+        if vs.contains_key(k) {
+            return Err("alias variable inside its own pattern".into());
+        }
+    }
+    Ok((
+        stripped.iter().map(|a| subst_vars(a, &subst)).collect(),
+        subst,
+        pats,
+    ))
 }
 
+/// `p` with the substitution applied to its free variables (a binder shadows its variable).
 fn subst_vars(p: &P, subst: &BTreeMap<String, P>) -> P {
+    let b = |q: &P| Box::new(subst_vars(q, subst));
+    let all = |qs: &[P]| qs.iter().map(|q| subst_vars(q, subst)).collect();
     match p {
         P::Var(v, _) => subst.get(v).cloned().unwrap_or_else(|| p.clone()),
-        P::App(f, sp, args) => P::App(
-            f.clone(),
-            sp.clone(),
-            args.iter().map(|a| subst_vars(a, subst)).collect(),
-        ),
-        P::And(s, ps) => P::And(s.clone(), ps.iter().map(|a| subst_vars(a, subst)).collect()),
-        P::Equals(a, b, l, r) => P::Equals(
-            a.clone(),
-            b.clone(),
-            Box::new(subst_vars(l, subst)),
-            Box::new(subst_vars(r, subst)),
-        ),
-        other => other.clone(),
+        P::App(f, sp, args) => P::App(f.clone(), sp.clone(), all(args)),
+        P::And(s, ps) => P::And(s.clone(), all(ps)),
+        P::Or(s, ps) => P::Or(s.clone(), all(ps)),
+        P::Not(s, a) => P::Not(s.clone(), b(a)),
+        P::Implies(s, l, r) => P::Implies(s.clone(), b(l), b(r)),
+        P::Iff(s, l, r) => P::Iff(s.clone(), b(l), b(r)),
+        P::Rewrites(s, l, r) => P::Rewrites(s.clone(), b(l), b(r)),
+        P::Ceil(a, s, q) => P::Ceil(a.clone(), s.clone(), b(q)),
+        P::Floor(a, s, q) => P::Floor(a.clone(), s.clone(), b(q)),
+        P::Equals(a, s, l, r) => P::Equals(a.clone(), s.clone(), b(l), b(r)),
+        P::In(a, s, l, r) => P::In(a.clone(), s.clone(), b(l), b(r)),
+        P::Exists(s, v, vs, q) | P::Forall(s, v, vs, q) => {
+            let mut inner = subst.clone();
+            inner.remove(v);
+            let q = Box::new(subst_vars(q, &inner));
+            if matches!(p, P::Exists(..)) {
+                P::Exists(s.clone(), v.clone(), vs.clone(), q)
+            } else {
+                P::Forall(s.clone(), v.clone(), vs.clone(), q)
+            }
+        }
+        P::Str(_) | P::SetVar(..) | P::Dv(..) | P::Top(_) | P::Bottom(_) | P::Other(_) => p.clone(),
     }
 }
 
@@ -346,8 +427,7 @@ fn state_one(
     comps: &[&Equation],
 ) -> Result<String, String> {
     let mut lw = Lower::new(m, fns, &[]);
-    let mut asv = BTreeMap::new();
-    let e_args: Vec<P> = e.args.iter().map(|a| strip_as(a, &mut asv)).collect();
+    let (e_args, asv, alias_pats) = strip_aliases(&e.args)?;
     let e_requires: Vec<P> = e.requires.iter().map(|r| subst_vars(r, &asv)).collect();
     let (value, ensures) = e.value();
     let e_rhs = subst_vars(value, &asv);
@@ -370,7 +450,20 @@ fn state_one(
         args.push(lw.expr(a, s)?);
     }
     if !lw.steps.is_empty() {
-        return Err("a partial function in an argument pattern".into());
+        // an alias of a map or set pattern (partial: overlapping keys give `⊥`) is such an argument
+        // too; stated with the map-pattern equations, when those are (`design.md` §8)
+        let partial_alias = alias_pats.iter().any(|(t, sort)| {
+            let n = lw.steps.len();
+            let lowered = sort.name().map(|so| lw.expr(t, so));
+            let partial = lowered.is_some_and(|r| r.is_err() || lw.steps.len() > n);
+            lw.steps.truncate(n);
+            partial
+        });
+        return Err(if partial_alias {
+            "alias of a map or set pattern".into()
+        } else {
+            "a partial function in an argument pattern".into()
+        });
     }
     let hyps = cond_props(&mut lw, &e_requires)?;
     // the `ensures`, as in the definition (`funcs::lower_equation`): checked after the match
@@ -393,8 +486,7 @@ fn state_one(
     let mut guards = Vec::new();
     for (j, c) in comps.iter().enumerate() {
         let mut lc = Lower::new(m, fns, &[]);
-        let mut casv = BTreeMap::new();
-        let c_args: Vec<P> = c.args.iter().map(|a| strip_as(a, &mut casv)).collect();
+        let (c_args, casv, _) = strip_aliases(&c.args)?;
         let c_requires: Vec<P> = c.requires.iter().map(|r| subst_vars(r, &casv)).collect();
         let mut cv = BTreeMap::new();
         for a in &c_args {
@@ -1146,6 +1238,60 @@ mod tests {
             .map(|b| numbered(b.to_string(), &mut taken))
             .collect();
         assert_eq!(names, ["Simp.s_a", "Simp.s_b", "Simp.s_a_2", "Simp.s_a_3"]);
+    }
+
+    fn pr() -> S {
+        S::App("SortPr".into(), vec![])
+    }
+    fn v(n: &str) -> P {
+        P::Var(n.into(), pr())
+    }
+    fn c(args: Vec<P>) -> P {
+        P::App("Lblc".into(), vec![], args)
+    }
+    fn w(args: Vec<P>) -> P {
+        P::App("Lblw".into(), vec![], args)
+    }
+    fn al(ps: Vec<P>) -> P {
+        P::And(pr(), ps)
+    }
+
+    /// `c(N) #as X`: the argument is `c(N)` and `X` is `c(N)`, also where `X` occurs bare in
+    /// another argument, before or after the alias.
+    #[test]
+    fn an_alias_is_its_pattern_in_every_argument() {
+        let (args, subst, _) = strip_aliases(&[al(vec![c(vec![v("N")]), v("X")]), v("X")]).unwrap();
+        assert_eq!(args, vec![c(vec![v("N")]), c(vec![v("N")])]);
+        assert_eq!(subst.get("X"), Some(&c(vec![v("N")])));
+        let (args, _, _) = strip_aliases(&[v("X"), al(vec![c(vec![v("N")]), v("X")])]).unwrap();
+        assert_eq!(args, vec![c(vec![v("N")]), c(vec![v("N")])]);
+    }
+
+    /// `(c(N) #as X) #as Y`, `X #as Y`, and a chain `w(X) #as Y`, `c(N) #as X`.
+    #[test]
+    fn nested_aliases_variables_and_chains() {
+        let (args, subst, _) =
+            strip_aliases(&[al(vec![al(vec![c(vec![v("N")]), v("X")]), v("Y")])]).unwrap();
+        assert_eq!(args, vec![c(vec![v("N")])]);
+        assert_eq!(subst.get("X"), subst.get("Y"));
+        let (args, subst, _) = strip_aliases(&[al(vec![v("X"), v("Y")])]).unwrap();
+        assert_eq!(args, vec![v("X")]);
+        assert_eq!(subst.get("Y"), Some(&v("X")));
+        let (args, subst, _) = strip_aliases(&[
+            al(vec![w(vec![v("X")]), v("Y")]),
+            al(vec![c(vec![v("N")]), v("X")]),
+        ])
+        .unwrap();
+        assert_eq!(args, vec![w(vec![c(vec![v("N")])]), c(vec![v("N")])]);
+        assert_eq!(subst.get("Y"), Some(&w(vec![c(vec![v("N")])])));
+    }
+
+    #[test]
+    fn two_patterns_and_a_variable_in_its_own_pattern_are_refused() {
+        let e = strip_aliases(&[al(vec![c(vec![v("N")]), w(vec![v("M")])])]).unwrap_err();
+        assert!(e.contains("two non-variable patterns"), "{e}");
+        let e = strip_aliases(&[al(vec![c(vec![v("X")]), v("X")])]).unwrap_err();
+        assert!(e.contains("inside its own pattern"), "{e}");
     }
 
     fn st(name: &str, statement: &str, unfold_first: &[&str]) -> Stated {

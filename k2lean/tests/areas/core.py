@@ -9,6 +9,7 @@ LIBS = {
     "ens": {"ns": "KEns", "tier": "light"},
     "freekey": {"ns": "FreeKey", "tier": "light"},
     "symcoll": {"ns": "SymColl", "tier": "light"},
+    "alias": {"ns": "KAlias", "tier": "light"},
     "simple": {"ns": "KSimple", "tier": "heavy"},
     "kterm-ar": {"ns": "KTerm", "tier": "light"},
     # kimp and SIMPLE in the per-sort encoding (`gen --per-sort-terms`), for the holdouts that are

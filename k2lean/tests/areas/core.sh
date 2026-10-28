@@ -19,7 +19,7 @@ kore_core() {
 name_core() {
   case $1 in
     kimp|kimp-d2|kimp-ps) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
-    simple|simple-ps) echo KSimple ;; freekey) echo FreeKey ;; symcoll) echo SymColl ;;
+    simple|simple-ps) echo KSimple ;; freekey) echo FreeKey ;; symcoll) echo SymColl ;; alias) echo KAlias ;;
     kterm-ar) echo KTerm ;;
     *) return 1 ;;
   esac
@@ -60,6 +60,8 @@ gen_core() {
     freekey) libs_fixture_args "$1" ;;
     # the fixture whose simplifications are domains.md's over maps and sets (tests/fixtures/symcoll)
     symcoll) libs_fixture_args "$1" ;;
+    # the fixture of alias patterns in function equations (tests/fixtures/alias)
+    alias) libs_fixture_args "$1" ;;
     # recursive functions whose termination measures the generator synthesizes (demos/k/term),
     # and least fixed points where K's rewriting diverges (term-termination.toml)
     kterm-ar) GEN_ARGS=(--kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json"
@@ -191,6 +193,8 @@ gate_core() {
   runs lib freekey && lib freekey FreeKey
   # the fixture of `MAP-SYMBOLIC`'s and `SET-SYMBOLIC`'s simplifications (the collection laws)
   runs lib symcoll && lib symcoll SymColl
+  # the fixture of alias patterns (`P #as X`) in equations and owise competitors
+  runs lib alias && lib alias KAlias
   if runs lib kimp-ps; then
     kc kimp && kc kimp-verif && lib kimp-ps KImp kimp_goldens kimp-ps && kimp_tests kimp-ps per-sort
   fi
