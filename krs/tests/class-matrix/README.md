@@ -28,7 +28,8 @@ from a slot's root, so a case's position is data the oracle reads, never parsed 
 - the slots' roots: a fn's, an equation's, a simplification's, a context's and a static clause's
   whole subject, a `for KItem` clause's bare and in `k::term!` (`terms/sort-rule/subject-root-term/..`),
   a result's, a constant's and a computation item's (`terms/readable/item-root/..`);
-- depth 2, a construct inside a position another construct opens, at one host per kind (matched,
+- depth 2, a construct inside a position another construct opens (a set's element among them), at
+  one host per kind (matched,
   evaluated, built, guard): `terms/sort-rule/result/let-body/Size(x)` is `Size(x)` as a `let`
   block's result in a `for Stmt` clause's result.
 
@@ -47,11 +48,13 @@ on every term case, and a case they disagree on must be pending.
 A refusal of the oracle lies at the spelling, or at the entry (the outer construct's text) when the
 refused construct is the one a depth-2 case's construct stands in.
 
-**Size.** The term family is about 4,300 cases and the import axis about 150, of 5,279 in all; the
+**Size.** The term family is about 4,600 cases and the import axis 150, of about 5,500 in all; the
 generator caps the total at `FRONT_CASE_CAP` (6,000), whose documentation argues the fast tier's
 budget (7.5 ms a case single-threaded). The full tier's `terms` shard takes about 4 minutes with 22
-workers. `expected.toml` keeps the term family's accept entries with the others: one file stays one
-schema, and the entries are written by the record mode, never by hand.
+workers. The term families' accept entries are most of the table, so they live in
+`accepted-terms.toml`, in `expected.toml`'s accept schema and written by the same record mode;
+`expected.toml` keeps the classes, the refusal rules and the other families' accept entries, and
+holds no term case's entry (`class_matrix::table`).
 
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:

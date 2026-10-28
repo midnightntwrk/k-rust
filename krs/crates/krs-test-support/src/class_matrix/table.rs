@@ -399,8 +399,8 @@ impl Table {
     ///
     /// # Errors
     ///
-    /// Returns every error of either text, an accept entry of the second that is no term case or
-    /// a part other than `accept`, and an accept entry both name.
+    /// Returns every error of either text, an accept entry of the first that is a term case, and
+    /// an accept entry of the second that is no term case or a part other than `accept`.
     pub fn parse_with_term_accepts(
         text: &str,
         term_accepts: &str,
@@ -410,6 +410,11 @@ impl Table {
             errors.extend(found);
             Self::default()
         });
+        for id in table.accept.keys().filter(|id| is_term_case(id)) {
+            errors.push(schema(format!(
+                "expected.toml accepts the term case {id:?}, whose entry belongs in {TERM_ACCEPTS_FILE}"
+            )));
+        }
         match Self::parse(term_accepts) {
             Ok(terms) => {
                 if !terms.classes.is_empty() || !terms.refuse.is_empty() {
@@ -418,13 +423,11 @@ impl Table {
                     )));
                 }
                 for (id, accepted) in terms.accept {
-                    if !is_term_case(&id) {
+                    if is_term_case(&id) {
+                        table.accept.insert(id, accepted);
+                    } else {
                         errors.push(schema(format!(
                             "{TERM_ACCEPTS_FILE} accepts {id:?}, which is no term case"
-                        )));
-                    } else if table.accept.insert(id.clone(), accepted).is_some() {
-                        errors.push(schema(format!(
-                            "{id:?} is accepted in expected.toml and {TERM_ACCEPTS_FILE}"
                         )));
                     }
                 }

@@ -176,7 +176,7 @@ fn case(kind: CellKind, side: Side, construct: &str, binders: &[(&str, &str)]) -
         ))
     };
     let command = match &packaging {
-        Packaging::Shared(command) => command.name.clone(),
+        Packaging::Shared(command) | Packaging::Alone(command) => command.name.clone(),
         Packaging::Own(_) => String::new(),
     };
     let mut parameters = Vec::new();

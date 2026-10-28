@@ -306,7 +306,7 @@ fn record_case(spec: CaseSpec, kind: CellKind, side: Side) -> Case {
         .push(attribute)
         .push("    ");
     let command = match &packaging {
-        Packaging::Shared(command) => Some(command),
+        Packaging::Shared(command) | Packaging::Alone(command) => Some(command),
         Packaging::Own(_) => None,
     };
     record_clause(&mut item, &label, command, kind, side, &spec.construct);

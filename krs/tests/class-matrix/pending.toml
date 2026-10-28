@@ -1208,6 +1208,16 @@ finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ spelling"
 step = "S5"
 
+["terms/readable/map-key/as-body/x | 1"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x | 1"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
 # S0-15: `job: []`, a List collection with no instance, is refused in a subject ("names no instance"), though the reference documents it
 
 ["claim/subject/job/[]"]
@@ -1611,6 +1621,11 @@ deviation = "printed surface refused: krs::expand::matches-outside-condition @ i
 step = "S6"
 
 ["k3/terms/sort-rule/result/update-field/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x | 1"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
@@ -2210,7 +2225,8 @@ step = "S4"
 # alternatives, and an update's base that is no matched record's alias, are refused by their own
 # rules. NT-F1 (P5) owns how a key is read.
 # NT-2 finds the same reading at every position below a readable key (a `let` pattern and body, a
-# `k::matches!` pattern, a record update's field, a function's argument) and at a `cells!` map's key.
+# `k::matches!` pattern, a record update's field, a function's argument), at a `cells!` map's key,
+# and at a set's element in a pattern, which is looked up by as a key is (`set::item(..)`).
 
 ["terms/readable/map-key/Cmd::Pair { a: x, ..x }"]
 finding = "NT-1-1"
@@ -2824,6 +2840,46 @@ deviation = "krs::syntax::invalid-record-update @ entry"
 finding = "NT-1-1"
 deviation = "krs::syntax::invalid-record-update @ entry"
 
+["terms/readable/map-key/let-body/x | 1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/update-field/x | 1"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/rule/subject/set-element/Cmd::Pair { a: x, ..x }"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ spelling"
+
+["terms/rule/subject/set-element/k::is!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/rule/subject/set-element/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/rule/subject/set-element/k::project!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/rule/subject/set-element/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/rule/subject/set-element/{ let y = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/rule/subject/set-element/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
 # NT-1-2: a function application in a List cell's element in a readable subject is accepted and
 # emitted as matched (`<stack> ListItem(size ( V0:KItem )) ... </stack>`), so the rule never applies:
 # the list holds evaluated values. An element of a list in a pattern is matched as any argument is,
@@ -3159,11 +3215,16 @@ deviation = "krs::analysis::invalid-term @ spelling"
 finding = "NT-2-4"
 deviation = "krs::analysis::invalid-term @ spelling"
 
-# NT-2-5: a notation form in a `cells!` map key is refused as a pattern (P5)
-# A key in a pattern is computed and looked up when it is computed, so `x + 1` there denotes the
-# call it is notation for, which the key admits. The readable key `{ x + 1 -> v, .. }` is accepted;
-# the `cells!` key `k::map![x + 1 -> v, ..]` is refused with `invalid-expression-notation`. Probe:
-# `terms/cells/map-key/x + 1`. Plan: NT-3 (P5).
+["terms/simplification/guard/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+# NT-2-5: a notation form in a `cells!` map key or a set's element is refused as a pattern (P5)
+# A key or a set's element in a pattern is computed and looked up when it is computed, so `x + 1`
+# there denotes the call it is notation for, which the key admits (`{ Size(x) -> v, .. }`,
+# `set::item(Size(n))`). The readable key `{ x + 1 -> v, .. }` is accepted; the `cells!` key
+# `k::map![x + 1 -> v, ..]` and the element `set::item(x + 1)` are refused with
+# `invalid-expression-notation`. Probe: `terms/cells/map-key/x + 1`. Plan: NT-3 (P5).
 
 ["terms/cells/map-key/!(x < 1)"]
 finding = "NT-2-5"
@@ -3202,6 +3263,46 @@ finding = "NT-2-5"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["terms/cells/map-key/x.add::<Int>(1)"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/!(x < 1)"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/-(x + 1)"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/x & 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/x && true"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/x + 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/x < 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/x << 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/x == 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/x || true"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element/x.add::<Int>(1)"]
 finding = "NT-2-5"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
@@ -3522,10 +3623,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-["terms/readable/map-key/let-pattern/Cmd::Go() | Cmd::Hold(_)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
 ["terms/readable/map-key/let-pattern/Cmd::Pair { a: x, ..x }"]
 finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -3655,10 +3752,6 @@ finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["terms/rule/guard/let-pattern/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/rule/guard/let-pattern/Cmd::Go() | Cmd::Hold(_)"]
 finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
@@ -3843,10 +3936,6 @@ finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["terms/sort-rule/result/let-pattern/-(x + 1)"]
-finding = "NT-2-6"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["terms/sort-rule/result/let-pattern/Cmd::Go() | Cmd::Hold(_)"]
 finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
@@ -4191,8 +4280,12 @@ finding = "NT-2-11"
 deviation = "krs::analysis::invalid-pattern-or @ spelling"
 
 # NT-2-12: a simplification rooted at `set::item` is refused with no location
-# `k::builtin::set::item(x)`, a set's element constructor, roots no function, which the root's
-# class says at the root; the product reports `invalid-semantic-theory` unlocated. Probe:
+# `k::builtin::set::item(x)` is a set's element constructor: its application is the singleton set,
+# a value, which every pattern position matches by its element (the product and the oracle admit it
+# in a rule's subject, where an evaluated application never matches), though the catalog spells it
+# as an operation of the `set` module. A simplification rewrites an unevaluated application, so a
+# value at its root simplifies nothing; the product refuses it so (`invalid-semantic-theory`,
+# "must be rooted at a function"), without a location. Probe:
 # `terms/simplification/subject-root/k::builtin::set::item(x)`. Plan: NT-4.
 
 ["terms/simplification/subject-root/k::builtin::set::item(x)"]
@@ -4258,13 +4351,13 @@ finding = "NT-2-14"
 deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
 
 # NT-2-15: `krs expand` panics on a readable map read whose value is `_`
-# `{ x -> _, .. }` is accepted, and printing it panics in `krs-compiler/src/reference.rs`
-# (`r#_` cannot be a raw identifier): the printer makes a binder of `_`. Probe:
+# `{ x -> _, .. }` is accepted, and printing it panics in `krs-compiler/src/reference.rs`: the
+# printer makes a binder of `_` ("`r#_` cannot be a raw identifier"). Probe:
 # `k3/terms/readable/map-value/_`. Plan: new.
 
 ["k3/terms/readable/map-value/_"]
 finding = "NT-2-15"
-deviation = "printed surface refused: krs expand panicked"
+deviation = "printed surface refused: krs expand panicked: `r#_` cannot be a raw identifier"
 
 # NT-2-16: `krs expand` refuses a turbofish written in a `k::rules!`, `k::claims!` or `k::equations!` block
 # `Wrap::<KItem>(x)` in a readable record, claim or `for Stmt` clause, and `Wrap::<dyn KItemSort>(x)`
@@ -4454,11 +4547,13 @@ deviation = "krs::collect::stale-anchor @ spelling"
 finding = "NT-2-18"
 deviation = "krs::collect::stale-anchor @ spelling"
 
-# NT-2-19: a turbofish in a constant is refused, though it is a ground constructor term
-# `Wrap::<dyn KItemSort>(..)` applies a constructor at a named instance, a value as any constructor's
-# application; the table admits it in a constant, and the compiler refuses it (`invalid-constant`, "a
-# parametric production's turbofish is not one"). Probe: `terms/constant/value/Wrap::<dyn k::KItemSort>(x)`.
-# Plan: new.
+# NT-2-19: a turbofish in a constant is refused, though it applies a constructor to ground terms
+# `#[k::constant] const K: KItem = Wrap::<dyn KItemSort>(1);` is `invalid-constant` ("a parametric
+# production's turbofish is not one"), while `Wrap(1)` is accepted and the table admits a turbofish
+# in a constant: a constructor's application at a named instance is a value as any constructor's
+# (targeted probe; the matrix's spelling `Wrap::<..>(x)` also reads an unbound `x`, the
+# `unbound-name` rule's, which the product's turbofish refusal comes before). Probe:
+# `terms/constant/value/Wrap::<dyn k::KItemSort>(x)`. Plan: new.
 
 ["terms/constant/value-root/Wrap::<dyn k::KItemSort>(x)"]
 finding = "NT-2-19"
@@ -4566,8 +4661,10 @@ deviation = "krs::analysis::invalid-term @ item"
 # NT-2-25: a name mistake is reported before a placement mistake
 # A placement mistake is told by the spelling and its position before any name is resolved; the
 # product reports an unbound name before an open record's remainder in an initializer or a constant,
-# and alternatives that bind other names before a sort test or `k::matches!` in a subject's
-# alternative. Probe: `terms/init/item/Cmd::Pair { a: x, .. }`. Plan: new.
+# and alternatives that bind other names before a sort test, `k::matches!`, alternatives in a `let`
+# pattern, in a subject rewritten as one term, or in a local rule's or a simplification's subject,
+# where alternatives are refused (`x | 1` there). Probe:
+# `terms/init/item/Cmd::Pair { a: x, .. }`. Plan: new.
 
 ["terms/constant/value-root/Cmd::Pair { a: x, .. }"]
 finding = "NT-2-25"
@@ -4601,6 +4698,34 @@ deviation = "krs::syntax::invalid-pattern-or @ entry"
 finding = "NT-2-25"
 deviation = "krs::syntax::invalid-pattern-or @ entry"
 
+["terms/cells-local/subject/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/local-rule/subject/rewrite-left/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/local-rule/subject/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/readable/map-key/let-pattern/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/rule/guard/let-pattern/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/simplification/subject/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/sort-rule/result/let-pattern/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
 # NT-2-26: a constant's whole value that rustc cannot parse gets no KRS answer
 # At a `#[k::constant]` value's root, a construct rustc's parser refuses is reported by rustc
 # alone; below the root KRS answers beside it. Probe: `terms/constant/value-root/y @ Cmd::Hold(_)`.
@@ -4633,3 +4758,65 @@ deviation = "krs::analysis::invalid-semantic-theory @ item"
 ["terms/context/subject/Cmd::Go() | Cmd::Hold(_)"]
 finding = "NT-2-28"
 deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+
+# NT-2-29: a sort mistake is reported after a resolution mistake at some positions and before it at their siblings
+# `k::builtin::int::add(x, 1)` with `x` a `cells!` binder declared `KItem` makes two mistakes in a
+# subject: a function in a pattern, and a `KItem` binder read as an `Int` operand. A `cells!` map
+# value and a `cells!` claim's subject report `incompatible-binder`; a `cells!` rule's subject and
+# computation item and a local rule's subject report `function-in-pattern`. `[x, ..]` at a subject's root reports
+# `invalid-list-notation` in every form but an equation, which reports `subject-root-not-function`.
+# Which mistake is told first is the product's to choose, but one order for both: the table meets the
+# sort mistake first wherever it decides one. Probe: `terms/cells/subject/k::builtin::int::add(x, 1)`.
+# Plan: new (diagnostics).
+
+["terms/cells/item-root/k::builtin::int::add(x, 1)"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells-local/subject/k::builtin::int::add(x, 1)"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/subject/k::builtin::int::add(x, 1)"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/equation/subject-root/[x, ..]"]
+finding = "NT-2-29"
+deviation = "krs::analysis::subject-root-not-function @ spelling"
+
+# NT-2-30: a single-body rule without a rewrite is reported before some placement mistakes at its subject's root
+# A single-body rule's subject that holds no `k::rewrite!` changes nothing, a mistake of the whole
+# sentence; a construct refused where it stands is a mistake told by its spelling and position alone.
+# At the subject's root the product reports the placement first for a notation form, `_`, an alias,
+# an island and a map literal, and the missing rewrite first for alternatives, a record update with
+# a base, a predicate and a `let` block. Probe: `terms/local-rule/subject-root/Cmd::Go() | Cmd::Hold(_)`.
+# Plan: new (diagnostics).
+
+["terms/local-rule/subject-root/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-30"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["terms/local-rule/subject-root/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-30"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["terms/local-rule/subject-root/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-2-30"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["terms/local-rule/subject-root/x | 1"]
+finding = "NT-2-30"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["terms/local-rule/subject-root/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-30"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["terms/local-rule/subject-root/{ let y = x; y }"]
+finding = "NT-2-30"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["terms/local-rule/subject-root/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-30"
+deviation = "krs::syntax::invalid-local-rewrite @ item"

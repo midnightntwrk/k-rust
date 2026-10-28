@@ -29,13 +29,13 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 20] = [
+const KNOWN: [(&str, &str); 21] = [
     (
         r"terms/cells/map-key/{k::is!(Int\, x),k::project!(Int\, x)}",
         "NT-1-1",
     ),
     (
-        r"terms/readable/map-key/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        r"terms/{readable/map-key,rule/subject/set-element}/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
         "NT-1-1",
     ),
     (
@@ -43,15 +43,15 @@ const KNOWN: [(&str, &str); 20] = [
         "NT-1-1",
     ),
     (
-        r#"terms/{readable/map-key/let-body,readable/map-key/update-field}/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}"#,
+        r#"terms/{readable/map-key/let-body,readable/map-key/update-field}/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x | 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}"#,
         "NT-1-1",
     ),
     (
-        r#"terms/readable/map-key/let-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,y @ Cmd::Hold(_)}"#,
+        r#"terms/readable/map-key/let-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,y @ Cmd::Hold(_)}"#,
         "NT-1-1",
     ),
     (
-        r#"terms/readable/map-key/matches-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,y @ Cmd::Hold(_)}"#,
+        r#"terms/readable/map-key/matches-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x | 1,y @ Cmd::Hold(_)}"#,
         "NT-1-1",
     ),
     (
@@ -79,7 +79,7 @@ const KNOWN: [(&str, &str); 20] = [
         "NT-2-3",
     ),
     (
-        r"terms/{alias/result,alias/result-root,cells-claim/guard,cells-claim/guard/closure-body,claim/result,claim/result-item-root,context/guard,desugar/result,desugar/result-root,equation/guard,equation/result,local-rule/subject/rewrite-right,readable/guard,readable/result,readable/result-item-root,readable/result-list-element,rule/guard,rule/guard/closure-body,rule/guard/let-body,rule/result,rule/result-root,shorthand/result,shorthand/result-root,simplification/result,simplification/result-root,sort-rule/result,sort-rule/result-root,sort-rule/result/function-argument,sort-rule/result/let-body,sort-rule/result/update-field,table/result}/Cmd::Pair \{ a: x\, .. \}",
+        r"terms/{alias/result,alias/result-root,cells-claim/guard,cells-claim/guard/closure-body,claim/result,claim/result-item-root,context/guard,desugar/result,desugar/result-root,equation/guard,equation/result,local-rule/subject/rewrite-right,readable/guard,readable/result,readable/result-item-root,readable/result-list-element,rule/guard,rule/guard/closure-body,rule/guard/let-body,rule/result,rule/result-root,shorthand/result,shorthand/result-root,simplification/guard,simplification/result,simplification/result-root,sort-rule/result,sort-rule/result-root,sort-rule/result/function-argument,sort-rule/result/let-body,sort-rule/result/update-field,table/result}/Cmd::Pair \{ a: x\, .. \}",
         "NT-2-4",
     ),
     (
@@ -91,7 +91,7 @@ const KNOWN: [(&str, &str); 20] = [
         "NT-2-6",
     ),
     (
-        r"terms/readable/map-key/let-pattern/{!(x < 1),-(x + 1),Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}",
+        r"terms/readable/map-key/let-pattern/{!(x < 1),-(x + 1),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}",
         "NT-2-6",
     ),
     (
@@ -102,6 +102,7 @@ const KNOWN: [(&str, &str); 20] = [
         r"terms/{sort-rule/subject-root,sort-rule/subject-root-term}/_",
         "NT-2-9",
     ),
+    (r"terms/readable/map-key/let-pattern/x | 1", "NT-2-25"),
     (
         r"terms/{context-alias/item-root,context-alias/subject}/k::builtin::int::add(x\, 1)",
         "NT-2-27",
@@ -115,8 +116,9 @@ const KNOWN: [(&str, &str); 20] = [
 /// The disagreements a reader of the product decides before the table's row, which are not red:
 /// the table reads a readable key's `let` block, `k::matches!` and record update as a pattern,
 /// and refuses them, while the term reader refuses the construct inside first, with the class the
-/// oracle gives it (`_`, a map literal, a rest outside a pattern).
-const DECIDED_BEFORE_THE_TABLE: [&str; 17] = [
+/// oracle gives it (`_`, a map literal, a rest outside a pattern), or a name rule of the class
+/// table does (`x | 1`'s alternatives binding other names in a `k::matches!` pattern).
+const DECIDED_BEFORE_THE_TABLE: [&str; 18] = [
     "terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)",
     "terms/readable/map-key/function-argument/_",
     "terms/readable/map-key/function-argument/k::ml::exists(|v: Int| k::ml::equals(v, 0))",
@@ -129,6 +131,7 @@ const DECIDED_BEFORE_THE_TABLE: [&str; 17] = [
     "terms/readable/map-key/let-pattern/map![x -> 1]",
     "terms/readable/map-key/matches-pattern/k::map![x -> 1]",
     "terms/readable/map-key/matches-pattern/map![x -> 1]",
+    "terms/readable/map-key/matches-pattern/x | 1",
     "terms/readable/map-key/update-field/Cmd::Go() | Cmd::Hold(_)",
     "terms/readable/map-key/update-field/[x, ..]",
     "terms/readable/map-key/update-field/_",
@@ -233,7 +236,8 @@ fn product_position(position: model::Position) -> Position {
             // The computation cell's items are no collection's entries to the table.
             in_collection_entry: entries.contains(Entry::MapKey)
                 || entries.contains(Entry::MapValue)
-                || entries.contains(Entry::ListElement),
+                || entries.contains(Entry::ListElement)
+                || entries.contains(Entry::SetElement),
             in_map_key: entries.contains(Entry::MapKey),
         },
     };
@@ -318,6 +322,7 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
     }
     let constant = position.form == model::Form::Constant;
     match construct {
+        M::Notation(Notation::BitwiseOr) if parsed_as_pattern => Read::Table,
         M::Notation(_) if parsed_as_pattern => Read::Refuses("notation-in-pattern"),
         M::Notation(_) | M::MapLiteral | M::Rest if constant => {
             Read::Refuses("constant-not-ground")
@@ -373,7 +378,16 @@ fn product(hole: model::Position, nodes: &[model::Node]) -> Answer {
             Read::Admits => continue,
             Read::Table => {}
         }
-        let Some(construct) = product_construct(node.construct) else {
+        // Where a pattern is parsed, `x | 1` is alternatives, the table's `|` row.
+        let parsed_as_pattern = position.kind == Kind::Matched
+            || (position.kind == Kind::Evaluated && position.form.writes_cells());
+        let read = match node.construct {
+            model::Construct::Notation(Notation::BitwiseOr) if parsed_as_pattern => {
+                model::Construct::Or
+            }
+            construct => construct,
+        };
+        let Some(construct) = product_construct(read) else {
             continue;
         };
         match admits(product_position(position), construct) {
@@ -514,15 +528,10 @@ fn every_form_of_the_table_has_a_generated_position() {
 }
 
 /// The slot roots no case is generated at, and why.
-const ROOTS_NOT_GENERATED: [(model::Form, model::Slot, &str); 4] = {
+const ROOTS_NOT_GENERATED: [(model::Form, model::Slot, &str); 3] = {
     use model::Form as F;
     use model::Slot as S;
     [
-        (
-            F::LocalRule,
-            S::Subject,
-            "a single-body rule whose subject root holds no rewrite changes nothing (`invalid-local-rewrite`); its root is the rewrite's host, whose argument the slot is",
-        ),
         (
             F::CellsLocalRule,
             S::Subject,
@@ -543,8 +552,11 @@ const ROOTS_NOT_GENERATED: [(model::Form, model::Slot, &str); 4] = {
 
 /// The conditions no case is generated in, and the condition that reads alike, whose cases
 /// stand for them: a condition is a guard in every form, and differs only by whether the form
-/// admits a predicate (a claim's, a simplification's) and is a claim.
-const CONDITIONS_NOT_GENERATED: [(model::Form, &str); 7] = {
+/// admits a predicate, whether it is a claim (`k::or_bool!` and, as boundary NT-Q1, `let` and
+/// `k::matches!` depend on it) and whether it is a `cells!` value's; each listed form shares all
+/// three with the form named. A simplification's condition shares none with a claim's but the
+/// first, so it is generated.
+const CONDITIONS_NOT_GENERATED: [(model::Form, &str); 6] = {
     use model::Form as F;
     [
         (F::ReadableClaim, "a `cells!` claim's"),
@@ -553,10 +565,6 @@ const CONDITIONS_NOT_GENERATED: [(model::Form, &str); 7] = {
         (F::LocalRule, "a rule fn's"),
         (F::CellsRule, "a rule fn's"),
         (F::CellsLocalRule, "a rule fn's"),
-        (
-            F::Simplification,
-            "a `cells!` claim's, which admits a predicate as a simplification's does",
-        ),
     ]
 };
 
@@ -638,14 +646,13 @@ fn every_slot_has_a_root_and_an_argument_case() {
     );
 }
 
-/// The notation form a builtin operator's spelling is, by its symbol; `|` is the alternatives'
-/// spelling where no pattern is read, [`model::Construct::Or`].
+/// The notation form a builtin operator's spelling is, by its symbol.
 fn notation_of(operator: BuiltinOperator) -> Option<model::Construct> {
     Some(match operator.symbol() {
         "+" | "-" if operator.arity() == 2 => model::Construct::Notation(Notation::Arithmetic),
         "*" | "/" | "%" => model::Construct::Notation(Notation::Arithmetic),
         "&" | "^" => model::Construct::Notation(Notation::Bitwise),
-        "|" => model::Construct::Or,
+        "|" => model::Construct::Notation(Notation::BitwiseOr),
         "<<" | ">>" => model::Construct::Notation(Notation::Shift),
         "<" | "<=" | ">" | ">=" => model::Construct::Notation(Notation::Comparison),
         "==" | "!=" => model::Construct::Notation(Notation::Equality),
@@ -699,5 +706,68 @@ fn every_construct_and_notation_has_a_spelling() {
         .filter(|notation| !spelled.contains(&model::Construct::Notation(**notation)))
         .map(|notation| format!("the notation {notation:?}"));
     missing.extend(notations);
+    // The product's own predicate of notation (`krs_syntax::is_expression_notation`), asked of
+    // every expression shape: each it calls notation is a form of the model with a spelling. The
+    // product exposes no table of its forms, so the shapes are listed here: a notation NT-5 or
+    // NT-6 adds over a shape not listed (an index `m[k]` is) must add its shape.
+    for (shape, notation) in EXPRESSION_SHAPES {
+        let expression =
+            syn::parse_str::<syn::Expr>(shape).unwrap_or_else(|error| panic!("{shape}: {error}"));
+        match (krs_syntax::is_expression_notation(&expression), notation) {
+            (true, Some(notation)) if spelled.contains(&model::Construct::Notation(notation)) => {}
+            (true, Some(_)) => missing.push(format!("the notation form `{shape}`")),
+            (true, None) if COMPOUND_ASSIGNMENTS.contains(&shape) => {}
+            (true, None) => missing.push(format!("the notation form `{shape}`, of no model form")),
+            (false, _) => {}
+        }
+    }
     assert!(missing.is_empty(), "without a spelling: {missing:#?}");
 }
+
+/// Expression shapes, and the model's notation form of each the product reads as notation.
+const EXPRESSION_SHAPES: [(&str, Option<Notation>); 37] = [
+    ("a + b", Some(Notation::Arithmetic)),
+    ("a - b", Some(Notation::Arithmetic)),
+    ("a * b", Some(Notation::Arithmetic)),
+    ("a / b", Some(Notation::Arithmetic)),
+    ("a % b", Some(Notation::Arithmetic)),
+    ("a & b", Some(Notation::Bitwise)),
+    ("a ^ b", Some(Notation::Bitwise)),
+    ("a | b", Some(Notation::BitwiseOr)),
+    ("a << b", Some(Notation::Shift)),
+    ("a >> b", Some(Notation::Shift)),
+    ("a == b", Some(Notation::Equality)),
+    ("a != b", Some(Notation::Equality)),
+    ("a < b", Some(Notation::Comparison)),
+    ("a <= b", Some(Notation::Comparison)),
+    ("a > b", Some(Notation::Comparison)),
+    ("a >= b", Some(Notation::Comparison)),
+    ("a && b", Some(Notation::AndThen)),
+    ("a || b", Some(Notation::OrElse)),
+    ("!a", Some(Notation::Not)),
+    ("-a", Some(Notation::Negation)),
+    ("a.add::<Int>(b)", Some(Notation::Method)),
+    ("a += b", None),
+    ("a -= b", None),
+    ("a *= b", None),
+    ("a /= b", None),
+    ("a %= b", None),
+    ("a &= b", None),
+    ("a |= b", None),
+    ("a ^= b", None),
+    ("a <<= b", None),
+    ("a >>= b", None),
+    ("*a", None),
+    ("a[b]", None),
+    ("a as T", None),
+    ("a..b", None),
+    ("a.b", None),
+    ("f(a)", None),
+];
+
+/// The shapes the product reads as notation though they denote none: a compound assignment
+/// (`a += b`), which a term has nothing to assign to, and which the product refuses as notation.
+const COMPOUND_ASSIGNMENTS: [&str; 10] = [
+    "a += b", "a -= b", "a *= b", "a /= b", "a %= b", "a &= b", "a |= b", "a ^= b", "a <<= b",
+    "a >>= b",
+];

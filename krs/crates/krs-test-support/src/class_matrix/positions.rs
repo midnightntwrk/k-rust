@@ -233,7 +233,9 @@ pub enum Kind {
     /// A shape that already-evaluated values are compared against: a subject, a local pattern,
     /// a collection's element or value in a pattern.
     Matched,
-    /// The key a map read in a pattern finds its entry by, which reads two ways. A pattern-only
+    /// The key a map read in a pattern finds its entry by, or the element a set in a pattern is
+    /// looked up by (a set is looked up by its elements as a map by its keys), which reads two
+    /// ways. A pattern-only
     /// construct (`_`, `@`, `|`), or a name nothing else in the pattern binds, selects an entry by
     /// matching the map's keys, which are evaluated values: a choice among the entries. A
     /// computed term (an application, an operator, a `let` block, ..) is computed from names
@@ -242,7 +244,8 @@ pub enum Kind {
     /// construct opens are matched, those a computed one opens are built ([`Position::enter`]).
     Evaluated,
     /// A value to construct: a result, a rewrite's right side, an initializer's or a constant's
-    /// value, the operands of a function or a test, and the key of a map that is built.
+    /// value, the operands of a function or a test, and the key of a map or the element of a set
+    /// that is built.
     Built,
     /// A Bool to compute: a condition.
     Guard,
@@ -272,6 +275,8 @@ pub enum Entry {
     MapKey,
     /// A map's value.
     MapValue,
+    /// A set's element.
+    SetElement,
 }
 
 impl Entry {
@@ -426,6 +431,8 @@ pub enum Opening {
     MapKey,
     /// The value of a map's entry.
     MapValue,
+    /// The element of a set's singleton, `set::item(element)`.
+    SetElement,
     /// An element of a list read or written.
     ListElement,
 }
@@ -498,8 +505,9 @@ impl Position {
             // pattern binds its names as the key does.
             Opening::Argument | Opening::FragmentField => {}
             // A function's arguments are matched where the function is (a simplification's or a
-            // claim's subject), and otherwise computed.
-            Opening::FunctionArgument => {
+            // claim's subject), and otherwise computed. A sort test applies the sort's generated
+            // predicate or projection, so its operand is a function's argument.
+            Opening::FunctionArgument | Opening::SortTestOperand => {
                 if !matches!(self.kind, Kind::Matched) {
                     position.kind = Kind::Built;
                 }
@@ -534,23 +542,33 @@ impl Position {
             Opening::LetBody
             | Opening::LetValue
             | Opening::MatchesSubject
-            | Opening::SortTestOperand
             | Opening::UpdateField
             | Opening::UpdateBase
             | Opening::PredicateOperand => position.kind = Kind::Built,
-            Opening::OrBoolOperand => position.kind = Kind::Guard,
+            // `k::or_bool!` applies the Bool disjunction: its operands are matched where the
+            // application is, as a function's are, and are conditions elsewhere.
+            Opening::OrBoolOperand => {
+                if !matches!(self.kind, Kind::Matched) {
+                    position.kind = Kind::Guard;
+                }
+            }
             Opening::PredicateBody => {
                 position.kind = Kind::Guard;
                 position.nesting.in_predicate = true;
             }
-            // A map read in a pattern finds its entry by its key; a map that is built has its
-            // keys built.
-            Opening::MapKey => {
+            // A map read in a pattern finds its entry by its key, and a set by its element; a
+            // map or a set that is built has its keys and elements built.
+            Opening::MapKey | Opening::SetElement => {
                 position.kind = match self.kind {
                     Kind::Matched | Kind::Evaluated => Kind::Evaluated,
                     Kind::Built | Kind::Guard => Kind::Built,
                 };
-                position.nesting.entries = self.nesting.entries.push(Entry::MapKey);
+                let entry = if matches!(opening, Opening::MapKey) {
+                    Entry::MapKey
+                } else {
+                    Entry::SetElement
+                };
+                position.nesting.entries = self.nesting.entries.push(entry);
             }
             Opening::MapValue => {
                 position.nesting.entries = self.nesting.entries.push(Entry::MapValue);
@@ -571,8 +589,11 @@ impl Position {
 pub enum Notation {
     /// `a + b`, `a - b`, `a * b`, `a / b`, `a % b`.
     Arithmetic,
-    /// `a & b`, `a ^ b` (`a | b` is [`Construct::Or`] where no pattern is read).
+    /// `a & b`, `a ^ b`.
     Bitwise,
+    /// `a | b` over operands an operator's domain takes, `x | 1`; where a pattern is read the
+    /// same spelling is alternatives. `A | B` over constructor patterns is [`Construct::Or`].
+    BitwiseOr,
     /// `a << b`, `a >> b`.
     Shift,
     /// `a < b`, `a <= b`, `a > b`, `a >= b`.
@@ -593,9 +614,10 @@ pub enum Notation {
 
 impl Notation {
     /// Every notation form.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Arithmetic,
         Self::Bitwise,
+        Self::BitwiseOr,
         Self::Shift,
         Self::Comparison,
         Self::Equality,
@@ -668,7 +690,7 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 36] = [
         Self::Reference,
         Self::Constructor,
         Self::Turbofish,
@@ -677,6 +699,7 @@ impl Construct {
         Self::BuiltinApplication,
         Self::Notation(Notation::Arithmetic),
         Self::Notation(Notation::Bitwise),
+        Self::Notation(Notation::BitwiseOr),
         Self::Notation(Notation::Shift),
         Self::Notation(Notation::Comparison),
         Self::Notation(Notation::Equality),

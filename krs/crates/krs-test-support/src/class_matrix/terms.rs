@@ -34,8 +34,8 @@ use super::positions::Form::{
 use super::positions::Opening::{
     Argument, AsBody, ComputationItem, FragmentField, FunctionArgument, LetBody, LetPattern,
     LetValue, ListElement, MapKey, MapValue, MatchesPattern, MatchesSubject, OrBoolOperand,
-    OrBranch, PredicateBody, PredicateOperand, RewriteLeft, RewriteRight, SortTestOperand,
-    UpdateBase, UpdateField,
+    OrBranch, PredicateBody, PredicateOperand, RewriteLeft, RewriteRight, SetElement,
+    SortTestOperand, UpdateBase, UpdateField,
 };
 use super::positions::Slot as Part;
 use super::positions::{Form, Node, Notation, Opening, Position, TermCase, node};
@@ -416,11 +416,22 @@ fn spellings() -> Vec<Spelling> {
                 node(C::Literal, &[FunctionArgument]),
             ],
         ),
-        // A set's element, K's `SetItem(x)`: the constructor of a set's elements, a value, which
-        // a pattern matches as any constructor's application.
+        // A set's singleton, K's `SetItem(x)`: the constructor of a set's elements, a value,
+        // which a pattern matches as a set; a set is looked up by its elements as a map by its
+        // keys, so its element reads as a key does.
         spelling(
             "k::builtin::set::item(x)",
-            &[node(C::Constructor, &[]), node(C::Reference, &[Argument])],
+            &[node(C::Constructor, &[]), node(C::Reference, &[SetElement])],
+        ),
+        // `|` over operands a domain takes: the bitwise operator where a term is computed, the
+        // alternatives' spelling where a pattern is read, its operands the branches.
+        spelling(
+            "x | 1",
+            &[
+                node(C::Notation(Notation::BitwiseOr), &[]),
+                node(C::Reference, &[OrBranch]),
+                node(C::Literal, &[OrBranch]),
+            ],
         ),
     ];
     // A map literal, in the facade's path and bare, and list brackets with a rest.
@@ -487,7 +498,8 @@ struct Slot {
     hole: Vec<Opening>,
     /// The outer construct's text before and after the hole, at depth 2.
     around: (String, String),
-    /// Whether alternatives in the hole are grouped: an alias's pattern binds tighter than `|`.
+    /// Whether alternatives in the hole are grouped: an alias's pattern binds tighter than `|`,
+    /// and a `let` statement takes no alternatives ungrouped.
     groups_alternatives: bool,
     template: String,
     /// Whether rustc parses the position as Rust before the form's macro reads it
@@ -499,6 +511,8 @@ struct Slot {
     marker: Option<&'static str>,
     /// The binders of a `cells!` sentence, in first-occurrence order; empty for another form.
     binders: &'static [Binder],
+    /// Whether each case is rendered alone ([`Packaging::Alone`]).
+    own_package: bool,
 }
 
 fn slot(
@@ -525,6 +539,7 @@ fn slot(
         arity: 2,
         marker: None,
         binders: &[],
+        own_package: false,
     }
 }
 
@@ -547,6 +562,14 @@ impl Slot {
     fn marked(self, marker: &'static str) -> Self {
         Self {
             marker: Some(marker),
+            ..self
+        }
+    }
+
+    /// The slot, whose cases are rules over the whole subject, each rendered alone.
+    fn alone(self) -> Self {
+        Self {
+            own_package: true,
             ..self
         }
     }
@@ -580,12 +603,13 @@ impl Slot {
             after: outer(after),
             hole: hole.to_vec(),
             around: (prefix.to_owned(), suffix.to_owned()),
-            groups_alternatives: opener == "as-body",
+            groups_alternatives: matches!(opener, "as-body" | "let-pattern"),
             template: self.template.clone(),
             rustc_parses: self.rustc_parses,
             arity: self.arity,
             marker: self.marker,
             binders: self.binders,
+            own_package: self.own_package,
         }
     }
 
@@ -689,7 +713,8 @@ fn slots() -> Vec<Slot> {
                 "fn case_TAG(k::term![HOLE]: Term<KItem>) -> Term<KItem> {\n",
                 "    Cmd::Go()\n}\n"
             ),
-        ),
+       )
+        .alone(),
         slot(
             "rule",
             "result",
@@ -735,8 +760,9 @@ fn slots() -> Vec<Slot> {
                 "    Cmd::Hold(x)\n}\n"
             ),
         ),
-        // A single-body `#[k::rule]` fn. Its subject's root holds the rewrite's host: a rule
-        // whose root holds no rewrite changes nothing, so it has no root slot.
+        // A single-body `#[k::rule]` fn. Its subject's root holds the rewrite's host; a root that
+        // holds no rewrite makes a rule that changes nothing (a rule of the table), and `_`, an
+        // alias and an island there are the root's own mistakes.
         slot(
             "local-rule",
             "subject",
@@ -744,6 +770,14 @@ fn slots() -> Vec<Slot> {
             (LocalRule, Part::Subject, &[Argument]),
             LOCAL_RULE_SUBJECT,
         ),
+        slot(
+            "local-rule",
+            "subject-root",
+            Side::Subject,
+            (LocalRule, Part::Subject, &[]),
+            "#[k::rule(label = \"case-TAG\")]\nfn case_TAG(k::term![HOLE]: Term<KItem>) {}\n",
+       )
+        .alone(),
         // A `cells!` rule.
         slot(
             "cells",
@@ -1051,6 +1085,18 @@ fn slots() -> Vec<Slot> {
         .arity(0),
         slot(
             "simplification",
+            "guard",
+            Side::Guard,
+            (Simplification, Part::Requires, &[]),
+            concat!(
+                "#[k::simplification]\n#[k::requires(HOLE)]\nfn case_TAG(k::term![Probe(Cmd::NAME(), x)",
+                "]: Term<Int>) -> Term<Int> {\n",
+                "    0\n}\n"
+            ),
+        )
+        .arity(0),
+        slot(
+            "simplification",
             "result",
             Side::Result,
             (Simplification, Part::Result, &[FunctionArgument]),
@@ -1158,14 +1204,16 @@ fn slots() -> Vec<Slot> {
             Side::Subject,
             (SortRule, Part::Subject, &[]),
             "k::rules! {\n    for KItem;\nUSES\n    case_TAG: HOLE => Cmd::Go();\n}\n",
-        ),
+       )
+        .alone(),
         slot(
             "sort-rule",
             "subject-root-term",
             Side::Subject,
             (SortRule, Part::Subject, &[]),
             "k::rules! {\n    for KItem;\nUSES\n    case_TAG: k::term![HOLE] => Cmd::Go();\n}\n",
-        ),
+       )
+        .alone(),
         slot(
             "sort-rule",
             "result",
@@ -1398,6 +1446,14 @@ fn slots() -> Vec<Slot> {
         slot.template = template;
         slot.binders = binders;
     }
+    // A computation item's root comes before the case's command, so a pattern there can match
+    // another case's command, whose rule's tail then matches the rest: each such case is rendered
+    // alone.
+    for slot in &mut slots {
+        if slot.position == "item-root" && slot.side == Side::Subject {
+            slot.own_package = true;
+        }
+    }
     slots.extend(openers());
     slots
 }
@@ -1412,7 +1468,8 @@ fn initializer(item: &str) -> String {
 /// The positions constructs open (depth 2): each opener at one host per kind where it can stand,
 /// matched (a `#[k::rule]` fn's subject), evaluated (a readable map key), built (a `for Stmt`
 /// clause's result) and guard (a `#[k::rule]` fn's condition), with the single-body rule's
-/// subject for a rewrite's sides and a claim's condition for a predicate's body.
+/// subject for a rewrite's sides and a claim's condition for a predicate's body; a set's element
+/// stands in a pattern only, where its D2 reading differs from a constructor's argument.
 #[expect(
     clippy::too_many_lines,
     reason = "One list of the openers and their hosts; each entry is one position."
@@ -1541,7 +1598,7 @@ fn openers() -> Vec<Slot> {
     let closure_body = |host: &Slot| {
         host.open(
             "closure-body",
-            "k::ml::exists(|v: Int| HOLE)",
+            "k::ml::exists(|w: Int| HOLE)",
             &[node(C::MlPredicate, &[])],
             &[PredicateBody],
             &[],
@@ -1577,6 +1634,13 @@ fn openers() -> Vec<Slot> {
         as_body(&evaluated),
         function_argument(&built),
         function_argument(&evaluated),
+        matched.open(
+            "set-element",
+            "k::builtin::set::item(HOLE)",
+            &[node(C::Constructor, &[])],
+            &[SetElement],
+            &[],
+        ),
         update_field(&update_built),
         update_field(&update_evaluated),
         closure_body(&guard),
@@ -1634,10 +1698,9 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     item.push(before);
     if slot.opener.is_some() {
         let grouped = slot.groups_alternatives
-            && spelling
-                .nodes
-                .first()
-                .is_some_and(|node| node.construct == C::Or);
+            && spelling.nodes.first().is_some_and(|node| {
+                matches!(node.construct, C::Or | C::Notation(Notation::BitwiseOr))
+            });
         let (open, close) = if grouped { ("(", ")") } else { ("", "") };
         item.inside(
             &format!("{}{open}", slot.around.0),
@@ -1650,6 +1713,8 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     item.push(after);
     let packaging = if slot.form == "init" {
         Packaging::Own(OwnReason::Initializer)
+    } else if slot.own_package {
+        Packaging::Alone(command)
     } else {
         Packaging::Shared(command)
     };

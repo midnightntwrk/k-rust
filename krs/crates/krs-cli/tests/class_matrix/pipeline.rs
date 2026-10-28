@@ -184,7 +184,7 @@ fn batches<'a>(cases: &[&'a Case], size: usize) -> Vec<Vec<&'a Case>> {
     for case in cases {
         match case.packaging {
             Packaging::Shared(_) => shared.entry(case.base).or_default().push(case),
-            Packaging::Own(_) => jobs.push(vec![*case]),
+            Packaging::Own(_) | Packaging::Alone(_) => jobs.push(vec![*case]),
         }
     }
     for cases in shared.into_values() {
@@ -333,6 +333,15 @@ impl Worker<'_> {
     }
 }
 
+/// The message of a caught panic: its payload's text, without the location rustc's hook prints.
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|text| (*text).to_owned()))
+        .unwrap_or_else(|| "a panic without a message".to_owned())
+}
+
 /// Lower and emit one case of a collected batch from the base's descriptors and its own.
 fn back_half(
     collected: &CollectedDefinition,
@@ -357,11 +366,7 @@ fn back_half(
         }
         Ok(Err(error)) => judged(placed, refused(observe_error(&error)), batch),
         Err(panic) => {
-            let message = panic
-                .downcast_ref::<String>()
-                .cloned()
-                .or_else(|| panic.downcast_ref::<&str>().map(|text| (*text).to_owned()))
-                .unwrap_or_else(|| "a panic without a message".to_owned());
+            let message = panic_message(&*panic);
             let observed = Observed {
                 accepted: false,
                 diagnostics: Vec::new(),
@@ -722,13 +727,19 @@ impl Worker<'_> {
         let _ = fs::remove_dir_all(&directory);
         let error = match printed {
             Ok(Ok(Ok(text))) => return self.printed(&text, cases, original, out),
-            Ok(Ok(Err(error))) => ("krs expand", Some(error)),
-            Ok(Err(_)) => ("krs expand panicked", None),
-            Err(error) => ("the accepted cases do not collect again", Some(error)),
+            Ok(Ok(Err(error))) => ("krs expand".to_owned(), Some(error)),
+            Ok(Err(panic)) => (
+                format!("krs expand panicked: {}", panic_message(&*panic)),
+                None,
+            ),
+            Err(error) => (
+                "the accepted cases do not collect again".to_owned(),
+                Some(error),
+            ),
         };
         if let [placed] = rendered.cases.as_slice() {
             let verdict = error.1.map_or_else(
-                || error.0.to_owned(),
+                || error.0.clone(),
                 |refusal| {
                     let observed = refused(observe_error(&refusal));
                     format!("{}: {}", error.0, signature(&observed, placed))
@@ -739,6 +750,29 @@ impl Worker<'_> {
             let (left, right) = cases.split_at(cases.len() / 2);
             self.closure(left.to_vec(), original, out);
             self.closure(right.to_vec(), original, out);
+            // A failure of the whole that neither half makes is no case's alone: each case of the
+            // batch is red with it, rather than the failure going unrecorded.
+            let attributed = cases
+                .iter()
+                .any(|case| matches!(out.get(&case.id), Some(Closure::Refused(_))));
+            if !attributed {
+                let codes = error.1.as_ref().map_or_else(String::new, |refusal| {
+                    let codes = refused(observe_error(refusal))
+                        .errors()
+                        .map(|error| error.code.clone().unwrap_or_else(|| "uncoded".to_owned()))
+                        .collect::<Vec<_>>();
+                    format!(" ({})", codes.join(", "))
+                });
+                for case in &cases {
+                    out.insert(
+                        case.id.clone(),
+                        Closure::Refused(format!(
+                            "{}{codes} only with the other cases of its batch",
+                            error.0
+                        )),
+                    );
+                }
+            }
         }
     }
 

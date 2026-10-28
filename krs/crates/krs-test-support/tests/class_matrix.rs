@@ -95,10 +95,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 16 values, the computation cell's remainder, 3 field orders and the
             // nested group's, and 8 typed cells × 4 contents.
             (Family::Init, 112 + 1 + 3 + 1 + 32),
-            // (73 positions of depth 1 + 21 positions constructs open) × 46 constructs.
-            (Family::Terms, 94 * 46),
-            // 73 positions of depth 1 × 2 bare variants.
-            (Family::Import, 73 * 2),
+            // (75 positions of depth 1 + 22 positions constructs open) × 47 constructs.
+            (Family::Terms, 97 * 47),
+            // 75 positions of depth 1 × 2 bare variants.
+            (Family::Import, 75 * 2),
         ])
     );
     assert!(cases.len() <= FRONT_CASE_CAP);
@@ -197,7 +197,7 @@ fn the_shared_cases_of_a_base_render_as_one_package() {
     for base in Base::ALL {
         let shared = cases
             .iter()
-            .filter(|case| case.base == base && case.command().is_some())
+            .filter(|case| case.base == base && matches!(case.packaging, Packaging::Shared(_)))
             .collect::<Vec<&Case>>();
         if base == Base::Nested {
             // Its only case is an initializer, rendered alone.
@@ -228,7 +228,7 @@ fn the_shared_cases_of_a_base_render_as_one_package() {
 }
 
 #[test]
-#[should_panic(expected = "a case without a command is rendered alone")]
+#[should_panic(expected = "a case that is not shared is rendered alone")]
 fn a_computation_subject_case_is_never_batched() {
     let cases = class_matrix::cases();
     let own = cases
@@ -237,14 +237,14 @@ fn a_computation_subject_case_is_never_batched() {
         .expect("a computation-subject case is generated");
     let other = cases
         .iter()
-        .find(|case| case.base == own.base && case.command().is_some())
+        .find(|case| case.base == own.base && matches!(case.packaging, Packaging::Shared(_)))
         .expect("a shared case is generated");
     let _ = render(&[own, other]);
 }
 
 /// The term cases a table rule decides before the oracle's resolution refusal, with the oracle's
 /// class ([`the_shipped_table_and_red_list_parse`]).
-const OVERRIDDEN: [(&str, &str); 22] = [
+const OVERRIDDEN: [(&str, &str); 34] = [
     (
         "terms/alias/subject-root/[x, ..]",
         "static-clause-root-not-marked",
@@ -254,7 +254,23 @@ const OVERRIDDEN: [(&str, &str); 22] = [
         "static-clause-root-not-marked",
     ),
     (
+        "terms/alias/subject-root/x | 1",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/cells-local/subject/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/item-root/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
         "terms/cells/map-value/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/subject/k::builtin::int::add(x, 1)",
         "function-in-pattern",
     ),
     (
@@ -269,6 +285,14 @@ const OVERRIDDEN: [(&str, &str); 22] = [
     (
         "terms/constant/value/k::builtin::int::add(x, 1)",
         "constant-applies-function",
+    ),
+    (
+        "terms/context-alias/item-root/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/context-alias/subject/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
     ),
     (
         "terms/context/subject-root/k::builtin::int::add(1, 2)",
@@ -291,8 +315,32 @@ const OVERRIDDEN: [(&str, &str); 22] = [
         "static-clause-root-not-marked",
     ),
     (
+        "terms/desugar/subject-root/x | 1",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/equation/subject-root/[x, ..]",
+        "equation-root-not-function",
+    ),
+    (
         "terms/equation/subject-root/x",
         "equation-root-not-function",
+    ),
+    (
+        "terms/equation/subject-root/x | 1",
+        "equation-root-not-function",
+    ),
+    (
+        "terms/local-rule/subject-root/Size(x)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/local-rule/subject-root/k::builtin::int::add(1, 2)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/local-rule/subject-root/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
     ),
     (
         "terms/rule/guard/closure-body/Cmd::Pair { a: x, ..x }",
@@ -776,7 +824,7 @@ fn a_map_key_reads_by_its_parent_and_its_construct() {
 }
 
 /// The term families' accept entries live in a file of their own, which holds nothing else and
-/// no case of another family, and names no case `expected.toml` accepts.
+/// no case of another family; `expected.toml` holds none of them.
 #[test]
 fn the_term_accepts_file_holds_only_term_accept_entries() {
     let main = "[class.wildcard-outside-pattern]\ncode = \"krs::syntax::unsupported-term-expression\"\ndoc = \"`_` outside a pattern\"\n\n[accept.\"readable/result/pc/x\"]\n";
@@ -802,14 +850,294 @@ fn the_term_accepts_file_holds_only_term_accept_entries() {
             )),
         ]
     );
-    let duplicate =
-        Table::parse_with_term_accepts("[accept.\"terms/a/x\"]\n", "[accept.\"terms/a/x\"]\n")
-            .expect_err("an entry is in one file");
+    let misplaced =
+        Table::parse_with_term_accepts("[accept.\"terms/a/x\"]\n", "[accept.\"terms/a/y\"]\n")
+            .expect_err("a term case's entry is in its own file");
     assert_eq!(
-        duplicate,
-        vec![TableError::Schema(
-            "\"terms/a/x\" is accepted in expected.toml and accepted-terms.toml".to_owned()
-        )]
+        misplaced,
+        vec![TableError::Schema(format!(
+            "expected.toml accepts the term case \"terms/a/x\", whose entry belongs in {TERM_ACCEPTS_FILE}"
+        ))]
+    );
+}
+
+/// The parts of a term case's ID: its form, its position, the construct whose opening it stands
+/// in (depth 2), and its construct.
+fn id_parts(id: &str) -> Option<(&str, &str, Option<&str>, &str)> {
+    let (rest, construct) = id.rsplit_once('/')?;
+    let mut segments = rest.split('/');
+    segments.next()?;
+    let form = segments.next()?;
+    let position = segments.next()?;
+    Some((form, position, segments.next(), construct))
+}
+
+/// The forms whose binders a `cells!` record declares, at the sort of the field each fills.
+const DECLARED_BINDERS: [&str; 4] = ["cells", "cells-claim", "cells-local", "context-alias"];
+
+/// The forms whose whole subject names the production the sentence is written for.
+const FN_SUBJECTS: [&str; 7] = [
+    "rule",
+    "local-rule",
+    "equation",
+    "simplification",
+    "context",
+    "desugar",
+    "alias",
+];
+
+/// The cases among which a name or sort rule's mistake is the same for one spelling: its
+/// siblings. `None` for a case the class's mistake does not compare across.
+fn sibling_scope(class: &str, id: &str) -> Option<&'static str> {
+    let (form, position, opener, _) = id_parts(id)?;
+    let free = matches!(form, "constant" | "init");
+    match class {
+        // `x` names the command's field and is never a record's alias; brackets at a `KItem`
+        // position name no list.
+        "record-update-base" | "list-notation-sort" if !free => Some("bound"),
+        // `x` is no initializer's parameter nor a constant's; a bare name at a fn subject's root
+        // names a unit constructor.
+        "unbound-name" if free => Some("free"),
+        "unbound-name" if position == "subject-root" && FN_SUBJECTS.contains(&form) => {
+            Some("fn-root")
+        }
+        // The opener binds or reads its own names around the construct.
+        "matches-pattern-binder" if opener == Some("matches-pattern") => Some("matches"),
+        "alternatives-bind-unequally" if opener == Some("or-branch") => Some("or"),
+        "binder-bound-twice" if opener == Some("as-body") => Some("as"),
+        "object-term-as-predicate" if opener == Some("closure-body") => Some("closure"),
+        // The construct is a condition's whole value.
+        "condition-sort" | "let-sort" | "turbofish-instance-sort"
+            if position == "guard" && matches!(opener, None | Some("let-body")) =>
+        {
+            Some("condition")
+        }
+        // A `cells!` record's binders have the sort the record declares, which a condition's
+        // Bool or an operator's operand may not be.
+        "binder-sort" if DECLARED_BINDERS.contains(&form) && position == "guard" => {
+            Some("declared-condition")
+        }
+        "binder-sort" if DECLARED_BINDERS.contains(&form) => Some("declared"),
+        "desugar-wildcard-undeclared"
+            if form == "desugar" && matches!(position, "result" | "result-root") =>
+        {
+            Some("desugar-result")
+        }
+        _ => None,
+    }
+}
+
+/// The name and sort rules of the term families: the classes no position decides.
+const NAME_AND_SORT_CLASSES: [&str; 12] = [
+    "alternatives-bind-unequally",
+    "binder-bound-twice",
+    "binder-sort",
+    "condition-sort",
+    "desugar-wildcard-undeclared",
+    "let-sort",
+    "list-notation-sort",
+    "matches-pattern-binder",
+    "object-term-as-predicate",
+    "record-update-base",
+    "turbofish-instance-sort",
+    "unbound-name",
+];
+
+/// Why a readable key's alternative or `k::matches!` pattern that reads `x` binds no name.
+const KEY_READS_ITS_NAMES: &str = "in a readable map key a name the pattern binds elsewhere is looked up (D2), so an alternative or a `k::matches!` pattern that reads it binds nothing; in a subject's it binds";
+
+/// Sibling cases a name or sort rule does not decide though it decides the spelling at another
+/// sibling, and why.
+const SIBLING_EXCEPTIONS: [(&str, &str, &str); 9] = [
+    (
+        "terms/readable/map-key/matches-pattern/Size(x)",
+        "matches-pattern-binder",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/matches-pattern/k::builtin::int::add(x, 1)",
+        "matches-pattern-binder",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/or-branch/Size(x)",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/or-branch/k::builtin::int::add(x, 1)",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/or-branch/Cmd::Hold(x)",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/or-branch/Cmd::Pair { a: x, .. }",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/or-branch/k::builtin::set::item(x)",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/or-branch/x",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/or-branch/x | 1",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+];
+
+/// A spelling a name or sort rule refuses at one case is accepted at none of its siblings: an
+/// observation of the full tier writes the rules, and a sibling whose product refuses it for
+/// another reason (a finding) would otherwise be accepted by the table, so that fixing the finding
+/// would record a wrong acceptance. A sibling refused for another mistake, the oracle's or
+/// another rule's, makes that mistake first.
+#[test]
+fn a_name_or_sort_rule_refuses_a_spelling_at_every_sibling() {
+    let table = Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
+    )
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let cases = class_matrix::cases();
+    let resolution = table.resolve_cases(&cases, registry_kind);
+    let mut groups = BTreeMap::<(&str, &str, &str, &str), Vec<&Case>>::new();
+    for case in &cases {
+        let Some((_, _, _, construct)) = id_parts(&case.id) else {
+            continue;
+        };
+        if case.term.is_none() {
+            continue;
+        }
+        // A name nothing binds is unbound whatever construct reads it.
+        let reads_a_name = case.term.as_ref().is_some_and(|term| {
+            term.nodes
+                .iter()
+                .any(|node| node.construct == Construct::Reference)
+        });
+        for class in NAME_AND_SORT_CLASSES {
+            if let Some(scope) = sibling_scope(class, &case.id) {
+                let construct = if class == "unbound-name" && scope == "free" && reads_a_name {
+                    "a construct that reads a name"
+                } else {
+                    construct
+                };
+                groups
+                    .entry((class, scope, case.family.name(), construct))
+                    .or_default()
+                    .push(case);
+            }
+        }
+    }
+    let decided_by = |case: &Case| match resolution.expected.get(&case.id) {
+        Some(Expected::Refuse { name, .. }) => Some(*name),
+        _ => None,
+    };
+    // The table meets a name or sort mistake before the oracle's resolution refusal of the
+    // case's own construct ([`OVERRIDDEN`]), so a sibling the oracle refuses only there, and no
+    // name or sort rule decides, is as open to the rule as an accepted one. A refusal of the outer
+    // construct is the opener's own mistake, which its siblings need not share.
+    let open = |case: &Case| match resolution.expected.get(&case.id) {
+        Some(Expected::Accept(_)) => Some("accepted"),
+        Some(Expected::Refuse { name, .. }) if !NAME_AND_SORT_CLASSES.contains(name) => matches!(
+            case.oracle(),
+            Some(Outcome::Refuse(Refusal {
+                stage: Stage::Resolution,
+                outer: false,
+                ..
+            }))
+        )
+        .then_some("refused only at resolution"),
+        _ => None,
+    };
+    let mut gaps = Vec::new();
+    let mut excepted = BTreeSet::new();
+    for ((class, _, _, _), members) in &groups {
+        if !members.iter().any(|case| decided_by(case) == Some(*class)) {
+            continue;
+        }
+        for case in members {
+            let Some(how) = open(case) else {
+                continue;
+            };
+            if SIBLING_EXCEPTIONS
+                .iter()
+                .any(|(id, excepted_class, _)| *id == case.id && excepted_class == class)
+            {
+                excepted.insert((case.id.as_str(), *class));
+            } else {
+                gaps.push(format!("{} is {how}, no {class}", case.id));
+            }
+        }
+    }
+    gaps.sort();
+    gaps.dedup();
+    assert!(gaps.is_empty(), "{} gaps:\n{}", gaps.len(), gaps.join("\n"));
+    let stale = SIBLING_EXCEPTIONS
+        .iter()
+        .filter(|(id, class, _)| !excepted.contains(&(*id, *class)))
+        .collect::<Vec<_>>();
+    assert!(stale.is_empty(), "exceptions no rule needs: {stale:?}");
+}
+
+/// The term positions where the table accepts no construct, and why that is the position's own
+/// fact rather than a generator's mistake.
+const POSITIONS_WITHOUT_AN_ACCEPTED_CASE: [(&str, &str); 4] = [
+    (
+        "terms/alias/subject-root",
+        "a static clause's whole subject is the production it expands, marked as the clause is, and no construct of the catalog is one (the base marks the command of the clause's other slots): the slot shows what each construct is refused for there",
+    ),
+    (
+        "terms/desugar/subject-root",
+        "a static clause's whole subject is the production it expands, marked as the clause is, and no construct of the catalog is one (the base marks the command of the clause's other slots): the slot shows what each construct is refused for there",
+    ),
+    (
+        "terms/local-rule/subject-root",
+        "a single-body rule's whole subject holds its rewrite below its root: a construct holding none makes a rule that changes nothing, a whole-subject rewrite is an ordinary rule, and `_`, an alias and an island cannot be a subject's root (D3)",
+    ),
+    (
+        "terms/rule/guard/closure-body",
+        "a matching-logic predicate is refused in a rule's condition (`ml-in-condition`), so every case is; the host shows which mistakes inside the predicate come first, and a claim's condition is the closure's accepting host",
+    ),
+];
+
+/// A term position where no construct is accepted is listed with its reason: a position whose
+/// template makes every case fail for the same unrelated reason would otherwise go unnoticed.
+#[test]
+fn every_position_without_an_accepted_case_is_listed() {
+    let table = Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
+    )
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let cases = class_matrix::cases();
+    let resolution = table.resolve_cases(&cases, registry_kind);
+    let mut accepted = BTreeMap::<&str, bool>::new();
+    for case in cases.iter().filter(|case| case.family == Family::Terms) {
+        let (position, _) = case.id.rsplit_once('/').expect("a case ID has a construct");
+        let accepts = matches!(resolution.expected.get(&case.id), Some(Expected::Accept(_)));
+        *accepted.entry(position).or_default() |= accepts;
+    }
+    let without = accepted
+        .into_iter()
+        .filter(|(_, accepts)| !accepts)
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        without,
+        POSITIONS_WITHOUT_AN_ACCEPTED_CASE
+            .iter()
+            .map(|(position, _)| *position)
+            .collect::<Vec<_>>()
     );
 }
 

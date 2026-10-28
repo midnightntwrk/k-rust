@@ -47,7 +47,8 @@
 //! which is written per position: `tests/positions.rs` compares the two case by case.
 
 use super::positions::{
-    Construct, Entry, Form, Kind, LocalPattern, Node, PatternRoot, Position, RewriteSide, Slot,
+    Construct, Entry, Form, Kind, LocalPattern, Node, Notation, PatternRoot, Position, RewriteSide,
+    Slot,
 };
 
 /// Declares [`Class`]: each variant with its name in `expected.toml`.
@@ -278,6 +279,12 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         // the application does. It is no pattern, though: where a pattern is read, it is refused
         // by its spelling, before anything resolves (a pattern spells the call); and its spelling
         // alone says it applies an operation, which a constant's ground value does not.
+        // `a | b` where a pattern is read is the alternatives' spelling, and means what they do.
+        Construct::Notation(Notation::BitwiseOr)
+            if matches!(position.kind, Kind::Matched | Kind::Evaluated) =>
+        {
+            alternatives(position)
+        }
         Construct::Notation(_) => {
             if matches!(position.kind, Kind::Matched) {
                 Some(placement(Class::NotationInPattern))
@@ -393,7 +400,9 @@ const fn alias(position: Position) -> Option<Refusal> {
 
 /// `A | B` matches one of several terms. A `let` reads its value by one shape, and a subject
 /// rewritten in place as one term stands for the one term it matched. Where a term is computed,
-/// `|` is the bitwise operator, whose domain its operands' sorts choose.
+/// `|` is the bitwise operator, whose domain its operands' sorts choose: alternatives of
+/// constructor patterns choose none (`x | 1`, over operands a domain takes, is
+/// [`Notation::BitwiseOr`], the operator's application).
 const fn alternatives(position: Position) -> Option<Refusal> {
     if in_constant(position) {
         return Some(placement(Class::ConstantNotGround));

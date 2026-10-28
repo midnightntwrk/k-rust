@@ -27,7 +27,8 @@
 //!   subject, a `for KItem` clause's bare and wrapped, a result's, a value's and a computation
 //!   item's), and the positions the constructs open (depth 2: a `let` pattern and body, a
 //!   `k::matches!` pattern, a rewrite's sides, an `A | B` branch, an `@` body, a function's
-//!   argument, a record update's field, a closure's body), each at one host per kind,
+//!   argument, a set's element, a record update's field, a closure's body), each at one host per
+//!   kind,
 //!   `terms/equation/guard/k::is!(Int, x)`, `terms/rule/subject-root/_`,
 //!   `terms/sort-rule/result/let-body/Size(x)`;
 //! - the import axis: two bare variants at every position of depth 1 under a module-level
@@ -58,7 +59,10 @@
 //! ([`Packaging::Shared`]). A case that cannot be kept apart that way needs a package of its
 //! own ([`Packaging::Own`]): an initializer, because a definition has exactly one, and a case
 //! whose construct fills the computation cell's subject entry, because no command item is left
-//! there to tell it from the other cases.
+//! there to tell it from the other cases. A case whose construct is a rule's whole subject, or
+//! the computation item before its command, keeps its command but is rendered alone
+//! ([`Packaging::Alone`]): its construct can match what another case's subject matches (`_`,
+//! `x`), which the overlap check refuses when the two are printed together.
 //!
 //! **Count.** [`cases`] asserts at most [`FRONT_CASE_CAP`] cases, whose documentation argues the
 //! budget: the fast tier runs every case in-process, and the cap, not a timed assertion, keeps it
@@ -78,8 +82,8 @@ use std::fmt::Write as _;
 use std::ops::Range;
 
 /// The most cases [`cases`] may generate. The fast tier runs every case in-process: measured with
-/// NT-2's term positions, 5,279 cases take 39.8 s on one CPU (7.5 ms a case, the term family's
-/// roots and depth-2 cases being larger items than S0's) and 2.6 s on 32 threads. 6,000 cases are
+/// NT-2's term positions, 5,518 cases take 41.0 s on one CPU (7.4 ms a case, the term family's
+/// roots and depth-2 cases being larger items than S0's) and 3.0 s on 32 threads. 6,000 cases are
 /// 45 s single-threaded, the budget of a test a developer runs after each change, and leave room
 /// for the cases NT-5 and NT-6's notations add; past it the term family is split into shards
 /// rather than the cap raised.
@@ -380,6 +384,11 @@ pub enum Packaging {
     Shared(Command),
     /// A case rendered alone on its base.
     Own(OwnReason),
+    /// A case with its own command constructor, rendered alone on its base: its construct is a
+    /// rule's whole subject, or the computation item before its command, so a construct that
+    /// matches what another case's subject matches (`_`, `x`) makes the two rules' heads overlap,
+    /// which the overlap check refuses when they are printed together.
+    Alone(Command),
 }
 
 /// One generated case.
@@ -432,7 +441,7 @@ impl Case {
     #[must_use]
     pub const fn command(&self) -> Option<&Command> {
         match &self.packaging {
-            Packaging::Shared(command) => Some(command),
+            Packaging::Shared(command) | Packaging::Alone(command) => Some(command),
             Packaging::Own(_) => None,
         }
     }
@@ -526,8 +535,11 @@ pub fn render<'a>(cases: &[&'a Case]) -> Rendered<'a> {
         "cases of one package share a base"
     );
     assert!(
-        cases.len() == 1 || cases.iter().all(|case| case.command().is_some()),
-        "a case without a command is rendered alone"
+        cases.len() == 1
+            || cases
+                .iter()
+                .all(|case| matches!(case.packaging, Packaging::Shared(_))),
+        "a case that is not shared is rendered alone"
     );
     let base = first.base.text();
     let commands = cases

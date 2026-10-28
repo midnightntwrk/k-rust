@@ -252,10 +252,6 @@ doc = "an optional (`?`) cell written without `Some(..)`/`None`: a binder, `_`, 
 code = "krs::analysis::optional-presence"
 doc = "`Some(..)`/`None` on a cell that is not `multiplicity = \"?\"`"
 
-[class.quantifier-shadows]
-code = "krs::analysis::invalid-ml-predicate"
-doc = "a quantifier (`k::ml::exists`) whose binder shadows a binder of the sentence, which K would silently shadow"
-
 [class.record-remainder-in-cells-term]
 code = "krs::analysis::invalid-record-update"
 doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field"
@@ -297,6 +293,10 @@ doc = "`k::is!`/`k::project!`, which are rule and claim terms, in an initializer
 [class.simplification-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor or a literal at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify"
+
+[class.single-body-without-rewrite]
+code = "krs::syntax::invalid-local-rewrite"
+doc = "a single-body rule whose subject holds no `k::rewrite!`, so the rule changes nothing: a sentence's mistake, not a construct's position"
 
 [class.sort-test-in-pattern]
 code = "krs::analysis::invalid-sort-test"
@@ -876,17 +876,135 @@ match = 'import/{cells-claim,context,readable}/guard/{Go(),Hold(x)}'
 class = "condition-sort"
 at = "spelling"
 
-# quantifier-shadows (NT-2): a quantifier's binder that shadows one of the sentence's
-[[refuse]]
-match = 'terms/cells-claim/guard/closure-body/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
-class = "quantifier-shadows"
-at = "spelling"
-
 # unbound-name (NT-2): a name an initializer's or a constant's root reads
 [[refuse]]
 match = 'import/{constant/value-root,init/item-root}/Hold(x)'
 class = "unbound-name"
 at = "spelling"
+
+# single-body-without-rewrite (NT-2): a single-body rule's whole subject that holds no rewrite
+[[refuse]]
+match = '{import,terms}/local-rule/subject-root/*'
+class = "single-body-without-rewrite"
+at = "item"
+
+# alternatives-bind-unequally (NT-2 review): alternatives in a subject that bind other names, at a sibling whose product refuses it for another reason first
+[[refuse]]
+match = 'terms/readable/map-key/or-branch/y @ Cmd::Hold(_)'
+class = "alternatives-bind-unequally"
+at = "spelling"
+
+# binder-bound-twice (NT-2 review): a name bound twice in one pattern, at a sibling whose product refuses it for another reason first
+[[refuse]]
+match = 'terms/readable/map-key/as-body/y @ Cmd::Hold(_)'
+class = "binder-bound-twice"
+at = "spelling"
+
+# binder-sort (NT-2 review): a `cells!` binder declared `KItem` that a notation form's operand sorts more narrowly, at a sibling whose product refuses it for another reason first
+[[refuse]]
+match = 'terms/cells/map-key/{!(x < 1),-(x + 1),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}'
+class = "binder-sort"
+at = "spelling"
+
+# list-notation-sort (NT-2 review): list brackets at a `KItem` position, at a sibling whose product refuses it for another reason first
+[[refuse]]
+match = 'terms/{readable/map-key,readable/map-key/as-body,readable/map-key/let-pattern,readable/map-key/or-branch}/[x\, ..]'
+class = "list-notation-sort"
+at = "spelling"
+
+# matches-pattern-binder (NT-2 review): a `k::matches!` pattern that rebinds the sentence's `x` or binds a name nothing reads, at a sibling whose product refuses it for another reason first
+[[refuse]]
+match = 'terms/readable/map-key/matches-pattern/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Wrap::<KItem>(x),[x\, ..],k::builtin::set::item(x),x}'
+class = "matches-pattern-binder"
+at = "spelling"
+
+# record-update-base (NT-2 review): a record update whose base `x` is no alias of a matched record, at a sibling whose product refuses it for another reason first
+[[refuse]]
+match = 'terms/{local-rule/subject/rewrite-right,readable/map-key/function-argument,readable/map-key/let-body,readable/map-key/update-field}/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-update-base"
+at = "spelling"
+
+# unbound-name (NT-2 review): a name nothing binds: in an initializer or a constant, or a bare name at a fn subject's root, which names a unit constructor, at a sibling whose product refuses it for another reason first
+[[refuse]]
+match = 'terms/{constant/value,constant/value-root}/Wrap::<dyn k::KItemSort>(x)'
+class = "unbound-name"
+at = "spelling"
+
+
+# alternatives-bind-unequally (NT-2 review): alternatives in a subject that bind other names, at a sibling whose product refuses it for another reason first, and at the review's new positions
+[[refuse]]
+match = 'terms/{alias/subject,cells-claim/item-root,cells-claim/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,desugar/subject,equation/subject,equation/subject-depth-2,readable/item-root,readable/list-element,readable/map-key/matches-pattern,readable/subject,readable/subject-depth-2,rule/guard/matches-pattern,rule/subject,rule/subject-depth-2,rule/subject/as-body,rule/subject/or-branch,rule/subject/set-element,sort-rule/result/matches-pattern,sort-rule/subject,sort-rule/subject-depth-2,table/subject,table/subject-depth-2}/x | 1'
+class = "alternatives-bind-unequally"
+at = "spelling"
+
+# binder-sort (NT-2 review): a `cells!` binder declared `KItem` that a notation form's operand sorts more narrowly, at a sibling whose product refuses it for another reason first, and at the review's new positions
+[[refuse]]
+match = 'terms/{cells-claim/result,cells-claim/result-item-root,cells/result,cells/result-item-root,cells/result-map-key,cells/result-map-value}/x | 1'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{cells-local/subject,cells/item-root,cells/subject,context-alias/item-root,context-alias/subject}/k::builtin::int::add(x\, 1)'
+class = "binder-sort"
+at = "spelling"
+
+# condition-sort (NT-2 review): a condition that is no Bool term, at a sibling whose product refuses it for another reason first, and at the review's new positions
+[[refuse]]
+match = 'import/simplification/guard/{Go(),Hold(x)}'
+class = "condition-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{cells-claim/guard,context/guard,equation/guard,readable/guard,rule/guard,rule/guard/let-body}/x | 1'
+class = "condition-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/simplification/guard/{"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x),x & 1,x + 1,x << 1,x | 1,x.add::<Int>(1)}'
+class = "condition-sort"
+at = "spelling"
+
+# let-sort (NT-2 review): a `let` block whose result is no Bool in a condition, at a sibling whose product refuses it for another reason first, and at the review's new positions
+[[refuse]]
+match = 'terms/simplification/guard/\{ let y = x; y \}'
+class = "let-sort"
+at = "spelling"
+
+# list-notation-sort (NT-2 review): list brackets at a `KItem` position, at a sibling whose product refuses it for another reason first, and at the review's new positions
+[[refuse]]
+match = 'terms/rule/subject/set-element/[x\, ..]'
+class = "list-notation-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/equation/subject-root/[x\, ..]'
+class = "list-notation-sort"
+at = "spelling"
+
+# object-term-as-predicate (NT-2 review): an object term as a quantifier's body, at a sibling whose product refuses it for another reason first, and at the review's new positions
+[[refuse]]
+match = 'terms/cells-claim/guard/closure-body/x | 1'
+class = "object-term-as-predicate"
+at = "spelling"
+
+# record-update-base (NT-2 review): a record update whose base `x` is no alias of a matched record, at a sibling whose product refuses it for another reason first, and at the review's new positions
+[[refuse]]
+match = 'terms/{rule/subject/set-element,simplification/guard}/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-update-base"
+at = "spelling"
+
+# turbofish-instance-sort (NT-2 review): a turbofish instance at `KItem` in a condition, at a sibling whose product refuses it for another reason first, and at the review's new positions
+[[refuse]]
+match = 'terms/simplification/guard/Wrap::<dyn k::KItemSort>(x)'
+class = "turbofish-instance-sort"
+at = "spelling"
+
+# unbound-name (NT-2 review): a name nothing binds: in an initializer or a constant, or a bare name at a fn subject's root, which names a unit constructor, at a sibling whose product refuses it for another reason first, and at the review's new positions
+[[refuse]]
+match = 'terms/{alias/subject-root,context/subject-root,desugar/subject-root,equation/subject-root,init/item,init/item-depth-2,init/item-root,rule/subject-root,sort-rule/subject-root,sort-rule/subject-root-term}/x | 1'
+class = "unbound-name"
+at = "spelling"
+
 
 [accept."cells/result/counter/None"]
 k = """
