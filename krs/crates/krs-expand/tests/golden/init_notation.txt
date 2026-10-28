@@ -55,9 +55,21 @@ pub(crate) fn __krs_initializer_payload<R>(
                         Self::__krs_initializer_variable_0751e58e4f14c526_1,
                     ),
                     ::k::HostTypeKey(__krs_type_key::<Self>),
-                    ::k::HostTypeKey(Self::__krs_cell_field_type_id_k),
-                    ::k::HostTypeKey(Self::__krs_cell_field_type_id_flag),
-                    ::k::HostTypeKey(Self::__krs_cell_field_type_id_limit),
+                    ::k::HostTypeKey(
+                        <Self as ::k::__KrsCellField<
+                            12638198195671924106u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
+                    ::k::HostTypeKey(
+                        <Self as ::k::__KrsCellField<
+                            15416613692695644951u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
+                    ::k::HostTypeKey(
+                        <Self as ::k::__KrsCellField<
+                            8506593440268130132u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
                 ],
                 items: &[],
                 targets: &[

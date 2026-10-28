@@ -26,14 +26,14 @@ use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
-use super::configuration::cell_marker_function;
+use super::configuration::cell_field_identity;
 use super::existentials::{ensures_condition, evaluation_step, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
-use super::tokens::{call_site_cfg_attributes, sort_type_tokens, spelling};
+use super::tokens::{call_site_cfg_attributes, respanned, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -661,7 +661,15 @@ impl<'a> StateRuleBuilder<'a> {
         for entry in cells.entries() {
             let field_key = ledger.define(entry.name_key())?;
             let cell_owner = entry.owner().unwrap_or(owner);
-            let marker = cell_marker_function(entry.name());
+            // A cell the owner does not declare is reported at the entry's
+            // owner path when the entry writes one (`Group::cell`), and at
+            // the cell's name otherwise.
+            let field_owner = match entry.owner() {
+                Some(path) => quote!(#path),
+                None => respanned(owner, entry.name().span()),
+            };
+            let identity =
+                cell_field_identity(facade, &field_owner, entry.name(), entry.name().span());
             let (wrapper_key, wrapper) = if let Some(path) = entry.wrapper() {
                 let computation = path.segments.iter().any(|segment| segment.ident == "KCell");
                 if computation != matches!(entry.value(), StateTerm::KSequence(_)) {
@@ -689,7 +697,7 @@ impl<'a> StateRuleBuilder<'a> {
                         owner: slots.type_slot(
                             quote!(#facade::HostTypeKey(#cell_owner::__krs_configuration_type_key)),
                         ),
-                        field: slots.type_slot(quote!(#facade::HostTypeKey(#cell_owner::#marker))),
+                        field: slots.type_slot(quote!(#facade::HostTypeKey(#identity))),
                     },
                 },
                 wrapper_key,

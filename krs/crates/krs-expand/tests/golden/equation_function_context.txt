@@ -70,8 +70,16 @@ fn __krs_rule_descriptor_20b87c6f090dfac7() -> ::core::result::Result<
                     ::k::HostTypeKey(__krs_rule_binder_sort_20b87c6f090dfac7_0),
                     ::k::HostTypeKey(__krs_rule_binder_sort_20b87c6f090dfac7_1),
                     ::k::HostTypeKey(Machine::__krs_configuration_type_key),
-                    ::k::HostTypeKey(Machine::__krs_cell_field_type_id_bar),
-                    ::k::HostTypeKey(Machine::__krs_cell_field_type_id_baz),
+                    ::k::HostTypeKey(
+                        <Machine as ::k::__KrsCellField<
+                            16101355973854746u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
+                    ::k::HostTypeKey(
+                        <Machine as ::k::__KrsCellField<
+                            16092559880829058u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
                     ::k::HostTypeKey(
                         __krs_function_context_configuration_20b87c6f090dfac7,
                     ),

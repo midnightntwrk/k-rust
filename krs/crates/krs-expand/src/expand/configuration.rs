@@ -20,9 +20,9 @@ use syn::{Ident, ItemStruct, Path, parse_quote};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::ledger::KeyLedger;
-use super::nonce::expansion_nonce;
+use super::nonce::{expansion_nonce, rule_application_selector};
 use super::terms::WireSlots;
-use super::tokens::{call_site_cfg_attributes, call_site_ident, spelling};
+use super::tokens::{call_site_cfg_attributes, call_site_ident, respanned, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -55,7 +55,7 @@ pub(crate) fn configuration(
     let declared = call_site_ident(declaration.name())?;
     let root = configuration_root(&ledger, &attribute)?;
     let mut slots = WireSlots::new(&facade);
-    let (field_helpers, fields) = configuration_fields(
+    let (field_helpers, cell_fields, fields) = configuration_fields(
         (&facade, &ledger),
         &declaration,
         &declared,
@@ -132,6 +132,11 @@ pub(crate) fn configuration(
         }
 
         #(#cfg)*
+        const _: () = {
+            #(#cell_fields)*
+        };
+
+        #(#cfg)*
         #[doc(hidden)]
         fn #declared_key() -> ::core::any::TypeId {
             ::core::any::TypeId::of::<#declared>()
@@ -163,7 +168,7 @@ pub(crate) fn cell(
     let declared = call_site_ident(declaration.name())?;
     let name = declaration.name().to_string();
     let mut slots = WireSlots::new(&facade);
-    let (field_helpers, fields) = configuration_fields(
+    let (field_helpers, cell_fields, fields) = configuration_fields(
         (&facade, &ledger),
         &declaration,
         &declared,
@@ -211,6 +216,11 @@ pub(crate) fn cell(
             }
             #(#field_helpers)*
         }
+
+        #(#cfg)*
+        const _: () = {
+            #(#cell_fields)*
+        };
 
         #(#cfg)*
         #[doc(hidden)]
@@ -297,8 +307,36 @@ fn inject_inferred_cell_wrappers(
     Ok(())
 }
 
-pub(super) fn cell_marker_function(field: &Ident) -> Ident {
-    format_ident!("__krs_cell_field_type_id_{}", field)
+/// The cell field `field` of `owner`, as the identity function of its
+/// `__KrsCellField` impl, generated at `span` around `owner`'s own tokens. A
+/// name `owner` does not declare as a cell reaches the trait unimplemented,
+/// which rustc reports at `owner`.
+pub(super) fn cell_field_identity(
+    facade: &Path,
+    owner: &TokenStream,
+    field: &Ident,
+    span: Span,
+) -> TokenStream {
+    let selector = rule_application_selector(field);
+    let open = respanned(quote!(<), span);
+    let trait_path = respanned(
+        quote!(as #facade::__KrsCellField<#selector>>::__krs_cell_field_type_id),
+        span,
+    );
+    quote!(#open #owner #trait_path)
+}
+
+/// `owner`'s declaration of the cell field `field`, keyed by its name.
+fn cell_field_impl(facade: &Path, owner: &Ident, field: &Ident) -> TokenStream {
+    let selector = rule_application_selector(field);
+    quote! {
+        impl #facade::__KrsCellField<#selector> for #owner {
+            fn __krs_cell_field_type_id() -> ::core::any::TypeId {
+                struct __KrsCellFieldMarker;
+                ::core::any::TypeId::of::<__KrsCellFieldMarker>()
+            }
+        }
+    }
 }
 
 fn configuration_root(
@@ -324,19 +362,15 @@ fn configuration_fields(
     owner: &Ident,
     owner_key: &Ident,
     slots: &mut WireSlots,
-) -> crate::Result<(Vec<TokenStream>, Vec<WireCellField>)> {
+) -> crate::Result<(Vec<TokenStream>, Vec<TokenStream>, Vec<WireCellField>)> {
     let mut helpers = Vec::new();
+    let mut cell_fields = Vec::new();
     let mut fields = Vec::new();
     let mut argument_ordinal = 0_u32;
     for (index, field) in declaration.cells().iter().enumerate() {
-        let marker = cell_marker_function(field.name());
-        helpers.push(quote! {
-            #[doc(hidden)]
-            pub fn #marker() -> ::core::any::TypeId {
-                struct __KrsCellFieldMarker;
-                ::core::any::TypeId::of::<__KrsCellFieldMarker>()
-            }
-        });
+        cell_fields.push(cell_field_impl(facade, owner, field.name()));
+        let identity =
+            cell_field_identity(facade, &quote!(#owner), field.name(), Span::call_site());
         let keys = field.attribute().keys();
         let emitted_name = field
             .attribute()
@@ -433,7 +467,7 @@ fn configuration_fields(
                 key: ledger.define(field.key())?,
                 cell: WireCellIdentity {
                     owner: slots.type_slot(quote!(#facade::HostTypeKey(#owner_key))),
-                    field: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#marker))),
+                    field: slots.type_slot(quote!(#facade::HostTypeKey(#identity))),
                 },
             },
             rust_field: field.name().to_string(),
@@ -447,7 +481,7 @@ fn configuration_fields(
             content,
         });
     }
-    Ok((helpers, fields))
+    Ok((helpers, cell_fields, fields))
 }
 
 struct ConfigurationFieldContext<'a> {

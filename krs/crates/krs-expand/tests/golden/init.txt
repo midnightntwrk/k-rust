@@ -22,7 +22,11 @@ pub(crate) fn __krs_initializer_payload<R>(
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_type_key::<Self>),
-                    ::k::HostTypeKey(Self::__krs_cell_field_type_id_k),
+                    ::k::HostTypeKey(
+                        <Self as ::k::__KrsCellField<
+                            12638198195671924106u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
                 ],
                 items: &[],
                 targets: &[

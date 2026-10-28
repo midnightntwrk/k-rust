@@ -6,6 +6,7 @@
 //! origin byte ranges and that file's content hash are part of every port's
 //! emitted artifacts, so an edit here leaves those artifacts alone.
 
+use std::any::TypeId;
 use std::marker::PhantomData;
 
 use crate::{HostApplicationTarget, Term};
@@ -116,6 +117,24 @@ pub trait __KrsFunction {
     type Result: ?Sized + 'static;
     /// The function's argument types, as a tuple.
     type Arguments;
+}
+
+/// A cell field of the implementing configuration or cell group, keyed by the
+/// field's name: the identity a configuration term, an initializer or a
+/// `cells!` entry gives the cell it names.
+///
+/// This is a hidden proc-macro implementation seam. `#[k::configuration]` and
+/// `#[k::cell]` implement it once per cell field; an entry that names a cell
+/// its owner does not declare reaches it unimplemented, at the entry.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::undeclared-cell] `{Self}` declares no cell of this name",
+    label = "not a cell of `{Self}`",
+    note = "an entry names a cell its owner declares; a cell inside a group is written with the group, `Group::cell`"
+)]
+pub trait __KrsCellField<const FIELD: u64> {
+    /// The cell field's identity.
+    fn __krs_cell_field_type_id() -> TypeId;
 }
 
 /// A value of any type, for the arity check of a `k::equations!` row; it is

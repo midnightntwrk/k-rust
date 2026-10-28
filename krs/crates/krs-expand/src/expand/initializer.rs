@@ -25,7 +25,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute, FnArg, Ident, Path, parse_quote};
 
 use super::configuration::{
-    SortArgumentContext, cell_marker_function, configuration_sort_arguments,
+    SortArgumentContext, cell_field_identity, configuration_sort_arguments,
 };
 use super::island_checks::initializer_state_island_import_checks;
 use super::ledger::KeyLedger;
@@ -396,7 +396,15 @@ impl<'a> InitializerBuilder<'a> {
         let ledger = self.terms.ledger;
         let mut output = Vec::new();
         for cell in cells {
-            let marker = cell_marker_function(cell.name());
+            // A field the owner does not declare as a cell is reported at
+            // the field's name, or at the group a nested cell writes.
+            let span = cell.name().span();
+            let field_owner = if owner.to_string() == "Self" {
+                respanned(owner, span)
+            } else {
+                owner.clone()
+            };
+            let identity = cell_field_identity(facade, &field_owner, cell.name(), span);
             let field = WireCellReference {
                 key: ledger.define(cell.field_key())?,
                 cell: WireCellIdentity {
@@ -405,7 +413,7 @@ impl<'a> InitializerBuilder<'a> {
                         .type_slot(quote!(#facade::HostTypeKey(__krs_type_key::<#owner>))),
                     field: self
                         .slots
-                        .type_slot(quote!(#facade::HostTypeKey(#owner::#marker))),
+                        .type_slot(quote!(#facade::HostTypeKey(#identity))),
                 },
             };
             let content = match cell.content() {

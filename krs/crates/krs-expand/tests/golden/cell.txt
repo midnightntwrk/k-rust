@@ -9,11 +9,6 @@ impl Store {
         ::core::any::TypeId::of::<Self>()
     }
     #[doc(hidden)]
-    pub fn __krs_cell_field_type_id_env() -> ::core::any::TypeId {
-        struct __KrsCellFieldMarker;
-        ::core::any::TypeId::of::<__KrsCellFieldMarker>()
-    }
-    #[doc(hidden)]
     pub fn __krs_configuration_sort___krs_cell_type_221054d221a44a51_0() -> ::core::any::TypeId {
         ::core::any::TypeId::of::<k::builtin::Map>()
     }
@@ -26,6 +21,14 @@ impl Store {
         ::core::any::TypeId::of::<::k::Term<dyn ValueSort>>()
     }
 }
+const _: () = {
+    impl ::k::__KrsCellField<14046746036577462228u64> for Store {
+        fn __krs_cell_field_type_id() -> ::core::any::TypeId {
+            struct __KrsCellFieldMarker;
+            ::core::any::TypeId::of::<__KrsCellFieldMarker>()
+        }
+    }
+};
 #[doc(hidden)]
 fn __krs_cell_type_221054d221a44a51() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Store>()
@@ -74,7 +77,11 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::core::result::Result<
                         Store::__krs_configuration_sort___krs_cell_type_221054d221a44a51_0,
                     ),
                     ::k::HostTypeKey(__krs_cell_type_221054d221a44a51),
-                    ::k::HostTypeKey(Store::__krs_cell_field_type_id_env),
+                    ::k::HostTypeKey(
+                        <Store as ::k::__KrsCellField<
+                            14046746036577462228u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
                 ],
                 items: &[],
                 targets: &[],

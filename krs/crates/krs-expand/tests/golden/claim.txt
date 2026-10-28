@@ -89,8 +89,16 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::core::result::Result<
                     ::k::HostTypeKey(__krs_claim_existential_sort_473db5d11a51e265_0),
                     ::k::HostTypeKey(__krs_claim_anonymous_sort_473db5d11a51e265_3),
                     ::k::HostTypeKey(Machine::__krs_configuration_type_key),
-                    ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k),
-                    ::k::HostTypeKey(Machine::__krs_cell_field_type_id_env),
+                    ::k::HostTypeKey(
+                        <Machine as ::k::__KrsCellField<
+                            12638198195671924106u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
+                    ::k::HostTypeKey(
+                        <Machine as ::k::__KrsCellField<
+                            14046746036577462228u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
                     ::k::HostTypeKey(__krs_claim_configuration_left_473db5d11a51e265),
                     ::k::HostTypeKey(__krs_claim_configuration_right_473db5d11a51e265),
                 ],

@@ -8,24 +8,28 @@ impl NestedMachine {
         ::core::any::TypeId::of::<Self>()
     }
     #[doc(hidden)]
-    pub fn __krs_cell_field_type_id_k() -> ::core::any::TypeId {
-        struct __KrsCellFieldMarker;
-        ::core::any::TypeId::of::<__KrsCellFieldMarker>()
-    }
-    #[doc(hidden)]
     pub fn __krs_configuration_sort___krs_configuration_type_1f42c47f927d9bc1_0() -> ::core::any::TypeId {
         ::core::any::TypeId::of::<k::builtin::KSequence>()
-    }
-    #[doc(hidden)]
-    pub fn __krs_cell_field_type_id_store() -> ::core::any::TypeId {
-        struct __KrsCellFieldMarker;
-        ::core::any::TypeId::of::<__KrsCellFieldMarker>()
     }
     #[doc(hidden)]
     pub fn __krs_configuration_nested___krs_configuration_type_1f42c47f927d9bc1_1() -> ::core::any::TypeId {
         ::core::any::TypeId::of::<Store>()
     }
 }
+const _: () = {
+    impl ::k::__KrsCellField<12638198195671924106u64> for NestedMachine {
+        fn __krs_cell_field_type_id() -> ::core::any::TypeId {
+            struct __KrsCellFieldMarker;
+            ::core::any::TypeId::of::<__KrsCellFieldMarker>()
+        }
+    }
+    impl ::k::__KrsCellField<4967000543033605518u64> for NestedMachine {
+        fn __krs_cell_field_type_id() -> ::core::any::TypeId {
+            struct __KrsCellFieldMarker;
+            ::core::any::TypeId::of::<__KrsCellFieldMarker>()
+        }
+    }
+};
 #[doc(hidden)]
 fn __krs_configuration_type_1f42c47f927d9bc1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<NestedMachine>()
@@ -47,11 +51,19 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::core::result::Result<
                     NestedMachine::__krs_configuration_sort___krs_configuration_type_1f42c47f927d9bc1_0,
                 ),
                 ::k::HostTypeKey(__krs_configuration_type_1f42c47f927d9bc1),
-                ::k::HostTypeKey(NestedMachine::__krs_cell_field_type_id_k),
+                ::k::HostTypeKey(
+                    <NestedMachine as ::k::__KrsCellField<
+                        12638198195671924106u64,
+                    >>::__krs_cell_field_type_id,
+                ),
                 ::k::HostTypeKey(
                     NestedMachine::__krs_configuration_nested___krs_configuration_type_1f42c47f927d9bc1_1,
                 ),
-                ::k::HostTypeKey(NestedMachine::__krs_cell_field_type_id_store),
+                ::k::HostTypeKey(
+                    <NestedMachine as ::k::__KrsCellField<
+                        4967000543033605518u64,
+                    >>::__krs_cell_field_type_id,
+                ),
             ],
             items: &[],
             targets: &[],

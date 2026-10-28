@@ -49,7 +49,11 @@ fn __krs_configuration_rule_210761781d1d4fda() -> ::core::result::Result<
                     ::k::HostTypeKey(__krs_rule_binding_sort_210761781d1d4fda_0),
                     ::k::HostTypeKey(__krs_rule_evaluation_result_210761781d1d4fda),
                     ::k::HostTypeKey(Machine::__krs_configuration_type_key),
-                    ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k),
+                    ::k::HostTypeKey(
+                        <Machine as ::k::__KrsCellField<
+                            12638198195671924106u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
                     ::k::HostTypeKey(__krs_rule_configuration_left_210761781d1d4fda),
                 ],
                 items: &[],

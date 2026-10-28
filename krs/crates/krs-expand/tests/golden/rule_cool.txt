@@ -64,7 +64,11 @@ fn __krs_configuration_rule_e7c54aa8125722f4() -> ::core::result::Result<
                     ::k::HostTypeKey(__krs_rule_binding_sort_e7c54aa8125722f4_1),
                     ::k::HostTypeKey(__krs_rule_evaluation_result_e7c54aa8125722f4),
                     ::k::HostTypeKey(Machine::__krs_configuration_type_key),
-                    ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k),
+                    ::k::HostTypeKey(
+                        <Machine as ::k::__KrsCellField<
+                            12638198195671924106u64,
+                        >>::__krs_cell_field_type_id,
+                    ),
                     ::k::HostTypeKey(__krs_rule_configuration_left_e7c54aa8125722f4),
                     ::k::HostTypeKey(__krs_rule_configuration_right_e7c54aa8125722f4),
                 ],

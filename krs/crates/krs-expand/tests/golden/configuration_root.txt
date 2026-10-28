@@ -10,18 +10,8 @@ impl Machine {
         ::core::any::TypeId::of::<Self>()
     }
     #[doc(hidden)]
-    pub fn __krs_cell_field_type_id_k() -> ::core::any::TypeId {
-        struct __KrsCellFieldMarker;
-        ::core::any::TypeId::of::<__KrsCellFieldMarker>()
-    }
-    #[doc(hidden)]
     pub fn __krs_configuration_sort___krs_configuration_type_5b18fbd0ea8f5bd3_0() -> ::core::any::TypeId {
         ::core::any::TypeId::of::<k::builtin::KSequence>()
-    }
-    #[doc(hidden)]
-    pub fn __krs_cell_field_type_id_env() -> ::core::any::TypeId {
-        struct __KrsCellFieldMarker;
-        ::core::any::TypeId::of::<__KrsCellFieldMarker>()
     }
     #[doc(hidden)]
     pub fn __krs_configuration_sort___krs_configuration_type_5b18fbd0ea8f5bd3_1() -> ::core::any::TypeId {
@@ -36,6 +26,20 @@ impl Machine {
         ::core::any::TypeId::of::<::k::Term<dyn ValueSort>>()
     }
 }
+const _: () = {
+    impl ::k::__KrsCellField<12638198195671924106u64> for Machine {
+        fn __krs_cell_field_type_id() -> ::core::any::TypeId {
+            struct __KrsCellFieldMarker;
+            ::core::any::TypeId::of::<__KrsCellFieldMarker>()
+        }
+    }
+    impl ::k::__KrsCellField<14046746036577462228u64> for Machine {
+        fn __krs_cell_field_type_id() -> ::core::any::TypeId {
+            struct __KrsCellFieldMarker;
+            ::core::any::TypeId::of::<__KrsCellFieldMarker>()
+        }
+    }
+};
 #[doc(hidden)]
 fn __krs_configuration_type_5b18fbd0ea8f5bd3() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Machine>()
@@ -57,7 +61,11 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
                     Machine::__krs_configuration_sort___krs_configuration_type_5b18fbd0ea8f5bd3_0,
                 ),
                 ::k::HostTypeKey(__krs_configuration_type_5b18fbd0ea8f5bd3),
-                ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k),
+                ::k::HostTypeKey(
+                    <Machine as ::k::__KrsCellField<
+                        12638198195671924106u64,
+                    >>::__krs_cell_field_type_id,
+                ),
                 ::k::HostTypeKey(
                     Machine::__krs_configuration_sort_argument___krs_configuration_type_5b18fbd0ea8f5bd3_0,
                 ),
@@ -67,7 +75,11 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
                 ::k::HostTypeKey(
                     Machine::__krs_configuration_sort___krs_configuration_type_5b18fbd0ea8f5bd3_1,
                 ),
-                ::k::HostTypeKey(Machine::__krs_cell_field_type_id_env),
+                ::k::HostTypeKey(
+                    <Machine as ::k::__KrsCellField<
+                        14046746036577462228u64,
+                    >>::__krs_cell_field_type_id,
+                ),
             ],
             items: &[],
             targets: &[],
