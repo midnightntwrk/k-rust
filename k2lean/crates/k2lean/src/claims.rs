@@ -205,15 +205,16 @@ fn parse(args: &[String]) -> Args {
         }
     }
     if let Some(name) = inv_name {
-        a.inv = Some(Inv {
-            preserved: inv_preserved.unwrap_or(format!("{name}.preserved")),
-            module: inv_module.unwrap_or(format!("{}.Invariants", a.sem)),
-            // by default, the file `gen --invariant` writes in the semantics' library
-            unfold: read_unfold(
-                &inv_unfold.unwrap_or_else(|| a.out.join(&a.sem_path).join("invariant-unfold.txt")),
-            ),
-            name,
-        });
+        a.inv =
+            Some(Inv {
+                preserved: inv_preserved.unwrap_or(format!("{name}.preserved")),
+                module: inv_module.unwrap_or(format!("{}.Invariants", a.sem)),
+                // by default, the file `gen --invariant` writes in the semantics' library
+                unfold: read_unfold(&inv_unfold.unwrap_or_else(|| {
+                    lexical(&a.out.join(&a.sem_path).join("invariant-unfold.txt"))
+                })),
+                name,
+            });
     } else if inv_preserved.is_some() || inv_module.is_some() || inv_unfold.is_some() {
         panic!(
             "claims: --invariant-preserved, --invariant-module and --invariant-unfold need --assume-invariant"
@@ -983,6 +984,61 @@ fn basic(
     )
 }
 
+/// The functions the claims of `specs` apply. A claim is a statement about the definition, so a
+/// function it applies belongs in the library as one a rule applies does: `gen --spec` adds them
+/// to the library's functions, and `claims` to the ones it lowers the claims with.
+pub fn spec_functions(specs: &[PathBuf], def: &ir::Def) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for sp in specs {
+        for c in read_claims(sp) {
+            funcs::applied(&c.pattern, def, &mut out);
+        }
+    }
+    out
+}
+
+/// `functions.txt` as `gen --spec` writes it beside the library: comment lines, then the KORE
+/// symbol of each function the library defines, one per line.
+pub fn functions_list<'a>(syms: impl IntoIterator<Item = &'a String>) -> String {
+    let mut t = String::from(
+        "# The functions this library defines (KORE symbols), written by `k2lean gen --spec`;\n\
+         # `k2lean claims` checks that every function its claims apply is one of them.\n",
+    );
+    for sym in syms {
+        t.push_str(sym);
+        t.push('\n');
+    }
+    t
+}
+
+/// `p` with its `..` components resolved by the path's text: the library is found beside `--out`
+/// through `--semantics-path` (`../kimp`) before `--out` exists, where the file system cannot
+/// resolve `out/..`.
+fn lexical(p: &std::path::Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            std::path::Component::ParentDir if out.file_name().is_some() => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn read_functions(path: &PathBuf) -> Option<BTreeSet<String>> {
+    let text = std::fs::read_to_string(path).ok()?;
+    Some(
+        text.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(String::from)
+            .collect(),
+    )
+}
+
 pub fn main(args: &[String]) {
     if args.first().map(|s| s.as_str()) == Some("replay") {
         // KORE JSON nests as deep as the terms; parse and drop it on a large stack
@@ -1003,6 +1059,36 @@ pub fn main(args: &[String]) {
             funcs::applied(&ax.pattern, &def, &mut roots);
         }
     }
+    // the functions the claims apply that no rule applies (a hooked one comes from its hook
+    // model below): the library defines them only when generated with `gen --spec`, which lists
+    // its functions in `functions.txt`; a claim that needs one it lacks is not stated, as any
+    // claim over a function with no implementation
+    let applied = spec_functions(&a.specs, &def);
+    let extra: BTreeSet<String> = applied
+        .difference(&roots)
+        .filter(|s| def.symbols.get(*s).is_some_and(|d| d.hook().is_none()))
+        .cloned()
+        .collect();
+    let lib_path = lexical(&a.out.join(&a.sem_path).join("functions.txt"));
+    let lib = read_functions(&lib_path).unwrap_or_default();
+    let missing: Vec<&str> = extra
+        .iter()
+        .filter(|s| !lib.contains(*s))
+        .map(|s| s.as_str())
+        .collect();
+    if !missing.is_empty() {
+        eprintln!(
+            "note: the claims apply {}, which the library does not define ({}); the claims that \
+             need them are not stated: generate the library with `gen --spec` for these specifications",
+            missing.join(", "),
+            if lib_path.exists() {
+                "per its functions.txt"
+            } else {
+                "it has no functions.txt"
+            }
+        );
+    }
+    roots.extend(extra.into_iter().filter(|s| lib.contains(s)));
     let fgen = funcs::generate(&def, &m, &roots).unwrap_or_else(|e| panic!("functions: {e}"));
     let mut fns: Fns = fgen.fns.clone();
     for (sym, d) in &def.symbols {
@@ -2372,7 +2458,8 @@ mod induction {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_unfold, split_names};
+    use super::{functions_list, lexical, read_functions, read_unfold, split_names};
+    use std::path::{Path, PathBuf};
 
     /// `invariant-unfold.txt` as `gen --invariant` writes it: comment lines, then one name per
     /// line; a `#` inside a name is part of it.
@@ -2390,6 +2477,34 @@ mod tests {
             names,
             vec!["Invariant.envOk", "Eqn.«#if_#then_#else_#fi_K_1»"]
         );
+    }
+
+    /// `functions.txt` as `gen --spec` writes it reads back as the same symbols.
+    #[test]
+    fn functions_file_round_trip() {
+        let syms = [
+            "Lbl'Hash'padRightToWidth".to_string(),
+            "LblMerkleUpdate".to_string(),
+        ];
+        let p = std::env::temp_dir().join(format!("k2lean-functions-{}.txt", std::process::id()));
+        std::fs::write(&p, functions_list(&syms)).unwrap();
+        let back = read_functions(&p).unwrap();
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(
+            back.into_iter().collect::<Vec<_>>(),
+            vec!["Lbl'Hash'padRightToWidth", "LblMerkleUpdate"]
+        );
+    }
+
+    /// The library beside `--out` is found before `--out` exists.
+    #[test]
+    fn semantics_path_resolves_by_text() {
+        assert_eq!(
+            lexical(Path::new("/w/gen/kimp-claims/../kimp/f.txt")),
+            PathBuf::from("/w/gen/kimp/f.txt")
+        );
+        assert_eq!(lexical(Path::new("out/./../lib")), PathBuf::from("lib"));
+        assert_eq!(lexical(Path::new("../lib")), PathBuf::from("../lib"));
     }
 
     #[test]

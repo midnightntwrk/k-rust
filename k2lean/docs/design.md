@@ -519,6 +519,10 @@ The generation covers checkers of `imp-sec.k`'s shape: two levels (two constants
 
 `k2lean claims` (`crates/k2lean/src/claims.rs`, `lean/claims`) has three statements beyond the translation of K claims; their proofs are generic and checked by the kernel, like the claims'.
 
+**The functions a claim applies.** A claim is a statement about the definition, so a function it applies, defined by its equations in the same KORE, belongs to the library as one a rule applies does, even when no rule applies it (KEVM's functional specs call 15 such functions in 53 of their 454 claims, `MerkleUpdateAux` among them).
+`gen --spec FILE` adds the functions the spec's claims apply to the library's functions and lists the library's functions in `functions.txt`; `claims` lowers the claims with the functions the rules apply and those of `functions.txt`, and leaves a claim that needs another one unstated, with a note.
+A library generated without `--spec` is unchanged: it has no `functions.txt`, and its claims are those its rules' functions can state, as before (2026-10-28).
+
 **Transfer along a bisimulation** (`KClaims/Bisim.lean`).
 A strong bisimulation `R` between `S₁` and `S₂` relates states whose successors correspond in both directions, and the claim modalities look only at successors and at the target, so `AF.of_bisim : Bisimulation S₁ S₂ R → (∀ a b, R a b → P a → Q b) → R c d → AF S₁ P c → AF S₂ Q d`, its converse, and `AF_bisim_iff` when `P a ↔ Q b` on related states; `EF` and `Reach` likewise.
 The all-path transfer needs both directions of the bisimulation (`fwd` gives the related state a successor, `bwd` sends each of its successors back), the one-path and reachability transfers only `fwd`.

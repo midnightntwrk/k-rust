@@ -316,6 +316,16 @@ fn main() {
             for s in &specs {
                 roots.insert(invariants::resolve(&def, &s.name).unwrap_or_else(|e| panic!("{e}")));
             }
+            // the functions the claims of a specification apply (`claims.rs`): `--spec FILE`,
+            // repeatable, the spec's compiled `definition.kore` as `claims --spec` reads it
+            let spec_files: Vec<PathBuf> = a
+                .rest
+                .iter()
+                .enumerate()
+                .filter(|(_, x)| x.as_str() == "--spec")
+                .map(|(i, _)| PathBuf::from(&a.rest[i + 1]))
+                .collect();
+            roots.extend(claims::spec_functions(&spec_files, &def));
             let declared: Vec<invariants::Declared> =
                 match a.rest.iter().position(|x| x == "--sidecar") {
                     Some(i) => invariants::read_sidecar(std::path::Path::new(&a.rest[i + 1]))
@@ -336,6 +346,16 @@ fn main() {
                 .unwrap_or_else(|e| panic!("functions: {e}"));
             for n in &fgen.notes {
                 eprintln!("note: {n}");
+            }
+            // `functions.txt`, the functions the library defines, which `claims` checks its claims'
+            // functions against; written only for a library generated for claims (`--spec`)
+            if spec_files.is_empty() {
+                let _ = std::fs::remove_file(out.join("functions.txt"));
+            } else {
+                write(
+                    &out.join("functions.txt"),
+                    &claims::functions_list(fgen.fns.keys()),
+                );
             }
             let top = rules::top_sort(&def).unwrap();
             // several matches: the ranked, list-valued emitter (even with one priority)

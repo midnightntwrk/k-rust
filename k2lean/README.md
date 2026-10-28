@@ -92,6 +92,9 @@ target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/de
 | `--transfer REL` | every proved claim carried to the definition `--transfer-target B` along `REL.bisim`, one theorem per claim, into the module `--transfer-out FILE` (namespace `--transfer-ns`); repeatable, the other `--transfer-…` options apply to the last one |
 | `--transfer-kind stutter` | `REL.bisim` is `refine`'s stuttering bisimulation, not `relate`'s: one-path claims carry, and all-path ones only as one-path claims unless `--transfer-det MODULE` names `B`'s determinism module (`B.Step.deterministic`), on which every claim keeps its modality |
 
+A claim may apply a function that no rule of the definition applies (KEVM's `MerkleUpdate`, `#padRightToWidth`): it is part of the definition, so the library defines it too when generated with `gen --spec FILE` (repeatable, the spec's compiled `definition.kore`).
+`gen --spec` lists the library's functions in `functions.txt`, which `claims` reads beside the library (`--semantics-path`); a claim that needs a function the library does not define is not stated, and `claims` names the functions in a note.
+
 A claim proved on one definition holds on another that `k2lean relate` proves bisimilar: `KClaims.AF.of_bisim` and its `EF` and `Reach` forms (`demos/ImpRelClaims`); along `refine`'s stuttering bisimulations, `KClaims.EF.of_stutter` (`demos/ImpUnrollClaims`).
 `docs/design.md`, §3.8, says what each statement means and how it is proved.
 
