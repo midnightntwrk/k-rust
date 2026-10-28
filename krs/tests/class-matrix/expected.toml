@@ -30,9 +30,17 @@
 code = "krs::analysis::optional-presence"
 doc = "a subject tests an optional cell's absence (`None`) and the result does not create it: K tests absence only by creating the cell"
 
+[class.alias-in-let-pattern]
+code = "krs::syntax::invalid-let"
+doc = "`name @ pattern` in a `let` pattern, which destructures one value that a bare name already names whole"
+
 [class.alias-outside-pattern]
 code = "krs::syntax::invalid-pattern-as"
 doc = "`name @ pattern` (K's `#as`) outside a left-hand side"
+
+[class.alternatives-in-let-pattern]
+code = "krs::syntax::invalid-let"
+doc = "`A | B` in a `let` pattern, which reads its value by one shape"
 
 [class.alternatives-in-one-term-rewrite]
 code = "krs::analysis::invalid-pattern-or"
@@ -213,6 +221,22 @@ match = '{cells,claim,readable}/subject/counter/None'
 class = "absence-test-without-creation"
 at = "entry"
 
+# alias-in-let-pattern
+[[refuse]]
+match = 'terms/{equation,rule}/{guard,result}/\{ let y @ Cmd::Hold(_) = x; y \}'
+class = "alias-in-let-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{result,result-list-element}/\{ let y @ Cmd::Hold(_) = x; y \}'
+class = "alias-in-let-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{shorthand,simplification,sort-rule,table}/result/\{ let y @ Cmd::Hold(_) = x; y \}'
+class = "alias-in-let-pattern"
+at = "spelling"
+
 # alias-outside-pattern
 [[refuse]]
 match = 'terms/cells/result/y @ Cmd::Hold(_)'
@@ -242,6 +266,22 @@ at = "spelling"
 [[refuse]]
 match = 'terms/{equation,rule}/{guard,result}/y @ Cmd::Hold(_)'
 class = "alias-outside-pattern"
+at = "spelling"
+
+# alternatives-in-let-pattern
+[[refuse]]
+match = 'terms/{equation,rule}/{guard,result}/\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}'
+class = "alternatives-in-let-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{result,result-list-element}/\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}'
+class = "alternatives-in-let-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{shorthand,simplification,sort-rule,table}/result/\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}'
+class = "alternatives-in-let-pattern"
 at = "spelling"
 
 # alternatives-in-one-term-rewrite
@@ -478,7 +518,7 @@ at = "spelling"
 
 # constant-not-ground
 [[refuse]]
-match = 'terms/constant/value/{Cmd::Go() | Cmd::Hold(_),_,k::anonymous!(Int\, "_V"),k::fragment![crate::Frame \{ ret: 1 \}],k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),y @ Cmd::Hold(_),\{ let y = x; y \}}'
+match = 'terms/constant/value/{Cmd::Go() | Cmd::Hold(_),_,k::anonymous!(Int\, "_V"),k::fragment![crate::Frame \{ ret: 1 \}],k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),y @ Cmd::Hold(_),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}'
 class = "constant-not-ground"
 at = "spelling"
 
@@ -595,32 +635,32 @@ at = "entry"
 
 # let-outside-term
 [[refuse]]
-match = 'terms/cells/{result,subject}/\{ let y = x; y \}'
+match = 'terms/cells/{result,subject}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
 class = "let-outside-term"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/claim/{result,subject}/\{ let y = x; y \}'
+match = 'terms/claim/{result,subject}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
 class = "let-outside-term"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/init/{item,item-depth-2}/\{ let y = x; y \}'
+match = 'terms/init/{item,item-depth-2}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
 class = "let-outside-term"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/\{ let y = x; y \}'
+match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
 class = "let-outside-term"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/\{ let y = x; y \}'
+match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
 class = "let-outside-term"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/{local-rule,simplification}/subject/\{ let y = x; y \}'
+match = 'terms/{local-rule,simplification}/subject/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
 class = "let-outside-term"
 at = "spelling"
 

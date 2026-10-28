@@ -349,7 +349,7 @@
       "error[krs::syntax::invalid-pattern-as]: `p @ ..`: a `..` remainder binds only inside a sequence, collection or cells! pattern"
     ],
     "alias-in-result": [
-      "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, a `let` pattern, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in the result of a `k::rules!` sort rule"
+      "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in the result of a `k::rules!` sort rule"
     ],
     "alias-whole-subject": [
       "error[krs::syntax::invalid-pattern-as]: `p @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
@@ -385,7 +385,7 @@
       "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) is a Bool test of a bound term, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; here it stands in the subject of a `k::rules!` sort rule"
     ],
     "matches-alias-result": [
-      "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, a `let` pattern, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in a `k::matches!` pattern in the result of a `k::rules!` sort rule"
+      "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in a `k::matches!` pattern in the result of a `k::rules!` sort rule"
     ],
     "matches-sort": [
       "error[krs::analysis::invalid-matches]: the pattern has sort `Color` and the subject has sort `Exp`, which share no subsort, so this test is always false"
@@ -397,10 +397,10 @@
       "error[krs::syntax::invalid-let]: a term block is `let pattern = term;`* followed by one result term (K's #let)"
     ],
     "let-or": [
-      "error[krs::syntax::invalid-let]: #let patterns take one alternative"
+      "error[krs::syntax::invalid-let]: a `let` reads its value by one pattern, whose names the rest of its block uses: test which shape a value has with `k::matches!`, or match each shape in a sentence of its own; here it stands in a `let` pattern in the result of an equation"
     ],
     "let-alias": [
-      "error[krs::syntax::invalid-let]: `name @ pattern` cannot bind in a `let` pattern: K accepts #as only on a rule's left-hand side; bind the whole value with its own `let`"
+      "error[krs::syntax::invalid-let]: a `let` pattern destructures one value, which a bare name already names whole: write `let p = e; let P = p;` for `p @ P`; here it stands in a `let` pattern in the result of an equation"
     ],
     "let-pattern": [
       "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; here it stands in the subject of an equation"

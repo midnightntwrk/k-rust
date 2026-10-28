@@ -113,6 +113,7 @@ fn position(form: &str, slot: &str) -> Position {
 enum Inner {
     Hole,
     MatchesPattern,
+    LetPattern,
     RewriteLeft,
     RewriteRight,
 }
@@ -120,7 +121,7 @@ enum Inner {
 /// The nodes of a construct the table judges, in the walker's order (preorder).
 fn nodes(construct: &str) -> Vec<(Construct, Inner)> {
     use Construct as C;
-    use Inner::{Hole, MatchesPattern, RewriteLeft, RewriteRight};
+    use Inner::{Hole, LetPattern, MatchesPattern, RewriteLeft, RewriteRight};
     match construct {
         "x" | "Cmd::Go" | "Cmd::Go()" | "Cmd::Hold(x)" | "Go()" | "Hold(x)" => Vec::new(),
         "k::builtin::int::add(1, 2)" => vec![
@@ -144,6 +145,16 @@ fn nodes(construct: &str) -> Vec<(Construct, Inner)> {
         "Cmd::Go() | Cmd::Hold(_)" => vec![(C::Or, Hole), (C::Wildcard, Hole)],
         "k::matches!(x, Cmd::Hold(_))" => vec![(C::Matches, Hole), (C::Wildcard, MatchesPattern)],
         "{ let y = x; y }" => vec![(C::Let, Hole)],
+        "{ let y @ Cmd::Hold(_) = x; y }" => vec![
+            (C::Let, Hole),
+            (C::As, LetPattern),
+            (C::Wildcard, LetPattern),
+        ],
+        "{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }" => vec![
+            (C::Let, Hole),
+            (C::Or, LetPattern),
+            (C::Wildcard, LetPattern),
+        ],
         "k::ml::exists(|v: Int| k::ml::equals(v, 0))" => vec![(C::MlPredicate, Hole)],
         "k::rewrite!(_ => 1)" => vec![
             (C::Rewrite, Hole),
@@ -163,6 +174,7 @@ fn decide(hole: Position, construct: &str) -> (Option<Class>, BTreeSet<&'static 
         match inner {
             Inner::Hole => {}
             Inner::MatchesPattern => position.nesting.in_matches_pattern = true,
+            Inner::LetPattern => position.nesting.in_let_pattern = true,
             Inner::RewriteLeft => position = position.rewrite_left(),
             Inner::RewriteRight => position = position.rewrite_right(),
         }

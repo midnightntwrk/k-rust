@@ -204,6 +204,36 @@ fn a_matches_pattern_binds_an_alias_in_a_condition_only() {
 }
 
 #[test]
+fn a_let_pattern_is_one_shape_without_an_alias() {
+    for form in [Form::RuleFn, Form::EquationFn, Form::ReadableRule] {
+        for slot in [Slot::Result, Slot::Requires] {
+            let in_let = Position {
+                nesting: Nesting {
+                    in_let_pattern: true,
+                    ..Nesting::default()
+                },
+                ..Position::root(form, slot)
+            };
+            assert_eq!(
+                admits(in_let, Construct::As),
+                Admission::Refuse(Class::AliasInLetPattern),
+                "{form:?} {slot:?}"
+            );
+            assert_eq!(
+                admits(in_let, Construct::Or),
+                Admission::Refuse(Class::AlternativesInLetPattern),
+                "{form:?} {slot:?}"
+            );
+            assert_eq!(
+                admits(in_let, Construct::Wildcard),
+                Admission::Admit,
+                "{form:?} {slot:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_single_body_rule_rewrites_only_inside_its_subject_and_once() {
     let subject = Position::root(Form::LocalRule, Slot::Subject);
     assert_eq!(admits(subject, Construct::Rewrite), Admission::Admit);

@@ -464,8 +464,12 @@ pub enum Admission {
 /// the same name.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Class {
+    /// `alias-in-let-pattern`.
+    AliasInLetPattern,
     /// `alias-outside-pattern`.
     AliasOutsidePattern,
+    /// `alternatives-in-let-pattern`.
+    AlternativesInLetPattern,
     /// `alternatives-in-one-term-rewrite`.
     AlternativesInOneTermRewrite,
     /// `claim-only-term`.
@@ -502,8 +506,10 @@ pub enum Class {
 
 impl Class {
     /// Every class.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 19] = [
+        Self::AliasInLetPattern,
         Self::AliasOutsidePattern,
+        Self::AlternativesInLetPattern,
         Self::AlternativesInOneTermRewrite,
         Self::ClaimOnlyTerm,
         Self::ClaimSubjectOnlyTerm,
@@ -526,7 +532,9 @@ impl Class {
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
+            Self::AliasInLetPattern => "alias-in-let-pattern",
             Self::AliasOutsidePattern => "alias-outside-pattern",
+            Self::AlternativesInLetPattern => "alternatives-in-let-pattern",
             Self::AlternativesInOneTermRewrite => "alternatives-in-one-term-rewrite",
             Self::ClaimOnlyTerm => "claim-only-term",
             Self::ClaimSubjectOnlyTerm => "claim-subject-only-term",
@@ -550,6 +558,7 @@ impl Class {
     #[must_use]
     pub const fn code(self) -> Code {
         match self {
+            Self::AliasInLetPattern | Self::AlternativesInLetPattern => codes::syntax::INVALID_LET,
             Self::AliasOutsidePattern => codes::syntax::INVALID_PATTERN_AS,
             Self::AlternativesInOneTermRewrite => codes::analysis::INVALID_PATTERN_OR,
             Self::ClaimOnlyTerm | Self::RuleTermInInitializer => codes::expand::CLAIM_ONLY_TERM,
@@ -574,8 +583,14 @@ impl Class {
     #[must_use]
     pub const fn summary(self) -> &'static str {
         match self {
+            Self::AliasInLetPattern => {
+                "a `let` pattern destructures one value, which a bare name already names whole: write `let p = e; let P = p;` for `p @ P`"
+            }
             Self::AliasOutsidePattern => {
-                "`name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, a `let` pattern, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds"
+                "`name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds"
+            }
+            Self::AlternativesInLetPattern => {
+                "a `let` reads its value by one pattern, whose names the rest of its block uses: test which shape a value has with `k::matches!`, or match each shape in a sentence of its own"
             }
             Self::AlternativesInOneTermRewrite => {
                 "`A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative"
@@ -715,7 +730,7 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                     Admit
                 }
             } else if nesting.in_let_pattern {
-                Admit
+                Refuse(Class::AliasInLetPattern)
             } else if matches!(position.slot, Slot::Subject) {
                 if form.is_single_body() && !nesting.in_rewrite {
                     Refuse(Class::AliasOutsidePattern)
@@ -727,13 +742,16 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
             }
         }
         // Alternatives match one of several terms; a subject rewritten in place as one term
-        // stands for the one term it matched. Outside a pattern `A | B` is the bitwise operator.
+        // stands for the one term it matched, and a `let` reads its value by one shape. Outside a
+        // pattern `A | B` is the bitwise operator.
         Construct::Or => {
             if matches!(position.slot, Slot::Subject)
                 && !position.in_local_pattern()
                 && form.rewrites_one_term()
             {
                 Refuse(Class::AlternativesInOneTermRewrite)
+            } else if nesting.in_let_pattern {
+                Refuse(Class::AlternativesInLetPattern)
             } else if pattern {
                 Admit
             } else {

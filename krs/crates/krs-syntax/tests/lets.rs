@@ -148,15 +148,29 @@ fn anything_but_let_statements_and_one_result_is_rejected() {
     }
 }
 
+/// `|` and `name @ pattern` in a `let` pattern build their nodes: where a
+/// `let` pattern refuses them is the position table's to say.
 #[test]
-fn let_patterns_take_one_alternative_and_no_alias() {
-    let error = TermExpression::parse_source("{ let Pair(x, (y | y)) = e; x }").unwrap_err();
-    assert_eq!(reason(&error), "#let patterns take one alternative");
-    let error = TermExpression::parse_source("{ let Pair(p @ Unit(), _) = e; p }").unwrap_err();
-    assert!(
-        reason(&error).starts_with("`name @ pattern` cannot bind in a `let` pattern"),
-        "{error}"
-    );
+fn let_patterns_read_alternatives_and_aliases() {
+    let term = TermExpression::parse_source("{ let Pair(x, (y | y)) = e; x }").unwrap();
+    let (pattern, ..) = let_parts(term.tree());
+    let TermTree::Application(pair) = pattern else {
+        panic!("expected an application, found {pattern:?}");
+    };
+    let krs_syntax::TermArguments::Positional(arguments) = pair.arguments() else {
+        panic!("expected positional arguments");
+    };
+    assert!(matches!(arguments[1], TermTree::Or { .. }));
+    let term = TermExpression::parse_source("{ let Pair(p @ Unit(), _) = e; p }").unwrap();
+    let (pattern, _, _, _, binders) = let_parts(term.tree());
+    let TermTree::Application(pair) = pattern else {
+        panic!("expected an application, found {pattern:?}");
+    };
+    let krs_syntax::TermArguments::Positional(arguments) = pair.arguments() else {
+        panic!("expected positional arguments");
+    };
+    assert!(matches!(arguments[0], TermTree::As { .. }));
+    assert_eq!(binders, ["p"]);
 }
 
 #[test]

@@ -2988,12 +2988,6 @@ pub(crate) fn allocate_rewrite_keys(
 pub(crate) const LET_BLOCK_SHAPE: &str =
     "a term block is `let pattern = term;`* followed by one result term (K's #let)";
 
-/// The reason given for `|` in a `let` pattern.
-const LET_PATTERN_OR: &str = "#let patterns take one alternative";
-
-/// The reason given for `name @ pattern` in a `let` pattern.
-const LET_PATTERN_AS: &str = "`name @ pattern` cannot bind in a `let` pattern: K accepts #as only on a rule's left-hand side; bind the whole value with its own `let`";
-
 /// The reason given for an ascribed pattern that is not one name.
 const LET_ASCRIPTION: &str =
     "a `let` sort ascription names one binder and a plain sort: `let x: Sort = term;`";
@@ -3110,7 +3104,6 @@ fn validate_let_statement(
     });
     let mut signs = crate::rule::NegativeLiteralSpans::scan(pattern.to_token_stream());
     let pattern = validate_pattern(pattern, &mut signs, symbols, nodes)?;
-    reject_let_pattern_forms(&pattern)?;
     let mut wildcards = Vec::new();
     pattern.wildcard_ranges_preorder(&mut wildcards);
     nodes.extend(wildcards.into_iter().map(TermNode::LetWildcard));
@@ -3128,43 +3121,6 @@ fn validate_let_statement(
         value,
         binders,
     })
-}
-
-/// Rejects `A | B` and `name @ pattern` anywhere in a `let` pattern: K's
-/// `#let` takes one alternative, and K accepts `#as` only on a rule's
-/// left-hand side.
-fn reject_let_pattern_forms(pattern: &TermTree) -> Result<(), SyntaxError> {
-    match pattern {
-        TermTree::Or { range, .. } => Err(let_error(LET_PATTERN_OR.to_owned(), range.first())),
-        TermTree::As { binding, .. } => Err(let_error(LET_PATTERN_AS.to_owned(), binding.span())),
-        TermTree::Application(application) => match &application.arguments {
-            TermArguments::Positional(arguments) => {
-                arguments.iter().try_for_each(reject_let_pattern_forms)
-            }
-            TermArguments::Named(arguments) => arguments
-                .iter()
-                .try_for_each(|argument| reject_let_pattern_forms(&argument.value)),
-        },
-        TermTree::Cell(cell) => cell
-            .fields
-            .iter()
-            .try_for_each(|field| reject_let_pattern_forms(&field.value)),
-        TermTree::SortTest { operand, .. } => reject_let_pattern_forms(operand),
-        TermTree::OrBool { arguments, .. } => {
-            arguments.iter().try_for_each(reject_let_pattern_forms)
-        }
-        TermTree::Rewrite { .. }
-        | TermTree::Reference(_)
-        | TermTree::Literal(_)
-        | TermTree::Wildcard(_)
-        | TermTree::IdToken { .. }
-        | TermTree::BytesToken { .. }
-        | TermTree::Anonymous { .. }
-        | TermTree::Lexeme { .. }
-        | TermTree::Matches { .. }
-        | TermTree::Let { .. }
-        | TermTree::Closure { .. } => Ok(()),
-    }
 }
 
 /// Keys every `let` statement, with its optional `let_sort` numbered as the
