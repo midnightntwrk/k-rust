@@ -1937,7 +1937,7 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         .collect();
     writeln!(
         t,
-        "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of the typing functions, and compute. -/\nmacro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, k2l_tr]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]{bool_split}\n  all_goals simp_all [KEqHook.eq, BoolHook.and{extra_hooks}]))\n",
+        "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of the typing functions, and compute. -/\nlocal macro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, k2l_tr]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]{bool_split}\n  all_goals simp_all [KEqHook.eq, BoolHook.and{extra_hooks}]))\n",
         fnames.join(", "),
         convs.join("\n    | "),
         tfs.iter().map(|f| f.lean_b.clone()).collect::<Vec<_>>().join(", ")
@@ -2857,17 +2857,17 @@ never gets stuck. -/\n",
         "/-! ## Progress -/\n\n\
 /-- Compute the typing of `<k>` (with the hypotheses, which record the cases taken); a typing that\n\
 computes to `false` is `false = true`, `False`, and closes the goal `typing → App c`. -/\n\
-macro \"ty_simp\" : tactic => `(tactic| simp only [k2l_pres, WTc, Option.map_some, Option.map_none, Option.bind_some, Option.bind_none, Option.isNone_some, Option.isNone_none, Bool.and_true, Bool.true_and, Bool.and_false, Bool.false_and, ite_true, ite_false, ↓reduceIte, and_self, and_true, true_and, Bool.false_eq_true, false_implies, reduceCtorEq, Option.some.injEq, *])\n\n\
+local macro \"ty_simp\" : tactic => `(tactic| simp only [k2l_pres, WTc, Option.map_some, Option.map_none, Option.bind_some, Option.bind_none, Option.isNone_some, Option.isNone_none, Bool.and_true, Bool.true_and, Bool.and_false, Bool.false_and, ite_true, ite_false, ↓reduceIte, and_self, and_true, true_and, Bool.false_eq_true, false_implies, reduceCtorEq, Option.some.injEq, *])\n\n\
 /-- An ill-typed shape: the typing of `<k>` computes to `false`. -/\n\
-macro \"prog_absurd\" : tactic => `(tactic| (ty_simp; done))\n\n\
+local macro \"prog_absurd\" : tactic => `(tactic| (ty_simp; done))\n\n\
 /-- A side condition of a rule: by unification, an assumption, or by computing it. -/\n\
-macro \"prog_close\" : tactic => `(tactic| first | rfl | assumption{proj_closes} | (simp_all [{}]; done))\n\n\
+local macro \"prog_close\" : tactic => `(tactic| first | rfl | assumption{proj_closes} | (simp_all [{}]; done))\n\n\
 /-- The variables of sorted projections, substituted. -/\n\
-macro \"prog_proj\" : tactic => `(tactic| (simp only [{}] at *; subst_vars))\n\n\
+local macro \"prog_proj\" : tactic => `(tactic| (simp only [{}] at *; subst_vars))\n\n\
 /-- What the typing of the head depends on: the sort projections of variables, the typing functions. -/\n\
-macro \"prog_cases\" : tactic => `(tactic| k2l_cases_typing [{}] [{}] => (try ty_simp))\n\n\
+local macro \"prog_cases\" : tactic => `(tactic| k2l_cases_typing [{}] [{}] => (try ty_simp))\n\n\
 {waits_m}{nohyg}/-- One shape of the head of `<k>`: case on what its typing depends on, then find the rule. -/\n\
-macro \"prog_leaf\" : tactic => `(tactic| {leaf})\n",
+local macro \"prog_leaf\" : tactic => `(tactic| {leaf})\n",
         close_list.join(", "),
         proj_eqs.join(", "),
         proj_fns.join(", "),
@@ -2899,7 +2899,7 @@ macro \"prog_leaf\" : tactic => `(tactic| {leaf})\n",
                 })
                 .collect();
             format!(
-                "set_option hygiene false in\n/-- A thread at a head where it may wait is done, against `hnd`. -/\nmacro \"prog_waits\" : tactic => `(tactic| first | fail \"not a waiting head\"{})\n\n",
+                "set_option hygiene false in\n/-- A thread at a head where it may wait is done, against `hnd`. -/\nlocal macro \"prog_waits\" : tactic => `(tactic| first | fail \"not a waiting head\"{})\n\n",
                 pfs.concat()
             )
         } else {
