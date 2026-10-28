@@ -788,10 +788,12 @@ fn relate_split_writes_one_module_per_simulation() {
 }
 
 /// `confluence --threads` on the `threadend` fixture: `step` updates one thread, `end` removes one
-/// (a global rule); the module states `terminal_unique_of` from the two hypotheses, and the report
-/// counts the pairs with `end` (3 ordered) as open and `step` against itself at one thread.
+/// (a step that replaces its binding by nothing, matched at the key `<id> _ </id>`); the module
+/// states `terminal_unique_of` from the two hypotheses, and the report counts two ends racing on
+/// `<ended>` as open, and each rule against itself at one thread (`end`'s key, an empty `<k>`, is
+/// disjoint from `step`'s).
 #[test]
-fn confluence_threads_leaves_the_global_and_same_thread_pairs_open() {
+fn confluence_threads_views_a_thread_end_as_a_removal() {
     let d = tmp("cli-confluence-threads");
     let fx = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/threadend/definition.kore");
@@ -819,14 +821,18 @@ fn confluence_threads_leaves_the_global_and_same_thread_pairs_open() {
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let r = std::fs::read_to_string(&report).unwrap();
     assert!(
-        r.contains("[threads]\nrules = 2\nthread = 1\nshared = 0\nglobal = 1\n"),
+        r.contains("[threads]\nrules = 2\nthread = 2\nshared = 0\nglobal = 0\n"),
         "{r}"
     );
-    assert!(r.contains("open = 3\nopen-global = 3\n"), "{r}");
-    assert!(r.contains("same-thread = 1\n"), "{r}");
+    assert!(
+        r.contains("open = 1\nopen-global = 0\nopen-cells = 1\n"),
+        "{r}"
+    );
+    assert!(r.contains("same-thread = 2\n"), "{r}");
     let v = std::fs::read_to_string(&out).unwrap();
     assert!(v.contains("| .step => .thread"), "{v}");
-    assert!(v.contains("| .«end» => .global"), "{v}");
+    assert!(v.contains("| .«end» => .thread"), "{v}");
+    assert!(v.contains("MapHook.concat_unit_left"), "{v}");
     assert!(
         v.contains("theorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins)"),
         "{v}"
