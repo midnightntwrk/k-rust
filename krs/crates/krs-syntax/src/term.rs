@@ -1786,9 +1786,9 @@ pub(crate) fn tokens_between(
 /// # Errors
 ///
 /// Rust syntax errors.
-pub(crate) fn parse_fn_item(tokens: TokenStream) -> Result<syn::ItemFn, SyntaxError> {
+pub fn parse_fn_item(tokens: TokenStream) -> Result<syn::ItemFn, SyntaxError> {
     let mut tokens = tokens.into_iter().collect::<Vec<_>>();
-    let body = match tokens.last() {
+    let body = match tokens.last_mut() {
         Some(proc_macro2::TokenTree::Group(group))
             if group.delimiter() == proc_macro2::Delimiter::Brace
                 && find_pattern_alias(&group.stream()).is_some() =>
@@ -1797,7 +1797,7 @@ pub(crate) fn parse_fn_item(tokens: TokenStream) -> Result<syn::ItemFn, SyntaxEr
             let mut empty =
                 proc_macro2::Group::new(proc_macro2::Delimiter::Brace, TokenStream::new());
             empty.set_span(group.span());
-            *tokens.last_mut().expect("a body") = proc_macro2::TokenTree::Group(empty);
+            *group = empty;
             Some(body)
         }
         _ => None,
@@ -1810,7 +1810,7 @@ pub(crate) fn parse_fn_item(tokens: TokenStream) -> Result<syn::ItemFn, SyntaxEr
     Ok(item)
 }
 
-fn find_pattern_alias(tokens: &TokenStream) -> Option<Span> {
+pub(crate) fn find_pattern_alias(tokens: &TokenStream) -> Option<Span> {
     let tokens = tokens.clone().into_iter().collect::<Vec<_>>();
     // A `let` statement's pattern (KF-032) is checked by the term-block
     // validator, which explains why it cannot alias.

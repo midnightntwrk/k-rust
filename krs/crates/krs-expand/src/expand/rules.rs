@@ -35,7 +35,9 @@ pub(crate) fn rule(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::RuleAttribute::parse_tokens(attributes)?;
-    let parsed: ItemFn = syn::parse2(item.clone())?;
+    // The body may hold a term no Rust block holds (`name @ pattern`), which the rule's own parse
+    // reads and the position table judges.
+    let parsed = krs_syntax::parse_fn_item(item.clone())?;
     if has_cells_subject(&parsed) {
         // A term subject followed by `cells!` is an equation's function
         // context (KF-025), which K rejects on a transition.

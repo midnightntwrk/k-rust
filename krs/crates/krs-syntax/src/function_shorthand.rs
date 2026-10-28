@@ -23,7 +23,7 @@ mod branches;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::ext::IdentExt;
-use syn::parse::{Parse, ParseStream};
+use syn::parse::{Parse, ParseStream, Parser as _};
 use syn::spanned::Spanned;
 use syn::{Attribute, Block, FnArg, Ident, ItemFn, ItemStruct, Pat, ReturnType, Signature, Token};
 
@@ -60,8 +60,7 @@ impl Parse for ShorthandItem {
             (None, None)
         } else {
             let group: Group = input.parse()?;
-            let body: Block = syn::parse2(TokenTree::Group(group.clone()).into())?;
-            (Some(body), Some(group.stream()))
+            (Some(shorthand_body(&group)?), Some(group.stream()))
         };
         Ok(Self {
             attrs,
@@ -71,6 +70,25 @@ impl Parse for ShorthandItem {
             body_tokens,
         })
     }
+}
+
+/// The body in `group`. A body that holds `name @ pattern`, which no Rust block holds, is read as
+/// one term with the pattern grammar ([`crate::term::parse_term_expression`]), as a rule's or an
+/// equation's body is, so that the position table refuses the alias in the result, at its own
+/// tokens.
+fn shorthand_body(group: &Group) -> syn::Result<Block> {
+    let error = match syn::parse2::<Block>(TokenTree::Group(group.clone()).into()) {
+        Ok(body) => return Ok(body),
+        Err(error) => error,
+    };
+    if crate::term::find_pattern_alias(&group.stream()).is_none() {
+        return Err(error);
+    }
+    let result = crate::term::parse_term_expression.parse2(group.stream())?;
+    Ok(Block {
+        brace_token: syn::token::Brace(group.delim_span()),
+        stmts: vec![syn::Stmt::Expr(result, None)],
+    })
 }
 
 impl ShorthandItem {
@@ -362,7 +380,7 @@ fn single_equation(
     let mut group = Group::new(Delimiter::Parenthesis, quote!(#(#arguments),*));
     group.set_span(lowering.parentheses);
     let subject = TokenStream::from_iter([TokenTree::Ident(name.clone()), TokenTree::Group(group)]);
-    let item = syn::parse2::<ItemFn>(quote! {
+    let item = crate::term::parse_fn_item(quote! {
         #(#attributes)*
         fn #equation_name(#subject: #result_type) -> #result_type #body
     })?;

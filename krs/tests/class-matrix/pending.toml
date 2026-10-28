@@ -796,26 +796,6 @@ finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
 step = "S5"
 
-# S0-10 where rustc parses the position (a fn body, a `const` value): rustc's parse error at `@` is
-# admitted (K2), but KRS answers with the parse code of the form that read it instead of the
-# construct's; a shorthand whose body does not parse as Rust is read as the struct form of
-# `#[k::function]`, which reports its missing `sort` at the attribute
-
-["full/terms/constant/value/y @ Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
-step = "S3"
-
-["full/terms/rule/result/y @ Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
-step = "S3"
-
-["full/terms/shorthand/result/y @ Cmd::Hold(_)"]
-finding = "S0-10"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::missing-argument @ item"
-step = "S3"
-
 # S0-14: a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys
 
 ["terms/readable/map-key/Cmd::Go() | Cmd::Hold(_)"]

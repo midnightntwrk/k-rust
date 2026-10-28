@@ -16,6 +16,8 @@
 //! parse the authored item here, so their provenance agrees.
 
 use krs_ir::ProvenanceKey;
+use proc_macro2::{Spacing, TokenStream, TokenTree};
+use syn::parse::Parser as _;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, ItemConst};
 
@@ -168,7 +170,7 @@ impl crate::KrsSyntax for ConstantItem {
     /// Reads a `const` item from tokens, rejecting a `static` with the
     /// constant's diagnostic.
     fn parse_tokens(tokens: proc_macro2::TokenStream) -> Result<Self, SyntaxError> {
-        match syn::parse2::<syn::Item>(tokens)? {
+        match parse_item(tokens)? {
             syn::Item::Const(item) => Self::from_item(item),
             syn::Item::Static(item) => Err(invalid(
                 "`#[k::constant]` names a value with `const`, not `static`: a constant has no storage",
@@ -198,6 +200,43 @@ fn invalid(reason: &str, span: proc_macro2::Span) -> SyntaxError {
 /// they are literals too. Notation such as `a.add::<Int>(b)` or `a && b` and
 /// the other term macros are builtin operations or non-constructor terms, so
 /// they are rejected here, where their authored span is still at hand.
+/// Parses the item in `tokens`. A `const` value that holds `name @ pattern`, which no Rust
+/// expression holds, is read as one term with the pattern grammar
+/// ([`crate::term::parse_term_expression`]), so that the position table refuses the alias in the
+/// value, at its own tokens, as it does in a fn body.
+fn parse_item(tokens: TokenStream) -> Result<syn::Item, SyntaxError> {
+    let error = match syn::parse2::<syn::Item>(tokens.clone()) {
+        Ok(item) => return Ok(item),
+        Err(error) => error,
+    };
+    let mut tokens = tokens.into_iter().collect::<Vec<_>>();
+    // `const NAME: Type = VALUE;`: the value runs from the item's first `=` to its final `;`.
+    let equals = tokens.iter().position(
+        |token| matches!(token, TokenTree::Punct(punct) if punct.as_char() == '=' && punct.spacing() == Spacing::Alone),
+    );
+    let semicolon =
+        matches!(tokens.last(), Some(TokenTree::Punct(punct)) if punct.as_char() == ';');
+    let Some(equals) = equals.filter(|&equals| semicolon && equals + 2 < tokens.len()) else {
+        return Err(error.into());
+    };
+    let value = tokens[equals + 1..tokens.len() - 1]
+        .iter()
+        .cloned()
+        .collect::<TokenStream>();
+    if crate::term::find_pattern_alias(&value).is_none() {
+        return Err(error.into());
+    }
+    let mut placeholder = proc_macro2::Literal::u8_unsuffixed(0);
+    placeholder.set_span(tokens[equals + 1].span());
+    let end = tokens.len() - 1;
+    tokens.splice(equals + 1..end, [TokenTree::Literal(placeholder)]);
+    let syn::Item::Const(mut item) = syn::parse2::<syn::Item>(tokens.into_iter().collect())? else {
+        return Err(error.into());
+    };
+    item.expr = Box::new(crate::term::parse_term_expression.parse2(value)?);
+    Ok(syn::Item::Const(item))
+}
+
 fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
     let not_ground = |what: &str, span: proc_macro2::Span| {
         Err(invalid(
@@ -215,7 +254,10 @@ fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
     match expression {
         Expr::Paren(inner) => check_ground(&inner.expr, name),
         Expr::Group(inner) => check_ground(&inner.expr, name),
-        Expr::Lit(_) => Ok(()),
+        // A literal is ground. A term no Rust expression holds (`name @ pattern`, [`parse_item`])
+        // is left to the term walker, which refuses its construct, at the construct, as no ground
+        // term.
+        Expr::Lit(_) | Expr::Verbatim(_) => Ok(()),
         Expr::Macro(island) if crate::term::is_constant_island_macro(&island.mac.path) => Ok(()),
         Expr::Unary(syn::ExprUnary {
             op: syn::UnOp::Neg(_),
