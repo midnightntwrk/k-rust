@@ -52,7 +52,7 @@ Speed is not the argument: compiled Lean already runs a semantics 2 to 4 times f
    - an equation that is false in the model has a counterexample;
    - a K claim that is false has a refutation.
 6. **"Open" means unproved, not false.** An open obligation is never assumed. An obligation refuted by a counterexample is reported as refuted, apart from the open ones (proposed; today refutations are written case by case, as for `countAllOccurrences` equation 2).
-7. **A statement weaker than K's original says so.** Examples: soundness excludes stuck states, not undefined ones; a claim under `--assume-invariant`; noninterference that ignores termination; a confluence proof with joins left as hypotheses. Each is listed in `design.md` §8.1 (established 2026-10-28).
+7. **A statement weaker than K's original, or than the property's usual form where K states none, says so.** Examples: soundness excludes stuck states, not undefined ones; a claim under `--assume-invariant`; noninterference and confluence, which K does not state, are termination-insensitive, and confluence holds with its open joins as premises. Each is listed in `design.md` §8.1 (established 2026-10-28).
    An option that chooses which theorem is stated is part of the specification (`contract.md` §2).
 
 ### 3.3 Generality
