@@ -1321,15 +1321,14 @@ impl TermExpression {
             // `a && b`, `a + b`, `!a`, `-a`, and `recv.op::<D>(..)` denote
             // builtin calls.
             other if crate::notation::is_expression_notation(other) => TermRootKind::Call,
-            // `[a, ..rest]` denotes one level of list notation.
-            Expr::Array(_) => TermRootKind::Call,
+            // `[a, ..rest]` denotes one level of list notation, and a term
+            // block (K's `#let`) applies a generated function.
+            Expr::Array(_) | Expr::Block(_) => TermRootKind::Call,
             // The minus of a literal, which `validate_expression` checks.
             Expr::Unary(ExprUnary {
                 op: UnOp::Neg(_), ..
             }) => TermRootKind::Literal,
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
-            // A term block (K's `#let`) applies a generated function.
-            Expr::Block(_) => TermRootKind::Call,
             Expr::Macro(value) => special_macro_kind(&value.mac.path)
                 .ok_or_else(|| unsupported_root_macro(&value.mac.path, value.span()))?
                 .root_kind(),
@@ -1718,7 +1717,7 @@ pub(crate) fn parse_term_expression(input: syn::parse::ParseStream<'_>) -> syn::
             input.advance_to(&expression);
             return Ok(parsed);
         }
-        Ok(_) => expression.error("expected an expression"),
+        Ok(_) => expression.error("unexpected token"),
         Err(error) => error,
     };
     let pattern = input.fork();
