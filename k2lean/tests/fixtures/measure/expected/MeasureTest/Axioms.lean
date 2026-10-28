@@ -1,3 +1,4 @@
+import MeasureTest.Diverges
 import Measure
 import Measure.Preserves
 import Measure.Init

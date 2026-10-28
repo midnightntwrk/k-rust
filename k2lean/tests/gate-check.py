@@ -73,7 +73,8 @@ KINDS = ("lib", "inv", "demo", "negative", "record", "output")
 # the tracked inputs of a generated library, which a person writes and the generator only reads
 # (the open lists, and the kind 1 hand module that `gen` writes once and never overwrites): not
 # hashed, so an edit to them is checked by the build that uses them, not by the sources check
-HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean", "RefutedHand.lean")
+HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean", "RefutedHand.lean",
+               "DivergesHand.lean")
 
 
 def tiers(tier):
@@ -162,7 +163,13 @@ def equations(path):
         text += "\n" + part
     opened = re.findall(r"^def (\S+)\.statement : Prop", text, re.M)
     proved = re.findall(r"^theorem ((?:Eqn|Simp|Lemma)\.\S+)", text, re.M)
-    return len(opened) + len(proved), sorted(opened)
+    # the divergence obligations of the least fixed points (TERM-1): stated in NS/Diverges.lean,
+    # proved where NSTest/Diverges.lean checks a hand proof
+    div = re.findall(r"^def (\S+\.diverges)\.statement : Prop", read(path.parent / "Diverges.lean") or "", re.M)
+    checked = set(re.findall(r"^example : (\S+\.diverges)\.statement := ",
+                             read(path.parent.parent / f"{ns}Test" / "Diverges.lean") or "", re.M))
+    opened += [n for n in div if n not in checked]
+    return len(opened) + len(proved) + len(checked & set(div)), sorted(opened)
 
 
 def refuted_marks(path):

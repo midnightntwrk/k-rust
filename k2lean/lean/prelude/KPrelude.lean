@@ -21,6 +21,7 @@ import KPrelude.InvSteps
 import KPrelude.InvColl
 import KPrelude.Logic
 import KPrelude.Termination
+import KPrelude.Pending
 import KPrelude.Determinism
 import KPrelude.Soundness
 import KPrelude.Scaffold

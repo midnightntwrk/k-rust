@@ -6,8 +6,8 @@
 # equations: `none` exactly where the rewriting does not terminate. `align`, `size` and `sizeTy`
 # recurse on a type read from a table, an arbitrary map, so at M = ty(0) |-> arr(ty(0), 2) the
 # rewriting cycles (align(M, arr(ty(0), 2)) => align(M, arr(ty(0), 2)), and sizeTy(M, ty(0)) =>
-# size(M, arr(ty(0), 2)) => 2 *Int sizeTy(M, ty(0))); term-diverges.lean proves both have no value
-# there.
+# size(M, arr(ty(0), 2)) => 2 *Int sizeTy(M, ty(0))); the rewriting of both groups diverges
+# there (generated/kterm-ar/KTerm/DivergesHand.lean, TERM-1).
 
 [functions."align"]
 partial_fixpoint = true

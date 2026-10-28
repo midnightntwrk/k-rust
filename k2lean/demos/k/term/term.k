@@ -160,7 +160,7 @@ module TERM
   // arbitrary map, so on a table whose entry for a type mentions that type (`ty(0) |-> arr(ty(0),
   // 2)`) the rewriting does not terminate, and no measure exists: `align` (one function that
   // matches its argument) and `size`/`sizeTy` (a group) are least fixed points
-  // (term-termination.toml), and term-diverges.lean proves they have no value on that table.
+  // (term-termination.toml), and generated/kterm-ar/KTerm/DivergesHand.lean proves that K's rewriting diverges on that table.
   syntax Info ::= prim(Int) | arr(Ty, Int) | ptr(Ty)
   syntax Info ::= info(Map, Ty) [function, total, symbol(info)]
   rule info(M, T) => {M[T] orDefault prim(0)}:>Info

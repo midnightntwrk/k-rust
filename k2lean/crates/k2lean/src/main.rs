@@ -10,6 +10,7 @@ mod claims;
 mod confluence;
 mod convert;
 mod det2;
+mod diverges;
 mod drivers;
 mod eqns;
 mod fndiff;
@@ -399,7 +400,12 @@ fn main() {
             write(
                 &out.join(format!("{ns}.lean")),
                 &format!(
-                    "import {ns}.Terms\nimport {ns}.Functions\nimport {ns}.Rules\nimport {ns}.Adequacy\nimport {ns}.Determinism\nimport {ns}.Equations\n"
+                    "import {ns}.Terms\nimport {ns}.Functions\nimport {ns}.Rules\nimport {ns}.Adequacy\nimport {ns}.Determinism\nimport {ns}.Equations\n{}",
+                    if fgen.diverges.is_empty() {
+                        String::new()
+                    } else {
+                        format!("import {ns}.Diverges\n")
+                    }
                 ),
             );
             let (terms_text, size_instances) =
@@ -836,6 +842,53 @@ fn main() {
                     &refuted::emit_check(ns, &open_list),
                 );
                 guard = format!("import {ns}Test.Refuted\n{guard}");
+            }
+            // the divergence obligations of the least fixed points (TERM-1)
+            let div_file = out.join(ns).join("Diverges.lean");
+            let div_check = out.join(format!("{ns}Test")).join("Diverges.lean");
+            if fgen.diverges.is_empty() {
+                let _ = std::fs::remove_file(&div_file);
+                let _ = std::fs::remove_file(&div_check);
+            } else {
+                write(
+                    &div_file,
+                    &with_hooks(diverges::emit(ns, &fgen.diverges), ns, &fgen.params),
+                );
+                let names: Vec<&String> = fgen.diverges.iter().map(|(n, _)| n).collect();
+                // a refuted divergence: the group's rewriting terminates, so the least fixed point
+                // is not what K's equations need, a measure is
+                if let Some(n) = names.iter().find(|n| open_list.refuted.contains_key(**n)) {
+                    panic!(
+                        "{n} is marked refuted: K's rewriting of the group terminates, so it needs a termination measure, not `partial_fixpoint`"
+                    );
+                }
+                let hand_file = out.join(ns).join("DivergesHand.lean");
+                if !hand_file.exists() {
+                    write(
+                        &hand_file,
+                        &with_hooks(diverges::hand_template(ns, &names), ns, &fgen.params),
+                    );
+                    eprintln!(
+                        "note: wrote the divergence-proof file {} (it is never overwritten)",
+                        hand_file.display()
+                    );
+                }
+                let hand = std::fs::read_to_string(&hand_file).unwrap_or_default();
+                let proved: Vec<&String> = names
+                    .iter()
+                    .copied()
+                    .filter(|n| !open.contains(*n) && diverges::proved_in(&hand, n))
+                    .collect();
+                for n in &names {
+                    if !proved.contains(n) {
+                        eprintln!("note: {n}: open (no proof in {})", hand_file.display());
+                    }
+                }
+                write(
+                    &div_check,
+                    &with_hooks(diverges::emit_check(ns, &proved), ns, &fgen.params),
+                );
+                guard = format!("import {ns}Test.Diverges\n{guard}");
             }
             write(&out.join(format!("{ns}Test")).join("Axioms.lean"), &guard);
             if !multi {

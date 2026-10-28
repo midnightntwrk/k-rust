@@ -4,3 +4,4 @@ import Measure.Rules
 import Measure.Adequacy
 import Measure.Determinism
 import Measure.Equations
+import Measure.Diverges

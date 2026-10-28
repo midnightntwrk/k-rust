@@ -361,6 +361,9 @@ pub struct Generated {
     /// The theorems about the instances of the functions with a free-key equation (`agree.rs`),
     /// for the axiom guard.
     pub agree_thms: Vec<String>,
+    /// Per group of least fixed points, `NS/Diverges.lean`'s part: its calls, its pending-call
+    /// function and the divergence statement (TERM-1), with the statement's name.
+    pub diverges: Vec<(String, String)>,
     pub notes: Vec<String>,
 }
 
@@ -636,12 +639,18 @@ fn mentions(l: &L, names: &BTreeSet<String>) -> bool {
 /// `partial_fixpoint` proves this form monotone (`Option`'s bind); the cascade form is not.
 /// Equations that match patterns get the form of `render_fixpoint_matching`; `group` is the
 /// Lean names of the functions defined together.
+///
+/// With `pend` (the group's calls, by Lean name), the same cascade is the group's pending-call
+/// function (TERM-1): a call of the group bound in a right-hand side is `KPrelude.pendCall`, which
+/// returns the call where its value is `none` (the evaluation waits for it); a right-hand side's
+/// value and the fallback are `none` (the evaluation ends without a pending call).
 fn render_fixpoint(
     m: &Model,
     f: &str,
     params: &[String],
     lowered: &Lowered,
     group: &BTreeSet<String>,
+    pend: Option<&BTreeMap<String, String>>,
 ) -> Result<String, String> {
     use crate::lower::Step;
     let guards_only = lowered.iter().all(|(_, steps, lhs_len, _)| {
@@ -650,7 +659,7 @@ fn render_fixpoint(
             .all(|s| matches!(s, Step::Cond { .. } | Step::CondEq { .. }))
     });
     if !guards_only {
-        return render_fixpoint_matching(m, f, params, lowered, group);
+        return render_fixpoint_matching(m, f, params, lowered, group, pend);
     }
     let mut o = String::new();
     for (k, (_, steps, lhs_len, rhs)) in lowered.iter().enumerate() {
@@ -666,21 +675,24 @@ fn render_fixpoint(
                 }
             }
         }
-        let mut d = String::from("do\n");
-        for s in &steps[*lhs_len..] {
-            match s {
-                Step::Bind { expr, var, .. } => {
-                    d.push_str(&format!("      let {var} ← {}\n", expr.render()))
+        let d = match pend {
+            Some(calls) => format!("{}\n", pending_rhs(&steps[*lhs_len..], calls)?),
+            None => {
+                let mut d = String::from("do\n");
+                for s in &steps[*lhs_len..] {
+                    match s {
+                        Step::Bind { expr, var, .. } => {
+                            d.push_str(&format!("      let {var} ← {}\n", expr.render()))
+                        }
+                        _ => {
+                            return Err("partial_fixpoint: a right-hand side step that is not a partial call".into());
+                        }
+                    }
                 }
-                _ => {
-                    return Err(
-                        "partial_fixpoint: a right-hand side step that is not a partial call"
-                            .into(),
-                    );
-                }
+                d.push_str(&format!("      pure {}\n", rhs.render_arg()));
+                d
             }
-        }
-        d.push_str(&format!("      pure {}\n", rhs.render_arg()));
+        };
         let kw = if k == 0 { "  if" } else { "  else if" };
         if conds.is_empty() {
             // an unconditional equation ends the chain
@@ -689,7 +701,45 @@ fn render_fixpoint(
         }
         o.push_str(&format!("{kw} {} then\n    {d}", conds.join(" ∧ ")));
     }
-    o.push_str(&format!("  else {}\n", fixpoint_fallback(m, f, params)));
+    let fallback = if pend.is_some() {
+        "none".to_string()
+    } else {
+        fixpoint_fallback(m, f, params)
+    };
+    o.push_str(&format!("  else {fallback}\n"));
+    Ok(o)
+}
+
+/// A right-hand side's partial calls in the pending-call function: a call of the group is
+/// `pendCall` (its `none` is the pending call), another partial call is bound by `>>=` (its
+/// `none` ends the evaluation: `⊥`, not divergence), and the value is `none`.
+fn pending_rhs(
+    steps: &[crate::lower::Step],
+    calls: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    use crate::lower::Step;
+    let mut o = String::from("(");
+    for s in steps {
+        let Step::Bind { expr, var, .. } = s else {
+            return Err(
+                "partial_fixpoint: a right-hand side step that is not a partial call".into(),
+            );
+        };
+        match expr {
+            L::App(h, args) if calls.contains_key(h) => {
+                let call = std::iter::once(calls[h].clone())
+                    .chain(args.iter().map(|a| a.render_arg()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                o.push_str(&format!(
+                    "KPrelude.pendCall {} ({call}) fun {var} => ",
+                    expr.render_arg()
+                ));
+            }
+            _ => o.push_str(&format!("{} >>= fun {var} => ", expr.render_arg())),
+        }
+    }
+    o.push_str("none)");
     Ok(o)
 }
 
@@ -718,6 +768,7 @@ fn render_fixpoint_matching(
     params: &[String],
     lowered: &Lowered,
     group: &BTreeSet<String>,
+    pend: Option<&BTreeMap<String, String>>,
 ) -> Result<String, String> {
     use crate::lower::Step;
     let own = "partial_fixpoint: a left-hand side (a requires) calls a function of its own group";
@@ -739,6 +790,16 @@ fn render_fixpoint_matching(
             if calls {
                 return Err(own.into());
             }
+        }
+        if let Some(calls) = pend {
+            let leaf = pending_rhs(&steps[*lhs_len..], calls)?;
+            let app = crate::render::exec_first(lhs, false, &|_| "false".to_string(), "true", 4);
+            let body = crate::render::exec_first(lhs, false, &|_| "none".to_string(), &leaf, 4);
+            o.push_str(&format!(
+                "  let a{n} : Bool :=\n{app}  if a{n} = true then\n{body}  else\n",
+                n = k + 1
+            ));
+            continue;
         }
         let mut leaf = String::from("(");
         for s in &steps[*lhs_len..] {
@@ -762,7 +823,12 @@ fn render_fixpoint_matching(
             n = k + 1
         ));
     }
-    o.push_str(&format!("  {}\n", fixpoint_fallback(m, f, params)));
+    let fallback = if pend.is_some() {
+        "none".to_string()
+    } else {
+        fixpoint_fallback(m, f, params)
+    };
+    o.push_str(&format!("  {fallback}\n"));
     Ok(o)
 }
 
@@ -783,6 +849,7 @@ fn gen_recursive(
     ctx: &mut crate::termination::Ctx,
     measures: &mut BTreeMap<String, Measure>,
     free_key: &mut Vec<crate::agree::FreeKeyFn>,
+    diverges: &mut Vec<(String, String)>,
 ) -> Result<String, String> {
     let mut o = String::new();
     // declarations before the group: the file's `before` texts, rank functions of the measures
@@ -915,6 +982,18 @@ fn gen_recursive(
         pre.push_str(&gp.pre);
     }
     let mut chosen: Vec<Option<String>> = Vec::new();
+    // a group of least fixed points: its calls, named by the first member (TERM-1)
+    let group_name = fn_name(members[0].f);
+    let call_of = |f: &str| -> String {
+        let n = fn_name(f);
+        n.strip_prefix("K.").unwrap_or(&n).to_string()
+    };
+    let calls: BTreeMap<String, String> = members
+        .iter()
+        .map(|o| (fn_name(o.f), format!("{group_name}.Call.{}", call_of(o.f))))
+        .collect();
+    let mut pending_arms = String::new();
+    let mut call_ctors = String::new();
     for (mi, mb) in members.iter().enumerate() {
         let f = mb.f;
         let sig = &mb.sig;
@@ -939,8 +1018,16 @@ fn gen_recursive(
                 ));
             }
             let group: BTreeSet<String> = members.iter().map(|o| fn_name(o.f)).collect();
-            let body = render_fixpoint(m, f, params, lowered, &group)
+            let body = render_fixpoint(m, f, params, lowered, &group, None)
                 .map_err(|e| format!("{label}: {e}"))?;
+            let pbody = render_fixpoint(m, f, params, lowered, &group, Some(&calls))
+                .map_err(|e| format!("{label}: {e}"))?;
+            call_ctors.push_str(&format!("  | {} {}\n", call_of(f), ps.join(" ")));
+            pending_arms.push_str(&format!(
+                "  | .{} {} =>\n{pbody}",
+                call_of(f),
+                params.join(" ")
+            ));
             let note = if multi { "/--" } else { "/-!" };
             o.push_str(&format!(
                 "{note} `{label}` (recursive; least fixed point) -/\n"
@@ -1146,6 +1233,26 @@ fn gen_recursive(
             hooks,
             ..d
         });
+    }
+    if !call_ctors.is_empty() {
+        let labels: Vec<String> = members.iter().map(|mb| format!("`{}`", mb.label)).collect();
+        let g = &group_name;
+        diverges.push((
+            format!("{g}.diverges"),
+            format!(
+                "/-- A call of the group of {}, least fixed points (`partial_fixpoint`). -/\n\
+inductive {g}.Call where\n{call_ctors}\n\
+/-- The call of the group that the evaluation of a call waits for: the first call of the group in\n\
+the applying equation's right-hand side whose value is `none`, the earlier partial calls answered by\n\
+their functions (`KPrelude.pendCall`); `none` where the evaluation ends without one, with a value or\n\
+`⊥`. -/\n\
+def {g}.pending : {g}.Call → Option {g}.Call\n{pending_arms}\n\
+/-- K's rewriting of the group does not terminate: an infinite chain of pending calls, which no\n\
+termination measure of the group survives (TERM-1). -/\n\
+def {g}.diverges.statement : Prop := ∃ c, KPrelude.Pending.Chain {g}.pending c\n\n",
+                labels.join(", ")
+            ),
+        ));
     }
     Ok(format!("{pre}{o}"))
 }
@@ -1540,6 +1647,7 @@ pub fn generate_with(
     let mut measures = BTreeMap::new();
     let mut choose_fns = BTreeSet::new();
     let mut free_key: Vec<crate::agree::FreeKeyFn> = Vec::new();
+    let mut diverges: Vec<(String, String)> = Vec::new();
     let is_choose = |st: &[crate::lower::Step]| {
         st.iter()
             .any(|x| matches!(x, crate::lower::Step::MapChoose { .. }))
@@ -1568,6 +1676,7 @@ pub fn generate_with(
                 &mut ctx,
                 &mut measures,
                 &mut free_key,
+                &mut diverges,
             )?;
             lean.push_str(&text);
             for f in scc {
@@ -1765,6 +1874,7 @@ pub fn generate_with(
         measures,
         choose_fns,
         agree_thms,
+        diverges,
         notes,
     })
 }
@@ -1827,6 +1937,35 @@ pub(crate) mod tests {
         roots.extend(m.anywhere.iter().cloned());
         let g = generate(def, &m, &roots).unwrap();
         (m, g)
+    }
+
+    /// In the pending-call function a call of the group is where the evaluation waits when its
+    /// value is `none`, another partial call ends the evaluation (`⊥`), and a value is no pending
+    /// call (TERM-1).
+    #[test]
+    fn a_group_call_is_pending_where_its_value_is_none() {
+        use crate::lower::Step;
+        let bind = |expr: L, var: &str| Step::Bind {
+            expr,
+            var: var.into(),
+            hyp: "h".into(),
+        };
+        let calls: BTreeMap<String, String> =
+            [("K.size".to_string(), "K.size.Call.size".to_string())].into();
+        let steps = vec![
+            bind(
+                L::app("K.info", vec![L::Var("x0".into()), L::Var("x1".into())]),
+                "r",
+            ),
+            bind(
+                L::app("K.size", vec![L::Var("x0".into()), L::Var("r".into())]),
+                "r_1",
+            ),
+        ];
+        assert_eq!(
+            pending_rhs(&steps, &calls).unwrap(),
+            "((K.info x0 x1) >>= fun r => KPrelude.pendCall (K.size x0 r) (K.size.Call.size x0 r) fun r_1 => none)"
+        );
     }
 
     /// An `ensures` on an equation of a function declared total is refused: where it is false
