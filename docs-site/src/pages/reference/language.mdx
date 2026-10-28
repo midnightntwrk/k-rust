@@ -81,7 +81,7 @@ A configuration variable is a value supplied at start, so the initializer may re
 Its declared type is its parameter's type, element types included (`xs: List<Value>`, `sets: Map<Int, Set<Int>>`), and the initializer may place it anywhere that type fits ([typed collections](#typed-collections)).
 An initializer's terms are KRS terms, written as in a rule result: constructors, positional (`Tag(v)`) or with every field named (`Tag { b: v }`), function calls, builtin operations, literals, and configuration variables, in a `k::k![..]` item, a `k::map![..]` key or value, or a call's argument, as in `k: k::k![pgm, StmtSyntax::Tag { b: bytes::empty() }, Init(n)]`; a function is evaluated when the configuration is built.
 A record update (`..base`) and an open record (`..`) are not initializer terms (`krs::expand::initializer-record-update`), since an initializer matches no record to take fields from; a cell's whole value written as a struct literal is a nested cell group's initializer, so a record constructor stands below a cell root, in a `k::k![..]` item, or in a `k::map![..]` entry.
-rustc resolves every name in them and checks the Rust type of a configuration variable that is a cell's whole content, which must be the cell's; KRS checks the terms' sorts.
+rustc resolves every name in them; KRS checks the terms' sorts, a configuration variable's included, wherever it stands.
 An initializer's `k::k![..]` and `k::map![..]` list their items and take no remainder (`..pgm`, `krs::syntax::unsupported-initializer-body` at the remainder): a configuration variable of an item sort is written as an item, `k: k::k![Cmd::Go(), pgm]`, and joining a `map!`'s items with another map is undefined when the two share a key, which only a run would find.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 
@@ -424,7 +424,7 @@ error[krs::analysis::untyped-collection]: `Put3(..)` returns an untyped `Map`, s
 The fix is to declare the element types where the collection comes from: the cell, the constructor field, or the function's signature.
 A rule's `#[k::exists(m: Map)]` is an untyped source too: the step may put any map there, so writing `m` into a typed position is `untyped-collection` in every rule form; a claim's existential is not, since it stands for what the target state holds.
 A user function is a term like any other: `env: Put(e, name, s)` is the function's result written into `env`, never read as a map update.
-A configuration variable of `#[k::init]` is a binder of its parameter's type, as a typed function's parameter is: placed as a cell's whole content, rustc checks that its type is the cell's; placed anywhere else, KRS checks the flow, so `xs: List<Stmt>` in `stack: list::concat(xs, list::item(1))` is `collection-element-sort` and a bare `xs: List` there is `untyped-collection`.
+A configuration variable of `#[k::init]` is a binder of its parameter's type, as a typed function's parameter is, and KRS checks the flow wherever it is placed: as a cell's whole content its sort must be below the cell's, and `xs: List<Stmt>` in `stack: list::concat(xs, list::item(1))` is `collection-element-sort` and a bare `xs: List` there is `untyped-collection`.
 A variable of any other sort is checked by sort inference, as any occurrence is.
 Reading an element out of a bare-collection variable is not a write of the collection: `list::item(list::get(xs, 0))` in a `List<Value>` cell reads a `KItem` and emits the projection `{$XS:List [ 0 ]}:>Value`.
 

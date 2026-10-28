@@ -16,7 +16,7 @@ use krs_syntax::KrsSyntax;
 use krs_syntax::positions::Form;
 use krs_syntax::{
     FixedCellInitializer, InitializerCellContent, KSequence, KSequenceNotation, MapBody,
-    MapExpression, StateTerm, TermExpression, TermNode, TermTree,
+    MapExpression, StateTerm, TermExpression, TermNode,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -289,7 +289,7 @@ fn inject_initializer_value(
             inferred_constructor: true,
             ..
         } => {
-            let value = initializer_value_stand_in(expression, value, facade, bindings);
+            let value = initializer_value_stand_in(value, facade, bindings);
             *expression = if *computation {
                 parse_quote!(#facade::configuration::KCell::new(#value))
             } else {
@@ -304,7 +304,7 @@ fn inject_initializer_value(
             if let syn::Expr::Call(call) = expression
                 && let Some(argument) = call.args.first_mut()
             {
-                *argument = initializer_value_stand_in(argument, value, facade, bindings);
+                *argument = initializer_value_stand_in(value, facade, bindings);
             }
         }
         InitializerCellContent::Nested { children, .. } => {
@@ -323,26 +323,15 @@ fn inject_initializer_value(
 
 /// What rustc sees of a leaf cell's value in the re-emitted method.
 ///
-/// A configuration variable that is the cell's whole content stays, so rustc
-/// checks that its Rust type is the cell's. Any other value is a KRS term
-/// (a literal, constructor, function application, `k!`, `map!`), whose names
-/// the payload's slots resolve and whose sorts KRS checks; as a Rust
-/// expression it is not checkable (a struct variant cannot be called, a KRS
-/// function is a Rust struct), so it becomes `__term()`, preceded by a use of
-/// each configuration variable it names, at the authored token: the term the
-/// payload carries uses them.
-fn initializer_value_stand_in(
-    expression: &syn::Expr,
-    value: &StateTerm,
-    facade: &Path,
-    bindings: &[Ident],
-) -> syn::Expr {
-    if let StateTerm::Term(term) = value
-        && let TermTree::Reference(path) = term.tree()
-        && is_bound_ident_path(path, bindings)
-    {
-        return expression.clone();
-    }
+/// Every value is a KRS term (a configuration variable, literal, constructor,
+/// function application, `k!`, `map!`), whose names the payload's slots
+/// resolve and whose sorts KRS checks; as a Rust expression it is not
+/// checkable (a struct variant cannot be called, a KRS function is a Rust
+/// struct), so it becomes `__term()`, preceded by a use of each configuration
+/// variable it names, at the authored token: the term the payload carries uses
+/// them. A configuration variable denotes the value given at startup, which
+/// any number of cells may start from, so each use borrows it and none moves it.
+fn initializer_value_stand_in(value: &StateTerm, facade: &Path, bindings: &[Ident]) -> syn::Expr {
     let uses = value
         .terms()
         .into_iter()

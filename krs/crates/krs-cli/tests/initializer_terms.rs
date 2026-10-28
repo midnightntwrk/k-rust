@@ -2,10 +2,10 @@
 //! are: constructors (tuple-like or with fields), function applications,
 //! builtin calls, and configuration variables, inside a `k::k!` item, a
 //! `k::map!` key or value, or a call. rustc checks only what it can check
-//! meaningfully: that each name resolves, through the payload's type keys,
-//! and that a configuration variable that is a cell's whole content has the
-//! cell's Rust type. KRS checks the terms' sorts. Every configuration variable
-//! a term names counts as used, so a package that denies warnings builds.
+//! meaningfully: that each name resolves, through the payload's type keys.
+//! KRS checks the terms' sorts, a configuration variable's included. Every
+//! configuration variable a term names counts as used, so a package that
+//! denies warnings builds.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -241,6 +241,53 @@ fn initializer_terms_are_resolved_by_rustc_and_sorted_by_krs() {
             assert_eq!(&source[start..start + width], marked, "{name}: {stderr}");
         }
     }
+}
+
+/// An initializer that places `item` in `k`, `y` in `stack`, and `acc` in
+/// `acc`.
+fn shared_initializer(item: &str, acc: &str) -> String {
+    format!(
+        "impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt, x: Value, y: Stmt) -> Self {{\n        Self {{\n            k: k::k![pgm, {item}, StmtSyntax::Tag(bytes::empty())],\n            env: k::map![],\n            stack: list::item(y),\n            acc: {acc},\n        }}\n    }}\n}}\n"
+    )
+}
+
+/// A configuration variable denotes the value given at startup, so any
+/// number of cells may start from it, and it is a term of its declared sort
+/// wherever it stands: a cell's whole content whose sort it is not below is
+/// refused at the variable, as any term of that sort would be.
+#[test]
+fn a_configuration_variable_is_a_term_of_its_declared_sort() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "shared",
+        &format!("{PREAMBLE}{}", shared_initializer("y", "x")),
+    );
+    expect_test::expect![[r"
+        <k> $PGM:Stmt ~> $Y:Stmt ~> tag .Bytes </k>
+        <env> .Map </env>
+        <stack> ListItem($Y:Stmt) </stack>
+        <acc> $X:Value </acc>"]]
+    .assert_eq(&configuration(&emit(target.path(), &manifest)));
+
+    let manifest = package(
+        temporary.path(),
+        "wider",
+        &format!("{PREAMBLE}{}", shared_initializer("x", "y")),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(!success, "{stderr}");
+    let headline = stderr
+        .lines()
+        .find(|line| line.starts_with("error"))
+        .unwrap_or_default();
+    assert_eq!(
+        headline,
+        "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-INIT-TERMS::Machine (configuration): configuration variable `y` of sort ORG-KRS-INIT-TERMS::Stmt (sort) is not admissible at sort ORG-KRS-INIT-TERMS::Value (sort)",
+        "{stderr}"
+    );
+    assert!(stderr.contains("acc: y,"), "{stderr}");
 }
 
 /// Record constructors in initializer terms, as in rule results.
