@@ -104,6 +104,14 @@ details! {
 
 details! {
     /// A state term validation failure.
+    ///
+    /// The position reasons (a wildcard, an alias, alternatives, a `k::matches!`, a `let`, a
+    /// closure, a `k::rewrite!`, or a claim-only, fragment, sort-test or turbofish term where it
+    /// cannot stand) restate rows of the expander's position table (`krs_syntax::positions`),
+    /// whose term walker refuses those constructs first, with the author's code. They are
+    /// contracts between the expander and this transport: a descriptor that fails one was built
+    /// by a KRS bug, which the collector reports under the internal
+    /// `krs::collect::provenance-mismatch`.
     StateTermReason {
         EmptyMapRead => "a map read requires at least one entry",
         OneSidedAliasReusesResultFrame => "a one-sided context alias cannot reuse a result frame",
@@ -251,6 +259,14 @@ details! {
 
 details! {
     /// A grammar term validation failure.
+    ///
+    /// The position reasons (a wildcard, an alias, alternatives, a `k::matches!`, a `let`, a
+    /// closure, a `k::rewrite!`, or a claim-only, fragment, sort-test or turbofish term where it
+    /// cannot stand) restate rows of the expander's position table (`krs_syntax::positions`),
+    /// whose term walker refuses those constructs first, with the author's code. They are
+    /// contracts between the expander and this transport: a descriptor that fails one was built
+    /// by a KRS bug, which the collector reports under the internal
+    /// `krs::collect::provenance-mismatch`.
     GrammarTermReason {
         UnexpectedClaimTerm => "claim-only term used outside a whole-configuration claim",
         InvalidCompilerOwnedBuiltinToken => "invalid compiler-owned builtin token",

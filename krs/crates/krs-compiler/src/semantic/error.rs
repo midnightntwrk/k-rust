@@ -1441,13 +1441,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             }
             Self::ImplicitPresence { .. } => codes::analysis::COLLECTION_CONFIG_VAR_WITHOUT_INITIAL,
             Self::InvalidGeneratedIdentity { .. } => codes::analysis::INVALID_GENERATED_IDENTITY,
-            // The validators state two language rules a front stage has not checked yet; their
-            // failures are the author's mistakes, and only the rest are KRS's.
-            Self::InvalidSemanticTheory { error, .. } => match error {
-                SemanticValidationError::InvalidPatternOr => codes::analysis::INVALID_PATTERN_OR,
-                SemanticValidationError::InvalidPatternAs => codes::syntax::INVALID_PATTERN_AS,
-                _ => codes::analysis::INVALID_SEMANTIC_THEORY,
-            },
+            // The validators restate rules the expander's walker, the parser and inference check
+            // first, so every failure is KRS's.
+            Self::InvalidSemanticTheory { .. } => codes::analysis::INVALID_SEMANTIC_THEORY,
         };
         let location = match self {
             // The later arm is the one Rust would not reach.

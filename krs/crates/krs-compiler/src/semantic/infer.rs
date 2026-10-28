@@ -19,9 +19,6 @@ use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
 use super::record_updates::Fill;
 
-/// The reason given for `A | B` outside a left-hand side (KF-030).
-const PATTERN_OR_OUTSIDE_LHS: &str = "`|` is a pattern alternative (K's #Or) and occurs only on a left-hand side; for Bool disjunction use `||`, bool::or, or k::or_bool!";
-
 pub(super) struct StructuredTermBuilder<'a> {
     pub(super) descriptor: &'a Descriptor,
     pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
@@ -196,10 +193,6 @@ impl RecordContext<'_> {
     }
 }
 
-/// The reason given for a `let` block in a pattern (KF-032).
-const LET_IN_PATTERN: &str =
-    "a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern";
-
 impl StructuredTermBuilder<'_> {
     /// Infers the sorts of `term`'s binders against `expected_sort`
     /// ([`Self::infer_term`]), locating an invalid-term error at the
@@ -321,9 +314,9 @@ impl StructuredTermBuilder<'_> {
                         .or_insert_with(|| key.clone());
                 }
             }
-            DescriptorTerm::Wildcard { .. } => {
+            DescriptorTerm::Wildcard { key } => {
                 if !subject && !self.result_wildcards {
-                    return Err(self.invalid_term("wildcard occurs outside the rule subject"));
+                    return Err(self.refused_position(key, "`_`"));
                 }
                 if expected_sort.is_none() {
                     return Err(self.invalid_term("wildcard has no expected production-field sort"));
@@ -369,9 +362,9 @@ impl StructuredTermBuilder<'_> {
                     )
                 })?;
             }
-            DescriptorTerm::Anonymous { sort, .. } => {
+            DescriptorTerm::Anonymous { key, sort, .. } => {
                 if !subject {
-                    return Err(self.invalid_term("anonymous occurrence outside claim subject"));
+                    return Err(self.refused_position(key, "`k::anonymous!`"));
                 }
                 let sort = semantic_sort_ref(&sort.sort);
                 self.admit_term(term, &sort, expected_sort, |expected| {
@@ -444,12 +437,7 @@ impl StructuredTermBuilder<'_> {
                 key, name, pattern, ..
             } => {
                 if !subject {
-                    return Err(self.invalid_pattern_as(
-                        key,
-                        format!(
-                            "`{name} @ ..` binds only on a left-hand side (K's #as is LHS-only); refer to `{name}` here without `@`"
-                        ),
-                    ));
+                    return Err(self.refused_position(key, "`name @ pattern`"));
                 }
                 if !self.binding_names.contains(name) && !self.is_inferring_local(name) {
                     return Err(self.invalid_term(format!("unbound variable {name:?}")));
@@ -504,11 +492,7 @@ impl StructuredTermBuilder<'_> {
             }
             DescriptorTerm::Rewrite { key, from, to, .. } => {
                 if !subject {
-                    return Err(self.invalid_local_rewrite(
-                        key,
-                        "`k::rewrite!` (K's local =>) occurs only in a single-body rule's subject"
-                            .to_owned(),
-                    ));
+                    return Err(self.refused_position(key, "`k::rewrite!`"));
                 }
                 // Both images are inferred: the left side binds like the
                 // subject, the right side uses its bindings (KF-011).
@@ -717,7 +701,7 @@ impl StructuredTermBuilder<'_> {
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
         if subject || self.locals.inferring.is_some() || self.locals.scope.is_some() {
-            return Err(self.invalid_let(key, LET_IN_PATTERN.to_owned()));
+            return Err(self.refused_position(key, "a `let` block"));
         }
         let ascribed = sort.map(|sort| semantic_sort_ref(&sort.sort));
         let mut occurrences = Vec::new();
@@ -873,10 +857,7 @@ impl StructuredTermBuilder<'_> {
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
         if subject || self.locals.inferring.is_some() || self.locals.scope.is_some() {
-            return Err(self.invalid_matches(
-                key,
-                "`k::matches!` is a Bool test (K's :=K); it cannot appear on a left-hand side or inside a pattern".to_owned(),
-            ));
+            return Err(self.refused_position(key, "`k::matches!`"));
         }
         let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
         if let Some(expected) = expected_sort
@@ -1020,7 +1001,7 @@ impl StructuredTermBuilder<'_> {
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
         if !subject {
-            return Err(self.invalid_pattern_or(key, PATTERN_OR_OUTSIDE_LHS.to_owned()));
+            return Err(self.refused_position(key, "`A | B`"));
         }
         let outer = std::mem::take(&mut self.binding_constraints);
         let mut per_alternative = Vec::with_capacity(alternatives.len());
@@ -1082,7 +1063,7 @@ impl StructuredTermBuilder<'_> {
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         if !subject {
-            return Err(self.invalid_pattern_or(key, PATTERN_OR_OUTSIDE_LHS.to_owned()));
+            return Err(self.refused_position(key, "`A | B`"));
         }
         let lowered = alternatives
             .try_map_ref(|alternative| self.lower(alternative, expected_sort, subject))?;
@@ -1843,7 +1824,7 @@ impl StructuredTermBuilder<'_> {
             }
             DescriptorTerm::Wildcard { key } => {
                 if !subject && !self.result_wildcards {
-                    return Err(self.invalid_term("wildcard occurs outside the rule subject"));
+                    return Err(self.refused_position(key, "`_`"));
                 }
                 let sort = expected_sort.cloned().ok_or_else(|| {
                     self.invalid_term("wildcard has no expected production-field sort")
@@ -1925,7 +1906,7 @@ impl StructuredTermBuilder<'_> {
                 spelling,
             } => {
                 if !subject {
-                    return Err(self.invalid_term("anonymous occurrence outside claim subject"));
+                    return Err(self.refused_position(key, "`k::anonymous!`"));
                 }
                 let sort = semantic_sort_ref(&sort.sort);
                 let ordinal = self.wildcard_offset + self.wildcards.len();
@@ -1982,12 +1963,7 @@ impl StructuredTermBuilder<'_> {
                 key, name, pattern, ..
             } => {
                 if !subject {
-                    return Err(self.invalid_pattern_as(
-                        key,
-                        format!(
-                            "`{name} @ ..` binds only on a left-hand side (K's #as is LHS-only)"
-                        ),
-                    ));
+                    return Err(self.refused_position(key, "`name @ pattern`"));
                 }
                 let local = self
                     .locals
@@ -3300,6 +3276,19 @@ impl StructuredTermBuilder<'_> {
             item: Box::new(self.descriptor.id().clone()),
             reason,
             range: self.authored_range(key),
+        }
+    }
+
+    /// The error of `construct` lowered at a position the position table refuses it at
+    /// (`krs_syntax::positions::admits`): the expander's term walker refuses it there, before
+    /// rustc runs, so a descriptor that holds it there broke that contract, and no author program
+    /// reaches this error.
+    fn refused_position(&self, key: &ProvenanceKey, construct: &str) -> DescriptorLoweringError {
+        DescriptorLoweringError::UnsupportedShape {
+            node: "term position",
+            detail: format!("{construct} at a position the expander's position table refuses"),
+            range: self.authored_range(key),
+            item: Some(Box::new(self.descriptor.id().clone())),
         }
     }
 
