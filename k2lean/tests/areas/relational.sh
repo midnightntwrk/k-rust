@@ -64,14 +64,15 @@ relate_relational() {
   esac
 }
 
-# libs_refine NS: the generated module of the stuttering-bisimulation demo NS after its hand module
-# `NS/Relation.lean` (ImpUnroll: kimp against tests/kimp-unroll.py's variant; needs libs_relate NS first,
-# whose `--per-rule` lemmas and report it reads), and its report `NS/refine.toml`.
+# libs_refine NS: the generated module of the stuttering-bisimulation demo NS and its report
+# `NS/refine.toml` (ImpUnroll: kimp against tests/kimp-unroll.py's variant, with no hand module, `X`
+# generated from the split of `while`; needs libs_relate NS first, whose `--per-rule` lemmas and
+# report it reads).
 libs_refine() {
   case $1 in
     ImpUnroll) "$G" refine --kore-a "$(kore_dir kimp)/definition.kore" --name-a KImp \
         --kore-b "$(kore_dir kimp-unroll)/definition.kore" --name-b KUnroll --ns ImpUnroll \
-        --correspondence "$DEMOS/ImpUnroll/correspondence.toml" --open "$DEMOS/ImpUnroll/open-cases.txt" \
+        --correspondence "$DEMOS/ImpUnroll/correspondence.toml" --hand-module none \
         --out "$DEMOS/ImpUnroll/ImpUnroll/Refine.lean" --report "$DEMOS/ImpUnroll/refine.toml" ;;
     *) echo "libs_refine: unknown demo $1" >&2; return 2 ;;
   esac

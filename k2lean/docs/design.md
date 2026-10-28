@@ -365,14 +365,16 @@ Each rule's case in each direction is split in two parts (`Stutter.fwdQ_of`, `bw
 
 - at a translation (`fwd_tr r`, `bwd_tr r`): one step of the other side and the translation again, from `fwd.r` or `bwd.r`, when `r` has a counterpart;
 - at a state `X` relates (`fwd_x r`, `bwd_x r`): refuted by `cases` on `X`, which closes when the rule's left-hand side and `X`'s indices clash on a constructor.
-  So `X` is written as an inductive predicate whose `B` side is a pattern of `B`'s constructors over variables, each equated to the translation of `A`'s (`demos/ImpUnroll/ImpUnroll/Relation.lean`): `cases` then never has to invert a translation.
+  So `X` is an inductive predicate whose `B` side is a pattern of `B`'s constructors over variables, each equated to the translation of `A`'s: `cases` then never has to invert a translation.
 
 The parts the generator cannot write are listed in an open list (`--open`, `KIND RULE` per line) and taken from the hand module (`hand.fwd_tr.r : A.Step.Rel.r (Stutter.FwdTr …)` and so on); a generic part that does not close is a build error, so the list is exactly the hand cases.
 The output module proves `bisim : StutterBisim A.Step B.Step (Stutter.Rel tr X) μ ν`, `run_fwd` and `run_bwd`.
 
 `demos/ImpUnroll` relates kimp to a variant whose `while` rewrites straight to the two-armed `if (C) {…} else {}` (`tests/kimp-unroll.py`), so kimp takes two steps (`while`, `if-else`) where the variant takes one.
-78 of 79 rules pair; of the 316 case parts, 310 are generated.
-The hand module supplies `X` (kimp at a one-armed `if`, the variant at its completion), `μ` (1 at a one-armed `if`), `ν = 0`, and 6 parts: `while` in both directions (two steps of kimp against one), kimp's `if-else` at an `X` state (kimp stutters and `μ` decreases), and the variant's `if-true`, `if-false` and condition heating at an `X` state (kimp completes its `if`, then takes the same step).
+78 of 79 rules pair, and all 316 case parts are generated, with no hand module (`--hand-module none`, 2026-10-28; before, a hand module supplied `X`, the measures and 6 parts).
+`refine` finds the step of `B` that `A` takes in two (`find_splits`): an unpaired rule `b` of `B` and an unpaired rule `a1` of `A` with the same left-hand side up to renaming, and a rule `a2` of `A` whose left-hand side matches `a1`'s right-hand side, with `a2`'s right-hand side then `b`'s (kimp's `while` and `if-else` against the variant's `while`; the rules of a split have no side conditions).
+From it, it generates `X` (one constructor: `A` after `a1`, `B` after `b`, over `A`'s variables and their translations), `X_inv`, `μ` (1 after `a1`, where `A` stutters), `ν = 0`, and the parts that need `X`'s constructor: `fwd_tr a1` (`b`, into `X`), `fwd_x a2` (`A` catches up, `μ` decreases), `bwd_tr b` (`a1` then `a2`), and `bwd_x r` for each paired step of `B` at an `X` state (`A` takes `a2`, then `r`'s counterpart; on ImpUnroll the variant's `if-true`, `if-false` and condition heating).
+The mirror, `B` taking in two a step of `A`, and splits into more than two steps or with side conditions, are still hand-written.
 `Run.lean` derives that two runs to terminal states end in translations of each other, since `X` never relates a terminal state of kimp.
 
 **Priorities and moved constructors (design, not implemented; REL-5).**
@@ -387,9 +389,8 @@ The hand module supplies `X` (kimp at a one-armed `if`, the variant at its compl
   With unpaired rules (why `refine` exists), it holds rank by rank for the ranks whose `B` rules all pair, and for a rank `j` with an unpaired `B` rule `r` it needs `app_bwd.r : B.App_r (tr c) → A.App j c` (by hand, or generated when `r`'s left-hand side clashes with every translation); `bwd_tr` needs `app_fwd.r` for the unpaired `A` rules symmetrically.
   Steps of the other side at `X` states are the hand parts, which carry their own `hpri`; a stutter takes no step and needs none.
   So the obligations added are one `app_bwd.r` per unpaired `B` rule and one `app_fwd.r` per unpaired `A` rule whose rank has priority over that of some paired rule (`hpri` of a step of rank `i` quantifies over the ranks `j < i`); none when the unpaired rules are all of the last rank.
-- *Generating `X`.* For a rule split in two (`A`: `l ⇒ r`; `B`: `l' ⇒ m` and `m ⇒ r'`, whose composition is `A`'s rule translated), `X` is an inductive with one constructor per split, `split_r σ : guard σ → X (l σ) (m σ)`, its `B` side a pattern of `B`'s constructors over translated variables as above, so that `cases` never inverts a translation; `ν` is 1 at an `X` state's `B` side and 0 elsewhere, `μ = 0`.
-  Its parts are generic: `B`'s first step from `tr (l σ)` stutters `A` into `X` (`bwd_tr`, `ν` decreases), `B`'s second step from `m σ` is matched by `A`'s step (`bwd_x`), and `A`'s step from `l σ` is matched by both `B` steps (`fwd_tr`, a `TransGen` of two steps).
-  The mirror (`A` split in two, ImpUnroll's `while`) swaps the roles; the generator detects both by composing two unpaired rules of one side (unifying the first's right-hand side with the second's left-hand side) and comparing with an unpaired rule of the other up to renaming.
+- *Generating `X`.* Done for `A` taking one of `B`'s steps in two, the rules without side conditions (`--hand-module none`, above): `X` has one constructor, its `B` side a pattern of `B`'s constructors over translated variables, `μ` is 1 at an `X` state's `A` side, `ν = 0`, and the parts are generic.
+  The mirror (`B` split in two) swaps the roles and is not generated yet, nor are side conditions on the split's rules (their hypotheses would be fields of `X`'s constructor) or several splits (one constructor each, and `X_inv` a disjunction).
   Other shapes (a step that skips several states, an unrolling by a varying number of steps) stay hand-written.
 
 ### 3.6 Confluence modulo scheduling (`confluence`)

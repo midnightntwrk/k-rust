@@ -1,8 +1,0 @@
-# The cases of the stuttering bisimulation proved in ImpUnroll/Relation.lean (`k2lean refine --open`):
-# KIND RULE, KIND one of fwd_tr, fwd_x, bwd_tr, bwd_x (k2lean/docs/design.md, section 3.5).
-fwd_tr IMP.while
-fwd_x IMP.if-else
-bwd_tr IMP.while
-bwd_x IMP.if-true
-bwd_x IMP.if-false
-bwd_x IMP-SYNTAX.if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat

@@ -10,7 +10,7 @@
 #   PeanoRel, CellMapRel  the generator's fixtures peano and cellmap (../tests/fixtures) are each
 #                 bisimilar to themselves under two namespaces (`k2lean relate`, `Bisim.lean`)
 #   ImpUnroll     kimp and a variant whose `while` unrolls in one step less are stuttering
-#                 bisimilar (`k2lean refine` around the hand module `Relation.lean`)
+#                 bisimilar (`k2lean refine`, with no hand module)
 #   RaceConf      every schedule of the fixture race ends in one configuration (`k2lean confluence`)
 #   ImpNI         kimp's noninterference for the checker k/imp-sec.k, stated with its obligations
 #                 (`k2lean noninterference`)
