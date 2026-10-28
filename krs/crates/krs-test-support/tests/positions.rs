@@ -74,13 +74,6 @@ fn every_position_class_of_the_spec_is_in_the_table() {
 
 /// Where a term case's hole stands, from its slot (`rule/subject`).
 fn position(form: &str, slot: &str) -> Position {
-    let below = |form, slot| Position {
-        nesting: Nesting {
-            below_root: true,
-            ..Nesting::default()
-        },
-        ..Position::root(form, slot)
-    };
     let entry = |form, slot| Position {
         nesting: Nesting {
             in_collection_entry: true,
@@ -98,14 +91,15 @@ fn position(form: &str, slot: &str) -> Position {
         "sort-rule" => Form::SortRule,
         "readable" => Form::ReadableRule,
         "claim" => Form::ReadableClaim,
-        "init" => return below(Form::Initializer, Slot::InitializerValue),
-        "constant" => return below(Form::Constant, Slot::ConstantValue),
+        "init" => return Position::root(Form::Initializer, Slot::InitializerValue),
+        "constant" => return Position::root(Form::Constant, Slot::ConstantValue),
         other => panic!("no form for the slot {other}/{slot}"),
     };
     match slot {
-        // Every subject and result hole is an argument of a command or function.
-        "subject" | "subject-depth-2" => below(form_of, Slot::Subject),
-        "result" => below(form_of, Slot::Result),
+        // Every subject and result hole is an argument of a command or function, which the walk
+        // reaches through no nesting.
+        "subject" | "subject-depth-2" => Position::root(form_of, Slot::Subject),
+        "result" => Position::root(form_of, Slot::Result),
         // A guard's hole is the whole condition.
         "guard" => Position::root(form_of, Slot::Requires),
         "map-key" | "list-element" => entry(form_of, Slot::Subject),

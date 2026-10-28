@@ -224,8 +224,6 @@ impl Slot {
     reason = "Each flag records one independent enclosing construct of the walk."
 )]
 pub struct Nesting {
-    /// The construct is below the slot's root term.
-    pub below_root: bool,
     /// Inside the pattern of a `k::matches!`.
     pub in_matches_pattern: bool,
     /// Inside the pattern of a `let` statement.
@@ -257,7 +255,6 @@ impl Position {
             form,
             slot,
             nesting: Nesting {
-                below_root: false,
                 in_matches_pattern: false,
                 in_let_pattern: false,
                 in_rewrite: false,
@@ -648,7 +645,8 @@ pub enum Rule {
     /// `constant-applies-function`: whether an application in a constant's value applies a
     /// function.
     ConstantAppliesFunction,
-    /// `function-in-pattern`: whether an application below a pattern's root applies a function.
+    /// `function-in-pattern`: whether an application where a pattern matches a term applies a
+    /// function, and, at an equation's slot root, whether that root is the subject's.
     FunctionInPattern,
     /// `ml-in-condition`: a matching-logic predicate in the condition of a transition or an
     /// equation, which the compiler recognizes for every connective alike.
@@ -811,14 +809,15 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 Admit
             }
         }
-        // A pattern matches terms with their functions evaluated, so an application below its
-        // root matches only if it is a constructor's, which resolution decides. The root of an
-        // equation is the function it defines; a simplification's and a claim's subjects hold
-        // unevaluated applications; a collection lookup evaluates its key.
+        // A rule's or an equation's pattern matches terms with their functions evaluated, so an
+        // application where it matches a term, at a slot's root as below it, matches only if it
+        // is a constructor's, which resolution decides. The root of an equation's subject is the
+        // function it defines, which the compiler tells from the root of a function-context cell;
+        // a simplification's and a claim's subjects hold unevaluated applications; a collection
+        // lookup evaluates its key.
         Construct::FunctionApplication => {
             if matches!(position.slot, Slot::Subject)
                 && form.matches_evaluated_terms()
-                && nesting.below_root
                 && !nesting.in_collection_entry
             {
                 After(Rule::FunctionInPattern)

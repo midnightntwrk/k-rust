@@ -12,16 +12,15 @@ fn positions() -> Vec<Position> {
             _ => &[Slot::Subject, Slot::Result, Slot::Requires, Slot::Ensures],
         };
         for &slot in slots {
-            for bits in 0_u8..32 {
+            for bits in 0_u8..16 {
                 positions.push(Position {
                     form,
                     slot,
                     nesting: Nesting {
-                        below_root: bits & 1 != 0,
-                        in_matches_pattern: bits & 2 != 0,
-                        in_let_pattern: bits & 4 != 0,
-                        in_rewrite: bits & 8 != 0,
-                        in_collection_entry: bits & 16 != 0,
+                        in_matches_pattern: bits & 1 != 0,
+                        in_let_pattern: bits & 2 != 0,
+                        in_rewrite: bits & 4 != 0,
+                        in_collection_entry: bits & 8 != 0,
                     },
                 });
             }
@@ -67,13 +66,7 @@ fn every_class_code_is_a_registered_author_code() {
 
 #[test]
 fn a_pattern_admits_what_matches_and_refuses_what_computes() {
-    let subject = Position {
-        nesting: Nesting {
-            below_root: true,
-            ..Nesting::default()
-        },
-        ..Position::root(Form::RuleFn, Slot::Subject)
-    };
+    let subject = Position::root(Form::RuleFn, Slot::Subject);
     for construct in [Construct::Wildcard, Construct::As, Construct::Or] {
         assert_eq!(
             admits(subject, construct),
@@ -112,6 +105,51 @@ fn a_pattern_admits_what_matches_and_refuses_what_computes() {
         admits(entry, Construct::FunctionApplication),
         Admission::Admit
     );
+}
+
+#[test]
+fn a_function_application_where_a_rule_or_an_equation_matches_is_left_to_the_compiler() {
+    // At a slot's root as below it: the compiler tells an equation's subject root, the function
+    // it defines, from the root of its function-context cells.
+    for form in [
+        Form::ReadableRule,
+        Form::SortRule,
+        Form::RuleFn,
+        Form::LocalRule,
+        Form::CellsRule,
+        Form::CellsLocalRule,
+        Form::EquationFn,
+        Form::EquationTable,
+    ] {
+        let subject = Position::root(form, Slot::Subject);
+        assert_eq!(
+            admits(subject, Construct::FunctionApplication),
+            Admission::After(Rule::FunctionInPattern),
+            "{form:?}"
+        );
+        assert_eq!(
+            admits(subject.rewrite_right(), Construct::FunctionApplication),
+            Admission::Admit,
+            "{form:?}"
+        );
+    }
+    for form in [
+        Form::Simplification,
+        Form::ReadableClaim,
+        Form::CellsClaim,
+        Form::Context,
+        Form::Alias,
+        Form::Desugar,
+    ] {
+        assert_eq!(
+            admits(
+                Position::root(form, Slot::Subject),
+                Construct::FunctionApplication
+            ),
+            Admission::Admit,
+            "{form:?}"
+        );
+    }
 }
 
 #[test]

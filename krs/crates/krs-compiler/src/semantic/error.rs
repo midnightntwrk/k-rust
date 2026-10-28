@@ -358,9 +358,9 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending name or term.
         range: Option<Box<SourceRange>>,
     },
-    /// A function application below the root of a rule's or an equation's
-    /// pattern, which matches terms whose functions are evaluated, so the
-    /// pattern describes a term that never occurs.
+    /// A function application where a rule's or an equation's pattern
+    /// matches a term, which has its functions evaluated, so the pattern
+    /// describes a term that never occurs.
     FunctionInPattern {
         /// Item the diagnostic is about.
         item: Box<StableItemId>,

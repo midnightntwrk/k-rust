@@ -1,13 +1,14 @@
-//! A function application below a pattern's root (`krs::analysis::function-in-pattern`).
+//! A function application where a pattern matches a term
+//! (`krs::analysis::function-in-pattern`).
 //!
 //! A pattern matches terms as they are. An application of a function denotes
 //! the value evaluation produces, not a term of its own, and every term a
 //! rule or an equation is applied to has its functions evaluated: a
 //! configuration holds values, and an equation's arguments are values. So a
-//! pattern with a function application below its root describes a term that
-//! never occurs, and the sentence silently never applies. Whether a head is
-//! a function is a fact of the declaration it resolves to
-//! ([`ProductionSignature::function`], a builtin operation's
+//! pattern that applies a function where it matches a term, at a slot's root
+//! as below it, describes a term that never occurs, and the sentence silently
+//! never applies. Whether a head is a function is a fact of the declaration it
+//! resolves to ([`ProductionSignature::function`], a builtin operation's
 //! [`BuiltinOperation::is_functional`]), so this is decided here, after
 //! resolution; the term walker admits the application
 //! (`krs_syntax::positions`, `After(FunctionInPattern)`).
@@ -25,12 +26,12 @@
 //!
 //! The positions are the sentence's own shape, which each descriptor carries:
 //! every term of a subject the walker reads as one slot (a fn rule's or an
-//! equation's subject, a computation item, a cell's content) is a root, and
-//! its arguments are below it; a collection's entries are the keys and
-//! values of a map, the elements of a list cell, the instances of a
-//! collection cell, and the operands of the collection's unit, element and
-//! concatenation. A `k::rewrite!`'s left side is matched where it stands; its
-//! right side is built and is no pattern.
+//! equation's subject, a computation item, a cell's content) is matched from
+//! its root down; a collection's entries are the keys and values of a map,
+//! the elements of a list cell, the instances of a collection cell, and the
+//! operands of the collection's unit, element and concatenation. A
+//! `k::rewrite!`'s left side is matched where it stands; its right side is
+//! built and is no pattern.
 
 use std::collections::BTreeMap;
 
@@ -45,8 +46,8 @@ use super::catalog::ProductionSignature;
 use super::error::DescriptorLoweringError;
 use super::origin::key_range;
 
-/// Refuses the first function application below the root of a pattern of
-/// each sentence whose subject every term it applies to matches with its
+/// Refuses the first function application where a pattern matches a term,
+/// of each sentence whose subject every term it applies to matches with its
 /// functions evaluated.
 ///
 /// # Errors
@@ -59,9 +60,27 @@ pub(super) fn check_function_patterns(
 ) -> Result<(), DescriptorLoweringError> {
     for descriptor in descriptors {
         sentence_patterns(descriptor.payload(), &Patterns { catalog })
-            .map_err(|(reference, function)| refusal(descriptor, reference, &function))?;
+            .map_err(|found| refusal(descriptor, &found))?;
     }
     Ok(())
+}
+
+/// Whether the payload is a sentence whose subject matches every term it
+/// applies to with the term's functions evaluated: a transition or an
+/// equation, but neither a claim nor a predicate simplification.
+fn matches_evaluated_sentence(payload: &DescriptorPayload) -> bool {
+    match payload {
+        DescriptorPayload::StructuredRule(rule) => {
+            matches_evaluated_terms(rule.sentence_kind, false) && !rule.predicate
+        }
+        DescriptorPayload::HeadRule(rule) => {
+            matches_evaluated_terms(rule.sentence_kind, rule.claim.is_some())
+        }
+        DescriptorPayload::ConfigurationRule(rule) => {
+            matches_evaluated_terms(rule.sentence_kind.sentence_kind(), rule.claim.is_some())
+        }
+        _ => false,
+    }
 }
 
 /// Checks the patterns of a sentence whose subject every term it applies to
@@ -70,54 +89,68 @@ fn sentence_patterns<'t>(
     payload: &'t DescriptorPayload,
     patterns: &Patterns<'_>,
 ) -> Result<(), Found<'t>> {
+    if !matches_evaluated_sentence(payload) {
+        return Ok(());
+    }
     match payload {
-        DescriptorPayload::StructuredRule(rule)
-            if matches_evaluated_terms(rule.sentence_kind, false) && !rule.predicate =>
-        {
-            patterns.root(&rule.subject)?;
+        DescriptorPayload::StructuredRule(rule) => {
+            // An equation's subject applies the function it defines; a
+            // rule's subject is a term of the configuration, which a
+            // single-body rule rewrites in place.
+            let root = if rule.sentence_kind == SentenceKind::Equation {
+                Root::Defined
+            } else if rule.result.is_some() {
+                Root::RuleSubject
+            } else {
+                Root::Slot
+            };
+            patterns.term(&rule.subject, Some(root))?;
             rule.function_context
                 .iter()
                 .flat_map(|context| &context.cells.cells)
                 .try_for_each(|cell| patterns.state(&cell.value))
         }
-        DescriptorPayload::HeadRule(rule)
-            if matches_evaluated_terms(rule.sentence_kind, rule.claim.is_some()) =>
-        {
+        DescriptorPayload::HeadRule(rule) => {
+            // A `for Sort` clause's subject is its one computation item.
+            let root = if rule.head_sort.is_some() {
+                Root::RuleSubject
+            } else {
+                Root::Slot
+            };
             rule.head
                 .iter()
                 .flat_map(|head| &head.items)
-                .try_for_each(|item| patterns.root(item))?;
+                .try_for_each(|item| patterns.term(item, Some(root)))?;
             rule.extras
                 .iter()
                 .try_for_each(|extra| patterns.extra(extra))
         }
-        DescriptorPayload::ConfigurationRule(rule)
-            if matches_evaluated_terms(
-                rule.sentence_kind.sentence_kind(),
-                rule.claim.is_some(),
-            ) =>
-        {
-            rule.subject
-                .cells
-                .iter()
-                .try_for_each(|cell| patterns.state(&cell.value))
-        }
+        DescriptorPayload::ConfigurationRule(rule) => rule
+            .subject
+            .cells
+            .iter()
+            .try_for_each(|cell| patterns.state(&cell.value)),
         _ => Ok(()),
     }
 }
 
-/// The refusal of the application `reference`, which applies `function`.
-fn refusal(
-    descriptor: &Descriptor,
-    reference: &DescriptorApplicationReference,
-    function: &str,
-) -> DescriptorLoweringError {
+/// The refusal of the application `found` names.
+fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringError {
+    let instead = match found.root {
+        Some(Root::RuleSubject) => {
+            "match a variable and relate it to the application in a guard (`requires`), or, to define the function, write an equation (`#[k::equation]`, or a `k::equations!` row)"
+        }
+        _ => {
+            "match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`"
+        }
+    };
     DescriptorLoweringError::FunctionInPattern {
         item: Box::new(descriptor.id().clone()),
         reason: format!(
-            "{function}, and it is applied below the root of a pattern; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`"
+            "{} stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: {instead}",
+            found.function
         ),
-        range: key_range(descriptor, &reference.key).map(Box::new),
+        range: key_range(descriptor, &found.reference.key).map(Box::new),
     }
 }
 
@@ -135,30 +168,46 @@ struct Patterns<'a> {
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
 }
 
-/// The first function application below a pattern's root, and what it
-/// applies.
-type Found<'t> = (&'t DescriptorApplicationReference, String);
+/// The root of a matched slot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Root {
+    /// The root of an equation's subject: the function the equation defines.
+    Defined,
+    /// The root of the subject term a rule rewrites as a whole (a
+    /// `#[k::rule]` fn's with a result, a `for Sort` clause's): a function
+    /// there may be one the author meant to define.
+    RuleSubject,
+    /// The root of another matched slot: a single-body rule's subject, a
+    /// computation item, a cell's content, a list cell's rest.
+    Slot,
+}
+
+/// A function application where a pattern matches a term.
+struct Found<'t> {
+    /// The application.
+    reference: &'t DescriptorApplicationReference,
+    /// What it applies, described for a diagnostic.
+    function: String,
+    /// The root it stands at, or `None` below a root.
+    root: Option<Root>,
+}
 
 impl Patterns<'_> {
-    /// A term at the root of a pattern slot.
-    fn root<'t>(&self, term: &'t DescriptorTerm) -> Result<(), Found<'t>> {
-        self.term(term, false)
-    }
-
     /// One state of a cell a pattern names: its term, its computation items,
     /// or its map's base. A map's keys and values and a collection cell's
     /// instances are entries.
     fn state<'t>(&self, state: &'t ProtocolRuleStateTerm<DescriptorTerm>) -> Result<(), Found<'t>> {
+        let root = Some(Root::Slot);
         match state {
             ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
-                self.root(term)
+                self.term(term, root)
             }
             ProtocolRuleStateTerm::KSequence(sequence) => sequence
                 .items
                 .iter()
-                .try_for_each(|item| self.root(&item.value)),
+                .try_for_each(|item| self.term(&item.value, root)),
             ProtocolRuleStateTerm::Map(map) => match &map.body {
-                ProtocolRuleMapBody::Update { base, .. } => self.root(base),
+                ProtocolRuleMapBody::Update { base, .. } => self.term(base, root),
                 ProtocolRuleMapBody::Empty { .. } | ProtocolRuleMapBody::Items { .. } => Ok(()),
             },
             ProtocolRuleStateTerm::Present { value } => self.state(value),
@@ -167,15 +216,16 @@ impl Patterns<'_> {
     }
 
     /// The matched side of a readable rule's cell: a cell's content, an
-    /// optional cell's state, a list cell's rest. A map read's keys, a list
-    /// cell's elements, and a map update, which the result writes, hold no
-    /// pattern below a root.
+    /// optional cell's state, a list cell's rest. A map read's keys and a
+    /// list cell's elements are entries, and a map update is what the result
+    /// writes.
     fn extra<'t>(&self, extra: &'t DescriptorHeadRuleExtra) -> Result<(), Found<'t>> {
+        let root = Some(Root::Slot);
         match extra {
-            ProtocolHeadRuleExtra::RewriteCell { before, .. } => self.root(before),
+            ProtocolHeadRuleExtra::RewriteCell { before, .. } => self.term(before, root),
             ProtocolHeadRuleExtra::RewriteState { before, .. } => self.state(before),
             ProtocolHeadRuleExtra::RewriteList { before, .. } => match &before.rest {
-                ProtocolHeadRuleListRest::Term(rest) => self.root(rest),
+                ProtocolHeadRuleListRest::Term(rest) => self.term(rest, root),
                 ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => Ok(()),
             },
             ProtocolHeadRuleExtra::HaveMap { .. } | ProtocolHeadRuleExtra::UpdateMap { .. } => {
@@ -184,8 +234,8 @@ impl Patterns<'_> {
         }
     }
 
-    /// `term`, below the root when `below_root`.
-    fn term<'t>(&self, term: &'t DescriptorTerm, below_root: bool) -> Result<(), Found<'t>> {
+    /// `term`, matched at `root`, or below a root when `None`.
+    fn term<'t>(&self, term: &'t DescriptorTerm, root: Option<Root>) -> Result<(), Found<'t>> {
         match term {
             DescriptorTerm::Application {
                 reference,
@@ -194,29 +244,34 @@ impl Patterns<'_> {
             } => {
                 match applied_function(&reference.application, self.catalog) {
                     Applied::Collection => return Ok(()),
-                    Applied::Function(function) if below_root => {
-                        return Err((reference, function));
+                    Applied::Function(_) if root == Some(Root::Defined) => {}
+                    Applied::Function(function) => {
+                        return Err(Found {
+                            reference,
+                            function,
+                            root,
+                        });
                     }
-                    Applied::Function(_) | Applied::Constructor => {}
+                    Applied::Constructor => {}
                 }
                 arguments.iter().try_for_each(|argument| {
                     let (TermArgumentRef::Positional { value }
                     | TermArgumentRef::Named { value, .. }) = argument;
-                    self.term(value, true)
+                    self.term(value, None)
                 })
             }
             // An alias names the term its pattern matches, each alternative
             // is matched where the alternatives stand, and a rewrite's left
             // side is matched where the rewrite stands; its right side is
             // built.
-            DescriptorTerm::As { pattern, .. } => self.term(pattern, below_root),
+            DescriptorTerm::As { pattern, .. } => self.term(pattern, root),
             DescriptorTerm::Or { alternatives, .. } => alternatives
                 .iter()
-                .try_for_each(|alternative| self.term(alternative, below_root)),
-            DescriptorTerm::Rewrite { from, .. } => self.term(from, below_root),
+                .try_for_each(|alternative| self.term(alternative, root)),
+            DescriptorTerm::Rewrite { from, .. } => self.term(from, root),
             DescriptorTerm::Cell { fields, .. } => fields
                 .iter()
-                .try_for_each(|field| self.term(&field.value, true)),
+                .try_for_each(|field| self.term(&field.value, None)),
             // The term walker refuses a test, a `let`, a predicate and a
             // claim's values in a pattern; the rest are leaves.
             DescriptorTerm::Variable { .. }
@@ -236,7 +291,7 @@ impl Patterns<'_> {
 
 /// What an application head applies.
 enum Applied {
-    /// A function, described for a diagnostic.
+    /// A function, named for a diagnostic: "the function `Size`".
     Function(String),
     /// A constructor, matched as written.
     Constructor,
@@ -256,7 +311,7 @@ fn applied_function(
     match application {
         DescriptorApplicationRef::Declared(id) => {
             if catalog.get(id).is_some_and(|signature| signature.function) {
-                Applied::Function(format!("`{}` is a function", id.item_name()))
+                Applied::Function(format!("the function `{}`", id.item_name()))
             } else {
                 Applied::Constructor
             }
@@ -264,7 +319,7 @@ fn applied_function(
         DescriptorApplicationRef::Builtin(operation) => {
             if operation.is_functional() {
                 Applied::Function(format!(
-                    "`{}` is a builtin function",
+                    "the builtin function `{}`",
                     builtin_path(*operation)
                 ))
             } else {
@@ -272,7 +327,7 @@ fn applied_function(
             }
         }
         DescriptorApplicationRef::Operator(operator) => Applied::Function(format!(
-            "`{}` applies a builtin function",
+            "the operator `{}`, a builtin function,",
             operator.symbol()
         )),
         DescriptorApplicationRef::Map(operation) => match operation {
@@ -297,7 +352,7 @@ fn applied_function(
 
 fn collection_function(marker: krs_ir::FacadeMarker) -> Applied {
     Applied::Function(format!(
-        "`k::builtin::{}::{}` is a builtin function",
+        "the builtin function `k::builtin::{}::{}`",
         marker.module, marker.name
     ))
 }

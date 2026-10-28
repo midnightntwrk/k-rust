@@ -8,7 +8,7 @@ use krs_ir::{
 use krs_ir_levels::SemanticSortRef;
 use krs_syntax::ProvenanceRole;
 
-use super::{Patterns, matches_evaluated_terms};
+use super::{Patterns, Root, matches_evaluated_terms};
 use crate::semantic::catalog::ProductionSignature;
 
 fn item(name: &str) -> StableItemId {
@@ -106,13 +106,20 @@ fn rewrite(from: DescriptorTerm, to: DescriptorTerm) -> DescriptorTerm {
     }
 }
 
-/// The head ordinal of the application the pattern rooted at `term` refuses.
-fn refused(term: &DescriptorTerm) -> Option<u32> {
+/// The head ordinal of the application the pattern rooted at `term`, at
+/// `root`, refuses, and the root it stands at (`None` below it).
+fn refused_at(term: &DescriptorTerm, root: Root) -> Option<(u32, Option<Root>)> {
     let catalog = catalog();
     Patterns { catalog: &catalog }
-        .root(term)
+        .term(term, Some(root))
         .err()
-        .map(|(reference, _)| reference.key.ordinal())
+        .map(|found| (found.reference.key.ordinal(), found.root))
+}
+
+/// The head ordinal of the application the pattern rooted at `term`, a
+/// computation item or a cell's content, refuses.
+fn refused(term: &DescriptorTerm) -> Option<u32> {
+    refused_at(term, Root::Slot).map(|(ordinal, _)| ordinal)
 }
 
 #[test]
@@ -129,10 +136,30 @@ fn a_function_below_the_root_is_refused_at_its_head() {
 }
 
 #[test]
-fn the_root_of_a_pattern_may_apply_a_function() {
-    // An equation's root is the function it defines.
-    assert_eq!(refused(&size()), None);
+fn a_function_at_a_matched_root_is_refused_at_its_head() {
+    // A computation item, a cell's content, a list cell's rest.
+    assert_eq!(refused_at(&size(), Root::Slot), Some((9, Some(Root::Slot))));
+    // A rule's subject: the diagnostic offers an equation instead.
+    assert_eq!(
+        refused_at(&size(), Root::RuleSubject),
+        Some((9, Some(Root::RuleSubject)))
+    );
+    // Below the root, the root is no longer the one the application stands at.
+    assert_eq!(
+        refused_at(&declared("Hold", 0, vec![size()]), Root::RuleSubject),
+        Some((9, None))
+    );
     assert_eq!(refused(&declared("Hold", 0, vec![x()])), None);
+}
+
+#[test]
+fn an_equation_s_root_is_the_function_it_defines() {
+    assert_eq!(refused_at(&size(), Root::Defined), None);
+    // Its arguments are matched.
+    assert_eq!(
+        refused_at(&declared("Size", 0, vec![size()]), Root::Defined),
+        Some((9, None))
+    );
 }
 
 #[test]
@@ -196,8 +223,9 @@ fn a_rewrite_matches_its_left_side_and_builds_its_right_side() {
     assert_eq!(refused(&declared("Hold", 0, vec![built])), None);
     let matched = rewrite(size(), x());
     assert_eq!(refused(&declared("Hold", 0, vec![matched])), Some(9));
-    // A rewrite at the root rewrites the subject's root.
-    assert_eq!(refused(&rewrite(size(), x())), None);
+    // A rewrite at the root matches its left side at the root.
+    assert_eq!(refused(&rewrite(size(), x())), Some(9));
+    assert_eq!(refused(&rewrite(x(), size())), None);
 }
 
 #[test]
@@ -208,7 +236,8 @@ fn an_alias_and_alternatives_stand_where_they_are_written() {
         name: "y".into(),
         pattern: Box::new(pattern),
     };
-    assert_eq!(refused(&alias(size())), None);
+    assert_eq!(refused(&alias(size())), Some(9));
+    assert_eq!(refused_at(&alias(size()), Root::Defined), None);
     assert_eq!(refused(&declared("Hold", 0, vec![alias(size())])), Some(9));
     let alternatives = DescriptorTerm::Or {
         key: other_key(),

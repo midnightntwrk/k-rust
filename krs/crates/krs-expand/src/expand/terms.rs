@@ -516,7 +516,7 @@ pub(super) struct TermBuilder<'a> {
     /// at (`krs_syntax::positions`).
     form: Form,
     /// How many term nodes enclose the one being expanded, itself
-    /// included: a node below a slot's root has depth above 1.
+    /// included: a slot's root has depth 1.
     depth: usize,
     /// Whether a collection's key, value or element is being expanded.
     in_collection_entry: bool,
@@ -594,7 +594,6 @@ impl<'a> TermBuilder<'a> {
             form: self.form,
             slot: side.slot(self.form),
             nesting: Nesting {
-                below_root: self.depth > 1,
                 in_matches_pattern: self.in_matches_pattern(),
                 in_let_pattern: self.in_let_pattern(),
                 in_rewrite: false,
