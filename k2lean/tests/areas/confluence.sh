@@ -1,11 +1,13 @@
 # shellcheck shell=bash
 # The confluence area: `confluence` (RaceConf: every schedule of the fixture race, library race;
 # SimpleConf: SIMPLE's steps of two threads joined generically, library simple, with SIMPLE's
-# pairs of rules classified). Registry: confluence.py.
+# pairs of rules classified; UtxoConf: the same for the fixture utxo, coroutines over a UTXO
+# ledger, library utxo). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
     race) echo Race ;;
+    utxo) echo Utxo ;;
     *) return 1 ;;
   esac
 }
@@ -14,6 +16,8 @@ gen_confluence() {
   case $1 in
     # the generator's fixture whose workers interleave (tests/fixtures/race)
     race) libs_fixture_args "$1" ;;
+    # coroutines in a cell map over a UTXO ledger (tests/fixtures/utxo)
+    utxo) libs_fixture_args "$1" ;;
     *) return 1 ;;
   esac
   return 0
@@ -27,6 +31,8 @@ libs_confluence() {
   case $1 in
     RaceConf) "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf --obs acc \
         --out "$DEMOS/RaceConf/RaceConf/Confluence.lean" --report "$DEMOS/RaceConf/confluence.toml" ;;
+    UtxoConf) "$G" confluence --kore "$(libs_fixture utxo)/definition.kore" --name Utxo --ns UtxoConf \
+        --threads procs --obs ledger --out "$DEMOS/UtxoConf/UtxoConf/Views.lean" --report "$DEMOS/UtxoConf/confluence.toml" ;;
     SimpleConf) "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --ns SimpleConf \
         --threads threads --obs output --out "$DEMOS/SimpleConf/SimpleConf/Views.lean" --report "$2" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
@@ -50,6 +56,13 @@ gate_confluence() {
     partlib race Race.Preserves
     scaffold confluence-RaceConf libs_confluence RaceConf
     dbuild RaceConf
+  fi
+  # the views by process of the fixture utxo (`confluence --threads procs`), as SimpleConf's
+  if runs demo UtxoConf; then
+    phase "scaffold UtxoConf"
+    partlib utxo Utxo.Preserves
+    scaffold confluence-UtxoConf libs_confluence UtxoConf
+    dbuild UtxoConf
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with what the views by thread
   # leave open (`k2lean confluence --threads`): a recorded output; the views built against the

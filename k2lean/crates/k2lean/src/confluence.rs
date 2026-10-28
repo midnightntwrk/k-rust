@@ -156,6 +156,14 @@ fn map_role(r: &Rule) -> MapRole {
 /// side's index or in another left-hand-side hypothesis (a key bound elsewhere, such as a store
 /// location read off `<k>`, makes the match unique).
 fn free_key(r: &Rule, h: &str, p: &str) -> bool {
+    key_bound_only_by(r, h, p, None)
+}
+
+/// Whether the key of a map hypothesis `h` is bound by `h` and, if given, by the hypothesis
+/// `outer` only: the second binding of a two-binding match whose key the first binding names (a
+/// message to a named process, `resume(Q)` at one binding and `<pid> Q` at the other), still a
+/// binding of the thread map, matched in the first binding's rest.
+fn key_bound_only_by(r: &Rule, h: &str, p: &str, outer: Option<&str>) -> bool {
     let Some(rest) = p.strip_prefix(MAP_HYP) else {
         return false;
     };
@@ -195,7 +203,7 @@ fn free_key(r: &Rule, h: &str, p: &str) -> bool {
     }
     let mut elsewhere = r.step.index.render();
     for (h2, p2) in &r.app.hyps {
-        if h2 != h {
+        if h2 != h && Some(h2.as_str()) != outer {
             elsewhere.push(' ');
             elsewhere.push_str(p2);
         }
@@ -281,7 +289,7 @@ fn view_role(r: &Rule, role: &MapRole) -> Option<VRole> {
     // a second binding matched in the rest
     let inner: Vec<_> = lhs_maps
         .iter()
-        .filter(|(h, p, _, x2)| x2 == rest && free_key(r, h, p))
+        .filter(|(h, p, _, x2)| x2 == rest && key_bound_only_by(r, h, p, Some(hm.as_str())))
         .collect();
     let (hms, base) = match inner.as_slice() {
         [] => (vec![(*hm).clone()], rest.clone()),
@@ -1504,7 +1512,13 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
             })
             .collect();
         writeln!(o, "\n/-- An item of a thread's `<k>`: its injection into `KItem` and the constructor of the injected\nvalue. -/\ndef kitem (it : {name}.SortKItem) : String × String :=\n        match it with\n{own_arms}").unwrap();
-        writeln!(o, "/-- What a key reads of a thread's `<k>` (`KeyView`): its number of items up to 2, and each\nitem (`(\"dotk\", \"\")` past the end). -/\ndef tkey (t : {vt}) : KeyView :=\n  match t with\n  | {name}.{} {} =>\n    match kc with\n    | {name}.{} k =>\n      ⟨match k with | .dotk => 0 | .kseq _ r => (match r with | .dotk => 0 | .kseq _ _ => 1) + 1,\n       fun i => match k with\n         | .dotk => (\"dotk\", \"\")\n         | .kseq it r =>\n           match i with\n           | 0 => kitem it\n           | _ => match r with\n             | .dotk => (\"dotk\", \"\")\n             | .kseq it₂ _ => kitem it₂,\n       match k with | .dotk => false | .kseq it _ => {name}.K.isKResult (.kseq it .dotk)⟩\n",
+        // without a sort `KResult` no item is one, and the library need not define `isKResult`
+        let (it, kres) = if lib.m.sorts.contains_key("SortKResult") {
+            ("it", format!("{name}.K.isKResult (.kseq it .dotk)"))
+        } else {
+            ("_", "false".to_string())
+        };
+        writeln!(o, "/-- What a key reads of a thread's `<k>` (`KeyView`): its number of items up to 2, and each\nitem (`(\"dotk\", \"\")` past the end). -/\ndef tkey (t : {vt}) : KeyView :=\n  match t with\n  | {name}.{} {} =>\n    match kc with\n    | {name}.{} k =>\n      ⟨match k with | .dotk => 0 | .kseq _ r => (match r with | .dotk => 0 | .kseq _ _ => 1) + 1,\n       fun i => match k with\n         | .dotk => (\"dotk\", \"\")\n         | .kseq it r =>\n           match i with\n           | 0 => kitem it\n           | _ => match r with\n             | .dotk => (\"dotk\", \"\")\n             | .kseq it₂ _ => kitem it₂,\n       match k with | .dotk => false | .kseq {it} _ => {kres}⟩\n",
             lib.m.ctor_path(&vc), vargs.join(" "), lib.m.ctor_path(&kctor)).unwrap();
         // the rules: their kind, rank, class and key
         let field_of = |key: &str| -> Option<usize> {
@@ -2166,7 +2180,14 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                 }
                 Kind::Global => "  simp only [VPart, Rule.kind]".to_string(),
             };
-            writeln!(o, "\ntheorem frame.{l} : {name}.Step.Rel.{l} (fun c c' => ∃ r, ViewOf r c c') := by\n  intro {}\n  refine ⟨.{l}, {name}.App.{l}{app_named} .., {pri}, fun Q hQ => hQ {}, ?_⟩\n{vpart}",
+            // the relation and its hypothesis bound beside the rule's variables: `Q`, `hQ`, unless
+            // the rule has a variable of that name (`resume(Q)`)
+            let (q, hq) = if args.iter().any(|a| a == "Q" || a == "hQ") {
+                ("k2l_Q", "k2l_hQ")
+            } else {
+                ("Q", "hQ")
+            };
+            writeln!(o, "\ntheorem frame.{l} : {name}.Step.Rel.{l} (fun c c' => ∃ r, ViewOf r c c') := by\n  intro {}\n  refine ⟨.{l}, {name}.App.{l}{app_named} .., {pri}, fun {q} {hq} => {hq} {}, ?_⟩\n{vpart}",
                 args.join(" "), args.join(" ")).unwrap();
             frame_names.push(format!("frame.{l}"));
         }

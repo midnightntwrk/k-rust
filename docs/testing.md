@@ -125,7 +125,7 @@ Each entry belongs to one area, which registers it in `k2lean/tests/areas/AREA.s
 | `invariants` | the kind 1 invariant libraries and KRS IMP's sidecar invariant, the negative check, the kind 2 demonstrations and the kind 2 template |
 | `relational` | `relate` (ImpRel, ImpMut, the fixture self-relations) and `refine` (ImpUnroll) |
 | `soundness` | `soundness` (ImpTypes) |
-| `confluence` | `confluence` (RaceConf, and the classification of SIMPLE's pairs of rules) |
+| `confluence` | `confluence` (RaceConf; UtxoConf, the views by process of the fixture utxo; SimpleConf and the classification of SIMPLE's pairs of rules) |
 | `noninterference` | `noninterference` (ImpNI) |
 | `claims` | `claims` over kimp's specifications, the claims under kimpinv's invariant, and the claim transferred along ImpRel's bisimulation (heavy); IMP++'s claims, a `Step` that is not a function (light) |
 

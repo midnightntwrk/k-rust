@@ -6,6 +6,9 @@ DEMOS = {
                                               "demos/RaceConf/RaceConf/Confluence.lean", "demos/RaceConf/confluence.toml"]},
     # SIMPLE's steps of two threads joined generically, the rest as hypotheses (`confluence --threads`)
     "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean"]},
+    # coroutines over a UTXO ledger, the same views (`confluence --threads procs`)
+    "UtxoConf": {"tier": "light", "sources": ["generated/utxo",
+                                              "demos/UtxoConf/UtxoConf/Views.lean", "demos/UtxoConf/confluence.toml"]},
 }
 
 # SIMPLE's pairs of rules classified, and what SimpleConf leaves open (`confluence --threads`)

@@ -793,6 +793,52 @@ fn relate_split_writes_one_module_per_simulation() {
 /// `<ended>` as open, and each rule against itself at one thread (`end`'s key, an empty `<k>`, is
 /// disjoint from `step`'s).
 #[test]
+fn confluence_threads_views_a_message_to_a_named_process() {
+    // `resume(Q)` in one process and `#suspended` in the process `<pid> Q`: the second binding's
+    // key is named by the first, still two bindings of the process map
+    let d = tmp("cli-confluence-utxo");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/utxo/definition.kore");
+    let (out, report) = (d.join("Views.lean"), d.join("confluence.toml"));
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(&fx)
+        .args([
+            "--name",
+            "Utxo",
+            "--ns",
+            "UV",
+            "--threads",
+            "procs",
+            "--obs",
+            "ledger",
+            "--out",
+        ])
+        .arg(&out)
+        .arg("--report")
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&report).unwrap();
+    assert!(
+        r.contains("[threads]\nrules = 8\nthread = 8\nshared = 0\nglobal = 0\n"),
+        "{r}"
+    );
+    assert!(
+        r.contains("open = 7\nopen-global = 0\nopen-cells = 7\n"),
+        "{r}"
+    );
+    let v = std::fs::read_to_string(&out).unwrap();
+    assert!(v.contains("| .resume => .thread"), "{v}");
+    // the relation bound beside the rule's variable `Q` takes another name
+    assert!(v.contains("fun k2l_Q k2l_hQ => k2l_hQ"), "{v}");
+    // no sort `KResult`: no item is one, and `isKResult` is not referenced
+    assert!(!v.contains("isKResult"), "{v}");
+}
+
+#[test]
 fn confluence_threads_views_a_thread_end_as_a_removal() {
     let d = tmp("cli-confluence-threads");
     let fx = Path::new(env!("CARGO_MANIFEST_DIR"))
