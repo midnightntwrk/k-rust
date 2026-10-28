@@ -1232,10 +1232,10 @@ impl Un {
             "BYTES.padLeft" | "BYTES.padRight" => {
                 let x = st(0)?;
                 let (l, v) = (small(&n(1)?)?, small(&n(2)?)?);
-                if !(0..256).contains(&v) {
+                if l < 0 || !(0..256).contains(&v) {
                     return Some(undef());
                 }
-                let k = (l.max(0) as usize).saturating_sub(x.chars().count());
+                let k = (l as usize).saturating_sub(x.chars().count());
                 let pad: String = std::iter::repeat_n(char::from_u32(v as u32)?, k).collect();
                 lit(if h == "BYTES.padLeft" {
                     pad + &x
