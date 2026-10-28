@@ -219,7 +219,7 @@ For example, the variables of a typed language are:
 - fresh locations;
 - the fact that the environment and the store realize the typing context. Only this last part is the language's own, and the user writes it.
 
-Hand-written Lean is for proof cases the tactics do not close, not for stating a language's facts.
+Hand-written Lean is for proof cases the tactics do not close, and for properties K cannot express (`product.md` §3.6); a language fact that a K function can express is written in K.
 An option named after one definition's shape (`soundness --store-cell`, `--env-item`) is a stopgap until a second definition shows the general form.
 A definition outside what a generator reads is refused with a message, and the generator's section says why.
 For example, `soundness` reads a checker written as functions, not one written as rewrite rules.
