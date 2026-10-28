@@ -34,7 +34,8 @@ preserve = []
 "generated/race/Race.lean" = { tier = "light", sha256 = "ab36117730ae402e6cceac6b36bffc4b5abc5081b70dbc04aa7582c237a60292" }
 "generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
 "generated/race/Race/Determinism.lean" = { tier = "light", sha256 = "52be43ddc62f4bcba653d03c572e05763d36f0f9df02c55d18eb5d0177359276" }
-"generated/race/Race/Equations.lean" = { tier = "light", sha256 = "1142f62342fcb9a4203324e2c72c663d902aeb88351b3fba658233f29d4064a2" }
+"generated/race/Race/EqBase.lean" = { tier = "light", sha256 = "14a810b622cac67755e991e82e9c8870706cb77ee6ce19914871509bffbd443a" }
+"generated/race/Race/Equations.lean" = { tier = "light", sha256 = "3d7b3ab479dbf2a1e6c5428f59ff9e039445e0559c84bd7a102696b9c23b6eae" }
 "generated/race/Race/Functions.lean" = { tier = "light", sha256 = "daa67be725cfdd1b143b8ad3107380561108ed23b0127d762a391d730b07a58f" }
 "generated/race/Race/Init.lean" = { tier = "light", sha256 = "ec0d05b43394bb747197dc217b7f3e0584119cc1e6a9e9d96358a9e7e087754d" }
 "generated/race/Race/Preserves.lean" = { tier = "light", sha256 = "bf2b2f049b791549cf92f875ba01effe841fd806e3e200e80dd4dee58b9da240" }
@@ -49,7 +50,8 @@ preserve = []
 "generated/utxo/Utxo.lean" = { tier = "light", sha256 = "1bc93cf1a423e7eadb0b660209f4a822137a7a4e0ba36b2613edd973b035b13c" }
 "generated/utxo/Utxo/Adequacy.lean" = { tier = "light", sha256 = "9bd7e184685d2096820128fc2540c8bd2f15cd5a04c663e0318af3503cf5ebbd" }
 "generated/utxo/Utxo/Determinism.lean" = { tier = "light", sha256 = "d15c48663371cefeb2e2cbcf60cbcca90dfc1801c8ecf9c7d0148c6a1390830f" }
-"generated/utxo/Utxo/Equations.lean" = { tier = "light", sha256 = "74550643246211b954ba2dedf77b3085f12c5f4f533d86477c6bab1a750a85f0" }
+"generated/utxo/Utxo/EqBase.lean" = { tier = "light", sha256 = "a6486c426422485c34f80a7f5e8e706cf094598bb9f76316a6a7c35154742371" }
+"generated/utxo/Utxo/Equations.lean" = { tier = "light", sha256 = "dfaca233069db6781d34a283b5dd4ba807067b26ee23390cd699e3047bfc3595" }
 "generated/utxo/Utxo/Functions.lean" = { tier = "light", sha256 = "ca1dfc1670d97f3172b1065d3d952397add5629e283242c7fd7a469f4e1196b9" }
 "generated/utxo/Utxo/Init.lean" = { tier = "light", sha256 = "6f208245aecddc4bb14ac29f9822d1d5c282fa094bc0b4a0b2c9430530eda79e" }
 "generated/utxo/Utxo/Preserves.lean" = { tier = "light", sha256 = "b7a914b3e2b02838a0391eac05b5dfa33ec6d0da22f3530d355c6984746e47d6" }
