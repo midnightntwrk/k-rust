@@ -55,6 +55,11 @@ tier = "light"
 guarded = 23
 preserve = [{ where = "ExprTypes/Soundness.lean:33", closed = 66, total = 66, open = [] }]
 
+[demo.ImpPlusFresh]
+tier = "light"
+guarded = 8
+preserve = [{ where = "ImpPlusFresh/Cases.lean:84", closed = 60, total = 62, open = [], hand = ["«int X, Xs;»", "«spawn S»"] }]
+
 [demo.ImpPlusTypes]
 tier = "light"
 guarded = 35
