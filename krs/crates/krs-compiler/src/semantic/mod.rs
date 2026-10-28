@@ -8,6 +8,7 @@ mod configuration;
 mod configuration_rules;
 mod cons_lists;
 mod constants;
+mod equation_alternatives;
 mod error;
 mod evaluation;
 mod family_precedence;
@@ -62,13 +63,16 @@ use references::validate_all_stable_references;
 
 /// The bundle's descriptors in identity order, each constant inlined at its uses: a constant is
 /// a name for a term, so every use becomes the term before anything else reads the bundle, and
-/// no later check sees a constant.
+/// no later check sees a constant. The alternatives at an equation's subject root are moved
+/// below the function it defines, which they apply alike, so no later check sees them there.
 fn ordered_descriptors(
     bundle: &DescriptorBundle,
 ) -> Result<constants::Inlined<'_>, DescriptorLoweringError> {
     let mut descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
     descriptors.sort_by(|left, right| left.id().cmp(right.id()));
-    constants::inline_constants(&descriptors)
+    let mut inlined = constants::inline_constants(&descriptors)?;
+    inlined.descriptors = equation_alternatives::distribute_root_alternatives(inlined.descriptors)?;
+    Ok(inlined)
 }
 
 /// The inference catalog's subsort judge over the bundle's descriptors, as lowering builds it.

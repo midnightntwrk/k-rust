@@ -720,6 +720,23 @@ impl Descriptor {
         })
     }
 
+    /// Returns this descriptor with `payload` in place of its own, where
+    /// `payload` is its own payload with the alternatives at an equation's
+    /// subject root moved into the one argument where they differ. The move
+    /// adds no node, so every key `payload` holds is one of this descriptor's,
+    /// and drops the arguments the alternatives repeat, so the parser's
+    /// numbering, which the grammar and state contracts check, is not
+    /// checked again.
+    #[must_use]
+    pub fn with_distributed_alternatives(&self, payload: DescriptorPayload) -> Self {
+        Self {
+            id: self.id.clone(),
+            cfg: self.cfg.clone(),
+            provenance: self.provenance.clone(),
+            payload,
+        }
+    }
+
     /// Returns the primary declaration's authored-to-descriptor provenance.
     #[must_use]
     pub fn origin(&self) -> &OriginStack {

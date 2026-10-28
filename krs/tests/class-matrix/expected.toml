@@ -38,6 +38,12 @@ doc = "`name @ pattern` in a `let` pattern, which destructures one value that a 
 code = "krs::syntax::invalid-pattern-as"
 doc = "`name @ pattern` (K's `#as`) outside a left-hand side"
 
+# A compiler class no generated case makes: the term families place their constructs below a
+# subject's root, never as alternatives of a whole equation subject.
+[class.alternatives-across-equations]
+code = "krs::analysis::invalid-pattern-or"
+doc = "`A | B` joining whole equation subjects that no one equation matches: alternatives that apply different functions, or that differ in more than one argument, which one equation matches each on its own"
+
 [class.alternatives-in-let-pattern]
 code = "krs::syntax::invalid-let"
 doc = "`A | B` in a `let` pattern, which reads its value by one shape"
