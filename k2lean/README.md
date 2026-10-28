@@ -15,7 +15,7 @@ It is part of k-rust's repository: the generator is a member of k-rust's workspa
 | `generated` | where the libraries are generated; git tracks only each library's open lists and hand-written invariant module |
 | `tests` | the gate (`gate.sh`, `gate-check.py`, `libs.sh`, and each area's registrations in `areas/`), its baseline and recorded outputs (one file and directory per area), kimp's golden cases, and the generator's fixtures |
 | `pipelines` | human-run scripts that generate and build KEVM (`kevm.sh`, with KEVM's termination file) and KMIR (`kmir.sh`) in the arity-indexed term universe; not gate tiers |
-| `docs` | `contract.md` (what a generated library promises: the specification, the checked proofs and the derived definitions, and what may be optimized after generation), `design.md` (what is generated and why it is sound, the encodings, measured costs, and what is open) and `invariants.md` (the user guide to preserved invariants) |
+| `docs` | `contract.md` (what a generated library promises: the specification an optimization loop must leave frozen, and the proofs and derived definitions it may change), `design.md` (what is generated and why it is sound, the encodings, measured costs, and what is open) and `invariants.md` (the user guide to preserved invariants) |
 
 ## Quick start
 

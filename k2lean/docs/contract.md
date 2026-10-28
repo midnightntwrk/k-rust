@@ -1,4 +1,4 @@
-# What a generated library promises, and what may be optimized after generation
+# What a generated library promises, and what an optimization loop may change
 
 This note states the principle every design decision in k2lean is judged by, and how each part of a generated library relates to it.
 The principle is Sebastien's (2026-10-22, restated 2026-10-28); the layers and the consequences below are derived from it.
@@ -9,9 +9,20 @@ Its companion is `design.md` §3, "What a generator knows": which facts the gene
 
 k2lean does not promise the most efficient Lean: a construction general enough for every K definition cannot also be the fastest for each one.
 It promises a library whose definitions and theorem statements encode the user's K definition faithfully, and whose proofs Lean's kernel checks.
-Efficiency is then a search that anyone can run after generation, a person or an AI agent iterating on its own, without fear of breaking the meaning.
-The meaning lives in the definitions and statements, which the search does not touch.
-The kernel accepts a new proof of the same statement or rejects it.
+Efficiency is then the job of an optimization loop run after generation ("autoresearch"), in the user's project:
+- an agent, unattended, changes a proof, or writes a faster function with a proof that it equals the generated one;
+- the build is the evaluator: the kernel accepts the proof of the unchanged statement or rejects it, and the axiom guard rejects `sorry`, `native_decide` and new axioms;
+- a cost metric (heartbeats, build time, memory, or an implementation's run time) decides whether the change is kept or reverted.
+
+Lean makes the loop safe in a way few targets are.
+Correctness is a yes-or-no answer the agent cannot game while the statements are fixed, so nobody has to review whether an optimized proof is right: an optimization is accepted "without fear".
+What the loop cannot do is make the statements faithful: they come from the user's K definition, which is correct by assumption, through the generator.
+
+So k2lean emits two things:
+- **the evaluator:** the definitions and the statements, faithful to K and frozen;
+- **a baseline:** proofs that build, and open obligations, which are slots where "find any proof" is the goal.
+
+Performance after that is the loop's.
 
 So when a choice trades generality or faithfulness against cost, take the general, faithful construction if the cost lies in a layer that can be optimized later (§2, the checked and derived layers).
 Weigh the cost only when it lies in the specification layer, which cannot be optimized after generation.
@@ -47,10 +58,12 @@ Weigh the cost only when it lies in the specification layer, which cannot be opt
    - a function proved equal to a generated one only at well-formed values can replace it in statements about K values;
    - it cannot replace it in the theorems that quantify over every carrier value.
 5. **"Generated code nobody edits" (G1) is a requirement on the generator, not on users.**
-   The generator must reach the guarantees alone: for k2lean's own libraries and benchmarks (the gate, KEVM, KMIR), a fix goes into the generator or the prelude, never into a generated file.
-   A user's library is generated into the user's project, and the user, or an agent working for them, may edit its proofs there: that is where an optimization of one library lives.
+   The generator must reach the guarantees alone: for k2lean's own libraries and benchmarks (the gate, KEVM, KMIR), a fix goes into the generator or the prelude, never into a generated file, since those libraries measure the generator.
+   A user's library is generated into the user's project, and the loop edits its proofs there: that is where an optimization of one library lives.
+   When the K definition changes, the library is regenerated (a new evaluator and baseline) and the loop runs again.
    An optimization general enough to help every library is worth bringing back into the generator or the prelude.
 6. **Agents changing a library are assumed fallible, not malicious.**
+   The loop has to know mechanically what is frozen, because nobody reads each change; that is about making accept or reject automatic and catching an accidental edit of the evaluator, not about defending against an attacker.
    The checks are designed to catch mistakes:
    - the kernel;
    - the axiom guard;
@@ -78,9 +91,14 @@ Weigh the cost only when it lies in the specification layer, which cannot be opt
 | differential tests | evidence for the specification | the only check that the specification is the user's K |
 | the gate's hashes of generated files | guard on the specification and on the generated proofs | a moved hash is a change to explain |
 
-## 5. Open questions
+## 5. The output as a loop target
 
-- A user who edits the generated proofs (§3.5) has no mechanical check yet that the statements did not change with them: statements sit next to their proofs in the same generated files, so today it is a reviewer's reading.
-  Separating them would make it a check: a statements module compared with a fresh regeneration, and proof modules free to change.
-- Regenerating after the K definition changes overwrites the generated files, edited proofs included.
-  Keeping a user's proofs across a regeneration, and reporting which of them no longer prove the new statements, is the "incremental regeneration" item of the product notes.
+What makes a generated library a good target for the loop, and where k2lean stands (2026-10-28):
+
+| need | why the loop needs it | today |
+|---|---|---|
+| the frozen part delimited, with a cheap check that it did not move | accept or reject is automatic, and an edit that changes a statement by accident is rejected | statements sit next to their proofs in the same generated files; only an open obligation has a separate `def ….statement : Prop`. A statements module compared with a fresh regeneration (hash), with proof modules free, would give the check |
+| small search units | one experiment should rebuild one theorem or one function, not KEVM's whole `Equations`; iteration speed decides how much the loop explores | `Equations` is split into parts by weight (`gen --equations-part-weight`), and each proof has its own heartbeat budget; other modules (`Determinism`, relate's commutation lemmas) are one unit each |
+| a metric that does not depend on the machine's load | wall time on a shared, saturated host varies too much to compare two experiments | heartbeats count allocations and do not depend on load; they are measured per module by hand (`lean -j1 -DElab.async=false`, `design.md` §2.1), not per declaration, and no harness reports them |
+| a baseline that builds | the loop improves something that works; an open obligation is a slot to fill | every library builds with its open obligations listed (`open-obligations.txt`) |
+| a reference for each derived definition | a faster implementation is accepted by a proof that it equals the generated definition (`fast = spec`, `@[csimp]`) | the generated definitions are the references; `step` is tied to `Step` by `Adequacy` |
