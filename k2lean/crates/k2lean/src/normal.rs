@@ -330,14 +330,25 @@ premises say that no pattern of K applies assumes it of its variables (`normal.r
                 .iter()
                 .map(|(n, t)| format!(" ({n} : {t})"))
                 .collect();
-            let rules: Vec<String> = x
-                .rules
+            // the rules before this one do not apply at its pattern (two overload rules of one
+            // symbol can both match the representation, as SIMPLE's `_,_Exps` to `Ids` and to
+            // `Vals`, where an injection is a function of the leaf): hypotheses, as `fold_own`'s
+            let call = |r: usize| {
+                std::iter::once(format!("{}.rule{}", x.lean, r + 1))
+                    .chain(args.iter().cloned())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            let earlier: Vec<&usize> = x.rules.iter().filter(|r| *r < i).collect();
+            let hyps: String = earlier
                 .iter()
-                .map(|r| format!("{}.rule{}", x.lean, r + 1))
+                .enumerate()
+                .map(|(j, r)| format!(" (h{j} : ({}).isNone = true)", call(**r)))
                 .collect();
+            let hs: String = (0..earlier.len()).map(|j| format!("h{j}, ")).collect();
             writeln!(
                 o,
-                "/-- Overload rule {} of `{}`, from the value back to K's term. -/\ntheorem {}.fold_{}{bs} :\n    {} = {} {} := by\n  first\n  | rfl\n  | simp [{}, {}]\n",
+                "/-- Overload rule {} of `{}`, from the value back to K's term, where no earlier rule applies. -/\ntheorem {}.fold_{}{bs}{hyps} :\n    {} = {} {} := by\n  first\n  | rfl\n  | ((try simp only [Option.isNone_iff_eq_none] at *); unfold {}; simp [{hs}{}.rule{}])\n",
                 i + 1,
                 crate::names::demangle(&x.sym),
                 x.lean,
@@ -346,7 +357,8 @@ premises say that no pattern of K applies assumes it of its variables (`normal.r
                 x.lean,
                 args.join(" "),
                 x.lean,
-                rules.join(", ")
+                x.lean,
+                i + 1
             )
             .unwrap();
         }
