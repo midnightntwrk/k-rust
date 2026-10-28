@@ -1,0 +1,16 @@
+# claims translated by `k2lean claims` (generated)
+[[claim]]
+label = "IMPPLUS-SPEC.add"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMPPLUS-SPEC.add-both"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMPPLUS-SPEC.block"
+stated = true
+all_path = true
+
