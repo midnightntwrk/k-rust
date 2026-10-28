@@ -1919,102 +1919,389 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."import/cells/result/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/cells/result/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/cells/subject/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/cells/subject/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( V0:KItem ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/claim/result/Go()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/claim/result/Hold(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/claim/subject/Go()"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/claim/subject/Hold(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( V0:KItem ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/constant/value/Go()"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/equation/result/Go()"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( go ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/equation/result/Hold(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/equation/subject-depth-2/Go()"]
+k = """
+rule probe ( cTAG , hold ( go ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/equation/subject-depth-2/Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( hold ( V0:KItem ) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/equation/subject/Go()"]
+k = """
+rule probe ( cTAG , go ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/equation/subject/Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( V0:KItem ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/init/item-depth-2/Go()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( go ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
 
 [accept."import/init/item/Go()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( go ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
 
 [accept."import/local-rule/subject/Go()"]
+k = """
+rule cTAG ( (V0:KItem => go) , go ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/local-rule/subject/Hold(x)"]
+k = """
+rule cTAG ( (V0:KItem => go) , hold ( V0:KItem ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/list-element/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(go) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/list-element/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(hold ( V0:KItem )) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/map-key/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> go |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/map-key/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> hold ( V0:KItem ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/result-list-element/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(go) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/result-list-element/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(hold ( V0:KItem )) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/result/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/result/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/subject-depth-2/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( go ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/subject-depth-2/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( hold ( V0:KItem ) ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/subject/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/readable/subject/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( V0:KItem ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/rule/result/Go()"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( go ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/rule/result/Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/rule/subject-depth-2/Go()"]
+k = """
+rule cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/rule/subject-depth-2/Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( hold ( V0:KItem ) ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/rule/subject/Go()"]
+k = """
+rule cTAG ( V0:KItem , go ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/rule/subject/Hold(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/shorthand/result/Go()"]
+k = """
+rule fTAG ( V0:KItem ) => size ( go ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/shorthand/result/Hold(x)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( hold ( V0:KItem ) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/simplification/result/Go()"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( go ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/simplification/result/Hold(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( hold ( V0:KItem ) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/simplification/subject/Go()"]
+k = """
+rule probe ( cTAG , go ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/simplification/subject/Hold(x)"]
+k = """
+rule probe ( cTAG , hold ( V0:KItem ) ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."import/sort-rule/result/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( go ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/sort-rule/result/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( hold ( V0:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/sort-rule/subject-depth-2/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( go ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/sort-rule/subject-depth-2/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( hold ( V0:KItem ) ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/sort-rule/subject/Go()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , go ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/sort-rule/subject/Hold(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( V0:KItem ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."import/table/result/Go()"]
 k = """
