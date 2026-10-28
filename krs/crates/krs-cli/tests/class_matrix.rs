@@ -27,8 +27,9 @@
 //! - `KRS_CLASS_OUT`: a directory for one TSV line per case and the pending entries of every
 //!   deviation not yet recorded, `<shard>.tsv` and `<shard>.pending.toml`;
 //! - `KRS_CLASS_RECORD=1`: the record mode. Each accepted case that the table does not refuse
-//!   gets its K written into `expected.toml` (`[accept."ID"].k`, [`closure::case_k`]), its entry
-//!   created when the table has none; the K is reviewed as a diff, never written by hand.
+//!   gets its K written into `expected.toml`, or a term family's into `accepted-terms.toml`
+//!   (`[accept."ID"].k`, [`closure::case_k`]), its entry created when the table has none; the K is
+//!   reviewed as a diff, never written by hand.
 //!
 //! An accepted case that the table accepts must emit the K the table records, and the K of every
 //! case its `same_k_as` names (K3's documented equal spellings, keyed `k3/<case ID>` with the
@@ -55,7 +56,9 @@ use krs_test_support::class_matrix::invariants::{
 use krs_test_support::class_matrix::pending::{
     CLOSURE, FULL, Judgement, KEYS, LATTICE, Observation, Pending, case_of,
 };
-use krs_test_support::class_matrix::table::{Expected, Glob, Resolution, Table, TableError};
+use krs_test_support::class_matrix::table::{
+    Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, is_term_case,
+};
 use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
 use closure::{Closure, case_k};
@@ -79,8 +82,11 @@ struct Spec {
 fn spec() -> &'static Spec {
     static SPEC: OnceLock<Spec> = OnceLock::new();
     SPEC.get_or_init(|| {
-        let table = Table::parse(&read_class_matrix("expected.toml"))
-            .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+        let table = Table::parse_with_term_accepts(
+            &read_class_matrix("expected.toml"),
+            &read_class_matrix(TERM_ACCEPTS_FILE),
+        )
+        .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
         let pending = Pending::parse(&read_class_matrix("pending.toml"))
             .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
         Spec {
@@ -495,29 +501,37 @@ fn k3(
     shard.add("k3", &judged.id, signature, misses);
 }
 
-/// Write `recorded`, accepted cases' K by ID, into `expected.toml`: each case's `k`, its entry
-/// created when the table has none, every other entry and key kept.
+/// Write `recorded`, accepted cases' K by ID, into the table: a term family's case into
+/// [`TERM_ACCEPTS_FILE`], any other into `expected.toml`; each case's `k`, its entry created when
+/// the file has none, every other entry and key kept.
 fn record(recorded: &BTreeMap<String, String>) {
-    let path = class_matrix_path("expected.toml");
-    let text = std::fs::read_to_string(&path).expect("expected.toml is read");
-    let mut document = text
-        .parse::<toml_edit::DocumentMut>()
-        .expect("expected.toml parses");
-    let accept = document
-        .entry("accept")
-        .or_insert_with(toml_edit::table)
-        .as_table_mut()
-        .expect("[accept] is a table");
-    for (id, k) in recorded {
-        let entry = accept
-            .entry(id)
+    let (terms, others): (BTreeMap<_, _>, BTreeMap<_, _>) =
+        recorded.iter().partition(|(id, _)| is_term_case(id));
+    for (file, recorded) in [(TERM_ACCEPTS_FILE, terms), ("expected.toml", others)] {
+        if recorded.is_empty() {
+            continue;
+        }
+        let path = class_matrix_path(file);
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("{file} is read"));
+        let mut document = text
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap_or_else(|_| panic!("{file} parses"));
+        let accept = document
+            .entry("accept")
             .or_insert_with(toml_edit::table)
             .as_table_mut()
-            .expect("an accept entry is a table");
-        entry.insert("k", toml_edit::value(k.as_str()));
+            .expect("[accept] is a table");
+        for (id, k) in recorded {
+            let entry = accept
+                .entry(id)
+                .or_insert_with(toml_edit::table)
+                .as_table_mut()
+                .expect("an accept entry is a table");
+            entry.insert("k", toml_edit::value(k.as_str()));
+        }
+        accept.sort_values();
+        std::fs::write(&path, document.to_string()).unwrap_or_else(|_| panic!("{file} is written"));
     }
-    accept.sort_values();
-    std::fs::write(&path, document.to_string()).expect("expected.toml is written");
 }
 
 /// K1 over the collected bundle and after lowering: every anchor of the case's descriptors lies

@@ -15,6 +15,12 @@
 //!    --record`) and reviewed as a diff, never by hand; an entry without `k` is a case that should
 //!    be accepted and is refused today, whose K is recorded once it is accepted.
 //!
+//! The term families' accept entries (`terms/..`, `import/..`) live in a file of their own,
+//! `krs/tests/class-matrix/accepted-terms.toml` ([`TERM_ACCEPTS_FILE`]), which holds only
+//! `[accept."ID"]` entries of those families, in the schema of part 3: they are most of the
+//! table, written by the record mode, and apart they leave `expected.toml` readable.
+//! [`Table::parse_with_term_accepts`] reads both as one table.
+//!
 //! Which codes never answer an author mistake is the registry's kind (`krs_diagnostic::codes::
 //! CodeKind`), not the table's.
 //!
@@ -62,6 +68,15 @@ use toml_edit::{DocumentMut, Item, Table as TomlTable};
 
 use super::oracle::{Class as OracleClass, Outcome, Stage};
 use super::{Case, Placed};
+
+/// The file beside `expected.toml` that holds the term families' accept entries.
+pub const TERM_ACCEPTS_FILE: &str = "accepted-terms.toml";
+
+/// Whether `id` is a case of the term families, whose accept entries [`TERM_ACCEPTS_FILE`] holds.
+#[must_use]
+pub fn is_term_case(id: &str) -> bool {
+    id.starts_with("terms/") || id.starts_with("import/")
+}
 
 /// The range a refusal's error must lie inside.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -372,6 +387,49 @@ impl Table {
                     reason,
                 });
             }
+        }
+        if errors.is_empty() {
+            Ok(table)
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Parse `expected.toml`'s text and [`TERM_ACCEPTS_FILE`]'s as one table.
+    ///
+    /// # Errors
+    ///
+    /// Returns every error of either text, an accept entry of the second that is no term case or
+    /// a part other than `accept`, and an accept entry both name.
+    pub fn parse_with_term_accepts(
+        text: &str,
+        term_accepts: &str,
+    ) -> Result<Self, Vec<TableError>> {
+        let mut errors = Vec::new();
+        let mut table = Self::parse(text).unwrap_or_else(|found| {
+            errors.extend(found);
+            Self::default()
+        });
+        match Self::parse(term_accepts) {
+            Ok(terms) => {
+                if !terms.classes.is_empty() || !terms.refuse.is_empty() {
+                    errors.push(schema(format!(
+                        "{TERM_ACCEPTS_FILE} holds parts other than accept entries"
+                    )));
+                }
+                for (id, accepted) in terms.accept {
+                    if !is_term_case(&id) {
+                        errors.push(schema(format!(
+                            "{TERM_ACCEPTS_FILE} accepts {id:?}, which is no term case"
+                        )));
+                    } else if table.accept.insert(id.clone(), accepted).is_some() {
+                        errors.push(schema(format!(
+                            "{id:?} is accepted in expected.toml and {TERM_ACCEPTS_FILE}"
+                        )));
+                    }
+                }
+            }
+            Err(found) => errors.extend(found),
         }
         if errors.is_empty() {
             Ok(table)

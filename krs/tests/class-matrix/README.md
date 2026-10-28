@@ -15,14 +15,43 @@ construct means something and which mistake it is elsewhere. The precedence for 
 1. a refusal the oracle tells from the spelling and its position decides;
 2. otherwise the most specific refusal rule of `expected.toml` decides: the rules left for these
    families name a term's sort and names (`condition-sort`, `let-sort`, `unbound-name`,
-   `record-update-base`);
+   `record-update-base`, `binder-sort`, `list-notation-sort`, `matches-pattern-binder`, ..), never
+   its position;
 3. otherwise a refusal the oracle tells by what a path resolves to or an operand's sort decides
    (a function in a pattern, a predicate as an operand), since a name or sort mistake is met first;
 4. otherwise the case is accepted, with the K its accept entry records.
 
+The term family's positions (`class_matrix::terms`) are of three kinds, each a path of openings
+from a slot's root, so a case's position is data the oracle reads, never parsed from its ID:
+
+- the argument positions of the 17 sentence forms (`terms/rule/subject/..`);
+- the slots' roots: a fn's, an equation's, a simplification's, a context's and a static clause's
+  whole subject, a `for KItem` clause's bare and in `k::term!` (`terms/sort-rule/subject-root-term/..`),
+  a result's, a constant's and a computation item's (`terms/readable/item-root/..`);
+- depth 2, a construct inside a position another construct opens, at one host per kind (matched,
+  evaluated, built, guard): `terms/sort-rule/result/let-body/Size(x)` is `Size(x)` as a `let`
+  block's result in a `for Stmt` clause's result.
+
+A map key reads by its parent (decision D2): a key of a map in a pattern is evaluated, and a
+pattern-only construct there selects an entry by matching the map's evaluated keys while a computed
+one is looked up; a key of a map that is built is built. A position keeps every collection entry it
+lies in (D4). The catalog covers every construct of the product's table, every notation form, and
+the collection forms; `cargo test -p krs-test-support --test positions` fails, naming what is
+missing, when a form of the table has no position, a slot of a form no root or argument case (but
+the listed exceptions), or a construct, notation form or builtin operator no spelling.
+
 The oracle is written independently of the product's position table (`krs_syntax::positions`),
 which is written per position; `cargo test -p krs-test-support --test positions` compares the two
 on every term case, and a case they disagree on must be pending.
+
+A refusal of the oracle lies at the spelling, or at the entry (the outer construct's text) when the
+refused construct is the one a depth-2 case's construct stands in.
+
+**Size.** The term family is about 4,300 cases and the import axis about 150, of 5,279 in all; the
+generator caps the total at `FRONT_CASE_CAP` (6,000), whose documentation argues the fast tier's
+budget (7.5 ms a case single-threaded). The full tier's `terms` shard takes about 4 minutes with 22
+workers. `expected.toml` keeps the term family's accept entries with the others: one file stays one
+schema, and the entries are written by the record mode, never by hand.
 
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:

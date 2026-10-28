@@ -808,6 +808,406 @@ finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ spelling"
 step = "S5"
 
+["terms/readable/map-key/[x, ..]"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["terms/readable/map-key/as-body/!(x < 1)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/\"s\""]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/-(x + 1)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/-1"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/1"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/1.5"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/Cmd::Go"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/Cmd::Go()"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/Cmd::Hold(x)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/Cmd::Pair { a: x, .. }"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/Cmd::Pair { a: x, ..x }"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/Size(x)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/Wrap::<KItem>(x)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/[x, ..]"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/_"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::anonymous!(Int, \"_V\")"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::builtin::int::add(1, 2)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::builtin::int::add(x, 1)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::builtin::set::item(x)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::bytes!(b\"ab\")"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::id!(\"$x\")"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::is!(Int, x)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::lexeme!(Word, \"word\")"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::map![x -> 1]"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::or_bool!(true, false)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::project!(Int, x)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/k::rewrite!(_ => 1)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/map![x -> 1]"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/true"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/x"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/x & 1"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/x && true"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/x + 1"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/x < 1"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/x << 1"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/x == 1"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/x || true"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/x.add::<Int>(1)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/y @ Cmd::Hold(_)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/{ let y = x; y }"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/as-body/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/!(x < 1)"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-expression-notation @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/\"s\""]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-expression-notation @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/-(x + 1)"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/-1"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/1"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/1.5"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-expression-notation @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/Cmd::Go"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/Cmd::Go()"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-14"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S5"
+
+["terms/readable/map-key/or-branch/Cmd::Hold(x)"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/Cmd::Pair { a: x, .. }"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/Size(x)"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/Wrap::<KItem>(x)"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/[x, ..]"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["terms/readable/map-key/or-branch/_"]
+finding = "S0-14"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S5"
+
+["terms/readable/map-key/or-branch/k::builtin::int::add(1, 2)"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/k::builtin::int::add(x, 1)"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/k::builtin::set::item(x)"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/k::bytes!(b\"ab\")"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/k::id!(\"$x\")"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/k::lexeme!(Word, \"word\")"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/true"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-expression-notation @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x & 1"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x && true"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-expression-notation @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x + 1"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x < 1"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x << 1"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x == 1"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x || true"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-expression-notation @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/x.add::<Int>(1)"]
+finding = "S0-14"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/or-branch/y @ Cmd::Hold(_)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
 # S0-15: `job: []`, a List collection with no instance, is refused in a subject ("names no instance"), though the reference documents it
 
 ["claim/subject/job/[]"]
@@ -861,6 +1261,356 @@ deviation = "printed surface refused: krs::expand::matches-outside-condition @ i
 step = "S6"
 
 ["k3/terms/sort-rule/result/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/readable/result-item-root/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/readable/result-item-root/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result-root/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result-root/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/function-argument/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/function-argument/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/!(x < 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/\"s\""]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/-(x + 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/-1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/1.5"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/Cmd::Go"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/Cmd::Go()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/Cmd::Hold(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/Size(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::builtin::int::add(1, 2)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::builtin::int::add(x, 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::builtin::set::item(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::bytes!(b\"ab\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::id!(\"$x\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::is!(Int, x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::lexeme!(Word, \"word\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/k::project!(Int, x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x & 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x && true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x + 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x < 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x << 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x == 1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x || true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/x.add::<Int>(1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-body/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/\"s\""]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/1.5"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/Cmd::Go"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/Cmd::Go()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/Cmd::Hold(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/Cmd::Pair { a: x, .. }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/Size(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/_"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/k::builtin::int::add(1, 2)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/k::builtin::int::add(x, 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/k::builtin::set::item(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/k::bytes!(b\"ab\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/k::id!(\"$x\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/k::lexeme!(Word, \"word\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/let-pattern/x"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/\"s\""]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/-1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/1"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/1.5"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/Cmd::Go"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/Cmd::Go()"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/k::builtin::int::add(1, 2)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/k::bytes!(b\"ab\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/k::id!(\"$x\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/k::lexeme!(Word, \"word\")"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/matches-pattern/true"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/update-field/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/update-field/{ let y = x; y }"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
@@ -1459,6 +2209,8 @@ step = "S4"
 # whatever construct computes it. So the oracle accepts these keys; a `let` pattern's own alias and
 # alternatives, and an update's base that is no matched record's alias, are refused by their own
 # rules. NT-F1 (P5) owns how a key is read.
+# NT-2 finds the same reading at every position below a readable key (a `let` pattern and body, a
+# `k::matches!` pattern, a record update's field, a function's argument) and at a `cells!` map's key.
 
 ["terms/readable/map-key/Cmd::Pair { a: x, ..x }"]
 finding = "NT-1-1"
@@ -1488,6 +2240,590 @@ deviation = "krs::expand::let-outside-term @ spelling"
 finding = "NT-1-1"
 deviation = "krs::expand::let-outside-term @ spelling"
 
+["terms/cells/map-key/k::is!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/cells/map-key/k::project!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/readable/map-key/function-argument/Cmd::Pair { a: x, ..x }"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ spelling"
+
+["terms/readable/map-key/function-argument/k::is!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/readable/map-key/function-argument/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/readable/map-key/function-argument/k::project!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/readable/map-key/function-argument/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/map-key/function-argument/{ let y = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/map-key/function-argument/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/map-key/let-body/!(x < 1)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/\"s\""]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/-(x + 1)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/-1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/1.5"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/Cmd::Go"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/Cmd::Go()"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/Cmd::Hold(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/Cmd::Pair { a: x, .. }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/Cmd::Pair { a: x, ..x }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/Size(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/Wrap::<KItem>(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::anonymous!(Int, \"_V\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::builtin::int::add(1, 2)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::builtin::int::add(x, 1)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::builtin::set::item(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::bytes!(b\"ab\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::id!(\"$x\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::is!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::lexeme!(Word, \"word\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::or_bool!(true, false)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::project!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/k::rewrite!(_ => 1)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/true"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/x"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/x & 1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/x && true"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/x + 1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/x < 1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/x << 1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/x == 1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/x || true"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/x.add::<Int>(1)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/{ let y = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-body/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/\"s\""]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/-1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/1"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/1.5"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/Cmd::Go"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/Cmd::Go()"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/Cmd::Hold(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/Cmd::Pair { a: x, .. }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/Size(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/Wrap::<KItem>(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/[x, ..]"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/_"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::anonymous!(Int, \"_V\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::builtin::int::add(1, 2)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::builtin::int::add(x, 1)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::builtin::set::item(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::bytes!(b\"ab\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::id!(\"$x\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::is!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::lexeme!(Word, \"word\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::or_bool!(true, false)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::project!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/k::rewrite!(_ => 1)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/true"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/x"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/let-pattern/y @ Cmd::Hold(_)"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["terms/readable/map-key/matches-pattern/\"s\""]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/-1"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/1"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/1.5"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/Cmd::Go"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/Cmd::Go()"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/Cmd::Hold(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/Cmd::Pair { a: x, .. }"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/Size(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/Wrap::<KItem>(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/[x, ..]"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/_"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::anonymous!(Int, \"_V\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::builtin::int::add(1, 2)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::builtin::int::add(x, 1)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::builtin::set::item(x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::bytes!(b\"ab\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::id!(\"$x\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::is!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::lexeme!(Word, \"word\")"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::or_bool!(true, false)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::project!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/k::rewrite!(_ => 1)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/true"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/x"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/matches-pattern/y @ Cmd::Hold(_)"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["terms/readable/map-key/update-field/!(x < 1)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/\"s\""]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/-(x + 1)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/-1"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/1"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/1.5"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/Cmd::Go"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/Cmd::Go()"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/Cmd::Hold(x)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/Cmd::Pair { a: x, .. }"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/Cmd::Pair { a: x, ..x }"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/Size(x)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/Wrap::<KItem>(x)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::anonymous!(Int, \"_V\")"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::builtin::int::add(1, 2)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::builtin::int::add(x, 1)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::builtin::set::item(x)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::bytes!(b\"ab\")"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::id!(\"$x\")"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::is!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::lexeme!(Word, \"word\")"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::or_bool!(true, false)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::project!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/k::rewrite!(_ => 1)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/true"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/x"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/x & 1"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/x && true"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/x + 1"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/x < 1"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/x << 1"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/x == 1"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/x || true"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/x.add::<Int>(1)"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/{ let y = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
+["terms/readable/map-key/update-field/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ entry"
+
 # NT-1-2: a function application in a List cell's element in a readable subject is accepted and
 # emitted as matched (`<stack> ListItem(size ( V0:KItem )) ... </stack>`), so the rule never applies:
 # the list holds evaluated values. An element of a list in a pattern is matched as any argument is,
@@ -1501,12 +2837,26 @@ deviation = "accepted"
 finding = "NT-1-2"
 deviation = "accepted"
 
+["terms/cells/map-value/Size(x)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+["terms/cells/map-value/k::builtin::int::add(1, 2)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+["terms/readable/list-element/k::builtin::int::add(x, 1)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
 # NT-1-3: a claim's and a simplification's subject refuse `k::is!` and `k::project!`, though they admit a function application
 # A sort test lowers to an application of the sort's generated predicate or projection
 # (`isInt(X)`), so it means there what an application means. A claim's start state and a
 # simplification's left side hold unevaluated applications, which is why both admit `Size(x)`
 # there; by the same reading they admit a sort test. Only a pattern over evaluated terms (a rule's
 # or an equation's) never meets one.
+# NT-2 finds the same refusal in a static clause's subject (which expands terms as written), a
+# `cells!` claim's subject and a readable claim's computation item.
 
 ["terms/claim/subject/k::is!(Int, x)"]
 finding = "NT-1-3"
@@ -1524,13 +2874,1762 @@ deviation = "krs::analysis::invalid-sort-test @ spelling"
 finding = "NT-1-3"
 deviation = "krs::analysis::invalid-sort-test @ spelling"
 
-# Unassigned: a `cells!` subject alias `y @ Cmd::Hold(_)` whose binder is declared at the sort of
-# the position it fills (`y: KItem`, above the pattern's `Stmt`) reaches the IR validator's internal
-# "an `alias @ pattern` (#as) node's sort is not its alias variable's, or its pattern's sort does
-# not inject into it"; declared `y: Stmt`, the case is accepted. A declared binder sort above the
-# pattern's is legal, so this is a lowering bug, not the author's: the #as node is not injected
-# into its variable's sort (a cousin of N27's sort equality). No finding or step owns it yet.
+["terms/alias/subject/k::is!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/alias/subject/k::project!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/cells-claim/item-root/k::is!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/cells-claim/item-root/k::project!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/cells-claim/subject/k::is!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/cells-claim/subject/k::project!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/claim/item-root/k::is!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/claim/item-root/k::project!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/desugar/subject/k::is!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/desugar/subject/k::project!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+# NT-2-1: a function application in a `let` pattern or a `k::matches!` pattern is accepted (NT-F2)
+# A local pattern matches the value its `let` or `k::matches!` computed, an evaluated term, so an
+# application there describes a term that never occurs and the pattern never matches. The table
+# applies the function rule only to a form's subject. Probe: `{ let k::builtin::int::add(1, 2) = x; x }`
+# in a `for Stmt` result. Plan: NT-3 (NT-F2).
+
+["terms/rule/guard/let-pattern/Size(x)"]
+finding = "NT-2-1"
+deviation = "accepted"
+
+["terms/rule/guard/let-pattern/k::builtin::int::add(1, 2)"]
+finding = "NT-2-1"
+deviation = "accepted"
+
+["terms/rule/guard/let-pattern/k::builtin::int::add(x, 1)"]
+finding = "NT-2-1"
+deviation = "accepted"
+
+["terms/rule/guard/matches-pattern/k::builtin::int::add(1, 2)"]
+finding = "NT-2-1"
+deviation = "accepted"
+
+["terms/sort-rule/result/let-pattern/Size(x)"]
+finding = "NT-2-1"
+deviation = "accepted"
+
+["terms/sort-rule/result/let-pattern/k::builtin::int::add(1, 2)"]
+finding = "NT-2-1"
+deviation = "accepted"
+
+["terms/sort-rule/result/let-pattern/k::builtin::int::add(x, 1)"]
+finding = "NT-2-1"
+deviation = "accepted"
+
+["terms/sort-rule/result/matches-pattern/k::builtin::int::add(1, 2)"]
+finding = "NT-2-1"
+deviation = "accepted"
+
+# NT-2-2: an open record in a computed map key's argument is accepted (D2)
+# A key that applies a function is computed and looked up, so the function's arguments are built
+# terms, where `..` names no value for the fields it leaves open. The product reads every position
+# below a key as the key's pattern. Probe: `{ Size(Cmd::Pair { a: x, .. }) -> v, .. }`. Plan: NT-3.
+
+["terms/readable/map-key/function-argument/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-2"
+deviation = "accepted"
+
+# NT-2-3: a function application in a context's or a context alias's subject is accepted
+# A context's pattern says where in the computation evaluation may happen; it is matched against
+# the configuration the rules reached, whose functions are evaluated, so an application there never
+# matches and the context never applies. The table's function rule leaves out contexts. Probe:
+# `#[k::context(hole = h)] fn c(k::term![Cmd::NAME(h, x, Size(x))]: Term<Stmt>) {}`. Plan: NT-3.
+
+["terms/context-alias/item-root/Size(x)"]
+finding = "NT-2-3"
+deviation = "accepted"
+
+["terms/context-alias/item-root/k::builtin::int::add(1, 2)"]
+finding = "NT-2-3"
+deviation = "accepted"
+
+["terms/context-alias/subject/Size(x)"]
+finding = "NT-2-3"
+deviation = "accepted"
+
+["terms/context-alias/subject/k::builtin::int::add(1, 2)"]
+finding = "NT-2-3"
+deviation = "accepted"
+
+["terms/context/subject-root/Size(x)"]
+finding = "NT-2-3"
+deviation = "accepted"
+
+["terms/context/subject-root/k::builtin::int::add(x, 1)"]
+finding = "NT-2-3"
+deviation = "accepted"
+
+["terms/context/subject/Size(x)"]
+finding = "NT-2-3"
+deviation = "accepted"
+
+["terms/context/subject/k::builtin::int::add(1, 2)"]
+finding = "NT-2-3"
+deviation = "accepted"
+
+["terms/context/subject/k::builtin::int::add(x, 1)"]
+finding = "NT-2-3"
+deviation = "accepted"
+
+# NT-2-4: an open record in a built term or a `cells!` value is admitted and fails in lowering with an internal descriptor message
+# `Ctor { f: e, .. }` leaves the unlisted fields open, which only a pattern can: a result or a
+# condition has no value for them, and a `cells!` term names every field. The table admits it outside
+# a pattern and a `cells!` value, and lowering reports `krs::analysis::invalid-term` "application
+# expects 2 arguments but received 1", a descriptor message, also in a `cells!` value, where the
+# table's own class is `record-remainder-in-cells-term`. Probe: `Cmd::Hold(Cmd::Pair { a: x, .. })` in
+# a rule's result. Plan: new.
+
+["terms/alias/result-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/alias/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/cells-claim/guard/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/cells-claim/guard/closure-body/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-ml-predicate @ spelling"
+
+["terms/cells-claim/result-item-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/cells-claim/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/cells/result-item-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/cells/result-map-key/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/cells/result-map-value/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/cells/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/claim/result-item-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/claim/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/context/guard/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/desugar/result-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/desugar/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/equation/guard/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/equation/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/local-rule/subject/rewrite-right/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/readable/guard/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/readable/result-item-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/readable/result-list-element/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/readable/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/rule/guard/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/rule/guard/closure-body/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::ml-placement @ entry"
+
+["terms/rule/guard/let-body/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/rule/result-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/rule/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/shorthand/result-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/shorthand/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/simplification/result-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/simplification/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/sort-rule/result-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/sort-rule/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/sort-rule/result/function-argument/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/sort-rule/result/let-body/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/sort-rule/result/update-field/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/table/result/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+# NT-2-5: a notation form in a `cells!` map key is refused as a pattern (P5)
+# A key in a pattern is computed and looked up when it is computed, so `x + 1` there denotes the
+# call it is notation for, which the key admits. The readable key `{ x + 1 -> v, .. }` is accepted;
+# the `cells!` key `k::map![x + 1 -> v, ..]` is refused with `invalid-expression-notation`. Probe:
+# `terms/cells/map-key/x + 1`. Plan: NT-3 (P5).
+
+["terms/cells/map-key/!(x < 1)"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/cells/map-key/-(x + 1)"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/cells/map-key/x & 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/cells/map-key/x && true"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/cells/map-key/x + 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/cells/map-key/x < 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/cells/map-key/x << 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/cells/map-key/x == 1"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/cells/map-key/x || true"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/cells/map-key/x.add::<Int>(1)"]
+finding = "NT-2-5"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+# NT-2-6: a construct no Rust pattern or expression spells, nested below a slot's root, is the parser's syntax error rather than its class
+# Where a pattern is parsed below a subject's root (a `let` or `k::matches!` pattern, a rewrite's
+# left side, an alias's body, a list element, a computation item) a notation form, a `let` block, a
+# predicate or a record update is reported as `krs::syntax::rust-syntax` ("expected `,`") or
+# `krs::syntax::invalid-state-macro`, and where an expression is parsed (a `let` body, a closure's
+# body, a record update's field) `y @ P` is too; at the slot's root each answers with its class's
+# code. The class says what the construct means where it stands, which "expected `,`" does not. Probe:
+# `k::matches!(x, x + 1)` in a rule's condition. Plan: new (diagnostics).
+
+["terms/cells-claim/guard/closure-body/y @ Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/cells-claim/item-root/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells-claim/item-root/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells-claim/item-root/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells-claim/item-root/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells-claim/item-root/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells-claim/item-root/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells-claim/item-root/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells-claim/item-root/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells/item-root/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells/item-root/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells/item-root/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells/item-root/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells/item-root/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells/item-root/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells/item-root/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells/item-root/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/cells/map-value/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/cells/map-value/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/cells/map-value/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/cells/map-value/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/cells/map-value/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/cells/map-value/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/cells/map-value/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/cells/map-value/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/claim/item-root/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/claim/item-root/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/claim/item-root/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/claim/item-root/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/claim/item-root/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/claim/item-root/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/claim/item-root/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/claim/item-root/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/context-alias/item-root/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/context-alias/item-root/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/context-alias/item-root/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/context-alias/item-root/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/context-alias/item-root/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/context-alias/item-root/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/context-alias/item-root/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/context-alias/item-root/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["terms/local-rule/subject/rewrite-left/!(x < 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/-(x + 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/{ let y = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-left/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/local-rule/subject/rewrite-right/y @ Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/item-root/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/item-root/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/item-root/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/item-root/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/item-root/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/item-root/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/item-root/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/item-root/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/list-element/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/list-element/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/list-element/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/list-element/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/list-element/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/list-element/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/list-element/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/list-element/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/function-argument/y @ Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-body/y @ Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/!(x < 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/-(x + 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/{ let y = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/let-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/!(x < 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/-(x + 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/{ let y = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/matches-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/map-key/update-field/y @ Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/closure-body/y @ Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-body/y @ Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/!(x < 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/-(x + 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/{ let y = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/let-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/!(x < 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/-(x + 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/{ let y = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/guard/matches-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/!(x < 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/-(x + 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/{ let y = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/rule/subject/as-body/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-body/y @ Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/!(x < 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/-(x + 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/{ let y = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/let-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/!(x < 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/-(x + 1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/{ let y = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/matches-pattern/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/result/update-field/y @ Cmd::Hold(_)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["terms/sort-rule/subject-root/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/subject-root/{ let y = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/sort-rule/subject-root/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+# NT-2-7: `_` where no production field gives it a sort is the descriptor validator's internal message
+# `k::matches!(x, _)` and a `cells!` computation item `KCell(_, ..)` (also the `cells!` rule `krs
+# expand` prints for the readable `{ k: [_, ..] }`) report `krs::analysis::invalid-term` "wildcard has
+# no expected production-field sort": `_` matches any term, which the readable item and a constructor's
+# field accept. Probe: `terms/cells/item-root/_`. Plan: new.
+
+["k3/terms/claim/item-root/_"]
+finding = "NT-2-7"
+deviation = "printed surface refused: krs::analysis::invalid-term @ item"
+
+["k3/terms/readable/item-root/_"]
+finding = "NT-2-7"
+deviation = "printed surface refused: krs::analysis::invalid-term @ item"
+
+["terms/cells-claim/item-root/_"]
+finding = "NT-2-7"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/cells/item-root/_"]
+finding = "NT-2-7"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/context-alias/item-root/_"]
+finding = "NT-2-7"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/rule/guard/matches-pattern/_"]
+finding = "NT-2-7"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/sort-rule/result/matches-pattern/_"]
+finding = "NT-2-7"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+# NT-2-8: the `for Sort` clause's `k::term![..]` wrapper reads its root unlike the bare root (NT-F3)
+# The wrapper is optional, so `k::term![x]` must bind the whole subject as the bare `x` does; it is
+# `unbound-name`, and `k::term![y @ P]` is refused as an alias of the whole subject though the bare
+# root admits it. Probe: `terms/sort-rule/subject-root-term/x`. Plan: NT-4 (NT-F3, D4).
+
+["terms/sort-rule/subject-root-term/x"]
+finding = "NT-2-8"
+deviation = "krs::expand::unbound-name @ spelling"
+
+["terms/sort-rule/subject-root-term/y @ Cmd::Hold(_)"]
+finding = "NT-2-8"
+deviation = "krs::syntax::invalid-pattern-as @ spelling"
+
+# NT-2-9: `_` at a `for Sort` clause's root is refused, though a bare name there binds the whole subject
+# At a clause's root a bare name stands for any term of the clause's sort, so `_`, a name nothing
+# reads, means the same. The fn subject's refusal (D3) rests on the clause form saying "any term";
+# the clause itself refuses it, bare and in `k::term!`. Probe: `terms/sort-rule/subject-root/_`. Plan:
+# NT-4 (D3's counterpart).
+
+["terms/sort-rule/subject-root-term/_"]
+finding = "NT-2-9"
+deviation = "krs::syntax::unsupported-rule-pattern @ spelling"
+
+["terms/sort-rule/subject-root/_"]
+finding = "NT-2-9"
+deviation = "krs::syntax::unsupported-rule-pattern @ spelling"
+
+# NT-2-10: a static clause rooted at no marked production is refused at the clause's name, not at the root
+# A desugar or alias clause's root is the production it expands; a root that is none is the root's
+# mistake, and the error lies on the fn's name. Probe: `terms/desugar/subject-root/Cmd::Hold(x)`. Plan:
+# NT-4.
+
+["import/alias/subject-root/Go()"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["import/alias/subject-root/Hold(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["import/desugar/subject-root/Go()"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["import/desugar/subject-root/Hold(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/\"s\""]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/-1"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/1"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/1.5"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/Cmd::Go"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/Cmd::Go()"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/Cmd::Hold(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/Size(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/k::builtin::int::add(1, 2)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/k::builtin::int::add(x, 1)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/k::builtin::set::item(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/alias/subject-root/true"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/\"s\""]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/-1"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/1"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/1.5"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/Cmd::Go"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/Cmd::Go()"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/Cmd::Hold(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/Size(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/k::builtin::int::add(1, 2)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/k::builtin::int::add(x, 1)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/k::builtin::set::item(x)"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+["terms/desugar/subject-root/true"]
+finding = "NT-2-10"
+deviation = "krs::analysis::invalid-static-clause @ item"
+
+# NT-2-11: constructor alternatives at an equation's root are refused as alternatives of different functions
+# `Cmd::Go() | Cmd::Hold(_)` as an equation's whole subject applies no function at all, which is the
+# root's mistake (`equation-root-not-function`); the product reports "this alternative applies `Hold`
+# and the first applies `Go`" (`invalid-pattern-or`). Probe:
+# `terms/equation/subject-root/Cmd::Go() | Cmd::Hold(_)`. Plan: NT-4.
+
+["terms/equation/subject-root/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-11"
+deviation = "krs::analysis::invalid-pattern-or @ spelling"
+
+# NT-2-12: a simplification rooted at `set::item` is refused with no location
+# `k::builtin::set::item(x)`, a set's element constructor, roots no function, which the root's
+# class says at the root; the product reports `invalid-semantic-theory` unlocated. Probe:
+# `terms/simplification/subject-root/k::builtin::set::item(x)`. Plan: NT-4.
+
+["terms/simplification/subject-root/k::builtin::set::item(x)"]
+finding = "NT-2-12"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+
+# NT-2-13: a `cells!` or context subject's alias whose binder is declared at the position's sort reaches the IR validator's internal `#as` sort error
+# A subject alias `y @ Cmd::Hold(_)` declared `y: KItem` (the sort of the position it fills, above the
+# pattern's `Stmt`) reaches "an `alias @ pattern` (#as) node's sort is not its alias variable's"; a
+# declared binder sort above the pattern's is legal, so the #as node is not injected into its
+# variable's sort. Formerly the unassigned entry `terms/cells/subject/y @ Cmd::Hold(_)`; NT-2 finds it
+# at every `cells!` and context subject position. Probe: `terms/cells/subject/y @ Cmd::Hold(_)`. Plan:
+# new.
+
+["terms/cells-claim/item-root/y @ Cmd::Hold(_)"]
+finding = "NT-2-13"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+
+["terms/cells-claim/subject/y @ Cmd::Hold(_)"]
+finding = "NT-2-13"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+
+["terms/cells/item-root/y @ Cmd::Hold(_)"]
+finding = "NT-2-13"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+
+["terms/cells/map-key/y @ Cmd::Hold(_)"]
+finding = "NT-2-13"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+
+["terms/cells/map-value/y @ Cmd::Hold(_)"]
+finding = "NT-2-13"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 
 ["terms/cells/subject/y @ Cmd::Hold(_)"]
-finding = "unassigned"
+finding = "NT-2-13"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+
+["terms/context/subject/y @ Cmd::Hold(_)"]
+finding = "NT-2-13"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+
+# NT-2-14: a static clause whose body rustc cannot parse leaves its production's marker orphaned
+# `y @ Cmd::Hold(_)` in a desugar or alias result is rustc's parse error, beside which KRS must
+# answer with the construct's class; the clause's attribute never runs, so the marked production
+# reports `krs::expand::orphan-helper` at the declaration instead. Probe:
+# `terms/desugar/result/y @ Cmd::Hold(_)`. Plan: new.
+
+["terms/alias/result-root/y @ Cmd::Hold(_)"]
+finding = "NT-2-14"
+deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
+
+["terms/alias/result/y @ Cmd::Hold(_)"]
+finding = "NT-2-14"
+deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
+
+["terms/desugar/result-root/y @ Cmd::Hold(_)"]
+finding = "NT-2-14"
+deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
+
+["terms/desugar/result/y @ Cmd::Hold(_)"]
+finding = "NT-2-14"
+deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
+
+# NT-2-15: `krs expand` panics on a readable map read whose value is `_`
+# `{ x -> _, .. }` is accepted, and printing it panics in `krs-compiler/src/reference.rs`
+# (`r#_` cannot be a raw identifier): the printer makes a binder of `_`. Probe:
+# `k3/terms/readable/map-value/_`. Plan: new.
+
+["k3/terms/readable/map-value/_"]
+finding = "NT-2-15"
+deviation = "printed surface refused: krs expand panicked"
+
+# NT-2-16: `krs expand` refuses a turbofish written in a `k::rules!`, `k::claims!` or `k::equations!` block
+# `Wrap::<KItem>(x)` in a readable record, claim or `for Stmt` clause, and `Wrap::<dyn KItemSort>(x)`
+# in a table row, are accepted, and printing them fails with `krs::reference::external-declaration`
+# (unlocated). Probe: `k3/terms/readable/subject/Wrap::<KItem>(x)`.
+# Plan: new.
+
+["k3/terms/claim/item-root/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/claim/result-item-root/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/claim/result/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/claim/subject/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/item-root/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/list-element/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/map-key/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/map-key/function-argument/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/result-item-root/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/result-list-element/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/result/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/subject-depth-2/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/subject/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/result-root/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/result/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/result/function-argument/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/result/let-body/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/result/let-pattern/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/result/update-field/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/subject-depth-2/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/subject-root-term/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/subject-root/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/sort-rule/subject/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/table/result/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/table/subject-depth-2/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/table/subject/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+# NT-2-17: a context alias's subject reports `missing-provenance-key` for islands, alternatives, an alias and a turbofish
+# A context alias's pattern admits these as any `cells!` subject does; the product reports
+# `krs::expand::missing-provenance-key` "this node holds no provenance key from its sentence's parse".
+# Probe: `terms/context-alias/subject/k::bytes!(b"ab")`. Plan: new.
+
+["terms/context-alias/item-root/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/item-root/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/item-root/k::bytes!(b\"ab\")"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/item-root/k::id!(\"$x\")"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/item-root/k::lexeme!(Word, \"word\")"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/item-root/y @ Cmd::Hold(_)"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/subject/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/subject/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/subject/k::bytes!(b\"ab\")"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/subject/k::id!(\"$x\")"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/subject/k::lexeme!(Word, \"word\")"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+["terms/context-alias/subject/y @ Cmd::Hold(_)"]
+finding = "NT-2-17"
+deviation = "krs::expand::missing-provenance-key @ spelling"
+
+# NT-2-18: a negative literal at some roots and in a `let` pattern is a stale anchor
+# `-1` at a readable or claim computation item's root, a `for KItem` clause's root and in a `let`
+# pattern is `krs::collect::stale-anchor` "anchor .. no longer matches reparsed source": the negative
+# literal's anchor does not survive reparsing there. Probe: `terms/readable/item-root/-1`. Plan: new.
+
+["terms/claim/item-root/-1"]
+finding = "NT-2-18"
+deviation = "krs::collect::stale-anchor @ spelling"
+
+["terms/readable/item-root/-1"]
+finding = "NT-2-18"
+deviation = "krs::collect::stale-anchor @ spelling"
+
+["terms/rule/guard/let-pattern/-1"]
+finding = "NT-2-18"
+deviation = "krs::collect::stale-anchor @ spelling"
+
+["terms/sort-rule/result/let-pattern/-1"]
+finding = "NT-2-18"
+deviation = "krs::collect::stale-anchor @ spelling"
+
+["terms/sort-rule/subject-root/-1"]
+finding = "NT-2-18"
+deviation = "krs::collect::stale-anchor @ spelling"
+
+# NT-2-19: a turbofish in a constant is refused, though it is a ground constructor term
+# `Wrap::<dyn KItemSort>(..)` applies a constructor at a named instance, a value as any constructor's
+# application; the table admits it in a constant, and the compiler refuses it (`invalid-constant`, "a
+# parametric production's turbofish is not one"). Probe: `terms/constant/value/Wrap::<dyn k::KItemSort>(x)`.
+# Plan: new.
+
+["terms/constant/value-root/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-19"
+deviation = "krs::syntax::invalid-constant @ spelling"
+
+["terms/constant/value/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-19"
+deviation = "krs::syntax::invalid-constant @ spelling"
+
+# NT-2-20: a map literal at a fn body's root is refused under another code than below it
+# `k::map![..]` at a term position answers with `unsupported-term-expression` below a root and with
+# `krs::syntax::unexpected-macro` as a fn body's whole result: one mistake, two codes. Probe:
+# `terms/rule/result-root/k::map![x -> 1]`. Plan: NT-6 (which makes it a built term).
+
+["terms/alias/result-root/k::map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+["terms/alias/result-root/map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+["terms/desugar/result-root/k::map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+["terms/desugar/result-root/map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+["terms/rule/result-root/k::map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+["terms/rule/result-root/map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+["terms/shorthand/result-root/k::map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+["terms/shorthand/result-root/map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+["terms/simplification/result-root/k::map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+["terms/simplification/result-root/map![x -> 1]"]
+finding = "NT-2-20"
+deviation = "krs::syntax::unexpected-macro @ spelling"
+
+# NT-2-21: a readable map read whose value is `true` reaches rustc (E0308)
+# A read's value is the name the read binds; other spellings are refused with `rust-syntax` before
+# rustc, but `true` passes to rustc, which reports E0308. Probe: `terms/readable/map-value/true`. Plan:
+# new.
+
+["terms/readable/map-value/true"]
+finding = "NT-2-21"
+deviation = "E0308 @ spelling"
+
+# NT-2-22: a record update's base in a rewrite's right side reaches the collector
+# `k::rewrite!(_ => Cmd::Pair { a: x, ..x })`, whose base `x` is no matched record's alias, is
+# `krs::collect::provenance-mismatch` "the base of a record update is a variable outside a pattern"
+# rather than `record-update-base`. Probe: `terms/local-rule/subject/rewrite-right/Cmd::Pair { a: x, ..x }`.
+# Plan: new.
+
+["terms/local-rule/subject/rewrite-right/Cmd::Pair { a: x, ..x }"]
+finding = "NT-2-22"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+
+# NT-2-23: a `cells!` result's map value takes no macro or brackets
+# In `k::map![x -> HOLE]` on a `cells!` result, `k::fragment![..]`, a map literal and brackets are
+# `rust-syntax` "expected an expression" at the item, where a built term admits a fragment and the
+# others answer with their own classes. Probe: `terms/cells/result-map-value/k::fragment![crate::Frame { ret: 1 }]`.
+# Plan: new.
+
+["terms/cells/result-map-value/[x, ..]"]
+finding = "NT-2-23"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["terms/cells/result-map-value/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "NT-2-23"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["terms/cells/result-map-value/k::map![x -> 1]"]
+finding = "NT-2-23"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["terms/cells/result-map-value/map![x -> 1]"]
+finding = "NT-2-23"
+deviation = "krs::syntax::rust-syntax @ item"
+
+# NT-2-24: an alias over a parametric constructor in a subject is an internal descriptor error
+# `y @ Wrap::<dyn KItemSort>(x)` reports `invalid-term` "variable y has no declared common descendant
+# for occurrence sorts [KItem, sort parameter S]". Probe: `terms/rule/subject/as-body/Wrap::<dyn k::KItemSort>(x)`.
+# Plan: new.
+
+["terms/rule/subject/as-body/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-24"
+deviation = "krs::analysis::invalid-term @ item"
+
+# NT-2-25: a name mistake is reported before a placement mistake
+# A placement mistake is told by the spelling and its position before any name is resolved; the
+# product reports an unbound name before an open record's remainder in an initializer or a constant,
+# and alternatives that bind other names before a sort test or `k::matches!` in a subject's
+# alternative. Probe: `terms/init/item/Cmd::Pair { a: x, .. }`. Plan: new.
+
+["terms/constant/value-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-25"
+deviation = "krs::expand::unbound-name @ spelling"
+
+["terms/constant/value/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-25"
+deviation = "krs::expand::unbound-name @ spelling"
+
+["terms/init/item-depth-2/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-25"
+deviation = "krs::expand::unbound-name @ spelling"
+
+["terms/init/item-root/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-25"
+deviation = "krs::expand::unbound-name @ spelling"
+
+["terms/init/item/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-25"
+deviation = "krs::expand::unbound-name @ spelling"
+
+["terms/rule/subject/or-branch/k::is!(Int, x)"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["terms/rule/subject/or-branch/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["terms/rule/subject/or-branch/k::project!(Int, x)"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+# NT-2-26: a constant's whole value that rustc cannot parse gets no KRS answer
+# At a `#[k::constant]` value's root, a construct rustc's parser refuses is reported by rustc
+# alone; below the root KRS answers beside it. Probe: `terms/constant/value-root/y @ Cmd::Hold(_)`.
+# Plan: new.
+
+["terms/constant/value-root/y @ Cmd::Hold(_)"]
+finding = "NT-2-26"
+deviation = "krs::rust-expansion::uncoded-error @ spelling"
+
+# NT-2-27: a context alias's binder that an operand sorts more narrowly is the IR validator's internal error
+# In a context alias, `x: KItem` read as `k::builtin::int::add(x, 1)`'s `Int` operand reports
+# `invalid-semantic-theory` "variable x is referenced with the wrong sort", where a `cells!` rule
+# reports `incompatible-binder` for the same mistake. Probe: `terms/context-alias/subject/k::builtin::int::add(x, 1)`.
+# Plan: new.
+
+["terms/context-alias/item-root/k::builtin::int::add(x, 1)"]
+finding = "NT-2-27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+
+["terms/context-alias/subject/k::builtin::int::add(x, 1)"]
+finding = "NT-2-27"
+deviation = "krs::analysis::invalid-semantic-theory @ item"
+
+# NT-2-28: alternatives in a context's subject reach the IR validator's `#Or` restriction
+# `A | B` in a context's pattern says the context applies where either shape stands; the product
+# reports `invalid-semantic-theory` "`A | B` (#Or) occurs only in pre-patterns", an IR validator
+# message, rather than a class of its own. Probe: `terms/context/subject/Cmd::Go() | Cmd::Hold(_)`.
+# Plan: new.
+
+["terms/context/subject/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-2-28"
 deviation = "krs::analysis::invalid-semantic-theory @ spelling"

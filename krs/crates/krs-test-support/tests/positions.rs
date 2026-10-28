@@ -24,42 +24,91 @@ use krs_test_support::class_matrix::pending::Pending;
 use krs_test_support::class_matrix::positions::{
     self as model, Entry, Kind, LocalPattern, Notation, Opening, PatternRoot, RewriteSide,
 };
-use krs_test_support::class_matrix::table::{Glob, Table};
+use krs_test_support::class_matrix::table::{Glob, TERM_ACCEPTS_FILE, Table};
 use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 13] = [
-    (r"terms/claim/subject/k::is!(Int\, x)", "NT-1-3"),
-    (r"terms/claim/subject/k::project!(Int\, x)", "NT-1-3"),
-    (r"terms/readable/list-element/Size(x)", "NT-1-2"),
+const KNOWN: [(&str, &str); 20] = [
     (
-        r"terms/readable/list-element/k::builtin::int::add(1\, 2)",
+        r"terms/cells/map-key/{k::is!(Int\, x),k::project!(Int\, x)}",
+        "NT-1-1",
+    ),
+    (
+        r"terms/readable/map-key/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        "NT-1-1",
+    ),
+    (
+        r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, ..x \},_,k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::project!(Int\, x),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        "NT-1-1",
+    ),
+    (
+        r#"terms/{readable/map-key/let-body,readable/map-key/update-field}/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}"#,
+        "NT-1-1",
+    ),
+    (
+        r#"terms/readable/map-key/let-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,y @ Cmd::Hold(_)}"#,
+        "NT-1-1",
+    ),
+    (
+        r#"terms/readable/map-key/matches-pattern/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Go() | Cmd::Hold(_),Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],_,k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::map![x -> 1],k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],true,x,y @ Cmd::Hold(_)}"#,
+        "NT-1-1",
+    ),
+    (
+        r"terms/{cells/map-value,readable/list-element}/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
         "NT-1-2",
     ),
     (
-        r"terms/readable/map-key/Cmd::Pair \{ a: x\, ..x \}",
-        "NT-1-1",
-    ),
-    (r"terms/readable/map-key/k::is!(Int\, x)", "NT-1-1"),
-    (
-        r"terms/readable/map-key/k::matches!(x\, Cmd::Hold(_))",
-        "NT-1-1",
-    ),
-    (r"terms/readable/map-key/k::project!(Int\, x)", "NT-1-1"),
-    (
-        r"terms/readable/map-key/\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}",
-        "NT-1-1",
-    ),
-    (r"terms/readable/map-key/\{ let y = x; y \}", "NT-1-1"),
-    (
-        r"terms/readable/map-key/\{ let y @ Cmd::Hold(_) = x; y \}",
-        "NT-1-1",
-    ),
-    (r"terms/simplification/subject/k::is!(Int\, x)", "NT-1-3"),
-    (
-        r"terms/simplification/subject/k::project!(Int\, x)",
+        r"terms/{alias/subject,cells-claim/item-root,cells-claim/subject,claim/item-root,claim/subject,desugar/subject,simplification/subject}/{k::is!(Int\, x),k::project!(Int\, x)}",
         "NT-1-3",
+    ),
+    (
+        r"terms/{rule/guard/let-pattern,rule/guard/matches-pattern,sort-rule/result/let-pattern,sort-rule/result/matches-pattern}/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
+        "NT-2-1",
+    ),
+    (
+        r"terms/readable/map-key/function-argument/Cmd::Pair \{ a: x\, .. \}",
+        "NT-2-2",
+    ),
+    (
+        r"terms/{context-alias/item-root,context-alias/subject}/{Size(x),k::builtin::int::add(1\, 2)}",
+        "NT-2-3",
+    ),
+    (
+        r"terms/context/subject/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
+        "NT-2-3",
+    ),
+    (
+        r"terms/{alias/result,alias/result-root,cells-claim/guard,cells-claim/guard/closure-body,claim/result,claim/result-item-root,context/guard,desugar/result,desugar/result-root,equation/guard,equation/result,local-rule/subject/rewrite-right,readable/guard,readable/result,readable/result-item-root,readable/result-list-element,rule/guard,rule/guard/closure-body,rule/guard/let-body,rule/result,rule/result-root,shorthand/result,shorthand/result-root,simplification/result,simplification/result-root,sort-rule/result,sort-rule/result-root,sort-rule/result/function-argument,sort-rule/result/let-body,sort-rule/result/update-field,table/result}/Cmd::Pair \{ a: x\, .. \}",
+        "NT-2-4",
+    ),
+    (
+        r"terms/cells/map-key/{!(x < 1),-(x + 1),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}",
+        "NT-2-5",
+    ),
+    (
+        r"terms/{readable/map-key/function-argument,readable/map-key/let-body,readable/map-key/update-field}/y @ Cmd::Hold(_)",
+        "NT-2-6",
+    ),
+    (
+        r"terms/readable/map-key/let-pattern/{!(x < 1),-(x + 1),Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}",
+        "NT-2-6",
+    ),
+    (
+        r"terms/readable/map-key/matches-pattern/{!(x < 1),-(x + 1),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        "NT-2-6",
+    ),
+    (
+        r"terms/{sort-rule/subject-root,sort-rule/subject-root-term}/_",
+        "NT-2-9",
+    ),
+    (
+        r"terms/{context-alias/item-root,context-alias/subject}/k::builtin::int::add(x\, 1)",
+        "NT-2-27",
+    ),
+    (
+        r"terms/{readable/map-key/as-body,readable/map-key/or-branch}/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
+        "S0-14",
     ),
 ];
 
@@ -67,7 +116,25 @@ const KNOWN: [(&str, &str); 13] = [
 /// the table reads a readable key's `let` block, `k::matches!` and record update as a pattern,
 /// and refuses them, while the term reader refuses the construct inside first, with the class the
 /// oracle gives it (`_`, a map literal, a rest outside a pattern).
-const DECIDED_BEFORE_THE_TABLE: [&str; 0] = [];
+const DECIDED_BEFORE_THE_TABLE: [&str; 17] = [
+    "terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)",
+    "terms/readable/map-key/function-argument/_",
+    "terms/readable/map-key/function-argument/k::ml::exists(|v: Int| k::ml::equals(v, 0))",
+    "terms/readable/map-key/let-body/Cmd::Go() | Cmd::Hold(_)",
+    "terms/readable/map-key/let-body/[x, ..]",
+    "terms/readable/map-key/let-body/_",
+    "terms/readable/map-key/let-body/k::map![x -> 1]",
+    "terms/readable/map-key/let-body/map![x -> 1]",
+    "terms/readable/map-key/let-pattern/k::map![x -> 1]",
+    "terms/readable/map-key/let-pattern/map![x -> 1]",
+    "terms/readable/map-key/matches-pattern/k::map![x -> 1]",
+    "terms/readable/map-key/matches-pattern/map![x -> 1]",
+    "terms/readable/map-key/update-field/Cmd::Go() | Cmd::Hold(_)",
+    "terms/readable/map-key/update-field/[x, ..]",
+    "terms/readable/map-key/update-field/_",
+    "terms/readable/map-key/update-field/k::map![x -> 1]",
+    "terms/readable/map-key/update-field/map![x -> 1]",
+];
 
 fn read_class_matrix(file: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -77,8 +144,11 @@ fn read_class_matrix(file: &str) -> String {
 }
 
 fn spec() -> Table {
-    Table::parse(&read_class_matrix("expected.toml"))
-        .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"))
+    Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
+    )
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"))
 }
 
 /// The names of every class the table refuses with or leaves to the compiler.

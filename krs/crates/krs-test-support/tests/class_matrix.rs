@@ -19,7 +19,9 @@ use krs_test_support::class_matrix::pending::{
 use krs_test_support::class_matrix::positions::{
     Construct, Entry, Form, Kind, Opening, Position, Slot as Part,
 };
-use krs_test_support::class_matrix::table::{At, Expected, Glob, Table, TableError};
+use krs_test_support::class_matrix::table::{
+    At, Expected, Glob, TERM_ACCEPTS_FILE, Table, TableError,
+};
 use krs_test_support::class_matrix::{
     self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, entry_points, render,
 };
@@ -240,10 +242,103 @@ fn a_computation_subject_case_is_never_batched() {
     let _ = render(&[own, other]);
 }
 
+/// The term cases a table rule decides before the oracle's resolution refusal, with the oracle's
+/// class ([`the_shipped_table_and_red_list_parse`]).
+const OVERRIDDEN: [(&str, &str); 22] = [
+    (
+        "terms/alias/subject-root/[x, ..]",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/alias/subject-root/x",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/cells/map-value/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/constant/value-root/Size(x)",
+        "constant-applies-function",
+    ),
+    (
+        "terms/constant/value-root/k::builtin::int::add(x, 1)",
+        "constant-applies-function",
+    ),
+    ("terms/constant/value/Size(x)", "constant-applies-function"),
+    (
+        "terms/constant/value/k::builtin::int::add(x, 1)",
+        "constant-applies-function",
+    ),
+    (
+        "terms/context/subject-root/k::builtin::int::add(1, 2)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/desugar/result-root/Cmd::Go() | Cmd::Hold(_)",
+        "alternatives-outside-pattern",
+    ),
+    (
+        "terms/desugar/result/Cmd::Go() | Cmd::Hold(_)",
+        "alternatives-outside-pattern",
+    ),
+    (
+        "terms/desugar/subject-root/[x, ..]",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/desugar/subject-root/x",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/equation/subject-root/x",
+        "equation-root-not-function",
+    ),
+    (
+        "terms/rule/guard/closure-body/Cmd::Pair { a: x, ..x }",
+        "ml-in-condition",
+    ),
+    (
+        "terms/rule/guard/matches-pattern/Size(x)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/rule/guard/matches-pattern/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/rule/subject/or-branch/Size(x)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/rule/subject/or-branch/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/simplification/subject-root/[x, ..]",
+        "simplification-root-not-function",
+    ),
+    (
+        "terms/simplification/subject-root/x",
+        "simplification-root-not-function",
+    ),
+    (
+        "terms/sort-rule/result/matches-pattern/Size(x)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/sort-rule/result/matches-pattern/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+];
+
 #[test]
 fn the_shipped_table_and_red_list_parse() {
-    let table = Table::parse(&read_class_matrix("expected.toml"))
-        .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let table = Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
+    )
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
     let pending = Pending::parse(&read_class_matrix("pending.toml"))
         .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
     let cases = class_matrix::cases();
@@ -254,14 +349,17 @@ fn the_shipped_table_and_red_list_parse() {
     let resolution = table.resolve_cases(&cases, registry_kind);
     // The table decides every case exactly once.
     assert!(resolution.errors.is_empty(), "{:#?}", resolution.errors);
-    // A rule overrides the oracle's resolution refusal only where the case also misnames a name:
-    // `Size(x)` in a constant applies a function, but its `x` is unbound.
+    // A rule overrides the oracle's resolution refusal only where the case also makes a name or
+    // sort mistake, which is met first: an unbound `x` (in a constant, at a root, where a bare
+    // name names a unit constructor), a `k::matches!` pattern that rebinds `x`, alternatives that
+    // bind other names, a `KItem` binder an operand sorts as `Int`, `_` in a desugar result
+    // without `unbound_variables`, a record update's base, brackets at a `KItem` root.
     assert_eq!(
         resolution.overridden,
-        BTreeMap::from([(
-            "terms/constant/value/Size(x)".to_owned(),
-            "constant-applies-function"
-        )])
+        OVERRIDDEN
+            .into_iter()
+            .map(|(id, class)| (id.to_owned(), class))
+            .collect::<BTreeMap<_, _>>()
     );
     assert_eq!(resolution.expected.len(), ids.len());
     // K5's entries name mutations, which are no cases of the table.
@@ -675,6 +773,44 @@ fn a_map_key_reads_by_its_parent_and_its_construct() {
     );
     assert!(nested.nesting.entries.contains(Entry::MapKey));
     assert_eq!(nested.nesting.entries.innermost(), Some(Entry::ListElement));
+}
+
+/// The term families' accept entries live in a file of their own, which holds nothing else and
+/// no case of another family, and names no case `expected.toml` accepts.
+#[test]
+fn the_term_accepts_file_holds_only_term_accept_entries() {
+    let main = "[class.wildcard-outside-pattern]\ncode = \"krs::syntax::unsupported-term-expression\"\ndoc = \"`_` outside a pattern\"\n\n[accept.\"readable/result/pc/x\"]\n";
+    let table = Table::parse_with_term_accepts(main, "[accept.\"terms/a/x\"]\nk = \"rule X\"\n")
+        .expect("the two files parse as one table");
+    assert_eq!(
+        table.accept.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["readable/result/pc/x", "terms/a/x"]
+    );
+    let errors = Table::parse_with_term_accepts(
+        main,
+        "[accept.\"readable/result/pc/x\"]\n\n[[refuse]]\nmatch = \"terms/*\"\nclass = \"wildcard-outside-pattern\"\nat = \"spelling\"\n",
+    )
+    .expect_err("the term accepts file is checked");
+    assert_eq!(
+        errors,
+        vec![
+            TableError::Schema(format!(
+                "{TERM_ACCEPTS_FILE} holds parts other than accept entries"
+            )),
+            TableError::Schema(format!(
+                "{TERM_ACCEPTS_FILE} accepts \"readable/result/pc/x\", which is no term case"
+            )),
+        ]
+    );
+    let duplicate =
+        Table::parse_with_term_accepts("[accept.\"terms/a/x\"]\n", "[accept.\"terms/a/x\"]\n")
+            .expect_err("an entry is in one file");
+    assert_eq!(
+        duplicate,
+        vec![TableError::Schema(
+            "\"terms/a/x\" is accepted in expected.toml and accepted-terms.toml".to_owned()
+        )]
+    );
 }
 
 #[test]

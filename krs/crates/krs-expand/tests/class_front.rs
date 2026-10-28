@@ -44,7 +44,7 @@ use krs_test_support::class_matrix::invariants::{
     violations,
 };
 use krs_test_support::class_matrix::pending::{Judgement, Observation, Pending, UNASSIGNED};
-use krs_test_support::class_matrix::table::{Expected, Table, TableError};
+use krs_test_support::class_matrix::table::{Expected, TERM_ACCEPTS_FILE, Table, TableError};
 use krs_test_support::class_matrix::{self, Base, Placed};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde_json::Value;
@@ -691,8 +691,11 @@ fn failure_message(failures: &[(&str, Option<Test>, Judgement)]) -> String {
 #[test]
 fn every_case_meets_the_front_invariants_and_keys_its_payloads() {
     let started = Instant::now();
-    let table = Table::parse(&read_class_matrix("expected.toml"))
-        .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let table = Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
+    )
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
     let pending = Pending::parse(&read_class_matrix("pending.toml"))
         .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
     let cases = class_matrix::cases();
