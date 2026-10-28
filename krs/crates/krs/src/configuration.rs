@@ -120,6 +120,12 @@ pub trait __KrsInitializer {}
 /// configuration with an initializer calls the payload `#[k::init]` emits and
 /// never this one; one without an initializer resolves to this method, whose
 /// unsatisfiable bound reports [`__KrsInitializer`]'s message.
+///
+/// A payload hands the initializer's wire and slot table to `configuration`,
+/// which the factory passes to decode them inside the payload's body, and
+/// returns what it returns with the initializer's provenance: a slot that
+/// names a declaration through the lexical witness is a value computed in
+/// that body, so the table cannot outlive it.
 #[doc(hidden)]
 pub trait __KrsInitializerFallback {
     /// Never callable: no type implements [`__KrsInitializer`].
@@ -127,27 +133,17 @@ pub trait __KrsInitializerFallback {
     /// # Errors
     ///
     /// Never returns.
-    fn __krs_initializer_payload() -> Result<
-        (
-            &'static str,
-            crate::__KrsSlots<'static>,
-            crate::HostProvenance,
-        ),
-        crate::HostProvenanceError,
-    >
+    fn __krs_initializer_payload<R>(
+        configuration: impl FnOnce(&'static str, crate::__KrsSlots<'_>) -> R,
+    ) -> Result<(R, crate::HostProvenance), crate::HostProvenanceError>
     where
         Self: __KrsInitializer;
 }
 
 impl<T: ?Sized> __KrsInitializerFallback for T {
-    fn __krs_initializer_payload() -> Result<
-        (
-            &'static str,
-            crate::__KrsSlots<'static>,
-            crate::HostProvenance,
-        ),
-        crate::HostProvenanceError,
-    >
+    fn __krs_initializer_payload<R>(
+        _configuration: impl FnOnce(&'static str, crate::__KrsSlots<'_>) -> R,
+    ) -> Result<(R, crate::HostProvenance), crate::HostProvenanceError>
     where
         Self: __KrsInitializer,
     {

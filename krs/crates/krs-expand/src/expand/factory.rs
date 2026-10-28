@@ -78,8 +78,12 @@ impl DescriptorFactory<'_> {
 
 /// A factory emits static wire data with Rust-resolved references.
 pub(super) enum FactoryPayload {
-    Wire { json: String, slots: TokenStream },
-    FixedConfiguration { json: String, slots: TokenStream },
+    Wire {
+        json: String,
+        slots: TokenStream,
+    },
+    /// A payload the factory's prelude computed and bound to this name.
+    Prepared(Ident),
 }
 
 impl FactoryPayload {
@@ -87,16 +91,14 @@ impl FactoryPayload {
         Self::Wire { json, slots }
     }
 
-    pub(super) fn fixed_configuration(json: String, slots: TokenStream) -> Self {
-        Self::FixedConfiguration { json, slots }
+    pub(super) const fn prepared(binding: Ident) -> Self {
+        Self::Prepared(binding)
     }
 
     fn render(&self, facade: &Path) -> TokenStream {
         match self {
             Self::Wire { json, slots } => quote!(#facade::__krs_host_payload(#json, #slots)),
-            Self::FixedConfiguration { json, slots } => quote! {
-                (#slots).__krs_fixed_configuration(#json, initializer, initializer_slots)
-            },
+            Self::Prepared(binding) => quote!(#binding),
         }
     }
 }

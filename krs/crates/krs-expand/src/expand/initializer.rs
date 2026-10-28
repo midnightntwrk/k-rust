@@ -64,11 +64,9 @@ fn initializer_stand_in(env: &dyn MacroEnvironment, item: &TokenStream) -> Token
     quote! {
         #(#cfg)*
         #[doc(hidden)]
-        pub(crate) fn __krs_initializer_payload() -> ::core::result::Result<(
-            &'static str,
-            #facade::__KrsSlots<'static>,
-            #facade::HostProvenance,
-        ), #facade::HostProvenanceError> {
+        pub(crate) fn __krs_initializer_payload<R>(
+            _configuration: impl ::core::ops::FnOnce(&'static str, #facade::__KrsSlots<'_>) -> R,
+        ) -> ::core::result::Result<(R, #facade::HostProvenance), #facade::HostProvenanceError> {
             ::core::unreachable!("a failed `#[k::init]` expansion has no payload")
         }
     }
@@ -198,20 +196,21 @@ fn init_inner(
 
         #(#key_functions)*
 
+        // The configuration's factory decodes the initializer inside this
+        // body: the slot table holds the values the lexical witnesses
+        // compute here, which live only as long as this body's expression.
         #(#cfg)*
         #[doc(hidden)]
-        pub(crate) fn __krs_initializer_payload() -> ::core::result::Result<(
-            &'static str,
-            #facade::__KrsSlots<'static>,
-            #facade::HostProvenance,
-        ), #facade::HostProvenanceError> {
+        pub(crate) fn __krs_initializer_payload<R>(
+            __krs_configuration: impl ::core::ops::FnOnce(&'static str, #facade::__KrsSlots<'_>) -> R,
+        ) -> ::core::result::Result<(R, #facade::HostProvenance), #facade::HostProvenanceError> {
             let _krs_path_check = || {
                 #(#island_import_checks)*
             };
             fn __krs_type_key<T: ?Sized + 'static>() -> ::core::any::TypeId {
                 ::core::any::TypeId::of::<T>()
             }
-            ::core::result::Result::Ok((#wire, #slots, #provenance))
+            ::core::result::Result::Ok((__krs_configuration(#wire, #slots), #provenance))
         }
     })
 }

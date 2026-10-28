@@ -105,7 +105,7 @@ fn a_failed_initializer_leaves_a_payload_stand_in() {
     .unwrap_err();
     let stand_in = error.stand_in().to_string();
     assert!(
-        stand_in.starts_with("# [cfg (feature = \"machine\")] # [doc (hidden)] pub (crate) fn __krs_initializer_payload ()"),
+        stand_in.starts_with("# [cfg (feature = \"machine\")] # [doc (hidden)] pub (crate) fn __krs_initializer_payload < R > (_configuration : impl :: core :: ops :: FnOnce"),
         "{stand_in}"
     );
     assert!(stand_in.contains(":: core :: unreachable !"), "{stand_in}");

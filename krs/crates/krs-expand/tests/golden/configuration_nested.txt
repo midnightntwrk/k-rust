@@ -37,25 +37,11 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::core::result::Result<
 > {
     #[allow(unused_imports)]
     use ::k::configuration::__KrsInitializerFallback as _;
-    let (initializer, initializer_slots, initializer_provenance) = NestedMachine::__krs_initializer_payload()?;
-    ::core::result::Result::Ok(::k::HostDescriptor {
-        protocol_version: ::k::SchemaVersion::CURRENT,
-        id: ::k::HostItemId::from_macro_context(
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
-                env!("CARGO_MANIFEST_DIR"),
-                module_path!(),
-                "NestedMachine",
-                ::k::ItemKind::Configuration,
-                "",
-            )
-            .expect("Cargo and Rust macro context form a valid host identity"),
-        declared_type: ::core::option::Option::Some(
-            ::k::HostDeclarationIdentity::Nominal(
-                ::k::HostTypeKey(__krs_configuration_type_1f42c47f927d9bc1),
-            ),
-        ),
-        payload: (::k::__KrsSlots {
+    let (fixed_configuration, initializer_provenance) = NestedMachine::__krs_initializer_payload(|
+        initializer,
+        initializer_slots|
+    {
+        (::k::__KrsSlots {
             types: &[
                 ::k::HostTypeKey(
                     NestedMachine::__krs_configuration_sort___krs_configuration_type_1f42c47f927d9bc1_0,
@@ -74,7 +60,26 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::core::result::Result<
                 "[{\"root_kind\":\"generated_top\"},{\"key\":{\"role\":\"configuration_declaration\",\"ordinal\":0},\"fields\":[{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":0},\"cell\":{\"owner\":1,\"field\":2}},\"rust_field\":\"k\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":0},\"wrapper\":\"k_cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: KSequence\"}}}},{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":1},\"cell\":{\"owner\":1,\"field\":4}},\"rust_field\":\"store\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"nested\",\"declaration\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":1},\"declaration\":{\"slot\":3,\"authored_path\":\"Store\"}}}}]}]",
                 initializer,
                 initializer_slots,
+            )
+    })?;
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "NestedMachine",
+                ::k::ItemKind::Configuration,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_configuration_type_1f42c47f927d9bc1),
             ),
+        ),
+        payload: fixed_configuration,
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
                 "",

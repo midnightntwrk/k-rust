@@ -47,25 +47,11 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
 > {
     #[allow(unused_imports)]
     use ::k::configuration::__KrsInitializerFallback as _;
-    let (initializer, initializer_slots, initializer_provenance) = Machine::__krs_initializer_payload()?;
-    ::core::result::Result::Ok(::k::HostDescriptor {
-        protocol_version: ::k::SchemaVersion::CURRENT,
-        id: ::k::HostItemId::from_macro_context(
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
-                env!("CARGO_MANIFEST_DIR"),
-                module_path!(),
-                "Machine",
-                ::k::ItemKind::Configuration,
-                "",
-            )
-            .expect("Cargo and Rust macro context form a valid host identity"),
-        declared_type: ::core::option::Option::Some(
-            ::k::HostDeclarationIdentity::Nominal(
-                ::k::HostTypeKey(__krs_configuration_type_5b18fbd0ea8f5bd3),
-            ),
-        ),
-        payload: (::k::__KrsSlots {
+    let (fixed_configuration, initializer_provenance) = Machine::__krs_initializer_payload(|
+        initializer,
+        initializer_slots|
+    {
+        (::k::__KrsSlots {
             types: &[
                 ::k::HostTypeKey(
                     Machine::__krs_configuration_sort___krs_configuration_type_5b18fbd0ea8f5bd3_0,
@@ -90,7 +76,26 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
                 "[{\"root_kind\":\"named\",\"key\":{\"role\":\"configuration_root\",\"ordinal\":0},\"name\":\"machine\"},{\"key\":{\"role\":\"configuration_declaration\",\"ordinal\":0},\"fields\":[{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":0},\"cell\":{\"owner\":1,\"field\":2}},\"rust_field\":\"k\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":0},\"wrapper\":\"k_cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: KSequence\"}}}},{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":1},\"cell\":{\"owner\":1,\"field\":6}},\"rust_field\":\"env\",\"emitted_name\":{\"key\":{\"role\":\"configuration_cell_name\",\"ordinal\":1},\"value\":\"environment\"},\"color\":{\"key\":{\"role\":\"configuration_cell_color\",\"ordinal\":1},\"value\":\"blue\"},\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":1},\"wrapper\":\"cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":1},\"target\":{\"slot\":5,\"authored_path\":\"k :: builtin :: Map\"}},\"arguments\":[{\"sort\":{\"key\":{\"role\":\"configuration_cell_content_argument\",\"ordinal\":0},\"target\":{\"slot\":3,\"authored_path\":\"k :: builtin :: Id\"}}},{\"sort\":{\"key\":{\"role\":\"configuration_cell_content_argument\",\"ordinal\":1},\"target\":{\"slot\":4,\"authored_path\":\"ValueSort\"}}}]}}]}]",
                 initializer,
                 initializer_slots,
+            )
+    })?;
+    ::core::result::Result::Ok(::k::HostDescriptor {
+        protocol_version: ::k::SchemaVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "Machine",
+                ::k::ItemKind::Configuration,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_configuration_type_5b18fbd0ea8f5bd3),
             ),
+        ),
+        payload: fixed_configuration,
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
                 "",

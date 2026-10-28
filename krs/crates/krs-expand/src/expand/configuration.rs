@@ -70,6 +70,7 @@ pub(crate) fn configuration(
 
     let wire = serde_json::to_string(&(root, declaration_wire)).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
+    let payload = Ident::new("fixed_configuration", Span::call_site());
 
     let factory_tokens = DescriptorFactory {
         facade: &facade,
@@ -85,7 +86,7 @@ pub(crate) fn configuration(
                 ),
             )
         },
-        payload: FactoryPayload::fixed_configuration(wire, slot_tokens),
+        payload: FactoryPayload::prepared(payload.clone()),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote! {
@@ -99,11 +100,20 @@ pub(crate) fn configuration(
             let span = declaration.name().span();
             let mut configuration = declared.clone();
             configuration.set_span(span);
-            let payload = quote_spanned!(span=> #configuration::__krs_initializer_payload());
+            // The initializer's payload hands its wire and slot table to
+            // this closure inside its own body: a slot that names a
+            // declaration through the lexical witness is a value computed
+            // there, so the table cannot outlive that body.
+            let join = quote! {
+                |initializer, initializer_slots| {
+                    (#slot_tokens).__krs_fixed_configuration(#wire, initializer, initializer_slots)
+                }
+            };
+            let call = quote_spanned!(span=> #configuration::__krs_initializer_payload(#join));
             quote! {
                 #[allow(unused_imports)]
                 use #facade::configuration::__KrsInitializerFallback as _;
-                let (initializer, initializer_slots, initializer_provenance) = #payload?;
+                let (#payload, initializer_provenance) = #call?;
             }
         },
     }
