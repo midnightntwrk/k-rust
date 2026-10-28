@@ -156,10 +156,16 @@ fn twin_calls(line: &str, twins: &[String]) -> String {
 /// The generic proof script of one twin's soundness, in the induction step: unfold both, split the
 /// twin's cascade, lift each twin call's value to the function's (`k2l_fuel_lift`), then reduce the
 /// function's cascade along it.
-fn sound_case(f: &FnDef, ihs: &str) -> String {
+/// `bullet`: one goal of several (`· …`), else the only goal.
+fn sound_case(f: &FnDef, ihs: &str, bullet: bool) -> String {
     let xs: Vec<&str> = f.params.iter().map(|(x, _)| x.as_str()).collect();
+    let (first, rest) = if bullet {
+        ("    · ", "      ")
+    } else {
+        ("    ", "    ")
+    };
     format!(
-        "    · intro {} v h\n      rw [{}.eq_def]\n      simp only [{}.fuel] at h\n      repeat' (first | split at h | k2l_split_hyps)\n      all_goals (k2l_fuel_lift [{ihs}]; repeat' (first | (simp_all; done) | simp only [] | split | k2l_split_hyps))\n",
+        "{first}intro {} v h\n{rest}rw [{}.eq_def]\n{rest}simp only [{}.fuel] at h\n{rest}repeat' (first | split at h | k2l_split_hyps)\n{rest}all_goals (k2l_fuel_lift [{ihs}]; repeat' (first | (simp_all; done) | simp only [] | split | k2l_split_hyps))\n",
         xs.join(" "),
         f.name,
         f.name
@@ -298,8 +304,7 @@ set_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\
             "  | zero => intros; simp_all [{}]\n  | succ n ih0 =>\n",
             fuels.join(", ")
         ));
-        let case = sound_case(fs[0], "ih0");
-        o.push_str(&case.replacen("    · ", "    ", 1));
+        o.push_str(&sound_case(fs[0], "ih0", false));
     } else {
         let holes: Vec<&str> = (0..k).map(|_| "?_").collect();
         o.push_str(&format!(
@@ -310,7 +315,7 @@ set_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\
             holes.join(", ")
         ));
         for d in &fs {
-            o.push_str(&sound_case(d, &ihs.join(", ")));
+            o.push_str(&sound_case(d, &ihs.join(", "), true));
         }
     }
     for (i, d) in fs.iter().enumerate() {
