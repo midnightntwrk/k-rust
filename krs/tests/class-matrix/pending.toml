@@ -12,30 +12,6 @@
 # tier observes a case otherwise than the front), `k1/ID`, `k3/ID`, `lattice/..` (K4) and
 # `entry/..` (K5).
 
-# S0-2: `for Nope;` in a sentence block reports rustc E0425 twice
-
-["entry/function/claims"]
-finding = "S0-2"
-deviation = "krs check: 2 errors [E0425], 0 warnings []; cargo check: 2 errors [E0425], 0 warnings []"
-step = "S3"
-
-["entry/function/rules"]
-finding = "S0-2"
-deviation = "krs check: 2 errors [E0425], 0 warnings []; cargo check: 2 errors [E0425], 0 warnings []"
-step = "S3"
-
-# S0-4: an initializer that reads a configuration variable twice is rustc E0382
-
-["init/typed/list/any"]
-finding = "S0-4"
-deviation = "E0382 @ item"
-step = "S3"
-
-["init/typed/map/any"]
-finding = "S0-4"
-deviation = "E0382 @ item"
-step = "S3"
-
 # S0-8: the coverage lint's sort graph lacks the implicit `S ≤ KItem` edges
 
 ["lattice/class-imported/coverage~k-rust-disambiguation/s-kitem"]
@@ -909,13 +885,6 @@ finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
 
-# S0-18: rustc reports beside KRS: a cascade of E0422/E0425 after a broken `k::equations!` header
-
-["entry/function/equations"]
-finding = "S0-18"
-deviation = "krs check: 4 errors [E0422, E0425], 0 warnings []; cargo check: 4 errors [E0422, E0425], 0 warnings []"
-step = "S3"
-
 # B1: an initializer refuses bracket notation (`[]`, `[0]`, `[pgm]`) with the generic `unsupported-initializer-body`, also where it denotes a List or the computation
 
 ["init/counter/[0]"]
@@ -1327,51 +1296,6 @@ step = "S5"
 finding = "B2"
 deviation = "E0308 @ item"
 step = "S5"
-
-# B2, kind-free: a configuration variable that is the whole content of a leaf of another sort, or
-# of a cell whose kind the spelling states. No kind is in question; rustc refuses it only because
-# the initializer re-emits the variable as the cell's Rust value, a second sort judge that pre-empts
-# the IR's (S3's bridge).
-
-["init/env/pgm"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/pc/pgm"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/stack/pgm"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/typed/boxed/any"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/typed/leaf/any"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/typed/opt/any"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/typed/slot/any"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
-
-["init/typed/stmt/any"]
-finding = "B2"
-deviation = "E0308 @ spelling"
-step = "S3"
 
 # B3: `Some(..)`/`None` in a readable result on a cell that is not optional is rustc E0277 on a hidden facade trait at the whole block
 # `Some(..)`/`None` written as a result entry is presence, decided against the cell's declared kind
