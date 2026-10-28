@@ -978,3 +978,20 @@ namespace KPrelude
 attribute [k2l_hook] and_assoc
 
 end KPrelude
+
+namespace KPrelude.BytesHook
+
+/-- domains.md: `#Ceil(padRightBytes(_, LEN, VAL)) => {(0 <=Int LEN andBool 0 <=Int VAL andBool
+VAL <Int 256) #Equals true}`, in the shape `Equations.lean` states it. -/
+theorem padRight_ceil (b : List UInt8) (l v : Int) :
+    ((Option.bind (padRight b l v) fun r => some r).isSome = true) ↔
+      (BoolHook.and (BoolHook.and (IntHook.le 0 l) (IntHook.le 0 v)) (IntHook.lt v 256) = true) := by
+  simp [padRight, BoolHook.and, IntHook.le, IntHook.lt, and_assoc]
+
+/-- domains.md: `#Ceil(padLeftBytes(_, LEN, VAL))`, as `padRight_ceil`. -/
+theorem padLeft_ceil (b : List UInt8) (l v : Int) :
+    ((Option.bind (padLeft b l v) fun r => some r).isSome = true) ↔
+      (BoolHook.and (BoolHook.and (IntHook.le 0 l) (IntHook.le 0 v)) (IntHook.lt v 256) = true) := by
+  simp [padLeft, BoolHook.and, IntHook.le, IntHook.lt, and_assoc]
+
+end KPrelude.BytesHook

@@ -424,7 +424,9 @@ macro "k2l_hook_law" : tactic => `(tactic| first
   | (with_reducible apply KPrelude.StringHook.replaceFirst_eqn2 <;> assumption)
   | (with_reducible apply KPrelude.StringHook.countAllOccurrences_eqn1 <;> assumption)
   | (with_reducible apply KPrelude.SetHook.union_eqn <;> assumption)
-  | (with_reducible apply KPrelude.MapHook.ceil_concat_element_eqn <;> assumption))
+  | (with_reducible apply KPrelude.MapHook.ceil_concat_element_eqn <;> assumption)
+  | (with_reducible apply KPrelude.BytesHook.padRight_ceil)
+  | (with_reducible apply KPrelude.BytesHook.padLeft_ceil))
 
 /-- Refute a generated statement that is false in the model, with a refutation of the prelude
 stated in the generator's shape (the mirror of `k2l_hook_law`; `NS/Refuted.lean`). -/

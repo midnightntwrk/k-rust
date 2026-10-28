@@ -899,11 +899,12 @@ def update (b : List UInt8) (i v : Int) : Option (List UInt8) :=
 /-- `replaceAtBytes(B, I, B')`: undefined unless the replacement fits. -/
 def replaceAt (b : List UInt8) (i : Int) (r : List UInt8) : Option (List UInt8) :=
   if 0 ≤ i ∧ i + r.length ≤ b.length then some (b.take i.toNat ++ r ++ b.drop (i.toNat + r.length)) else none
-/-- `padRightBytes(B, L, V)` / `padLeftBytes(B, L, V)` -/
+/-- `padRightBytes(B, L, V)` / `padLeftBytes(B, L, V)`: undefined at a negative length or a value
+outside `0 ≤ V < 256` (domains.md's `#Ceil(padLeftBytes(_, LEN, VAL))` axiom). -/
 def padRight (b : List UInt8) (l v : Int) : Option (List UInt8) :=
-  if 0 ≤ v ∧ v < 256 then some (b ++ List.replicate (l.toNat - b.length) v.toNat.toUInt8) else none
+  if 0 ≤ l ∧ 0 ≤ v ∧ v < 256 then some (b ++ List.replicate (l.toNat - b.length) v.toNat.toUInt8) else none
 def padLeft (b : List UInt8) (l v : Int) : Option (List UInt8) :=
-  if 0 ≤ v ∧ v < 256 then some (List.replicate (l.toNat - b.length) v.toNat.toUInt8 ++ b) else none
+  if 0 ≤ l ∧ 0 ≤ v ∧ v < 256 then some (List.replicate (l.toNat - b.length) v.toNat.toUInt8 ++ b) else none
 /-- `memsetBytes(B, I, N, V)` -/
 def memset (b : List UInt8) (i n v : Int) : Option (List UInt8) :=
   if 0 ≤ i ∧ 0 ≤ n ∧ i + n ≤ b.length ∧ 0 ≤ v ∧ v < 256 then
