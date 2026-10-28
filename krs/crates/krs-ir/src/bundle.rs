@@ -244,11 +244,15 @@ impl DescriptorBundle {
             .map(|descriptor| descriptor.permute_sets(seed))
             .collect::<Vec<_>>();
         let mut declarations = self.declarations.iter().cloned().collect::<Vec<_>>();
+        let mut package_settings = self.package_settings.clone();
         crate::testing::permute(&mut descriptors, seed);
         crate::testing::permute(&mut declarations, seed);
-        Self::with_declarations(descriptors, declarations).unwrap_or_else(|error| {
-            panic!("DescriptorBundle seed {seed}: permuted rebuild failed: {error}")
-        })
+        crate::testing::permute(&mut package_settings, seed);
+        Self::with_declarations(descriptors, declarations)
+            .and_then(|bundle| bundle.with_package_settings(package_settings))
+            .unwrap_or_else(|error| {
+                panic!("DescriptorBundle seed {seed}: permuted rebuild failed: {error}")
+            })
     }
 
     /// Creates an empty bundle using the current protocol.

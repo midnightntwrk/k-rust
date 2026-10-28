@@ -14,19 +14,25 @@ use sha2::{Digest, Sha256};
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
 const NESTED_FUNCTION_PATTERN: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
+/// The `[package.metadata.krs]` line `NESTED_FUNCTION_PATTERN`'s `raw_k!` sentence needs.
+const ALLOW_RAW_K: &str = "allow-raw-k = true\n";
 /// Shared with the CLI gate, which also runs the emitted claims through the recorded `kprove --dry-run`.
 const DOLLAR_IDS: &str = include_str!("../../../tests/cli/fixtures/dollar-ids/src/lib.rs");
 
 #[test]
 fn authored_fixtures_satisfy_ir_and_lowering_contracts() {
     let target = shared_fixture_target();
-    for (name, source) in [
-        ("foo-bar", FOO_BAR),
-        ("nested-function-pattern", NESTED_FUNCTION_PATTERN),
-        ("dollar-ids", DOLLAR_IDS),
+    for (name, source, metadata) in [
+        ("foo-bar", FOO_BAR, ""),
+        (
+            "nested-function-pattern",
+            NESTED_FUNCTION_PATTERN,
+            ALLOW_RAW_K,
+        ),
+        ("dollar-ids", DOLLAR_IDS, ""),
     ] {
         let temporary = temp_dir();
-        let manifest = materialize_fixture(temporary.path(), source);
+        let manifest = materialize_fixture_with(temporary.path(), source, metadata);
         let emitted = temporary.path().join(format!("emitted-{name}"));
         let result = command(target.path(), &manifest, "emit-k", Some(&emitted), &[]);
         assert_success(&result);
@@ -1365,6 +1371,11 @@ fn command(
 }
 
 fn materialize_fixture(temporary: &Path, source: &str) -> PathBuf {
+    materialize_fixture_with(temporary, source, "")
+}
+
+/// Writes the fixture package with `metadata`'s lines added to its `[package.metadata.krs]`.
+fn materialize_fixture_with(temporary: &Path, source: &str, metadata: &str) -> PathBuf {
     let project = temporary.join("language");
     fs::create_dir_all(project.join("src")).unwrap();
     fs::write(project.join("src/lib.rs"), source).unwrap();
@@ -1374,7 +1385,7 @@ fn materialize_fixture(temporary: &Path, source: &str) -> PathBuf {
         .unwrap();
     let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
     let manifest = format!(
-        "[package]\nname = \"krs-cli-foo-bar-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-CLI-FOO-BAR\"\n\n[package.metadata.krs.definitions.main]\n\n[workspace]\n"
+        "[package]\nname = \"krs-cli-foo-bar-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-CLI-FOO-BAR\"\n{metadata}\n[package.metadata.krs.definitions.main]\n\n[workspace]\n"
     );
     fs::write(project.join("Cargo.toml"), manifest).unwrap();
     project.join("Cargo.toml")
@@ -1472,13 +1483,15 @@ pub struct Sha256Digest {{
     assert_eq!(check.stderr, first.stderr);
 }
 
+/// The native frontend judges a `raw_k!` sentence, which KRS does not read; its refusal of the
+/// fixture's raw equation is the author's, located at the sentence's text.
 #[test]
 fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let manifest = materialize_fixture(temporary.path(), NESTED_FUNCTION_PATTERN);
-    let item = "twist_twice";
-    let start = NESTED_FUNCTION_PATTERN.find("fn twist_twice(").unwrap() + "fn ".len();
+    let manifest = materialize_fixture_with(temporary.path(), NESTED_FUNCTION_PATTERN, ALLOW_RAW_K);
+    let start = NESTED_FUNCTION_PATTERN.find("krs::raw_k!(").unwrap() + "krs::raw_k!(".len();
+    let end = start + NESTED_FUNCTION_PATTERN[start..].find(");").unwrap();
 
     for backend in ["haskell", "llvm"] {
         let native = temporary.path().join(backend);
@@ -1517,8 +1530,11 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
         assert!(build.stdout.is_empty(), "{backend}");
         assert!(!native.exists(), "{backend} wrote artifacts");
         let lines = stderr.lines().collect::<Vec<_>>();
-        assert_eq!(lines.len(), 1, "{backend}:\n{stderr}");
-        let diagnostic: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(lines.len(), 2, "{backend}:\n{stderr}");
+        let warning: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(warning["code"], "krs::semantic::raw-k", "{stderr}");
+        assert_eq!(warning["severity"], "warning", "{stderr}");
+        let diagnostic: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(diagnostic["schema_version"], 2, "{stderr}");
         assert_eq!(diagnostic["kind"], "author", "{stderr}");
         assert_eq!(diagnostic["stage"], "native", "{stderr}");
@@ -1531,7 +1547,7 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
         );
         assert_eq!(range["file"]["package_relative_path"], "src/lib.rs");
         assert_eq!(range["start_byte"], start, "{stderr}");
-        assert_eq!(range["end_byte"], start + item.len(), "{stderr}");
+        assert_eq!(range["end_byte"], end, "{stderr}");
 
         // `check --backend B` predicts `build --backend B`: it refuses the
         // definition with the same diagnostic, from the same native stage.
@@ -1567,15 +1583,50 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
     let stderr = String::from_utf8(check.stderr).unwrap();
     assert!(!check.status.success(), "{stderr}");
     let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
-    assert_eq!(diagnostics.len(), 1, "{stderr}");
-    assert_eq!(diagnostics[0].code, "IllegalFunctionOnLhs");
+    assert_eq!(diagnostics.len(), 2, "{stderr}");
+    assert_eq!(diagnostics[0].code, "krs::semantic::raw-k");
+    assert_eq!(diagnostics[1].code, "IllegalFunctionOnLhs");
     assert!(
-        diagnostics[0]
+        diagnostics[1]
             .notes
             .last()
             .is_some_and(|note| note.starts_with("every native route refuses this definition")),
         "{stderr}"
     );
+}
+
+/// The fixture's raw equation, authored as a KRS equation.
+const TWIST_TWICE: &str = "#[krs::equation]
+fn twist_twice(
+    krs::term![Twist(Twist(value))]: krs::Term<krs::builtin::Int>,
+) -> krs::Term<krs::builtin::Int> {
+    value
+}
+";
+
+/// KRS refuses the equation the native frontend refuses in `raw_k!`, before lowering, at the
+/// inner application: an equation matches its argument patterns as written, and `Twist` is a
+/// function, so the pattern `Twist(Twist(value))` describes a term that never occurs.
+#[test]
+fn a_function_below_an_equation_s_root_is_refused_at_the_inner_application() {
+    let target = shared_fixture_target();
+    let (prefix, _) = NESTED_FUNCTION_PATTERN.split_once("krs::raw_k!(").unwrap();
+    let source = format!("{prefix}{TWIST_TWICE}");
+    let stderr = check_failure(target.path(), &source);
+    let errors = stderr
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .filter(|diagnostic| diagnostic["severity"] == "error")
+        .collect::<Vec<_>>();
+    assert_eq!(errors.len(), 1, "{stderr}");
+    assert_eq!(
+        errors[0]["code"], "krs::analysis::function-in-pattern",
+        "{stderr}"
+    );
+    let start = source.find("Twist(Twist(").unwrap() + "Twist(".len();
+    let range = &errors[0]["authored_range"];
+    assert_eq!(range["start_byte"], start, "{stderr}");
+    assert_eq!(range["end_byte"], start + "Twist".len(), "{stderr}");
 }
 
 /// An existential rule result, which concrete (LLVM) execution cannot run.

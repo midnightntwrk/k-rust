@@ -12,6 +12,7 @@ use krs_test_support::{
 };
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
+/// KRS accepts it; the native frontend refuses its `raw_k!` equation.
 const INVALID_NATIVE: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
 
 struct Fixture {
@@ -24,6 +25,11 @@ struct Fixture {
 
 impl Fixture {
     fn new(source: &str) -> Self {
+        Self::with_metadata(source, "")
+    }
+
+    /// The fixture with `metadata`'s lines added to its `[package.metadata.krs]`.
+    fn with_metadata(source: &str, metadata: &str) -> Self {
         let target = shared_fixture_target();
         let root = temp_dir();
         let project = root.path().join("language");
@@ -38,7 +44,7 @@ impl Fixture {
         fs::write(
             &manifest,
             format!(
-                "[package]\nname = \"krs-result-reuse-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-RESULT-REUSE\"\n\n[package.metadata.krs.definitions.main]\n\n[workspace]\n"
+                "[package]\nname = \"krs-result-reuse-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nkrs = {{ path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-RESULT-REUSE\"\n{metadata}\n[package.metadata.krs.definitions.main]\n\n[workspace]\n"
             ),
         )
         .unwrap();
@@ -366,7 +372,7 @@ fn source_request_and_executable_changes_miss_and_escape_hatches_recompute() {
 
 #[test]
 fn failed_native_compilation_is_never_reused() {
-    let fixture = Fixture::new(INVALID_NATIVE);
+    let fixture = Fixture::with_metadata(INVALID_NATIVE, "allow-raw-k = true\n");
     let native = fixture.root.path().join("native");
     for _ in 0..2 {
         let run = fixture.run("build", "llvm", Some(&native), &[], false);

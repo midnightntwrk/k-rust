@@ -1,4 +1,10 @@
-//! The foo-bar language plus one equation that k-rust rejects on every backend.
+//! The foo-bar language plus a function, its equation, and one `raw_k!` equation that applies the
+//! function below the root of its pattern.
+//!
+//! KRS does not read a `raw_k!` sentence: its text is K the native frontend judges, so KRS accepts
+//! this package, and the native frontend refuses the raw equation on every backend. An equation
+//! matches its argument patterns as written, and an application of `#twist` is evaluated wherever
+//! it occurs, so the raw pattern describes a term that never occurs.
 
 #[krs::sort(alias = Obj, parents = [krs::KResult])]
 pub trait ObjSort: krs::KResultSort {}
@@ -39,11 +45,4 @@ fn twist(krs::term![Twist(value)]: krs::Term<krs::builtin::Int>) -> krs::Term<kr
     value
 }
 
-// K forbids a function symbol under the defining symbol of an equation's
-// left side unless the sentence is a simplification.
-#[krs::equation]
-fn twist_twice(
-    krs::term![Twist(Twist(value))]: krs::Term<krs::builtin::Int>,
-) -> krs::Term<krs::builtin::Int> {
-    value
-}
+krs::raw_k!(r"rule # twist ( # twist ( V:Int ) ) => V:Int");
