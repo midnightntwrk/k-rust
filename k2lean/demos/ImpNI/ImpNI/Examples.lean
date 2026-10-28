@@ -42,7 +42,7 @@ theorem levId_h : levId G0 h = some .hi := by decide
 theorem levId_l : levId G0 l = some .lo := by decide
 
 /-- Compute the checker's verdict on a closed program by its inversion lemmas. -/
-macro "k2l_sec_eval" : tactic => `(tactic| (
+local macro "k2l_sec_eval" : tactic => `(tactic| (
   simp only [ok, explicitFlow, ifFlow, whileFlow, var, num, sec.__, sec.«_=_;», sec.«if(_)_»,
     sec.«while(_)_», sec.«{_}», conf.__, conf.«_=_;», conf.«{_}», conf.«if(_)_», lev_id, lev.inj_Int,
     lev.«_+_», lev.«_>_», KImpSec.K.«join(_,_)_IMP-SEC_Level_Level_Level»,

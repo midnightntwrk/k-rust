@@ -436,7 +436,7 @@ components (its equations at that constructor, in order, then its `owise` value)
         .collect();
     writeln!(
         t,
-        "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of its calls, and compute. -/\nmacro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, {}]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]\n  all_goals simp_all [KEqHook.eq, BoolHook.and, BoolHook.or{}]))\n",
+        "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of its calls, and compute. -/\nlocal macro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, {}]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]\n  all_goals simp_all [KEqHook.eq, BoolHook.and, BoolHook.or{}]))\n",
         fnames.join(", "),
         // the translation's equations at each constructor: on the arity universe `tr_S` names the
         // one recursive `tr`, whose equations `relate` states as the `k2l_tr` lemmas
@@ -654,12 +654,12 @@ def SameQ (G : Lab) (c₁ c₁' : {topt}) : Prop :=\n  ∀ c₂ c₂', Sync G c�
 `k2l_ni_comp` computes the typings of both sides of a rule (`k2l_ni_simp`), cases on the values of\n\
 the checker's functions that the computation stops at (`k2l_ni_split`), and computes again. -/\n\n\
 open Lean Meta Elab Tactic in\n/-- Case every variable of the store cell's sort into `<{store}> E`. -/\n\
-elab \"k2l_cases_store\" : tactic => do\n  let rec go (fuel : Nat) : TacticM Unit := do\n    if fuel = 0 then return\n    let g ← getMainGoal\n    let some d ← g.withContext do\n        (← getLCtx).findDeclM? fun d => do\n          if d.isImplementationDetail then return none\n          {store_test}\n      | return\n    {store_split}\n    go (fuel - 1)\n  go 8\n\n\
+scoped elab \"k2l_cases_store\" : tactic => do\n  let rec go (fuel : Nat) : TacticM Unit := do\n    if fuel = 0 then return\n    let g ← getMainGoal\n    let some d ← g.withContext do\n        (← getLCtx).findDeclM? fun d => do\n          if d.isImplementationDetail then return none\n          {store_test}\n      | return\n    {store_split}\n    go (fuel - 1)\n  go 8\n\n\
 open Lean Meta Elab Tactic in\n/-- Case on the value of an application of one of `fs` in a hypothesis or the goal that no\nequation hypothesis has as its left-hand side yet, and recurse. -/\n\
 partial def niSplitLoop (fs : Array Name) (fuel : Nat) : TacticM Unit := do\n  if (← getGoals).isEmpty || fuel = 0 then return\n  let g ← getMainGoal\n  let found ← g.withContext do\n    let lctx ← getLCtx\n    let mut done : Array Expr := #[]\n    let mut cands : Array Expr := #[]\n    for d in lctx do\n      if d.isImplementationDetail then continue\n      let t ← instantiateMVars d.type\n      if let some (_, l, _) := t.eq? then done := done.push l\n      cands := cands.push t\n    cands := cands.push (← instantiateMVars (← g.getType))\n    for t in cands do\n      if let some e := t.find? (fun e => !e.hasLooseBVars && fs.any e.isAppOf && e.getAppNumArgs == 2 && !done.contains e) then\n        return some e\n    return none\n  let some e := found | return\n  let x ← g.withContext (Term.exprToSyntax e)\n  evalTactic (← `(tactic| ((rcases _h : $x:term with _ | v) <;> (try {split_cases} v))))\n  KPrelude.Soundness.eachGoal (niSplitLoop fs (fuel - 1))\n\n\
-elab \"k2l_ni_split\" : tactic => niSplitLoop #[``{}, ``{}, ``{}] 6\n\n\
-macro \"k2l_ni_simp\" : tactic => `(tactic| simp_all [plug, dflt, citem0_{hs}, litem0_{hs}, {na}.proj_inj_KItem_{hs},\n    {}{}, CK_base])\n\n\
-macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try (k2l_ni_split; all_goals (try k2l_ni_simp))))\n\nend {ns}",
+scoped elab \"k2l_ni_split\" : tactic => niSplitLoop #[``{}, ``{}, ``{}] 6\n\n\
+scoped macro \"k2l_ni_simp\" : tactic => `(tactic| simp_all [plug, dflt, citem0_{hs}, litem0_{hs}, {na}.proj_inj_KItem_{hs},\n    {}{}, CK_base])\n\n\
+scoped macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try (k2l_ni_split; all_goals (try k2l_ni_simp))))\n\nend {ns}",
         fqn(conf),
         fqn(sec),
         fqn(lev),
@@ -715,9 +715,9 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
     writeln!(p, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
     writeln!(
         p,
-        "/-- The generic case of `CQ`. -/\nmacro \"k2l_cq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold CQ\n  intro K hck hne hgood\n  simp only [kOf, storeOf, CK_kseq] at hck hne hgood ⊢\n  refine ⟨?_, ?_⟩\n  all_goals first\n    | {hi_refl}hiOnly_refl hgood\n    | (try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n       try subst_vars\n       try k2l_ni_comp)))\n\n\
-/-- The generic case of `SQ`. -/\nmacro \"k2l_sq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold SQ\n  intro hlk hgood\n  simp only [kOf, storeOf] at hlk hgood ⊢\n  try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n  try subst_vars\n  try k2l_ni_simp\n  try k2l_ni_split\n  all_goals (try k2l_ni_simp)\n  all_goals first\n    | (apply sq_base; k2l_ni_comp; done)\n    | (apply sq_drop2 <;> simp only [dropK, CK_kseq] <;> k2l_ni_comp <;> done)\n    | skip))\n\n\
-/-- The generic case of `SameQ` for the rule whose `Step` constructor is `c`: the other run takes\nthe same rule (`Step.deterministic`), which reads and writes no store. -/\nmacro \"k2l_same \" c:ident : tactic => `(tactic| (\n  intros\n  unfold SameQ\n  intro c₂ c₂' hS h₂\n  obtain ⟨hk, hlk, hlow⟩ := hS\n  {rcases_t} c₂ with {pat}\n  simp only [kOf] at hk\n  subst hk\n  have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n  subst hd\n  k2l_cases_store\n  simp only [kOf, storeOf] at hlow ⊢\n  first\n    | (simp only [true_and]; assumption)\n    | exact ⟨rfl, by assumption⟩))\n",
+        "/-- The generic case of `CQ`. -/\nlocal macro \"k2l_cq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold CQ\n  intro K hck hne hgood\n  simp only [kOf, storeOf, CK_kseq] at hck hne hgood ⊢\n  refine ⟨?_, ?_⟩\n  all_goals first\n    | {hi_refl}hiOnly_refl hgood\n    | (try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n       try subst_vars\n       try k2l_ni_comp)))\n\n\
+/-- The generic case of `SQ`. -/\nlocal macro \"k2l_sq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold SQ\n  intro hlk hgood\n  simp only [kOf, storeOf] at hlk hgood ⊢\n  try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n  try subst_vars\n  try k2l_ni_simp\n  try k2l_ni_split\n  all_goals (try k2l_ni_simp)\n  all_goals first\n    | (apply sq_base; k2l_ni_comp; done)\n    | (apply sq_drop2 <;> simp only [dropK, CK_kseq] <;> k2l_ni_comp <;> done)\n    | skip))\n\n\
+/-- The generic case of `SameQ` for the rule whose `Step` constructor is `c`: the other run takes\nthe same rule (`Step.deterministic`), which reads and writes no store. -/\nlocal macro \"k2l_same \" c:ident : tactic => `(tactic| (\n  intros\n  unfold SameQ\n  intro c₂ c₂' hS h₂\n  obtain ⟨hk, hlk, hlow⟩ := hS\n  {rcases_t} c₂ with {pat}\n  simp only [kOf] at hk\n  subst hk\n  have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n  subst hd\n  k2l_cases_store\n  simp only [kOf, storeOf] at hlow ⊢\n  first\n    | (simp only [true_and]; assumption)\n    | exact ⟨rfl, by assumption⟩))\n",
         pat = {
             // `⟨⟨k₂⟩, e₂, g₂⟩`: the top cell's arguments, `<k>` destructured
             let ps: Vec<String> = (0..cells.len())
