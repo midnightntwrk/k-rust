@@ -254,7 +254,8 @@ details! {
     GrammarTermReason {
         UnexpectedClaimTerm => "claim-only term used outside a whole-configuration claim",
         InvalidCompilerOwnedBuiltinToken => "invalid compiler-owned builtin token",
-        CompleteCellTermsRequireConfigurationRules => "complete cell terms require configuration rules",
+        EmptyOrNonNominalFragment => "fragment! requires a nonempty nominal cell declaration",
+        CellTermInConstant => "a constant's value is a ground constructor term, which holds no cell term",
         InvalidExplicitRuleLabel => "invalid explicit rule label",
         InvalidPriorityKind => "priority must be an equation priority or transition ordered fallback",
         InvalidNondetGroup => "nondet group outside a transition or with an invalid identifier",

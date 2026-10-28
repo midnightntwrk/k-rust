@@ -10,8 +10,8 @@ use super::{
 use crate::transport::detail::{GrammarApplicationReason, GrammarTermReason};
 use crate::transport::validation::TermValidation;
 use crate::{
-    BuiltinSort, DescriptorStage, ProductionFieldId, ProvenanceKey, ProvenanceRole, SortTestKind,
-    StableItemId,
+    BuiltinSort, DescriptorStage, ItemKind, ProductionFieldId, ProvenanceKey, ProvenanceRole,
+    SortTestKind, StableItemId,
 };
 
 #[expect(
@@ -157,15 +157,25 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         Ok(())
     }
 
+    /// A fragment is a cell term of its group's cell sort, which stands
+    /// wherever a term does: it names a cell declaration and, unless it is
+    /// open or an update, at least one child.
     fn cell(
         &mut self,
-        _: &ProvenanceKey,
-        _: &ProvenanceKey,
-        _: &StableItemId,
-        _: &[CellTermField<DescriptorStage>],
-        _: bool,
+        key: &ProvenanceKey,
+        path_key: &ProvenanceKey,
+        declaration: &StableItemId,
+        fields: &[CellTermField<DescriptorStage>],
+        partial: bool,
     ) -> Result<(), Self::Error> {
-        unsupported_cell_term()
+        require_key(key, self.provenance)?;
+        require_key(path_key, self.provenance)?;
+        if declaration.item_kind() != ItemKind::Cell || (fields.is_empty() && !partial) {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::EmptyOrNonNominalFragment,
+            ));
+        }
+        Ok(())
     }
 
     fn sort_test(
@@ -336,10 +346,16 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn cell_field(
         &mut self,
-        _: &CellTermField<DescriptorStage>,
-        _: &mut BTreeSet<ProductionFieldId>,
+        field: &CellTermField<DescriptorStage>,
+        names: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error> {
-        unsupported_cell_term()
+        require_key(&field.key, self.provenance)?;
+        if !names.insert(field.field.clone()) {
+            return Err(GrammarTransportError::InvalidApplication(
+                GrammarApplicationReason::DuplicateNamedField,
+            ));
+        }
+        Ok(())
     }
 
     fn record_update(&mut self, base: &DescriptorTerm) -> Result<(), Self::Error> {
@@ -372,12 +388,6 @@ fn builtin_token_role(
 fn unsupported_claim_term() -> Result<(), GrammarTransportError> {
     Err(GrammarTransportError::InvalidTerm(
         GrammarTermReason::UnexpectedClaimTerm,
-    ))
-}
-
-fn unsupported_cell_term() -> Result<(), GrammarTransportError> {
-    Err(GrammarTransportError::InvalidTerm(
-        GrammarTermReason::CompleteCellTermsRequireConfigurationRules,
     ))
 }
 
@@ -524,6 +534,82 @@ mod tests {
                 ])
             );
         }
+    }
+
+    /// A fragment is a term of its group's cell sort in a structured rule
+    /// as in a configuration rule: it names a cell declaration and its
+    /// children once each, and it binds the names its children hold.
+    #[test]
+    fn grammar_rules_hold_fragments() {
+        let frame =
+            |kind| testing::item_in(testing::package("test", "test"), "cells", "Frame", kind);
+        let child = |ordinal, name: &str| CellTermField {
+            key: key(ProvenanceRole::RuleLeftRecordFieldName, ordinal),
+            field: ProductionFieldId::new(name).unwrap(),
+            value: Box::new(DescriptorTerm::Variable {
+                key: key(ProvenanceRole::RuleLeftReference, ordinal),
+                path_key: key(ProvenanceRole::RuleLeftPath, ordinal + 1),
+                name: format!("x{ordinal}"),
+            }),
+        };
+        let fragment = |declaration, fields, open| DescriptorTerm::Cell {
+            key: key(ProvenanceRole::RuleLeftApplicationHead, 0),
+            path_key: key(ProvenanceRole::RuleLeftPath, 0),
+            declaration,
+            fields,
+            open,
+            update: None,
+        };
+        let bindings = BTreeSet::from(["x0".to_owned(), "x1".to_owned()]);
+        let validate = |term: &DescriptorTerm, seen: &mut BTreeSet<String>| {
+            term.validate(|_| true, &bindings, seen, true)
+        };
+        let mut seen = BTreeSet::new();
+        let term = fragment(
+            frame(ItemKind::Cell),
+            vec![child(0, "ret"), child(1, "pc")],
+            false,
+        );
+        assert_eq!(validate(&term, &mut seen), Ok(()));
+        assert_eq!(seen, bindings);
+        let mut keys = WireKeys::default();
+        term.collect_wire_term_keys(&mut keys, ValidationSide::Left)
+            .unwrap();
+        assert!(
+            keys.defined()
+                .contains(&key(ProvenanceRole::RuleLeftApplicationHead, 0))
+        );
+        assert_eq!(
+            validate(
+                &fragment(frame(ItemKind::Cell), Vec::new(), true),
+                &mut seen
+            ),
+            Ok(())
+        );
+        for invalid in [
+            fragment(frame(ItemKind::Cell), Vec::new(), false),
+            fragment(frame(ItemKind::Constructor), vec![child(0, "ret")], false),
+        ] {
+            assert_eq!(
+                validate(&invalid, &mut seen),
+                Err(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::EmptyOrNonNominalFragment
+                )),
+            );
+        }
+        assert_eq!(
+            validate(
+                &fragment(
+                    frame(ItemKind::Cell),
+                    vec![child(0, "ret"), child(1, "ret")],
+                    false
+                ),
+                &mut seen
+            ),
+            Err(GrammarTransportError::InvalidApplication(
+                GrammarApplicationReason::DuplicateNamedField
+            )),
+        );
     }
 
     /// A rule's builtin `Id` and `Bytes` literals are constants of their

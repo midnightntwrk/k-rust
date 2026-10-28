@@ -4200,7 +4200,7 @@ pub(super) fn collect_constant_keys(
 ) -> Result<(), GrammarTransportError> {
     keys.define(&constant.sort.key, ProvenanceRole::ConstantType)?;
     constant.sort.sort.validate()?;
-    if let Some(reason) = configuration_term(&constant.value) {
+    if let Some(reason) = non_constant_term(&constant.value) {
         return Err(GrammarTransportError::InvalidTerm(reason));
     }
     keys.define(&constant.value_key, ProvenanceRole::ConstantValue)?;
@@ -4209,21 +4209,18 @@ pub(super) fn collect_constant_keys(
         .collect_wire_term_keys(keys, ValidationSide::Right)
 }
 
-/// Why `term` is no grammar term, if it holds a node only configuration
-/// rules hold: a claim term or a complete cell term. A structured rule's
-/// terms are refused these by their validation; a constant's value has no
-/// other check.
-fn configuration_term(term: &DescriptorTerm) -> Option<GrammarTermReason> {
+/// Why `term` is no constant value, if it holds a node no ground
+/// constructor term holds: a claim term or a cell term. A constant's value
+/// has no other check here; the item's own reading refuses both first.
+fn non_constant_term(term: &DescriptorTerm) -> Option<GrammarTermReason> {
     match term {
         DescriptorTerm::Anonymous { .. } | DescriptorTerm::OrBool { .. } => {
             Some(GrammarTermReason::UnexpectedClaimTerm)
         }
-        DescriptorTerm::Cell { .. } => {
-            Some(GrammarTermReason::CompleteCellTermsRequireConfigurationRules)
-        }
+        DescriptorTerm::Cell { .. } => Some(GrammarTermReason::CellTermInConstant),
         _ => super::validation::term_children(term)
             .into_iter()
-            .find_map(configuration_term),
+            .find_map(non_constant_term),
     }
 }
 
