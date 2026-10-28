@@ -87,6 +87,14 @@ Speed is not the argument: compiled Lean already runs a semantics 2 to 4 times f
 
   The original wording also says "no open obligation". Some of K's own equations are false in its semantics (§7), so no proof of them can exist; the goal is that every obligation is proved, or refuted by a counterexample (restated 2026-10-28).
 - **Per area:** each meta-theorem kind's exit is on its readiness page. Soundness is done for a feature when two validation definitions prove it with hand Lean only for proof cases.
+- **UTXO-based smart contracts** (Sebastien, 2026-10-28; a direction, not yet a criterion): proving properties of a UTXO smart-contract system whose semantics is written in K, such as Starstream's coroutines over a UTXO ledger.
+  Several of its process-level obligations are k2lean's theorem kinds:
+  - determinism modulo the schedule, and confluence up to the ledger's observable effects under a legality hypothesis (two schedules give the same ledger effects, or one of them is illegal): `confluence`;
+  - a suspended continuation resumed at most once: an invariant;
+  - a coroutine semantics against its defunctionalized state machine: `relate`, `refine`.
+
+  This is why confluence is in scope: languages that are nondeterministic for their own sake (SIMPLE's threads) matter less for blockchains.
+  It is likely not sufficient: protocol properties (session types) need temporal statements beyond reachability and confluence, and whether Lean is the right tool for those is open (§8).
 - **Beyond k2lean:** the EVM goals (KEVM against the Ethereum tests; KEVM against another EVM model) are claims about one semantics, so they belong to an EVM project, which G1 enables (§6).
 
 ## 5. Non-goals
@@ -151,3 +159,4 @@ Still open:
    - certifying krust's proofs by replaying them in Lean (a prototype exists: `claims replay`);
    - incremental regeneration that keeps hand and loop proofs;
    - notation from the K grammar, so that statements read like the K source.
+2. For UTXO smart contracts (§4): which temporal statements over runs (protocol conformance, session types) k2lean should state, and whether Lean is the right tool for them.
