@@ -47,7 +47,7 @@ preserve = [{ where = "ExprTypes/Soundness.lean:33", closed = 66, total = 66, op
 "demos/ExprTypes/ExprTypes/Typing.lean" = { tier = "light", sha256 = "98403b67b010869bc0b0162c0a8476b50fe515cf4a9cd1e324860bafc4913406" }
 "demos/ExprTypes/correspondence.toml" = { tier = "light", sha256 = "8ed5d7a2993eab53ac52755a55e3027c0df6dc2ab6e5c0bea84bd4a0e64092c6" }
 "demos/ImpTypes/ImpTypes/Soundness.lean" = { tier = "light", sha256 = "23635a023c26ef9f306fdf9f6d8bfac70ee9882f6c52a10d60f4957dfd636828" }
-"demos/ImpTypes/ImpTypes/Tr.lean" = { tier = "light", sha256 = "e595d7d1a0e0918591e03aa819e6ed434795bc10875699b0ff19f8a28efd0111" }
+"demos/ImpTypes/ImpTypes/Tr.lean" = { tier = "light", sha256 = "7d5c653d47818914f8b4e8a1ceadc5213b911f3397f98ad4dbb29687f6a0d0bc" }
 "demos/ImpTypes/ImpTypes/Typing.lean" = { tier = "light", sha256 = "7fa3f60ee3f5fc24e4c5a68490c134973a0bb2edf127ebaf1ae8a53aa8ca40eb" }
 "demos/ImpTypes/correspondence.toml" = { tier = "light", sha256 = "d718a02a680fc8ebdc94898d98af4ef880e228e13fcbc185f1170668c8194572" }
 "generated/exprtypes/KExprTypes.lean" = { tier = "light", sha256 = "c871136796bf3a8bf3d76d78a97f2ef2999117d8c58caa2131c6ea9e4cc04588" }
