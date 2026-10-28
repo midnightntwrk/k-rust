@@ -135,6 +135,7 @@ preserve = []
 "generated/impplustypes/KImpPlusTypesTest/DetAxioms.lean" = { tier = "light", sha256 = "31f6c61fea2303618d348d1091edd170301ca8bde480248c466fd09a8e5a0398" }
 "generated/impplustypes/KImpPlusTypesTest/Main.lean" = { tier = "light", sha256 = "bc776526c9303c68a37aee8cb73f18a839116f0b6fa5c690485848c83ba44edc" }
 "generated/impplustypes/KImpPlusTypesTest/Refuted.lean" = { tier = "light", sha256 = "9dc9ebf0d6aaa27acd0b1e7f83326f6c1dbed919b9d1916d83c79c0f01d43f9d" }
+"generated/impplustypes/KImpPlusTypesTest/Retry.lean" = { tier = "light", sha256 = "0d6cd112837c99b923b4ee42e51b91b4f8ad93442b6bab2554d712a5982e1f82" }
 "generated/impplustypes/lakefile.lean" = { tier = "light", sha256 = "ee5fa3f5645a02fbd5351bafd5066077b427bf1a36232ba49972f2301310792f" }
 "generated/impplustypes/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/imptypes/KImpTypes.lean" = { tier = "light", sha256 = "7e21e33f0630710fe178949276a655097cf6bdafd1d3ae4528e547e0c5ccf1bb" }
