@@ -447,6 +447,7 @@ fn state_one(
 /// Simplification rules (`[simplification]` axioms), stated the same way.
 pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
     let mut out = Vec::new();
+    let mut taken: BTreeMap<String, usize> = BTreeMap::new();
     for (idx, a) in def.axioms.iter().enumerate() {
         if !a.attrs.has("simplification") {
             continue;
@@ -470,15 +471,18 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
         match state_simpl(m, fns, &a.pattern) {
             Ok((st, Simpl { case_first, .. })) => {
                 // named by the rule's `UNIQUE'Unds'ID` (a digest of the rule), so that a name does not
-                // depend on where the rule is in the definition
+                // depend on where the rule is in the definition; a definition can contain one rule
+                // twice (KEVM's `int-simplification.k` restates `domains.md`'s `A modInt B => A`,
+                // with the same digest), and each axiom is stated, the later ones numbered
                 let uid = a
                     .attrs
                     .string("UNIQUE'Unds'ID")
                     .map(|u| u[..12.min(u.len())].to_string());
-                let name = match uid {
+                let base = match uid {
                     Some(u) => format!("Simp.s_{u}"),
                     None => format!("Simp.s{idx}"),
                 };
+                let name = numbered(base, &mut taken);
                 out.push(Stated {
                     name,
                     what,
@@ -492,6 +496,17 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
         }
     }
     out
+}
+
+/// `base`, or `base_k` for its `k`-th use (`k ≥ 2`).
+fn numbered(base: String, taken: &mut BTreeMap<String, usize>) -> String {
+    let seen = taken.entry(base.clone()).or_insert(0);
+    *seen += 1;
+    if *seen == 1 {
+        base
+    } else {
+        format!("{base}_{seen}")
+    }
 }
 
 /// A matching-logic predicate pattern as a Lean proposition (`\equals` is `=`, `\ceil` of a
@@ -1107,6 +1122,18 @@ mod tests {
     //! equation, the generic tactics (unfolding the function first) otherwise, and no proof at all
     //! (a `Prop` statement) for an open obligation.
     use super::*;
+
+    /// A definition can contain one simplification twice (the same `UNIQUE'Unds'ID`): each is
+    /// stated, the later ones under numbered names.
+    #[test]
+    fn a_repeated_simplification_gets_a_numbered_name() {
+        let mut taken = BTreeMap::new();
+        let names: Vec<String> = ["Simp.s_a", "Simp.s_b", "Simp.s_a", "Simp.s_a"]
+            .iter()
+            .map(|b| numbered(b.to_string(), &mut taken))
+            .collect();
+        assert_eq!(names, ["Simp.s_a", "Simp.s_b", "Simp.s_a_2", "Simp.s_a_3"]);
+    }
 
     fn st(name: &str, statement: &str, unfold_first: &[&str]) -> Stated {
         Stated {
