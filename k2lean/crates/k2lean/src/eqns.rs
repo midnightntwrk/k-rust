@@ -119,6 +119,8 @@ pub fn equation_theorems(
     let supers = crate::funcs::overload_supers(def);
     // the sorts whose values can be no K value, modulo the overload axioms (EQ-18)
     let nf_sorts = crate::normal::sorts(def, m, fns, eqs);
+    let nf_syms = crate::normal::symbols(def, m, fns, eqs);
+    let none = BTreeSet::new();
     let nf_lemmas = crate::normal::lemmas(def, m, fns, eqs);
     for (f, es) in eqs {
         let Some(sig) = fns.get(f) else { continue };
@@ -153,7 +155,17 @@ pub fn equation_theorems(
                 vec![]
             };
             let comps = if e.owise { &comps[..] } else { &[] };
-            match state_one(def, m, fns, f, sig, e, comps, &nf_sorts) {
+            // a no-match premise reads a competitor's pattern through the normalizers, while the
+            // definition's arms match the representation (its overload variants, EQ-17), only
+            // when the pattern has an overloaded symbol: there a value that is no K value can
+            // tell them apart (EQ-18); elsewhere the statement holds at every carrier value
+            let overloaded = comps.iter().any(|c| {
+                c.args
+                    .iter()
+                    .any(|a| nf_syms.iter().any(|g| mentions(a, g)))
+            });
+            let nf = if overloaded { &nf_sorts } else { &none };
+            match state_one(def, m, fns, f, sig, e, comps, nf) {
                 Ok(statement) => out.push(Stated {
                     nf: if statement.contains("\n    (hnf") {
                         nf_lemmas.clone()

@@ -71,6 +71,19 @@ fn overloaded(
     out
 }
 
+/// The overloaded symbols the library normalizes (with a rule that can apply).
+pub fn symbols(
+    def: &Def,
+    m: &Model,
+    fns: &Fns,
+    eqs: &BTreeMap<String, Vec<Equation>>,
+) -> BTreeSet<String> {
+    overloaded(def, m, fns, eqs)
+        .into_iter()
+        .map(|o| o.sym)
+        .collect()
+}
+
 /// The sorts that own an overloaded constructor the library normalizes.
 pub fn sorts(
     def: &Def,
