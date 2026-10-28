@@ -197,6 +197,32 @@ Each lemma is proved by unfolding the function in its hypothesis and splitting i
 - `k2lean relate` pairs the rules and symbols of two definitions of one language and generates the translation and, when every rule pairs, a bisimulation proof (`demos/ImpRel`).
 - `k2lean soundness` generates the type soundness of a semantics for a type checker written in K, but for the store typing and the rules that read or write the store (§3.3, `demos/ImpTypes`).
 
+**What a generator knows.** The generators handle K's constructs, each from what it means in K. Examples:
+- cells and their nesting, and cell collections;
+- `<k>` with strictness and `KResult`;
+- priorities and `owise`, and side conditions;
+- rules that read several cells or several elements of a collection;
+- hooked sorts, fresh values, `stream` cells;
+- functions and their partiality.
+
+They do not know language features such as variables, scopes, functions or objects.
+A language feature is a use of those constructs plus facts about how one language uses them, and those facts are written by the user, in K, as functions of a definition:
+- a kind 1 invariant (`invariants.md` §3);
+- a type checker (§3.3);
+- a relation between the checker's typing and the runtime state.
+
+The generators prove things about those functions.
+For example, the variables of a typed language are:
+- a typing context the checker passes along a sequence;
+- `Map` cells, and rules that read `<env>` and then `<store>`;
+- fresh locations;
+- the fact that the environment and the store realize the typing context. Only this last part is the language's own, and the user writes it.
+
+Hand-written Lean is for proof cases the tactics do not close, not for stating a language's facts.
+An option named after one definition's shape (`soundness --store-cell`, `--env-item`) is a stopgap until a second definition shows the general form.
+A definition outside what a generator reads is refused with a message, and the generator's section says why.
+For example, `soundness` reads a checker written as functions, not one written as rewrite rules.
+
 ### 3.1 Determinism along the rule index
 
 One `cases h₁ <;> cases h₂` proves determinism over every pair of rules, quadratic in their number (KEVM's 597 rules of one rank: 356,409 inversions); `gen --det-pairs` keeps that proof for the per-sort encoding.
