@@ -1,0 +1,7 @@
+KImpClaims.Hand.bmc_loop_concrete_false refutes KImpClaims.ImpSimpleSpec.Claim.«bmc-loop-concrete»; depends on axioms: [propext, Classical.choice, Quot.sound]
+KImpClaims.Hand.bmc_loop_symbolic_false refutes KImpClaims.ImpSimpleSpec.Claim.«bmc-loop-symbolic»; depends on axioms: [propext, Classical.choice, Quot.sound]
+KImpClaims.Hand.div0_seven_false refutes KImpClaims.ImpDiv0Spec.Claim.«div0-seven»; depends on axioms: [propext, Classical.choice, Quot.sound]
+KImpClaims.Hand.div0_any_int_false refutes KImpClaims.ImpDiv0Spec.Claim.«div0-any-int»; depends on axioms: [propext, Classical.choice, Quot.sound]
+KImpClaims.Hand.copy_false refutes KImpClaims.ImpInvSpec.Claim.copy; depends on axioms: [propext, Classical.choice, Quot.sound]
+KImpClaims.Hand.copy_loop_false refutes KImpClaims.ImpInvSpec.Claim.«copy-loop»; depends on axioms: [propext, Classical.choice, Quot.sound]
+KImpClaims.Hand.expr_div_false refutes KImpClaims.ExprDiv.Obl.«AExp._/_»; depends on axioms: [propext, Classical.choice, Quot.sound]

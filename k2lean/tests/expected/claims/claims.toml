@@ -58,11 +58,13 @@ all_path = true
 label = "IMP-SIMPLE-SPEC.bmc-loop-concrete"
 stated = true
 all_path = true
+refuted = "Hand.bmc_loop_concrete_false"
 
 [[claim]]
 label = "IMP-SIMPLE-SPEC.bmc-loop-symbolic"
 stated = true
 all_path = true
+refuted = "Hand.bmc_loop_symbolic_false"
 
 [[claim]]
 label = "IMP-SUM-SPEC.sum-spec"
@@ -73,6 +75,7 @@ all_path = true
 label = "IMP-SUM-SPEC.two-sum-spec"
 stated = true
 all_path = true
+hand = "Hand.two_sum_spec"
 
 [[claim]]
 label = "IMP-IFS-UINT64-SPEC.assignment"
@@ -103,11 +106,13 @@ all_path = true
 label = "IMP-DIV0-SPEC.div0-seven"
 stated = true
 all_path = true
+refuted = "Hand.div0_seven_false"
 
 [[claim]]
 label = "IMP-DIV0-SPEC.div0-any-int"
 stated = true
 all_path = true
+refuted = "Hand.div0_any_int_false"
 
 [[claim]]
 label = "IMP-DIV0-SPEC.div0-self"
@@ -118,11 +123,13 @@ all_path = true
 label = "IMP-INV-SPEC.copy"
 stated = true
 all_path = true
+refuted = "Hand.copy_false"
 
 [[claim]]
 label = "IMP-INV-SPEC.copy-loop"
 stated = true
 all_path = true
+refuted = "Hand.copy_loop_false"
 
 [[transfer]]
 relation = "ImpRel"
@@ -143,16 +150,22 @@ name = "ExprEval"
 sort = "SortExpr"
 obligations = 15
 open = []
+refuted = []
+hand = []
 
 [[induction]]
 name = "ExprDiv"
 sort = "SortExpr"
 obligations = 1
-open = ["ExprDiv.AExp._/_"]
+open = []
+refuted = ["ExprDiv.AExp._/_"]
+hand = []
 
 [[induction]]
 name = "ExprVars"
 sort = "SortExpr"
 obligations = 17
 open = []
+refuted = []
+hand = []
 
