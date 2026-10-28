@@ -827,7 +827,7 @@ fn confluence_threads_views_a_message_to_a_named_process() {
         "{r}"
     );
     assert!(
-        r.contains("open = 7\nopen-global = 0\nopen-cells = 7\n"),
+        r.contains("open = 4\nopen-global = 0\nopen-cells = 4\n"),
         "{r}"
     );
     let v = std::fs::read_to_string(&out).unwrap();
@@ -836,6 +836,58 @@ fn confluence_threads_views_a_message_to_a_named_process() {
     assert!(v.contains("fun k2l_Q k2l_hQ => k2l_hQ"), "{v}");
     // no sort `KResult`: no item is one, and `isKResult` is not referenced
     assert!(!v.contains("isKResult"), "{v}");
+}
+
+/// `confluence --threads` on the `utxo` fixture: every rule touching `<ledger>` changes it at one
+/// binding (`create` inserts, `spend` removes), so the ledger is keyed (`MCh`) and only the pairs
+/// whose bindings overlap are left, as `KeyJoins`; the counter races stay in `OpenJoins`.
+#[test]
+fn confluence_threads_views_a_map_cell_by_binding() {
+    let d = tmp("cli-confluence-keyed");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/utxo/definition.kore");
+    let (out, report) = (d.join("Views.lean"), d.join("confluence.toml"));
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(&fx)
+        .args([
+            "--name",
+            "Utxo",
+            "--ns",
+            "UV",
+            "--threads",
+            "procs",
+            "--obs",
+            "ledger",
+            "--out",
+        ])
+        .arg(&out)
+        .arg("--report")
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&report).unwrap();
+    // spend|spend, create|spend, spend|create
+    assert!(r.contains("same-thread = 8\nkey-joins = 3\n"), "{r}");
+    let v = std::fs::read_to_string(&out).unwrap();
+    assert!(v.contains("  ledger : Utxo.SortMap\n"), "{v}");
+    assert!(v.contains("  ledger : MCh Utxo.SortMap := none\n"), "{v}");
+    // spend removes a binding, create inserts one
+    assert!(
+        v.contains("MCh.small_of (.inl ⟨_, _, rfl⟩) (.inr rfl)")
+            && v.contains("MCh.small_of (.inr rfl) (.inl ⟨_, _, rfl⟩)"),
+        "{v}"
+    );
+    // a rule leaving the ledger alone has it as one variable, split into the cell and its map
+    assert!(v.contains("  k2l_cases DotVar1\n"), "{v}");
+    assert!(
+        v.contains(
+            "theorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins) (K : KeyJoins)"
+        ),
+        "{v}"
+    );
 }
 
 #[test]

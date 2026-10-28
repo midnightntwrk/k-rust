@@ -6,15 +6,15 @@
   "syntax_module": "UTXO-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "8a8fecccb8f369e1a4f0535333b51961d04375d02b97ebe91e3dcce9650914e4"
+    "sha256": "cb812c4f87108a97bf0be1a3588de2506664b527173dd60204b153e07e591e96"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "9be64d03045775b7c53fa9f8bd40adf19c7d2773065ff4b3d2d447973a3a99d5"
+    "sha256": "8861a31cf3f3b93f63d418cb2b840882f039af45bf9263161c2f77824c752340"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "bf380a2ae0f3a8a9a41c9d37030f05bf516860e1098db4acfc560e3d71f12121"
+    "sha256": "31ce20117bf490f1c6b5ffc374a96c822114e2bc92115372f25ed1b23867893e"
   },
   "configuration_variables": {
     "PGM": "Pgm"
@@ -142,7 +142,7 @@
     "e7b9d58ded4afa95e6ed6b85751bcda979d4658204e7ae28a4644881101a04d6",
     "22d8a3b2ca18457ab32a4bac26197b9f8df63752834a13e059d626e9215be004",
     "853470ad1c8e0a6a1ab082bfc7cecacf0d10f52a6bd42df80222fd8be7f27d20",
-    "c1ef048743956aabd66b45d5a9460e678c5f7fc8e3a69c2beeb55161cbd04a95",
+    "b241d4f2f265c69ff7b789e5613010692cf9f3a08ba6c0386a7d84bdc100c131",
     "7c0a85904d0dc5a769352ef098bf9a398f86889c128c4ac87d7f58628534fdef",
     "f1f51014f19b98251e77e54e2ca286af527a0914ed1f77612d5ada05f77f8cac",
     "9a51d7a1f12d1d51dadefa7b99426443175e00fd2b4699eb1dbe9109b816d965",

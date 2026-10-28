@@ -858,6 +858,28 @@ theorem keysIn_pair {k₁ k₂ : K} {v₁ v₂ w₁ w₂ : V} {a b : M}
   · exact hm v₁ (by simp [e])
   · exact hm v₂ (by simp [e])
 
+/-- The rest of a match is unique: `a R = m` and `a R' = m` give `R = R'`. -/
+theorem concat_rest_unique {a R R' m : M} (h : concat a R = some m) (h' : concat a R' = some m) :
+    R = R' := by
+  have H := concat_toList h
+  have H' := concat_toList h'
+  have sR := (SAL.concat_eq_some_iff.1 H).2.1
+  have sR' := (SAL.concat_eq_some_iff.1 H').2.1
+  have e : toList R = toList R' := SAL.eq_of_mem_iff sR sR' fun p => by
+    constructor
+    · intro hp
+      rcases (SAL.mem_concat H').1 ((SAL.mem_concat H).2 (Or.inr hp)) with ha | hb
+      · exact absurd rfl (SAL.concat_disj H ha hp)
+      · exact hb
+    · intro hp
+      rcases (SAL.mem_concat H).1 ((SAL.mem_concat H').2 (Or.inr hp)) with ha | hb
+      · exact absurd rfl (SAL.concat_disj H' ha hp)
+      · exact hb
+  rw [← ofList_toList R, e, ofList_toList]
+
+theorem wf_right_of_concat {a R m : M} (h : concat a R = some m) : WF R :=
+  (SAL.concat_eq_some_iff.1 (concat_toList h)).2.1
+
 end MapHook
 
 end KPrelude
@@ -899,6 +921,108 @@ theorem Ch.Compat.symm {α : Type} {a b : Ch α} (h : Ch.Compat a b) : Ch.Compat
   · exact Or.inr (Or.inl h)
   · exact Or.inl h
   · exact Or.inr (Or.inr ⟨h₂, h₁⟩)
+
+/-! ## Changes of a map cell at some of its bindings (`confluence --threads`)
+
+The change a step makes to a cell holding a map, at the bindings it matches: none, or the
+bindings `a` it matches, replaced by `b`, the rest of the map kept (`b = a` for a read, `b` empty
+for a removal, `a` empty for an insertion). Two changes commute when one leaves the cell alone,
+when they match no key in common and one of them adds no key (`MapHook.concat_frame`), or when
+both only read. -/
+
+/-- A change of a map at some of its bindings: none, or the bindings `a` and what replaces them. -/
+abbrev MCh (M : Type) := Option (M × M)
+
+section MCh
+
+open MapHook
+
+variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V] [Std.TransOrd K]
+  [Std.LawfulEqOrd K]
+
+/-- The map matches the change's bindings, and what replaces them fits beside the rest. -/
+def MCh.pre (c : MCh M) (x : M) : Prop :=
+  ∀ p, c = some p → ∃ R r, concat p.1 R = some x ∧ concat p.2 R = some r
+
+open Classical in
+/-- The map with the change's bindings replaced (the rest is unique, `concat_rest_unique`). -/
+noncomputable def MCh.apply (c : MCh M) (x : M) : M :=
+  match c with
+  | none => x
+  | some (a, b) =>
+    if h : ∃ r R, concat a R = some x ∧ concat b R = some r then Classical.choose h else x
+
+def MCh.Compat (c d : MCh M) : Prop :=
+  c = none ∨ d = none ∨ ∃ a₁ b₁ a₂ b₂, c = some (a₁, b₁) ∧ d = some (a₂, b₂) ∧
+    (((∀ k, lookup a₁ k = none ∨ lookup a₂ k = none) ∧ (KeysIn b₁ a₁ ∨ KeysIn b₂ a₂)) ∨
+      (a₁ = b₁ ∧ a₂ = b₂))
+
+theorem MCh.pre_none {x : M} : MCh.pre (none : MCh M) x := fun _ h => by cases h
+
+theorem MCh.pre_of {a b R x r : M} (h : concat a R = some x) (h' : concat b R = some r) :
+    MCh.pre (some (a, b)) x := fun _ e => by cases e; exact ⟨R, r, h, h'⟩
+
+theorem MCh.apply_of {a b R x r : M} (h : concat a R = some x) (h' : concat b R = some r) :
+    MCh.apply (some (a, b)) x = r := by
+  simp only [MCh.apply]
+  split
+  · rename_i ex
+    obtain ⟨R', e₁, e₂⟩ := Classical.choose_spec ex
+    cases concat_rest_unique h e₁
+    exact Option.some.inj (e₂.symm.trans h')
+  · rename_i ne; exact absurd ⟨r, R, h, h'⟩ ne
+
+theorem MCh.apply_none {x : M} : MCh.apply (none : MCh M) x = x := rfl
+
+/-- A read leaves the map as it is. -/
+theorem MCh.apply_read {a x : M} (h : MCh.pre (some (a, a)) x) : MCh.apply (some (a, a)) x = x := by
+  obtain ⟨R, r, e₁, e₂⟩ := h _ rfl
+  rw [MCh.apply_of e₁ e₂]
+  exact Option.some.inj (e₂.symm.trans e₁)
+
+theorem MCh.pre_apply {c d : MCh M} {x : M} (h : MCh.Compat c d) (hc : c.pre x) (hd : d.pre x) :
+    d.pre (c.apply x) := by
+  rcases h with rfl | rfl | ⟨a₁, b₁, a₂, b₂, rfl, rfl, ⟨dA, dB⟩ | ⟨rfl, rfl⟩⟩
+  · exact hd
+  · exact MCh.pre_none
+  · obtain ⟨R₁, m₁, h₁, r₁⟩ := hc _ rfl
+    obtain ⟨R₂, m₂, h₂, r₂⟩ := hd _ rfl
+    obtain ⟨R₁₂, -, m', e₁, e₂, -, -⟩ := concat_frame h₁ r₁ h₂ r₂ dA dB
+    rw [MCh.apply_of h₁ r₁]
+    exact MCh.pre_of e₁ e₂
+  · rw [MCh.apply_read hc]; exact hd
+
+theorem MCh.apply_comm {c d : MCh M} {x : M} (h : MCh.Compat c d) (hc : c.pre x) (hd : d.pre x) :
+    d.apply (c.apply x) = c.apply (d.apply x) := by
+  rcases h with rfl | rfl | ⟨a₁, b₁, a₂, b₂, rfl, rfl, ⟨dA, dB⟩ | ⟨rfl, rfl⟩⟩
+  · rfl
+  · rfl
+  · obtain ⟨R₁, m₁, h₁, r₁⟩ := hc _ rfl
+    obtain ⟨R₂, m₂, h₂, r₂⟩ := hd _ rfl
+    obtain ⟨R₁₂, R₂₁, m', e₁, e₂, e₃, e₄⟩ := concat_frame h₁ r₁ h₂ r₂ dA dB
+    rw [MCh.apply_of h₁ r₁, MCh.apply_of h₂ r₂, MCh.apply_of e₁ e₂, MCh.apply_of e₃ e₄]
+  · rw [MCh.apply_read hc, MCh.apply_read hd, MCh.apply_read hc]
+
+/-- The change matches at most one binding and puts at most one in its place: what a rule's
+match and its right-hand side make it, so that two changes that do not commute overlap at a key
+(or both insert). -/
+def MCh.Small (c : MCh M) : Prop :=
+  ∀ p, c = some p → ((∃ k v, p.1 = element k v) ∨ p.1 = unit) ∧ ((∃ k v, p.2 = element k v) ∨ p.2 = unit)
+
+theorem MCh.small_none : MCh.Small (none : MCh M) := fun _ h => by cases h
+
+theorem MCh.small_of {a b : M} (ha : (∃ k v, a = element k v) ∨ a = unit)
+    (hb : (∃ k v, b = element k v) ∨ b = unit) : MCh.Small (some (a, b)) :=
+  fun _ e => by cases e; exact ⟨ha, hb⟩
+
+theorem MCh.Compat.symm {c d : MCh M} (h : MCh.Compat c d) : MCh.Compat d c := by
+  rcases h with h | h | ⟨a₁, b₁, a₂, b₂, e₁, e₂, ⟨dA, dB⟩ | ⟨r₁, r₂⟩⟩
+  · exact Or.inr (Or.inl h)
+  · exact Or.inl h
+  · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inl ⟨fun k => (dA k).symm, dB.symm⟩⟩)
+  · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inr ⟨r₂, r₁⟩⟩)
+
+end MCh
 
 end KPrelude
 

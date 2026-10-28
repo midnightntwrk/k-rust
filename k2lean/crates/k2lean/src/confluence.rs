@@ -329,6 +329,179 @@ fn view_role(r: &Rule, role: &MapRole) -> Option<VRole> {
     Some(VRole::Replace { hms, hb: hb.0, hr })
 }
 
+/// How a rule changes a shared cell holding a map at some of its bindings (`MCh`): the bindings
+/// `a` it matches, replaced by `b`, the rest `R` kept. Each role names the hypotheses that give
+/// `a R = x` (the cell's content on the left) and `b R = y` (on the right).
+#[derive(Clone, Debug, PartialEq)]
+enum KRole {
+    /// `hm : (K ↦ V) R = some x`, `hr : (K ↦ W) R = some y`: a write at one binding.
+    Update { hm: String, hr: String },
+    /// `hm : (K ↦ V) R = some x` with `x` on the right: a read of one binding.
+    Keep { hm: String },
+    /// `hm : (K ↦ V) R = some x` with `R` on the right: a removal.
+    Remove { hm: String },
+    /// `hr : (K ↦ W) x = some y`: an insertion (`a` empty, the rest the whole content).
+    Insert { hr: String },
+}
+
+impl KRole {
+    /// The proofs of `a R = x` and `b R = y` from the rule's hypotheses.
+    fn proofs(&self) -> (String, String) {
+        match self {
+            KRole::Update { hm, hr } => (hm.clone(), hr.clone()),
+            KRole::Keep { hm } => (hm.clone(), hm.clone()),
+            KRole::Remove { hm } => (
+                hm.clone(),
+                format!("(MapHook.concat_unit_left (MapHook.wf_right_of_concat {hm}))"),
+            ),
+            KRole::Insert { hr } => (
+                format!("(MapHook.concat_unit_left (MapHook.wf_right_of_concat {hr}))"),
+                hr.clone(),
+            ),
+        }
+    }
+
+    /// The proof that the change matches at most one binding and puts at most one back.
+    fn small(&self) -> &'static str {
+        match self {
+            KRole::Update { .. } | KRole::Keep { .. } => {
+                "MCh.small_of (.inl ⟨_, _, rfl⟩) (.inl ⟨_, _, rfl⟩)"
+            }
+            KRole::Remove { .. } => "MCh.small_of (.inl ⟨_, _, rfl⟩) (.inr rfl)",
+            KRole::Insert { .. } => "MCh.small_of (.inr rfl) (.inl ⟨_, _, rfl⟩)",
+        }
+    }
+
+    /// In the replay, from `hx : a R' = some x'` and `hy : b R' = some y'`: the equation to
+    /// eliminate, and the rule's hypotheses restated.
+    fn replay(&self, hx: &str, hy: &str) -> (String, Vec<(String, String)>) {
+        match self {
+            KRole::Update { hm, hr } => (
+                String::new(),
+                vec![(hm.clone(), hx.into()), (hr.clone(), hy.into())],
+            ),
+            KRole::Keep { hm } => (
+                format!("  cases Option.some.inj ({hx}.symm.trans {hy})\n"),
+                vec![(hm.clone(), hx.into())],
+            ),
+            KRole::Remove { hm } => (
+                format!("  cases MapHook.eq_of_concat_unit_left {hy}\n"),
+                vec![(hm.clone(), hx.into())],
+            ),
+            KRole::Insert { hr } => (
+                format!("  cases MapHook.eq_of_concat_unit_left {hx}\n"),
+                vec![(hr.clone(), hy.into())],
+            ),
+        }
+    }
+}
+
+/// The content of the cell `<cell>` in a configuration term.
+fn cell_content<'a>(l: &'a L, cell: &str) -> Option<&'a L> {
+    if let L::App(h, a) = l {
+        if is_cell(h).as_deref() == Some(cell) {
+            return match a.as_slice() {
+                [x] => Some(x),
+                _ => None,
+            };
+        }
+        return a.iter().find_map(|x| cell_content(x, cell));
+    }
+    None
+}
+
+/// How a rule touches the shared cell `<cell>`, if it holds a map: `Some(None)` when it leaves the
+/// cell alone, `Some(Some(role))` when it changes it at some bindings only (`KRole`), and `None`
+/// when it reads or writes the whole map (a side condition on it, a rest read elsewhere, an
+/// `update`).
+fn keyed_role(r: &Rule, cell: &str, touched: bool) -> Option<Option<KRole>> {
+    if !touched {
+        return Some(None);
+    }
+    let rhs = r.rhs.subst(&r.step.subst);
+    let (L::Var(x), L::Var(y)) = (
+        cell_content(&r.step.index, cell)?,
+        cell_content(&rhs, cell)?,
+    ) else {
+        return None;
+    };
+    let lhs_hyps: BTreeSet<&String> = r.app.hyps.iter().map(|(h, _)| h).collect();
+    // the occurrences of a variable in the rule: both sides and every hypothesis
+    let text = format!(
+        "{} {} {}",
+        r.step.index.render(),
+        rhs.render(),
+        r.step
+            .hyps
+            .iter()
+            .map(|(_, p)| p.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    // outside `«…»`-quoted names (a cell `<k>` is not a variable `k`)
+    let mut bare = String::new();
+    let mut quoted = false;
+    for ch in text.chars() {
+        match ch {
+            '«' => quoted = true,
+            '»' => {
+                quoted = false;
+                bare.push(' ')
+            }
+            _ if !quoted => bare.push(ch),
+            _ => {}
+        }
+    }
+    let count = |v: &str| {
+        bare.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '\''))
+            .filter(|w| *w == v)
+            .count()
+    };
+    let hyp = |lhs: bool, rest: &str, m: &str| -> Option<String> {
+        let hs: Vec<&String> = r
+            .step
+            .hyps
+            .iter()
+            .filter(|(h, p)| {
+                lhs_hyps.contains(h) == lhs
+                    && map_hyp(p).is_some_and(|(rr, mm)| rr == rest && mm == m)
+            })
+            .map(|(h, _)| h)
+            .collect();
+        match hs.as_slice() {
+            [h] => Some((*h).clone()),
+            _ => None,
+        }
+    };
+    let matches: Vec<(String, String)> = r
+        .step
+        .hyps
+        .iter()
+        .filter(|(h, _)| lhs_hyps.contains(h))
+        .filter_map(|(h, p)| map_hyp(p).and_then(|(rest, m)| (&m == x).then(|| (h.clone(), rest))))
+        .collect();
+    let role = match matches.as_slice() {
+        // the cell's content, its bindings matched; each variable where the shape puts it only
+        [(hm, rest)] if y == x => {
+            (count(x) == 3 && count(rest) == 1).then(|| KRole::Keep { hm: hm.clone() })
+        }
+        [(hm, rest)] if y == rest => {
+            (count(x) == 2 && count(rest) == 2).then(|| KRole::Remove { hm: hm.clone() })
+        }
+        [(hm, rest)] => {
+            let hr = hyp(false, rest, y)?;
+            (count(x) == 2 && count(rest) == 2 && count(y) == 2)
+                .then(|| KRole::Update { hm: hm.clone(), hr })
+        }
+        [] if y != x => {
+            let hr = hyp(false, x, y)?;
+            (count(x) == 2 && count(y) == 2).then_some(KRole::Insert { hr })
+        }
+        _ => None,
+    }?;
+    Some(Some(role))
+}
+
 /// The first argument of an application's argument list (`(a b) c` → `(a b)`, `k c` → `k`).
 fn first_arg(t: &str) -> &str {
     if t.starts_with('(') {
@@ -1109,6 +1282,15 @@ mod views {
         None,
         Read,
         Write,
+        /// At some bindings of a map (`MCh`), for a cell every rule touches so.
+        Keyed,
+    }
+
+    impl Touch {
+        /// The touch constrains the change in `InClass` (none, or a read).
+        fn in_class(self) -> bool {
+            matches!(self, Touch::None | Touch::Read)
+        }
     }
 
     /// A key pattern, as `KPrelude.KeyPat`.
@@ -1327,6 +1509,33 @@ mod views {
             .collect();
         let topt = format!("{name}.{}", lib.top);
         let ty = |s: &str| format!("{name}.{s}");
+        // the shared cells holding a map that every rule touching them changes at some bindings
+        // only (`super::keyed_role`): per cell, each rule's role
+        let keyed: Vec<Option<Vec<Option<super::KRole>>>> = shared
+            .iter()
+            .map(|l| {
+                let roles: Option<Vec<Option<super::KRole>>> = lib
+                    .rules
+                    .iter()
+                    .enumerate()
+                    .map(|(ri, r)| {
+                        let touched = feet[ri].iter().any(|(k, (rd, wr))| {
+                            (k == &l.label || k == l.sort.trim_start_matches("Sort"))
+                                && (*rd || *wr)
+                        });
+                        super::keyed_role(r, &l.label, touched)
+                    })
+                    .collect();
+                roles.filter(|rs| rs.iter().any(|x| x.is_some()))
+            })
+            .collect();
+        let is_keyed = |f: usize| keyed[f].is_some();
+        let any_keyed = keyed.iter().any(|k| k.is_some());
+        // a keyed cell's constructor and the map it holds
+        let cell_of = |f: usize| -> (String, String) {
+            let c = is_cell_sort(&lib.m, &shared[f].sort).unwrap();
+            (lib.m.ctor_path(&c), lib.m.ctors[&c].args[0].clone())
+        };
         let mut o = String::new();
         writeln!(
             o,
@@ -1345,22 +1554,42 @@ mod views {
             "/-- The cells of a configuration other than `<{threads}>`. -/\nstructure Shared where"
         )
         .unwrap();
-        for l in &shared {
-            writeln!(o, "  {} : {}", l.field, ty(&l.sort)).unwrap();
+        for (f, l) in shared.iter().enumerate() {
+            // a keyed cell by the map it holds
+            let t = if is_keyed(f) {
+                cell_of(f).1
+            } else {
+                l.sort.clone()
+            };
+            writeln!(o, "  {} : {}", l.field, ty(&t)).unwrap();
         }
         let mk_body = top(&|i| {
             if i == ti {
-                "tc".to_string()
+                return "tc".to_string();
+            }
+            let f = if i < ti { i } else { i - 1 };
+            if is_keyed(f) {
+                format!("({name}.{} s.{})", cell_of(f).0, leaves[i].field)
             } else {
                 format!("s.{}", leaves[i].field)
             }
         });
         writeln!(o, "\n/-- The configuration of the cell `<{threads}>` `tc` and the shared cells `s`. -/\ndef mkc (tc : {}) (s : Shared) : {topt} :=\n  {mk_body}\n", ty(&tcell.sort)).unwrap();
         writeln!(o, "/-- The configuration of the threads `m` and the shared cells `s`. -/\nabbrev mk (m : {}) (s : Shared) : {topt} := mkc ({name}.{} m) s\n", ty(&tmap), lib.m.ctor_path(&tctor)).unwrap();
-        writeln!(o, "/-- A change of the shared cells: per cell, none, or the value it has and the value it gets. -/\nstructure Change where").unwrap();
-        for l in &shared {
-            writeln!(o, "  {} : Ch {} := none", l.field, ty(&l.sort)).unwrap();
+        if any_keyed {
+            writeln!(o, "/-- A change of the shared cells: per cell, none, or the value it has and the value it gets; for a\ncell holding a map changed at some bindings, none or the bindings and what replaces them. -/\nstructure Change where").unwrap();
+        } else {
+            writeln!(o, "/-- A change of the shared cells: per cell, none, or the value it has and the value it gets. -/\nstructure Change where").unwrap();
         }
+        for (f, l) in shared.iter().enumerate() {
+            if is_keyed(f) {
+                writeln!(o, "  {} : MCh {} := none", l.field, ty(&cell_of(f).1)).unwrap();
+            } else {
+                writeln!(o, "  {} : Ch {} := none", l.field, ty(&l.sort)).unwrap();
+            }
+        }
+        // the lemmas of a field's kind of change
+        let chn = |f: usize| if is_keyed(f) { "MCh" } else { "Ch" };
         let conj = |f: &dyn Fn(&str) -> String| -> String {
             shared
                 .iter()
@@ -1398,7 +1627,8 @@ mod views {
         .unwrap();
         writeln!(
             o,
-            "def Change.apply (c : Change) (s : Shared) : Shared :=\n  {}",
+            "{}def Change.apply (c : Change) (s : Shared) : Shared :=\n  {}",
+            if any_keyed { "noncomputable " } else { "" },
             anon(&|f| format!("c.{f}.apply s.{f}"))
         )
         .unwrap();
@@ -1408,10 +1638,44 @@ mod views {
             conj(&|f| format!("a.{f}.Compat b.{f}"))
         )
         .unwrap();
+        if any_keyed {
+            let ks: Vec<String> = (0..n)
+                .filter(|&f| is_keyed(f))
+                .map(|f| format!("a.{0}.Compat b.{0}", shared[f].field))
+                .collect();
+            writeln!(o, "/-- The changes of the cells holding a map commute at their bindings (`MCh.Compat`). -/\ndef Change.KCompat (a b : Change) : Prop :=\n  {}", ks.join(" ∧ ")).unwrap();
+            let sm: Vec<String> = (0..n)
+                .filter(|&f| is_keyed(f))
+                .map(|f| format!("c.{}.Small", shared[f].field))
+                .collect();
+            writeln!(o, "/-- The changes of the cells holding a map are a rule's, at one binding (`MCh.Small`). -/\ndef Change.Small (c : Change) : Prop :=\n  {}", sm.join(" ∧ ")).unwrap();
+            let nk = ks.len();
+            let sy: Vec<String> = (0..nk)
+                .map(|i| {
+                    let mut t = "h".to_string();
+                    if nk > 1 {
+                        for _ in 0..i {
+                            t.push_str(".2");
+                        }
+                        if i + 1 < nk {
+                            t.push_str(".1");
+                        }
+                    }
+                    format!("MCh.Compat.symm {t}")
+                })
+                .collect();
+            let body = if nk == 1 {
+                sy[0].clone()
+            } else {
+                format!("⟨{}⟩", sy.join(", "))
+            };
+            writeln!(o, "\ntheorem Change.KCompat.symm {{a b : Change}} (h : a.KCompat b) : b.KCompat a :=\n  {body}").unwrap();
+        }
         let pa: Vec<String> = (0..n)
             .map(|i| {
                 format!(
-                    "Ch.pre_apply {} {} {}",
+                    "{}.pre_apply {} {} {}",
+                    chn(i),
                     proj("h", i),
                     proj("ha", i),
                     proj("hb", i)
@@ -1424,7 +1688,8 @@ mod views {
         let ac: Vec<String> = (0..n)
             .map(|i| {
                 format!(
-                    "Ch.apply_comm {} {} {}",
+                    "{}.apply_comm {} {} {}",
+                    chn(i),
                     proj("h", i),
                     proj("ha", i),
                     proj("hb", i)
@@ -1575,6 +1840,15 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     None => unknown = true,
                 }
             }
+            for (f, k) in keyed.iter().enumerate() {
+                if let Some(rs) = k {
+                    touch[f] = if rs[ri].is_some() {
+                        Touch::Keyed
+                    } else {
+                        Touch::None
+                    };
+                }
+            }
             let kind = match (&vroles[ri], &roles[ri], unknown, threads_touched) {
                 (Some(_), _, false, _) => Kind::Thread,
                 (None, MapRole::None, false, false) if !r.multi => Kind::Shared,
@@ -1626,7 +1900,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                 .filter_map(|f| match c[f] {
                     Touch::None => Some(format!("ch.{} = none", shared[f].field)),
                     Touch::Read => Some(format!("(∃ x, ch.{} = some (x, x))", shared[f].field)),
-                    Touch::Write => None,
+                    Touch::Write | Touch::Keyed => None,
                 })
                 .collect();
             writeln!(
@@ -1645,6 +1919,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                 a[f] == Touch::None
                     || b[f] == Touch::None
                     || (a[f] == Touch::Read && b[f] == Touch::Read)
+                    || (a[f] == Touch::Keyed && b[f] == Touch::Keyed)
             })
         };
         writeln!(o, "\ndef compatTbl : Cls → Cls → Bool").unwrap();
@@ -1669,23 +1944,28 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
             t
         };
         let mut arms = String::new();
+        // with keyed cells, their compatibility at the bindings (`Change.KCompat`) as `hk`
+        let hk_arg = if any_keyed { ", _" } else { "" };
+        let keyed_fs: Vec<usize> = (0..n).filter(|&f| is_keyed(f)).collect();
         for (i, a) in classes.iter().enumerate() {
             for (j, b) in classes.iter().enumerate() {
                 if !compat(a, b) {
                     writeln!(
                         arms,
-                        "  | .c{i}, .c{j}, h, _, _, _, _ => by simp [compatTbl] at h"
+                        "  | .c{i}, .c{j}, h, _, _, _, _{hk_arg} => by simp [compatTbl] at h"
                     )
                     .unwrap();
                     continue;
                 }
-                let ka = a.iter().filter(|t| **t != Touch::Write).count();
-                let kb = b.iter().filter(|t| **t != Touch::Write).count();
-                let pos =
-                    |c: &[Touch], f: usize| c[..f].iter().filter(|t| **t != Touch::Write).count();
+                let ka = a.iter().filter(|t| t.in_class()).count();
+                let kb = b.iter().filter(|t| t.in_class()).count();
+                let pos = |c: &[Touch], f: usize| c[..f].iter().filter(|t| t.in_class()).count();
                 let fs: Vec<String> = (0..n)
                     .map(|f| {
-                        if a[f] == Touch::None {
+                        if a[f] == Touch::Keyed && b[f] == Touch::Keyed {
+                            let k = keyed_fs.iter().position(|&g| g == f).unwrap();
+                            format!("hk{}", idx(k, keyed_fs.len()))
+                        } else if a[f] == Touch::None {
                             format!("Or.inl h₁{}", idx(pos(a, f), ka))
                         } else if b[f] == Touch::None {
                             format!("Or.inr (Or.inl h₂{})", idx(pos(b, f), kb))
@@ -1698,15 +1978,21 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                         }
                     })
                     .collect();
+                let hk = if any_keyed { ", hk" } else { "" };
                 writeln!(
                     arms,
-                    "  | .c{i}, .c{j}, _, _, _, h₁, h₂ => ⟨{}⟩",
+                    "  | .c{i}, .c{j}, _, _, _, h₁, h₂{hk} => ⟨{}⟩",
                     fs.join(", ")
                 )
                 .unwrap();
             }
         }
-        writeln!(o, "\ntheorem compat_of : ∀ (a b : Cls), compatTbl a b = true → ∀ (ch₁ ch₂ : Change),\n    InClass a ch₁ → InClass b ch₂ → ch₁.Compat ch₂\n{arms}").unwrap();
+        let hk_ty = if any_keyed {
+            " → ch₁.KCompat ch₂"
+        } else {
+            ""
+        };
+        writeln!(o, "\ntheorem compat_of : ∀ (a b : Cls), compatTbl a b = true → ∀ (ch₁ ch₂ : Change),\n    InClass a ch₁ → InClass b ch₂{hk_ty} → ch₁.Compat ch₂\n{arms}").unwrap();
         // priorities: which cells the rules of each rank read, and that a step leaving them alone
         // keeps a rule of that rank from applying where it did not
         let max_rank = lib
@@ -1812,7 +2098,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     format!("  obtain {pat} := hf\n  obtain {destr} := h\n")
                 };
                 for (i, &f) in fs.iter().enumerate() {
-                    writeln!(body, "  have e{i} : (ch.apply s).{} = s.{} := by simp only [Change.apply, Ch.apply, {}]", shared[f].field, shared[f].field, hs[i]).unwrap();
+                    writeln!(body, "  have e{i} : (ch.apply s).{} = s.{} := by simp only [Change.apply, {}.apply, {}]", shared[f].field, shared[f].field, chn(f), hs[i]).unwrap();
                 }
                 let es: Vec<String> = (0..fs.len()).map(|i| format!("e{i}")).collect();
                 writeln!(body, "  generalize ch.apply s = s' at ha{}\n  cases s; cases s'\n  simp only [mk, mkc] at ha{} ⊢", es.iter().map(|e| format!(" {e}")).collect::<String>(), es.iter().map(|e| format!(" {e}")).collect::<String>()).unwrap();
@@ -1838,11 +2124,8 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                         let parts: Vec<String> = fs
                             .iter()
                             .map(|&f| {
-                                let k = classes[c].iter().filter(|t| **t != Touch::Write).count();
-                                let pos = classes[c][..f]
-                                    .iter()
-                                    .filter(|t| **t != Touch::Write)
-                                    .count();
+                                let k = classes[c].iter().filter(|t| t.in_class()).count();
+                                let pos = classes[c][..f].iter().filter(|t| t.in_class()).count();
                                 format!("hc{}", idx(pos, k))
                             })
                             .collect();
@@ -1980,7 +2263,8 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
         )
         .unwrap();
         writeln!(o, "\n/-- A step by rule `r`: every per-rule property of `r` holds of it. -/\ndef StepBy : Rule → {topt} → {topt} → Prop\n{}", rs.iter().map(|r| format!("  | .{l}, c, c' => ∀ Q, {name}.Step.Rel.{l} Q → Q c c'", l = r.lean)).collect::<Vec<_>>().join("\n")).unwrap();
-        writeln!(o, "\n/-- What a step by `r` is, beyond `Step`: a step at bindings `bs` of the thread map, a step of the shared\ncells, or nothing more (`global`). -/\ndef VPart (r : Rule) (c c' : {topt}) : Prop :=\n  match r.kind with\n  | .thread => ∃ a b bs ch, MStep a b ch c c' ∧ MapHook.Binds a bs ∧ (r.ins = false → MapHook.KeysIn b a) ∧\n      Local r.rank a b ch ∧ InClass r.cls ch ∧ KeyPat.Fits tkey r.pats bs\n  | .shared => ∃ ch, SStep ch c c' ∧ LocalS r.rank ch ∧ InClass r.cls ch\n  | .global => True").unwrap();
+        let small = if any_keyed { " ∧ ch.Small" } else { "" };
+        writeln!(o, "\n/-- What a step by `r` is, beyond `Step`: a step at bindings `bs` of the thread map, a step of the shared\ncells, or nothing more (`global`). -/\ndef VPart (r : Rule) (c c' : {topt}) : Prop :=\n  match r.kind with\n  | .thread => ∃ a b bs ch, MStep a b ch c c' ∧ MapHook.Binds a bs ∧ (r.ins = false → MapHook.KeysIn b a) ∧\n      Local r.rank a b ch ∧ InClass r.cls ch ∧ KeyPat.Fits tkey r.pats bs{small}\n  | .shared => ∃ ch, SStep ch c c' ∧ LocalS r.rank ch ∧ InClass r.cls ch{small}\n  | .global => True").unwrap();
         writeln!(o, "\ndef ViewOf (r : Rule) (c c' : {topt}) : Prop :=\n  {name}.App r.rank c ∧ (∀ j, j < r.rank → ¬ {name}.App j c) ∧ StepBy r c c' ∧ VPart r c c'").unwrap();
         // the frames
         let mut frame_names = vec![];
@@ -2004,13 +2288,15 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
             };
             let touch = &touches[ri];
             let c = &classes[cls[ri]];
-            let k = c.iter().filter(|t| **t != Touch::Write).count();
+            let k = c.iter().filter(|t| t.in_class()).count();
+            // the rule's role at each keyed cell it changes
+            let kr = |f: usize| keyed[f].as_ref().and_then(|rs| rs[ri].as_ref());
             let inclass = {
                 let parts: Vec<&str> = (0..n)
                     .filter_map(|f| match touch[f] {
                         Touch::None => Some("rfl"),
                         Touch::Read => Some("⟨_, rfl⟩"),
-                        Touch::Write => None,
+                        Touch::Write | Touch::Keyed => None,
                     })
                     .collect();
                 if parts.is_empty() {
@@ -2033,21 +2319,92 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     format!("{{ {} }}", fs.join(", "))
                 }
             };
-            let pres: Vec<&str> = (0..n)
-                .map(|i| {
-                    if touch[i] == Touch::None {
-                        "Ch.pre_none"
-                    } else {
-                        "Ch.pre_self"
+            let pres: Vec<String> = (0..n)
+                .map(|i| match kr(i) {
+                    Some(role) => {
+                        let (hx, hy) = role.proofs();
+                        format!("MCh.pre_of {hx} {hy}")
                     }
+                    None if touch[i] == Touch::None => format!("{}.pre_none", chn(i)),
+                    None => "Ch.pre_self".into(),
                 })
                 .collect();
             let unders = vec!["_"; n].join(", ");
             let vars: Vec<String> = (0..n).map(|i| format!("v{i}")).collect();
-            let cases_pre: String = (0..n)
-                .filter(|&i| touch[i] != Touch::None)
-                .map(|i| format!("    cases ({} _ rfl)\n", proj("hpre", i)))
+            // the replay: a whole cell is the one the rule saw; a keyed cell has the rule's bindings
+            // beside another rest, whose map the step makes (`MCh.apply_of`)
+            let mut cases_pre = String::new();
+            let mut applied = vec![];
+            let mut keyed_eqs = String::new();
+            let mut keyed_renames: Vec<(String, String)> = vec![];
+            for i in (0..n).filter(|&i| touch[i] != Touch::None) {
+                match kr(i) {
+                    Some(role) => {
+                        let (hx, hy) = (format!("hx{i}"), format!("hy{i}"));
+                        writeln!(
+                            cases_pre,
+                            "  obtain ⟨_, _, {hx}, {hy}⟩ := {} _ rfl",
+                            proj("hpre", i)
+                        )
+                        .unwrap();
+                        applied.push(format!("MCh.apply_of {hx} {hy}"));
+                        let (eq, rn) = role.replay(&hx, &hy);
+                        keyed_eqs.push_str(&eq);
+                        keyed_renames.extend(rn);
+                    }
+                    None => writeln!(cases_pre, "  cases ({} _ rfl)", proj("hpre", i)).unwrap(),
+                }
+            }
+            if !applied.is_empty() {
+                writeln!(
+                    cases_pre,
+                    "  simp only [Change.apply, Ch.apply, {}]",
+                    applied.join(", ")
+                )
+                .unwrap();
+                cases_pre.push_str(&keyed_eqs);
+            }
+            // a variable standing for a whole keyed cell, split into the cell's constructor and
+            // the map it holds (`mkc` builds the cell from the map)
+            let splits: String = r
+                .step
+                .binders
+                .iter()
+                .filter(|(_, t)| (0..n).any(|f| is_keyed(f) && *t == shared[f].sort))
+                .map(|(v, _)| format!("  k2l_cases {v}\n"))
                 .collect();
+            // that the keyed changes are the rule's, at one binding
+            let small_pf = if any_keyed {
+                let ps: Vec<&str> = (0..n)
+                    .filter(|&f| is_keyed(f))
+                    .map(|f| kr(f).map_or("MCh.small_none", |role| role.small()))
+                    .collect();
+                if ps.len() == 1 {
+                    format!(", {}", ps[0])
+                } else {
+                    format!(", ⟨{}⟩", ps.join(", "))
+                }
+            } else {
+                String::new()
+            };
+            // the step's equation: by computation, or for a keyed cell by `MCh.apply_of`
+            let step_eq = {
+                let ap: Vec<String> = (0..n)
+                    .filter_map(kr)
+                    .map(|role| {
+                        let (hx, hy) = role.proofs();
+                        format!("MCh.apply_of {hx} {hy}")
+                    })
+                    .collect();
+                if ap.is_empty() {
+                    "rfl".to_string()
+                } else {
+                    format!(
+                        "(by simp only [mk, mkc, Change.apply, Ch.apply, {}] <;> rfl)",
+                        ap.join(", ")
+                    )
+                }
+            };
             let vpart = match kinds[ri] {
                 Kind::Thread => {
                     let vr = vroles[ri].as_ref().unwrap();
@@ -2115,6 +2472,10 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                         }
                         _ => "MapHook.binds_element",
                     };
+                    let renames: Vec<(String, String)> = renames
+                        .into_iter()
+                        .chain(keyed_renames.iter().cloned())
+                        .collect();
                     let mut named = String::new();
                     for (h, n) in &renames {
                         write!(named, " ({h} := {n})").unwrap();
@@ -2155,10 +2516,10 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     );
                     let fits: String = vr.matches().iter().map(|_| format!("{key}, ")).collect();
                     format!(
-                        "  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, Rule.pats, InClass]\n{pre}  refine ⟨_, _, {unders_b}, {chlit}, ⟨_, _, _, ⟨{unders}⟩, rfl, {b_of}, ⟨{}⟩, rfl⟩, {binds}, {ins}, ?_, {inclass}, ⟨{fits}trivial⟩⟩\n  rintro d d' ⟨_, _, _, ⟨{}⟩, rfl, {intro_r}, hpre, rfl⟩ hpri'\n{replay}{}  exact {name}.Step.{l} {named} ..",
+                        "  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, Rule.pats, InClass]\n{splits}{pre}  refine ⟨_, _, {unders_b}, {chlit}, ⟨_, _, _, ⟨{unders}⟩, rfl, {b_of}, ⟨{}⟩, {step_eq}⟩, {binds}, {ins}, ?_, {inclass}, ⟨{fits}trivial⟩{small_pf}⟩\n  rintro d d' ⟨_, _, _, ⟨{}⟩, rfl, {intro_r}, hpre, rfl⟩ hpri'\n{replay}{}  exact {name}.Step.{l} {named} ..",
                         pres.join(", "),
                         vars.join(", "),
-                        cases_pre.replace("    cases", "  cases")
+                        cases_pre
                     )
                 }
                 Kind::Shared => {
@@ -2168,14 +2529,18 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     }
                     for (h, _) in &r.step.hyps {
                         if h != "hpri" {
-                            write!(named, " ({h} := {h})").unwrap();
+                            let n = keyed_renames
+                                .iter()
+                                .find(|(o, _)| o == h)
+                                .map_or(h, |(_, n)| n);
+                            write!(named, " ({h} := {n})").unwrap();
                         }
                     }
                     format!(
-                        "  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, InClass]\n  refine ⟨{chlit}, ⟨_, ⟨{unders}⟩, rfl, ⟨{}⟩, rfl⟩, ?_, {inclass}⟩\n  rintro d d' ⟨_, ⟨{}⟩, rfl, hpre, rfl⟩ hpri'\n{}  exact {name}.Step.{l}{named} ..",
+                        "  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, InClass]\n{splits}  refine ⟨{chlit}, ⟨_, ⟨{unders}⟩, rfl, ⟨{}⟩, {step_eq}⟩, ?_, {inclass}{small_pf}⟩\n  rintro d d' ⟨_, ⟨{}⟩, rfl, hpre, rfl⟩ hpri'\n{}  exact {name}.Step.{l}{named} ..",
                         pres.join(", "),
                         vars.join(", "),
-                        cases_pre.replace("    cases", "  cases")
+                        cases_pre
                     )
                 }
                 Kind::Global => "  simp only [VPart, Rule.kind]".to_string(),
@@ -2214,7 +2579,11 @@ def SameThreadJoins : Prop :=
     ∀ {{c c₁ c₂ : {topt}}} {{a₁ b₁ ch₁ a₂ b₂ ch₂ k}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →
       MStep a₁ b₁ ch₁ c c₁ → MStep a₂ b₂ ch₂ c c₂ → MapHook.lookup a₁ k ≠ none → MapHook.lookup a₂ k ≠ none →
       DiamondMod {name}.Step Eq c₁ c₂").unwrap();
-        writeln!(o, "\ntheorem join_static (S : SameThreadJoins) {{r₁ r₂ : Rule}} {{c c₁ c₂ : {topt}}} (hs : staticOK r₁ r₂ = true)
+        if any_keyed {
+            writeln!(o, "\n/-- A step that changes the shared cells by `ch`, a rule's change (`Change.Small`). -/\ndef ChOf (ch : Change) (c c' : {topt}) : Prop :=\n  ((∃ a b, MStep a b ch c c') ∨ SStep ch c c') ∧ ch.Small").unwrap();
+            writeln!(o, "\n/-- The joins of two steps by rules of one rank whose changes of a cell holding a map overlap: a key\nthat both match, or one matches and the other adds, or both add (`MCh.Compat` fails). They are\nthe races at one binding, such as two steps that remove one binding. -/\ndef KeyJoins : Prop :=\n  ∀ r₁ r₂, r₁.rank = r₂.rank → ∀ {{c c₁ c₂ : {topt}}} {{ch₁ ch₂}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    ChOf ch₁ c c₁ → ChOf ch₂ c c₂ → ¬ ch₁.KCompat ch₂ → DiamondMod {name}.Step Eq c₁ c₂").unwrap();
+        }
+        let mut js = format!("\ntheorem join_static (S : SameThreadJoins) {{r₁ r₂ : Rule}} {{c c₁ c₂ : {topt}}} (hs : staticOK r₁ r₂ = true)
     (v₁ : ViewOf r₁ c c₁) (v₂ : ViewOf r₂ c c₂) : DiamondMod {name}.Step Eq c₁ c₂ := by
   obtain ⟨a₁, p₁, b₁, w₁⟩ := v₁
   obtain ⟨a₂, p₂, b₂, w₂⟩ := v₂
@@ -2263,11 +2632,69 @@ def SameThreadJoins : Prop :=
     obtain ⟨c₁₂, x, y⟩ := sstep_comm ss₁ ss₂ (compat_of _ _ hc _ _ i₁ i₂)
     refine ⟨c₁₂, c₁₂, Or.inr (l₂ _ _ x ?_), Or.inr (l₁ _ _ y ?_), rfl⟩
     · intro j hj ha; exact p₂ j hj (app_back_s j _ (safe_spec hs₁ hj) i₁ ss₁ ha)
-    · intro j hj ha; exact p₁ j hj (app_back_s j _ (safe_spec hs₂ hj) i₂ ss₂ ha)").unwrap();
+    · intro j hj ha; exact p₁ j hj (app_back_s j _ (safe_spec hs₂ hj) i₂ ss₂ ha)");
+        if any_keyed {
+            // the views' `Small`, and before each generic join the keyed cells' compatibility:
+            // otherwise the join is `KeyJoins`'
+            let chof = |side: &str, n: &str| {
+                if side == "t" {
+                    format!("⟨Or.inl ⟨_, _, ts{n}⟩, k{n}⟩")
+                } else {
+                    format!("⟨Or.inr ss{n}, k{n}⟩")
+                }
+            };
+            let split = |ind: &str, s1: &str, s2: &str| {
+                format!(
+                    "{ind}by_cases hkc : ¬ ch₁.KCompat ch₂\n{ind}· exact K r₁ r₂ hr b₁ b₂ {} {} hkc\n{ind}have hkc := Classical.not_not.1 hkc\n",
+                    chof(s1, "₁"),
+                    chof(s2, "₂")
+                )
+            };
+            for (a, b) in [
+                (
+                    "(S : SameThreadJoins) {r₁ r₂",
+                    "(S : SameThreadJoins) (K : KeyJoins) {r₁ r₂",
+                ),
+                ("m₁⟩ := w₁", "m₁, k₁⟩ := w₁"),
+                ("m₂⟩ := w₂", "m₂, k₂⟩ := w₂"),
+                ("l₁, i₁, -⟩ := w₁", "l₁, i₁, -, k₁⟩ := w₁"),
+                ("l₂, i₂, -⟩ := w₂", "l₂, i₂, -, k₂⟩ := w₂"),
+                ("⟨ch₁, ss₁, l₁, i₁⟩ := w₁", "⟨ch₁, ss₁, l₁, i₁, k₁⟩ := w₁"),
+                ("⟨ch₂, ss₂, l₂, i₂⟩ := w₂", "⟨ch₂, ss₂, l₂, i₂, k₂⟩ := w₂"),
+                ("_ _ i₁ i₂)", "_ _ i₁ i₂ hkc)"),
+                ("_ _ i₂ i₁)", "_ _ i₂ i₁ hkc.symm)"),
+            ] {
+                js = js.replace(a, b);
+            }
+            js = js.replacen(
+                "    · obtain ⟨c₁₂, x, y⟩ := mstep_comm",
+                &format!(
+                    "    · {}      obtain ⟨c₁₂, x, y⟩ := mstep_comm",
+                    split("      ", "t", "t").trim_start()
+                ),
+                1,
+            );
+            let mut parts = js.split("    obtain ⟨⟨hc, hs₁⟩, hs₂⟩ := hs\n");
+            let mut out = parts.next().unwrap().to_string();
+            for (k, rest) in parts.enumerate() {
+                let (s1, s2) = [("t", "s"), ("s", "t"), ("s", "s")][k];
+                out.push_str("    obtain ⟨⟨hc, hs₁⟩, hs₂⟩ := hs\n");
+                out.push_str(&split("    ", s1, s2));
+                out.push_str(rest);
+            }
+            js = out;
+        }
+        o.push_str(&js);
+        o.push('\n');
         writeln!(o, "\n/-- The joins the generic arguments leave in every configuration: one per ordered pair of rules that
 `staticOK` rejects. -/\ndef OpenJoins : Prop :=\n  ∀ r₁ r₂, staticOK r₁ r₂ = false → ∀ {{c c₁ c₂ : {topt}}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    DiamondMod {name}.Step Eq c₁ c₂").unwrap();
-        writeln!(o, "\ntheorem joins_of (O : OpenJoins) (S : SameThreadJoins) {{c c₁ c₂ : {topt}}} (h₁ : {name}.Step c c₁)\n    (h₂ : {name}.Step c c₂) : DiamondMod {name}.Step Eq c₁ c₂ := by\n  obtain ⟨r₁, v₁⟩ := view_of h₁\n  obtain ⟨r₂, v₂⟩ := view_of h₂\n  cases hs : staticOK r₁ r₂\n  · exact O r₁ r₂ hs v₁.2.2.1 v₂.2.2.1\n  · exact join_static S hs v₁ v₂").unwrap();
-        writeln!(o, "\n/-- Given the joins left open, two runs that end in terminal configurations end in the same one. -/\ntheorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins) {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  terminal_unique_of_diamond (H := fun _ => True) StepEquiv.eq (fun _ _ _ _ => trivial)\n    (fun _ h₁ h₂ => joins_of O S h₁ h₂) trivial h₁ t₁ h₂ t₂").unwrap();
+        let (kb, ka) = if any_keyed {
+            (" (K : KeyJoins)", " K")
+        } else {
+            ("", "")
+        };
+        writeln!(o, "\ntheorem joins_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c c₁ c₂ : {topt}}} (h₁ : {name}.Step c c₁)\n    (h₂ : {name}.Step c c₂) : DiamondMod {name}.Step Eq c₁ c₂ := by\n  obtain ⟨r₁, v₁⟩ := view_of h₁\n  obtain ⟨r₂, v₂⟩ := view_of h₂\n  cases hs : staticOK r₁ r₂\n  · exact O r₁ r₂ hs v₁.2.2.1 v₂.2.2.1\n  · exact join_static S{ka} hs v₁ v₂").unwrap();
+        writeln!(o, "\n/-- Given the joins left open, two runs that end in terminal configurations end in the same one. -/\ntheorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  terminal_unique_of_diamond (H := fun _ => True) StepEquiv.eq (fun _ _ _ _ => trivial)\n    (fun _ h₁ h₂ => joins_of O S{ka} h₁ h₂) trivial h₁ t₁ h₂ t₂").unwrap();
         writeln!(o, "\n#k2l_assert_axioms mstep_comm compat_of app_back app_back_s view_of join_static joins_of terminal_unique_of").unwrap();
         // the count
         let safe = |c: usize, i: usize| (0..i).all(|j| j < max_rank && safe_tbl(j, c));
@@ -2277,6 +2704,7 @@ def SameThreadJoins : Prop :=
             shared: kinds.iter().filter(|k| **k == Kind::Shared).count(),
             global: kinds.iter().filter(|k| **k == Kind::Global).count(),
             classes: classes.len(),
+            key_joins: any_keyed.then_some(0),
             ..super::Counts::default()
         };
         let ins = |k: usize| vroles[k].as_ref().is_some_and(|v| v.inserts());
@@ -2297,6 +2725,12 @@ def SameThreadJoins : Prop :=
                     c.open_priority += 1;
                 } else if ins(i) && ins(j) {
                     c.open_insert += 1;
+                } else if let Some(k) = c.key_joins.as_mut()
+                    && (0..n).any(|f| {
+                        classes[cls[i]][f] == Touch::Keyed && classes[cls[j]][f] == Touch::Keyed
+                    })
+                {
+                    *k += 1;
                 }
             }
         }
@@ -2374,6 +2808,9 @@ pub(crate) struct Counts {
     open_insert: usize,
     /// two thread rules whose keys may be equal, at one binding (`SameThreadJoins`)
     same_thread: usize,
+    /// with cells holding a map changed at some bindings: two rules of one rank, otherwise
+    /// decided generically, that change one such cell (`KeyJoins`, where their keys overlap)
+    key_joins: Option<usize>,
 }
 
 impl Counts {
@@ -2391,7 +2828,9 @@ impl Counts {
             self.open_priority,
             self.open_insert,
             self.same_thread
-        )
+        ) + &self
+            .key_joins
+            .map_or(String::new(), |k| format!("key-joins = {k}\n"))
     }
 }
 
