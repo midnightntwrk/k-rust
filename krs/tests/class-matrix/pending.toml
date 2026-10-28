@@ -820,88 +820,6 @@ finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
 step = "S5"
 
-# S0-10: a guard that is a literal or a token island is refused by the guard's host-literal rule (`unsupported-rule-signature`) instead of the construct's code or its sort's
-
-["terms/equation/guard/\"s\""]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/equation/guard/-1"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/equation/guard/1"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/equation/guard/1.5"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/equation/guard/k::anonymous!(Int, \"_V\")"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/equation/guard/k::bytes!(b\"ab\")"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/equation/guard/k::id!(\"$x\")"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/equation/guard/k::lexeme!(Word, \"word\")"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/guard/\"s\""]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/guard/-1"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/guard/1"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/guard/1.5"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/guard/k::anonymous!(Int, \"_V\")"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/guard/k::bytes!(b\"ab\")"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/guard/k::id!(\"$x\")"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/guard/k::lexeme!(Word, \"word\")"]
-finding = "S0-10"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
 # S0-10 where rustc parses the position (a fn body, a `const` value): rustc's parse error at `@` is
 # admitted (K2), but KRS answers with the parse code of the form that read it instead of the
 # construct's; a shorthand whose body does not parse as Rust is read as the struct form of
@@ -1119,33 +1037,6 @@ step = "S3"
 ["terms/table/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
 deviation = "krs::collect::provenance-mismatch @ spelling"
-step = "S3"
-
-# S0-13: literals refused where they are ground terms: `#[k::requires(true)]` as a "host literal", and `k::id!`/`k::bytes!`/`k::lexeme!` as a constant's value
-
-["terms/constant/value/k::bytes!(b\"ab\")"]
-finding = "S0-13"
-deviation = "krs::syntax::invalid-constant @ spelling"
-step = "S3"
-
-["terms/constant/value/k::id!(\"$x\")"]
-finding = "S0-13"
-deviation = "krs::syntax::invalid-constant @ spelling"
-step = "S3"
-
-["terms/constant/value/k::lexeme!(Word, \"word\")"]
-finding = "S0-13"
-deviation = "krs::syntax::invalid-constant @ spelling"
-step = "S3"
-
-["terms/equation/guard/true"]
-finding = "S0-13"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
-step = "S3"
-
-["terms/rule/guard/true"]
-finding = "S0-13"
-deviation = "krs::syntax::unsupported-rule-signature @ spelling"
 step = "S3"
 
 # S0-14: a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys

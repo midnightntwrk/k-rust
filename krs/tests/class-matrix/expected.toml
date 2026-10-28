@@ -4160,10 +4160,19 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/constant/value/k::bytes!(b\"ab\")"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/constant/value/k::id!(\"$x\")"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/constant/value/k::lexeme!(Word, \"word\")"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/constant/value/true"]
 k = """
@@ -4187,6 +4196,12 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."terms/equation/guard/true"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0
+requires true [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/equation/guard/x"]
 k = """
@@ -5786,6 +5801,12 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/rule/guard/true"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires true [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/guard/x"]
 k = """
