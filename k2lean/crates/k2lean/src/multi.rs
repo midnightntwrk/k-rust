@@ -15,7 +15,7 @@ use crate::lower::L;
 use crate::names;
 use crate::rules::{Rule, ctor_args, ctor_sig, display_name};
 
-fn rank_of(r: &Rule, prios: &[i64]) -> usize {
+pub(crate) fn rank_of(r: &Rule, prios: &[i64]) -> usize {
     prios.iter().position(|p| *p == r.priority).unwrap()
 }
 
@@ -135,7 +135,7 @@ requires that no rule of a higher rank applies. A matcher returns every match. -
     o
 }
 
-fn below(i: usize, proofs: &dyn Fn(usize) -> String) -> String {
+pub(crate) fn below(i: usize, proofs: &dyn Fn(usize) -> String) -> String {
     if i == 0 {
         return "(fun j hj => absurd hj (Nat.not_lt_zero j))".into();
     }
@@ -147,7 +147,7 @@ fn below(i: usize, proofs: &dyn Fn(usize) -> String) -> String {
 }
 
 /// The generic proof of a matcher's completeness (`∃ r ∈ Rules.x lhs, …`).
-const MATCH_TAC: &str = "  k2l_map_facts\n  dsimp only [{rule}]\n  repeat' (first | k2l_choose | split)\n  all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))\n";
+pub(crate) const MATCH_TAC: &str = "  k2l_map_facts\n  dsimp only [{rule}]\n  repeat' (first | k2l_choose | split)\n  all_goals (k2l_rest; (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (try subst_vars); (try simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]); (iterate 4 (try (k2l_split_ands; (try subst_vars); simp_all [ListHook.uncons_concat_element, ListHook.unsnoc_concat_element]))); (try k2l_absurd_pattern))\n";
 
 pub fn emit_adequacy(
     rules: &[Rule],

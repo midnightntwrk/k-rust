@@ -52,6 +52,37 @@ elab "k2l_split_hyps" : tactic => do
         return gs
     throwError "k2l_split_hyps: nothing to split"
 
+/-- `k2l_fuel_lift [h₁, …]`: for each hypothesis `h : F … = some v` that one of the implications
+`hᵢ : ∀ xs v, F' … = some v → G … = some v` takes, add `G … = some v` (until none applies). The
+soundness proof of the fuel twins of well-founded functions (`NS/Fuel.lean`) lifts a twin call's
+value to the function's with it, the induction hypotheses being the `hᵢ`. -/
+elab "k2l_fuel_lift" " [" ts:term,* "]" : tactic => do
+  let es ← ts.getElems.filterMapM fun t => observing? (withMainContext (Term.elabTerm t none))
+  let mut done : Array FVarId := #[]
+  let mut changed := true
+  while changed do
+    changed := false
+    let g ← getMainGoal
+    let found ← g.withContext do
+      for d in (← getLCtx) do
+        if d.isImplementationDetail || done.contains d.fvarId then continue
+        for e in es do
+          let r ← observing? do
+            let (ms, _, body) ← forallMetaTelescopeReducing (← inferType e)
+            let some hm := ms.back? | throwError "no premise"
+            unless ← isDefEq (← inferType hm) d.type do throwError "no match"
+            hm.mvarId!.assign d.toExpr
+            let pf ← instantiateMVars (mkAppN e ms)
+            if pf.hasExprMVar then throwError "open"
+            return (← instantiateMVars body, pf)
+          if let some (ty, pf) := r then return some (d.fvarId, ty, pf)
+      return none
+    if let some (fv, ty, pf) := found then
+      let (_, g') ← (← g.assert `hfuel ty pf).intro1P
+      replaceMainGoal [g']
+      done := done.push fv
+      changed := true
+
 /-- Split the first `match` of the goal, else of a hypothesis (the one `split` would pick there),
 when all of its discriminants are free variables; fails otherwise. Such a split is directed by the
 match's patterns: each case substitutes its pattern for the variable everywhere, and the last one

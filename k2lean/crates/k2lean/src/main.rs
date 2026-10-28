@@ -13,6 +13,7 @@ mod det2;
 mod drivers;
 mod eqns;
 mod fndiff;
+mod fuel;
 mod funcs;
 mod goldens;
 mod hooks;
@@ -437,6 +438,34 @@ fn main() {
                     &out.join(ns).join("Determinism.lean"),
                     &with_hooks(multi::emit_determinism(&top, ns, &report), ns, &fgen.params),
                 );
+                // the fuel twins, for kernel evaluation through well-founded functions (not imported
+                // by the library's root: built by whoever imports it)
+                // the call graph's groups by Lean name
+                let lean_groups: Vec<Vec<String>> = fgen
+                    .groups
+                    .iter()
+                    .map(|g| {
+                        g.iter()
+                            .filter_map(|f| fgen.fns.get(f).map(|s| s.lean.clone()))
+                            .collect()
+                    })
+                    .collect();
+                match fuel::emit(
+                    &fgen.lean,
+                    &fgen.recursive,
+                    &lean_groups,
+                    &rs,
+                    &prios,
+                    &top,
+                    ns,
+                ) {
+                    Some(Ok(text)) => write(
+                        &out.join(ns).join("Fuel.lean"),
+                        &with_hooks(text, ns, &fgen.params),
+                    ),
+                    Some(Err(e)) => eprintln!("note: {ns}.Fuel not generated: {e}"),
+                    None => {}
+                }
             } else if ranked {
                 write(
                     &out.join(ns).join("Rules.lean"),

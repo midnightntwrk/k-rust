@@ -271,6 +271,11 @@ lib() { # DIR NAME [COMMAND...]: generate (then run COMMAND), Equations, the who
   ok "build $d" "$L/build-$d.log"
   lbuild "$o" "build-$d-guard" "${n}Test.Axioms" || { bad "guard $d" "$L/build-$d-guard.log"; return 1; }
   ok "guard $d" "$L/build-$d-guard.log"
+  # the fuel twins (`NS/Fuel.lean`, not imported by the library's root), with their axiom guard
+  if [ -f "$o/$n/Fuel.lean" ]; then
+    lbuild "$o" "build-$d-fuel" "$n.Fuel" || { bad "fuel $d" "$L/build-$d-fuel.log"; return 1; }
+    ok "fuel $d" "$L/build-$d-fuel.log"
+  fi
 }
 partlib() { # DIR TARGET: a library generated and built only as far as TARGET (what a demo needs)
   local d=$1
