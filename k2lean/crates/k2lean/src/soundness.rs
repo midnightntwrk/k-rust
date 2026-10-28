@@ -490,7 +490,7 @@ fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation, merged: bool) ->
     let key = head_key(&e.args[0]).ok_or("the first argument is not a constructor")?;
     let others = eqs
         .iter()
-        .filter(|o| !o.owise && o.index != e.index)
+        .filter(|o| !o.owise && (o.index, o.variant) != (e.index, e.variant))
         .any(|o| head_key(&o.args[0]).is_none_or(|k| k == key));
     if others && !merged {
         return Err("another equation matches the same constructor".into());
@@ -505,8 +505,9 @@ fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation, merged: bool) ->
         rename: BTreeMap::new(),
     };
     let (name, lhs_arg) = {
-        let (c, args, leaf) = match &e.args[0] {
-            P::App(c, _, args) if c != "inj" => (c.clone(), args.clone(), None),
+        // `under`: the leaf sort a constructor of another sort is injected from
+        let (c, args, leaf, under) = match &e.args[0] {
+            P::App(c, _, args) if c != "inj" => (c.clone(), args.clone(), None, None),
             p => {
                 let (from, _, inner) = as_inj(p).unwrap();
                 match inner {
@@ -514,8 +515,9 @@ fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation, merged: bool) ->
                         String::new(),
                         vec![P::Var(v.clone(), S::App(from.clone(), vec![]))],
                         Some(from),
+                        None,
                     ),
-                    P::App(c, _, args) => (c.clone(), args.clone(), None),
+                    P::App(c, _, args) => (c.clone(), args.clone(), None, Some(from)),
                     _ => return Err("a compound injection".into()),
                 }
             }
@@ -556,8 +558,14 @@ fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation, merged: bool) ->
                         names::demangle(&c)
                     ));
                 }
+                // named by the leaf too, as `no_equation` names it: constructors of different
+                // sorts share a Lean name (IMP++'s `_,_` of `AExps` and of `Ids`)
+                let lean = &cx.a.m.ctors[&c].lean;
                 (
-                    cx.a.m.ctors[&c].lean.clone(),
+                    match &under {
+                        Some(l) => format!("inj_{}.{lean}", names::short_sort(l)),
+                        None => lean.clone(),
+                    },
                     cx.ctor_value(&c, &xs, &t.sort),
                 )
             }
@@ -1828,7 +1836,8 @@ fn generate(a: &Lib, b: &Lib, syms: &[String], ns: &str, o: &Opts) -> (String, S
         ext: true,
     };
     let ty_ctor = |c: &str| format!("{nb}.{}", b.m.ctor_path(c));
-    let eqs = funcs::equations(&b.def);
+    // the equations as the checker's functions compute them: with their overload variants
+    let eqs = funcs::equations_modulo_overloads(&b.def, &b.m);
 
     // ---- Typing.lean
     let mut t = String::new();
