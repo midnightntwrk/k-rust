@@ -198,6 +198,11 @@ Each lemma is proved by unfolding the function in its hypothesis and splitting i
 - `k2lean relate` pairs the rules and symbols of two definitions of one language and generates the translation and, when every rule pairs, a bisimulation proof (`demos/ImpRel`).
 - `k2lean soundness` generates the type soundness of a semantics for a type checker written in K, but, for a language with a store, the store typing and the rules that read or write the store (§3.3, `demos/ImpTypes`; ExprTypes and ImpPlusTypes have no hand module).
 
+**How a generic tactic fails.** A generated proof tries alternatives in order, and two rules keep a failed case from costing more than its own budget or hiding a case that another alternative would close.
+Each alternative closes its goal or fails (`; done`): one that succeeds with goals left stops `first` before the alternative that would have closed them.
+A resource limit (`maxHeartbeats`, `maxRecDepth`) raises a runtime exception that `try` and `first` do not catch, so a search that can run away has its own budget per case (the per-proof budget of `Equations`, `k2l.preserve.maxHeartbeats` per rule of `k2l_preserve`): the case is left open, listed, and the module goes on, rather than one runaway case failing every theorem after it.
+Measured, the failing cases dominate the cost: 19 runaway theorems took 8,174 s of KEVM's equation time, and SimpleRel's memory went to failing arms, not to its size.
+
 **What a generator knows.** The generators handle K's constructs, each from what it means in K. Examples:
 - cells and their nesting, and cell collections;
 - `<k>` with strictness and `KResult`;
