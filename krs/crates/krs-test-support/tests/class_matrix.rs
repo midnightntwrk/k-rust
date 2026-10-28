@@ -12,7 +12,7 @@ use krs_test_support::class_matrix::invariants::{
     FORWARDED_RUSTC, Observed, ObservedDiagnostic, Severity, Violation, front_stops_at_rustc_parse,
     registry_kind, signature, violations, without_rustc_parse_error,
 };
-use krs_test_support::class_matrix::oracle::{Class, admits};
+use krs_test_support::class_matrix::oracle::{Class, Outcome, Refusal, Stage, admits};
 use krs_test_support::class_matrix::pending::{
     Judgement, Observation, Pending, UNASSIGNED, case_of,
 };
@@ -249,9 +249,18 @@ fn the_shipped_table_and_red_list_parse() {
         .iter()
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
-    let resolution = table.resolve(&ids, registry_kind);
+    let resolution = table.resolve_cases(&cases, registry_kind);
     // The table decides every case exactly once.
     assert!(resolution.errors.is_empty(), "{:#?}", resolution.errors);
+    // A rule overrides the oracle's resolution refusal only where the case also misnames a name:
+    // `Size(x)` in a constant applies a function, but its `x` is unbound.
+    assert_eq!(
+        resolution.overridden,
+        BTreeMap::from([(
+            "terms/constant/value/Size(x)".to_owned(),
+            "constant-applies-function"
+        )])
+    );
     assert_eq!(resolution.expected.len(), ids.len());
     // K5's entries name mutations, which are no cases of the table.
     let mutations = entry_points::mutations();
@@ -349,10 +358,10 @@ at = "spelling"
 k = "<pc> _ => X </pc>"
 "#
     ));
-    let resolution = narrowed.resolve(&ids, registry_kind);
+    let resolution = narrowed.resolve(&ids, |_| None, registry_kind);
     assert!(resolution.errors.is_empty(), "{:#?}", resolution.errors);
     let decided = |id: &str| match resolution.expected[id] {
-        Expected::Refuse { class, rule } => (class.code.as_str(), Some(rule.at)),
+        Expected::Refuse { class, at, .. } => (class.code.as_str(), Some(at)),
         Expected::Accept(accepted) => (accepted.k.as_deref().unwrap_or_default(), None),
     };
     assert_eq!(
@@ -385,6 +394,7 @@ at = "entry"
             "readable/result/pc/x",
             "readable/subject/env/x",
         ],
+        |_| None,
         registry_kind,
     );
     assert_eq!(
@@ -398,6 +408,124 @@ at = "entry"
         }]
     );
     assert_eq!(resolution.expected.len(), 2);
+}
+
+/// A term case is decided by the oracle's placement refusal, then the table's rules, then the
+/// oracle's resolution refusal, then its accept entry; an accept entry never overrides a refusal.
+#[test]
+fn the_oracle_decides_term_cases_before_and_after_the_rules() {
+    let terms = table(
+        r#"
+[class.wildcard-outside-pattern]
+code = "krs::syntax::unsupported-term-expression"
+doc = "`_` outside a pattern"
+
+[class.constant-applies-function]
+code = "krs::analysis::invalid-constant"
+doc = "a constant that applies a function"
+
+[class.unbound-name]
+code = "krs::expand::unbound-name"
+doc = "a name nothing binds"
+
+[[refuse]]
+match = "terms/a/*"
+class = "unbound-name"
+at = "item"
+
+[[refuse]]
+match = "terms/b/z"
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = "terms/a/Size(x)"
+class = "unbound-name"
+at = "item"
+
+[accept."terms/b/x"]
+k = "rule X"
+
+[accept."terms/b/z"]
+k = "rule Z"
+"#,
+    );
+    let refusal = |class, stage| Some(Outcome::Refuse(Refusal { class, stage }));
+    let outcome = |id: &str| match id {
+        "terms/a/_" | "terms/b/z" => refusal(Class::WildcardOutsidePattern, Stage::Placement),
+        "terms/a/Size(x)" | "terms/b/add" => {
+            refusal(Class::ConstantAppliesFunction, Stage::Resolution)
+        }
+        "terms/b/w" => refusal(Class::AliasOutsidePattern, Stage::Placement),
+        _ => Some(Outcome::Accept),
+    };
+    let ids = [
+        "terms/a/_",
+        "terms/a/Size(x)",
+        "terms/b/add",
+        "terms/b/x",
+        "terms/b/y",
+        "terms/b/z",
+        "terms/b/w",
+    ];
+    let resolution = terms.resolve(&ids, outcome, registry_kind);
+    let decided = |id: &str| match resolution.expected.get(id) {
+        Some(Expected::Refuse { name, at, .. }) => Some((*name, Some(*at))),
+        Some(Expected::Accept(accepted)) => Some((accepted.k.as_deref().unwrap_or_default(), None)),
+        None => None,
+    };
+    assert_eq!(
+        decided("terms/a/_"),
+        Some(("wildcard-outside-pattern", Some(At::Spelling)))
+    );
+    assert_eq!(
+        decided("terms/a/Size(x)"),
+        Some(("unbound-name", Some(At::Item)))
+    );
+    assert_eq!(
+        decided("terms/b/add"),
+        Some(("constant-applies-function", Some(At::Spelling)))
+    );
+    assert_eq!(decided("terms/b/x"), Some(("rule X", None)));
+    assert_eq!(decided("terms/b/y"), None);
+    assert_eq!(
+        decided("terms/b/z"),
+        Some(("wildcard-outside-pattern", Some(At::Spelling)))
+    );
+    assert_eq!(decided("terms/b/w"), None);
+    assert_eq!(
+        resolution.overridden,
+        BTreeMap::from([("terms/a/Size(x)".to_owned(), "constant-applies-function")])
+    );
+    // A rule of an oracle class over a term case is a table error, and so is a rule that decides
+    // nothing: `terms/a/*`, whose cases the oracle and a more specific rule decide, and the one
+    // over `terms/b/z`, which the oracle refuses first.
+    assert_eq!(
+        resolution.errors,
+        vec![
+            TableError::OracleClassRule {
+                pattern: "terms/b/z".to_owned(),
+                class: "wildcard-outside-pattern".to_owned(),
+            },
+            TableError::Uncovered {
+                id: "terms/b/y".to_owned()
+            },
+            TableError::AcceptsRefusedCase {
+                id: "terms/b/z".to_owned(),
+                class: "wildcard-outside-pattern".to_owned(),
+            },
+            TableError::UnknownOracleClass {
+                id: "terms/b/w".to_owned(),
+                class: "alias-outside-pattern".to_owned(),
+            },
+            TableError::ShadowedRule {
+                pattern: "terms/a/*".to_owned(),
+            },
+            TableError::ShadowedRule {
+                pattern: "terms/b/z".to_owned(),
+            },
+        ]
+    );
 }
 
 /// The oracle reads a subject's root by the form's root role: an equation's and a
@@ -494,6 +622,7 @@ same_k_as = ["readable/subject/pc/x", "readable/gone"]
     let errors = defective
         .resolve(
             &["readable/subject/pc/x", "readable/result/pc/x"],
+            |_| None,
             registry_kind,
         )
         .errors;

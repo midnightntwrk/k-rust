@@ -1453,6 +1453,77 @@ finding = "N27"
 deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
+# NT-1-1: a readable map read's key refuses `let` blocks, `k::matches!`, `k::is!`/`k::project!` and a record update as a pattern would, though it admits a function application
+# A key in a pattern finds its entry by matching where it is a pattern and by lookup where it is
+# computed, as `{ Size(x) -> v, .. }` already is: a computed key denotes the value it computes,
+# whatever construct computes it. So the oracle accepts these keys; a `let` pattern's own alias and
+# alternatives, and an update's base that is no matched record's alias, are refused by their own
+# rules. NT-F1 (P5) owns how a key is read.
+
+["terms/readable/map-key/Cmd::Pair { a: x, ..x }"]
+finding = "NT-1-1"
+deviation = "krs::syntax::invalid-record-update @ spelling"
+
+["terms/readable/map-key/k::is!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/readable/map-key/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-1-1"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/readable/map-key/k::project!(Int, x)"]
+finding = "NT-1-1"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/readable/map-key/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/map-key/{ let y = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/map-key/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-1-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+# NT-1-2: a function application in a List cell's element in a readable subject is accepted and
+# emitted as matched (`<stack> ListItem(size ( V0:KItem )) ... </stack>`), so the rule never applies:
+# the list holds evaluated values. An element of a list in a pattern is matched as any argument is,
+# unlike a map key, which is looked up (decision D1, NT-F4).
+
+["terms/readable/list-element/Size(x)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+["terms/readable/list-element/k::builtin::int::add(1, 2)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+# NT-1-3: a claim's and a simplification's subject refuse `k::is!` and `k::project!`, though they admit a function application
+# A sort test lowers to an application of the sort's generated predicate or projection
+# (`isInt(X)`), so it means there what an application means. A claim's start state and a
+# simplification's left side hold unevaluated applications, which is why both admit `Size(x)`
+# there; by the same reading they admit a sort test. Only a pattern over evaluated terms (a rule's
+# or an equation's) never meets one.
+
+["terms/claim/subject/k::is!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/claim/subject/k::project!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/simplification/subject/k::is!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/simplification/subject/k::project!(Int, x)"]
+finding = "NT-1-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
 # Unassigned: a `cells!` subject alias `y @ Cmd::Hold(_)` whose binder is declared at the sort of
 # the position it fills (`y: KItem`, above the pattern's `Stmt`) reaches the IR validator's internal
 # "an `alias @ pattern` (#as) node's sort is not its alias variable's, or its pattern's sort does

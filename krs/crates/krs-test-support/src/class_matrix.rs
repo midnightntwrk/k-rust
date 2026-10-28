@@ -31,6 +31,14 @@
 //! can match IDs with globs and an ID stays stable when other cases are added. A construct
 //! never contains `/`.
 //!
+//! **The oracle.** A term case also carries its position and its construct's nodes as data
+//! ([`Case::term`], [`positions`]): each slot template declares where its hole stands, and each
+//! spelling the constructs it holds and where each stands relative to the hole. The oracle
+//! ([`oracle`]) derives from them whether the case is accepted and the class of its mistake,
+//! stated per construct from what it means at a position. The table reads the oracle first for
+//! the term families ([`table`]'s precedence), so their refusal rules name only a term's sort and
+//! names.
+//!
 //! Every case records three byte ranges: the *spelling* (the construct itself), the *entry*
 //! (the smallest unit of the slot that holds the construct, `pc: Some(x)` for a cell entry and
 //! the spelling itself for a term position) and the *item* (the whole sentence or initializer

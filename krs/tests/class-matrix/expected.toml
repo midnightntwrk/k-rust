@@ -12,6 +12,17 @@
 #    `k` is a case that should be accepted and is refused today. `same_k_as` names the cases whose
 #    documented equal spelling must emit the same normalized K.
 #
+# The term families (`terms/..`, `import/..`) are judged by the oracle (`class_matrix::oracle`)
+# first, from each case's position and its construct's nodes, so no rule here refuses a term case
+# for where its construct stands. For such a case:
+# 1. a refusal the oracle tells from the spelling and its position decides, at the spelling;
+# 2. otherwise the most specific refusal rule decides: the rules left for these families name a
+#    term's sort and names (`condition-sort`, `let-sort`, `unbound-name`, `record-update-base`);
+# 3. otherwise a refusal the oracle tells by what a path resolves to or an operand's sort decides,
+#    at the spelling (a name or sort mistake is met first);
+# 4. otherwise the case is accepted, and its accept entry records its K. An accept entry of a
+#    refused term case is a table error.
+#
 # How a case's outcome is decided, from what its construct means in its slot:
 # - A spelling that belongs to one kind of cell (`Some`/`None`, an instance list, map notation,
 #   brackets) written on a cell of another kind is that kind's mistake (`presence-on-plain-cell`,
@@ -22,7 +33,8 @@
 #   `optional-without-presence`, `collection-without-instances`).
 # - Otherwise the term itself decides: its sort against the cell's (`content-sort`, `binder-sort`),
 #   and the construct's own placement rules (where `_`, `@`, `|`, `k::matches!`, `let`, islands,
-#   predicates and rewrites may stand) before its sort.
+#   predicates and rewrites may stand) before its sort. For a term case, the oracle states the
+#   placement rules, per construct.
 
 [class]
 
@@ -106,8 +118,8 @@ doc = "a `#[k::constant]` value that is no ground constructor term"
 code = "krs::analysis::invalid-term"
 doc = "a term whose sort is not below the sort of the cell or position it fills"
 
-# A compiler class no generated case makes: the term families place their constructs in argument
-# holes, never at a subject's root.
+# A class of the compiler and the oracle that no generated case makes: the term families place
+# their constructs in argument holes, never at a subject's root.
 [class.equation-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor, a literal or a builtin operation at the root of an equation's subject, which is the application of the function the equation defines: a value defines no function"
@@ -118,7 +130,7 @@ doc = "`k::fragment!` in an initializer, which builds nested cells with their st
 
 [class.function-in-pattern]
 code = "krs::analysis::function-in-pattern"
-doc = "a function application at a matched position of a rewrite rule's or equation's pattern, a slot's root as below it, other than an equation's subject root (the function it defines) and a collection's key, value or element: a pattern matches terms as written, and an application is evaluated"
+doc = "a function application at a matched position of a rewrite rule's or equation's pattern, a slot's root as below it, a collection's value or element included, other than an equation's subject root (the function it defines) and a map key, which is computed and looked up: a pattern matches terms as written, and an application is evaluated"
 
 [class.initializer-remainder]
 code = "krs::syntax::unsupported-initializer-body"
@@ -134,7 +146,7 @@ doc = "an instance list (`{ .. }`, `[.., Job { .. }]` read as instances) on a ce
 
 [class.let-outside-term]
 code = "krs::expand::let-outside-term"
-doc = "a `let` block (K's `#let`) in a pattern, an initializer or a claim"
+doc = "a `let` block (K's `#let`) in a matched position, an initializer or a claim"
 
 [class.let-sort]
 code = "krs::analysis::invalid-let"
@@ -154,7 +166,7 @@ doc = "a readable map read whose value is not a fresh binder: the value names wh
 
 [class.matches-outside-condition]
 code = "krs::expand::matches-outside-condition"
-doc = "`k::matches!` (K's `:=K`) in a pattern, an initializer or a claim"
+doc = "`k::matches!` (K's `:=K`) in a matched position, an initializer or a claim"
 
 [class.ml-in-condition]
 code = "krs::analysis::ml-placement"
@@ -198,14 +210,14 @@ doc = "a record update (`Ctor { f: e, ..t }`) whose base is no alias `t @ Ctor {
 
 [class.record-update-in-pattern]
 code = "krs::syntax::invalid-record-update"
-doc = "a record update (`Ctor { f: e, ..t }`) in a pattern, which denotes no record by it: `..base` is defined only in a built term, from a matched record"
+doc = "a record update (`Ctor { f: e, ..t }`) in a matched position, which denotes no record by it: `..base` is defined only in a built term, from a matched record"
 
 [class.rest-mismatch]
 code = "krs::syntax::invalid-list-notation"
 doc = "a `..` rest on one side of a cell only: a result rest the subject's entry did not match, or a subject rest the result drops"
 
-# A position-table class no generated case makes (`krs_syntax::positions`): the term families hold
-# no map in a single-body rule's subject.
+# A class of the position table (`krs_syntax::positions`) and the oracle that no generated case
+# makes: the term families hold no map in a single-body rule's subject.
 [class.rewrite-in-map-key]
 code = "krs::syntax::invalid-local-rewrite"
 doc = "`k::rewrite!` in a map key of a single-body rule's subject: a key is what the map is looked up by, and re-keying an entry may meet a key the map holds"
@@ -218,15 +230,15 @@ doc = "`k::rewrite!` outside the subject of a single-body `#[k::rule]` fn"
 code = "krs::expand::claim-only-term"
 doc = "`k::is!`/`k::project!`, which are rule and claim terms, in an initializer"
 
-# A compiler class no generated case makes: the term families place their constructs in argument
-# holes, never at a subject's root.
+# A class of the compiler and the oracle that no generated case makes: the term families place
+# their constructs in argument holes, never at a subject's root.
 [class.simplification-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor or a literal at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify"
 
 [class.sort-test-in-pattern]
 code = "krs::analysis::invalid-sort-test"
-doc = "`k::is!`/`k::project!`, which compute, in a pattern"
+doc = "`k::is!`/`k::project!`, which apply a generated function, in a matched position over evaluated terms: a rule's or an equation's pattern, or a local pattern"
 
 # A position-table class no generated case makes (`krs_syntax::positions`).
 [class.turbofish-in-initializer]
@@ -250,75 +262,6 @@ doc = "`_` in a result, a condition or an initializer"
 match = '{cells,claim,readable}/subject/counter/None'
 class = "absence-test-without-creation"
 at = "entry"
-
-# alias-in-let-pattern
-[[refuse]]
-match = 'terms/{equation,rule}/{guard,result}/\{ let y @ Cmd::Hold(_) = x; y \}'
-class = "alias-in-let-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{result,result-list-element}/\{ let y @ Cmd::Hold(_) = x; y \}'
-class = "alias-in-let-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{shorthand,simplification,sort-rule,table}/result/\{ let y @ Cmd::Hold(_) = x; y \}'
-class = "alias-in-let-pattern"
-at = "spelling"
-
-# alias-outside-pattern
-[[refuse]]
-match = 'terms/cells/result/y @ Cmd::Hold(_)'
-class = "alias-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/y @ Cmd::Hold(_)'
-class = "alias-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/local-rule/subject/y @ Cmd::Hold(_)'
-class = "alias-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{result,result-list-element}/y @ Cmd::Hold(_)'
-class = "alias-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/y @ Cmd::Hold(_)'
-class = "alias-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule}/{guard,result}/y @ Cmd::Hold(_)'
-class = "alias-outside-pattern"
-at = "spelling"
-
-# alternatives-in-let-pattern
-[[refuse]]
-match = 'terms/{equation,rule}/{guard,result}/\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}'
-class = "alternatives-in-let-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{result,result-list-element}/\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}'
-class = "alternatives-in-let-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{shorthand,simplification,sort-rule,table}/result/\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}'
-class = "alternatives-in-let-pattern"
-at = "spelling"
-
-# alternatives-in-one-term-rewrite
-[[refuse]]
-match = 'terms/{local-rule,simplification}/subject/Cmd::Go() | Cmd::Hold(_)'
-class = "alternatives-in-one-term-rewrite"
-at = "spelling"
 
 # binder-sort
 [[refuse]]
@@ -409,88 +352,6 @@ match = '{claim,readable}/{result,subject}/k/{0,Frame \{ ret: x \},_,x}'
 class = "cell-wrapper"
 at = "entry"
 
-# claim-only-term
-[[refuse]]
-match = 'terms/cells/{result,subject}/k::or_bool!(true\, false)'
-class = "claim-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/k::or_bool!(true\, false)'
-class = "claim-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/local-rule/subject/k::or_bool!(true\, false)'
-class = "claim-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{list-element,map-key,result,result-list-element,subject,subject-depth-2}/k::or_bool!(true\, false)'
-class = "claim-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/shorthand/result/k::or_bool!(true\, false)'
-class = "claim-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/simplification/{result,subject}/k::or_bool!(true\, false)'
-class = "claim-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule}/{guard,result,subject,subject-depth-2}/k::or_bool!(true\, false)'
-class = "claim-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{sort-rule,table}/{result,subject,subject-depth-2}/k::or_bool!(true\, false)'
-class = "claim-only-term"
-at = "spelling"
-
-# claim-subject-only-term
-[[refuse]]
-match = 'terms/cells/{result,subject}/k::anonymous!(Int\, "_V")'
-class = "claim-subject-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/k::anonymous!(Int\, "_V")'
-class = "claim-subject-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/local-rule/subject/k::anonymous!(Int\, "_V")'
-class = "claim-subject-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{list-element,map-key,result,result-list-element,subject,subject-depth-2}/k::anonymous!(Int\, "_V")'
-class = "claim-subject-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/simplification/{result,subject}/k::anonymous!(Int\, "_V")'
-class = "claim-subject-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{claim,shorthand}/result/k::anonymous!(Int\, "_V")'
-class = "claim-subject-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule}/{guard,result,subject,subject-depth-2}/k::anonymous!(Int\, "_V")'
-class = "claim-subject-only-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{sort-rule,table}/{result,subject,subject-depth-2}/k::anonymous!(Int\, "_V")'
-class = "claim-subject-only-term"
-at = "spelling"
-
 # collection-element-sort
 [[refuse]]
 match = 'init/typed/{list,map}/{Cmd::Go(),any}'
@@ -538,18 +399,6 @@ at = "spelling"
 [[refuse]]
 match = 'terms/{equation,rule}/guard/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Size(x),k::builtin::int::add(1\, 2),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::lexeme!(Word\, "word"),k::project!(Int\, x)}'
 class = "condition-sort"
-at = "spelling"
-
-# constant-applies-function
-[[refuse]]
-match = 'terms/constant/value/k::builtin::int::add(1\, 2)'
-class = "constant-applies-function"
-at = "spelling"
-
-# constant-not-ground
-[[refuse]]
-match = 'terms/constant/value/{Cmd::Go() | Cmd::Hold(_),_,k::anonymous!(Int\, "_V"),k::fragment![crate::Frame \{ ret: 1 \}],k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),y @ Cmd::Hold(_),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},Cmd::Pair \{ a: x\, ..x \}}'
-class = "constant-not-ground"
 at = "spelling"
 
 # content-sort
@@ -613,28 +462,6 @@ match = '{claim,readable}/{result,subject}/{env,stack}/{0,Frame \{ ret: x \}}'
 class = "content-sort"
 at = "spelling"
 
-# fragment-in-initializer
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/k::fragment![crate::Frame \{ ret: 1 \}]'
-class = "fragment-in-initializer"
-at = "spelling"
-
-# function-in-pattern
-[[refuse]]
-match = 'terms/cells/subject/{Size(x),k::builtin::int::add(1\, 2)}'
-class = "function-in-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/local-rule/subject/{Size(x),k::builtin::int::add(1\, 2)}'
-class = "function-in-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,readable,rule,sort-rule,table}/{subject,subject-depth-2}/{Size(x),k::builtin::int::add(1\, 2)}'
-class = "function-in-pattern"
-at = "spelling"
-
 # initializer-remainder
 [[refuse]]
 match = 'init/k/k::k![Cmd::Go()\, ..pgm]'
@@ -662,37 +489,6 @@ at = "entry"
 match = '{claim,readable}/{result,subject}/{counter,env,frame,k,pc,stack}/\{ .. \}'
 class = "instances-on-plain-cell"
 at = "entry"
-
-# let-outside-term
-[[refuse]]
-match = 'terms/cells/{result,subject}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
-class = "let-outside-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/claim/{result,subject}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
-class = "let-outside-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
-class = "let-outside-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
-class = "let-outside-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
-class = "let-outside-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{local-rule,simplification}/subject/{\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \}}'
-class = "let-outside-term"
-at = "spelling"
 
 # let-sort
 [[refuse]]
@@ -732,80 +528,6 @@ at = "spelling"
 [[refuse]]
 match = '{claim,readable}/subject/typed/map/{1,Go(),Unit()}'
 class = "map-read-value-binder"
-at = "spelling"
-
-# matches-outside-condition
-[[refuse]]
-match = 'terms/cells/{result,subject}/k::matches!(x\, Cmd::Hold(_))'
-class = "matches-outside-condition"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/claim/{result,subject}/k::matches!(x\, Cmd::Hold(_))'
-class = "matches-outside-condition"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/k::matches!(x\, Cmd::Hold(_))'
-class = "matches-outside-condition"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/k::matches!(x\, Cmd::Hold(_))'
-class = "matches-outside-condition"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/k::matches!(x\, Cmd::Hold(_))'
-class = "matches-outside-condition"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{local-rule,simplification}/subject/k::matches!(x\, Cmd::Hold(_))'
-class = "matches-outside-condition"
-at = "spelling"
-
-# ml-in-condition
-[[refuse]]
-match = 'terms/{equation,rule}/guard/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
-class = "ml-in-condition"
-at = "spelling"
-
-# ml-in-initializer
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
-class = "ml-in-initializer"
-at = "spelling"
-
-# ml-predicate-as-term
-[[refuse]]
-match = 'terms/cells/{result,subject}/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
-class = "ml-predicate-as-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
-class = "ml-predicate-as-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{list-element,map-key,result,result-list-element,subject,subject-depth-2}/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
-class = "ml-predicate-as-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/shorthand/result/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
-class = "ml-predicate-as-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{claim,simplification}/{result,subject}/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
-class = "ml-predicate-as-term"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule,sort-rule,table}/{result,subject,subject-depth-2}/k::ml::exists(|v: Int| k::ml::equals(v\, 0))'
-class = "ml-predicate-as-term"
 at = "spelling"
 
 # no-effect-entry
@@ -867,18 +589,6 @@ match = '{claim,readable}/{result,subject}/{env,frame,job,k,pc,stack}/{None,Some
 class = "presence-on-plain-cell"
 at = "entry"
 
-# record-remainder-in-cells-term
-[[refuse]]
-match = 'terms/cells/{result,subject}/Cmd::Pair \{ a: x\, ..x \}'
-class = "record-remainder-in-cells-term"
-at = "spelling"
-
-# record-remainder-in-initializer
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/Cmd::Pair \{ a: x\, ..x \}'
-class = "record-remainder-in-initializer"
-at = "spelling"
-
 # record-update-base
 [[refuse]]
 match = 'terms/{equation,rule}/{guard,result}/Cmd::Pair \{ a: x\, ..x \}'
@@ -886,29 +596,13 @@ class = "record-update-base"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/readable/{result,result-list-element}/Cmd::Pair \{ a: x\, ..x \}'
+match = 'terms/readable/{map-key,result,result-list-element}/Cmd::Pair \{ a: x\, ..x \}'
 class = "record-update-base"
 at = "spelling"
 
 [[refuse]]
 match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/Cmd::Pair \{ a: x\, ..x \}'
 class = "record-update-base"
-at = "spelling"
-
-# record-update-in-pattern
-[[refuse]]
-match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/Cmd::Pair \{ a: x\, ..x \}'
-class = "record-update-in-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{claim,local-rule,simplification}/subject/Cmd::Pair \{ a: x\, ..x \}'
-class = "record-update-in-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/Cmd::Pair \{ a: x\, ..x \}'
-class = "record-update-in-pattern"
 at = "spelling"
 
 # rest-mismatch
@@ -921,69 +615,6 @@ at = "entry"
 match = '{claim,readable}/result/{job,k}/[]'
 class = "rest-mismatch"
 at = "entry"
-
-# rewrite-outside-local-rule
-[[refuse]]
-match = 'terms/cells/{result,subject}/k::rewrite!(_ => 1)'
-class = "rewrite-outside-local-rule"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/k::rewrite!(_ => 1)'
-class = "rewrite-outside-local-rule"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{list-element,map-key,result,result-list-element,subject,subject-depth-2}/k::rewrite!(_ => 1)'
-class = "rewrite-outside-local-rule"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/shorthand/result/k::rewrite!(_ => 1)'
-class = "rewrite-outside-local-rule"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{claim,simplification}/{result,subject}/k::rewrite!(_ => 1)'
-class = "rewrite-outside-local-rule"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule}/{guard,result,subject,subject-depth-2}/k::rewrite!(_ => 1)'
-class = "rewrite-outside-local-rule"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{sort-rule,table}/{result,subject,subject-depth-2}/k::rewrite!(_ => 1)'
-class = "rewrite-outside-local-rule"
-at = "spelling"
-
-# rule-term-in-initializer
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/{k::is!(Int\, x),k::project!(Int\, x)}'
-class = "rule-term-in-initializer"
-at = "spelling"
-
-# sort-test-in-pattern
-[[refuse]]
-match = 'terms/cells/subject/{k::is!(Int\, x),k::project!(Int\, x)}'
-class = "sort-test-in-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/{k::is!(Int\, x),k::project!(Int\, x)}'
-class = "sort-test-in-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{claim,local-rule,simplification}/subject/{k::is!(Int\, x),k::project!(Int\, x)}'
-class = "sort-test-in-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/{k::is!(Int\, x),k::project!(Int\, x)}'
-class = "sort-test-in-pattern"
-at = "spelling"
 
 # unbound-name
 [[refuse]]
@@ -1012,34 +643,7 @@ match = 'init/k/{[0],[],k::k![0],k::k![]}'
 class = "unused-configuration-variable"
 at = "item"
 
-# wildcard-outside-pattern. Outside a pattern, `Cmd::Go() | Cmd::Hold(_)` is the bitwise operator
-# applied to two terms, whose operand sorts only the compiler judges; the `_` inside it is a
-# placement mistake, decided before any sort, so the case is the `_`'s, at the construct.
-[[refuse]]
-match = 'terms/cells/result/{_,Cmd::Go() | Cmd::Hold(_)}'
-class = "wildcard-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/init/{item,item-depth-2}/{_,Cmd::Go() | Cmd::Hold(_)}'
-class = "wildcard-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/readable/{result,result-list-element}/{_,Cmd::Go() | Cmd::Hold(_)}'
-class = "wildcard-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/{_,Cmd::Go() | Cmd::Hold(_)}'
-class = "wildcard-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/{equation,rule}/{guard,result}/{_,Cmd::Go() | Cmd::Hold(_)}'
-class = "wildcard-outside-pattern"
-at = "spelling"
-
+# wildcard-outside-pattern
 [[refuse]]
 match = '{claim,readable}/result/{env,frame,pc,stack}/_'
 class = "wildcard-outside-pattern"
@@ -4202,6 +3806,8 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/claim/subject/k::is!(Int, x)"]
+
 [accept."terms/claim/subject/k::lexeme!(Word, \"word\")"]
 k = """
 claim [case-TAG]:
@@ -4217,6 +3823,8 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+
+[accept."terms/claim/subject/k::project!(Int, x)"]
 
 [accept."terms/claim/subject/true"]
 k = """
@@ -5100,29 +4708,11 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."terms/readable/list-element/Size(x)"]
-k = """
-rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<stack> ListItem(size ( V0:KItem )) ... </stack>
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
 [accept."terms/readable/list-element/_"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 <stack> ListItem(_) ... </stack>
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
-[accept."terms/readable/list-element/k::builtin::int::add(1, 2)"]
-k = """
-rule [case-TAG]:
-<k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<stack> ListItem(1 +Int 2) ... </stack>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -5309,6 +4899,8 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/readable/map-key/k::is!(Int, x)"]
+
 [accept."terms/readable/map-key/k::lexeme!(Word, \"word\")"]
 k = """
 rule [case-TAG]:
@@ -5317,6 +4909,10 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+
+[accept."terms/readable/map-key/k::matches!(x, Cmd::Hold(_))"]
+
+[accept."terms/readable/map-key/k::project!(Int, x)"]
 
 [accept."terms/readable/map-key/true"]
 k = """
@@ -5337,6 +4933,8 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 
 [accept."terms/readable/map-key/y @ Cmd::Hold(_)"]
+
+[accept."terms/readable/map-key/{ let y = x; y }"]
 
 [accept."terms/readable/result-list-element/\"s\""]
 k = '''
@@ -6701,12 +6299,16 @@ rule probe ( cTAG , #token("$x","Id") ) => 0 [simplification, label(krsRule_DIGE
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."terms/simplification/subject/k::is!(Int, x)"]
+
 [accept."terms/simplification/subject/k::lexeme!(Word, \"word\")"]
 k = """
 rule probe ( cTAG , #token("word","Word") ) => 0 [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
+
+[accept."terms/simplification/subject/k::project!(Int, x)"]
 
 [accept."terms/simplification/subject/true"]
 k = """

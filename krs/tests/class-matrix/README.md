@@ -6,6 +6,24 @@ rules, initializers, the strict-subsort axis, every term shape at the term posit
 sentence form, and the module-import axis. `pending.toml` lists the cases known not to conform.
 The schema and the rules that read both files are documented in the `class_matrix` module.
 
+For the term families (`terms/..`, `import/..`), the outcome comes from the oracle
+(`class_matrix::oracle`), not from refusal rules. Each term case carries its position (the form,
+the slot, what a term there means: matched, evaluated, built or a guard, its root role and its
+nesting) and its construct's nodes as data, and the oracle states, per construct, where the
+construct means something and which mistake it is elsewhere. The precedence for a term case:
+
+1. a refusal the oracle tells from the spelling and its position decides;
+2. otherwise the most specific refusal rule of `expected.toml` decides: the rules left for these
+   families name a term's sort and names (`condition-sort`, `let-sort`, `unbound-name`,
+   `record-update-base`);
+3. otherwise a refusal the oracle tells by what a path resolves to or an operand's sort decides
+   (a function in a pattern, a predicate as an operand), since a name or sort mistake is met first;
+4. otherwise the case is accepted, with the K its accept entry records.
+
+The oracle is written independently of the product's position table (`krs_syntax::positions`),
+which is written per position; `cargo test -p krs-test-support --test positions` compares the two
+on every term case, and a case they disagree on must be pending.
+
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:
 
@@ -80,9 +98,9 @@ hand:
 scripts/krs-class.sh --record --shard readable --shard cells --shard init --shard terms --shard import
 ```
 
-It writes `k` for every accepted case that no refusal rule covers, creating its `[accept."ID"]`
-entry if needed, and keeps `same_k_as`. Review the change to `expected.toml` as a diff: a changed K
-is a changed emission.
+It writes `k` for every accepted case that the table does not refuse (the oracle included),
+creating its `[accept."ID"]` entry if needed, and keeps `same_k_as`. Review the change to
+`expected.toml` as a diff: a changed K is a changed emission.
 
 ## Pending entries
 

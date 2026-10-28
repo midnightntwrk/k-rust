@@ -30,6 +30,26 @@
 //! generated cases. A case covered by two entries of which neither is more specific than the
 //! other is a tie, and a case no entry covers is uncovered; both are table errors, so a
 //! complete table decides every case exactly once.
+//!
+//! **The term families.** A `terms/` or `import/` case is judged by the oracle
+//! ([`super::oracle`]) first, from its position and its construct's nodes, and the table's
+//! entries decide only what the oracle leaves:
+//!
+//! 1. a refusal the oracle tells by the spelling and its position ([`Stage::Placement`]) decides,
+//!    at the spelling;
+//! 2. otherwise the most specific refusal rule that covers the case decides: the rules left for
+//!    these families name a term's sort and names (`condition-sort`, `let-sort`, `unbound-name`,
+//!    `record-update-base`), which the compiler judges for every term alike;
+//! 3. otherwise a refusal the oracle tells by resolution ([`Stage::Resolution`]) decides, at the
+//!    spelling: a name or sort mistake is met before what a path resolves to is asked;
+//! 4. otherwise the case is accepted, and its accept entry records its K.
+//!
+//! So no rule refuses such a case for its construct's position: a rule whose class is one the
+//! oracle answers with and that matches a term case is a table error. An accept entry never
+//! overrides a refusal, and an accept entry of a refused case is a table error. A rule that
+//! matches cases but decides none is a table error for every family. The cases where step 2
+//! overrides an oracle refusal of step 3 are listed ([`Resolution::overridden`]), so a test can
+//! pin them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -38,7 +58,8 @@ use std::ops::Range;
 use krs_diagnostic::codes::CodeKind;
 use toml_edit::{DocumentMut, Item, Table as TomlTable};
 
-use super::Placed;
+use super::oracle::{Class as OracleClass, Outcome, Stage};
+use super::{Case, Placed};
 
 /// The range a refusal's error must lie inside.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -123,12 +144,15 @@ pub struct Table {
 pub enum Expected<'t> {
     /// The case is accepted and emits this K.
     Accept(&'t Accepted),
-    /// The case is refused with its class's code, inside the rule's range.
+    /// The case is refused with its class's code, inside the deciding range.
     Refuse {
-        /// The deciding rule.
-        rule: &'t RefuseRule,
-        /// The rule's class.
+        /// The class's name.
+        name: &'t str,
+        /// The class.
         class: &'t MistakeClass,
+        /// The range the error must lie inside: the deciding rule's, or the spelling for the
+        /// oracle's refusal.
+        at: At,
     },
 }
 
@@ -138,7 +162,7 @@ impl Expected<'_> {
     #[must_use]
     pub fn site<'p>(&self, placed: &'p Placed<'_>) -> &'p Range<usize> {
         match self {
-            Self::Refuse { rule, .. } => rule.at.range(placed),
+            Self::Refuse { at, .. } => at.range(placed),
             Self::Accept(_) => &placed.entry,
         }
     }
@@ -217,6 +241,34 @@ pub enum TableError {
         /// The tied entries: globs, or `accept` for an accept entry.
         entries: Vec<String>,
     },
+    /// The oracle refuses a case with a class the table does not declare.
+    UnknownOracleClass {
+        /// The case.
+        id: String,
+        /// The class.
+        class: String,
+    },
+    /// An accept entry names a term case that the oracle or a refusal rule refuses.
+    AcceptsRefusedCase {
+        /// The case.
+        id: String,
+        /// The class it is refused with.
+        class: String,
+    },
+    /// A refusal rule names a class the oracle answers with and matches a term case, which the
+    /// oracle decides for its construct's position.
+    OracleClassRule {
+        /// The rule's glob.
+        pattern: String,
+        /// The class.
+        class: String,
+    },
+    /// A refusal rule matches cases but decides none: a more specific entry or the oracle
+    /// decides each.
+    ShadowedRule {
+        /// The rule's glob.
+        pattern: String,
+    },
 }
 
 impl fmt::Display for TableError {
@@ -260,6 +312,21 @@ impl fmt::Display for TableError {
                 "{id:?} is covered by {} with none more specific",
                 entries.join(", ")
             ),
+            Self::UnknownOracleClass { id, class } => write!(
+                formatter,
+                "the oracle refuses {id:?} as the undeclared class {class:?}"
+            ),
+            Self::AcceptsRefusedCase { id, class } => write!(
+                formatter,
+                "{id:?} has an accept entry, but it is refused as {class:?}"
+            ),
+            Self::OracleClassRule { pattern, class } => write!(
+                formatter,
+                "rule {pattern:?} refuses term cases as {class:?}, which the oracle decides"
+            ),
+            Self::ShadowedRule { pattern } => {
+                write!(formatter, "rule {pattern:?} decides no case it matches")
+            }
         }
     }
 }
@@ -271,6 +338,9 @@ pub struct Resolution<'t> {
     pub expected: BTreeMap<String, Expected<'t>>,
     /// Every table error; empty for a complete table.
     pub errors: Vec<TableError>,
+    /// The term cases a refusal rule decides although the oracle refuses them by resolution,
+    /// with the oracle's class: the rule's name or sort mistake is met first.
+    pub overridden: BTreeMap<String, &'static str>,
 }
 
 impl Table {
@@ -310,6 +380,8 @@ impl Table {
 
     /// Decide every case of `ids`, and check the table against them and against the code
     /// registry, which `kind` answers: a code's kind, or `None` for an unregistered code.
+    /// `oracle` answers the oracle's outcome of a term case and `None` for a case of another
+    /// family, which the entries alone decide.
     ///
     /// # Panics
     ///
@@ -318,11 +390,21 @@ impl Table {
     pub fn resolve<'t>(
         &'t self,
         ids: &[&str],
+        oracle: impl Fn(&str) -> Option<Outcome>,
         kind: impl Fn(&str) -> Option<CodeKind>,
     ) -> Resolution<'t> {
-        let mut errors = self.check_codes(&kind);
+        let mut gathered = Gathered {
+            errors: self.check_codes(&kind),
+            overridden: BTreeMap::new(),
+            deciding: BTreeSet::new(),
+        };
         let known = ids.iter().copied().collect::<BTreeSet<_>>();
-        self.check_accepts(&known, &mut errors);
+        self.check_accepts(&known, &mut gathered.errors);
+        let outcomes = ids
+            .iter()
+            .map(|id| (*id, oracle(id)))
+            .collect::<BTreeMap<_, _>>();
+        let oracle_classes = OracleClass::ALL.map(OracleClass::name);
 
         let mut covers = Vec::<(Entry<'t>, BTreeSet<&str>)>::new();
         for (id, accepted) in &self.accept {
@@ -338,13 +420,21 @@ impl Table {
                 .filter(|id| glob.matches(id))
                 .collect::<BTreeSet<_>>();
             if matched.is_empty() {
-                errors.push(TableError::UnusedRule {
+                gathered.errors.push(TableError::UnusedRule {
                     pattern: rule.pattern.clone(),
+                });
+            }
+            if oracle_classes.contains(&rule.class.as_str())
+                && matched.iter().any(|id| outcomes[id].is_some())
+            {
+                gathered.errors.push(TableError::OracleClassRule {
+                    pattern: rule.pattern.clone(),
+                    class: rule.class.clone(),
                 });
             }
             match self.classes.get(&rule.class) {
                 Some(class) => covers.push((Entry::Refuse { rule, class }, matched)),
-                None => errors.push(TableError::UnknownClass {
+                None => gathered.errors.push(TableError::UnknownClass {
                     pattern: rule.pattern.clone(),
                     class: rule.class.clone(),
                 }),
@@ -353,34 +443,117 @@ impl Table {
 
         let mut expected = BTreeMap::new();
         for id in ids {
-            let covering = covers
-                .iter()
-                .filter(|(_, covered)| covered.contains(id))
-                .collect::<Vec<_>>();
-            // The entries that no other covering entry is more specific than; in a finite
-            // order, a single one is more specific than every other covering entry.
-            let minimal = covering
-                .iter()
-                .filter(|(_, covered)| {
-                    !covering
-                        .iter()
-                        .any(|(_, other)| other.len() < covered.len() && other.is_subset(covered))
-                })
-                .collect::<Vec<_>>();
-            match minimal.as_slice() {
-                [] => errors.push(TableError::Uncovered {
-                    id: (*id).to_owned(),
-                }),
-                [(entry, _)] => {
-                    expected.insert((*id).to_owned(), entry.expected());
-                }
-                tied => errors.push(TableError::Tie {
-                    id: (*id).to_owned(),
-                    entries: tied.iter().map(|(entry, _)| entry.name()).collect(),
-                }),
+            let decided = match outcomes[id] {
+                None => decided(id, most_specific(id, &covers, false), &mut gathered.errors)
+                    .map(|entry| gathered.decide(entry)),
+                Some(outcome) => self.term_case(id, outcome, &covers, &mut gathered),
+            };
+            if let Some(decided) = decided {
+                expected.insert((*id).to_owned(), decided);
             }
         }
-        Resolution { expected, errors }
+        for (entry, matched) in &covers {
+            if let Entry::Refuse { rule, .. } = entry
+                && !matched.is_empty()
+                && !gathered.deciding.contains(rule.pattern.as_str())
+            {
+                gathered.errors.push(TableError::ShadowedRule {
+                    pattern: rule.pattern.clone(),
+                });
+            }
+        }
+        Resolution {
+            expected,
+            errors: gathered.errors,
+            overridden: gathered.overridden,
+        }
+    }
+
+    /// Decide every case of `cases`, the term cases by their oracle outcome ([`Self::resolve`]).
+    #[must_use]
+    pub fn resolve_cases<'t>(
+        &'t self,
+        cases: &[Case],
+        kind: impl Fn(&str) -> Option<CodeKind>,
+    ) -> Resolution<'t> {
+        let ids = cases
+            .iter()
+            .map(|case| case.id.as_str())
+            .collect::<Vec<_>>();
+        let outcomes = cases
+            .iter()
+            .filter_map(|case| Some((case.id.as_str(), case.oracle()?)))
+            .collect::<BTreeMap<_, _>>();
+        self.resolve(&ids, |id| outcomes.get(id).copied(), kind)
+    }
+
+    /// Decide a term case by the families' precedence (the module's documentation): the
+    /// oracle's placement refusal, the most specific refusal rule, the oracle's resolution
+    /// refusal, the accept entry. `None`, with its error, when nothing decides.
+    fn term_case<'t>(
+        &'t self,
+        id: &str,
+        outcome: Outcome,
+        covers: &[(Entry<'t>, BTreeSet<&str>)],
+        gathered: &mut Gathered<'t>,
+    ) -> Option<Expected<'t>> {
+        let refusal = match outcome {
+            Outcome::Refuse(refusal) if refusal.stage == Stage::Placement => Some(refusal),
+            _ => match most_specific(id, covers, true) {
+                Ok(Some(rule)) => {
+                    if let Outcome::Refuse(refusal) = outcome {
+                        gathered
+                            .overridden
+                            .insert(id.to_owned(), refusal.class.name());
+                    }
+                    let refused = gathered.decide(rule);
+                    return Some(self.refused(id, refused, &mut gathered.errors));
+                }
+                Ok(None) => match outcome {
+                    Outcome::Refuse(refusal) => Some(refusal),
+                    Outcome::Accept => None,
+                },
+                tied @ Err(_) => {
+                    return decided(id, tied, &mut gathered.errors)
+                        .map(|rule| gathered.decide(rule));
+                }
+            },
+        };
+        let errors = &mut gathered.errors;
+        let Some(refusal) = refusal else {
+            let accepted = self.accept.get(id).map(Expected::Accept);
+            return decided(id, Ok(accepted), errors);
+        };
+        let name = refusal.class.name();
+        let Some(class) = self.classes.get(name) else {
+            errors.push(TableError::UnknownOracleClass {
+                id: id.to_owned(),
+                class: name.to_owned(),
+            });
+            return None;
+        };
+        let refused = Expected::Refuse {
+            name,
+            class,
+            at: At::Spelling,
+        };
+        Some(self.refused(id, refused, errors))
+    }
+
+    /// A term case's refusal, after checking that no accept entry names the case.
+    fn refused<'t>(
+        &self,
+        id: &str,
+        refused: Expected<'t>,
+        errors: &mut Vec<TableError>,
+    ) -> Expected<'t> {
+        if let (true, Expected::Refuse { name, .. }) = (self.accept.contains_key(id), refused) {
+            errors.push(TableError::AcceptsRefusedCase {
+                id: id.to_owned(),
+                class: name.to_owned(),
+            });
+        }
+        refused
     }
 
     fn check_codes(&self, kind: &impl Fn(&str) -> Option<CodeKind>) -> Vec<TableError> {
@@ -442,10 +615,14 @@ enum Entry<'t> {
 }
 
 impl<'t> Entry<'t> {
-    const fn expected(&self) -> Expected<'t> {
+    fn expected(&self) -> Expected<'t> {
         match *self {
             Self::Accept(accepted) => Expected::Accept(accepted),
-            Self::Refuse { rule, class } => Expected::Refuse { rule, class },
+            Self::Refuse { rule, class } => Expected::Refuse {
+                name: rule.class.as_str(),
+                class,
+                at: rule.at,
+            },
         }
     }
 
@@ -454,6 +631,78 @@ impl<'t> Entry<'t> {
             Self::Accept(_) => "accept".to_owned(),
             Self::Refuse { rule, .. } => format!("{:?}", rule.pattern),
         }
+    }
+}
+
+/// What deciding the cases gathers besides their expectations.
+struct Gathered<'t> {
+    errors: Vec<TableError>,
+    /// [`Resolution::overridden`].
+    overridden: BTreeMap<String, &'static str>,
+    /// The globs of the refusal rules that decide some case.
+    deciding: BTreeSet<&'t str>,
+}
+
+impl<'t> Gathered<'t> {
+    /// The expectation of the deciding `entry`, noting a rule that decides.
+    fn decide(&mut self, entry: Entry<'t>) -> Expected<'t> {
+        if let Entry::Refuse { rule, .. } = entry {
+            self.deciding.insert(rule.pattern.as_str());
+        }
+        entry.expected()
+    }
+}
+
+/// What decides `id`, given the most specific entry: `None`, with its error, when no entry
+/// covers the case or entries tie.
+fn decided<T>(
+    id: &str,
+    entry: Result<Option<T>, Vec<String>>,
+    errors: &mut Vec<TableError>,
+) -> Option<T> {
+    match entry {
+        Ok(Some(entry)) => Some(entry),
+        Ok(None) => {
+            errors.push(TableError::Uncovered { id: id.to_owned() });
+            None
+        }
+        Err(entries) => {
+            errors.push(TableError::Tie {
+                id: id.to_owned(),
+                entries,
+            });
+            None
+        }
+    }
+}
+
+/// The most specific entry of `covers` that covers `id` (a refusal rule, when `rules_only`):
+/// `Ok(None)` when none does, `Err` with the entries that tie.
+fn most_specific<'c, 't>(
+    id: &str,
+    covers: &'c [(Entry<'t>, BTreeSet<&str>)],
+    rules_only: bool,
+) -> Result<Option<Entry<'t>>, Vec<String>> {
+    let covering = covers
+        .iter()
+        .filter(|(entry, covered)| {
+            covered.contains(id) && !(rules_only && matches!(entry, Entry::Accept(_)))
+        })
+        .collect::<Vec<&'c (Entry<'t>, BTreeSet<&str>)>>();
+    // The entries that no other covering entry is more specific than; in a finite order, a
+    // single one is more specific than every other covering entry.
+    let minimal = covering
+        .iter()
+        .filter(|(_, covered)| {
+            !covering
+                .iter()
+                .any(|(_, other)| other.len() < covered.len() && other.is_subset(covered))
+        })
+        .collect::<Vec<_>>();
+    match minimal.as_slice() {
+        [] => Ok(None),
+        [(entry, _)] => Ok(Some(*entry)),
+        tied => Err(tied.iter().map(|(entry, _)| entry.name()).collect()),
     }
 }
 

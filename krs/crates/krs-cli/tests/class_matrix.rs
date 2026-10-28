@@ -1,8 +1,9 @@
 //! The class tests' full tier (gate `krs-class`, `scripts/krs-class.sh`): every case that
 //! `krs_test_support::class_matrix` generates, through Cargo, rustc, the collector, and
 //! `emit-k`'s lowering ([`pipeline`]), judged by the five table-free invariants and by
-//! `krs/tests/class-matrix/expected.toml` where it covers the case, with the cases known not to
-//! conform listed in `pending.toml`.
+//! `krs/tests/class-matrix/expected.toml` where it covers the case (a term case by the oracle
+//! first, `class_matrix::table`'s precedence), with the cases known not to conform listed in
+//! `pending.toml`.
 //!
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
 //! `cells`, `init`, `terms`, and `import`, each of which also judges its accepted cases by K3
@@ -25,8 +26,8 @@
 //! - `KRS_CLASS_FILTER`: a glob over case IDs (`expected.toml`'s syntax) that narrows a shard;
 //! - `KRS_CLASS_OUT`: a directory for one TSV line per case and the pending entries of every
 //!   deviation not yet recorded, `<shard>.tsv` and `<shard>.pending.toml`;
-//! - `KRS_CLASS_RECORD=1`: the record mode. Each accepted case that no refusal rule covers gets
-//!   its K written into `expected.toml` (`[accept."ID"].k`, [`closure::case_k`]), its entry
+//! - `KRS_CLASS_RECORD=1`: the record mode. Each accepted case that the table does not refuse
+//!   gets its K written into `expected.toml` (`[accept."ID"].k`, [`closure::case_k`]), its entry
 //!   created when the table has none; the K is reviewed as a diff, never written by hand.
 //!
 //! An accepted case that the table accepts must emit the K the table records, and the K of every
@@ -207,16 +208,16 @@ fn table_miss(
             }
             _ => None,
         },
-        Expected::Refuse { rule, class } => {
+        Expected::Refuse { name, class, at } => {
             let Some(error) = observed.errors().next().filter(|_| observed.refused()) else {
-                return Some(format!("the table refuses the case as {}", rule.class));
+                return Some(format!("the table refuses the case as {name}"));
             };
             if error.code.as_deref() != Some(class.code.as_str()) {
                 return Some(format!("the table expects {}", class.code));
             }
-            let site = rule.at.range(placed);
+            let site = at.range(placed);
             (!error.located_inside(site))
-                .then(|| format!("the table expects the error inside the {:?}", rule.at))
+                .then(|| format!("the table expects the error inside the {at:?}"))
         }
     }
 }
@@ -576,12 +577,7 @@ fn shard(name: &str, families: &[Family]) {
     let cases = selected(families);
     assert!(!cases.is_empty(), "the shard {name} selects no case");
     let spec = spec();
-    let ids = spec
-        .cases
-        .iter()
-        .map(|case| case.id.as_str())
-        .collect::<Vec<_>>();
-    let resolution = spec.table.resolve(&ids, registry_kind);
+    let resolution = spec.table.resolve_cases(&spec.cases, registry_kind);
     let (settings, _scratch) = settings();
     let started = std::time::Instant::now();
     let judged = pipeline::judge_all(&cases, &settings);
