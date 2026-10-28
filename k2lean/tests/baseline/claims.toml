@@ -106,7 +106,7 @@ preserve = []
 "generated/kimpinv-claims/claims.toml" = { tier = "heavy", sha256 = "c5036d3cef81b41f5f5f5ddb24dfb5689db9dcd8e379a0e7fe9b2b5a15cc8295" }
 "generated/kimpinv-claims/lakefile.lean" = { tier = "heavy", sha256 = "22ab96cd77fe3c87e452f2e43227f37abb39064866f27b3c1344d8af19a79d9a" }
 "generated/kimpinv-claims/lean-toolchain" = { tier = "heavy", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
-"generated/kstrict/KStrict.lean" = { tier = "light", sha256 = "ac074a06aa51a044d9f7d1f6adbfca736db18a2820e3f267b80a920fa3915e10" }
+"generated/kstrict/KStrict.lean" = { tier = "light", sha256 = "3ae00feaae5f1e341ee448db1d76d8db7459bbd77e8bb7c6407c28d466135ee8" }
 "generated/kstrict/KStrict/Adequacy.lean" = { tier = "light", sha256 = "f30d48deadef48b9b552e64019c9201bfb4c8773e3bb7a38b8c1cfbc0fed9692" }
 "generated/kstrict/KStrict/Determinism.lean" = { tier = "light", sha256 = "82d2a05734017ee324b645a3d2c89ddc68cbc284e4ff6a0769848060e043e4f1" }
 "generated/kstrict/KStrict/Determinism/L1.lean" = { tier = "light", sha256 = "42b2396b903d4fce50b4237f657522f569f0de7f927dabd09be0a2195e238189" }

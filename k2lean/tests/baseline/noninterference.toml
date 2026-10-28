@@ -20,7 +20,7 @@ preserve = []
 "demos/ImpNI/ImpNI/Tr.lean" = { tier = "light", sha256 = "1917c5e93afb753dc9573e6caa52b1d3d0a25774dc368be135b848330584f830" }
 "demos/ImpNI/correspondence.toml" = { tier = "light", sha256 = "af335c3322979a0642c657e1775e1c32428dc36a0b0c57b94309cf3064f5af48" }
 "demos/ImpNI/noninterference.toml" = { tier = "light", sha256 = "1849015b9fd6bafb16d314a69d59ba1d05c050f0b33d768ec3a578909aac3abc" }
-"generated/impsec/KImpSec.lean" = { tier = "light", sha256 = "c574aad50a6d8fbe8a0e35d7f684fded0cd5c7e009eba1efa98088ccbdadc772" }
+"generated/impsec/KImpSec.lean" = { tier = "light", sha256 = "7c5b620ecd53e95bfd51539f0aa7e2fa1aadb463bdcfd758b3303882c2e6ffe0" }
 "generated/impsec/KImpSec/Adequacy.lean" = { tier = "light", sha256 = "d9e0d8487e9c8b57ae20a8a2f735821df3d9ed802926262ee0c7da2a7ae240c3" }
 "generated/impsec/KImpSec/Determinism.lean" = { tier = "light", sha256 = "606d4aa9a3ad4ac5216cbded59c383e4470b292da841e8dfd6153aecdc0b5bf1" }
 "generated/impsec/KImpSec/Determinism/L1.lean" = { tier = "light", sha256 = "d1f79becd59b144f72cc73c0ccb00fc0f283ec542832018217b6a9726af66948" }

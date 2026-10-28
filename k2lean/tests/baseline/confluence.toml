@@ -31,7 +31,7 @@ preserve = []
 "demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "48484d166a6aff1ceec71f3bfbf51dcb7b8fa00b7404f5a9fa47e73f897acf8d" }
 "demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "7349a8b84f56751e9e007821795249fe5a3f70b9970a6ffe9ec72871a1ecbb45" }
 "demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "7b21641651a248d7132d58f4d9fa2afd3be925675778c1b8dd4aa61369112b4d" }
-"generated/race/Race.lean" = { tier = "light", sha256 = "b8730ce086f1156a15a41234a7b1614c2b14a61721db04e569ccf3562a8cd403" }
+"generated/race/Race.lean" = { tier = "light", sha256 = "ab36117730ae402e6cceac6b36bffc4b5abc5081b70dbc04aa7582c237a60292" }
 "generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
 "generated/race/Race/Determinism.lean" = { tier = "light", sha256 = "52be43ddc62f4bcba653d03c572e05763d36f0f9df02c55d18eb5d0177359276" }
 "generated/race/Race/Equations.lean" = { tier = "light", sha256 = "1142f62342fcb9a4203324e2c72c663d902aeb88351b3fba658233f29d4064a2" }
@@ -46,7 +46,7 @@ preserve = []
 "generated/race/RaceTest/Main.lean" = { tier = "light", sha256 = "3abeeeba3c77ef4122c7fed8bf7d0f36e8797f8a3534f689c18db067ffe64956" }
 "generated/race/lakefile.lean" = { tier = "light", sha256 = "376bdad46c8f0df4cf30f220714438de4ce1de705207a73b4757aa7888890b7f" }
 "generated/race/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
-"generated/utxo/Utxo.lean" = { tier = "light", sha256 = "50c40a2ed99c14a7374f38c71a353e71b16b805911972427a602669b423f38a8" }
+"generated/utxo/Utxo.lean" = { tier = "light", sha256 = "1bc93cf1a423e7eadb0b660209f4a822137a7a4e0ba36b2613edd973b035b13c" }
 "generated/utxo/Utxo/Adequacy.lean" = { tier = "light", sha256 = "9bd7e184685d2096820128fc2540c8bd2f15cd5a04c663e0318af3503cf5ebbd" }
 "generated/utxo/Utxo/Determinism.lean" = { tier = "light", sha256 = "d15c48663371cefeb2e2cbcf60cbcca90dfc1801c8ecf9c7d0148c6a1390830f" }
 "generated/utxo/Utxo/Equations.lean" = { tier = "light", sha256 = "74550643246211b954ba2dedf77b3085f12c5f4f533d86477c6bab1a750a85f0" }
