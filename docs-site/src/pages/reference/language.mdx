@@ -443,6 +443,14 @@ error[krs::exec::collection-element-sort]: configuration variable `$ENV`, declar
 A part the configuration leaves unevaluated is checked at the sort its symbol declares, which bounds every value it can take: `x |-> noop(1)` is rejected when `noop` returns a `Stmt`, but the elements of a set that `evens(1)` would compute are not seen.
 Three inputs stay unchecked: those computed elements, configuration values Java K's `krun` reads, and `k::raw_k!` sentences, which the compiler does not check, so a raw rule can break the invariant after the first step.
 
+### Functions in patterns
+
+A pattern matches terms as they are, and a function application denotes the value evaluation produces, not a term of its own.
+Every term a rule or an equation is applied to has its functions evaluated, so a function application below the root of a rule's or an equation's pattern describes a term that never occurs, and the sentence would never apply.
+KRS refuses it at the application (`krs::analysis::function-in-pattern`): a user function, a builtin operation such as `int::add(a, 1)`, and a collection's lookups and sizes alike.
+Match a variable there and relate it to the application in a `#[k::requires]` guard, or state a fact about the unevaluated application as a `#[k::simplification]`.
+The application is the meaning, and is accepted, at the root of an equation's subject (the function the equation defines), anywhere in a simplification's subject, which rewrites symbolic terms whose applications stand unevaluated, anywhere in a claim's subject, a symbolic state, and in a collection's key, value or element, `env: { Size(x) -> v, .. }`, where a lookup evaluates the key.
+
 ### Pattern aliases
 
 `p @ Pair(a, b)` in a left-hand side is the Rust pattern you know: it matches what `Pair(a, b)` matches and also binds `p` to the whole matched term.
