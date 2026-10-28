@@ -286,18 +286,12 @@ pub(super) struct TermKeyReader<'t> {
 }
 
 impl<'t> TermKeyReader<'t> {
-    /// The key of `path`, the next path: an application head's or a
-    /// reference's, which the wire node's `path_key` defines.
-    pub(super) fn path(&mut self, path: &Path) -> crate::Result<ProvenanceKey> {
-        let at = TokenRange::for_tokens(path)?;
-        let index = self.next_path(at)?;
-        self.ledger
-            .define_key(located_key(self.keys.symbol(index), at)?)
-    }
-
-    /// Passes `path`, the next path, which a `cells!` term keys not at all.
-    pub(super) fn pass_path(&mut self, path: &Path) -> crate::Result<()> {
-        self.next_path(TokenRange::for_tokens(path)?).map(drop)
+    /// The key its sentence gave `path`, the next path (an application
+    /// head's or a reference's), or `None` where the sentence keys the path
+    /// not at all, as a `cells!` term does: [`NodeKeys::head`] takes it.
+    pub(super) fn path(&mut self, path: &Path) -> crate::Result<Option<ProvenanceKey>> {
+        let index = self.next_path(TokenRange::for_tokens(path)?)?;
+        Ok(self.keys.symbol(index).cloned())
     }
 
     fn next_path(&mut self, at: TokenRange) -> crate::Result<usize> {
@@ -402,6 +396,42 @@ impl<'t> NodeKeys<'t> {
             .define_key(located_key(self.keys.node_key(self.index, role), self.at)?)
     }
 
+    /// The key the sentence gave the node itself, whatever its role, as
+    /// opposed to the keys of its parts (an application head's turbofish
+    /// instances), or `None` where the sentence keys the node not at all.
+    fn own(self) -> Option<&'t ProvenanceKey> {
+        self.keys
+            .node(self.index)
+            .iter()
+            .find(|key| key.role() != ProvenanceRole::ApplicationInstance)
+    }
+
+    /// The node's own key, which the wire node that denotes the node takes
+    /// as its own: a literal's, under whichever role its sentence gave it.
+    pub(super) fn own_key(self) -> crate::Result<ProvenanceKey> {
+        self.ledger.define_key(located_key(self.own(), self.at)?)
+    }
+
+    /// The keys of the wire node of an application head or a reference
+    /// whose path its sentence keyed `path`: its `reference.key`, the node's
+    /// own key if the sentence keyed the node and the path's otherwise, and
+    /// its `path_key`, the path's if the sentence keyed it and
+    /// `reference.key` otherwise.
+    pub(super) fn head(
+        self,
+        path: Option<ProvenanceKey>,
+    ) -> crate::Result<(ProvenanceKey, ProvenanceKey)> {
+        let own = self.own();
+        let reference = self
+            .ledger
+            .define_key(located_key(own.or(path.as_ref()), self.at)?)?;
+        let path_key = match path {
+            Some(path) if own.is_some() => self.ledger.define_key(path)?,
+            _ => reference.clone(),
+        };
+        Ok((reference, path_key))
+    }
+
     /// The node's keys of `role`, in allocation order, each read as the
     /// next is reached: the wire node of each takes it as its own.
     pub(super) fn keys(self, role: ProvenanceRole) -> NodeKeyList<'t> {
@@ -467,38 +497,6 @@ impl TermSide {
             (_, Self::Right) => Slot::Result,
             (_, Self::Requires) => Slot::Requires,
             (_, Self::Ensures | Self::RuleEnsures) => Slot::Ensures,
-        }
-    }
-}
-
-/// A term-node role that a [`TermSide`] maps to its provenance role.
-#[derive(Clone, Copy)]
-pub(super) enum TermRole {
-    ApplicationHead,
-    Reference,
-    Literal,
-}
-
-impl TermSide {
-    pub(super) fn role(self, role: TermRole) -> ProvenanceRole {
-        use ProvenanceRole as P;
-        use TermRole as T;
-        match (self, role) {
-            (Self::Left, T::ApplicationHead) => P::RuleLeftApplicationHead,
-            (Self::Left, T::Reference) => P::RuleLeftReference,
-            (Self::Left, T::Literal) => P::RuleLeftLiteral,
-            (Self::Right, T::ApplicationHead) => P::RuleRightApplicationHead,
-            (Self::Right, T::Reference) => P::RuleRightReference,
-            (Self::Right, T::Literal) => P::RuleRightLiteral,
-            (Self::Requires, T::ApplicationHead) => P::RuleRequiresApplicationHead,
-            (Self::Requires, T::Reference) => P::RuleRequiresReference,
-            (Self::Requires, T::Literal) => P::RuleRequiresLiteral,
-            (Self::Ensures, T::ApplicationHead) => P::ClaimEnsuresApplicationHead,
-            (Self::Ensures, T::Reference) => P::ClaimEnsuresReference,
-            (Self::Ensures, T::Literal) => P::ClaimEnsuresLiteral,
-            (Self::RuleEnsures, T::ApplicationHead) => P::RuleEnsuresApplicationHead,
-            (Self::RuleEnsures, T::Reference) => P::RuleEnsuresReference,
-            (Self::RuleEnsures, T::Literal) => P::RuleEnsuresLiteral,
         }
     }
 }
@@ -945,7 +943,7 @@ impl<'a> TermBuilder<'a> {
                 )?;
                 let path_key = keys.path(application.head())?;
                 let node = keys.node(NodeKind::ApplicationHead, head_range)?;
-                let key = node.key(side.role(TermRole::ApplicationHead))?;
+                let (key, path_key) = node.head(path_key)?;
                 let lexical = if self.lexical_imports.is_some() {
                     !application.is_notation()
                         && application.head().leading_colon.is_none()
@@ -1011,9 +1009,8 @@ impl<'a> TermBuilder<'a> {
             TermTree::Reference(path) => {
                 let lexical = self.take_lexical_rule_head(path);
                 let path_key = keys.path(path)?;
-                let key = keys
-                    .node(NodeKind::Reference, TokenRange::for_tokens(path)?)?
-                    .key(side.role(TermRole::Reference))?;
+                let node = keys.node(NodeKind::Reference, TokenRange::for_tokens(path)?)?;
+                let (key, path_key) = node.head(path_key)?;
                 if self.is_local_binder(path) {
                     // A local binder has no Rust binding for tooling to use.
                     Ok(WireTerm::Variable {
@@ -1032,14 +1029,7 @@ impl<'a> TermBuilder<'a> {
                     // A bare snake-case name is a binder by KRS's spelling
                     // rule, never a Rust item, so an unbound one is a free
                     // variable of the sentence, not a path for rustc.
-                    Err(ExpandError::new(
-                        expand::UNBOUND_NAME,
-                        syn::spanned::Spanned::span(path),
-                        format!(
-                            "`{name}` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one{}",
-                            did_you_mean(&name, self.names_in_scope())
-                        ),
-                    ))
+                    Err(self.unbound_name(path, &name))
                 } else {
                     let authored_path = spelling(path);
                     let target = if lexical {
@@ -1067,9 +1057,7 @@ impl<'a> TermBuilder<'a> {
                 let range = literal.range()?;
                 self.admit(side, Construct::Literal, range)?;
                 Ok(WireTerm::Literal {
-                    key: keys
-                        .node(NodeKind::Literal, range)?
-                        .key(side.role(TermRole::Literal))?,
+                    key: keys.node(NodeKind::Literal, range)?.own_key()?,
                     literal: wire_literal(literal),
                 })
             }
@@ -1251,9 +1239,8 @@ impl<'a> TermBuilder<'a> {
                 self.admit(side, Construct::Fragment, owner_range)?;
                 self.admit_record(side, cell.update(), cell.is_open(), owner_range)?;
                 let path_key = keys.path(cell.owner())?;
-                let key = keys
-                    .node(NodeKind::ApplicationHead, owner_range)?
-                    .key(side.role(TermRole::ApplicationHead))?;
+                let node = keys.node(NodeKind::ApplicationHead, owner_range)?;
+                let (key, path_key) = node.head(path_key)?;
                 let declaration = self.cell_declaration_reference(cell.owner(), slots)?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
@@ -1276,6 +1263,27 @@ impl<'a> TermBuilder<'a> {
                 })
             }
         }
+    }
+
+    /// `name`, the bare snake-case name `path`, which nothing in scope
+    /// binds: an initializer's names are its parameters, a sentence's its
+    /// pattern's and its local binders.
+    fn unbound_name(&self, path: &Path, name: &str) -> ExpandError {
+        let suggestion = did_you_mean(name, self.names_in_scope());
+        let message = if matches!(self.form, Form::Initializer) {
+            format!(
+                "`{name}` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters{suggestion}"
+            )
+        } else {
+            format!(
+                "`{name}` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one{suggestion}"
+            )
+        };
+        ExpandError::new(
+            expand::UNBOUND_NAME,
+            syn::spanned::Spanned::span(path),
+            message,
+        )
     }
 
     /// Expands the base `t` of a record update `Ctor { f: e, ..t }` (F5),
@@ -1972,13 +1980,13 @@ mod tests {
             .expect("`g` is not the next application head");
         assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
         let mut keys = KeyedTerm::of(&term).reader(&ledger);
-        let misread = keys.pass_path(g.head()).unwrap_err();
+        let misread = keys.path(g.head()).unwrap_err();
         assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
 
         let mut keys = KeyedTerm::of(&term).reader(&ledger);
         assert!(keys.node(NodeKind::Matches, *range).is_ok());
         for application in [f, g] {
-            assert!(keys.pass_path(application.head()).is_ok());
+            assert!(keys.path(application.head()).is_ok());
             assert!(
                 keys.node(NodeKind::ApplicationHead, at(application.head()))
                     .is_ok()
@@ -1989,7 +1997,7 @@ mod tests {
             let TermTree::Reference(argument) = &arguments[0] else {
                 panic!("a reference");
             };
-            assert!(keys.pass_path(argument).is_ok());
+            assert!(keys.path(argument).is_ok());
         }
         // Every node of the kind has been read.
         let misread = keys

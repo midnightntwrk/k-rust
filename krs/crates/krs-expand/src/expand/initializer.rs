@@ -2,27 +2,25 @@
 
 use crate::ExpandError;
 use krs_diagnostic::codes::{self, expand};
-use krs_ir::bytes_token;
 use krs_ir::wire::{
-    WireApplicationReference, WireCellDeclarationReference, WireCellIdentity, WireCellReference,
+    WireCellDeclarationReference, WireCellIdentity, WireCellReference,
     WireConfigurationInitializer, WireConfigurationVariable, WireInitializerCell,
     WireSortReference, WireTerm, WireTypeReference,
 };
 use krs_ir::{
-    BuiltinSort, CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
-    ProductionFieldId, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
-    ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
-    ProtocolMapBody, ProtocolMapItem,
+    CellWrapper, DescriptorKSequenceNotation, ProtocolInitializerCellContent,
+    ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
+    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem,
 };
 use krs_syntax::KrsSyntax;
-use krs_syntax::positions::{Construct, Form};
+use krs_syntax::positions::Form;
 use krs_syntax::{
     FixedCellInitializer, InitializerCellContent, KSequence, KSequenceNotation, MapBody,
-    MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermNode, TermTree,
-    TokenRange,
+    MapExpression, StateTerm, TermExpression, TermNode, TermTree,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Attribute, FnArg, Ident, Path, parse_quote};
 
@@ -32,10 +30,9 @@ use super::configuration::{
 use super::island_checks::initializer_state_island_import_checks;
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::{KeyedTerm, NodeKind, TermBuilder, TermKeyReader, TermSide, WireSlots};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots};
 use super::tokens::{
     call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
-    wire_literal,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -121,7 +118,7 @@ fn init_inner(
                 ::core::any::TypeId::of::<#sort_type>()
             }
         });
-        let binding = variable.binding().to_string();
+        let binding = variable.binding().unraw().to_string();
         let external_name = variable.attribute().name().value();
         let main_key = variable
             .attribute()
@@ -366,9 +363,11 @@ fn initializer_value_stand_in(
     }
 }
 
+/// Expands an initializer's cells, `k!` sequences and maps, handing every
+/// term they hold to the term walker at an initializer's value, whose names
+/// are the initializer's parameters.
 struct InitializerBuilder<'a> {
     facade: &'a Path,
-    bindings: &'a [Ident],
     terms: TermBuilder<'a>,
     key_functions: Vec<TokenStream>,
     slots: WireSlots,
@@ -384,7 +383,6 @@ impl<'a> InitializerBuilder<'a> {
     ) -> Self {
         Self {
             facade,
-            bindings,
             terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings, Form::Initializer)
                 .with_associated_keys(),
             key_functions: Vec::new(),
@@ -597,208 +595,9 @@ impl<'a> InitializerBuilder<'a> {
         term: &TermExpression,
     ) -> crate::Result<ProtocolInitializerTerm<WireTerm>> {
         let key = self.terms.ledger.define(term.keys().term())?;
-        let keyed = KeyedTerm::of(term);
-        let term = self.expand_term_tree(keyed.tree(), &mut keyed.reader(self.terms.ledger))?;
+        let term = self
+            .terms
+            .expand_wire(KeyedTerm::of(term), TermSide::Right, &mut self.slots)?;
         Ok(ProtocolInitializerTerm { key, term })
-    }
-
-    #[expect(
-        clippy::too_many_lines,
-        reason = "One exhaustive match over the closed term-tree sum."
-    )]
-    fn expand_term_tree(
-        &mut self,
-        tree: &TermTree,
-        keys: &mut TermKeyReader<'_>,
-    ) -> crate::Result<WireTerm> {
-        match tree {
-            TermTree::Application(application) => {
-                // The head's path key stands for the application.
-                let key = keys.path(application.head())?;
-                let node = keys.node(
-                    NodeKind::ApplicationHead,
-                    TokenRange::for_tokens(application.head())?,
-                )?;
-                let target = self.terms.application_wire_slot(
-                    application.head(),
-                    application.is_notation(),
-                    &mut self.slots,
-                )?;
-                let authored_path = spelling(application.head());
-                // An initializer admits no turbofish (KF-027); this rejects one.
-                self.terms.application_instance_wire(
-                    application,
-                    node,
-                    TermSide::Right,
-                    &mut self.slots,
-                )?;
-                if application.update().is_some() || application.is_open() {
-                    return Err(ExpandError::new(
-                        expand::INITIALIZER_RECORD_UPDATE,
-                        application.head().span(),
-                        "an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing",
-                    ));
-                }
-                let arguments = match application.arguments() {
-                    TermArguments::Positional(values) => krs_ir::Arguments::Positional(
-                        values
-                            .iter()
-                            .map(|value| self.expand_term_tree(value, keys).map(Box::new))
-                            .collect::<crate::Result<Vec<_>>>()?,
-                    ),
-                    // A record constructor denotes the same application as
-                    // its positional form, with each field named.
-                    TermArguments::Named(values) => {
-                        let mut arguments = Vec::with_capacity(values.len());
-                        for argument in values {
-                            let field = ProductionFieldId::new(argument.name().to_string())
-                                .expect("Rust field identifiers are valid production fields");
-                            arguments.push(krs_ir::NamedTermArgument {
-                                key: keys.record_field(argument.name())?,
-                                field,
-                                value: Box::new(self.expand_term_tree(argument.value(), keys)?),
-                            });
-                        }
-                        krs_ir::Arguments::named(arguments)
-                    }
-                };
-                Ok(WireTerm::Application {
-                    instance: Vec::new(),
-                    head_class: DescriptorApplicationHeadClass::Applied,
-                    reference: WireApplicationReference {
-                        key: key.clone(),
-                        target,
-                        authored_path,
-                    },
-                    path_key: key,
-                    arguments,
-                    update: None,
-                    open: false,
-                })
-            }
-            TermTree::Reference(path) => {
-                let key = keys.path(path)?;
-                let name = spelling(path);
-                if is_bound_ident_path(path, self.bindings) {
-                    Ok(WireTerm::Variable {
-                        key: key.clone(),
-                        path_key: key,
-                        name,
-                    })
-                } else if let Some(name) = super::terms::snake_case_bare_name(path) {
-                    // An initializer's bare snake-case names are its
-                    // parameters, by KRS's spelling rule never Rust items.
-                    Err(ExpandError::new(
-                        expand::UNBOUND_NAME,
-                        syn::spanned::Spanned::span(path),
-                        format!(
-                            "`{name}` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters{}",
-                            super::terms::did_you_mean(&name, self.bindings.iter())
-                        ),
-                    ))
-                } else {
-                    let target = self
-                        .terms
-                        .application_wire_slot(path, false, &mut self.slots)?;
-                    let authored_path = spelling(path);
-                    Ok(WireTerm::Application {
-                        instance: Vec::new(),
-                        head_class: DescriptorApplicationHeadClass::BareReference,
-                        reference: WireApplicationReference {
-                            key: key.clone(),
-                            target,
-                            authored_path,
-                        },
-                        path_key: key,
-                        arguments: krs_ir::Arguments::default(),
-                        update: None,
-                        open: false,
-                    })
-                }
-            }
-            TermTree::Literal(literal) => Ok(WireTerm::Literal {
-                key: keys
-                    .node(NodeKind::Literal, literal.range()?)?
-                    .key(ProvenanceRole::InitializerTermLiteral)?,
-                literal: wire_literal(literal),
-            }),
-            TermTree::Wildcard(range) => Err(ExpandError::at_range(
-                expand::INITIALIZER_WILDCARD,
-                *range,
-                "initializer terms cannot contain wildcards",
-            )),
-            // A builtin literal is one constant of its sort, in an initializer as anywhere.
-            TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: keys
-                    .node(NodeKind::IdToken, TokenRange::for_tokens(literal)?)?
-                    .key(ProvenanceRole::ClaimIdToken)?,
-                sort: BuiltinSort::Id,
-                value: literal.value(),
-            }),
-            TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: keys
-                    .node(NodeKind::BytesToken, TokenRange::for_tokens(literal)?)?
-                    .key(ProvenanceRole::ClaimBytesToken)?,
-                sort: BuiltinSort::Bytes,
-                value: bytes_token::encode(&literal.value()),
-            }),
-            TermTree::Anonymous { spelling, .. } => {
-                self.terms.admit(
-                    TermSide::Right,
-                    Construct::Anonymous,
-                    TokenRange::for_tokens(spelling)?,
-                )?;
-                unreachable!("the position table refuses `k::anonymous!` in an initializer")
-            }
-            TermTree::OrBool { range, .. } => Err(ExpandError::new(
-                expand::CLAIM_ONLY_TERM,
-                range.first(),
-                "`k::or_bool!` joins a claim's symbolic conditions; an initializer holds no condition",
-            )),
-            TermTree::Cell(cell) => Err(ExpandError::new(
-                expand::INITIALIZER_FRAGMENT,
-                cell.owner().span(),
-                "fragment! is not an initializer term; construct nested initializer cells directly",
-            )),
-            TermTree::Lexeme { sort, text } => {
-                let node = keys.node(NodeKind::Lexeme, TokenRange::for_tokens(text)?)?;
-                self.terms.lexeme_wire(sort, text, node, &mut self.slots)
-            }
-            TermTree::SortTest { range, .. } => Err(ExpandError::new(
-                expand::CLAIM_ONLY_TERM,
-                range.first(),
-                "is! and project! are rule and claim terms; initializers cannot contain them",
-            )),
-            TermTree::As { binding, .. } => Err(ExpandError::new(
-                expand::PATTERN_AS_OUTSIDE_LHS,
-                binding.span(),
-                "`name @ pattern` binds only on a left-hand side; initializers cannot contain it",
-            )),
-            TermTree::Or { range, .. } => Err(ExpandError::new(
-                expand::PATTERN_OR_OUTSIDE_LHS,
-                range.first(),
-                "`A | B` alternatives occur only on a left-hand side; initializers cannot contain them",
-            )),
-            TermTree::Matches { range, .. } => Err(ExpandError::new(
-                expand::MATCHES_OUTSIDE_CONDITION,
-                range.first(),
-                "`k::matches!` is a rule and claim condition; initializers cannot contain it",
-            )),
-            TermTree::Let { range, .. } => Err(ExpandError::new(
-                expand::LET_OUTSIDE_TERM,
-                range.first(),
-                "`let` blocks (K's #let) are rule terms; initializers cannot contain them",
-            )),
-            TermTree::Closure { range, .. } => Err(ExpandError::new(
-                expand::ML_PLACEMENT,
-                range.first(),
-                "an `ml::exists` closure is a predicate; initializers cannot contain it",
-            )),
-            TermTree::Rewrite { range, .. } => Err(ExpandError::new(
-                expand::LOCAL_REWRITE_OUTSIDE_SUBJECT,
-                range.first(),
-                "`k::rewrite!` (K's local =>) marks a change in a single-body rule's subject; initializers cannot contain it",
-            )),
-        }
     }
 }

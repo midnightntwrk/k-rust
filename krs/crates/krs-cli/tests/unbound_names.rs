@@ -2,8 +2,8 @@
 //! spelling rule: binders are snake case, Rust items are not), so one that
 //! nothing binds is `krs::expand::unbound-name` at the name, with the closest
 //! name in scope as a suggestion, in every readable form, guard, equation,
-//! rule fn body, and initializer term. A `PascalCase` name is a constructor
-//! reference, which rustc resolves, as before.
+//! rule fn body, `cells!` term, and initializer term. A `PascalCase` name is
+//! a constructor reference, which rustc resolves, as before.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -99,6 +99,11 @@ fn body(k::term![PickF(b)]: Term<Int>) -> Term<Int> {
 #[k::rule]
 fn subject(k::term![StmtSyntax::Wrap { s }]: Term<Stmt>) -> Term<Stmt> {
     StmtSyntax::Wrap { s: ss }
+}
+
+#[k::rule]
+fn cells_rule(k::cells! { k: k::configuration::KCell(StmtSyntax::Skip(), tail @ ..), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(zz, ..tail), ..state }
 }
 ";
 
@@ -203,6 +208,7 @@ fn an_unbound_snake_case_name_is_a_krs_error_at_the_name() {
             "error[krs::expand::unbound-name]: `bb` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one; did you mean `b`? at `bb`",
             "error[krs::expand::unbound-name]: `bb` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one; did you mean `b`? at `bb`",
             "error[krs::expand::unbound-name]: `ss` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one; did you mean `s`? at `ss`",
+            "error[krs::expand::unbound-name]: `zz` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one at `zz`",
         ]
     "#]]
     .assert_debug_eq(&errors(target.path(), &manifest));
@@ -210,8 +216,7 @@ fn an_unbound_snake_case_name_is_a_krs_error_at_the_name() {
 
 /// A `PascalCase` name stays a constructor reference that rustc resolves,
 /// with rustc's suggestion for a near variant, a bare unit variant still
-/// emits its constructor, a `let` binder is in scope in its block, and a
-/// `cells!` rule fn, whose binders are Rust parameters, stays rustc's.
+/// emits its constructor, and a `let` binder is in scope in its block.
 #[test]
 fn constructor_names_stay_with_rustc() {
     let target = shared_fixture_target();
@@ -232,11 +237,6 @@ k::rules! {{
     use StmtSyntax::*;
     misspelled: {{ k: [Tick(), Skip(), ..] }} => {{ k: [Tik(), ..] }};
 }}
-
-#[k::rule]
-fn cells_rule(k::cells! {{ k: k::configuration::KCell(StmtSyntax::Skip(), tail @ ..), state @ .. }}: Machine) -> Machine {{
-    k::cells! {{ k: k::configuration::KCell(zz, ..tail), ..state }}
-}}
 "
         ),
     );
@@ -244,7 +244,6 @@ fn cells_rule(k::cells! {{ k: k::configuration::KCell(StmtSyntax::Skip(), tail @
         [
             "error[E0422]: cannot find struct, variant or union type `Zz` in this scope at `Zz`",
             "error[E0422]: cannot find struct, variant or union type `Tik` in this scope at `Tik`",
-            "error[E0425]: cannot find type `zz` in this scope at `zz`",
         ]
     "#]]
     .assert_debug_eq(&errors(target.path(), &unresolved));

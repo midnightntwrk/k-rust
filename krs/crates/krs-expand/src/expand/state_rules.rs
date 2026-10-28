@@ -2,26 +2,23 @@
 
 use crate::ExpandError;
 use krs_diagnostic::codes::expand;
-use krs_ir::bytes_token;
 use krs_ir::wire::{
-    WireApplicationReference, WireCellIdentity, WireCellReference, WireCellTermField,
-    WireConfigurationReference, WireConfigurationRule, WireContextAlias, WirePayload,
-    WireRuleCells, WireRuleCondition, WireSortReference, WireTerm, WireTypeReference,
+    WireCellIdentity, WireCellReference, WireConfigurationReference, WireConfigurationRule,
+    WireContextAlias, WirePayload, WireRuleCells, WireRuleCondition, WireTerm, WireTypeReference,
 };
 use krs_ir::{
-    BuiltinSort, CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
-    DescriptorRuleLabel, DescriptorRulePriority, ProductionFieldId, ProtocolContextAliasBinding,
-    ProtocolContextAliasBindingKind, ProtocolRuleBinding, ProtocolRuleBindingKind,
-    ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence, ProtocolRuleKSequenceItem,
-    ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm,
-    ProvenanceKey,
+    CellWrapper, DescriptorKSequenceNotation, DescriptorRuleLabel, DescriptorRulePriority,
+    ProtocolContextAliasBinding, ProtocolContextAliasBindingKind, ProtocolRuleBinding,
+    ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence,
+    ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
+    ProtocolRuleStateTerm, ProvenanceKey,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::positions::Form;
 use krs_syntax::{
-    KSequence, KSequenceNotation, MapBody, MapExpression, ProvenanceRole, RuleSide,
-    StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind, StateTerm, TermArguments,
-    TermTree, TokenRange, parse_state_context_alias_item,
+    KSequence, KSequenceNotation, MapBody, MapExpression, RuleSide, StateMacroRemainder,
+    StateRuleBindingKind, StateRuleReferenceKind, StateTerm, TokenRange,
+    parse_state_context_alias_item,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -35,14 +32,8 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::{
-    KeyedTerm, NodeKind, TermBuilder, TermKeyReader, TermRole, TermSide, WireSlots,
-    wire_sort_reference,
-};
-use super::tokens::{
-    call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
-    wire_literal,
-};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
+use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -618,12 +609,13 @@ pub(super) fn configuration_rule(
     })
 }
 
+/// Expands `cells!` configurations: their cells, `k!` sequences, maps and
+/// instances, handing every term they hold to the term walker at the side's
+/// slot of the sentence form.
 pub(super) struct StateRuleBuilder<'a> {
     facade: &'a Path,
-    bindings: &'a [Ident],
     side: RuleSide,
     pub(super) terms: TermBuilder<'a>,
-    claim: bool,
 }
 
 impl<'a> StateRuleBuilder<'a> {
@@ -638,10 +630,8 @@ impl<'a> StateRuleBuilder<'a> {
     ) -> Self {
         Self {
             facade,
-            bindings,
             side,
             terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings, form),
-            claim: form.is_claim(),
         }
     }
 
@@ -657,10 +647,6 @@ impl<'a> StateRuleBuilder<'a> {
             RuleSide::Left => TermSide::Left,
             RuleSide::Right => TermSide::Right,
         }
-    }
-
-    fn term_role(&self, role: TermRole) -> ProvenanceRole {
-        self.term_side().role(role)
     }
 
     pub(super) fn expand_cells(
@@ -855,9 +841,9 @@ impl<'a> StateRuleBuilder<'a> {
                 for item in items {
                     values.push(ProtocolRuleMapItem {
                         key_key: ledger.define(item.key().keys().payload())?,
-                        key: self.expand_keyed(KeyedTerm::of(item.key()), slots)?,
+                        key: self.expand_entry(KeyedTerm::of(item.key()), slots)?,
                         value_key: ledger.define(item.value().keys().payload())?,
-                        value: self.expand_keyed(KeyedTerm::of(item.value()), slots)?,
+                        value: self.expand_entry(KeyedTerm::of(item.value()), slots)?,
                     });
                 }
                 ProtocolRuleMapBody::Items {
@@ -869,327 +855,30 @@ impl<'a> StateRuleBuilder<'a> {
                 base_key: ledger.define(base.keys().payload())?,
                 base: self.expand_keyed(KeyedTerm::of(base), slots)?,
                 key_key: ledger.define(key.keys().payload())?,
-                key: self.expand_keyed(KeyedTerm::of(key), slots)?,
+                key: self.expand_entry(KeyedTerm::of(key), slots)?,
                 value_key: ledger.define(value.keys().payload())?,
-                value: self.expand_keyed(KeyedTerm::of(value), slots)?,
+                value: self.expand_entry(KeyedTerm::of(value), slots)?,
             },
         };
         Ok(ProtocolRuleMap { payload_key, body })
     }
 
+    /// Expands one term the configuration holds, at the side's slot.
     fn expand_keyed(
         &mut self,
         term: KeyedTerm<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        self.expand_term(term.tree(), &mut term.reader(self.terms.ledger), slots)
+        self.terms.expand_wire(term, self.term_side(), slots)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "Exhaustive transport for the closed structured-term grammar."
-    )]
-    fn expand_term(
+    /// Expands a map's key or value, a collection entry.
+    fn expand_entry(
         &mut self,
-        tree: &TermTree,
-        keys: &mut TermKeyReader<'_>,
+        term: KeyedTerm<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        let facade = self.facade;
-        match tree {
-            TermTree::Application(application) => {
-                // A `cells!` term keys no path: the head's key stands for it.
-                keys.pass_path(application.head())?;
-                let node = keys.node(
-                    NodeKind::ApplicationHead,
-                    TokenRange::for_tokens(application.head())?,
-                )?;
-                let key = node.key(self.term_role(TermRole::ApplicationHead))?;
-                let target = self.terms.application_wire_slot(
-                    application.head(),
-                    application.is_notation(),
-                    slots,
-                )?;
-                let authored_path = spelling(application.head());
-                let instance = self.terms.application_instance_wire(
-                    application,
-                    node,
-                    self.term_side(),
-                    slots,
-                )?;
-                let arguments = match application.arguments() {
-                    TermArguments::Positional(values) => {
-                        let mut arguments = Vec::new();
-                        for value in values {
-                            arguments.push(Box::new(self.expand_term(value, keys, slots)?));
-                        }
-                        krs_ir::Arguments::Positional(arguments)
-                    }
-                    TermArguments::Named(values) => {
-                        let mut arguments = Vec::new();
-                        for argument in values {
-                            arguments.push(krs_ir::NamedTermArgument {
-                                key: keys.record_field(argument.name())?,
-                                field: ProductionFieldId::new(argument.name().to_string())
-                                    .expect("Rust field identifiers are valid production fields"),
-                                value: Box::new(self.expand_term(argument.value(), keys, slots)?),
-                            });
-                        }
-                        krs_ir::Arguments::named(arguments)
-                    }
-                };
-                if let Some(base) = application.update() {
-                    return Err(reference_record_update(base_span(base, application.head())));
-                }
-                Ok(WireTerm::Application {
-                    instance,
-                    head_class: DescriptorApplicationHeadClass::Applied,
-                    reference: WireApplicationReference {
-                        key: key.clone(),
-                        target,
-                        authored_path,
-                    },
-                    path_key: key,
-                    arguments,
-                    update: None,
-                    open: application.is_open(),
-                })
-            }
-            TermTree::Reference(path) => {
-                keys.pass_path(path)?;
-                let key = keys
-                    .node(NodeKind::Reference, TokenRange::for_tokens(path)?)?
-                    .key(self.term_role(TermRole::Reference))?;
-                if is_bound_ident_path(path, self.bindings) {
-                    Ok(WireTerm::Variable {
-                        key: key.clone(),
-                        path_key: key,
-                        name: super::terms::binder_spelling(path),
-                    })
-                } else {
-                    let target = self.terms.application_wire_slot(path, false, slots)?;
-                    Ok(WireTerm::Application {
-                        instance: Vec::new(),
-                        head_class: DescriptorApplicationHeadClass::BareReference,
-                        reference: WireApplicationReference {
-                            key: key.clone(),
-                            target,
-                            authored_path: spelling(path),
-                        },
-                        path_key: key,
-                        arguments: krs_ir::Arguments::default(),
-                        update: None,
-                        open: false,
-                    })
-                }
-            }
-            TermTree::Literal(literal) => Ok(WireTerm::Literal {
-                key: keys
-                    .node(NodeKind::Literal, literal.range()?)?
-                    .key(self.term_role(TermRole::Literal))?,
-                literal: wire_literal(literal),
-            }),
-            TermTree::Wildcard(range) => {
-                if matches!(self.side, RuleSide::Right) {
-                    return Err(ExpandError::at_range(
-                        expand::RULE_RESULT_WILDCARD,
-                        *range,
-                        "rule results cannot contain wildcards",
-                    ));
-                }
-                Ok(WireTerm::Wildcard {
-                    key: keys.wildcard(*range)?,
-                })
-            }
-            TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: keys
-                    .node(NodeKind::IdToken, TokenRange::for_tokens(literal)?)?
-                    .key(ProvenanceRole::ClaimIdToken)?,
-                sort: BuiltinSort::Id,
-                value: literal.value(),
-            }),
-            TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: keys
-                    .node(NodeKind::BytesToken, TokenRange::for_tokens(literal)?)?
-                    .key(ProvenanceRole::ClaimBytesToken)?,
-                sort: BuiltinSort::Bytes,
-                value: bytes_token::encode(&literal.value()),
-            }),
-            TermTree::Lexeme { sort, text } => {
-                let node = keys.node(NodeKind::Lexeme, TokenRange::for_tokens(text)?)?;
-                self.terms.lexeme_wire(sort, text, node, slots)
-            }
-            TermTree::SortTest {
-                range,
-                kind,
-                sort,
-                operand,
-            } => {
-                let node = keys.node(NodeKind::SortTest, *range)?;
-                let (key, sort) = self.terms.sort_test_reference(sort, node, slots)?;
-                Ok(WireTerm::SortTest {
-                    key,
-                    kind: *kind,
-                    sort,
-                    operand: Box::new(self.expand_term(operand, keys, slots)?),
-                })
-            }
-            TermTree::As { binding, pattern } => {
-                if matches!(self.side, RuleSide::Right) {
-                    return Err(ExpandError::new(
-                        expand::PATTERN_AS_OUTSIDE_LHS,
-                        binding.span(),
-                        format!(
-                            "`{binding} @ pattern` binds only on a left-hand side (K's #as is LHS-only)"
-                        ),
-                    ));
-                }
-                let node = keys.node(NodeKind::As, TokenRange::for_tokens(binding)?)?;
-                let (key, binding_key) = self.terms.take_pattern_as(binding, node)?;
-                Ok(WireTerm::As {
-                    key,
-                    binding_key,
-                    name: binding.unraw().to_string(),
-                    pattern: Box::new(self.expand_term(pattern, keys, slots)?),
-                })
-            }
-            TermTree::Or {
-                range,
-                alternatives,
-            } => {
-                if matches!(self.side, RuleSide::Right) {
-                    return Err(ExpandError::new(
-                        expand::PATTERN_OR_OUTSIDE_LHS,
-                        range.first(),
-                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
-                    ));
-                }
-                let node = keys.node(NodeKind::Or, *range)?;
-                let key = TermBuilder::take_pattern_or(node)?;
-                Ok(WireTerm::Or {
-                    key,
-                    alternatives: alternatives
-                        .try_map_ref(|alternative| self.expand_term(alternative, keys, slots))?,
-                })
-            }
-            TermTree::Anonymous {
-                sort,
-                spelling: display_literal,
-            } => {
-                if !self.claim || matches!(self.side, RuleSide::Right) {
-                    return Err(ExpandError::new(
-                        expand::CLAIM_SUBJECT_ONLY_TERM,
-                        display_literal.span(),
-                        "anonymous! is allowed only in claim subjects",
-                    ));
-                }
-                let node = keys.node(
-                    NodeKind::Anonymous,
-                    TokenRange::for_tokens(display_literal)?,
-                )?;
-                let path = call_site_path(sort)?;
-                let key_fn = format_ident!(
-                    "__krs_claim_anonymous_sort_{:016x}_{}",
-                    self.terms.nonce,
-                    self.terms.next_key,
-                );
-                self.terms.next_key += 1;
-                let cfg = self.terms.cfg;
-                self.terms.key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
-                Ok(WireTerm::Anonymous {
-                    key: node.key(ProvenanceRole::ClaimAnonymous)?,
-                    sort: WireSortReference {
-                        key: node.key(ProvenanceRole::ClaimAnonymousSort)?,
-                        target: WireTypeReference {
-                            slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_fn))),
-                            authored_path: spelling(sort),
-                        },
-                    },
-                    spelling_key: node.key(ProvenanceRole::ClaimAnonymousSpelling)?,
-                    spelling: display_literal.value(),
-                })
-            }
-            TermTree::Matches { range, .. } => Err(ExpandError::new(
-                expand::MATCHES_OUTSIDE_CONDITION,
-                range.first(),
-                "`k::matches!` is supported in requires and ensures conditions and in term results; in a cell value, test the cell's binder in `#[k::requires]`",
-            )),
-            TermTree::Let { range, .. } => Err(ExpandError::new(
-                expand::LET_OUTSIDE_TERM,
-                range.first(),
-                "`let` blocks (K's #let) are supported in requires and ensures conditions and in term results; in a cell value, compute the value with a function",
-            )),
-            TermTree::Closure { range, .. } => Err(ExpandError::new(
-                expand::ML_PLACEMENT,
-                range.first(),
-                "an `ml::exists` closure is a predicate (K's #Exists); it belongs in a claim's requires or ensures condition, not in a cell value",
-            )),
-            TermTree::Rewrite {
-                range, from, to, ..
-            } => {
-                let node = keys.node(NodeKind::Rewrite, *range)?;
-                self.terms.enter_rewrite(*range, self.term_side())?;
-                let from = self.expand_term(from, keys, slots);
-                let to = match (from.is_ok(), to) {
-                    (true, Some(to)) => {
-                        Some(self.expand_term(to, keys, slots).map(Box::new)).transpose()
-                    }
-                    _ => Ok(None),
-                };
-                self.terms.leave_rewrite();
-                super::terms::rewrite_wire(node, from?, to?)
-            }
-            TermTree::OrBool { range, arguments } => {
-                if !self.claim {
-                    return Err(ExpandError::at_range(
-                        expand::CLAIM_ONLY_TERM,
-                        *range,
-                        "or_bool! is currently claim-only",
-                    ));
-                }
-                let node = keys.node(NodeKind::OrBool, *range)?;
-                let arguments =
-                    arguments.try_map_ref(|argument| self.expand_term(argument, keys, slots))?;
-                Ok(WireTerm::OrBool {
-                    key: node.key(ProvenanceRole::ClaimOrBool)?,
-                    arguments,
-                })
-            }
-            TermTree::Cell(cell) => {
-                keys.pass_path(cell.owner())?;
-                let key = keys
-                    .node(
-                        NodeKind::ApplicationHead,
-                        TokenRange::for_tokens(cell.owner())?,
-                    )?
-                    .key(self.term_role(TermRole::ApplicationHead))?;
-                let declaration = self.terms.cell_declaration_reference(cell.owner(), slots)?;
-                let mut fields = Vec::new();
-                for field in cell.fields() {
-                    fields.push(WireCellTermField {
-                        key: keys.record_field(field.name())?,
-                        field: ProductionFieldId::new(field.name().to_string())
-                            .expect("Rust fields are valid cell-field identities"),
-                        value: Box::new(self.expand_term(field.value(), keys, slots)?),
-                    });
-                }
-                // A reference `cells!` term names every child: the readable
-                // forms that leave some out are written in full by `krs
-                // expand`.
-                if cell.is_open() || cell.update().is_some() {
-                    return Err(reference_record_update(cell.range().first()));
-                }
-                // A cell value keys no path: the path names the head's node.
-                Ok(WireTerm::Cell {
-                    key: key.clone(),
-                    path_key: key,
-                    declaration,
-                    fields,
-                    open: false,
-                    update: None,
-                })
-            }
-        }
+        self.terms.expand_entry_wire(term, self.term_side(), slots)
     }
 }
 
@@ -1223,24 +912,5 @@ pub(super) fn instance_rest(rest: &krs_syntax::InstanceRest) -> krs_ir::Protocol
         krs_syntax::InstanceRest::Update { label, .. } => krs_ir::ProtocolInstanceRest::Update {
             label: label.to_string(),
         },
-    }
-}
-
-/// A record update or a `..` group pattern in a reference `cells!` term,
-/// which names every field: the readable spellings are written in full by
-/// `krs expand`.
-fn reference_record_update(span: proc_macro2::Span) -> ExpandError {
-    ExpandError::new(
-        expand::INVALID_RECORD_UPDATE,
-        span,
-        "a `cells!` term names every field: write each one (`_` for a field a pattern leaves unconstrained); `Ctor { f: e, ..t }` and a `..` group pattern are readable-record notation",
-    )
-}
-
-/// The update's base when it is a name, and the record's constructor otherwise.
-fn base_span(base: &TermTree, head: &syn::Path) -> proc_macro2::Span {
-    match base {
-        TermTree::Reference(path) => syn::spanned::Spanned::span(path),
-        _ => syn::spanned::Spanned::span(head),
     }
 }

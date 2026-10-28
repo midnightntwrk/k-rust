@@ -1185,17 +1185,15 @@ fn emit(
         }
     }
     // a literal of a token sort (`{ val := "main" }` on a right-hand side) is the translation of
-    // the same literal
-    if !a.arity {
-        for t in &tokens {
-            writeln!(
-                o,
-                "@[k2l_rel] theorem fold_lit_{} (s : String) : ({{ val := s }} : {nb}.{t}) = {} {{ val := s }} := rfl",
-                terms::fsuffix(t),
-                tr_name(t)
-            )
-            .unwrap();
-        }
+    // the same literal (on both universes a token sort is a structure over its string)
+    for t in &tokens {
+        writeln!(
+            o,
+            "@[k2l_rel] theorem fold_lit_{} (s : String) : ({{ val := s }} : {nb}.{t}) = {} {{ val := s }} := rfl",
+            terms::fsuffix(t),
+            tr_name(t)
+        )
+        .unwrap();
     }
     // injections and projections
     let pairs_b: BTreeSet<(String, String)> = terms::inj_pairs(&b.m).into_iter().collect();

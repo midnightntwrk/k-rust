@@ -966,7 +966,7 @@ mod tests {
         };
         assert_eq!(framework_result.parents.len(), 1);
         assert_eq!(
-            framework_result.parents[0].key.resolve(),
+            framework_result.parents[0].target.key.resolve(),
             std::any::TypeId::of::<language_host::KItem>()
         );
     }
@@ -2101,7 +2101,7 @@ mod tests {
             std::any::TypeId::of::<readable_sorts::ReadableStmt>()
         );
         assert_eq!(
-            assign.fields[0].sort.key.resolve(),
+            assign.fields[0].sort.target.key.resolve(),
             std::any::TypeId::of::<language_host::builtin::Id>()
         );
         let assign_grammar = descriptor(

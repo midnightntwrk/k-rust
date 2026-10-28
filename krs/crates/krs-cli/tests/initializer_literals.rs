@@ -248,8 +248,8 @@ fn initializers_reject_symbolic_islands_and_ill_sorted_literals() {
         (
             "or-bool",
             ("stack", "list::item(k::or_bool!(true, false))"),
-            "error[krs::expand::claim-only-term]: `k::or_bool!` joins a claim's symbolic conditions; an initializer holds no condition",
-            "k",
+            "error[krs::expand::claim-only-term]: `k::or_bool!` joins a claim's symbolic conditions, so it stands only in a claim; here it stands in the value of an initializer",
+            "k::or_bool!(true, false)",
         ),
         (
             "invalid-id",
