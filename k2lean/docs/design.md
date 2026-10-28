@@ -653,6 +653,7 @@ The repository's own Lean proofs (`lean/`) are a separate project with a toolcha
 A theorem the generator states is either K's own statement, or a different theorem, chosen by a command or an option, and then possibly weaker than K's original.
 The weaker ones, each with where it is stated:
 - **Type soundness** (§3.3) excludes stuck configurations, not undefined results: `Applies c` holds where a rule applies and its result is undefined (`x / 0` in kimp).
+  With threads, a thread whose head is that of a rule needing another thread (`join T;`) counts as done (`Waits`) whether thread `T` is running or does not exist, so a deadlock is a `Final` configuration.
 - **A claim under `--assume-invariant NAME`** (§3.8) says nothing of a left-hand side outside `NAME`, so it is weaker than the K claim. The K claim itself may be false (kimp's `copy` and `copy-loop`, refuted by hand).
 - **A claim carried along a stuttering bisimulation** (`--transfer-kind stutter`, §3.8) without `--transfer-det` carries an all-path claim as one-path (`EF`, through `AF.toEF`). An all-path claim does not carry in general.
 - **Noninterference** (§3.7) is termination-insensitive: it relates two runs only when both end.
