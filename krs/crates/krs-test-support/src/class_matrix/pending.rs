@@ -8,7 +8,7 @@
 //! ```toml
 //! ["readable/result/pc/Some(x)"]
 //! finding = "unassigned"
-//! deviation = "E0277 @ item"
+//! deviation = "krs::expand::not-a-declaration @ spelling"
 //! step = "S5"
 //! ```
 //!
