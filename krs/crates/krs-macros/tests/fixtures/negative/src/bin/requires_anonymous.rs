@@ -8,7 +8,7 @@ pub trait ExprSort {} pub type Expr = renamed_krs::Term<dyn ExprSort>;
 pub struct Done;
 
 #[rule]
-#[renamed_krs::requires(true)] //~ ERROR a rule condition must be an object-Bool term constructor, not a host literal
+#[renamed_krs::requires(renamed_krs::anonymous!(renamed_krs::builtin::Bool, "_B"))] //~ ERROR only a claim's start state may hold
 fn invalid(Done: Term<dyn ExprSort>) -> Term<dyn ExprSort> {
     Done
 }

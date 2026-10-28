@@ -441,12 +441,6 @@ pub(crate) fn take_requires_helper(
             ));
         };
         let term = TermExpression::parse_tokens(crate::parse::strip_trailing_comma(list.tokens))?;
-        if term.root_kind() == crate::TermRootKind::Literal {
-            return Err(unsupported_signature(
-                "a rule condition must be an object-Bool term constructor, not a host literal",
-                term.expression().span(),
-            ));
-        }
         condition = Some(RuleCondition::keyed(term)?);
     }
     *attributes = retained;

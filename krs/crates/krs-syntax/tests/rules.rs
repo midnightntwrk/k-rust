@@ -118,10 +118,8 @@ fn typed_requires_preserves_complete_and_nested_provenance() {
 }
 
 #[test]
-fn requires_rejects_host_literals_missing_payloads_and_duplicates() {
+fn requires_rejects_missing_payloads_and_duplicates() {
     for source in [
-        "#[k::requires(true)] fn bad(Foo: Term<Expr>) -> Term<Expr> { Done }",
-        "#[k::requires(\"true\")] fn bad(Foo: Term<Expr>) -> Term<Expr> { Done }",
         "#[k::requires] fn bad(Foo: Term<Expr>) -> Term<Expr> { Done }",
         "#[k::requires(is_ready(Foo))] #[k::requires(ok(Foo))] fn bad(Foo: Term<Expr>) -> Term<Expr> { Done }",
     ] {
@@ -134,6 +132,23 @@ fn requires_rejects_host_literals_missing_payloads_and_duplicates() {
             ),
             "{source}: {error}"
         );
+    }
+}
+
+/// A condition is a term; whether it is a Bool term is the compiler's to judge, and a Bool
+/// literal is the condition that always or never holds.
+#[test]
+fn conditions_are_terms_of_any_root() {
+    for condition in ["true", "false", "1", "\"s\"", "k::id!(\"$x\")"] {
+        for source in [
+            format!("#[k::requires({condition})] fn r(Foo: Term<Expr>) -> Term<Expr> {{ Done }}"),
+            format!(
+                "#[k::exists(x: Int)] #[k::ensures({condition})] fn r(Foo: Term<Expr>) -> Term<Expr> {{ x }}"
+            ),
+        ] {
+            krs_syntax::RuleItem::parse_source(&source)
+                .unwrap_or_else(|error| panic!("{source}: {error}"));
+        }
     }
 }
 
