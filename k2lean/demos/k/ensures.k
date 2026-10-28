@@ -9,6 +9,11 @@
 //   `chk(N)` with `N <=Int 0` the first rule applies (its ensures is false), so neither steps;
 // - `pick(N)`'s two rules are apart by their ensures only (no `N` makes both true);
 // - `both(N)`'s two rules overlap exactly where both ensures hold (`0 < N < 10`, witnessed).
+// A function equation's `ensures` (k2lean/docs/design.md, §2, "Functions"): `f(ps) = r ∧ ⌈e⌉`,
+// so where `e` is false the value is undefined, and no later equation applies, since this one's
+// left-hand side and requires matched:
+// - `enc(N)` is `N +Int 1` for `0 <= N <= 100`, undefined for `N > 100` (not the `owise` value),
+//   and `0` for `N < 0` (the first equation's requires fails, so the `owise` one applies).
 
 module ENSURES-SYNTAX
   imports INT-SYNTAX
@@ -19,6 +24,7 @@ module ENSURES-SYNTAX
                | "chk" "(" Int ")"     [symbol(chk)]
                | "pick" "(" Int ")"    [symbol(pick)]
                | "both" "(" Int ")"    [symbol(both)]
+               | "encode" "(" Int ")"  [symbol(encode)]
 endmodule
 
 module ENSURES
@@ -42,4 +48,10 @@ module ENSURES
 
   rule <k> both(N) => .K ... </k> <out> _ => 1 </out> ensures N >Int 0
   rule <k> both(N) => .K ... </k> <out> _ => 2 </out> ensures N <Int 10
+
+  syntax Int ::= enc(Int) [function, symbol(enc)]
+  rule enc(N) => N +Int 1 requires N >=Int 0 ensures N <=Int 100
+  rule enc(_) => 0 [owise]
+
+  rule <k> encode(N) => .K ... </k> <out> _ => enc(N) </out>
 endmodule

@@ -19,11 +19,25 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct Equation {
     pub args: Vec<P>,
     pub requires: Vec<P>,
+    /// the value `r`, or `r ∧ ⌈e⌉` for an equation with `ensures e` (`Equation::value`)
     pub rhs: P,
+    /// the function is declared total (`functional`, `total`)
+    pub total: bool,
     pub priority: i64,
     pub index: usize,
     pub owise: bool,
     pub uid: String,
+}
+
+impl Equation {
+    /// The value and the `ensures` of the right-hand side `r ∧ ⌈e⌉` (K writes `\top` for no
+    /// ensures, which `equations` drops).
+    pub fn value(&self) -> (&P, Option<&P>) {
+        match &self.rhs {
+            P::And(_, parts) if parts.len() == 2 => (&parts[0], Some(&parts[1])),
+            other => (other, None),
+        }
+    }
 }
 
 /// Equations of each function symbol (simplification rules excluded).
@@ -76,6 +90,10 @@ pub fn equations(def: &Def) -> BTreeMap<String, Vec<Equation>> {
             }
             other => other.clone(),
         };
+        let total = def
+            .symbols
+            .get(f)
+            .is_some_and(|s| s.attrs.has("functional") || s.attrs.has("total"));
         let owise = a.attrs.has("owise");
         let priority = if owise {
             200
@@ -89,6 +107,7 @@ pub fn equations(def: &Def) -> BTreeMap<String, Vec<Equation>> {
             args,
             requires,
             rhs,
+            total,
             priority,
             index: a.index,
             owise,
@@ -111,6 +130,7 @@ pub fn equations(def: &Def) -> BTreeMap<String, Vec<Equation>> {
             args: fargs.clone(),
             requires: vec![],
             rhs: (**rhs).clone(),
+            total: false,
             priority: 50,
             index: a.index,
             owise: false,
@@ -308,16 +328,23 @@ fn lower_equation(
         lw.cond(r).map_err(err)?;
     }
     let lhs_len = lw.steps.len();
-    // `f(ps) = r ∧ ⌈e = true⌉` (an `ensures e`): the value is `r` only where `e` holds, and the
-    // equation's statement would need `e` too (`docs/design.md`, §2, "`ensures`")
-    if let P::And(_, parts) = &e.rhs
-        && parts.len() == 2
-    {
-        return Err(err(
-            "`ensures` in a function equation is not supported".into()
-        ));
+    // `f(ps) = r ∧ ⌈e = true⌉` (an `ensures e`): the value is `r` where `e` holds and undefined
+    // where it is false (`⌈false⌉` is `⊥`), and no later equation applies, since this one's
+    // left-hand side and requires matched (`docs/design.md`, §2, "Functions"): a check after the
+    // match, which fails to `none` as a partial call of the right-hand side does
+    let (value, ensures) = e.value();
+    if let Some(ens) = ensures {
+        if e.total {
+            return Err(err(
+                "`ensures` in an equation of a function declared total: where it \
+                 is false, the value would be undefined, against K's own declaration; that needs \
+                 a checked exception (a counterexample), which is not generated"
+                    .into(),
+            ));
+        }
+        lw.cond(ens).map_err(err)?;
     }
-    let rhs = lw.expr(&e.rhs, &sig.result).map_err(err)?;
+    let rhs = lw.expr(value, &sig.result).map_err(err)?;
     Ok((lw.steps, lhs_len, rhs))
 }
 
@@ -1723,6 +1750,7 @@ pub(crate) mod tests {
     //! Recursive-function detection: a function gets the well-founded, `Option`-valued
     //! definition and the recursive equation proof exactly when it is on a call cycle.
     use super::*;
+    use crate::ir::S;
     use std::collections::{BTreeMap, BTreeSet};
 
     fn graph(edges: &[(&str, &str)]) -> BTreeMap<String, BTreeSet<String>> {
@@ -1775,6 +1803,45 @@ pub(crate) mod tests {
         roots.extend(m.anywhere.iter().cloned());
         let g = generate(def, &m, &roots).unwrap();
         (m, g)
+    }
+
+    /// An `ensures` on an equation of a function declared total is refused: where it is false
+    /// the value would be undefined, against the declaration (a partial function's is generated,
+    /// library `ens`, `demos/k/ensures.k`).
+    #[test]
+    fn ensures_of_a_total_function_is_refused() {
+        let mut def = fixture("peano");
+        let bool_s = S::App("SortBool".into(), vec![]);
+        let ens = P::Equals(
+            bool_s.clone(),
+            S::Var("R".into()),
+            Box::new(P::Dv(bool_s.clone(), "true".into())),
+            Box::new(P::Dv(bool_s, "true".into())),
+        );
+        let mut found = false;
+        for ax in def.axioms.iter_mut() {
+            if let P::Implies(_, _, right) = &mut ax.pattern
+                && let P::Equals(_, _, lhs, rhs) = &mut **right
+                && lhs.app_name().is_some_and(|f| f.contains("double"))
+            {
+                let s = S::Var("R".into());
+                **rhs = P::And(s, vec![(**rhs).clone(), ens.clone()]);
+                found = true;
+            }
+        }
+        assert!(found, "peano has an equation of `double`");
+        let eqs = equations(&def);
+        let e = eqs.iter().find(|(f, _)| f.contains("double")).unwrap().1;
+        assert!(e[0].total && e[0].value().1.is_some());
+        let m = Model::build(&def).unwrap();
+        let mut roots = BTreeSet::new();
+        for ax in &def.axioms {
+            if let P::Rewrites(..) = &ax.pattern {
+                applied(&ax.pattern, &def, &mut roots);
+            }
+        }
+        let err = generate(&def, &m, &roots).err().expect("refused");
+        assert!(err.contains("declared total"), "{err}");
     }
 
     #[test]

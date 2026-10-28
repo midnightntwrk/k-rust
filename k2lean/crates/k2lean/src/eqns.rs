@@ -82,6 +82,10 @@ fn option_expr(steps: &[Step], value: &L) -> Option<String> {
             Step::Bind { expr, var, .. } => {
                 e = format!("(Option.bind {} fun {var} => {e})", expr.render_arg())
             }
+            // an equation's `ensures`: undefined where it is false
+            Step::Cond { cond, .. } => {
+                e = format!("(if {} = true then {e} else none)", cond.render())
+            }
             _ => return None,
         }
     }
@@ -345,7 +349,9 @@ fn state_one(
     let mut asv = BTreeMap::new();
     let e_args: Vec<P> = e.args.iter().map(|a| strip_as(a, &mut asv)).collect();
     let e_requires: Vec<P> = e.requires.iter().map(|r| subst_vars(r, &asv)).collect();
-    let e_rhs = subst_vars(&e.rhs, &asv);
+    let (value, ensures) = e.value();
+    let e_rhs = subst_vars(value, &asv);
+    let e_ens = ensures.map(|p| subst_vars(p, &asv));
     let mut vars = BTreeMap::new();
     for a in &e_args {
         vars_of(a, &mut vars);
@@ -354,6 +360,9 @@ fn state_one(
         vars_of(r, &mut vars);
     }
     vars_of(&e_rhs, &mut vars);
+    if let Some(ens) = &e_ens {
+        vars_of(ens, &mut vars);
+    }
     let binders = bind_vars(&mut lw, &vars, "")?;
     let wf = wf_premises(m, sig, &binders);
     let mut args = Vec::new();
@@ -364,6 +373,10 @@ fn state_one(
         return Err("a partial function in an argument pattern".into());
     }
     let hyps = cond_props(&mut lw, &e_requires)?;
+    // the `ensures`, as in the definition (`funcs::lower_equation`): checked after the match
+    if let Some(ens) = &e_ens {
+        lw.cond(ens)?;
+    }
     let rhs = lw.expr(&e_rhs, &sig.result)?;
     let rhs_steps = std::mem::take(&mut lw.steps);
     let call = L::app(sig.lean.clone(), args.clone()).render();
