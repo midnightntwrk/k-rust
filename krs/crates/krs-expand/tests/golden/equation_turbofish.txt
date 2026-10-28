@@ -53,13 +53,11 @@ fn __krs_rule_descriptor_717fa4c662d1e5c8() -> ::core::result::Result<
                 targets: &[
                     ::k::__KrsTargetSlot::Target({
                         let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(
-                            Choose::<dyn ExpSort> { .. },
-                        ) = &__krs_rule_application_witness {}
+                        if let ::core::option::Option::Some(Choose { .. }) = &__krs_rule_application_witness {}
                         ::k::__krs_resolve_rule_application::<
                             _,
                             13783276144296438272u64,
-                        >(&__krs_rule_application_witness, "Choose :: < dyn ExpSort >")
+                        >(&__krs_rule_application_witness, "Choose")
                     }),
                 ],
             },

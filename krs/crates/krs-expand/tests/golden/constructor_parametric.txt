@@ -20,10 +20,8 @@ fn __krs_constructor_sort_313432f32ce50e34() -> ::core::any::TypeId {
 fn __krs_constructor_field_313432f32ce50e34_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<__KrsSortParameter_313432f32ce50e34_0>()
 }
-impl<
-    S: ?Sized + 'static,
-    const __KRS_SELECTOR: u64,
-> ::k::__KrsRuleApplication<__KRS_SELECTOR> for Wrap<S> {
+impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR>
+for Wrap<dyn ::core::any::Any> {
     fn __krs_rule_application(authored_path: &str) -> ::k::HostApplicationTarget {
         ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
             key: ::k::HostTypeKey(__krs_constructor_type_313432f32ce50e34),

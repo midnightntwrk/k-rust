@@ -936,8 +936,7 @@ impl<'a> TermBuilder<'a> {
                 let (key, path_key) = node.head(path_key)?;
                 let authored_path = spelling(application.head());
                 let target = if !application.is_notation() && is_lexical_path(application.head()) {
-                    let expression =
-                        self.lexical_rule_application_target(&turbofish_path(application));
+                    let expression = self.lexical_rule_application_target(application.head());
                     slots.target_slot_unique(&expression)
                 } else {
                     self.application_wire_slot(
@@ -1725,20 +1724,6 @@ fn turbofish_text(
 /// and the variant's marker.
 fn is_lexical_path(path: &Path) -> bool {
     path.leading_colon.is_none() && path.segments.len() == 1
-}
-
-/// The head of `application` with its turbofish restored, for a one-segment
-/// head whose owning type rustc infers from a witness pattern (KF-027).
-fn turbofish_path(application: &krs_syntax::TermApplication) -> Path {
-    let mut path = application.head().clone();
-    if application.instance().is_empty() {
-        return path;
-    }
-    let types = application.instance().iter().map(krs_syntax::TermSort::ty);
-    if let Some(last) = path.segments.last_mut() {
-        last.arguments = syn::PathArguments::AngleBracketed(syn::parse_quote!(::<#(#types),*>));
-    }
-    path
 }
 
 /// The `k::ml` connectives (KF-039), the closed set an `ml::` path names.

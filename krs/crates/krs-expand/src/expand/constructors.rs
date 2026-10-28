@@ -552,11 +552,20 @@ fn constructor_like(
     let slot_tokens = slots.tokens();
 
     let generic_parameters = declaration.sort_parameters();
+    // A one-segment head resolves through a witness pattern that names the
+    // head as written, whose sort parameters rustc must infer from this impl
+    // alone. Every instantiation names the one declaration, so the impl is
+    // for the canonical one (`parametric_item`'s defaults), which a head
+    // with or without a turbofish both resolve to; the term's instance
+    // travels in its own wire.
+    let canonical_arguments = generic_parameters
+        .iter()
+        .map(|_| quote!(dyn ::core::any::Any));
     let rule_application = quote! {
         #(#cfg)*
-        impl<#(#generic_parameters: ?Sized + 'static,)* const __KRS_SELECTOR: u64>
+        impl<const __KRS_SELECTOR: u64>
             #facade::__KrsRuleApplication<__KRS_SELECTOR>
-            for #declared<#(#generic_parameters),*>
+            for #declared<#(#canonical_arguments),*>
         {
             fn __krs_rule_application(authored_path: &str) -> #facade::HostApplicationTarget {
                 #facade::HostApplicationTarget::Nominal(#facade::HostTypeReference {
