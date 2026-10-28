@@ -866,6 +866,8 @@ fn lower_initializer_term(
         collections,
     } = *tables;
     let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
+    // Each configuration variable is a term of its declared sort wherever
+    // the initializer places it.
     let mut builder = StructuredTermBuilder {
         descriptor,
         catalog,
@@ -884,6 +886,7 @@ fn lower_initializer_term(
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
         declared_binders: BTreeMap::new(),
+        configuration_variables: binding_sorts.clone(),
         subject_keys: BTreeMap::new(),
         record_updates: super::record_updates::RecordUpdateState::default(),
         collections: CollectionUse::new(collections),

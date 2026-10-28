@@ -491,6 +491,7 @@ fn check_constant(
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
         declared_binders: BTreeMap::new(),
+        configuration_variables: BTreeMap::new(),
         subject_keys: BTreeMap::new(),
         operators: super::operators::OperatorInference::default(),
         record_updates: super::record_updates::RecordUpdateState::default(),

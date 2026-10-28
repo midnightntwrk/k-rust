@@ -214,8 +214,8 @@ fn initializer_terms_are_resolved_by_rustc_and_sorted_by_krs() {
         (
             "ill-sorted",
             "k::k![pgm, StmtSyntax::Tag(bytes::empty()), StmtSyntax::Tag(x)]",
-            "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-INIT-TERMS::Machine (configuration): variable \"x\" has no declared common descendant for occurrence sorts [ORG-KRS-INIT-TERMS::Value (sort), Bytes]",
-            "",
+            "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-INIT-TERMS::Machine (configuration): configuration variable `x` of sort ORG-KRS-INIT-TERMS::Value (sort) is not admissible at sort Bytes",
+            "x",
         ),
     ];
     for (name, k, headline, marked) in cases {

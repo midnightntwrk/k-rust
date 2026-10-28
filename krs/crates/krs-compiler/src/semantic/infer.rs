@@ -45,6 +45,11 @@ pub(super) struct StructuredTermBuilder<'a> {
     /// `#[k::fresh]` binders. The declared sort, which every occurrence must
     /// accept, and the key of the sort the author wrote.
     pub(super) declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
+    /// The configuration variables of an initializer and their declared
+    /// sorts. A configuration variable binds nothing: it stands for the value
+    /// given at startup, a term of its declared sort, so each occurrence is
+    /// admitted as any term of that sort is, and never narrowed.
+    pub(super) configuration_variables: BTreeMap<String, SemanticSortRef>,
     pub(super) wildcard_offset: usize,
     /// Generated variables of the sentence: wildcards, then (KF-031) the
     /// local binders of `k::matches!` patterns.
@@ -297,6 +302,13 @@ impl StructuredTermBuilder<'_> {
                     self.subject_keys
                         .entry(name.clone())
                         .or_insert_with(|| key.clone());
+                }
+                if let Some(sort) = self.configuration_variables.get(name) {
+                    self.admit_term(term, sort, expected_sort, |expected| {
+                        format!(
+                            "configuration variable `{name}` of sort {sort} is not admissible at sort {expected}"
+                        )
+                    })?;
                 }
                 if let Some(expected) = expected_sort {
                     self.check_declared_binder(term, name, expected)?;
