@@ -77,7 +77,7 @@ unwitnessed = 0
 
 [lib.walk]
 tier = "light"
-stated = 77
+stated = 78
 open = []
 overlaps = 0
 unwitnessed = 0
@@ -544,18 +544,18 @@ tier = "light"
 "generated/walk/KWalk/Determinism.lean" = { tier = "light", sha256 = "b20db7914b5b36e20f6cc0c8a515c52cb5f1409d03cb050da517e73fffa6d08c" }
 "generated/walk/KWalk/Determinism/L1.lean" = { tier = "light", sha256 = "1945b2ab516d660baea079eee31abe48257b6749b4680c93f3903ecdf0498358" }
 "generated/walk/KWalk/Determinism/Pre.lean" = { tier = "light", sha256 = "906f15dc1ecd49d9bc6da07599d5905961684c7264e04d707dc82449db063bdf" }
-"generated/walk/KWalk/Equations.lean" = { tier = "light", sha256 = "3eba58cea3b3657f031d3dc2d94d74382df06d58eed0c1d294b04d02a271351d" }
-"generated/walk/KWalk/Functions.lean" = { tier = "light", sha256 = "050b50c0843c700621e3265ab5f9ce23a53b07c98585cd23cddb19e8356a4a5f" }
+"generated/walk/KWalk/Equations.lean" = { tier = "light", sha256 = "4383383593d882b8b6d5f6e45ff33477da44e2a8221a6a6ac9eff8365436e883" }
+"generated/walk/KWalk/Functions.lean" = { tier = "light", sha256 = "c22a2bd264b5f54f3051caa82dc162b93c58d017868689bf32c8dabf6221feb3" }
 "generated/walk/KWalk/Init.lean" = { tier = "light", sha256 = "26f94b1fa16f7d4e704407c6ab2cb0bfd0a699ef2e6b3edef8d3abe903779d44" }
-"generated/walk/KWalk/InvariantDefs.lean" = { tier = "light", sha256 = "6a7c457e98b6fc41790d7ad1abf77589ac654985f745667c5dbb59ce4e7ca69d" }
-"generated/walk/KWalk/Invariants.lean" = { tier = "light", sha256 = "87a1cedeeed654449b22e7b39494616f96275c028b9502418ca5155c4261d29e" }
-"generated/walk/KWalk/Preserves.lean" = { tier = "light", sha256 = "34fe56f11cf21edb201b6f0da985e7b3df1180b899cffe2e07c88992dbb2aab2" }
-"generated/walk/KWalk/Rules.lean" = { tier = "light", sha256 = "c5a3576ab814f3a7d2e6cf166fc7ae1af7821fb1c99845a909b62870a9e34ac6" }
+"generated/walk/KWalk/InvariantDefs.lean" = { tier = "light", sha256 = "3d364d3214a486c99f311d6fdce2c1b55562b598b05e5027469565a0f5f4da02" }
+"generated/walk/KWalk/Invariants.lean" = { tier = "light", sha256 = "399d6de4e0534a013c5b946c129cf21231a11dd18b1d40cdf184b1d0e8d33f3a" }
+"generated/walk/KWalk/Preserves.lean" = { tier = "light", sha256 = "1dfa8275ad9023e4d4d92513b1e35da92fdbf97252087d759726b58301ab21e6" }
+"generated/walk/KWalk/Rules.lean" = { tier = "light", sha256 = "ff8b60b5e9d20c685eed2be0eaea7cc506aa0a917c9a697da17ec60cc5b2d87e" }
 "generated/walk/KWalk/Terms.lean" = { tier = "light", sha256 = "4d0ecd36628eee214c85ba95f242b682cf6278cff978e9da6c1ccba3caa87c72" }
 "generated/walk/KWalkBench/Main.lean" = { tier = "light", sha256 = "fda895327eb5c37d5a68d71958661146784c9e9329c917dba96847e684eb90b5" }
-"generated/walk/KWalkTest/Axioms.lean" = { tier = "light", sha256 = "eeecfb457032829b779cead4d90365e5e8ab8ad9dfead99434b81deec3cf5cf1" }
+"generated/walk/KWalkTest/Axioms.lean" = { tier = "light", sha256 = "18e2a485b3783db7346f982e7c67b50da0c78166427831c203e26c4d4f428325" }
 "generated/walk/KWalkTest/DetAxioms.lean" = { tier = "light", sha256 = "2e99beed830d483f36de34d61b2a58a7e5751bdadb47ee043f7624df15d98b91" }
 "generated/walk/KWalkTest/Main.lean" = { tier = "light", sha256 = "c37d92caa00733c2a132f05bcb01fcd90b20cc004cccefc6ea560f968b0859ba" }
-"generated/walk/invariant-unfold.txt" = { tier = "light", sha256 = "ffda32a058b0951806a7d4b273271244406be04eac14b665ed40412cd9832504" }
+"generated/walk/invariant-unfold.txt" = { tier = "light", sha256 = "b362e540462029f7ad80b655d9a80ae4212d3c9d9547dfad372e8fb78d16f974" }
 "generated/walk/lakefile.lean" = { tier = "light", sha256 = "a4c5eacf23aa52bf60a5d89205b1332a90c3dfe0aae353c6d3181aab3e72e052" }
 "generated/walk/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
