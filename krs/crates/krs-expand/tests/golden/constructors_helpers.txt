@@ -13,6 +13,9 @@ fn __krs_enum_family_sort_9a3492b649a1c632() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Expr>()
 }
 #[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsFamilyResult_9a3492b649a1c632 = k::KResult;
+#[doc(hidden)]
 struct __KrsEnumVariant_9a3492b649a1c632_0;
 #[doc(hidden)]
 fn __krs_enum_variant_9a3492b649a1c632_0() -> ::core::any::TypeId {
@@ -341,7 +344,7 @@ fn __krs_enum_field_9a3492b649a1c632_1_0() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_strictness_result_3420ee8a79c55f0c() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<k::KResult>()
+    ::core::any::TypeId::of::<__KrsFamilyResult_9a3492b649a1c632>()
 }
 #[doc(hidden)]
 fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::core::result::Result<
@@ -731,7 +734,7 @@ fn __krs_enum_field_9a3492b649a1c632_2_1() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_strictness_result_b80f07fa4737c6b2() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<k::KResult>()
+    ::core::any::TypeId::of::<__KrsFamilyResult_9a3492b649a1c632>()
 }
 #[doc(hidden)]
 fn __krs_enum_constructor_9a3492b649a1c632_2() -> ::core::result::Result<

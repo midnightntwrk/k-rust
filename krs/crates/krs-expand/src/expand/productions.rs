@@ -14,8 +14,13 @@ use super::ledger::KeyLedger;
 use super::tokens::{call_site_path, enum_variant_parts, spelling, variant_marker_function};
 use krs_ir::ProvenanceKey;
 
+/// The key function of a strict production's result sort. `inherited` is
+/// the alias of the family `result` a readable family's strict variant
+/// inherits: the family wrote the path once, and the alias is its one
+/// mention, so the key names the alias rather than the path again.
 pub(super) fn strictness_key_function<'a>(
     strictness: Option<&StrictnessAttribute>,
+    inherited: Option<&Ident>,
     fields: impl IntoIterator<Item = &'a Ident>,
     nonce: u64,
     cfg: &[Attribute],
@@ -28,8 +33,12 @@ pub(super) fn strictness_key_function<'a>(
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     let key_fn = format_ident!("__krs_strictness_result_{nonce:016x}");
-    let path = call_site_path(strictness.result_sort())?;
-    let result_type = quote!(#path);
+    let result_type = if let Some(alias) = inherited {
+        quote!(#alias)
+    } else {
+        let path = call_site_path(strictness.result_sort())?;
+        quote!(#path)
+    };
     if strictness.using().is_some()
         && strictness
             .result_sort()

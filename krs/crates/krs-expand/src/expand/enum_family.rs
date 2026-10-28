@@ -201,6 +201,34 @@ fn constructors_inner(
     let outer_path = declaration.sort();
     let family_sort_key = format_ident!("__krs_enum_family_sort_{nonce:016x}");
     let item = declaration.item();
+    // A readable family's `result = S` is the result sort its strict
+    // variants inherit. The path is written once, so it reaches rustc once,
+    // at its authored tokens, as this alias's definition, which each strict
+    // variant's key names; a path that resolves to nothing is one error, at
+    // the path, however many variants are strict.
+    let family_result = attribute.result().filter(|_| {
+        declaration
+            .variants()
+            .iter()
+            .any(|variant| variant.strictness().is_some())
+    });
+    let family_result_alias = family_result.map(|result| {
+        format_ident!(
+            "__KrsFamilyResult_{nonce:016x}",
+            span = syn::spanned::Spanned::span(result)
+        )
+    });
+    let family_result_witness =
+        family_result
+            .zip(family_result_alias.as_ref())
+            .map(|(result, alias)| {
+                quote! {
+                    #(#cfg)*
+                    #[doc(hidden)]
+                    #[allow(dead_code, non_camel_case_types)]
+                    type #alias = #result;
+                }
+            });
 
     let mut marker_types = Vec::new();
     let mut associated_keys = Vec::new();
@@ -270,6 +298,7 @@ fn constructors_inner(
             &enum_key,
             &family_sort_key,
             &variant_key,
+            family_result_alias.as_ref(),
             nonce,
             index,
             &cfg,
@@ -309,6 +338,8 @@ fn constructors_inner(
         }
 
         #open_sort_key
+
+        #family_result_witness
 
         #(#marker_types)*
 
@@ -442,6 +473,7 @@ fn expand_enum_variant(
     enum_key: &Ident,
     result_key: &Ident,
     variant_key: &Ident,
+    family_result: Option<&Ident>,
     nonce: u64,
     index: usize,
     cfg: &[Attribute],
@@ -524,6 +556,7 @@ fn expand_enum_variant(
     let grammar_nonce = expansion_nonce(env, "enum_strictness", variant.name(), fallback);
     let strictness_key = strictness_key_function(
         variant.strictness(),
+        family_result,
         variant
             .fields()
             .iter()

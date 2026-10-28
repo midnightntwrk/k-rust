@@ -1134,6 +1134,7 @@ fn constructor_grammar(
     )?;
     let strict_key_function = strictness_key_function(
         strictness,
+        None,
         declaration
             .fields()
             .iter()

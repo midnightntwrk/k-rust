@@ -433,6 +433,7 @@ impl ListContext<'_> {
                 );
                 strictness_key = strictness_key_function(
                     cons.strictness(),
+                    None,
                     cons.fields()
                         .into_iter()
                         .map(krs_syntax::ConstructorField::name),
