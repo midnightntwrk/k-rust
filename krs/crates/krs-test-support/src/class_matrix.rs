@@ -54,6 +54,7 @@ pub mod entry_points;
 pub mod invariants;
 mod machine;
 pub mod pending;
+pub mod positions;
 pub mod table;
 mod terms;
 
@@ -369,6 +370,8 @@ pub struct Case {
     /// value. A construct rustc's parser refuses there (`y @ P`) is reported by rustc whatever
     /// KRS does, which K2 admits ([`invariants::without_rustc_parse_error`]).
     pub rustc_parses: bool,
+    /// A term case's position and its construct's nodes; `None` outside the term families.
+    pub term: Option<positions::TermCase>,
     item: String,
     spelling: Range<usize>,
     entry: Range<usize>,
@@ -639,6 +642,7 @@ impl CaseSpec {
             construct: self.construct,
             packaging,
             rustc_parses: false,
+            term: None,
             item: item.text.clone(),
             spelling,
             entry,
