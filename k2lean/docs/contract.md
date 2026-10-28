@@ -20,8 +20,8 @@ Weigh the cost only when it lies in the specification layer, which cannot be opt
 
 | layer | what it holds | why it can be relied on | who may change it, and how |
 |---|---|---|---|
-| **Specification** | the term types (`Terms`); the functions (`Functions`); the hook models of `KPrelude` (`Int`, `Bytes`, the `Map`/`Set` carriers and their hooks, …); the parameters `class Hooks`; `Step` and `App` (`Rules`); `init`; and the statement of every generated theorem, its premises included (an open obligation's `def ….statement : Prop` too) | it is what the generator writes from the KORE: faithful to K by the argument of `design.md` §2 and by the differential tests against krust and K's LLVM backend (goldens, traces, case results); no Lean proof can check that it is the user's K | only through the generator or the prelude's hook models; a change is a design decision recorded in `design.md`; a generated file is never edited |
-| **Checked** | every proof: the generated ones, the tactics and lemmas of `KPrelude`, termination proofs and measures, heartbeat budgets, the split of a module into parts | the kernel checks each proof against its statement; the axiom guard (`#k2l_assert_axioms`) admits only `propext`, `Classical.choice` and `Quot.sound`, which rules out `sorry` and `native_decide` | anyone, freely: the worst outcome is a proof that does not build |
+| **Specification** | the term types (`Terms`); the functions (`Functions`); the hook models of `KPrelude` (`Int`, `Bytes`, the `Map`/`Set` carriers and their hooks, …); the parameters `class Hooks`; `Step` and `App` (`Rules`); `init`; and the statement of every generated theorem, its premises included (an open obligation's `def ….statement : Prop` too) | it is what the generator writes from the KORE: faithful to K by the argument of `design.md` §2 and by the differential tests against krust and K's LLVM backend (goldens, traces, case results); no Lean proof can check that it is the user's K | by regenerating from the K definition: a hand edit would make it something other than the user's K; in k2lean, a change to what the generator writes is a design decision recorded in `design.md` |
+| **Checked** | every proof: the generated ones, the tactics and lemmas of `KPrelude`, termination proofs and measures, heartbeat budgets, the split of a module into parts | the kernel checks each proof against its statement; the axiom guard (`#k2l_assert_axioms`) admits only `propext`, `Classical.choice` and `Quot.sound`, which rules out `sorry` and `native_decide` | anyone, freely, including a user editing the generated proofs in their own project: the worst outcome is a proof that does not build |
 | **Derived** | definitions tied to the specification by a proved theorem: the executable `step`, `successors` and `run` (tied to `Step` by `Adequacy`); a faster function proved equal to a generated one (`@[csimp]`); views over the term family | the tying theorem, checked like any proof | anyone, provided the tying theorem is proved again |
 
 ## 3. What follows
@@ -46,11 +46,10 @@ Weigh the cost only when it lies in the specification layer, which cannot be opt
    - a premise is part of what the statement says;
    - a function proved equal to a generated one only at well-formed values can replace it in statements about K values;
    - it cannot replace it in the theorems that quantify over every carrier value.
-5. **"Generated code nobody edits" (G1) is a requirement on the generator.**
-   The generator must reach the guarantees alone.
-   An optimization found later belongs in one of two places:
-   - in the generator or the prelude, where every library benefits;
-   - for one library only, in a module of its own that proves the same statement, as an open obligation's proof does today.
+5. **"Generated code nobody edits" (G1) is a requirement on the generator, not on users.**
+   The generator must reach the guarantees alone: for k2lean's own libraries and benchmarks (the gate, KEVM, KMIR), a fix goes into the generator or the prelude, never into a generated file.
+   A user's library is generated into the user's project, and the user, or an agent working for them, may edit its proofs there: that is where an optimization of one library lives.
+   An optimization general enough to help every library is worth bringing back into the generator or the prelude.
 6. **Agents changing a library are assumed fallible, not malicious.**
    The checks are designed to catch mistakes:
    - the kernel;
@@ -81,7 +80,7 @@ Weigh the cost only when it lies in the specification layer, which cannot be opt
 
 ## 5. Open questions
 
-- Where a later optimization of one library lives (§3.5): a module of the user's that proves the generated statements, or always upstream in the generator.
-  Today only an open obligation has a separate statement (`def ….statement`) that another module can prove.
-- Whether generated files should separate statements from proofs: a statements module, checked against a fresh regeneration, and proof modules free to change.
-  That would make "the same statements" checkable for a library edited after generation, where today it is a reviewer's reading.
+- A user who edits the generated proofs (§3.5) has no mechanical check yet that the statements did not change with them: statements sit next to their proofs in the same generated files, so today it is a reviewer's reading.
+  Separating them would make it a check: a statements module compared with a fresh regeneration, and proof modules free to change.
+- Regenerating after the K definition changes overwrites the generated files, edited proofs included.
+  Keeping a user's proofs across a regeneration, and reporting which of them no longer prove the new statements, is the "incremental regeneration" item of the product notes.
