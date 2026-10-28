@@ -74,8 +74,9 @@ unwitnessed = 0
 [lib.simple]
 tier = "heavy"
 stated = 124
-open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
+open = []
 guarded = 137
+refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [lib.kterm-ar]
 tier = "light"
@@ -101,8 +102,9 @@ unwitnessed = 0
 [lib.simple-ps]
 tier = "heavy"
 stated = 124
-open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
+open = []
 guarded = 137
+refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [kimp]
 tier = "light"

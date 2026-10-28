@@ -85,22 +85,26 @@ unwitnessed = 0
 [lib.simpleinv]
 tier = "heavy"
 stated = 129
-open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
+open = []
+refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [lib.simplestore]
 tier = "heavy"
 stated = 129
-open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
+open = []
+refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [lib.simplet]
 tier = "heavy"
 stated = 129
-open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
+open = []
+refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [lib.simpleenvs]
 tier = "heavy"
 stated = 139
-open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
+open = []
+refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [demo.KrsImpTyping]
 tier = "light"

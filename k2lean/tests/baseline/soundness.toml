@@ -32,19 +32,16 @@ unwitnessed = 0
 [lib.impplus]
 tier = "light"
 stated = 109
-open = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
+open = []
 guarded = 122
+refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 
 [lib.impplustypes]
 tier = "light"
 stated = 126
-open = [
-  "Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»",
-  "Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_2»",
-  "Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_3»",
-  "Eqn.«wt(_,_)_IMPPLUS-TYPING_Bool_Stmt_Map_8»",
-]
+open = ["Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_2»", "Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_3»", "Eqn.«wt(_,_)_IMPPLUS-TYPING_Bool_Stmt_Map_8»"]
 guarded = 138
+refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 overlaps = 2
 unwitnessed = 2
 

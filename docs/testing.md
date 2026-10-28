@@ -136,7 +136,10 @@ It writes only that area's baseline file and recorded outputs, and refuses, nami
 A run keeps a copy of the baseline and registry it started from (`measured/against/`), so another area's difference that is only that area's baseline moving since the run started (another branch landing) does not refuse: when the run measured that area exactly as its starting baseline records it, the current baseline of that area stays.
 `accept --area AREA` refuses when AREA's own baseline changed since the run started; a change since then that reaches AREA without moving any entry (the prelude, a tactic) is the rerun's job, not the check's.
 A recorded output is rewritten only when its content differs after the normalization the comparison applies.
-The gate starts every library from its tracked open-obligation list (`k2lean/generated/*/open-obligations.txt`), so it finds a proof that stopped working but not one that started working; `GATE_RETRY_OPEN=1` attempts every open obligation again.
+The gate starts every library from its tracked open-obligation list (`k2lean/generated/*/open-obligations.txt`), so it finds a proof that stopped working but not one that started working; `GATE_RETRY_OPEN=1` attempts every open obligation again, except those marked refuted.
+An entry marked `| refuted` (or `| refuted hand`) is a statement shown false, whose refutation the library's axiom guard checks (`#k2l_refuted`; `k2lean/docs/design.md` §3); the baseline records it under `refuted`, apart from `open`.
+An entry may move from open to refuted; one that is open again, or proved, or newly refuted without having been open, fails until accepted, since its statement changed.
+Each library prints a G1 line: stated, proved, refuted, open.
 `k2lean/tests/gate.sh` with no argument lists its environment variables, and `k2lean/docs/invariants.md` (section 10) shows how to put a new invariant under the gate.
 
 ### In CI

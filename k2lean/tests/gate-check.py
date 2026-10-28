@@ -33,7 +33,11 @@ What is compared:
   status    every step of the run succeeded (generation, builds, axiom guards, tests)
   unit      generator tests: none fails, and no fewer pass
   lib.X     the open-obligation set of library X may only shrink (a new member fails, and is
-            printed); fewer stated equations or fewer theorems under the axiom guard fail; the
+            printed); its refuted set (the entries its open list marks `| refuted`, each checked
+            under the axiom guard) may only grow from the open set: a refuted entry that is open
+            again, or proved, or a newly refuted one that was not open, fails until accepted (a
+            statement changed); a G1 line counts stated, proved, refuted and open; fewer stated
+            equations or fewer theorems under the axiom guard fail; the
             number of overlapping pairs `gen` lists (determinism along the rule index) and of
             those without a witness equal the baseline's
   demo.X    theorems under the guard may not decrease; each `k2l_preserve` call closes no fewer
@@ -70,7 +74,7 @@ KINDS = ("lib", "inv", "demo", "negative", "record", "output")
 # the tracked inputs of a generated library, which a person writes and the generator only reads
 # (the open lists, and the kind 1 hand module that `gen` writes once and never overwrites): not
 # hashed, so an edit to them is checked by the build that uses them, not by the sources check
-HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean")
+HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean", "RefutedHand.lean")
 
 
 def tiers(tier):
@@ -161,6 +165,29 @@ def equations(path):
     opened = re.findall(r"^def (\S+)\.statement : Prop", text, re.M)
     proved = re.findall(r"^theorem ((?:Eqn|Simp|Lemma)\.\S+)", text, re.M)
     return len(opened) + len(proved), sorted(opened)
+
+
+def refuted_marks(path):
+    """The names an open list marks `| refuted` or `| refuted hand` (the name is the first token,
+    `«…»`-aware: a name may hold `#` and `|`; the marker follows it, before any `#` comment)."""
+    out = set()
+    for line in (read(path) or "").splitlines():
+        l = line.strip()
+        if not l or l.startswith("#"):
+            continue
+        name, quoted = "", False
+        for ch in l:
+            if ch == "«":
+                quoted = True
+            elif ch == "»":
+                quoted = False
+            elif ch.isspace() and not quoted:
+                break
+            name += ch
+        rest = l[len(name):].split("#")[0]
+        if "|" in rest and rest.split("|", 1)[1].split()[:1] == ["refuted"]:
+            out.add(name)
+    return out
 
 
 def overlaps(log):
@@ -314,8 +341,13 @@ def measure(work, tier, reg):
             eq = equations(tree / "generated" / d / ns / "Equations.lean") if f"build {d}" in status or f"build {ns}.Equations" in status else None
             g = guarded(logs / f"build-{d}-guard.log") if status.get(f"guard {d}", ("",))[0] == "ok" else None
             ov = overlaps(logs / f"gen-{d}.log")
-            m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": eq[1] if eq else None, "guarded": g,
-                           "overlaps": ov[0], "unwitnessed": ov[1]}
+            # an entry marked refuted is a statement shown false (its refutation is under the guard),
+            # not an open one
+            marked = refuted_marks(tree / "generated" / d / "open-obligations.txt")
+            opened = [n for n in eq[1] if n not in marked] if eq else None
+            ref = [n for n in eq[1] if n in marked] if eq else None
+            m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": opened, "guarded": g,
+                           "refuted": ref or None, "overlaps": ov[0], "unwitnessed": ov[1]}
         elif kind == "inv":
             src = read(tree / "generated" / d / e["ns"] / "Invariants.lean")
             if src is None:
@@ -548,14 +580,28 @@ def compare(m, base, expected, accept_cmd, reg):
             F(f"lib.{d}: not measured (generation or build failed)")
             continue
         now, was = set(e["open"]), set(b["open"])
-        new, gone = sorted(now - was), sorted(was - now)
+        eref, bref = set(e.get("refuted") or []), set(b.get("refuted") or [])
+        # refuted: only from open; open again, or proved, means the statement changed
+        for n in sorted(bref - eref):
+            if n in now:
+                F(f"lib.{d}: refuted -> open: {n}")
+            else:
+                F(f"lib.{d}: no longer refuted (proved, or no longer stated: the statement changed): {n}")
+        for n in sorted(eref - bref):
+            if n in was:
+                N(f"lib.{d}: open -> refuted: {n}")
+            else:
+                F(f"lib.{d}: refuted, but not open in the baseline (a proved statement refuted, or a new one): {n}")
+        new, gone = sorted(now - was - bref), sorted(was - now - eref)
         if new:
             F(f"lib.{d}: open obligations {len(was)} -> {len(now)}; new open: {', '.join(new)}")
         elif gone:
             P(f"lib.{d}: open obligations {len(was)} -> {len(now)}; closed: {', '.join(gone)}")
             N(f"lib.{d}: {len(gone)} fewer open obligations; {lower}")
         else:
-            P(f"lib.{d}: open obligations {len(now)}, the same set")
+            P(f"lib.{d}: open obligations {len(now)}, the same set" if now == was
+              else f"lib.{d}: open obligations {len(was)} -> {len(now)}, the others refuted")
+        P(f"lib.{d}: G1: {e['stated']} stated, {e['stated'] - len(now) - len(eref)} proved, {len(eref)} refuted, {len(now)} open")
         if e["stated"] < b["stated"]:
             F(f"lib.{d}: stated equations {b['stated']} -> {e['stated']}")
         elif e["stated"] > b["stated"]:
