@@ -52,6 +52,29 @@ elab "k2l_split_hyps" : tactic => do
         return gs
     throwError "k2l_split_hyps: nothing to split"
 
+/-- Split the first `match` of the goal, else of a hypothesis (the one `split` would pick there),
+when all of its discriminants are free variables; fails otherwise. Such a split is directed by the
+match's patterns: each case substitutes its pattern for the variable everywhere, and the last one
+gets the premise that no earlier pattern matches. Run before `split`/`k2l_split_hyps` when the
+context also has matches on compound discriminants (a translation `tr x` in a commutation proof):
+splitting those first generalizes them, and inverting `tr x = pattern` cases `x` value by value
+on the arity family, which loses the link between `x` and its pattern that a termination proof
+reads. -/
+elab "k2l_split_var" : tactic => liftMetaTactic fun g => g.withContext do
+  let onVars (e : Expr) : MetaM Bool := do
+    if e.isIte || e.isDIte then return false
+    let some app ← matchMatcherApp? e | return false
+    return app.discrs.all (·.isFVar)
+  if let some e ← findSplit? (← instantiateMVars (← g.getType)) .match then
+    if ← onVars e then
+      if let some gs ← splitTarget? g (splitIte := false) then return gs
+  for d in (← g.getDecl).lctx do
+    if d.isImplementationDetail then continue
+    if let some e ← findSplit? (← instantiateMVars d.type) .match then
+      if ← onVars e then
+        if let some gs ← splitLocalDecl? g d.fvarId then return gs
+  throwError "k2l_split_var: no match on free variables"
+
 /-! ## Equations of recursive functions
 
 The generated proof of a K equation of a well-founded recursive function (`k2l_eqn_r` in a
