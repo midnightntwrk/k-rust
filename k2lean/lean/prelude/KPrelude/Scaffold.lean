@@ -20,7 +20,9 @@ proved once for every relation.
   terminal state.
 - **Two bindings of a map** (the confluence of rules that match a cell map at a free key, such
   as threads): steps at two different bindings commute (`MapHook.concat_element_comm`), by the
-  extensionality of canonical maps (`SAL.ext`).
+  extensionality of canonical maps (`SAL.ext`); so do two steps that replace parts of a map with
+  no key in common, one of them inserting no key (`MapHook.concat_frame`: a thread's step, its
+  end, a spawn, two threads meeting).
 - **Two runs** (`k2lean noninterference`): a relation on pairs of states from which, unless both
   are final, one side can be advanced by any of its steps without leaving the relation
   (`ProductInv`) relates the final states of any two runs from related states.
@@ -28,6 +30,7 @@ proved once for every relation.
 
 set_option autoImplicit false
 set_option linter.unusedSimpArgs false
+set_option linter.unusedSectionVars false
 
 namespace KPrelude
 
@@ -426,6 +429,169 @@ theorem lookup_erase_ne {k k' : α} (hne : k' ≠ k) :
         · rfl
         · exact lookup_erase_ne hne ht
 
+/-- `x` is a key of `a`. -/
+abbrev HasKey (a : List (α × β)) (x : α) : Prop := ∃ q ∈ a, q.1 = x
+
+theorem concat_disj {a b m : List (α × β)} (h : concat a b = some m) {p q : α × β}
+    (hp : p ∈ a) (hq : q ∈ b) : p.1 ≠ q.1 := by
+  obtain ⟨-, sb, d, -⟩ := concat_eq_some_iff.1 h
+  exact fun e => (lookup_eq_none_iff sb).1 (d p hp) q hq e.symm
+
+theorem sorted_of_concat_left {a b m : List (α × β)} (h : concat a b = some m) : Sorted a :=
+  (concat_eq_some_iff.1 h).1
+
+/-- Two members of a sorted list with one key are one member. -/
+theorem eq_of_mem_key {m : List (α × β)} (hs : Sorted m) {p q : α × β} (hp : p ∈ m) (hq : q ∈ m)
+    (e : p.1 = q.1) : p = q := by
+  obtain ⟨k, v⟩ := p
+  obtain ⟨k', v'⟩ := q
+  cases e
+  have h1 := lookup_of_mem hs hp
+  rw [lookup_of_mem hs hq] at h1
+  cases h1; rfl
+
+/-- The part of `m₁` away from the keys of `a` matches `a` back in: `m₁ = a (m₁ ∖ a)` when every
+member of `a` is one of `m₁`. -/
+theorem concat_filter {a m : List (α × β)} (sa : Sorted a) (sm : Sorted m) (sub : ∀ p ∈ a, p ∈ m) :
+    concat a (m.filter fun p => (lookup p.1 a).isNone) = some m := by
+  have sf := sorted_filter (fun p => (lookup p.1 a).isNone) sm
+  have d : ∀ p ∈ a, lookup p.1 (m.filter fun p => (lookup p.1 a).isNone) = none := by
+    intro p hp
+    refine (lookup_eq_none_iff sf).2 fun q hq e => ?_
+    have := (List.mem_filter.1 hq).2
+    rw [Option.isNone_iff_eq_none, lookup_eq_none_iff sa] at this
+    exact this p hp e.symm
+  have hc := concat_eq_some_iff.2 ⟨sa, sf, d, rfl⟩
+  rw [hc]
+  congr 1
+  refine eq_of_mem_iff (sorted_of_concat hc) sm fun p => ?_
+  rw [mem_concat hc, List.mem_filter]
+  constructor
+  · rintro (hp | ⟨hp, -⟩)
+    · exact sub p hp
+    · exact hp
+  · intro hp
+    by_cases hk : lookup p.1 a = none
+    · exact Or.inr ⟨hp, by simp [hk]⟩
+    · obtain ⟨v, hv⟩ := Option.ne_none_iff_exists'.1 hk
+      have hq := lookup_mem hv
+      exact Or.inl (eq_of_mem_key sm hp (sub _ hq) rfl ▸ hq)
+
+/-- Two steps of a map at disjoint parts commute: one turns `m = a₁ R₁` into `m₁ = b₁ R₁`, the
+other `m = a₂ R₂` into `m₂ = b₂ R₂`. When `a₁` and `a₂` share no key and one of `b₁`, `b₂` has no
+key outside its `a` (inserts no binding), each still matches after the other, at a rest, and both
+orders give one map. -/
+theorem concat_frame {a₁ b₁ R₁ a₂ b₂ R₂ m m₁ m₂ : List (α × β)}
+    (h₁ : concat a₁ R₁ = some m) (r₁ : concat b₁ R₁ = some m₁)
+    (h₂ : concat a₂ R₂ = some m) (r₂ : concat b₂ R₂ = some m₂)
+    (dA : ∀ p ∈ a₁, ∀ q ∈ a₂, p.1 ≠ q.1)
+    (dB : (∀ p ∈ b₁, HasKey a₁ p.1) ∨ (∀ p ∈ b₂, HasKey a₂ p.1)) :
+    ∃ R₁₂ R₂₁ m', concat a₂ R₁₂ = some m₁ ∧ concat b₂ R₁₂ = some m' ∧
+      concat a₁ R₂₁ = some m₂ ∧ concat b₁ R₂₁ = some m' := by
+  have sa₁ := sorted_of_concat_left h₁
+  have sa₂ := sorted_of_concat_left h₂
+  have sb₁ := sorted_of_concat_left r₁
+  have sb₂ := sorted_of_concat_left r₂
+  have sm := sorted_of_concat h₁
+  have sm₁ := sorted_of_concat r₁
+  have sm₂ := sorted_of_concat r₂
+  have sR₁ := (concat_eq_some_iff.1 h₁).2.1
+  have sR₂ := (concat_eq_some_iff.1 h₂).2.1
+  -- a member of `m` is in `R₁` exactly when its key is not one of `a₁`
+  have inR₁ : ∀ p ∈ m, ¬ HasKey a₁ p.1 → p ∈ R₁ := fun p hp hk =>
+    ((mem_concat h₁).1 hp).resolve_left fun ha => hk ⟨p, ha, rfl⟩
+  have inR₂ : ∀ p ∈ m, ¬ HasKey a₂ p.1 → p ∈ R₂ := fun p hp hk =>
+    ((mem_concat h₂).1 hp).resolve_left fun ha => hk ⟨p, ha, rfl⟩
+  have nR₁ : ∀ p ∈ R₁, ¬ HasKey a₁ p.1 := fun p hp ⟨q, hq, e⟩ => concat_disj h₁ hq hp e
+  have nR₂ : ∀ p ∈ R₂, ¬ HasKey a₂ p.1 := fun p hp ⟨q, hq, e⟩ => concat_disj h₂ hq hp e
+  -- `a₂` is in `R₁`, `a₁` in `R₂`
+  have a₂R₁ : ∀ p ∈ a₂, p ∈ R₁ := fun p hp =>
+    inR₁ p ((mem_concat h₂).2 (Or.inl hp)) fun ⟨q, hq, e⟩ => dA q hq p hp e
+  have a₁R₂ : ∀ p ∈ a₁, p ∈ R₂ := fun p hp =>
+    inR₂ p ((mem_concat h₁).2 (Or.inl hp)) fun ⟨q, hq, e⟩ => dA p hp q hq e.symm
+  -- no key of `b₁` is one of `a₂`, none of `b₂` one of `a₁`
+  have b₁a₂ : ∀ p ∈ b₁, ¬ HasKey a₂ p.1 := fun p hp ⟨q, hq, e⟩ =>
+    concat_disj r₁ hp (a₂R₁ q hq) e.symm
+  have b₂a₁ : ∀ p ∈ b₂, ¬ HasKey a₁ p.1 := fun p hp ⟨q, hq, e⟩ =>
+    concat_disj r₂ hp (a₁R₂ q hq) e.symm
+  -- `b₁` and `b₂` share no key
+  have dB' : ∀ p ∈ b₁, ∀ q ∈ b₂, p.1 ≠ q.1 := by
+    intro p hp q hq e
+    rcases dB with d | d
+    · obtain ⟨x, hx, ex⟩ := d p hp
+      exact concat_disj r₂ hq (a₁R₂ x hx) (e.symm.trans ex.symm)
+    · obtain ⟨x, hx, ex⟩ := d q hq
+      exact b₁a₂ p hp ⟨x, hx, ex.trans e.symm⟩
+  -- the rests
+  have sub₂ : ∀ p ∈ a₂, p ∈ m₁ := fun p hp => (mem_concat r₁).2 (Or.inr (a₂R₁ p hp))
+  have sub₁ : ∀ p ∈ a₁, p ∈ m₂ := fun p hp => (mem_concat r₂).2 (Or.inr (a₁R₂ p hp))
+  have c₁₂ := concat_filter sa₂ sm₁ sub₂
+  have c₂₁ := concat_filter sa₁ sm₂ sub₁
+  generalize hF₁ : m₁.filter (fun p => (lookup p.1 a₂).isNone) = F₁ at c₁₂
+  generalize hF₂ : m₂.filter (fun p => (lookup p.1 a₁).isNone) = F₂ at c₂₁
+  have memF₁ : ∀ p, p ∈ F₁ ↔ p ∈ m₁ ∧ ¬ HasKey a₂ p.1 := fun p => by
+    rw [← hF₁, List.mem_filter, Option.isNone_iff_eq_none, lookup_eq_none_iff sa₂]
+    exact and_congr_right fun _ => ⟨fun h ⟨q, hq, e⟩ => h q hq e, fun h q hq e => h ⟨q, hq, e⟩⟩
+  have memF₂ : ∀ p, p ∈ F₂ ↔ p ∈ m₂ ∧ ¬ HasKey a₁ p.1 := fun p => by
+    rw [← hF₂, List.mem_filter, Option.isNone_iff_eq_none, lookup_eq_none_iff sa₁]
+    exact and_congr_right fun _ => ⟨fun h ⟨q, hq, e⟩ => h q hq e, fun h q hq e => h ⟨q, hq, e⟩⟩
+  have sF₁ : Sorted F₁ := (concat_eq_some_iff.1 c₁₂).2.1
+  have sF₂ : Sorted F₂ := (concat_eq_some_iff.1 c₂₁).2.1
+  -- `b₂ F₁` and `b₁ F₂` are defined
+  have d₂ : ∀ p ∈ b₂, lookup p.1 F₁ = none := by
+    intro p hp
+    refine (lookup_eq_none_iff sF₁).2 fun q hq e => ?_
+    obtain ⟨hq, hk⟩ := (memF₁ q).1 hq
+    rcases (mem_concat r₁).1 hq with hq | hq
+    · exact dB' q hq p hp e
+    · exact concat_disj r₂ hp (inR₂ q ((mem_concat h₁).2 (Or.inr hq)) hk) e.symm
+  have d₁ : ∀ p ∈ b₁, lookup p.1 F₂ = none := by
+    intro p hp
+    refine (lookup_eq_none_iff sF₂).2 fun q hq e => ?_
+    obtain ⟨hq, hk⟩ := (memF₂ q).1 hq
+    rcases (mem_concat r₂).1 hq with hq | hq
+    · exact dB' p hp q hq e.symm
+    · exact concat_disj r₁ hp (inR₁ q ((mem_concat h₂).2 (Or.inr hq)) hk) e.symm
+  have e₂ := concat_eq_some_iff.2 ⟨sb₂, sF₁, d₂, rfl⟩
+  have e₁ := concat_eq_some_iff.2 ⟨sb₁, sF₂, d₁, rfl⟩
+  refine ⟨F₁, F₂, _, c₁₂, e₂, c₂₁, ?_⟩
+  rw [e₁]
+  congr 1
+  -- both are `b₁`, `b₂` and the members of `m` at neither `a₁` nor `a₂`
+  refine eq_of_mem_iff (sorted_of_concat e₁) (sorted_of_concat e₂) fun p => ?_
+  rw [mem_concat e₁, mem_concat e₂, memF₁, memF₂, mem_concat r₁, mem_concat r₂]
+  constructor
+  · rintro (hp | ⟨hp | hp, hk⟩)
+    · exact Or.inr ⟨Or.inl hp, b₁a₂ p hp⟩
+    · exact Or.inl hp
+    · have hm := (mem_concat h₂).2 (Or.inr hp)
+      exact Or.inr ⟨Or.inr (inR₁ p hm hk), nR₂ p hp⟩
+  · rintro (hp | ⟨hp | hp, hk⟩)
+    · exact Or.inr ⟨Or.inl hp, b₂a₁ p hp⟩
+    · exact Or.inl hp
+    · have hm := (mem_concat h₁).2 (Or.inr hp)
+      exact Or.inr ⟨Or.inr (inR₂ p hm hk), nR₁ p hp⟩
+
+/-- `_Map_` is associative where defined: `(a b) c` defined gives `a (b c)`, the same map. -/
+theorem concat_assoc_right {a b c ab m : List (α × β)} (h₁ : concat a b = some ab)
+    (h₂ : concat ab c = some m) : ∃ bc, concat b c = some bc ∧ concat a bc = some m := by
+  obtain ⟨sa, sb, dab, -⟩ := concat_eq_some_iff.1 h₁
+  obtain ⟨sab, sc, dabc, -⟩ := concat_eq_some_iff.1 h₂
+  have dbc : ∀ p ∈ b, lookup p.1 c = none := fun p hp => dabc p ((mem_concat h₁).2 (Or.inr hp))
+  have hbc := concat_eq_some_iff.2 ⟨sb, sc, dbc, rfl⟩
+  refine ⟨_, hbc, ?_⟩
+  have da : ∀ p ∈ a, lookup p.1 (b.foldr (fun q acc => insert q.1 q.2 acc) c) = none := by
+    intro p hp
+    refine (lookup_eq_none_iff (sorted_of_concat hbc)).2 fun q hq e => ?_
+    rcases (mem_concat hbc).1 hq with hq | hq
+    · exact (lookup_eq_none_iff sb).1 (dab p hp) q hq e
+    · exact (lookup_eq_none_iff sc).1 (dabc p ((mem_concat h₁).2 (Or.inl hp))) q hq e
+  have hm := concat_eq_some_iff.2 ⟨sa, sorted_of_concat hbc, da, rfl⟩
+  rw [hm]
+  congr 1
+  refine eq_of_mem_iff (sorted_of_concat hm) (sorted_of_concat h₂) fun p => ?_
+  rw [mem_concat hm, mem_concat hbc, mem_concat h₂, mem_concat h₁, or_assoc]
+
 end SAL
 
 namespace MapHook
@@ -528,6 +694,169 @@ theorem concat_element_comm_insert {k₁ k₂ : K} {v₁ w₁ w₂ : V} {R₁ m 
       rw [lookup_update_ne _ _ j₁, lookup_remove_ne j₁ w₂', lookup_update_self, lookup_update_self]
     rw [lookup_update_ne _ _ j₁, lookup_remove_ne j₁ w₂', lookup_update_ne _ _ j₂,
       lookup_update_ne _ _ j₁, lookup_update_ne _ _ j₂, lookup_update_ne _ _ j₁]
+
+theorem concat_toList {a b m : M} (h : concat a b = some m) :
+    SAL.concat (toList a) (toList b) = some (toList m) := by
+  unfold concat at h
+  obtain ⟨l, e, rfl⟩ := Option.map_eq_some_iff.1 h
+  rw [toList_ofList]; exact e
+
+theorem concat_of_toList {a b m : M} (h : SAL.concat (toList a) (toList b) = some (toList m)) :
+    concat a b = some m := by
+  unfold concat; rw [h]; simp [ofList_toList]
+
+/-- Every key of `b` is one of `a`. -/
+def KeysIn (b a : M) : Prop := ∀ k, lookup b k ≠ none → lookup a k ≠ none
+
+/-- `a` binds exactly the bindings `bs`. -/
+def Binds (a : M) (bs : List (K × V)) : Prop := ∀ k v, lookup a k = some v ↔ (k, v) ∈ bs
+
+/-- Two steps of a map at bindings with no key in common commute (`SAL.concat_frame`), when one
+of them inserts no key. -/
+theorem concat_frame {a₁ b₁ R₁ a₂ b₂ R₂ m m₁ m₂ : M}
+    (h₁ : concat a₁ R₁ = some m) (r₁ : concat b₁ R₁ = some m₁)
+    (h₂ : concat a₂ R₂ = some m) (r₂ : concat b₂ R₂ = some m₂)
+    (dA : ∀ k, lookup a₁ k = none ∨ lookup a₂ k = none) (dB : KeysIn b₁ a₁ ∨ KeysIn b₂ a₂) :
+    ∃ R₁₂ R₂₁ m', concat a₂ R₁₂ = some m₁ ∧ concat b₂ R₁₂ = some m' ∧
+      concat a₁ R₂₁ = some m₂ ∧ concat b₁ R₂₁ = some m' := by
+  have H₁ := concat_toList h₁
+  have H₂ := concat_toList h₂
+  have S₁ := concat_toList r₁
+  have S₂ := concat_toList r₂
+  have wa₁ := SAL.sorted_of_concat_left H₁
+  have wa₂ := SAL.sorted_of_concat_left H₂
+  have wb₁ := SAL.sorted_of_concat_left S₁
+  have wb₂ := SAL.sorted_of_concat_left S₂
+  have dA' : ∀ p ∈ toList a₁, ∀ q ∈ toList a₂, p.1 ≠ q.1 := fun p hp q hq e => by
+    have l₁ : lookup a₁ p.1 = some p.2 := by rw [lookup_def]; exact SAL.lookup_of_mem wa₁ hp
+    have l₂ : lookup a₂ p.1 = some q.2 := by rw [lookup_def, e]; exact SAL.lookup_of_mem wa₂ hq
+    rcases dA p.1 with h | h
+    · rw [l₁] at h; cases h
+    · rw [l₂] at h; cases h
+  have key : ∀ {a b : M}, WF b → KeysIn b a → ∀ p ∈ toList b, SAL.HasKey (toList a) p.1 :=
+    fun {a b} wb d p hp => by
+      have hn := d p.1 (by rw [lookup_def, SAL.lookup_of_mem wb hp]; simp)
+      obtain ⟨v, hv⟩ := Option.ne_none_iff_exists'.1 hn
+      rw [lookup_def] at hv
+      exact ⟨(p.1, v), SAL.lookup_mem hv, rfl⟩
+  have dB' := dB.imp (key wb₁) (key wb₂)
+  obtain ⟨F₁, F₂, l, e₁, e₂, e₃, e₄⟩ := SAL.concat_frame H₁ S₁ H₂ S₂ dA' dB'
+  refine ⟨ofList F₁, ofList F₂, ofList l, concat_of_toList ?_, concat_of_toList ?_,
+    concat_of_toList ?_, concat_of_toList ?_⟩ <;> simpa only [toList_ofList]
+
+theorem lookup_of_concat {a R m : M} (h : concat a R = some m) {k : K} {v : V}
+    (hl : lookup a k = some v) : lookup m k = some v := by
+  have H := concat_toList h
+  rw [lookup_def] at hl ⊢
+  exact SAL.lookup_of_mem (SAL.sorted_of_concat H) ((SAL.mem_concat H).2 (Or.inl (SAL.lookup_mem hl)))
+
+/-- Two matches in one map that bind one key bind it to one value. -/
+theorem binds_same {a₁ a₂ R₁ R₂ m : M} {bs₁ bs₂ : List (K × V)} (h₁ : concat a₁ R₁ = some m)
+    (h₂ : concat a₂ R₂ = some m) (b₁ : Binds a₁ bs₁) (b₂ : Binds a₂ bs₂) {p q : K × V}
+    (hp : p ∈ bs₁) (hq : q ∈ bs₂) (e : p.1 = q.1) : p.2 = q.2 := by
+  have l₁ := lookup_of_concat h₁ ((b₁ p.1 p.2).2 hp)
+  have l₂ := lookup_of_concat h₂ ((b₂ q.1 q.2).2 hq)
+  rw [e, l₂] at l₁
+  exact (Option.some.inj l₁).symm
+
+/-- Matches that bind no key in common share none. -/
+theorem binds_disj {a₁ a₂ : M} {bs₁ bs₂ : List (K × V)} (b₁ : Binds a₁ bs₁) (b₂ : Binds a₂ bs₂)
+    (h : ¬ ∃ p ∈ bs₁, ∃ q ∈ bs₂, p.1 = q.1) : ∀ k, lookup a₁ k = none ∨ lookup a₂ k = none := by
+  intro k
+  cases e₁ : lookup a₁ k with
+  | none => exact Or.inl rfl
+  | some v =>
+    cases e₂ : lookup a₂ k with
+    | none => exact Or.inr rfl
+    | some w => exact absurd ⟨(k, v), (b₁ k v).1 e₁, (k, w), (b₂ k w).1 e₂, rfl⟩ h
+
+theorem binds_element {k : K} {v : V} : Binds (element k v : M) [(k, v)] := by
+  intro j w
+  rw [lookup_def]
+  unfold element
+  rw [toList_ofList]
+  simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq]
+  by_cases hj : j = k
+  · subst hj; simp [SAL.lookup, eq_comm]
+  · have : SAL.lookup j [(k, v)] = none :=
+      (SAL.lookup_eq_none_iff (SAL.Sorted.cons (by simp) SAL.Sorted.nil)).2
+        (by simpa using fun h => hj h.symm)
+    simp [this, hj]
+
+theorem keysIn_element {k : K} {v w : V} : KeysIn (element k w : M) (element k v) := by
+  intro j h
+  have := (binds_element (k := k) (v := v) (M := M) j v).2
+  cases e : lookup (element k w : M) j with
+  | none => exact absurd e h
+  | some x =>
+    have := (binds_element (k := k) (v := w) (M := M) j x).1 e
+    simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at this
+    obtain ⟨rfl, -⟩ := this
+    rw [(binds_element (k := j) (v := v) (M := M) j v).2 (by simp)]; simp
+
+theorem keysIn_refl {a : M} : KeysIn a a := fun _ h => h
+
+theorem keysIn_unit {a : M} : KeysIn (unit : M) a := fun k h => by
+  apply absurd _ h
+  rw [lookup_def]; unfold unit; rw [toList_ofList]; rfl
+
+theorem concat_unit_left {R : M} (h : WF R) : concat (unit : M) R = some R := by
+  apply concat_of_toList
+  unfold unit; rw [toList_ofList]
+  exact SAL.concat_eq_some_iff.2 ⟨SAL.Sorted.nil, h, by simp, rfl⟩
+
+theorem eq_of_concat_unit_left {R r : M} (h : concat (unit : M) R = some r) : r = R := by
+  have H := concat_toList h
+  unfold unit at H; rw [toList_ofList] at H
+  obtain ⟨-, -, -, e⟩ := SAL.concat_eq_some_iff.1 H
+  have e' : toList r = toList R := e
+  rw [← ofList_toList r, e', ofList_toList]
+
+/-- The match `K₁ |-> V₁ K₂ |-> V₂ R` of two bindings, as the part `a` of the two and the rest. -/
+theorem concat_pair_of_chain {k₁ k₂ : K} {v₁ v₂ : V} {rest R m : M}
+    (h₁ : concat (element k₁ v₁) rest = some m) (h₂ : concat (element k₂ v₂) R = some rest) :
+    ∃ a, concat (element k₁ v₁) (element k₂ v₂) = some a ∧ concat a R = some m := by
+  obtain ⟨ab, e₁, e₂⟩ := SAL.concat_assoc_left (concat_toList h₂) (concat_toList h₁)
+  exact ⟨ofList ab, concat_of_toList (by rwa [toList_ofList]),
+    concat_of_toList (by rwa [toList_ofList])⟩
+
+theorem chain_of_pair {k₁ k₂ : K} {v₁ v₂ : V} {a R m : M}
+    (h₁ : concat (element k₁ v₁) (element k₂ v₂) = some a) (h₂ : concat a R = some m) :
+    ∃ rest, concat (element k₂ v₂) R = some rest ∧ concat (element k₁ v₁) rest = some m := by
+  obtain ⟨bc, e₁, e₂⟩ := SAL.concat_assoc_right (concat_toList h₁) (concat_toList h₂)
+  exact ⟨ofList bc, concat_of_toList (by rwa [toList_ofList]),
+    concat_of_toList (by rwa [toList_ofList])⟩
+
+theorem binds_pair {k₁ k₂ : K} {v₁ v₂ : V} {a : M}
+    (h : concat (element k₁ v₁) (element k₂ v₂) = some a) : Binds a [(k₁, v₁), (k₂, v₂)] := by
+  intro j w
+  have H := concat_toList h
+  rw [lookup_def]
+  constructor
+  · intro hl
+    have := (SAL.mem_concat H).1 (SAL.lookup_mem hl)
+    unfold element at this; rw [toList_ofList, toList_ofList] at this
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at this
+    simp only [List.mem_cons, List.not_mem_nil, or_false]
+    exact this
+  · intro hm
+    refine SAL.lookup_of_mem (SAL.sorted_of_concat H) ((SAL.mem_concat H).2 ?_)
+    unfold element; rw [toList_ofList, toList_ofList]
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hm ⊢
+    exact hm
+
+theorem keysIn_pair {k₁ k₂ : K} {v₁ v₂ w₁ w₂ : V} {a b : M}
+    (ha : concat (element k₁ v₁) (element k₂ v₂) = some a)
+    (hb : concat (element k₁ w₁) (element k₂ w₂) = some b) : KeysIn b a := by
+  intro j h
+  obtain ⟨x, hx⟩ := Option.ne_none_iff_exists'.1 h
+  have := ((binds_pair hb) j x).1 hx
+  simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at this
+  have hm : ∀ v, (j, v) ∈ [(k₁, v₁), (k₂, v₂)] → lookup a j ≠ none := fun v hv => by
+    rw [(binds_pair ha j v).2 hv]; simp
+  rcases this with ⟨e, -⟩ | ⟨e, -⟩
+  · exact hm v₁ (by simp [e])
+  · exact hm v₂ (by simp [e])
 
 end MapHook
 
@@ -684,5 +1013,45 @@ theorem KeyPat.disj_sound {p q : KeyPat} {v : KeyView} (h : p.disj q = true)
     rcases h with h | h
     · exact KeyPat.conf1_sound h hp.1.2 hq.1.2
     · exact KeyPat.conf_sound h hp.2 hq.2
+
+/-- The keys `ps` of a rule that matches the bindings `bs`, one per binding. -/
+def KeyPat.Fits {K T : Type} (view : T → KeyView) : List KeyPat → List (K × T) → Prop
+  | [], [] => True
+  | p :: ps, b :: bs => p.matches (view b.2) = true ∧ KeyPat.Fits view ps bs
+  | _, _ => False
+
+theorem KeyPat.Fits.mem {K T : Type} {view : T → KeyView} :
+    ∀ {ps : List KeyPat} {bs : List (K × T)}, KeyPat.Fits view ps bs → ∀ {b}, b ∈ bs →
+      ∃ p ∈ ps, p.matches (view b.2) = true
+  | [], [], _, _, h => by cases h
+  | p :: ps, b :: bs, ⟨hp, ht⟩, _, h => by
+    rcases List.mem_cons.1 h with rfl | h
+    · exact ⟨p, List.mem_cons_self, hp⟩
+    · obtain ⟨q, hq, r⟩ := KeyPat.Fits.mem ht h
+      exact ⟨q, List.mem_cons_of_mem _ hq, r⟩
+  | [], _ :: _, h, _, _ => h.elim
+  | _ :: _, [], h, _, _ => h.elim
+
+/-- Every key of one rule is disjoint from every key of the other. -/
+def KeyPat.pdisj (ps qs : List KeyPat) : Bool := ps.all fun p => qs.all fun q => p.disj q
+
+theorem KeyPat.pdisj_sound {K T : Type} {view : T → KeyView} {ps qs : List KeyPat}
+    {bs₁ bs₂ : List (K × T)} (h : KeyPat.pdisj ps qs = true) (f₁ : KeyPat.Fits view ps bs₁)
+    (f₂ : KeyPat.Fits view qs bs₂) {p q : K × T} (hp : p ∈ bs₁) (hq : q ∈ bs₂) (e : p.2 = q.2) :
+    False := by
+  obtain ⟨x, hx, mx⟩ := f₁.mem hp
+  obtain ⟨y, hy, my⟩ := f₂.mem hq
+  simp only [KeyPat.pdisj, List.all_eq_true] at h
+  rw [e] at mx
+  exact KeyPat.disj_sound (h x hx y hy) mx my
+
+/-- One of two rules inserts no key. -/
+theorem or_of_not_both {x y : Bool} {P Q : Prop} (h₁ : x = false → P) (h₂ : y = false → Q)
+    (h : (!(x && y)) = true) : P ∨ Q := by
+  cases x
+  · exact Or.inl (h₁ rfl)
+  · cases y
+    · exact Or.inr (h₂ rfl)
+    · cases h
 
 end KPrelude

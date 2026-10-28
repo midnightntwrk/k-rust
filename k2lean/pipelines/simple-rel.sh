@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# SIMPLE against a variant of it through `k2lean relate` (demos/SimpleRel): a human-run pipeline,
-# not a gate tier, because the relation's simulations cost more than a gate tier allows
-# (k2lean/docs/design.md, section 9). Run it from the root of a k-rust checkout, one step at a
-# time, under a memory cap:
+# SIMPLE against a variant of it through `k2lean relate` (demos/SimpleRel): a targeted check, not
+# a gate tier (about 17 minutes on the arity universe, Base at 10.7 GB; k2lean/docs/design.md,
+# section 9). Run it when a change reaches what it exercises and nothing smaller does: relate.rs's
+# emitters (the bisimulation, the invariant, comm_rec, --split), KPrelude/Relate.lean (k2l_inv,
+# the k2l_rel lemmas), or core's family split and case tactics (FamilyCases.lean, k2l_split_var,
+# k2l_case_discr). Run it from the root of a k-rust checkout, one step at a time, under a memory
+# cap:
 #
 #   k2lean/pipelines/simple-rel.sh compile      krust kcompile of SIMPLE and of its variant
 #                                               (k2lean/tests/simple-variant.py: three constructors
