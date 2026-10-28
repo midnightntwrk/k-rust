@@ -101,6 +101,7 @@ preserve = []
 "generated/impplus/KImpPlus/Adequacy.lean" = { tier = "light", sha256 = "d00951223af95f064a4da7a42c908c2650bca8010c00e516f866e1efce0e2670" }
 "generated/impplus/KImpPlus/Determinism.lean" = { tier = "light", sha256 = "51f42225375bb44fc1bb7dc4d93d1e922d86ae6eb02f44fd17b6954a07a45225" }
 "generated/impplus/KImpPlus/Equations.lean" = { tier = "light", sha256 = "6f01dd1be262f0e7109a378a10be91f98c91c3b509f0d523d0913351493e2d45" }
+"generated/impplus/KImpPlus/Fuel.lean" = { tier = "light", sha256 = "70ded0db0e8c935e6340fdf3c26234c47ad186b28f7007b75708bb777eb3e1f4" }
 "generated/impplus/KImpPlus/Functions.lean" = { tier = "light", sha256 = "961d4412cf069407aa950d879d68cce231ab360f5d2759963c750abe0d877a8a" }
 "generated/impplus/KImpPlus/Init.lean" = { tier = "light", sha256 = "197daa8dcaf64b5a92dbcbb05c8c84338357fd90849f8d160ef8a2863f503a7c" }
 "generated/impplus/KImpPlus/Preserves.lean" = { tier = "light", sha256 = "111b4337923fed155007d007192528b76722d0b797a6d2efa926bede3050fa6b" }
