@@ -7,7 +7,7 @@
 
 [unit]
 tier = "light"
-passed = 101
+passed = 102
 
 [lib.kimp]
 tier = "light"
@@ -74,8 +74,8 @@ unwitnessed = 0
 [lib.overload]
 tier = "light"
 stated = 107
-open = ["Eqn.hd_3"]
-guarded = 121
+open = []
+guarded = 122
 refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 overlaps = 0
 unwitnessed = 0
@@ -269,15 +269,15 @@ allowed_axioms = []
 "generated/overload/KOverload/Determinism.lean" = { tier = "light", sha256 = "f4b9e57e52533437c414c52312d3ef18110eeb88e76ea02cad3b9565f83c66e7" }
 "generated/overload/KOverload/Determinism/L1.lean" = { tier = "light", sha256 = "d9668caaca873530c6e586eac2860eeaf9b2a8c24bddd33c8792bff512ce7b3a" }
 "generated/overload/KOverload/Determinism/Pre.lean" = { tier = "light", sha256 = "755f78c550802836c09bdb3b2056cccc88b9126cbcac8590b2c2e6d778100b2c" }
-"generated/overload/KOverload/Equations.lean" = { tier = "light", sha256 = "38a6fb64049067db69c5d2afd744b890934d2b521bbb12e6a288873d78635f1b" }
-"generated/overload/KOverload/Functions.lean" = { tier = "light", sha256 = "d0b368d2354735cab819fe4ec46bc5c354a957edbf8a83c963e7ed147c15dac4" }
+"generated/overload/KOverload/Equations.lean" = { tier = "light", sha256 = "997306f016375a46d37cf16b698aa1915a206f1e8934a17a6bf8a2445663a907" }
+"generated/overload/KOverload/Functions.lean" = { tier = "light", sha256 = "dfac76fa44f00880cf18fd7c592c5de85ef1d0600dfc336f3e41dd6a171470c8" }
 "generated/overload/KOverload/Init.lean" = { tier = "light", sha256 = "d42c66fcf27dddb4be78261534af79b49ff8eced2c1d2c568ac5fa11508027f8" }
 "generated/overload/KOverload/Preserves.lean" = { tier = "light", sha256 = "e73e80600b68b598750c5e13cae6e90e48bc39e7811f17fe81eb14a98c354d3d" }
 "generated/overload/KOverload/Refuted.lean" = { tier = "light", sha256 = "3c682d7f09a23eb557604b0b3e0a0f242862371c72ba8e0f92cbb972e79c2da9" }
 "generated/overload/KOverload/Rules.lean" = { tier = "light", sha256 = "be60c5dc428f34c9ac259a16edf28d197c0b713f60e4592874316fa1f2a385d6" }
 "generated/overload/KOverload/Terms.lean" = { tier = "light", sha256 = "a0de3168b85f06fcf02020da8e9997a3d0ffc805a786e64a1b65daab45c6d9f2" }
 "generated/overload/KOverloadBench/Main.lean" = { tier = "light", sha256 = "c7e6d02879cb3d66218a0fdb36c28a0ece5255d9b924bc6a2b72fce4fff871f0" }
-"generated/overload/KOverloadTest/Axioms.lean" = { tier = "light", sha256 = "177f0e8349e9f27a4917dc54e9688bb4f855adf48c7ebefebf7a84077af172ce" }
+"generated/overload/KOverloadTest/Axioms.lean" = { tier = "light", sha256 = "203525ae3bb2f4ef01a294cf55ffb43b23926c2355c10da3e4682ed4af56fa45" }
 "generated/overload/KOverloadTest/DetAxioms.lean" = { tier = "light", sha256 = "db91f8eab41fffd6c9abe2215e2d26d24ddd93039376f95720adee58f08d8678" }
 "generated/overload/KOverloadTest/Main.lean" = { tier = "light", sha256 = "e667757c7a14747a901bae3c1caf757ffefd8865e76457e8a12b812f1f9f6fc2" }
 "generated/overload/KOverloadTest/Refuted.lean" = { tier = "light", sha256 = "85ba922cd23b1e4bc0d18d061de1dd30723f6d392853b23441ececc2ccb4f57c" }
