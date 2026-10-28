@@ -4,7 +4,13 @@ import ParamsBench.Programs
 
 open Params ParamsBench KPrelude
 
-def main (args : List String) : IO UInt32 := do
+namespace ParamsBench
+
+variable [Params.Hooks]
+
+/-- The run executable over the parameters: the project that instantiates `Params.Hooks` declares
+`def main (args : List String) : IO UInt32 := @ParamsBench.benchMain inst args`. -/
+def benchMain (args : List String) : IO UInt32 := do
   match args with
   | [] | ["--list"] =>
     for (n, _) in programs do IO.println n
@@ -27,3 +33,5 @@ def main (args : List String) : IO UInt32 := do
       IO.println s!"time_ms: {(t1 - t0).toFloat / 1000000.0}"
       IO.println s!"config: {toK_SortGeneratedTopCell r.config}"
       return 0
+
+end ParamsBench

@@ -6,6 +6,8 @@ import ParamsTest.Axioms
 
 namespace ParamsTest
 
+variable [Params.Hooks]
+
 open Params KPrelude
 
 def goldenFuel : Nat := 10000000
@@ -79,4 +81,5 @@ def testMain (args : List String) : IO UInt32 := do
 
 end ParamsTest
 
-def main (args : List String) : IO UInt32 := ParamsTest.testMain args
+/-- No `main`: the library has parameters (`Params.Hooks`), so the project that instantiates them
+declares the executable, `def main` applying `@ParamsTest.testMain` to its instance. -/

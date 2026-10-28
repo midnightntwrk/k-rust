@@ -274,14 +274,6 @@ fn main() {
             let ns = &a.name;
             write(&out.join("lean-toolchain"), LEAN_TOOLCHAIN);
             let exe = ns.to_lowercase();
-            write(
-                &out.join("lakefile.lean"),
-                &drivers::lakefile(
-                    ns,
-                    &drivers::require_line(a.prelude.as_deref(), a.prelude_git.as_deref()),
-                    &exe,
-                ),
-            );
             let order: Vec<String> = match &a.runtime {
                 Some(p) => {
                     let j: serde_json::Value =
@@ -362,6 +354,15 @@ fn main() {
             for n in &fgen.notes {
                 eprintln!("note: {n}");
             }
+            write(
+                &out.join("lakefile.lean"),
+                &drivers::lakefile(
+                    ns,
+                    &drivers::require_line(a.prelude.as_deref(), a.prelude_git.as_deref()),
+                    &exe,
+                    !fgen.params.is_empty(),
+                ),
+            );
             // `functions.txt`, the functions the library defines, which `claims` checks its claims'
             // functions against; written only for a library generated for claims (`--spec`)
             if spec_files.is_empty() {
@@ -788,12 +789,12 @@ fn main() {
             if multi {
                 write(
                     &out.join(format!("{ns}Test")).join("Main.lean"),
-                    &cases::test_main(ns, &top),
+                    &parametric_test(cases::test_main(ns, &top), ns, &fgen.params),
                 );
             } else {
                 write(
                     &out.join(format!("{ns}Test")).join("Main.lean"),
-                    &drivers::test_main(ns, &top),
+                    &parametric_test(drivers::test_main(ns, &top), ns, &fgen.params),
                 );
             }
             // and the instance theorems of the functions with a free-key equation (`agree.rs`)
@@ -907,7 +908,11 @@ fn main() {
             }
             write(
                 &out.join(format!("{ns}Bench")).join("Main.lean"),
-                &drivers::bench_main(ns, &top),
+                &if fgen.params.is_empty() {
+                    drivers::bench_main(ns, &top)
+                } else {
+                    drivers::parametric_bench(&drivers::bench_main(ns, &top), ns)
+                },
             );
             if multi {
                 // no benchmark programs for case-driven definitions: an empty list keeps the target building
@@ -1012,6 +1017,15 @@ fn hooks_class(params: &[(String, Vec<String>, String)]) -> String {
     }
     o.push_str("\nvariable [Hooks]\n\n");
     o
+}
+
+/// A test driver as generated, or over the parameters when the library has some (PKG-6).
+fn parametric_test(text: String, ns: &str, params: &[(String, Vec<String>, String)]) -> String {
+    if params.is_empty() {
+        text
+    } else {
+        drivers::parametric_test(&text, ns)
+    }
 }
 
 /// `variable [Hooks]` after the namespace of a generated module, when the library has parameters
