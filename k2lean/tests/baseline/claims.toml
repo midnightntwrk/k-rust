@@ -77,7 +77,7 @@ preserve = []
 "generated/impplus-claims/KImpPlusClaims/ImpplusSpec.lean" = { tier = "light", sha256 = "18b835850d30ddee575749ddd589b23c0501d20d3f483d2da6f61d58891bd919" }
 "generated/impplus-claims/KImpPlusClaimsTest/Axioms.lean" = { tier = "light", sha256 = "5bea0186519386c100a6c71a47720e59271fb3318f2f2700bd1090b0cd1bd64a" }
 "generated/impplus-claims/claims.toml" = { tier = "light", sha256 = "8f741f432cc645609dbfb77c6d572a5e107436083fdf2b0a1ae51ded1de49960" }
-"generated/impplus-claims/lakefile.lean" = { tier = "light", sha256 = "69998f5531d42b8b0bae8d0ac19dbff8ead494e4fcceed6506322dd8b333f1e1" }
+"generated/impplus-claims/lakefile.lean" = { tier = "light", sha256 = "738b38c9411c5458e45cbdcd307f13bc26ac371a98073405c999b1f126590ce1" }
 "generated/impplus-claims/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/kimp-claims/KImpClaims.lean" = { tier = "heavy", sha256 = "8d271101962325512c52a68389e2aa49ddd7d33af0c9713a8919942e8bfe6d96" }
 "generated/kimp-claims/KImpClaims/Basic.lean" = { tier = "heavy", sha256 = "5be0630cc3ec04ab1f75a4a247dbf0f0c154049d3d4625df12008c5b3a705581" }
@@ -122,12 +122,12 @@ preserve = []
 "generated/kstrict/KStrictTest/Axioms.lean" = { tier = "light", sha256 = "13157bb7bda3b1b6648e9c4d4d981910ee4a62e30dff2a1f60b4a319d1ee45c6" }
 "generated/kstrict/KStrictTest/DetAxioms.lean" = { tier = "light", sha256 = "480ddaecea8d237083b20283f5cc31085c06e6c99c6c5a139278b21fcca25589" }
 "generated/kstrict/KStrictTest/Main.lean" = { tier = "light", sha256 = "7dcb428e13418fea9889c106bc6116a0a68e2febfd6d9f37be2ee60c71f5e7c8" }
-"generated/kstrict/lakefile.lean" = { tier = "light", sha256 = "597b1830480c1969944b05eb6c6ef753a19f18932d1fdb78f233718c17862634" }
+"generated/kstrict/lakefile.lean" = { tier = "light", sha256 = "08ecf28f274e5f3bb81ba8ac07490a066cb072ccbfc72dc1caa4f13af2684c08" }
 "generated/kstrict/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/strict-claims/KStrictClaims.lean" = { tier = "light", sha256 = "942f776ef6a8682bde77d0abe77dbab8eda20be899c86f58bd241f84ca4e3d83" }
 "generated/strict-claims/KStrictClaims/Basic.lean" = { tier = "light", sha256 = "1ffe7a380138f8338dbd7e340e424b4dfabcf55504da3f499016fce4efced5f2" }
 "generated/strict-claims/KStrictClaims/StrictSpec.lean" = { tier = "light", sha256 = "6c830fad12c37cb27bbeb4710611e3d1a8cc68b2dfb18e7b62338d519d95f748" }
 "generated/strict-claims/KStrictClaimsTest/Axioms.lean" = { tier = "light", sha256 = "3699aa79d396c92db229027734b02cbfd96cff1266d62bc3b9c09d2b7dd213e1" }
 "generated/strict-claims/claims.toml" = { tier = "light", sha256 = "50ad0418e2f2e1491bffd050763a97db08d48a89678954fc593551a6123d886e" }
-"generated/strict-claims/lakefile.lean" = { tier = "light", sha256 = "833d506835395b159aab19e4f2cd6101a036640d5a209e4f9f7ad5cee2a8e4a6" }
+"generated/strict-claims/lakefile.lean" = { tier = "light", sha256 = "9aa735e0e793f0985a3308105d117e95b0afb6cbed0c410fb718a17b08c9563e" }
 "generated/strict-claims/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
