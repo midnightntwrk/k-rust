@@ -53,6 +53,7 @@ mod cells;
 pub mod entry_points;
 pub mod invariants;
 mod machine;
+pub mod oracle;
 pub mod pending;
 pub mod positions;
 pub mod table;
@@ -370,7 +371,8 @@ pub struct Case {
     /// value. A construct rustc's parser refuses there (`y @ P`) is reported by rustc whatever
     /// KRS does, which K2 admits ([`invariants::without_rustc_parse_error`]).
     pub rustc_parses: bool,
-    /// A term case's position and its construct's nodes; `None` outside the term families.
+    /// A term case's position and its construct's nodes, which the oracle reads
+    /// ([`Case::oracle`]); `None` outside the term families.
     pub term: Option<positions::TermCase>,
     item: String,
     spelling: Range<usize>,
@@ -398,6 +400,13 @@ impl Case {
             Packaging::Shared(command) => Some(command),
             Packaging::Own(_) => None,
         }
+    }
+
+    /// The oracle's outcome for a term case, `None` for a case of another family.
+    #[must_use]
+    pub fn oracle(&self) -> Option<oracle::Outcome> {
+        self.term
+            .map(|term| oracle::expected(term.position, term.nodes))
     }
 
     /// Whether the case replaces its base's initializer.

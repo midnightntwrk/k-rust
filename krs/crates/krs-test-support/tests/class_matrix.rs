@@ -12,9 +12,11 @@ use krs_test_support::class_matrix::invariants::{
     FORWARDED_RUSTC, Observed, ObservedDiagnostic, Severity, Violation, front_stops_at_rustc_parse,
     registry_kind, signature, violations, without_rustc_parse_error,
 };
+use krs_test_support::class_matrix::oracle::{Class, admits};
 use krs_test_support::class_matrix::pending::{
     Judgement, Observation, Pending, UNASSIGNED, case_of,
 };
+use krs_test_support::class_matrix::positions::{Construct, Form, Opening, Position, Slot as Part};
 use krs_test_support::class_matrix::table::{At, Expected, Glob, Table, TableError};
 use krs_test_support::class_matrix::{
     self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, entry_points, render,
@@ -396,6 +398,54 @@ at = "entry"
         }]
     );
     assert_eq!(resolution.expected.len(), 2);
+}
+
+/// The oracle reads a subject's root by the form's root role: an equation's and a
+/// simplification's root is the function's application, which a value is not.
+#[test]
+fn the_oracle_reads_a_subject_root_by_its_role() {
+    let root = |form| Position::root(form, Part::Subject);
+    let refused = |construct, form| admits(construct, root(form)).map(|refusal| refusal.class);
+    assert_eq!(
+        refused(Construct::Constructor, Form::EquationFn),
+        Some(Class::EquationRootNotFunction)
+    );
+    assert_eq!(
+        refused(Construct::Literal, Form::Simplification),
+        Some(Class::SimplificationRootNotFunction)
+    );
+    assert_eq!(
+        refused(Construct::FunctionApplication, Form::EquationTable),
+        None
+    );
+    // A builtin operation is no function an equation defines, but a simplification may rewrite
+    // its application.
+    for form in [Form::EquationFn, Form::EquationTable] {
+        assert_eq!(
+            refused(Construct::BuiltinApplication, form),
+            Some(Class::EquationRootNotFunction)
+        );
+    }
+    assert_eq!(
+        refused(Construct::BuiltinApplication, Form::Simplification),
+        None
+    );
+    assert_eq!(refused(Construct::Constructor, Form::RuleFn), None);
+    assert_eq!(
+        refused(Construct::FunctionApplication, Form::RuleFn),
+        Some(Class::FunctionInPattern)
+    );
+    // Below the root, the same application is one the subject matches.
+    let argument = root(Form::EquationFn).enter(Opening::FunctionArgument);
+    assert_eq!(
+        admits(Construct::FunctionApplication, argument).map(|refusal| refusal.class),
+        Some(Class::FunctionInPattern)
+    );
+    assert_eq!(
+        admits(Construct::BuiltinApplication, argument).map(|refusal| refusal.class),
+        Some(Class::FunctionInPattern)
+    );
+    assert_eq!(admits(Construct::Constructor, argument), None);
 }
 
 #[test]

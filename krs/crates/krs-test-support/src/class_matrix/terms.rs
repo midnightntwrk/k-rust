@@ -10,7 +10,7 @@
 //! module-level `use Cmd::*;` instead.
 //!
 //! Each slot declares its hole's [`Position`] as the openings from its slot's root, and each
-//! spelling its [`Node`]s.
+//! spelling its [`Node`]s, which the oracle ([`super::oracle`]) reads.
 
 use super::positions::Construct as C;
 use super::positions::Form::{

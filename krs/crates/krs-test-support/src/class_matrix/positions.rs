@@ -1,5 +1,5 @@
 //! Where a term case's construct stands, and what its spelling contains: the data the oracle
-//! reads.
+//! ([`super::oracle`]) reads.
 //!
 //! A [`Position`] is a value: the sentence [`Form`], the [`Slot`] of the form, the [`Kind`] of the
 //! position (what a term there means), the [`PatternRoot`] of a pattern's root, and the
