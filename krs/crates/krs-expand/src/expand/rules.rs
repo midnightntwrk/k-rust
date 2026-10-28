@@ -136,20 +136,31 @@ pub(crate) fn equation_item(
     )
 }
 
+/// What a `k::equations!` row shares with its table: the `use` items,
+/// through which rustc resolves the row's one-segment paths, and the alias
+/// that names the header's function. The header path is written once, so it
+/// reaches rustc once, as the alias's definition; the row's signature, the
+/// head of its subject and its arity check name the alias.
+#[derive(Clone, Copy)]
+pub(crate) struct TableRow<'a> {
+    pub(crate) imports: &'a [syn::ItemUse],
+    pub(crate) function: &'a syn::Ident,
+}
+
 /// One `k::equations!` row: an equation whose one-segment paths rustc
 /// resolves through the table's `use` items, and the check of its argument
 /// count against the function's.
 pub(crate) fn equation_row(
     env: &dyn MacroEnvironment,
     row: &krs_syntax::EquationRow,
-    imports: &[syn::ItemUse],
-    function: &Path,
+    table: TableRow<'_>,
 ) -> crate::Result<TokenStream> {
+    let TableRow { imports, function } = table;
     let equation = expand_ordinary_rule(
         env,
         row.rule(),
         krs_syntax::RuleSentence::Equation(row.equation()),
-        Some(imports),
+        Some(table),
         &[],
     )?;
     let facade = env.facade_path()?;
@@ -311,8 +322,7 @@ fn ordinary_rule(
 }
 
 /// Expands a rule fn whose sides are terms, as the sentence its attribute
-/// makes it; `lexical_imports` are the `use` items of a `k::equations!`
-/// table, through which rustc resolves the row's one-segment paths.
+/// makes it; `table` is what a `k::equations!` row shares with its table.
 #[expect(
     clippy::too_many_lines,
     reason = "Rule lowering keeps the declaration context and both sides together."
@@ -321,11 +331,12 @@ fn expand_ordinary_rule(
     env: &dyn MacroEnvironment,
     rule: &krs_syntax::RuleItem,
     sentence: krs_syntax::RuleSentence<'_>,
-    lexical_imports: Option<&[syn::ItemUse]>,
+    table: Option<TableRow<'_>>,
     narrowings: &[krs_syntax::RuleNarrowing],
 ) -> crate::Result<TokenStream> {
     use krs_ir::SentenceKind;
     use krs_syntax::RuleSentence;
+    let lexical_imports = table.map(|table| table.imports);
     // Only `#[k::rule]` and `#[k::context]` carry rule metadata; a
     // context's is its rule-attribute view.
     let no_metadata = krs_syntax::RuleAttribute::default();
@@ -400,14 +411,11 @@ fn expand_ordinary_rule(
     // descriptor carries Bool placeholders, and rustc checks that both
     // types are the facade's `ml::Predicate` (KF-039). A single-body rule
     // (KF-011) has no result type.
-    let (parameter_sort_type, result_sort_type, predicate_checks) = if rule
-        .parameter()
-        .term_sort
-        .is_function_result()
-    {
+    let (parameter_sort_type, result_sort_type, predicate_checks) = if let Some(table) = table {
         // A `k::equations!` row: the header names the function, whose
         // result sort is the equation's.
-        let sort = quote!(<#parameter_sort_path as #facade::__KrsFunction>::Result);
+        let function = table.function;
+        let sort = quote!(<#function as #facade::__KrsFunction>::Result);
         (sort.clone(), Some(sort), TokenStream::new())
     } else if predicate {
         (
@@ -439,8 +447,18 @@ fn expand_ordinary_rule(
     let visibility = &original.vis;
     let fn_token = original.sig.fn_token;
     let name_ident = &original.sig.ident;
-    let parameter_type = rule.parameter().term_sort.ty();
-    let result_type = rule.result_sort().map(krs_syntax::TermSort::ty);
+    // A row's signature names the header's function through the table's
+    // alias; every other rule's signature is its authored types.
+    let (parameter_type, result_type) = match table {
+        Some(table) => {
+            let function = table.function;
+            (quote!(#function), Some(quote!(#function)))
+        }
+        None => (
+            rule.parameter().term_sort.ty().to_token_stream(),
+            rule.result_sort().map(|sort| sort.ty().to_token_stream()),
+        ),
+    };
     let name = name_ident.unraw().to_string();
     let label = attribute
         .label()
@@ -497,7 +515,8 @@ fn expand_ordinary_rule(
         RuleSentence::Desugar(_) => Form::Desugar,
     };
     let mut term_builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents, form)
-        .with_lexical_imports(lexical_imports);
+        .with_lexical_imports(lexical_imports)
+        .with_subject_head(table.map(|table| table.function));
     let mut slots = WireSlots::new(&facade);
     let (existentials, existential_key_functions) = existential_binders(
         rule.existentials(),

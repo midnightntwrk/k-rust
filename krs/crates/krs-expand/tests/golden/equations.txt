@@ -1,6 +1,9 @@
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsTableFunction_5541d78affb9d9dd = R8;
 const _: () = {
     fn __krs_equation_table_function<F: ::k::__KrsFunction + ?Sized>() {}
-    let _ = __krs_equation_table_function::<R8>;
+    let _ = __krs_equation_table_function::<__KrsTableFunction_5541d78affb9d9dd>;
 };
 const _: () = {
     #[allow(unused_imports, clippy::enum_glob_use)]
@@ -10,18 +13,28 @@ const _: () = {
     #[allow(unused_imports, clippy::enum_glob_use)]
     use Register::*;
 };
-fn r8_b(__krs_symbolic_subject: R8) -> R8 {
+fn r8_b(
+    __krs_symbolic_subject: __KrsTableFunction_5541d78affb9d9dd,
+) -> __KrsTableFunction_5541d78affb9d9dd {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
 fn __krs_rule_subject_sort_28374b87eb14f4b8() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<R8 as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_5541d78affb9d9dd as ::k::__KrsFunction>::Result,
+    >()
 }
 #[doc(hidden)]
 fn __krs_rule_result_sort_28374b87eb14f4b8() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<R8 as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_5541d78affb9d9dd as ::k::__KrsFunction>::Result,
+    >()
+}
+#[doc(hidden)]
+fn __krs_rule_subject_head_28374b87eb14f4b8() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<__KrsTableFunction_5541d78affb9d9dd>()
 }
 #[doc(hidden)]
 fn __krs_rule_descriptor_28374b87eb14f4b8() -> ::core::result::Result<
@@ -50,18 +63,9 @@ fn __krs_rule_descriptor_28374b87eb14f4b8() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Target({
-                        #[allow(unused_imports, clippy::enum_glob_use)]
-                        use Operand::*;
-                        #[allow(unused_imports, clippy::enum_glob_use)]
-                        use Register::*;
-                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(R8 { .. }) = &__krs_rule_application_witness {}
-                        ::k::__krs_resolve_rule_application::<
-                            _,
-                            669079246896361239u64,
-                        >(&__krs_rule_application_witness, "R8")
-                    }),
+                    ::k::__KrsTargetSlot::Nominal(
+                        ::k::HostTypeKey(__krs_rule_subject_head_28374b87eb14f4b8),
+                    ),
                     ::k::__KrsTargetSlot::Target({
                         #[allow(unused_imports, clippy::enum_glob_use)]
                         use Operand::*;
@@ -250,10 +254,14 @@ fn __krs_rule_descriptor_28374b87eb14f4b8() -> ::core::result::Result<
 const _: () = {
     #[allow(clippy::unused_unit)]
     fn __krs_row_arity() {
-        let _: <R8 as ::k::__KrsFunction>::Arguments = (::k::__krs_argument(),);
+        let _: <__KrsTableFunction_5541d78affb9d9dd as ::k::__KrsFunction>::Arguments = (
+            ::k::__krs_argument(),
+        );
     }
 };
-fn r8_big(__krs_symbolic_subject: R8) -> R8 {
+fn r8_big(
+    __krs_symbolic_subject: __KrsTableFunction_5541d78affb9d9dd,
+) -> __KrsTableFunction_5541d78affb9d9dd {
     let _krs_binding_check = || {
         let n = ();
         let _ = &n;
@@ -263,11 +271,19 @@ fn r8_big(__krs_symbolic_subject: R8) -> R8 {
 }
 #[doc(hidden)]
 fn __krs_rule_subject_sort_99baddc925745240() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<R8 as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_5541d78affb9d9dd as ::k::__KrsFunction>::Result,
+    >()
 }
 #[doc(hidden)]
 fn __krs_rule_result_sort_99baddc925745240() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<R8 as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_5541d78affb9d9dd as ::k::__KrsFunction>::Result,
+    >()
+}
+#[doc(hidden)]
+fn __krs_rule_subject_head_99baddc925745240() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<__KrsTableFunction_5541d78affb9d9dd>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_99baddc925745240_0() -> ::core::any::TypeId {
@@ -304,18 +320,9 @@ fn __krs_rule_descriptor_99baddc925745240() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Target({
-                        #[allow(unused_imports, clippy::enum_glob_use)]
-                        use Operand::*;
-                        #[allow(unused_imports, clippy::enum_glob_use)]
-                        use Register::*;
-                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(R8 { .. }) = &__krs_rule_application_witness {}
-                        ::k::__krs_resolve_rule_application::<
-                            _,
-                            669079246896361239u64,
-                        >(&__krs_rule_application_witness, "R8")
-                    }),
+                    ::k::__KrsTargetSlot::Nominal(
+                        ::k::HostTypeKey(__krs_rule_subject_head_99baddc925745240),
+                    ),
                     ::k::__KrsTargetSlot::Target({
                         #[allow(unused_imports, clippy::enum_glob_use)]
                         use Operand::*;
@@ -550,7 +557,9 @@ fn __krs_rule_descriptor_99baddc925745240() -> ::core::result::Result<
 const _: () = {
     #[allow(clippy::unused_unit)]
     fn __krs_row_arity() {
-        let _: <R8 as ::k::__KrsFunction>::Arguments = (::k::__krs_argument(),);
+        let _: <__KrsTableFunction_5541d78affb9d9dd as ::k::__KrsFunction>::Arguments = (
+            ::k::__krs_argument(),
+        );
     }
 };
 const _: () = {
@@ -567,18 +576,28 @@ const _: () = {
         let n = ();
     }
 };
-fn r8_other(__krs_symbolic_subject: R8) -> R8 {
+fn r8_other(
+    __krs_symbolic_subject: __KrsTableFunction_5541d78affb9d9dd,
+) -> __KrsTableFunction_5541d78affb9d9dd {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
 fn __krs_rule_subject_sort_26ac63c0f73bf14c() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<R8 as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_5541d78affb9d9dd as ::k::__KrsFunction>::Result,
+    >()
 }
 #[doc(hidden)]
 fn __krs_rule_result_sort_26ac63c0f73bf14c() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<R8 as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_5541d78affb9d9dd as ::k::__KrsFunction>::Result,
+    >()
+}
+#[doc(hidden)]
+fn __krs_rule_subject_head_26ac63c0f73bf14c() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<__KrsTableFunction_5541d78affb9d9dd>()
 }
 #[doc(hidden)]
 fn __krs_rule_descriptor_26ac63c0f73bf14c() -> ::core::result::Result<
@@ -607,18 +626,9 @@ fn __krs_rule_descriptor_26ac63c0f73bf14c() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Target({
-                        #[allow(unused_imports, clippy::enum_glob_use)]
-                        use Operand::*;
-                        #[allow(unused_imports, clippy::enum_glob_use)]
-                        use Register::*;
-                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(R8 { .. }) = &__krs_rule_application_witness {}
-                        ::k::__krs_resolve_rule_application::<
-                            _,
-                            669079246896361239u64,
-                        >(&__krs_rule_application_witness, "R8")
-                    }),
+                    ::k::__KrsTargetSlot::Nominal(
+                        ::k::HostTypeKey(__krs_rule_subject_head_26ac63c0f73bf14c),
+                    ),
                     ::k::__KrsTargetSlot::Target({
                         #[allow(unused_imports, clippy::enum_glob_use)]
                         use Operand::*;
@@ -784,6 +794,8 @@ fn __krs_rule_descriptor_26ac63c0f73bf14c() -> ::core::result::Result<
 const _: () = {
     #[allow(clippy::unused_unit)]
     fn __krs_row_arity() {
-        let _: <R8 as ::k::__KrsFunction>::Arguments = (::k::__krs_argument(),);
+        let _: <__KrsTableFunction_5541d78affb9d9dd as ::k::__KrsFunction>::Arguments = (
+            ::k::__krs_argument(),
+        );
     }
 };

@@ -1,23 +1,36 @@
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsTableFunction_b224090fde1e5715 = Decode;
 const _: () = {
     fn __krs_equation_table_function<F: ::k::__KrsFunction + ?Sized>() {}
-    let _ = __krs_equation_table_function::<Decode>;
+    let _ = __krs_equation_table_function::<__KrsTableFunction_b224090fde1e5715>;
 };
 const _: () = {
     #[allow(unused_imports, clippy::enum_glob_use)]
     use Instruction::*;
 };
-fn decode_halt(__krs_symbolic_subject: Decode) -> Decode {
+fn decode_halt(
+    __krs_symbolic_subject: __KrsTableFunction_b224090fde1e5715,
+) -> __KrsTableFunction_b224090fde1e5715 {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
 fn __krs_rule_subject_sort_7706b185ded6a76c() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<Decode as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_b224090fde1e5715 as ::k::__KrsFunction>::Result,
+    >()
 }
 #[doc(hidden)]
 fn __krs_rule_result_sort_7706b185ded6a76c() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<Decode as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_b224090fde1e5715 as ::k::__KrsFunction>::Result,
+    >()
+}
+#[doc(hidden)]
+fn __krs_rule_subject_head_7706b185ded6a76c() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<__KrsTableFunction_b224090fde1e5715>()
 }
 #[doc(hidden)]
 fn __krs_rule_descriptor_7706b185ded6a76c() -> ::core::result::Result<
@@ -46,16 +59,9 @@ fn __krs_rule_descriptor_7706b185ded6a76c() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Target({
-                        #[allow(unused_imports, clippy::enum_glob_use)]
-                        use Instruction::*;
-                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(Decode { .. }) = &__krs_rule_application_witness {}
-                        ::k::__krs_resolve_rule_application::<
-                            _,
-                            713486326494870703u64,
-                        >(&__krs_rule_application_witness, "Decode")
-                    }),
+                    ::k::__KrsTargetSlot::Nominal(
+                        ::k::HostTypeKey(__krs_rule_subject_head_7706b185ded6a76c),
+                    ),
                     ::k::__KrsTargetSlot::Target({
                         #[allow(unused_imports, clippy::enum_glob_use)]
                         use Instruction::*;
@@ -208,10 +214,14 @@ fn __krs_rule_descriptor_7706b185ded6a76c() -> ::core::result::Result<
 const _: () = {
     #[allow(clippy::unused_unit)]
     fn __krs_row_arity() {
-        let _: <Decode as ::k::__KrsFunction>::Arguments = (::k::__krs_argument(),);
+        let _: <__KrsTableFunction_b224090fde1e5715 as ::k::__KrsFunction>::Arguments = (
+            ::k::__krs_argument(),
+        );
     }
 };
-fn decode_ld_r_r(__krs_symbolic_subject: Decode) -> Decode {
+fn decode_ld_r_r(
+    __krs_symbolic_subject: __KrsTableFunction_b224090fde1e5715,
+) -> __KrsTableFunction_b224090fde1e5715 {
     let _krs_binding_check = || {
         let op = ();
         let _ = &op;
@@ -221,11 +231,19 @@ fn decode_ld_r_r(__krs_symbolic_subject: Decode) -> Decode {
 }
 #[doc(hidden)]
 fn __krs_rule_subject_sort_864d0604ad0c2d57() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<Decode as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_b224090fde1e5715 as ::k::__KrsFunction>::Result,
+    >()
 }
 #[doc(hidden)]
 fn __krs_rule_result_sort_864d0604ad0c2d57() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<Decode as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_b224090fde1e5715 as ::k::__KrsFunction>::Result,
+    >()
+}
+#[doc(hidden)]
+fn __krs_rule_subject_head_864d0604ad0c2d57() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<__KrsTableFunction_b224090fde1e5715>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_864d0604ad0c2d57_0() -> ::core::any::TypeId {
@@ -314,16 +332,9 @@ fn __krs_rule_descriptor_864d0604ad0c2d57() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Target({
-                        #[allow(unused_imports, clippy::enum_glob_use)]
-                        use Instruction::*;
-                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(Decode { .. }) = &__krs_rule_application_witness {}
-                        ::k::__krs_resolve_rule_application::<
-                            _,
-                            713486326494870703u64,
-                        >(&__krs_rule_application_witness, "Decode")
-                    }),
+                    ::k::__KrsTargetSlot::Nominal(
+                        ::k::HostTypeKey(__krs_rule_subject_head_864d0604ad0c2d57),
+                    ),
                     ::k::__KrsTargetSlot::Target({
                         #[allow(unused_imports, clippy::enum_glob_use)]
                         use Instruction::*;
@@ -1054,7 +1065,9 @@ fn __krs_rule_descriptor_864d0604ad0c2d57() -> ::core::result::Result<
 const _: () = {
     #[allow(clippy::unused_unit)]
     fn __krs_row_arity() {
-        let _: <Decode as ::k::__KrsFunction>::Arguments = (::k::__krs_argument(),);
+        let _: <__KrsTableFunction_b224090fde1e5715 as ::k::__KrsFunction>::Arguments = (
+            ::k::__krs_argument(),
+        );
     }
 };
 const _: () = {

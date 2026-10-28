@@ -539,6 +539,10 @@ pub(super) struct TermBuilder<'a> {
     /// and a name two globs supply is rustc's ambiguity error where it is
     /// used.
     lexical_imports: Option<&'a [syn::ItemUse]>,
+    /// The alias that names the head of the subject's root, where the
+    /// sentence's header already wrote it: a `k::equations!` row's subject
+    /// applies the header's function. Taken by the root's application.
+    subject_head: Option<&'a Ident>,
     pub(super) tooling_binding_references: Vec<Path>,
     /// The side of the `k::rewrite!` being expanded, or `None` outside one.
     rewrite: Option<RewriteSide>,
@@ -578,6 +582,7 @@ impl<'a> TermBuilder<'a> {
             let_pattern_binders: None,
             let_scopes: Vec::new(),
             lexical_imports: None,
+            subject_head: None,
             tooling_binding_references: Vec::new(),
             rewrite: None,
         }
@@ -696,6 +701,14 @@ impl<'a> TermBuilder<'a> {
         imports: Option<&'a [syn::ItemUse]>,
     ) -> Self {
         self.lexical_imports = imports;
+        self
+    }
+
+    /// Names the head of the subject's root through `alias`, the one
+    /// mention of a path the sentence's header wrote (a `k::equations!`
+    /// row's function), instead of the row's copy of that path.
+    pub(super) const fn with_subject_head(mut self, alias: Option<&'a Ident>) -> Self {
+        self.subject_head = alias;
         self
     }
 
@@ -935,7 +948,14 @@ impl<'a> TermBuilder<'a> {
                 let node = keys.node(NodeKind::ApplicationHead, head_range)?;
                 let (key, path_key) = node.head(path_key)?;
                 let authored_path = spelling(application.head());
-                let target = if !application.is_notation() && is_lexical_path(application.head()) {
+                let subject_head = if matches!(side, TermSide::Left) && self.depth == 1 {
+                    self.subject_head.take()
+                } else {
+                    None
+                };
+                let target = if let Some(alias) = subject_head {
+                    self.subject_head_slot(alias, slots)
+                } else if !application.is_notation() && is_lexical_path(application.head()) {
                     let expression = self.lexical_rule_application_target(application.head());
                     slots.target_slot_unique(&expression)
                 } else {
@@ -1486,6 +1506,28 @@ impl<'a> TermBuilder<'a> {
         } else {
             slots.nominal_target_slot(&owner_key)
         })
+    }
+
+    /// The target of the subject root's head named by `alias`
+    /// ([`Self::with_subject_head`]). The header's function is a type (a KRS
+    /// function is a Rust struct), so the alias is keyed by its type.
+    fn subject_head_slot(&mut self, alias: &Ident, slots: &mut WireSlots) -> TargetSlot {
+        let key_fn = format_ident!("__krs_rule_subject_head_{:016x}", self.nonce);
+        let cfg = self.cfg;
+        self.key_functions.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #key_fn() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#alias>()
+            }
+        });
+        let key_reference = if self.associated_keys {
+            quote!(Self::#key_fn)
+        } else {
+            quote!(#key_fn)
+        };
+        let facade = self.facade;
+        slots.nominal_target_slot(&quote!(#facade::HostTypeKey(#key_reference)))
     }
 
     /// Lowers the turbofish of a parametric production head (KF-027) to one

@@ -1,8 +1,13 @@
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsTableFunction_ef144e0756102319 = IsLd;
 const _: () = {
     fn __krs_equation_table_function<F: ::k::__KrsFunction + ?Sized>() {}
-    let _ = __krs_equation_table_function::<IsLd>;
+    let _ = __krs_equation_table_function::<__KrsTableFunction_ef144e0756102319>;
 };
-fn is_ld_high(__krs_symbolic_subject: IsLd) -> IsLd {
+fn is_ld_high(
+    __krs_symbolic_subject: __KrsTableFunction_ef144e0756102319,
+) -> __KrsTableFunction_ef144e0756102319 {
     let _krs_binding_check = || {
         let op = ();
         let _ = &op;
@@ -12,11 +17,19 @@ fn is_ld_high(__krs_symbolic_subject: IsLd) -> IsLd {
 }
 #[doc(hidden)]
 fn __krs_rule_subject_sort_310cff7ff373b622() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<IsLd as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_ef144e0756102319 as ::k::__KrsFunction>::Result,
+    >()
 }
 #[doc(hidden)]
 fn __krs_rule_result_sort_310cff7ff373b622() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<IsLd as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_ef144e0756102319 as ::k::__KrsFunction>::Result,
+    >()
+}
+#[doc(hidden)]
+fn __krs_rule_subject_head_310cff7ff373b622() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<__KrsTableFunction_ef144e0756102319>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_310cff7ff373b622_0() -> ::core::any::TypeId {
@@ -69,14 +82,9 @@ fn __krs_rule_descriptor_310cff7ff373b622() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Target({
-                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(IsLd { .. }) = &__krs_rule_application_witness {}
-                        ::k::__krs_resolve_rule_application::<
-                            _,
-                            10427216124275967949u64,
-                        >(&__krs_rule_application_witness, "IsLd")
-                    }),
+                    ::k::__KrsTargetSlot::Nominal(
+                        ::k::HostTypeKey(__krs_rule_subject_head_310cff7ff373b622),
+                    ),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_310cff7ff373b622_0),
                     ),
@@ -501,10 +509,14 @@ fn __krs_rule_descriptor_310cff7ff373b622() -> ::core::result::Result<
 const _: () = {
     #[allow(clippy::unused_unit)]
     fn __krs_row_arity() {
-        let _: <IsLd as ::k::__KrsFunction>::Arguments = (::k::__krs_argument(),);
+        let _: <__KrsTableFunction_ef144e0756102319 as ::k::__KrsFunction>::Arguments = (
+            ::k::__krs_argument(),
+        );
     }
 };
-fn is_ld(__krs_symbolic_subject: IsLd) -> IsLd {
+fn is_ld(
+    __krs_symbolic_subject: __KrsTableFunction_ef144e0756102319,
+) -> __KrsTableFunction_ef144e0756102319 {
     let _krs_binding_check = || {
         let op = ();
         let _ = &op;
@@ -514,11 +526,19 @@ fn is_ld(__krs_symbolic_subject: IsLd) -> IsLd {
 }
 #[doc(hidden)]
 fn __krs_rule_subject_sort_360d86b7fb36472d() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<IsLd as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_ef144e0756102319 as ::k::__KrsFunction>::Result,
+    >()
 }
 #[doc(hidden)]
 fn __krs_rule_result_sort_360d86b7fb36472d() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<<IsLd as ::k::__KrsFunction>::Result>()
+    ::core::any::TypeId::of::<
+        <__KrsTableFunction_ef144e0756102319 as ::k::__KrsFunction>::Result,
+    >()
+}
+#[doc(hidden)]
+fn __krs_rule_subject_head_360d86b7fb36472d() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<__KrsTableFunction_ef144e0756102319>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_360d86b7fb36472d_0() -> ::core::any::TypeId {
@@ -571,14 +591,9 @@ fn __krs_rule_descriptor_360d86b7fb36472d() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Target({
-                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
-                        if let ::core::option::Option::Some(IsLd { .. }) = &__krs_rule_application_witness {}
-                        ::k::__krs_resolve_rule_application::<
-                            _,
-                            10427216124275967949u64,
-                        >(&__krs_rule_application_witness, "IsLd")
-                    }),
+                    ::k::__KrsTargetSlot::Nominal(
+                        ::k::HostTypeKey(__krs_rule_subject_head_360d86b7fb36472d),
+                    ),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_360d86b7fb36472d_0),
                     ),
@@ -992,6 +1007,8 @@ fn __krs_rule_descriptor_360d86b7fb36472d() -> ::core::result::Result<
 const _: () = {
     #[allow(clippy::unused_unit)]
     fn __krs_row_arity() {
-        let _: <IsLd as ::k::__KrsFunction>::Arguments = (::k::__krs_argument(),);
+        let _: <__KrsTableFunction_ef144e0756102319 as ::k::__KrsFunction>::Arguments = (
+            ::k::__krs_argument(),
+        );
     }
 };
