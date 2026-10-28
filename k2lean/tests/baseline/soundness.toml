@@ -39,8 +39,8 @@ refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 [lib.impplustypes]
 tier = "light"
 stated = 126
-open = ["Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_2»", "Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_3»", "Eqn.«wt(_,_)_IMPPLUS-TYPING_Bool_Stmt_Map_8»"]
-guarded = 138
+open = ["Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_3»", "Eqn.«wt(_,_)_IMPPLUS-TYPING_Bool_Stmt_Map_8»"]
+guarded = 139
 refuted = ["Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»"]
 overlaps = 2
 unwitnessed = 2
@@ -74,7 +74,7 @@ preserve = []
 "demos/ExprTypes/correspondence.toml" = { tier = "light", sha256 = "8ed5d7a2993eab53ac52755a55e3027c0df6dc2ab6e5c0bea84bd4a0e64092c6" }
 "demos/ImpPlusTypes/ImpPlusTypes/Soundness.lean" = { tier = "light", sha256 = "0133e868d585720f161e1df1c62446613d2beb3e7f000c6fd5b51f04921efa82" }
 "demos/ImpPlusTypes/ImpPlusTypes/Tr.lean" = { tier = "light", sha256 = "9ede93254af11530504c5e70fd1619fdb610ff560406afbcf617b665a75ac8a3" }
-"demos/ImpPlusTypes/ImpPlusTypes/Typing.lean" = { tier = "light", sha256 = "9142270d90d4d60dbf10fa1aaaa741dda55626e0d4d73c45a2c70a7850c8d0ac" }
+"demos/ImpPlusTypes/ImpPlusTypes/Typing.lean" = { tier = "light", sha256 = "92cbbbc70d4a4ee1fe8934fa968f9aa86995584ebb6ce3d5816cb203e2ee09db" }
 "demos/ImpPlusTypes/correspondence.toml" = { tier = "light", sha256 = "5277ddf9a97b7a5f166d384128334792c35d3b96c3597763297eca731dc1de94" }
 "demos/ImpTypes/ImpTypes/Soundness.lean" = { tier = "light", sha256 = "3127ca02858cca9d6e32b498fb59862ae329525efb1abc1ceefa99ca8921b3a1" }
 "demos/ImpTypes/ImpTypes/Tr.lean" = { tier = "light", sha256 = "7d5c653d47818914f8b4e8a1ceadc5213b911f3397f98ad4dbb29687f6a0d0bc" }
@@ -123,15 +123,15 @@ preserve = []
 "generated/impplustypes/KImpPlusTypes/Determinism/L1.lean" = { tier = "light", sha256 = "0fe5b8d43faefc98de50beceb989586ccf9b1c5a9e088175f9a73b1bc6e5e3e9" }
 "generated/impplustypes/KImpPlusTypes/Determinism/Pre.lean" = { tier = "light", sha256 = "1d50c072953d394da1ba22218e460d3a2512fe1573680a54b0d6a33609378e72" }
 "generated/impplustypes/KImpPlusTypes/Determinism/Witness.lean" = { tier = "light", sha256 = "3910c48ce25599a0e51a3322deb2a54ab23da4028aae4e33b4ff2637ca6e59ec" }
-"generated/impplustypes/KImpPlusTypes/Equations.lean" = { tier = "light", sha256 = "cb09b696e45007b10d55f92c87f2a9065938f9afc9647f63b9f6991a29bb3a83" }
-"generated/impplustypes/KImpPlusTypes/Functions.lean" = { tier = "light", sha256 = "f63e3105e60edc224b4877bec601638cc7c6fbbba9b5f68e91bbf413d6efad72" }
+"generated/impplustypes/KImpPlusTypes/Equations.lean" = { tier = "light", sha256 = "fad864e31dade45e307690c8fffcc0beb06d667b71d71bc949db046cd911c38f" }
+"generated/impplustypes/KImpPlusTypes/Functions.lean" = { tier = "light", sha256 = "ac5bccc9975943019658693dbef70441d0b3eddac958d2c9131e09949616c103" }
 "generated/impplustypes/KImpPlusTypes/Init.lean" = { tier = "light", sha256 = "9b67f48341247965032578c6abc7210e86e00cedba6bd05407383b6193ce24cd" }
 "generated/impplustypes/KImpPlusTypes/Preserves.lean" = { tier = "light", sha256 = "27a159d2a1501acc908a8c3cb410985905cfe1ff60ac8ee5a51f90b136755d68" }
 "generated/impplustypes/KImpPlusTypes/Refuted.lean" = { tier = "light", sha256 = "d2f1a250721c886041426e1b53f9e242aac032ba39f09eb790fa307876f3a477" }
 "generated/impplustypes/KImpPlusTypes/Rules.lean" = { tier = "light", sha256 = "d4008efe52650efd0e0237155aba89a6cf19254e6a8577b6ad473dca749a72f9" }
 "generated/impplustypes/KImpPlusTypes/Terms.lean" = { tier = "light", sha256 = "ed96cfc991ad99f4984968fdedb356a286471c942cf52a209ed220b36dc97d4e" }
 "generated/impplustypes/KImpPlusTypesBench/Main.lean" = { tier = "light", sha256 = "33e2681841485141604565f4a7c3900e7388d47045df1995ce95ce605907eb1c" }
-"generated/impplustypes/KImpPlusTypesTest/Axioms.lean" = { tier = "light", sha256 = "f81e41ed175cdcea95c63e7c66e10ab9d8e786601ead102ef33a9cf004318f88" }
+"generated/impplustypes/KImpPlusTypesTest/Axioms.lean" = { tier = "light", sha256 = "992ebda7b07b4d025965be960d357ec8c29cd167dcaf794197321bde387c9758" }
 "generated/impplustypes/KImpPlusTypesTest/DetAxioms.lean" = { tier = "light", sha256 = "31f6c61fea2303618d348d1091edd170301ca8bde480248c466fd09a8e5a0398" }
 "generated/impplustypes/KImpPlusTypesTest/Main.lean" = { tier = "light", sha256 = "bc776526c9303c68a37aee8cb73f18a839116f0b6fa5c690485848c83ba44edc" }
 "generated/impplustypes/KImpPlusTypesTest/Refuted.lean" = { tier = "light", sha256 = "9dc9ebf0d6aaa27acd0b1e7f83326f6c1dbed919b9d1916d83c79c0f01d43f9d" }
