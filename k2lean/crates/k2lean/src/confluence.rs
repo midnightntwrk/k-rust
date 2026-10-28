@@ -2603,16 +2603,18 @@ def staticOK (r₁ r₂ : Rule) : Bool :=
        compatTbl r₁.cls r₂.cls && safe r₁.cls r₂.rank && safe r₂.cls r₁.rank
      | _, _ => false)").unwrap();
         writeln!(o, "\n/-- The joins of two steps at one thread by two rules of one rank, each with a key (the first items
-of the thread's `<k>`) that may be the other's. Nothing generic decides them: they are the
-determinism of one thread. -/
+of the thread's `<k>`) that may be the other's, the bindings each view matches given (`Binds`, as
+many as the rule's keys by `Fits`). Nothing generic decides them: they are the determinism of one
+thread. -/
 def SameThreadJoins : Prop :=
   ∀ r₁ r₂, r₁.kind = .thread → r₂.kind = .thread → r₁.rank = r₂.rank → KeyPat.pdisj r₁.pats r₂.pats = false →
-    ∀ {{c c₁ c₂ : {topt}}} {{a₁ b₁ ch₁ a₂ b₂ ch₂ k}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →
-      MStep a₁ b₁ ch₁ c c₁ → MStep a₂ b₂ ch₂ c c₂ → MapHook.lookup a₁ k ≠ none → MapHook.lookup a₂ k ≠ none →
-      DiamondMod {name}.Step Eq c₁ c₂").unwrap();
+    ∀ {{c c₁ c₂ : {topt}}} {{a₁ b₁ ch₁ bs₁ a₂ b₂ ch₂ bs₂ k}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →
+      MStep a₁ b₁ ch₁ c c₁ → MStep a₂ b₂ ch₂ c c₂ → MapHook.Binds a₁ bs₁ → MapHook.Binds a₂ bs₂ →
+      KeyPat.Fits tkey r₁.pats bs₁ → KeyPat.Fits tkey r₂.pats bs₂ → MapHook.lookup a₁ k ≠ none →
+      MapHook.lookup a₂ k ≠ none → DiamondMod {name}.Step Eq c₁ c₂").unwrap();
         if any_keyed {
-            writeln!(o, "\n/-- A step that changes the shared cells by `ch`, a rule's change (`Change.Small`). -/\ndef ChOf (ch : Change) (c c' : {topt}) : Prop :=\n  ((∃ a b, MStep a b ch c c') ∨ SStep ch c c') ∧ ch.Small").unwrap();
-            writeln!(o, "\n/-- The joins of two steps by rules of one rank whose changes of a cell holding a map overlap: a key\nthat both match, or one matches and the other adds, or both add (`MCh.Compat` fails). They are\nthe races at one binding, such as two steps that remove one binding. -/\ndef KeyJoins : Prop :=\n  ∀ r₁ r₂, r₁.rank = r₂.rank → ∀ {{c c₁ c₂ : {topt}}} {{ch₁ ch₂}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    ChOf ch₁ c c₁ → ChOf ch₂ c c₂ → ¬ ch₁.KCompat ch₂ → DiamondMod {name}.Step Eq c₁ c₂").unwrap();
+            writeln!(o, "\n/-- A step by rule `r` that changes the shared cells by `ch`, the rule's change (`Change.Small`, of\nthe rule's class). -/\ndef ChOf (r : Rule) (ch : Change) (c c' : {topt}) : Prop :=\n  ((∃ a b, MStep a b ch c c') ∨ SStep ch c c') ∧ ch.Small ∧ InClass r.cls ch").unwrap();
+            writeln!(o, "\n/-- The joins of two steps by rules of one rank whose changes of a cell holding a map overlap: a key\nthat both match, or one matches and the other adds, or both add (`MCh.Compat` fails). They are\nthe races at one binding, such as two steps that remove one binding. -/\ndef KeyJoins : Prop :=\n  ∀ r₁ r₂, r₁.rank = r₂.rank → ∀ {{c c₁ c₂ : {topt}}} {{ch₁ ch₂}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    ChOf r₁ ch₁ c c₁ → ChOf r₂ ch₂ c c₂ → ¬ ch₁.KCompat ch₂ → DiamondMod {name}.Step Eq c₁ c₂").unwrap();
         }
         let mut js = format!("\ntheorem join_static (S : SameThreadJoins) {{r₁ r₂ : Rule}} {{c c₁ c₂ : {topt}}} (hs : staticOK r₁ r₂ = true)
     (v₁ : ViewOf r₁ c c₁) (v₂ : ViewOf r₂ c c₂) : DiamondMod {name}.Step Eq c₁ c₂ := by
@@ -2634,7 +2636,7 @@ def SameThreadJoins : Prop :=
     by_cases hk : ∃ p ∈ bs₁, ∃ q ∈ bs₂, p.1 = q.1
     · obtain ⟨p, hp, q, hq, e⟩ := hk
       cases hd : KeyPat.pdisj r₁.pats r₂.pats
-      · refine S r₁ r₂ hk₁ hk₂ hr hd b₁ b₂ ts₁ ts₂ (k := p.1) ?_ ?_
+      · refine S r₁ r₂ hk₁ hk₂ hr hd b₁ b₂ ts₁ ts₂ d₁ d₂ m₁ m₂ (k := p.1) ?_ ?_
         · rw [(d₁ p.1 p.2).2 hp]; simp
         · rw [e, (d₂ q.1 q.2).2 hq]; simp
       · exact (KeyPat.pdisj_sound hd m₁ m₂ hp hq (mstep_same ts₁ ts₂ d₁ d₂ hp hq e)).elim
@@ -2669,9 +2671,9 @@ def SameThreadJoins : Prop :=
             // otherwise the join is `KeyJoins`'
             let chof = |side: &str, n: &str| {
                 if side == "t" {
-                    format!("⟨Or.inl ⟨_, _, ts{n}⟩, k{n}⟩")
+                    format!("⟨Or.inl ⟨_, _, ts{n}⟩, k{n}, i{n}⟩")
                 } else {
-                    format!("⟨Or.inr ss{n}, k{n}⟩")
+                    format!("⟨Or.inr ss{n}, k{n}, i{n}⟩")
                 }
             };
             let split = |ind: &str, s1: &str, s2: &str| {

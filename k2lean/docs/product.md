@@ -94,6 +94,7 @@ Speed is not the argument: compiled Lean already runs a semantics 2 to 4 times f
   - a coroutine semantics against its defunctionalized state machine: `relate`, `refine`.
 
   This is why confluence is in scope: languages that are nondeterministic for their own sake (SIMPLE's threads) matter less for blockchains.
+  First result (2026-10-29): the fixture `utxo` (coroutines over a ledger, ids derived from content, outputs spent by their owner) is proved confluent with no premise (`demos/UtxoConf`, design.md §3.6); a legality hypothesis, temporal statements and a Starstream-sized model are still ahead.
   It is likely not sufficient: protocol properties (session types) need temporal statements beyond reachability and confluence, and whether Lean is the right tool for those is open (§8).
 - **Beyond k2lean:** the EVM goals (KEVM against the Ethereum tests; KEVM against another EVM model) are claims about one semantics, so they belong to an EVM project, which G1 enables (§6).
 

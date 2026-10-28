@@ -89,6 +89,7 @@ def Premises.statement : Prop := OpenJoins ∧ SameThreadJoins
 theorem Premises.refuted : ¬ Premises.statement :=
   fun ⟨O, S⟩ => terminalUnique.refuted (terminal_unique_of O S)
 
-#k2l_assert_axioms terminalUnique.refuted Premises.refuted
+#k2l_assert_axioms terminalUnique.refuted
+#k2l_refuted Premises
 
 end SimpleConf.Refute

@@ -791,6 +791,54 @@ theorem lookup_of_concat {a R m : M} (h : concat a R = some m) {k : K} {v : V}
   rw [lookup_def] at hl ⊢
   exact SAL.lookup_of_mem (SAL.sorted_of_concat H) ((SAL.mem_concat H).2 (Or.inl (SAL.lookup_mem hl)))
 
+/-- A binding of `m = a R` at a key `a` does not bind is `R`'s. -/
+theorem lookup_concat_right {a R m : M} (h : concat a R = some m) {k : K} (ha : lookup a k = none) :
+    lookup m k = lookup R k := by
+  have H := concat_toList h
+  have sm := SAL.sorted_of_concat H
+  have sR := (SAL.concat_eq_some_iff.1 H).2.1
+  rw [lookup_def] at ha
+  rw [lookup_def, lookup_def]
+  cases e : SAL.lookup k (toList R) with
+  | some v => exact SAL.lookup_of_mem sm ((SAL.mem_concat H).2 (Or.inr (SAL.lookup_mem e)))
+  | none =>
+    cases e' : SAL.lookup k (toList m) with
+    | none => rfl
+    | some v =>
+      rcases (SAL.mem_concat H).1 (SAL.lookup_mem e') with h₁ | h₁
+      · rw [SAL.lookup_of_mem (SAL.sorted_of_concat_left H) h₁] at ha; cases ha
+      · rw [SAL.lookup_of_mem sR h₁] at e; cases e
+
+/-- A key whose binding a step changes (`a R = m` to `b R = m'`) is one it matches or puts back. -/
+theorem changed_key {a b R m m' : M} (h : concat a R = some m) (h' : concat b R = some m') {k : K}
+    (hk : lookup m k ≠ lookup m' k) : lookup a k ≠ none ∨ lookup b k ≠ none := by
+  cases ha : lookup a k with
+  | some v => exact Or.inl (by simp)
+  | none =>
+    cases hb : lookup b k with
+    | some w => exact Or.inr (by simp)
+    | none => exact absurd ((lookup_concat_right h ha).trans (lookup_concat_right h' hb).symm) hk
+
+/-- A key the rest binds is not one of what `concat` puts beside it. -/
+theorem lookup_left_none_of_concat {b R m : M} (h : concat b R = some m) {k : K}
+    (hR : lookup R k ≠ none) : lookup b k = none := by
+  have H := concat_toList h
+  obtain ⟨w, hw⟩ := Option.ne_none_iff_exists'.1 hR
+  rw [lookup_def] at hw ⊢
+  cases e : SAL.lookup k (toList b) with
+  | none => rfl
+  | some v =>
+    exact (SAL.concat_disj H (SAL.lookup_mem e) (SAL.lookup_mem hw) rfl).elim
+
+/-- A step `a R = m` to `b R = m'` that changes the binding at a key of `m` (another value, or
+none) matches that key. -/
+theorem matched_of_ne {a b R m m' : M} (h : concat a R = some m) (h' : concat b R = some m')
+    {k : K} (hk : lookup m k ≠ none) (hne : lookup m k ≠ lookup m' k) : lookup a k ≠ none := by
+  intro ha
+  have e := lookup_concat_right h ha
+  have hb := lookup_left_none_of_concat h' (k := k) (by rw [← e]; exact hk)
+  exact hne (by rw [lookup_concat_right h' hb, e])
+
 /-- Two matches in one map that bind one key bind it to one value. -/
 theorem binds_same {a₁ a₂ R₁ R₂ m : M} {bs₁ bs₂ : List (K × V)} (h₁ : concat a₁ R₁ = some m)
     (h₂ : concat a₂ R₂ = some m) (b₁ : Binds a₁ bs₁) (b₂ : Binds a₂ bs₂) {p q : K × V}
@@ -920,6 +968,86 @@ theorem concat_rest_unique {a R R' m : M} (h : concat a R = some m) (h' : concat
 
 theorem wf_right_of_concat {a R m : M} (h : concat a R = some m) : WF R :=
   (SAL.concat_eq_some_iff.1 (concat_toList h)).2.1
+
+theorem lookup_element_ne {j k : K} {v : V} (h : j ≠ k) : lookup (element k v : M) j = none := by
+  cases e : lookup (element k v : M) j with
+  | none => rfl
+  | some w =>
+    have := (binds_element (k := k) (v := v) (M := M) j w).1 e
+    simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at this
+    exact absurd this.1 h
+
+/-- A part of a map one binding wide or empty, as a keyed change's (`MCh.Small`). -/
+abbrev Small (a : M) : Prop := (∃ k v, a = element k v) ∨ a = unit
+
+/-- A step `a R = L` to `b R = L'` with `a` and `b` one binding wide at most that inserts `k ↦ v`
+(`(k ↦ v) L = L'`) matches nothing and puts `k ↦ v` in. -/
+theorem small_insert {a b R L L' : M} {k : K} {v : V} (ha : Small a) (hb : Small b)
+    (h : concat a R = some L) (h' : concat b R = some L') (hi : concat (element k v) L = some L') :
+    a = unit ∧ b = element k v := by
+  obtain ⟨-, hkL, eL'⟩ := concat_element_iff.1 hi
+  have hk' : lookup L' k = some v := lookup_of_concat_element hi
+  have same : ∀ j, j ≠ k → lookup L' j = lookup L j := fun j hj => by
+    rw [eL']; exact lookup_update_ne L v hj
+  rcases ha with ⟨j, w, rfl⟩ | rfl
+  · exfalso
+    have hjL : lookup L j = some w := lookup_of_concat_element h
+    have hjk : j ≠ k := fun e => by rw [e, hkL] at hjL; cases hjL
+    have hRj : lookup R j = none := (concat_element_iff.1 h).2.1
+    have hRk : lookup R k = none := by
+      rw [← lookup_concat_right h (lookup_element_ne (Ne.symm hjk))]; exact hkL
+    have bj : lookup b j ≠ none := fun hb' => by
+      have := (lookup_concat_right h' hb').symm.trans ((same j hjk).trans hjL)
+      rw [hRj] at this; cases this
+    have bk : lookup b k ≠ none := fun hb' => by
+      have := (lookup_concat_right h' hb').symm.trans hk'
+      rw [hRk] at this; cases this
+    rcases hb with ⟨i, u, rfl⟩ | rfl
+    · have e₁ : j = i := Classical.byContradiction fun ne => bj (lookup_element_ne ne)
+      have e₂ : k = i := Classical.byContradiction fun ne => bk (lookup_element_ne ne)
+      exact hjk (e₁.trans e₂.symm)
+    · exact bk (by rw [lookup_def]; unfold unit; rw [toList_ofList]; rfl)
+  · refine ⟨rfl, ?_⟩
+    have eR := eq_of_concat_unit_left h
+    subst eR
+    rcases hb with ⟨i, u, rfl⟩ | rfl
+    · have hiL : lookup L i = none := (concat_element_iff.1 h').2.1
+      have hi' : lookup L' i = some u := lookup_of_concat_element h'
+      by_cases e : i = k
+      · subst e
+        rw [hk'] at hi'; cases hi'; rfl
+      · rw [same i e, hiL] at hi'; cases hi'
+    · have := eq_of_concat_unit_left h'
+      subst this
+      rw [hkL] at hk'; cases hk'
+
+/-- A step `a R = L` to `b R = L'` with `a` and `b` one binding wide at most that removes `k ↦ v`
+(`(k ↦ v) L' = L`) matches `k ↦ v` and puts nothing back. -/
+theorem small_remove {a b R L L' : M} {k : K} {v : V} (ha : Small a) (hb : Small b)
+    (h : concat a R = some L) (h' : concat b R = some L') (hr : concat (element k v) L' = some L) :
+    a = element k v ∧ b = unit := by
+  have hkL : lookup L k = some v := lookup_of_concat_element hr
+  have hkL' : lookup L' k = none := (concat_element_iff.1 hr).2.1
+  -- `a` matches `k`: otherwise `k` is in the rest, which the result keeps
+  have ak : lookup a k ≠ none := fun ha' => by
+    have e := lookup_concat_right h ha'
+    rw [hkL] at e
+    have hbk := lookup_left_none_of_concat h' (k := k) (by rw [← e]; simp)
+    rw [lookup_concat_right h' hbk, ← e] at hkL'; cases hkL'
+  rcases ha with ⟨j, w, rfl⟩ | rfl
+  · have hj : j = k := Classical.byContradiction fun ne => ak (lookup_element_ne (Ne.symm ne))
+    subst hj
+    have hw := (lookup_of_concat_element h).symm.trans hkL
+    cases hw
+    refine ⟨rfl, ?_⟩
+    have eR := concat_rest_unique h hr
+    subst eR
+    rcases hb with ⟨i, u, rfl⟩ | rfl
+    · have e₁ := (concat_element_iff.1 h').2.1
+      have e₂ := lookup_of_concat_element h'
+      rw [e₁] at e₂; cases e₂
+    · rfl
+  · exact absurd (by rw [lookup_def]; unfold unit; rw [toList_ofList]; rfl) ak
 
 end MapHook
 
@@ -1055,6 +1183,43 @@ theorem MCh.small_none : MCh.Small (none : MCh M) := fun _ h => by cases h
 theorem MCh.small_of {a b : M} (ha : (∃ k v, a = element k v) ∨ a = unit)
     (hb : (∃ k v, b = element k v) ∨ b = unit) : MCh.Small (some (a, b)) :=
   fun _ e => by cases e; exact ⟨ha, hb⟩
+
+theorem MCh.apply_of_none {x : M} : MCh.apply (none : MCh M) x = x := rfl
+
+/-- A rule's change (`Small`) of a step that inserts `k ↦ v` (`(k ↦ v) L = L'`) is that insertion. -/
+theorem MCh.insert_of {c : MCh M} {L L' : M} {k : K} {v : V} (pre : c.pre L) (ap : c.apply L = L')
+    (sm : c.Small) (hi : concat (element k v) L = some L') : c = some (unit, element k v) := by
+  cases c with
+  | none =>
+    cases (MCh.apply_none (x := L)).symm.trans ap
+    have := (concat_element_iff.1 hi).2.1
+    rw [lookup_of_concat_element hi] at this; cases this
+  | some p =>
+    obtain ⟨a, b⟩ := p
+    obtain ⟨R, y, h, h'⟩ := pre _ rfl
+    rw [MCh.apply_of h h'] at ap
+    subst ap
+    obtain ⟨rfl, rfl⟩ := small_insert (sm _ rfl).1 (sm _ rfl).2 h h' hi
+    rfl
+
+/-- A rule's change (`Small`) of a step that removes `k ↦ v` (`(k ↦ v) L' = L`) is that removal. -/
+theorem MCh.remove_of {c : MCh M} {L L' : M} {k : K} {v : V} (pre : c.pre L) (ap : c.apply L = L')
+    (sm : c.Small) (hr : concat (element k v) L' = some L) : c = some (element k v, unit) := by
+  cases c with
+  | none =>
+    cases (MCh.apply_none (x := L)).symm.trans ap
+    have := (concat_element_iff.1 hr).2.1
+    rw [lookup_of_concat_element hr] at this; cases this
+  | some p =>
+    obtain ⟨a, b⟩ := p
+    obtain ⟨R, y, h, h'⟩ := pre _ rfl
+    rw [MCh.apply_of h h'] at ap
+    subst ap
+    obtain ⟨rfl, rfl⟩ := small_remove (sm _ rfl).1 (sm _ rfl).2 h h' hr
+    rfl
+
+theorem MapHook.lookup_unit {k : K} : lookup (unit : M) k = none := by
+  rw [lookup_def]; unfold unit; rw [ListIso.toList_ofList]; rfl
 
 theorem MCh.Compat.symm {c d : MCh M} (h : MCh.Compat c d) : MCh.Compat d c := by
   rcases h with h | h | ⟨a₁, b₁, a₂, b₂, e₁, e₂, ⟨dA, dB⟩ | ⟨r₁, r₂⟩⟩
