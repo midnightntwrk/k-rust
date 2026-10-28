@@ -170,6 +170,15 @@ theorem rank0_none {c : SortGeneratedTopCell} (h : ¬ App 0 c) : firstDefined (b
     · rfl
     · exact absurd (RuleResult.app_of_applies (fun _ hs => Step0.app hs) e) h)
 
+theorem succ0_sound {c c' : SortGeneratedTopCell} (h : c' ∈ succ0 c) : Step0 0 c c' := by
+  simp only [succ0, List.mem_filterMap] at h
+  obtain ⟨_, _, hr⟩ := h
+  exact RuleResult.sound_of_next? hr
+
+theorem succ0_complete {c c' : SortGeneratedTopCell} (h : Step0 0 c c') : c' ∈ succ0 c := by
+  cases h with
+  | skip DotVar2 DotVar1 DotVar0 => exact List.mem_filterMap.2 ⟨R.skip, Rules.skip.memS DotVar2 DotVar1 DotVar0, Rules.skip.complete DotVar2 DotVar1 DotVar0⟩
+
 theorem rules1_complete {c c' : SortGeneratedTopCell} (h : Step0 1 c c') : ∃ r ∈ bucketOf1 c, (r.run c).next? = some c' := by
   cases h with
   | «S Ss» S Ss DotVar2 DotVar1 DotVar0 => exact ⟨R.«S Ss», Rules.«S Ss».memS S Ss DotVar2 DotVar1 DotVar0, Rules.«S Ss».complete S Ss DotVar2 DotVar1 DotVar0⟩
@@ -195,6 +204,17 @@ theorem rank1_none {c : SortGeneratedTopCell} (h : ¬ App 1 c) : firstDefined (b
     cases e : (r.run c).applies
     · rfl
     · exact absurd (RuleResult.app_of_applies (fun _ hs => Step0.app hs) e) h)
+
+theorem succ1_sound {c c' : SortGeneratedTopCell} (h : c' ∈ succ1 c) : Step0 1 c c' := by
+  simp only [succ1, List.mem_filterMap] at h
+  obtain ⟨_, _, hr⟩ := h
+  exact RuleResult.sound_of_next? hr
+
+theorem succ1_complete {c c' : SortGeneratedTopCell} (h : Step0 1 c c') : c' ∈ succ1 c := by
+  cases h with
+  | «S Ss» S Ss DotVar2 DotVar1 DotVar0 => exact List.mem_filterMap.2 ⟨R.«S Ss», Rules.«S Ss».memS S Ss DotVar2 DotVar1 DotVar0, Rules.«S Ss».complete S Ss DotVar2 DotVar1 DotVar0⟩
+  | «.Pgm» DotVar2 DotVar1 DotVar0 => exact List.mem_filterMap.2 ⟨R.«.Pgm», Rules.«.Pgm».memS DotVar2 DotVar1 DotVar0, Rules.«.Pgm».complete DotVar2 DotVar1 DotVar0⟩
+  | incr X I DotVar2 M DotVar0 r hr => exact List.mem_filterMap.2 ⟨R.incr, Rules.incr.memS X I DotVar2 M DotVar0 r hr, Rules.incr.complete X I DotVar2 M DotVar0 r hr⟩
 
 /-- Soundness of the executable step. -/
 theorem step_sound {c c' : SortGeneratedTopCell} (h : step c = .next c') : Step c c' := by
@@ -231,6 +251,29 @@ theorem step_stuck {c : SortGeneratedTopCell} (h : step c = .stuck) : ∀ i, ¬ 
   | 0, ha => exact rank0_stuck s0 ha
   | 1, ha => exact rank1_stuck s1 ha
   | _ + 2, ha => cases ha
+
+/-- `successors` lists exactly the `Step` successors. -/
+theorem successors_iff {c c' : SortGeneratedTopCell} : c' ∈ successors c ↔ Step c c' := by
+  constructor
+  · intro h
+    unfold successors at h
+    by_cases s0 : isStuck (firstDefined (bucketOf0 c) c none) = true
+    · rw [ite_eq_left s0] at h
+      exact Step0.lift (succ1_sound h) (fun j hj => match j, hj with | 0, _ => rank0_stuck (isStuck_iff.1 s0) | _ + 1, hj => absurd hj (by omega))
+    · rw [ite_eq_right s0] at h
+      exact Step0.lift (succ0_sound h) (fun j hj => absurd hj (Nat.not_lt_zero j))
+  · intro hs
+    obtain ⟨i, h0, hhi⟩ := Step.base hs
+    unfold successors
+    match i, h0, hhi with
+    | 0, h0, hhi =>
+      have n0 : ¬ isStuck (firstDefined (bucketOf0 c) c none) = true := fun e => rank0_stuck (isStuck_iff.1 e) (Step0.app h0)
+      rw [ite_eq_right n0]
+      exact succ0_complete h0
+    | 1, h0, hhi =>
+      rw [ite_eq_left (isStuck_iff.2 (rank0_none (hhi 0 (by omega))))]
+      exact succ1_complete h0
+    | _ + 2, h0, _ => cases h0
 
 theorem stuck_no_step {c : SortGeneratedTopCell} (h : step c = .stuck) (c' : SortGeneratedTopCell) : ¬ Step c c' := fun hs => by
   obtain ⟨i, h0, _⟩ := Step.base hs

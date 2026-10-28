@@ -121,18 +121,75 @@ requires that no rule of a higher rank applies. A matcher returns every match. -
     for i in (0..k - 1).rev() {
         body = format!("orStuck (firstDefined (bucketOf{i} c) c none) (fun _ => {body})");
     }
-    let mut succ = format!("succ{} c", k - 1);
-    for i in (0..k - 1).rev() {
-        succ = format!(
-            "if isStuck (firstDefined (bucketOf{i} c) c none) = true then {succ} else succ{i} c"
-        );
-    }
+    let succ = successors_body(k);
     o.push_str(&format!(
         "\n/-- One step as `krun` takes it: the first rank at which a rule applies, and there the first\nrule (and match) whose result is defined. -/\ndef step (c : {top}) : Outcome {top} :=\n  {body}\n\n\
 /-- `run fuel c`: at most `fuel` steps from `c`. -/\ndef run (fuel : Nat) (c : {top}) : RunResult {top} := KPrelude.run step fuel c 0\n\n\
 /-- Every successor: all matches of all rules of the first rank at which a rule applies. -/\ndef successors (c : {top}) : List {top} :=\n  {succ}\n\nend {ns}\n"
     ));
     o
+}
+
+/// The body of `successors`: the successors by the rules of the first rank whose bucket is not
+/// stuck (`succ{i}`, one per rank), shared with the ranked emitter (`ranked.rs`).
+pub(crate) fn successors_body(k: usize) -> String {
+    let mut succ = format!("succ{} c", k - 1);
+    for i in (0..k - 1).rev() {
+        succ = format!(
+            "if isStuck (firstDefined (bucketOf{i} c) c none) = true then {succ} else succ{i} c"
+        );
+    }
+    succ
+}
+
+/// `successors_iff` from `succ{i}_sound`, `succ{i}_complete`, `rank{i}_stuck` and `rank{i}_none`,
+/// shared with the ranked emitter.
+pub(crate) fn successors_iff(k: usize, top: &str) -> String {
+    let mut si = format!(
+        "\n/-- `successors` lists exactly the `Step` successors. -/\ntheorem successors_iff {{c c' : {top}}} : c' ∈ successors c ↔ Step c c' := by\n  constructor\n  · intro h\n    unfold successors at h\n"
+    );
+    for i in 0..k {
+        let pad = "    ".to_string() + &"  ".repeat(i);
+        let prev = |j: usize| format!("rank{j}_stuck (isStuck_iff.1 s{j})");
+        if i + 1 < k {
+            si.push_str(&format!(
+                "{pad}by_cases s{i} : isStuck (firstDefined (bucketOf{i} c) c none) = true\n{pad}· rw [ite_eq_left s{i}] at h\n"
+            ));
+            // the negative branch is emitted after the positive chain: use `swap`-free layout
+        } else {
+            si.push_str(&format!(
+                "{pad}exact Step0.lift (succ{i}_sound h) {}\n",
+                below(i, &prev)
+            ));
+        }
+    }
+    for i in (0..k.saturating_sub(1)).rev() {
+        let pad = "    ".to_string() + &"  ".repeat(i);
+        let prev = |j: usize| format!("rank{j}_stuck (isStuck_iff.1 s{j})");
+        si.push_str(&format!(
+            "{pad}· rw [ite_eq_right s{i}] at h\n{pad}  exact Step0.lift (succ{i}_sound h) {}\n",
+            below(i, &prev)
+        ));
+    }
+    si.push_str("  · intro hs\n    obtain ⟨i, h0, hhi⟩ := Step.base hs\n    unfold successors\n    match i, h0, hhi with\n");
+    for i in 0..k {
+        let mut rws = String::new();
+        for j in 0..i {
+            rws.push_str(&format!(
+                "      rw [ite_eq_left (isStuck_iff.2 (rank{j}_none (hhi {j} (by omega))))]\n"
+            ));
+        }
+        if i + 1 < k {
+            rws.push_str(&format!(
+                "      have n{i} : ¬ isStuck (firstDefined (bucketOf{i} c) c none) = true := fun e => rank{i}_stuck (isStuck_iff.1 e) (Step0.app h0)\n      rw [ite_eq_right n{i}]\n"
+            ));
+        }
+        si.push_str(&format!(
+            "    | {i}, h0, hhi =>\n{rws}      exact succ{i}_complete h0\n"
+        ));
+    }
+    si.push_str(&format!("    | _ + {k}, h0, _ => cases h0\n"));
+    si
 }
 
 pub(crate) fn below(i: usize, proofs: &dyn Fn(usize) -> String) -> String {
@@ -336,51 +393,7 @@ theorem succ{i}_complete {{c c' : {top}}} (h : Step0 {i} c c') : c' ∈ succ{i} 
     stuck.push_str(&format!("  | _ + {k}, ha => cases ha\n"));
     o.push_str(&stuck);
     // successors_iff
-    let mut si = format!(
-        "\n/-- `successors` lists exactly the `Step` successors. -/\ntheorem successors_iff {{c c' : {top}}} : c' ∈ successors c ↔ Step c c' := by\n  constructor\n  · intro h\n    unfold successors at h\n"
-    );
-    for i in 0..k {
-        let pad = "    ".to_string() + &"  ".repeat(i);
-        let prev = |j: usize| format!("rank{j}_stuck (isStuck_iff.1 s{j})");
-        if i + 1 < k {
-            si.push_str(&format!(
-                "{pad}by_cases s{i} : isStuck (firstDefined (bucketOf{i} c) c none) = true\n{pad}· rw [ite_eq_left s{i}] at h\n"
-            ));
-            // the negative branch is emitted after the positive chain: use `swap`-free layout
-        } else {
-            si.push_str(&format!(
-                "{pad}exact Step0.lift (succ{i}_sound h) {}\n",
-                below(i, &prev)
-            ));
-        }
-    }
-    for i in (0..k.saturating_sub(1)).rev() {
-        let pad = "    ".to_string() + &"  ".repeat(i);
-        let prev = |j: usize| format!("rank{j}_stuck (isStuck_iff.1 s{j})");
-        si.push_str(&format!(
-            "{pad}· rw [ite_eq_right s{i}] at h\n{pad}  exact Step0.lift (succ{i}_sound h) {}\n",
-            below(i, &prev)
-        ));
-    }
-    si.push_str("  · intro hs\n    obtain ⟨i, h0, hhi⟩ := Step.base hs\n    unfold successors\n    match i, h0, hhi with\n");
-    for i in 0..k {
-        let mut rws = String::new();
-        for j in 0..i {
-            rws.push_str(&format!(
-                "      rw [ite_eq_left (isStuck_iff.2 (rank{j}_none (hhi {j} (by omega))))]\n"
-            ));
-        }
-        if i + 1 < k {
-            rws.push_str(&format!(
-                "      have n{i} : ¬ isStuck (firstDefined (bucketOf{i} c) c none) = true := fun e => rank{i}_stuck (isStuck_iff.1 e) (Step0.app h0)\n      rw [ite_eq_right n{i}]\n"
-            ));
-        }
-        si.push_str(&format!(
-            "    | {i}, h0, hhi =>\n{rws}      exact succ{i}_complete h0\n"
-        ));
-    }
-    si.push_str(&format!("    | _ + {k}, h0, _ => cases h0\n"));
-    o.push_str(&si);
+    o.push_str(&successors_iff(k, top));
     o.push_str(&format!(
         r#"
 theorem stuck_no_step {{c : {top}}} (h : step c = .stuck) (c' : {top}) : ¬ Step c c' := fun hs => by

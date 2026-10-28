@@ -106,6 +106,10 @@ def rules0 : List (Rule SortGeneratedTopCell (App 0) (Step0 0)) := [
 def bucketOf0 (c : SortGeneratedTopCell) : List (Rule SortGeneratedTopCell (App 0) (Step0 0)) :=
   [R.skip]
 
+/-- Every successor by a rule of rank 0: the results of the rules of `c`'s bucket, in the rules'
+order (a rule outside the bucket does not match `c`). -/
+def succ0 (c : SortGeneratedTopCell) : List SortGeneratedTopCell := (bucketOf0 c).filterMap fun r => (r.run c).next?
+
 /-- The rules of rank 1 (priority 50), in `krun`'s order. -/
 def rules1 : List (Rule SortGeneratedTopCell (App 1) (Step0 1)) := [
   R.«S Ss»,
@@ -115,6 +119,10 @@ def rules1 : List (Rule SortGeneratedTopCell (App 1) (Step0 1)) := [
 def bucketOf1 (c : SortGeneratedTopCell) : List (Rule SortGeneratedTopCell (App 1) (Step0 1)) :=
   [R.«S Ss», R.«.Pgm», R.incr]
 
+/-- Every successor by a rule of rank 1: the results of the rules of `c`'s bucket, in the rules'
+order (a rule outside the bucket does not match `c`). -/
+def succ1 (c : SortGeneratedTopCell) : List SortGeneratedTopCell := (bucketOf1 c).filterMap fun r => (r.run c).next?
+
 /-- One step as `krun` takes it: the first rank at which a rule applies, and there the first
 rule whose result is defined. -/
 def step (c : SortGeneratedTopCell) : Outcome SortGeneratedTopCell :=
@@ -122,5 +130,9 @@ def step (c : SortGeneratedTopCell) : Outcome SortGeneratedTopCell :=
 
 /-- `run fuel c`: at most `fuel` steps from `c`. -/
 def run (fuel : Nat) (c : SortGeneratedTopCell) : RunResult SortGeneratedTopCell := KPrelude.run step fuel c 0
+
+/-- Every successor: the successors by the rules of the first rank at which a rule applies. -/
+def successors (c : SortGeneratedTopCell) : List SortGeneratedTopCell :=
+  if isStuck (firstDefined (bucketOf0 c) c none) = true then succ1 c else succ0 c
 
 end Counter

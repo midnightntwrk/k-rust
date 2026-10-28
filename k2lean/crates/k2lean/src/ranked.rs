@@ -7,6 +7,12 @@
 //! - `Step0 i c c'`: a rule of rank `i` rewrites `c` to `c'`, ignoring the other ranks;
 //! - `Step c c'`: one constructor per rule, whose hypotheses include `¬ App j lhs` for every
 //!   higher rank `j`. `App` is defined before `Step`, so the negation is a positive occurrence.
+//!
+//! `successors c` lists every successor: the results of the rules of the first rank at which a
+//! rule applies (those of `c`'s bucket, in the rules' order), as the several-match emitter's
+//! (`multi.rs`) does, with the
+//! same `successors_iff`; a derived definition tied to `Step` by that theorem, which `claims`
+//! explores when `Step` is not a function (`KClaims.ExecSucc`).
 
 use crate::index::CtorInfo;
 use crate::lower::L;
@@ -105,6 +111,9 @@ requires that no rule of a higher rank applies. -/\n\nset_option linter.unusedSi
             "\ndef bucketOf{i} (c : {top}) : List (Rule {top} (App {i}) (Step0 {i})) :=\n{}",
             crate::index::emit(&tree, &names, info, 2)
         ));
+        o.push_str(&format!(
+            "\n/-- Every successor by a rule of rank {i}: the results of the rules of `c`'s bucket, in the rules'\norder (a rule outside the bucket does not match `c`). -/\ndef succ{i} (c : {top}) : List {top} := (bucketOf{i} c).filterMap fun r => (r.run c).next?\n"
+        ));
     }
     let mut body = format!("firstDefined (bucketOf{} c) c none", k - 1);
     for i in (0..k - 1).rev() {
@@ -112,7 +121,9 @@ requires that no rule of a higher rank applies. -/\n\nset_option linter.unusedSi
     }
     o.push_str(&format!(
         "\n/-- One step as `krun` takes it: the first rank at which a rule applies, and there the first\nrule whose result is defined. -/\ndef step (c : {top}) : Outcome {top} :=\n  {body}\n\n\
-/-- `run fuel c`: at most `fuel` steps from `c`. -/\ndef run (fuel : Nat) (c : {top}) : RunResult {top} := KPrelude.run step fuel c 0\n\nend {ns}\n"
+/-- `run fuel c`: at most `fuel` steps from `c`. -/\ndef run (fuel : Nat) (c : {top}) : RunResult {top} := KPrelude.run step fuel c 0\n\n\
+/-- Every successor: the successors by the rules of the first rank at which a rule applies. -/\ndef successors (c : {top}) : List {top} :=\n  {}\n\nend {ns}\n",
+        crate::multi::successors_body(k)
     ));
     o
 }
@@ -243,8 +254,23 @@ theorem rank{i}_none {{c : {top}}} (h : ¬ App {i} c) : firstDefined (bucketOf{i
     cases e : (r.run c).applies
     · rfl
     · exact absurd (RuleResult.app_of_applies (fun _ hs => Step0.app hs) e) h)
+
+theorem succ{i}_sound {{c c' : {top}}} (h : c' ∈ succ{i} c) : Step0 {i} c c' := by
+  simp only [succ{i}, List.mem_filterMap] at h
+  obtain ⟨_, _, hr⟩ := h
+  exact RuleResult.sound_of_next? hr
+
+theorem succ{i}_complete {{c c' : {top}}} (h : Step0 {i} c c') : c' ∈ succ{i} c := by
+  cases h with
 "#
         ));
+        for r in &rs {
+            let args = ctor_args(&r.step).join(" ");
+            o.push_str(&format!(
+                "  | {0} {args} => exact List.mem_filterMap.2 ⟨R.{0}, Rules.{0}.memS {args}, Rules.{0}.complete {args}⟩\n",
+                r.lean
+            ));
+        }
     }
     // step_sound: peel the ranks
     let mut sound = format!(
@@ -303,6 +329,7 @@ theorem rank{i}_none {{c : {top}}} (h : ¬ App {i} c) : firstDefined (bucketOf{i
     }
     stuck.push_str(&format!("  | _ + {k}, ha => cases ha\n"));
     o.push_str(&stuck);
+    o.push_str(&crate::multi::successors_iff(k, top));
     o.push_str(&format!(
         r#"
 theorem stuck_no_step {{c : {top}}} (h : step c = .stuck) (c' : {top}) : ¬ Step c c' := fun hs => by
