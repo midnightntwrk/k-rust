@@ -4282,6 +4282,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
 
 [accept."terms/equation/result/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( <frame> <ret> 1 </ret> </frame> ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/equation/result/k::id!(\"$x\")"]
 k = """
@@ -4410,6 +4415,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
 
 [accept."terms/equation/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule probe ( cTAG , hold ( <frame> <ret> 1 </ret> </frame> ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/equation/subject-depth-2/k::id!(\"$x\")"]
 k = """
@@ -4517,6 +4527,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
 
 [accept."terms/equation/subject/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule probe ( cTAG , <frame> <ret> 1 </ret> </frame> ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/equation/subject/k::id!(\"$x\")"]
 k = """
@@ -4859,6 +4874,11 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 '''
 
 [accept."terms/local-rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule cTAG ( (V0:KItem => go) , <frame> <ret> 1 </ret> </frame> ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/local-rule/subject/k::id!(\"$x\")"]
 k = """
@@ -5887,6 +5907,11 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 '''
 
 [accept."terms/rule/result/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( <frame> <ret> 1 </ret> </frame> ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/result/k::id!(\"$x\")"]
 k = """
@@ -6015,6 +6040,11 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 '''
 
 [accept."terms/rule/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule cTAG ( V0:KItem , hold ( <frame> <ret> 1 </ret> </frame> ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject-depth-2/k::id!(\"$x\")"]
 k = """
@@ -6122,6 +6152,11 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 '''
 
 [accept."terms/rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule cTAG ( V0:KItem , <frame> <ret> 1 </ret> </frame> ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/rule/subject/k::id!(\"$x\")"]
 k = """
@@ -6249,6 +6284,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 '''
 
 [accept."terms/shorthand/result/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule fTAG ( V0:KItem ) => size ( <frame> <ret> 1 </ret> </frame> ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/shorthand/result/k::id!(\"$x\")"]
 k = """
@@ -6393,6 +6435,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
 
 [accept."terms/simplification/result/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( <frame> <ret> 1 </ret> </frame> ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/simplification/result/k::id!(\"$x\")"]
 k = """
@@ -6528,6 +6575,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 '''
 
 [accept."terms/simplification/subject/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule probe ( cTAG , <frame> <ret> 1 </ret> </frame> ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."terms/simplification/subject/k::id!(\"$x\")"]
 k = """
@@ -7053,6 +7105,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 same_k_as = ["terms/equation/result/k::bytes!(b\"ab\")"]
 
 [accept."terms/table/result/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( <frame> <ret> 1 </ret> </frame> ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 same_k_as = ["terms/equation/result/k::fragment![crate::Frame { ret: 1 }]"]
 
 [accept."terms/table/result/k::id!(\"$x\")"]
@@ -7200,6 +7257,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 same_k_as = ["terms/equation/subject-depth-2/k::bytes!(b\"ab\")"]
 
 [accept."terms/table/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule probe ( cTAG , hold ( <frame> <ret> 1 </ret> </frame> ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 same_k_as = ["terms/equation/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
 
 [accept."terms/table/subject-depth-2/k::id!(\"$x\")"]
@@ -7323,6 +7385,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 same_k_as = ["terms/equation/subject/k::bytes!(b\"ab\")"]
 
 [accept."terms/table/subject/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule probe ( cTAG , <frame> <ret> 1 </ret> </frame> ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 same_k_as = ["terms/equation/subject/k::fragment![crate::Frame { ret: 1 }]"]
 
 [accept."terms/table/subject/k::id!(\"$x\")"]
