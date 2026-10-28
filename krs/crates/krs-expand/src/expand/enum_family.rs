@@ -616,6 +616,15 @@ fn expand_enum_variant(
             },
             syntax.structured_format(),
         )?
+    } else if let Some(group) = group {
+        // A variant without a syntax attribute still belongs to the precedence tier that names it.
+        vec![WireProductionAttribute::Group {
+            reference: krs_ir::DescriptorGroupReference {
+                key: ledger.define(variant.group_key())?,
+                group: krs_ir::ProductionGroupId::new(group)
+                    .expect("checked production groups are valid identities"),
+            },
+        }]
     } else {
         Vec::new()
     };

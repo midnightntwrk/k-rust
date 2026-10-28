@@ -1595,6 +1595,37 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
     );
 }
 
+/// A precedence tier names its variants, whether or not a variant writes its own syntax: `Baz`,
+/// with the default template, joins the tier's group as `Qux` does.
+#[test]
+fn a_variant_without_a_syntax_attribute_joins_its_precedence_tier() {
+    let target = shared_fixture_target();
+    let source = format!(
+        "{FOO_BAR}
+#[krs::constructors(sort = Obj, result = krs::KResult)]
+#[krs::precedence((Baz, Qux))]
+pub enum Fam {{
+    Baz,
+    #[krs::syntax(\"qux\")]
+    Qux,
+}}
+"
+    );
+    let definition = emit_definition(target.path(), &source);
+    let group = |production: &str| {
+        let line = definition
+            .lines()
+            .find(|line| line.trim_start().starts_with(production))
+            .unwrap_or_else(|| panic!("no `{production}`:\n{definition}"));
+        let start = line.find("group(").expect("a group attribute") + "group(".len();
+        line[start..line[start..].find(')').unwrap() + start].to_owned()
+    };
+    assert_eq!(
+        group("syntax Obj ::= \"Baz\""),
+        group("syntax Obj ::= \"qux\"")
+    );
+}
+
 /// The fixture's raw equation, authored as a KRS equation.
 const TWIST_TWICE: &str = "#[krs::equation]
 fn twist_twice(

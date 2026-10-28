@@ -99,13 +99,13 @@ impl RecordUpdates {
         descriptor: &Descriptor,
         terms: &[&DescriptorTerm],
         catalog: &BTreeMap<StableItemId, ProductionSignature>,
-        declarations: Option<&DescriptorIndex<'_>>,
+        declarations: &DescriptorIndex<'_>,
     ) -> Result<Self, DescriptorLoweringError> {
         let mut scan = Scan::default();
         for term in terms {
             scan.walk(term, false);
         }
-        let groups = scan.group_aliases(declarations);
+        let groups = scan.group_aliases();
         if scan.updates.is_empty() && groups.is_empty() {
             return Ok(Self::default());
         }
@@ -182,7 +182,7 @@ fn update_bases<'a>(
     descriptor: &Descriptor,
     scan: &Scan<'a>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    declarations: Option<&DescriptorIndex<'_>>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<BTreeMap<String, Base<'a>>, DescriptorLoweringError> {
     let error = |key: &ProvenanceKey, reason: String| invalid(descriptor, key, reason);
     let mut bases = BTreeMap::<String, Base<'a>>::new();
@@ -264,7 +264,7 @@ fn rebuild_children<'a>(
     groups: &BTreeMap<String, (ProvenanceKey, &'a DescriptorTerm)>,
     reconstructed: &BTreeSet<String>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    declarations: Option<&DescriptorIndex<'_>>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     let error = |key: &ProvenanceKey, reason: String| invalid(descriptor, key, reason);
     let mut pending = Vec::new();
@@ -312,7 +312,7 @@ fn rebuild_children<'a>(
 fn alias_fills(
     bases: &BTreeMap<String, Base<'_>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    declarations: Option<&DescriptorIndex<'_>>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<BTreeMap<String, Alias>, DescriptorLoweringError> {
     let mut names = HiddenNames::default();
     let mut aliases = BTreeMap::new();
@@ -360,7 +360,7 @@ fn whole_group<'a>(
     name: &str,
     (key, pattern): &(ProvenanceKey, &'a DescriptorTerm),
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    declarations: Option<&DescriptorIndex<'_>>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<bool, DescriptorLoweringError> {
     let Some((record, fields)) = pattern_record(pattern, catalog, declarations)? else {
         return Ok(false);
@@ -381,7 +381,7 @@ fn whole_group<'a>(
 /// with each child's group: those the base's fills rebuild.
 fn children_to_rebuild(
     base: &Base<'_>,
-    declarations: Option<&DescriptorIndex<'_>>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<Vec<(ProductionFieldId, StableItemId)>, DescriptorLoweringError> {
     let Record::Cell(_) = &base.record else {
         return Ok(Vec::new());
@@ -467,7 +467,7 @@ type PatternFields<'a> = BTreeMap<ProductionFieldId, &'a DescriptorTerm>;
 fn pattern_record<'a>(
     pattern: &'a DescriptorTerm,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    declarations: Option<&DescriptorIndex<'_>>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<Option<(Record, PatternFields<'a>)>, DescriptorLoweringError> {
     Ok(match pattern {
         DescriptorTerm::Application {
@@ -511,7 +511,7 @@ fn pattern_record<'a>(
 fn record_fields(
     record: &Record,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    declarations: Option<&DescriptorIndex<'_>>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<Vec<ProductionFieldId>, DescriptorLoweringError> {
     match record {
         Record::Production(id) => Ok(catalog
@@ -524,17 +524,12 @@ fn record_fields(
                     .collect()
             })
             .unwrap_or_default()),
-        Record::Cell(id) => {
-            let Some(declarations) = declarations else {
-                return Ok(Vec::new());
-            };
-            declarations
-                .cell(id)?
-                .fields
-                .iter()
-                .map(|field| Ok(ProductionFieldId::new(&field.rust_field)?))
-                .collect()
-        }
+        Record::Cell(id) => declarations
+            .cell(id)?
+            .fields
+            .iter()
+            .map(|field| Ok(ProductionFieldId::new(&field.rust_field)?))
+            .collect(),
     }
 }
 
@@ -543,9 +538,9 @@ fn record_fields(
 fn record_children(
     record: &Record,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    declarations: Option<&DescriptorIndex<'_>>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<Vec<(ProductionFieldId, Option<StableItemId>)>, DescriptorLoweringError> {
-    let (Record::Cell(id), Some(declarations)) = (record, declarations) else {
+    let Record::Cell(id) = record else {
         return Ok(record_fields(record, catalog, declarations)?
             .into_iter()
             .map(|field| (field, None))
@@ -592,15 +587,8 @@ struct Scan<'a> {
 impl<'a> Scan<'a> {
     /// The aliases over a group record that a sentence binds once, outside
     /// `|`, with the provenance and pattern of each: the matched cell is
-    /// fixed by its children, which the pattern can bind (N7). None without
-    /// the cell declarations, which give the children.
-    fn group_aliases(
-        &self,
-        declarations: Option<&DescriptorIndex<'_>>,
-    ) -> BTreeMap<String, (ProvenanceKey, &'a DescriptorTerm)> {
-        if declarations.is_none() {
-            return BTreeMap::new();
-        }
+    /// fixed by its children, which the pattern can bind (N7).
+    fn group_aliases(&self) -> BTreeMap<String, (ProvenanceKey, &'a DescriptorTerm)> {
         self.aliases
             .iter()
             .filter_map(|(name, occurrences)| match occurrences.as_slice() {
@@ -758,7 +746,7 @@ impl RecordUpdates {
         &self,
         term: &DescriptorTerm,
         catalog: &BTreeMap<StableItemId, ProductionSignature>,
-        declarations: Option<&DescriptorIndex<'_>>,
+        declarations: &DescriptorIndex<'_>,
     ) -> Result<DescriptorTerm, DescriptorLoweringError> {
         LongForm {
             updates: self,
@@ -785,10 +773,15 @@ impl RecordUpdates {
 struct LongForm<'a, 'b> {
     updates: &'a RecordUpdates,
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
-    declarations: Option<&'a DescriptorIndex<'b>>,
+    declarations: &'a DescriptorIndex<'b>,
 }
 
 impl LongForm<'_, '_> {
+    /// The declared fields of `record`, in declaration order.
+    fn fields(&self, record: &Record) -> Result<Vec<ProductionFieldId>, DescriptorLoweringError> {
+        record_fields(record, self.catalog, self.declarations)
+    }
+
     /// The long form of `term`; `alias` names the base alias whose record
     /// `term` is.
     fn term(
@@ -821,7 +814,7 @@ impl LongForm<'_, '_> {
                     self.children(&mut term)?;
                     return Ok(term);
                 };
-                let declared = record_fields(&Record::Production(id.clone()), self.catalog, None)?;
+                let declared = self.fields(&Record::Production(id.clone()))?;
                 let key = reference.key.clone();
                 let mut values = match std::mem::take(arguments) {
                     krs_ir::Arguments::Positional(values) => declared
@@ -861,11 +854,7 @@ impl LongForm<'_, '_> {
                 update,
                 ..
             } => {
-                let declared = record_fields(
-                    &Record::Cell(declaration.clone()),
-                    self.catalog,
-                    self.declarations,
-                )?;
+                let declared = self.fields(&Record::Cell(declaration.clone()))?;
                 let mut values = std::mem::take(fields)
                     .into_iter()
                     .map(|field| (field.field, *field.value))
@@ -1088,9 +1077,9 @@ pub(crate) fn head_rule_long_form(
         descriptor,
         &super::rules::head_rule_terms(rule),
         &catalog,
-        Some(&declarations),
+        &declarations,
     )?;
-    let long = |term: &DescriptorTerm| updates.long_form(term, &catalog, Some(&declarations));
+    let long = |term: &DescriptorTerm| updates.long_form(term, &catalog, &declarations);
     let mut rule = rule.clone();
     if let Some(head) = &mut rule.head {
         for item in &mut head.items {
@@ -1175,8 +1164,8 @@ pub(crate) fn structured_rule_long_form(
     // The long form reads the cell declarations, as lowering does: a group
     // record's children come from its declaration.
     let declarations = DescriptorIndex::new(bundle);
-    let updates = RecordUpdates::scan(descriptor, &terms, &catalog, Some(&declarations))?;
-    let long = |term: &DescriptorTerm| updates.long_form(term, &catalog, Some(&declarations));
+    let updates = RecordUpdates::scan(descriptor, &terms, &catalog, &declarations)?;
+    let long = |term: &DescriptorTerm| updates.long_form(term, &catalog, &declarations);
     let mut rule = rule.clone();
     rule.subject = long(&rule.subject)?;
     if let Some(result) = &mut rule.result {

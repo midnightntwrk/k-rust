@@ -546,7 +546,7 @@ pub(super) fn lower_head_rule_descriptor(
         descriptor,
         &head_rule_terms(rule),
         catalog,
-        Some(declarations),
+        declarations,
     )?;
     let head_sort = rule
         .head_sort
@@ -2010,7 +2010,7 @@ pub(super) fn lower_structured_rule_descriptor(
             .chain(rule.ensures.iter().map(|condition| &condition.term))
             .collect::<Vec<_>>(),
         catalog,
-        Some(declarations),
+        declarations,
     )?;
     let subject_sort = semantic_sort_ref(&rule.subject_sort.sort);
     // A single-body rule (KF-011) has no result: its subject's rewrites
