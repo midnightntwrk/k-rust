@@ -2,6 +2,7 @@ import Lean
 import KPrelude.Coll
 import KPrelude.Ext
 import KPrelude.HookLaws
+import KPrelude.EqBase
 import KPrelude.FamilyCases
 
 /-!

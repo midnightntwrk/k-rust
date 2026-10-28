@@ -696,6 +696,10 @@ fn main() {
                     .unwrap_or_else(|e| panic!("--equations-heartbeats-file {f}: {e}"));
             }
             let _ = std::fs::remove_dir_all(out.join(ns).join("Equations"));
+            write(
+                &out.join(ns).join("EqBase.lean"),
+                &eqns::emit_eq_base(ns, &eq_base),
+            );
             let eq_weight: usize = stated.iter().map(|s| eqns::weight(s, &fgen.unfold)).sum();
             let mut eq_modules = 0;
             for (path, text) in eqns::emit_modules(
@@ -1119,6 +1123,21 @@ mod tests {
             drivers::require_line(Some("../../lean"), None),
             "require k2lean from \"../../lean\""
         );
+    }
+
+    /// The prelude tags exactly the hooks the generic equation proofs unfold (`k2l_eq`, CT-4c).
+    #[test]
+    fn the_prelude_tags_the_equation_proofs_hooks() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../lean/prelude/KPrelude/EqBase.lean");
+        let text = std::fs::read_to_string(&p).unwrap();
+        let tagged: Vec<&str> = text
+            .split("attribute [k2l_eq]")
+            .nth(1)
+            .unwrap()
+            .split_whitespace()
+            .collect();
+        assert_eq!(tagged, hooks::eq_unfold_names());
     }
 
     /// One toolchain (PKG-4): the `k2lean` package, the demos and the fixtures pin the Lean the
