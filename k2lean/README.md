@@ -70,6 +70,7 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/ImpNI` | kimp's termination-insensitive noninterference for a two-level security checker in K (`demos/k/imp-sec.k`), stated by `k2lean noninterference` with its 240 obligations, all discharged by the relation it generates from the checker (`ImpNI/Levels.lean`, `Stack.lean`, `Proof.lean`; the store lemmas and 5 cases by hand in `ImpNI/Store.lean`); `ImpNI/Examples.lean` shows the hypotheses hold of a secure program and the checker rejects explicit and implicit flows |
 | `demos/KrsImpTyping` | every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`, from the KRS sidecar |
 | `demos/ImpWrites` | a kind 2 invariant of kimp that walks the `<k>` cell |
+| `demos/ImpPlusFresh` | a kind 2 invariant of IMP++ that K cannot state: every store location is below K's generated counter and every thread id at most it, so the location `int` allocates and the id `spawn` gives are not keys yet (`store_fresh`, `thread_fresh`); 60 of 62 rules by `k2l_preserve`, `int` and `spawn` by hand |
 | `demos/k/kimp-inv`, `demos/k/kimp-keys`, `demos/k/simple-inv` | kind 1 invariants written as K functions |
 | `demos/claims` | K claims of kimp proved in Lean, generically or by hand; claims under an invariant; the termination of kimp's expressions |
 | `demos/ImpRelClaims` | a K claim proved on kimp holds for the KRS IMP port, through `relate`'s bisimulation |

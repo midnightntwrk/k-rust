@@ -361,6 +361,8 @@ $G gen --kore $KRS/definition.kore --out $GEN/krsimp --name KrsImp --prelude ../
 The walkthrough proves: **for every list `D` of identifiers, if every identifier of `D` is a key of `<env>`, it stays one**: an assigned variable is never unbound.
 The parameter `D` and the quantifier make it a Lean statement rather than a K function.
 
+`demos/ImpPlusFresh` is a second kind 2 project, over IMP++: every location of `<store>` is below K's generated counter and every thread's `<id>` at most it, a property no K function can state because the counter is K's own cell. `k2l_preserve` closes 60 of its 62 rules once the counter is read through one projection per level (`counterCell`, then `counterVal`); `int X, Xs;` and `spawn S`, which allocate, are hand cases of a few lines each (`entriesOn_concat`, `entry_of_concat_element`).
+
 ### 4.1 Create the project
 
 ```sh

@@ -111,6 +111,12 @@ gate_soundness() {
     dbuild ExprTypes
   fi
   runs lib impplus && kc impplus && lib impplus KImpPlus
+  # IMP++'s fresh values, a kind 2 invariant over impplus (demos/ImpPlusFresh): what progress at
+  # `int` and `spawn` needs, that the next location and thread id are not keys yet
+  if runs demo ImpPlusFresh; then
+    phase "demo ImpPlusFresh"
+    dbuild ImpPlusFresh
+  fi
   runs lib impplustypes && kc impplus-typing && lib impplustypes KImpPlusTypes
   if runs demo ImpPlusTypes; then
     phase "demo ImpPlusTypes"
