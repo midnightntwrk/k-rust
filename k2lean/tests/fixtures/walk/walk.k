@@ -7,6 +7,9 @@
 // store is updated (`set`), grows by a fresh key (`grow`) and has a binding rebound (`bump`): the
 // environments do not change there, and the invariant holds because every key of the store stays a
 // key, which the collections closer derives from the store's terms (`MapHook.KeysIncl`).
+// `idsOk` walks the workers with no test of its own: its pattern reads the key and `<wid>` with one
+// variable, so a binding passes exactly when it is stored under its own `<wid>`
+// (`Invariant.idsOk_test`); `fork` adds the new worker under its `<wid>`.
 requires "domains.md"
 
 module WALK-SYNTAX
@@ -40,11 +43,15 @@ module WALK
   syntax Bool ::= envsOk(GeneratedTopCell) [function, total]
                 | workersIn(WorkersCell, Map) [function, total]
                 | allIn(Map, Map) [function, total]
+                | idsOk(WorkersCell) [function]
   rule envsOk(<generatedTop> <k> _ </k> WS:WorkersCell <store> S </store> _ </generatedTop>)
-    => workersIn(WS, S)
+    => workersIn(WS, S) andBool idsOk(WS)
   rule workersIn(<workers> .Bag </workers>, _) => true
   rule workersIn(<workers> <worker> <wid> _ </wid> <env> E </env> </worker> Ws </workers>, S)
     => allIn(E, S) andBool workersIn(<workers> Ws </workers>, S)
+  rule idsOk(<workers> .Bag </workers>) => true
+  rule idsOk(<workers> <worker> <wid> _ </wid> <env> _ </env> </worker> Ws </workers>)
+    => idsOk(<workers> Ws </workers>)
   rule allIn(.Map, _) => true
   rule allIn((_ |-> V) E, S) => V in_keys(S) andBool allIn(E, S)
 

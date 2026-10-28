@@ -58,9 +58,11 @@
 //! them replaces a call on a constructor term by calls on its strict subterms, so it terminates.
 //!
 //! **Map walks.** A recursive function the invariant calls with the equations `f(.Map, P…) =>
-//! true` and `f((K |-> V) R, P…) => φ(K, V, P…) andBool f(R, P…)` (the map possibly the content
-//! of a cell, `<threads>` and its cell map; `K`, `V` trees of cells with variables at the leaves)
-//! lowers to `MapHook.chooseFirst`, whose recursive call is on the rest of the binding it picks,
+//! true` and `f((K |-> V) R, P…) => φ(K, V, P…) andBool f(R, P…)` (or `=> f(R, P…)` alone, `φ`
+//! being `true`: a walk that checks only what its patterns read twice, such as every account of
+//! KEVM's `<accounts>` stored under its own `<acctID>`; the map possibly the content of a cell,
+//! `<threads>` and its cell map; `K`, `V` trees of cells with variables at the leaves) lowers to
+//! `MapHook.chooseFirst`, whose recursive call is on the rest of the binding it picks,
 //! so it is neither a fold nor structural. Its test of one binding, `Invariant.f_test k v p`, reads
 //! the patterns' variables through projections (each cell sort has one constructor, so the
 //! patterns match every binding up to the equality of a variable read twice), and
@@ -916,7 +918,8 @@ impl Walk {
 }
 
 /// `f(.Map, P…) => true` and `f((K |-> V) R, P…) => φ(K, V, P…) andBool f(R, P…)` (in that
-/// order, which the generated proof of the element-wise form is checked on): the map at one argument, or the content of the cell at that argument
+/// order, which the generated proof of the element-wise form is checked on), or `=> f(R, P…)`
+/// alone (`φ` is `true`: a binding passes when it matches the patterns): the map at one argument, or the content of the cell at that argument
 /// (`<threads>` and its cell map), the other arguments variables that the recursive call passes
 /// unchanged, no requires, the unit equation proved; `K` and `V` variables or trees of cells
 /// with variables at the leaves, where a variable read twice (a cell map's key and the element's
@@ -1006,23 +1009,25 @@ fn walk_of(
         }
         pvars.push((j, v.clone()));
     }
-    let P::App(and, _, aa) = &step.rhs else {
-        return None;
-    };
-    if hook(m, and) != Some("BOOL.and") || aa.len() != 2 {
-        return None;
-    }
     let is_rec = |p: &P| {
         matches!(p, P::App(g, _, a) if g == f && a.len() == sig.args.len()
             && unwrap(&a[pos]).is_some_and(|x| matches!(x, P::Var(v, _) if v == *rest))
             && pvars.iter().all(|(j, w)| matches!(&a[*j], P::Var(v, _) if v == w)))
     };
-    // `φ andBool f(R, P…)`, the test first: the shape the generated proof is checked on
-    if !is_rec(&aa[1]) {
-        return None;
-    }
-    let phi = &aa[0];
-    if mentions(phi, f, rest) {
+    // `φ andBool f(R, P…)`, the test first: the shape the generated proof is checked on; or
+    // `f(R, P…)` alone, whose binding passes when it matches the patterns (`φ` is `true`)
+    let phi = if is_rec(&step.rhs) {
+        None
+    } else {
+        let P::App(and, _, aa) = &step.rhs else {
+            return None;
+        };
+        if hook(m, and) != Some("BOOL.and") || aa.len() != 2 || !is_rec(&aa[1]) {
+            return None;
+        }
+        Some(&aa[0])
+    };
+    if phi.is_some_and(|phi| mentions(phi, f, rest)) {
         return None;
     }
     // every binding matches a pattern that is a tree of cells (each sort's only constructor)
@@ -1043,7 +1048,9 @@ fn walk_of(
     }
     // the variables the test reads: those of `φ`, and those the patterns read twice
     let mut need = Vec::new();
-    free_vars(phi, &mut need);
+    if let Some(phi) = phi {
+        free_vars(phi, &mut need);
+    }
     fn count(p: &P, out: &mut BTreeMap<String, usize>) {
         match p {
             P::Var(v, _) => *out.entry(v.clone()).or_default() += 1,
@@ -1151,15 +1158,20 @@ fn walk_of(
             }
         }
     }
-    let e = lw.expr(phi, "SortBool").ok()?;
-    let steps = std::mem::take(&mut lw.steps);
-    conj.push(match steps.as_slice() {
-        [] => format!("{} = true", e.render()),
-        [crate::lower::Step::Bind { expr, var, .. }] if e.render() == *var => {
-            format!("{} = some true", expr.render_arg())
-        }
-        _ => format!("{} = some true", option_expr(&steps, &e)?),
-    });
+    if let Some(phi) = phi {
+        let e = lw.expr(phi, "SortBool").ok()?;
+        let steps = std::mem::take(&mut lw.steps);
+        conj.push(match steps.as_slice() {
+            [] => format!("{} = true", e.render()),
+            [crate::lower::Step::Bind { expr, var, .. }] if e.render() == *var => {
+                format!("{} = some true", expr.render_arg())
+            }
+            _ => format!("{} = some true", option_expr(&steps, &e)?),
+        });
+    }
+    if conj.is_empty() {
+        conj.push("True".into());
+    }
     let elems = m.elems(&map);
     let (key, val) = (elems.first()?.clone(), elems.get(1)?.clone());
     let added: Vec<String> = names_new

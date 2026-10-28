@@ -328,7 +328,8 @@ fn a_map_built_on_an_int_range_gets_its_entries_lemma() {
 
 /// `gen --invariant envsOk` on the `walk` fixture, whose invariant walks the `<workers>` cell map
 /// and each worker's `<env>` map by free-key patterns: each walk gets its test of one binding,
-/// read through projections (the cell map's key and the worker's `<wid>` read equal), and its
+/// read through projections (the cell map's key and the worker's `<wid>` read equal; for `idsOk`,
+/// whose step is the recursive call alone, that equality is the whole test), and its
 /// element-wise form `Invariant.f_walk`, and both join the unfolding set, instead of the note
 /// that the recursion is neither a fold nor structural; the walk of the `<workers>` cell's map
 /// also gets the form at any cell (`Invariant.f_walk_cell`, through `Invariant.f_map`), which
@@ -367,8 +368,11 @@ fn map_walks_by_free_key_patterns_get_their_element_wise_form() {
     assert!(defs.contains("def Invariant.workersIn_map : SortWorkersCell → SortWorkerCellMap\n  | SortWorkersCell.«<workers>» x => x"), "{defs}");
     assert!(defs.contains("theorem Invariant.workersIn_walk_cell (w : SortWorkersCell) (S : SortMap) :\n    K.«workersIn(_,_)_WALK_Bool_WorkersCell_Map» w S = some true ↔"), "{defs}");
     assert!(!defs.contains("Invariant.allIn_walk_cell"), "{defs}");
+    // `idsOk(<workers> <worker> … </worker> Ws </workers>) => idsOk(<workers> Ws </workers>)`: a walk
+    // with no test of its own, whose binding passes when its key is its `<wid>`
+    assert!(defs.contains("def Invariant.idsOk_test (k : SortWidCell) (v : SortWorkerCell) : Prop :=\n  (Invariant.content_wid (Invariant.cell_wid v)) = (Invariant.content_wid k)\n"), "{defs}");
     let thms = std::fs::read_to_string(out.join("KWalk/Invariants.lean")).unwrap();
-    assert!(thms.contains("Invariant.allIn_walk, Invariant.allIn_test, Invariant.workersIn_walk, Invariant.workersIn_test, Invariant.workersIn_walk_cell, Invariant.workersIn_map"), "{thms}");
+    assert!(thms.contains("Invariant.allIn_walk, Invariant.allIn_test, Invariant.idsOk_walk, Invariant.idsOk_test, Invariant.idsOk_walk_cell, Invariant.idsOk_map, Invariant.workersIn_walk, Invariant.workersIn_test, Invariant.workersIn_walk_cell, Invariant.workersIn_map"), "{thms}");
 }
 
 /// `gen --invariant ok` on the `kfold` fixture, whose invariant folds `<k>` with `kOk` and a
