@@ -5,6 +5,14 @@
 # The recorded outputs that `outputs` names are in expected/claims/ beside this directory.
 
 
+[lib.kstrict]
+tier = "light"
+stated = 90
+open = []
+guarded = 105
+overlaps = 1
+unwitnessed = 1
+
 [claims]
 tier = "heavy"
 claims = 25
@@ -21,6 +29,14 @@ claims = 3
 stated = 3
 guarded = 3
 kc_auto = 3
+kc_auto_open = 0
+
+[strict-claims]
+tier = "light"
+claims = 2
+stated = 2
+guarded = 2
+kc_auto = 2
 kc_auto_open = 0
 
 [demo.ImpRelClaims]
@@ -44,6 +60,8 @@ preserve = []
 "replay/sum-loop.toml" = { tier = "heavy", compare = "strip-seconds" }
 "claims-impplus.toml" = { tier = "light", compare = "exact" }
 "kc-auto-impplus.txt" = { tier = "light", compare = "sorted-lines" }
+"claims-strict.toml" = { tier = "light", compare = "exact" }
+"kc-auto-strict.txt" = { tier = "light", compare = "sorted-lines" }
 
 [sources]
 
@@ -51,14 +69,14 @@ preserve = []
 "demos/ImpRelClaims/ImpRelClaims/Transfers.lean" = { tier = "heavy", sha256 = "1eb83250e65b6c1d1cfe4c1b6ef974e425d05f74110d746dafedc9674f43d890" }
 "demos/ImpUnrollClaims/ImpUnrollClaims/Transfers.lean" = { tier = "heavy", sha256 = "9601d887bb4227ce3aa3b26513bbe0e04d6a8afdbb7aabe0fd5ac4fb5b452d8d" }
 "generated/impplus-claims/KImpPlusClaims.lean" = { tier = "light", sha256 = "06834881cad8cc5f403a3a09f867dafb200bcdb1df150885043bb1acdd7e3d78" }
-"generated/impplus-claims/KImpPlusClaims/Basic.lean" = { tier = "light", sha256 = "8cf502e0dbc24ff00bcefa3dbc6b6f7e9abb63d7a70a7fd78576ec9c066cc8cc" }
+"generated/impplus-claims/KImpPlusClaims/Basic.lean" = { tier = "light", sha256 = "74833ea94c9f7a90249fb0cbd9cb51cdf185188c87dc58a522a941524b1741a0" }
 "generated/impplus-claims/KImpPlusClaims/ImpplusSpec.lean" = { tier = "light", sha256 = "18b835850d30ddee575749ddd589b23c0501d20d3f483d2da6f61d58891bd919" }
 "generated/impplus-claims/KImpPlusClaimsTest/Axioms.lean" = { tier = "light", sha256 = "5bea0186519386c100a6c71a47720e59271fb3318f2f2700bd1090b0cd1bd64a" }
 "generated/impplus-claims/claims.toml" = { tier = "light", sha256 = "8f741f432cc645609dbfb77c6d572a5e107436083fdf2b0a1ae51ded1de49960" }
 "generated/impplus-claims/lakefile.lean" = { tier = "light", sha256 = "8c9abb2023846d87fae5b6ebe94da70687961998f1bd088bff0cc2d62be70b25" }
 "generated/impplus-claims/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/kimp-claims/KImpClaims.lean" = { tier = "heavy", sha256 = "8d271101962325512c52a68389e2aa49ddd7d33af0c9713a8919942e8bfe6d96" }
-"generated/kimp-claims/KImpClaims/Basic.lean" = { tier = "heavy", sha256 = "305912391f93e0abbb437655564a739031926d039e71b83bf710e32f653abe67" }
+"generated/kimp-claims/KImpClaims/Basic.lean" = { tier = "heavy", sha256 = "5be0630cc3ec04ab1f75a4a247dbf0f0c154049d3d4625df12008c5b3a705581" }
 "generated/kimp-claims/KImpClaims/ExprDiv.lean" = { tier = "heavy", sha256 = "98c48ef52d22d918e6704b48d52f6f8c3047ef5323b8cbac96cec805e416e1a7" }
 "generated/kimp-claims/KImpClaims/ExprEval.lean" = { tier = "heavy", sha256 = "76a6b4bec2f8ed93d66370577053d719cf811f03beb9d56f0f72d1e43d6ffbb4" }
 "generated/kimp-claims/KImpClaims/ExprVars.lean" = { tier = "heavy", sha256 = "88676aa85bb80ac94da075fdc3bd5f3a08bc33a3f4b78a6d899ce2a4e2a4df17" }
@@ -77,9 +95,34 @@ preserve = []
 "generated/kimp-claims/lakefile.lean" = { tier = "heavy", sha256 = "63643a90fcee55ce1379b987f72c087aef1731f4ce042f069b05e50866a15da8" }
 "generated/kimp-claims/lean-toolchain" = { tier = "heavy", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/kimpinv-claims/KImpInvClaims.lean" = { tier = "heavy", sha256 = "491e500fa8638c360885840be69fb34cf816dd2a172e2e889f407c68c7452eef" }
-"generated/kimpinv-claims/KImpInvClaims/Basic.lean" = { tier = "heavy", sha256 = "296d1bc883ad87f45bf08bda582fb686db40347ff96330e7b15f412fc8a2d46f" }
+"generated/kimpinv-claims/KImpInvClaims/Basic.lean" = { tier = "heavy", sha256 = "cb2e8257324840549413bfe3a14af1505aa23dd1a70057c4e90688229028c110" }
 "generated/kimpinv-claims/KImpInvClaims/ImpInvSpec.lean" = { tier = "heavy", sha256 = "3430a5c70185023bbe384993bc2e3ead4695f0da244f4190e5073047227e4920" }
 "generated/kimpinv-claims/KImpInvClaimsTest/Axioms.lean" = { tier = "heavy", sha256 = "3c7cab8f82905edef3f52b9dd46ad7d5266478e6023ef952ddef0ebe9d080688" }
 "generated/kimpinv-claims/claims.toml" = { tier = "heavy", sha256 = "c5036d3cef81b41f5f5f5ddb24dfb5689db9dcd8e379a0e7fe9b2b5a15cc8295" }
 "generated/kimpinv-claims/lakefile.lean" = { tier = "heavy", sha256 = "efac421855fec8f1626cd34e65cde7003809a756c25c5b61ee539be714943d58" }
 "generated/kimpinv-claims/lean-toolchain" = { tier = "heavy", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/kstrict/KStrict.lean" = { tier = "light", sha256 = "ac074a06aa51a044d9f7d1f6adbfca736db18a2820e3f267b80a920fa3915e10" }
+"generated/kstrict/KStrict/Adequacy.lean" = { tier = "light", sha256 = "f30d48deadef48b9b552e64019c9201bfb4c8773e3bb7a38b8c1cfbc0fed9692" }
+"generated/kstrict/KStrict/Determinism.lean" = { tier = "light", sha256 = "82d2a05734017ee324b645a3d2c89ddc68cbc284e4ff6a0769848060e043e4f1" }
+"generated/kstrict/KStrict/Determinism/L1.lean" = { tier = "light", sha256 = "42b2396b903d4fce50b4237f657522f569f0de7f927dabd09be0a2195e238189" }
+"generated/kstrict/KStrict/Determinism/Pre.lean" = { tier = "light", sha256 = "6b5c02cb3f1f3e4650c04d9b94accc7c6aae0937fd2ce318bce47093f5b0125d" }
+"generated/kstrict/KStrict/Determinism/Witness.lean" = { tier = "light", sha256 = "f6ce207d948d954020fb8fdc9307b6423c3214cb2ea2d9d795b18c3e58506531" }
+"generated/kstrict/KStrict/Equations.lean" = { tier = "light", sha256 = "ee145bc0b384dee931e3d2f05b9bd81a3e36fac72996089e19a12764d81e5a05" }
+"generated/kstrict/KStrict/Functions.lean" = { tier = "light", sha256 = "b8f7daa43169fa6af73b802f0fb8d51b7185565fec092da22240d7cc0f7ec902" }
+"generated/kstrict/KStrict/Init.lean" = { tier = "light", sha256 = "6a75a4b1e8e949a4dbba281d8714fd1207897a446ffcd9ee506df81c2765e646" }
+"generated/kstrict/KStrict/Preserves.lean" = { tier = "light", sha256 = "3735f121463a045bf429706cc7123d6571913b62267d87e8a6326ae1d3cae7f5" }
+"generated/kstrict/KStrict/Rules.lean" = { tier = "light", sha256 = "d4acd4d7bead6c05e7082e283eae90fc171ec51e9145107348d20b8c989fa3e6" }
+"generated/kstrict/KStrict/Terms.lean" = { tier = "light", sha256 = "749224f948e3c18d84778602c3888506e55c4612ebd91d674b2bac6d3b2ac479" }
+"generated/kstrict/KStrictBench/Main.lean" = { tier = "light", sha256 = "e8cc2031916c8bfd0f842a004323d98370e087216d7e6bd05d28056db1cac1a0" }
+"generated/kstrict/KStrictTest/Axioms.lean" = { tier = "light", sha256 = "13157bb7bda3b1b6648e9c4d4d981910ee4a62e30dff2a1f60b4a319d1ee45c6" }
+"generated/kstrict/KStrictTest/DetAxioms.lean" = { tier = "light", sha256 = "480ddaecea8d237083b20283f5cc31085c06e6c99c6c5a139278b21fcca25589" }
+"generated/kstrict/KStrictTest/Main.lean" = { tier = "light", sha256 = "0b94c2bcd15c246898a309a2adad5ee9c137fd4966224c6c4de1b9d035e9b029" }
+"generated/kstrict/lakefile.lean" = { tier = "light", sha256 = "ef1869a2638d818163affc2563619e21bfd9922871b52a600ddf2fcddcd37ded" }
+"generated/kstrict/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/strict-claims/KStrictClaims.lean" = { tier = "light", sha256 = "942f776ef6a8682bde77d0abe77dbab8eda20be899c86f58bd241f84ca4e3d83" }
+"generated/strict-claims/KStrictClaims/Basic.lean" = { tier = "light", sha256 = "1ffe7a380138f8338dbd7e340e424b4dfabcf55504da3f499016fce4efced5f2" }
+"generated/strict-claims/KStrictClaims/StrictSpec.lean" = { tier = "light", sha256 = "6c830fad12c37cb27bbeb4710611e3d1a8cc68b2dfb18e7b62338d519d95f748" }
+"generated/strict-claims/KStrictClaimsTest/Axioms.lean" = { tier = "light", sha256 = "3699aa79d396c92db229027734b02cbfd96cff1266d62bc3b9c09d2b7dd213e1" }
+"generated/strict-claims/claims.toml" = { tier = "light", sha256 = "50ad0418e2f2e1491bffd050763a97db08d48a89678954fc593551a6123d886e" }
+"generated/strict-claims/lakefile.lean" = { tier = "light", sha256 = "7e9d7d793f627d55cff126ed74e703bf13a877b95667de0130bd94bbee83b17e" }
+"generated/strict-claims/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }

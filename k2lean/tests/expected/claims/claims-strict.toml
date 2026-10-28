@@ -1,0 +1,11 @@
+# claims translated by `k2lean claims` (generated)
+[[claim]]
+label = "STRICT-SPEC.nested"
+stated = true
+all_path = true
+
+[[claim]]
+label = "STRICT-SPEC.nested-frame"
+stated = true
+all_path = true
+

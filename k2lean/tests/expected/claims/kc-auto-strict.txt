@@ -1,0 +1,2 @@
+info: KStrictClaims/StrictSpec.lean:36:2: kc_auto KStrictClaims.StrictSpec.Inst.nested.holds: 15 configurations, 13 rule steps, 0 splits, 0 claim applications, 0 open
+info: KStrictClaims/StrictSpec.lean:58:2: kc_auto KStrictClaims.StrictSpec.Inst.«nested-frame».holds: 15 configurations, 13 rule steps, 0 splits, 0 claim applications, 0 open
