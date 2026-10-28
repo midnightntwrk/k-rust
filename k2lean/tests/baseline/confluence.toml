@@ -12,7 +12,7 @@ preserve = []
 
 [demo.SimpleConf]
 tier = "heavy"
-guarded = 8
+guarded = 12
 preserve = []
 
 [outputs]
