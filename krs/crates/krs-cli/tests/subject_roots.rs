@@ -213,16 +213,15 @@ fn refusals<const N: usize>(cases: [(&'static str, &str); N]) -> String {
 /// An equation whose subject's root is a constructor, a literal or a builtin operation defines
 /// no function, refused at the root's head in each spelling: a `#[k::equation]` fn with and
 /// without `k::term!`, and root alternatives that apply one constructor. A `k::equations!`
-/// table names its function in its header, so a constructor there is refused at the header.
+/// table names its function in its header, so a constructor there is refused at the header. The
+/// class tests cover a constructor in `k::term!` (`terms/equation/subject-root/Cmd::Go()`), whose
+/// message the native constructor's case here shares.
 #[test]
 fn an_equation_rooted_at_no_function_is_refused_at_the_root() {
     expect_test::expect![[r"
         constructor:
         error[krs::analysis::subject-root-not-function]: an equation defines one function, so its subject is that function's application, but `Red` is a constructor: its application is a value, which evaluation leaves as written, so the equation defines no function; to define a function, write its application here, and to rewrite this term in a step of the computation, write a `#[k::rule]`
         --> src/lib.rs:62:11
-        constructor-term:
-        error[krs::analysis::subject-root-not-function]: an equation defines one function, so its subject is that function's application, but `Red` is a constructor: its application is a value, which evaluation leaves as written, so the equation defines no function; to define a function, write its application here, and to rewrite this term in a step of the computation, write a `#[k::rule]`
-        --> src/lib.rs:62:20
         alternatives:
         error[krs::analysis::subject-root-not-function]: an equation defines one function, so its subject is that function's application, but `Duo` is a constructor: its application is a value, which evaluation leaves as written, so the equation defines no function; to define a function, write its application here, and to rewrite this term in a step of the computation, write a `#[k::rule]`
         --> src/lib.rs:62:12
@@ -241,10 +240,6 @@ fn an_equation_rooted_at_no_function_is_refused_at_the_root() {
         (
             "constructor",
             "#[k::equation]\nfn not_fn(Cmd::Red(): Term<Stmt>) -> Term<Stmt> {\n    Cmd::Blue()\n}\n",
-        ),
-        (
-            "constructor-term",
-            "#[k::equation]\nfn not_fn(k::term![Cmd::Red()]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Blue()\n}\n",
         ),
         (
             "alternatives",
@@ -270,26 +265,21 @@ fn an_equation_rooted_at_no_function_is_refused_at_the_root() {
 }
 
 /// A simplification rewrites a function's unevaluated application, so a constructor or a
-/// literal at its root, a value, is refused at the root's head, with or without `k::term!`.
+/// literal at its root, a value, is refused at the root's head, with or without `k::term!`; the
+/// class tests cover a constructor in `k::term!` (`terms/simplification/subject-root/Cmd::Go()`),
+/// whose message the native constructor's case here shares.
 #[test]
 fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
     expect_test::expect![[r"
         constructor:
         error[krs::analysis::subject-root-not-function]: a simplification rewrites a function's unevaluated application to an equal, simpler term, but `Red` is a constructor, and its application is a value, which evaluation leaves as written, so the simplification simplifies nothing; to rewrite this term in a step of the computation, write a `#[k::rule]`
         --> src/lib.rs:62:9
-        constructor-term:
-        error[krs::analysis::subject-root-not-function]: a simplification rewrites a function's unevaluated application to an equal, simpler term, but `Red` is a constructor, and its application is a value, which evaluation leaves as written, so the simplification simplifies nothing; to rewrite this term in a step of the computation, write a `#[k::rule]`
-        --> src/lib.rs:62:18
         literal:
         error[krs::analysis::subject-root-not-function]: a simplification rewrites a function's unevaluated application to an equal, simpler term, but `1` applies no function and is a value, which evaluation leaves as written, so the simplification simplifies nothing; to rewrite this term in a step of the computation, write a `#[k::rule]`
         --> src/lib.rs:62:9"]].assert_eq(&refusals([
         (
             "constructor",
             "#[k::simplification]\nfn simp(Cmd::Red(): Term<Stmt>) -> Term<Stmt> {\n    Cmd::Blue()\n}\n",
-        ),
-        (
-            "constructor-term",
-            "#[k::simplification]\nfn simp(k::term![Cmd::Red()]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Blue()\n}\n",
         ),
         (
             "literal",
@@ -300,22 +290,18 @@ fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
 
 /// `_`, an alias and a compiler-owned island stand below a subject's root, refused there with
 /// and without `k::term!`, in a rule's and an equation's subject, in each alternative of a root
-/// `A | B`, and at a `for Sort` clause's root.
+/// `A | B`, and at a `for Sort` clause's root. The class tests cover `_` and an island in a rule's
+/// and an equation's `k::term!` (`terms/{rule,equation}/subject-root/{_,k::bytes!(b"ab")}`), whose
+/// messages the native cases here share.
 #[test]
 fn a_wildcard_alias_or_island_at_a_subject_root_is_refused_with_or_without_the_wrapper() {
     expect_test::expect![[r#"
         rule-wildcard:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
         --> src/lib.rs:62:9
-        rule-wildcard-term:
-        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
-        --> src/lib.rs:62:18
         equation-wildcard:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
         --> src/lib.rs:62:8
-        equation-wildcard-term:
-        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
-        --> src/lib.rs:62:17
         alternative-wildcard-term:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
         --> src/lib.rs:62:18
@@ -325,9 +311,6 @@ fn a_wildcard_alias_or_island_at_a_subject_root_is_refused_with_or_without_the_w
         island:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b".."))`
         --> src/lib.rs:62:9
-        island-term:
-        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b".."))`
-        --> src/lib.rs:62:18
         rewrite-term:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root
         --> src/lib.rs:62:18
@@ -339,16 +322,8 @@ fn a_wildcard_alias_or_island_at_a_subject_root_is_refused_with_or_without_the_w
             "#[k::rule(label = \"warm\", owise)]\nfn warm(_: Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
         ),
         (
-            "rule-wildcard-term",
-            "#[k::rule(label = \"warm\", owise)]\nfn warm(k::term![_]: Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
-        ),
-        (
             "equation-wildcard",
             "#[k::equation(owise)]\nfn any(_: Term<Int>) -> Term<Int> {\n    3\n}\n",
-        ),
-        (
-            "equation-wildcard-term",
-            "#[k::equation(owise)]\nfn any(k::term![_]: Term<Int>) -> Term<Int> {\n    3\n}\n",
         ),
         (
             "alternative-wildcard-term",
@@ -361,10 +336,6 @@ fn a_wildcard_alias_or_island_at_a_subject_root_is_refused_with_or_without_the_w
         (
             "island",
             "#[k::rule(label = \"warm\", owise)]\nfn warm(k::bytes!(b\"ab\"): Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
-        ),
-        (
-            "island-term",
-            "#[k::rule(label = \"warm\", owise)]\nfn warm(k::term![k::bytes!(b\"ab\")]: Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
         ),
         (
             "rewrite-term",

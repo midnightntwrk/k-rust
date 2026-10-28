@@ -298,7 +298,10 @@ fn root_alternatives_that_are_no_one_equation_are_refused() {
 }
 
 /// A single-body rule and a simplification rewrite one term, so their subject takes no
-/// alternatives, at its root as below it, with or without `k::term!`.
+/// alternatives, at its root as below it, with or without `k::term!`. The class tests cover a
+/// simplification's root alternatives in `k::term!`
+/// (`terms/simplification/subject-root/Cmd::Go() | Cmd::Hold(_)`), whose message the native case
+/// here shares.
 #[test]
 fn a_subject_rewritten_as_one_term_refuses_root_alternatives() {
     expect_test::expect![[r"
@@ -310,10 +313,7 @@ fn a_subject_rewritten_as_one_term_refuses_root_alternatives() {
         --> src/lib.rs:78:16
         simplification:
         error[krs::analysis::invalid-pattern-or]: `A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative; here it stands in the subject of a `#[k::simplification]` fn
-        --> src/lib.rs:78:9
-        simplification-term:
-        error[krs::analysis::invalid-pattern-or]: `A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative; here it stands in the subject of a `#[k::simplification]` fn
-        --> src/lib.rs:78:17"]].assert_eq(&refusals([
+        --> src/lib.rs:78:9"]].assert_eq(&refusals([
         (
             "single-body",
             "#[k::rule(label = \"sb\")]\nfn sb((Cmd::Show { c: k::rewrite!(Cmd::Red() => Cmd::Blue()) } | Cmd::Show { c: k::rewrite!(Cmd::Green() => Cmd::Blue()) }): Term<Stmt>) {}\n",
@@ -325,10 +325,6 @@ fn a_subject_rewritten_as_one_term_refuses_root_alternatives() {
         (
             "simplification",
             "#[k::simplification]\nfn sim((Code { c: Cmd::Red() } | Code { c: Cmd::Green() }): Term<Int>) -> Term<Int> {\n    10\n}\n",
-        ),
-        (
-            "simplification-term",
-            "#[k::simplification]\nfn sim(k::term![Code { c: Cmd::Red() } | Code { c: Cmd::Green() }]: Term<Int>) -> Term<Int> {\n    10\n}\n",
         ),
     ]));
 }

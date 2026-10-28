@@ -119,14 +119,13 @@ fn outcomes<const N: usize>(
     })
 }
 
-/// A function at the root of each slot a rule or an equation matches: a fn rule's subject (a term
-/// rule's, an anywhere rule's, a single-body rule's), a `for Sort` clause's subject, a computation
-/// item, a cell's content, and a function-context cell.
-const ROOT_CASES: [(&str, &str); 9] = [
-    (
-        "rule-subject",
-        "#[k::rule(label = \"twist\")]\nfn twist(k::term![Size(x)]: Term<Int>) -> Term<Int> {\n    0\n}\n",
-    ),
+/// A function at the root of each slot a rule or an equation matches that the class tests do not
+/// generate: an anywhere rule's and a single-body rule's subject, a cell's content, and a
+/// function-context cell. The class tests' term family covers a fn rule's subject root, a `for
+/// Sort` clause's, and a readable and a `cells!` computation item (`terms/rule/subject-root/Size(x)`,
+/// `terms/sort-rule/subject-root/..`, `terms/readable/item-root/..`, `terms/cells/item-root/..`),
+/// whose messages the cases here share.
+const ROOT_CASES: [(&str, &str); 5] = [
     (
         "anywhere-subject",
         "#[k::rule(anywhere, label = \"twist\")]\nfn twist(k::term![Size(x)]: Term<Int>) -> Term<Int> {\n    0\n}\n",
@@ -134,18 +133,6 @@ const ROOT_CASES: [(&str, &str); 9] = [
     (
         "single-body-subject",
         "#[k::rule(label = \"twist\")]\nfn twist(k::term![Size(k::rewrite!(x => ExpSyntax::Done()))]: Term<Int>) {}\n",
-    ),
-    (
-        "sort-rule-subject",
-        "k::rules! {\n    for Exp;\n    use ExpSyntax::*;\n    twist: Size(x) => Done();\n}\n",
-    ),
-    (
-        "readable-item",
-        "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    twist: { k: [Size(x), ..] } => { k: [Done(), ..] };\n}\n",
-    ),
-    (
-        "cells-item",
-        "#[k::rule(label = \"twist\")]\npub fn twist(\n    x: KItem,\n    k::cells! { k: k::configuration::KCell(Size(x), tail @ ..), state @ .. }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(ExpSyntax::Done(), ..tail), ..state }\n}\n",
     ),
     (
         "readable-cell",
@@ -167,16 +154,6 @@ fn a_function_at_the_root_of_any_slot_a_rule_matches_is_refused() {
     expect_test::expect![[r#"
         [
             (
-                "rule-subject",
-                (
-                    false,
-                    [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable and relate it to the application in a guard (`requires`), or, to define the function, write an equation (`#[k::equation]`, or a `k::equations!` row)",
-                        "--> src/lib.rs:50:19",
-                    ],
-                ),
-            ),
-            (
                 "anywhere-subject",
                 (
                     false,
@@ -193,36 +170,6 @@ fn a_function_at_the_root_of_any_slot_a_rule_matches_is_refused() {
                     [
                         "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
                         "--> src/lib.rs:50:19",
-                    ],
-                ),
-            ),
-            (
-                "sort-rule-subject",
-                (
-                    false,
-                    [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable and relate it to the application in a guard (`requires`), or, to define the function, write an equation (`#[k::equation]`, or a `k::equations!` row)",
-                        "--> src/lib.rs:52:12",
-                    ],
-                ),
-            ),
-            (
-                "readable-item",
-                (
-                    false,
-                    [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
-                        "--> src/lib.rs:52:18",
-                    ],
-                ),
-            ),
-            (
-                "cells-item",
-                (
-                    false,
-                    [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
-                        "--> src/lib.rs:52:44",
                     ],
                 ),
             ),
