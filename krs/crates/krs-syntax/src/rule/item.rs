@@ -1,6 +1,7 @@
 use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
 use syn::ext::IdentExt;
+use syn::parse::Parser as _;
 use syn::spanned::Spanned;
 use syn::{Expr, FnArg, Ident, ItemFn, Pat, PatType, ReturnType, Stmt, Type};
 
@@ -225,8 +226,11 @@ impl RuleItem {
     /// The errors of [`Self::from_equation_item`].
     pub fn parse_equation_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
-        crate::term::reject_pattern_alias_in_fn_body(&tokens)?;
-        Self::from_item_with_signs(syn::parse2::<ItemFn>(tokens)?, signs, ClauseForm::Equation)
+        Self::from_item_with_signs(
+            crate::term::parse_fn_item(tokens)?,
+            signs,
+            ClauseForm::Equation,
+        )
     }
 
     /// Parses a term-shaped `#[k::context]` fn (KF-021): it returns `()`,
@@ -1129,12 +1133,38 @@ fn push_symbol_candidates(
     }
 }
 
+/// The fn item a clause of a `k::rules!`, `k::claims!` or `k::equations!`
+/// block is read as: `#(#retained)* #visibility fn #name(subject: #ty) -> #ty
+/// { result }`. The subject and the result are put in place after the item
+/// parses, so they keep their authored tokens: a top-level `A | B`, which a
+/// parameter takes only in parentheses, and a term that is no Rust pattern
+/// or expression ([`crate::term::parse_term_pattern`],
+/// [`crate::term::parse_term_expression`]), which the position table judges
+/// where it stands.
+pub(super) fn clause_item(
+    retained: &[syn::Attribute],
+    visibility: &TokenStream,
+    name: &Ident,
+    ty: &dyn quote::ToTokens,
+    subject: Pat,
+    result: Expr,
+) -> syn::Result<ItemFn> {
+    let mut item: ItemFn = syn::parse2(quote::quote! {
+        #(#retained)*
+        #visibility fn #name(_: #ty) -> #ty { true }
+    })?;
+    if let Some(FnArg::Typed(typed)) = item.sig.inputs.first_mut() {
+        *typed.pat = subject;
+    }
+    item.block.stmts = vec![Stmt::Expr(result, None)];
+    Ok(item)
+}
+
 impl KrsSyntax for RuleItem {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
-        crate::term::reject_pattern_alias_in_fn_body(&tokens)?;
         Self::from_item_with_signs(
-            syn::parse2::<ItemFn>(tokens)?,
+            crate::term::parse_fn_item(tokens)?,
             signs,
             ClauseForm::Transition,
         )
@@ -1443,10 +1473,11 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
             if !is_term_macro(&expression_macro.mac.path) {
                 return Err(unexpected_macro(&expression_macro.mac.path));
             }
-            crate::term::reject_pattern_alias(&expression_macro.mac.tokens)?;
-            term(syn::parse2::<Expr>(crate::parse::strip_trailing_comma(
-                expression_macro.mac.tokens.clone(),
-            ))?)
+            term(
+                crate::term::parse_term_expression.parse2(crate::parse::strip_trailing_comma(
+                    expression_macro.mac.tokens.clone(),
+                ))?,
+            )
         }
         expression => term(expression.clone()),
     }

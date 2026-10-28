@@ -139,18 +139,26 @@ fn std_matches_is_rejected() {
     }
 }
 
+/// A `k::matches!` in a pattern is read as the test it is; the position
+/// table refuses it there (`krs_syntax::positions`).
 #[test]
-fn matches_is_rejected_in_a_pattern() {
-    let error = krs_syntax::RuleItem::parse_source(
+fn matches_in_a_pattern_is_read_where_it_stands() {
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn is_pair(k::term![IsPair(k::matches!(e, Pair(_, _)))]: Term<Exp>) -> Term<Exp> { 1 }",
     )
-    .unwrap_err();
-    assert!(reason(&error).starts_with("`k::matches!` is a Bool test (K's :=K)"));
-    let error = krs_syntax::RuleBlock::parse_source(
+    .unwrap();
+    assert!(
+        rule.parameter()
+            .pattern
+            .nodes()
+            .iter()
+            .any(|node| matches!(node, TermNode::Matches(_)))
+    );
+    let block = krs_syntax::RuleBlock::parse_source(
         "for Exp; use ExpSyntax::*; is_pair: IsPair(k::matches!(e, Pair(_, _))) => true;",
     )
-    .unwrap_err();
-    assert!(reason(&error).starts_with("`k::matches!` is a Bool test (K's :=K)"));
+    .unwrap();
+    assert_eq!(block.clauses().len(), 1);
 }
 
 #[test]

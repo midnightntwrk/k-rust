@@ -206,6 +206,38 @@ fn a_single_body_rule_rewrites_only_inside_its_subject_and_once() {
 }
 
 #[test]
+fn a_rewrite_matches_on_its_left_and_builds_on_its_right() {
+    let subject = Position::root(Form::LocalRule, Slot::Subject);
+    let (left, right) = (subject.rewrite_left(), subject.rewrite_right());
+    assert_eq!(admits(left, Construct::As), Admission::Admit);
+    assert_eq!(admits(left, Construct::Wildcard), Admission::Admit);
+    assert_eq!(
+        admits(right, Construct::As),
+        Admission::Refuse(Class::AliasOutsidePattern)
+    );
+    assert_eq!(
+        admits(right, Construct::Wildcard),
+        Admission::Refuse(Class::WildcardOutsidePattern)
+    );
+    for construct in [Construct::Let, Construct::Matches, Construct::SortTest] {
+        assert!(
+            matches!(admits(left, construct), Admission::Refuse(_)),
+            "{construct:?}"
+        );
+        assert_eq!(admits(right, construct), Admission::Admit, "{construct:?}");
+    }
+    assert_eq!(
+        admits(right, Construct::Rewrite),
+        Admission::Refuse(Class::RewriteOutsideLocalRule)
+    );
+    assert!(
+        right
+            .to_string()
+            .starts_with("the right side of a `k::rewrite!`")
+    );
+}
+
+#[test]
 fn claims_hold_the_symbolic_islands() {
     for form in [Form::ReadableClaim, Form::CellsClaim] {
         let subject = Position::root(form, Slot::Subject);

@@ -32,7 +32,10 @@
 //! pattern, a `let` pattern. Everywhere else a term is built: a result, a condition, an
 //! initializer's value, a constant's value. A single-body rule (`#[k::rule]` fn returning `()`,
 //! or the `cells!` one) and a simplification rewrite their subject as one term, in place; a
-//! single-body rule's subject is matched and kept, except inside its `k::rewrite!` islands.
+//! single-body rule's subject is matched and kept, except inside its `k::rewrite!` islands. A
+//! `k::rewrite!`'s left side matches, as the subject around it does; its right side is what the
+//! matched term becomes, a term built in place, so it is judged as a result is
+//! ([`Position::rewrite_right`]).
 
 use std::fmt;
 
@@ -227,7 +230,8 @@ pub struct Nesting {
     pub in_matches_pattern: bool,
     /// Inside the pattern of a `let` statement.
     pub in_let_pattern: bool,
-    /// Inside a `k::rewrite!`.
+    /// Inside a `k::rewrite!`: its left side, in the slot of the rewrite, or its right side, in
+    /// [`Slot::Result`] ([`Position::rewrite_right`]).
     pub in_rewrite: bool,
     /// Inside a key, value or element of a collection (a readable map read's key, a List cell's
     /// element).
@@ -262,6 +266,26 @@ impl Position {
         }
     }
 
+    /// The position of the left side of a `k::rewrite!` standing at `self`: a pattern, matched
+    /// where the rewrite stands.
+    #[must_use]
+    pub const fn rewrite_left(self) -> Self {
+        let mut position = self;
+        position.nesting.in_rewrite = true;
+        position
+    }
+
+    /// The position of the right side of a `k::rewrite!` standing at `self`: what the term the
+    /// left side matched becomes, which the rule builds in its place. It matches nothing, so it
+    /// is a result, inside the rewrite: an alias or `_` names no term there, and a `let`, a
+    /// `k::matches!` test or a sort test computes from the subject's bindings as in any result.
+    #[must_use]
+    pub const fn rewrite_right(self) -> Self {
+        let mut position = self.rewrite_left();
+        position.slot = Slot::Result;
+        position
+    }
+
     /// Whether the construct is matched against a term: the form's subject, or a local pattern.
     #[must_use]
     pub const fn is_pattern(self) -> bool {
@@ -281,6 +305,15 @@ impl fmt::Display for Position {
         } else if self.nesting.in_let_pattern {
             formatter.write_str("a `let` pattern in ")?;
         } else if self.nesting.in_rewrite {
+            // Only a rewrite in a subject is walked into, so a result inside one is its right
+            // side.
+            if matches!(self.slot, Slot::Result) {
+                return write!(
+                    formatter,
+                    "the right side of a `k::rewrite!`, a term built in place, in the subject of {}",
+                    self.form.noun()
+                );
+            }
             formatter.write_str("a `k::rewrite!` in ")?;
         }
         write!(formatter, "{} of {}", self.slot.noun(), self.form.noun())

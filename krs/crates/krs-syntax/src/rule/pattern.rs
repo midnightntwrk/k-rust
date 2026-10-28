@@ -70,23 +70,31 @@ impl NegativeLiteralSpans {
     }
 }
 
-/// Parses one pattern with the spans of its negative literals.
+/// Parses one term at a position that matches terms, with the spans of its
+/// negative literals: a Rust pattern, or the term expression its tokens are
+/// ([`crate::term::parse_term_pattern`]).
 pub(crate) fn parse_pattern_with_signs(
     input: syn::parse::ParseStream<'_>,
 ) -> syn::Result<(Pat, NegativeLiteralSpans)> {
+    parse_with_signs(input, crate::term::parse_term_pattern)
+}
+
+/// Parses one Rust pattern with the spans of its negative literals: a
+/// position rustc parses as Rust, such as a match arm in a fn body.
+pub(crate) fn parse_rust_pattern_with_signs(
+    input: syn::parse::ParseStream<'_>,
+) -> syn::Result<(Pat, NegativeLiteralSpans)> {
+    parse_with_signs(input, Pat::parse_multi)
+}
+
+fn parse_with_signs(
+    input: syn::parse::ParseStream<'_>,
+    parse: fn(syn::parse::ParseStream<'_>) -> syn::Result<Pat>,
+) -> syn::Result<(Pat, NegativeLiteralSpans)> {
     let start = input.cursor();
     // `A | B` alternatives (K's #Or, KF-030) may join whole subjects.
-    let pattern = input.call(Pat::parse_multi)?;
-    let end = input.cursor();
-    let mut tokens = TokenStream::new();
-    let mut cursor = start;
-    while cursor != end {
-        let Some((token, next)) = cursor.token_tree() else {
-            break;
-        };
-        tokens.extend([token]);
-        cursor = next;
-    }
+    let pattern = input.call(parse)?;
+    let tokens = crate::term::tokens_between(start, input.cursor());
     Ok((pattern, NegativeLiteralSpans::scan(tokens)))
 }
 
@@ -370,19 +378,10 @@ pub(super) fn parse_rule_pattern(
     mut signs: NegativeLiteralSpans,
 ) -> Result<(RulePattern, TermTree), SyntaxError> {
     let root_identifier_is_binding = root != PatternRoot::Subject;
-    let allow_rewrite = !root_identifier_is_binding;
     match pattern {
         Pat::Macro(macro_pattern)
             if !root_identifier_is_binding || is_term_macro(&macro_pattern.mac.path) =>
         {
-            if crate::term::is_sort_test_macro(&macro_pattern.mac.path) {
-                return Err(crate::term::matched_sort_test(&macro_pattern.mac.path));
-            }
-            if crate::term::is_matches_macro(&macro_pattern.mac.path)
-                || crate::term::is_std_matches(&macro_pattern.mac.path)
-            {
-                return Err(crate::term::matched_matches(&macro_pattern.mac.path));
-            }
             if !is_term_macro(&macro_pattern.mac.path) {
                 return Err(subject_root_macro(&macro_pattern.mac.path));
             }
@@ -432,7 +431,6 @@ pub(super) fn parse_rule_pattern(
                 validate_native_pattern(
                     &pattern,
                     is_root,
-                    allow_rewrite,
                     &mut paths,
                     &mut bindings,
                     &mut nodes,
@@ -475,7 +473,6 @@ pub(super) fn parse_rule_pattern(
 fn validate_native_pattern(
     pattern: &Pat,
     is_root: bool,
-    allow_rewrite: bool,
     paths: &mut Vec<Path>,
     bindings: &mut Vec<Ident>,
     nodes: &mut Vec<TermNode>,
@@ -508,15 +505,7 @@ fn validate_native_pattern(
                 push_unique_binding(bindings, identifier.ident.clone());
             }
             crate::term::validate_pattern_as(identifier, subpattern, nodes, |subpattern, nodes| {
-                validate_native_pattern(
-                    subpattern,
-                    false,
-                    allow_rewrite,
-                    paths,
-                    bindings,
-                    nodes,
-                    signs,
-                )
+                validate_native_pattern(subpattern, false, paths, bindings, nodes, signs)
             })
         }
         // `A | B | ..` is K's #Or (KF-030). At a subject's root each
@@ -529,7 +518,6 @@ fn validate_native_pattern(
                     let tree = validate_native_pattern(
                         alternative,
                         is_root,
-                        allow_rewrite,
                         paths,
                         &mut alternative_bindings,
                         nodes,
@@ -575,13 +563,7 @@ fn validate_native_pattern(
             let mut arguments = Vec::with_capacity(tuple.elems.len());
             for element in &tuple.elems {
                 arguments.push(validate_native_pattern(
-                    element,
-                    false,
-                    allow_rewrite,
-                    paths,
-                    bindings,
-                    nodes,
-                    signs,
+                    element, false, paths, bindings, nodes, signs,
                 )?);
             }
             Ok(TermTree::Application(TermApplication {
@@ -601,13 +583,7 @@ fn validate_native_pattern(
             let mut arguments = Vec::with_capacity(elements.len());
             for element in &elements {
                 arguments.push(validate_native_pattern(
-                    element,
-                    false,
-                    allow_rewrite,
-                    paths,
-                    bindings,
-                    nodes,
-                    signs,
+                    element, false, paths, bindings, nodes, signs,
                 )?);
             }
             Ok(TermTree::Application(TermApplication {
@@ -645,13 +621,7 @@ fn validate_native_pattern(
                 arguments.push(TermNamedArgument {
                     name: name.clone(),
                     value: validate_native_pattern(
-                        &field.pat,
-                        false,
-                        allow_rewrite,
-                        paths,
-                        bindings,
-                        nodes,
-                        signs,
+                        &field.pat, false, paths, bindings, nodes, signs,
                     )?,
                 });
             }
@@ -664,15 +634,9 @@ fn validate_native_pattern(
                 open: record.rest.is_some(),
             }))
         }
-        Pat::Paren(paren) => validate_native_pattern(
-            &paren.pat,
-            is_root,
-            allow_rewrite,
-            paths,
-            bindings,
-            nodes,
-            signs,
-        ),
+        Pat::Paren(paren) => {
+            validate_native_pattern(&paren.pat, is_root, paths, bindings, nodes, signs)
+        }
         Pat::Wild(wildcard) if !is_root => {
             if wildcard.attrs.is_empty() {
                 Ok(TermTree::Wildcard(TokenRange::for_tokens(wildcard)?))
@@ -687,23 +651,6 @@ fn validate_native_pattern(
             let literal = validate_pattern_literal(literal, nodes, signs)?;
             Ok(TermTree::Literal(literal))
         }
-        Pat::Macro(macro_pattern) if crate::term::is_sort_test_macro(&macro_pattern.mac.path) => {
-            Err(crate::term::matched_sort_test(&macro_pattern.mac.path))
-        }
-        Pat::Macro(macro_pattern)
-            if crate::term::is_matches_macro(&macro_pattern.mac.path)
-                || crate::term::is_std_matches(&macro_pattern.mac.path) =>
-        {
-            Err(crate::term::matched_matches(&macro_pattern.mac.path))
-        }
-        Pat::Macro(macro_pattern)
-            if crate::term::is_rewrite_macro(&macro_pattern.mac.path) && !allow_rewrite =>
-        {
-            Err(crate::term::local_rewrite_error(
-                crate::term::REWRITE_IN_READABLE.to_owned(),
-                macro_pattern.mac.path.span(),
-            ))
-        }
         Pat::Macro(macro_pattern) if crate::rule::is_bits_macro(&macro_pattern.mac.path) => Err(
             crate::rule::misplaced_bit_template(macro_pattern.mac.path.span()),
         ),
@@ -712,34 +659,33 @@ fn validate_native_pattern(
         // `k::fragment![Group { .. }]` is the group's cell term: its children
         // are patterns of this grammar.
         Pat::Macro(macro_pattern) if crate::term::is_fragment_macro(&macro_pattern.mac.path) => {
-            validate_native_cell_pattern(
-                macro_pattern,
-                allow_rewrite,
-                paths,
-                bindings,
-                nodes,
-                signs,
-            )
+            validate_native_cell_pattern(macro_pattern, paths, bindings, nodes, signs)
         }
         // Every other island builds the tree `k::term!` builds for it.
         Pat::Macro(macro_pattern) => {
-            let start = nodes.len();
             let mut symbols = Vec::new();
             let tree =
                 crate::term::validate_pattern_island(macro_pattern, signs, &mut symbols, nodes)?;
             paths.extend(symbols.iter().map(|symbol| symbol.path().clone()));
             // Its bare names bind as in a `k::term!` subject; a rewrite's
             // right side only uses them.
-            let (left, _) = crate::term::split_rewrite_images(&nodes[start..]);
-            for binding in left.into_iter().filter_map(|node| match node {
-                TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
-                TermNode::As { binding, .. } => Some(binding.clone()),
-                _ => None,
-            }) {
+            for binding in crate::term::pattern_tree_binders(&tree, false) {
                 crate::parse::validate_authored_binder(&binding.to_string(), binding.span())?;
                 push_unique_binding(bindings, binding);
             }
             Ok(tree)
+        }
+        // Tokens that are no Rust pattern but a term expression
+        // ([`crate::term::parse_term_pattern`]) build the tree they denote.
+        Pat::Verbatim(tokens) => {
+            signs.skip(NegativeLiteralSpans::scan(tokens.clone()).len());
+            let term = TermExpression::parse_pattern_tokens(tokens.clone())?;
+            paths.extend(term.symbols().iter().map(|symbol| symbol.path().clone()));
+            nodes.extend(term.nodes().iter().cloned());
+            for binding in term_pattern_bindings(&term, is_root)? {
+                push_unique_binding(bindings, binding);
+            }
+            Ok(term.tree().clone())
         }
         _ => Err(unsupported_pattern(
             "expected a named constructor with plain bindings, literals, or `_` arguments",
@@ -754,7 +700,6 @@ fn validate_native_pattern(
 /// child must be named, which semantic lowering checks.
 fn validate_native_cell_pattern(
     value: &syn::ExprMacro,
-    allow_rewrite: bool,
     paths: &mut Vec<Path>,
     bindings: &mut Vec<Ident>,
     nodes: &mut Vec<TermNode>,
@@ -802,15 +747,7 @@ fn validate_native_cell_pattern(
         }
         fields.push(TermNamedArgument {
             name: name.clone(),
-            value: validate_native_pattern(
-                &field.pat,
-                false,
-                allow_rewrite,
-                paths,
-                bindings,
-                nodes,
-                signs,
-            )?,
+            value: validate_native_pattern(&field.pat, false, paths, bindings, nodes, signs)?,
         });
     }
     if fields.is_empty() && !open {
@@ -980,18 +917,9 @@ fn term_pattern_bindings(
 ) -> Result<Vec<Ident>, SyntaxError> {
     let mut bindings = Vec::new();
     // A subject's root path names the matched constructor or function; every
-    // later bare reference and every `name @ pattern` alias binds, in
+    // other bare reference and every `name @ pattern` alias binds, in
     // preorder. A readable value has no such root.
-    let mut root = subject_root;
-    // Only the left image binds (KF-011): the right side of a `k::rewrite!`
-    // uses the subject's bindings.
-    let (left, _) = crate::term::split_rewrite_images(term.nodes());
-    for binding in left.into_iter().filter_map(|node| match node {
-        TermNode::ApplicationHead(_) | TermNode::Reference(_) if std::mem::take(&mut root) => None,
-        TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
-        TermNode::As { binding, .. } => Some(binding.clone()),
-        _ => None,
-    }) {
+    for binding in crate::term::pattern_tree_binders(term.tree(), subject_root) {
         crate::parse::validate_authored_binder(&binding.to_string(), binding.span())?;
         push_unique_binding(&mut bindings, binding);
     }

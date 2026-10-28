@@ -7,7 +7,7 @@ struct Pair;
 
 #[rule]
 fn dup(term![Dup(a)]: Term<dyn Expr>) -> Term<dyn Expr> {
-    term![Pair(p @ a, a)] //~ ERROR binds only on a left-hand side (K's #as is LHS-only)
+    term![Pair(p @ a, a)] //~ ERROR `name @ pattern` (K's #as) names the term a pattern matched
 }
 
 fn main() {}

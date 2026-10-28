@@ -4,13 +4,13 @@ use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::quote;
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
-use syn::{Expr, Ident, Path, Token, parenthesized};
+use syn::{Ident, Path, Token, parenthesized};
 
 use crate::parse::{KeyAllocator, KrsSyntax, structured_with};
 use crate::path::{path_text, plain_path_last};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, SyntaxError, SyntaxErrorKind,
-    TermExpression, TermNode, TermTree, TokenRange,
+    TermExpression, TermTree, TokenRange,
 };
 use krs_ir::ProvenanceKey;
 
@@ -366,12 +366,7 @@ impl MapPatternBindings {
         let terms = items
             .iter()
             .flat_map(|item| [item.key(), item.value()])
-            .flat_map(|term| crate::term::split_rewrite_images(term.nodes()).0)
-            .filter_map(|node| match node {
-                TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
-                TermNode::As { binding, .. } => Some(binding.clone()),
-                _ => None,
-            })
+            .flat_map(|term| crate::term::pattern_tree_binders(term.tree(), false))
             .collect();
         let frame = match remainder {
             StateMacroRemainder::Bind { binding, .. } => Some(binding.clone()),
@@ -1253,9 +1248,6 @@ fn parse_unkeyed_k_sequence(
 ) -> Result<KSequence, SyntaxError> {
     // A trailing comma ends the list; it is no element.
     let tokens = crate::parse::strip_trailing_comma(tokens);
-    if context == StateMacroContext::Expression {
-        crate::term::reject_pattern_alias(&tokens)?;
-    }
     let original = tokens.clone();
     structured_with(
         tokens,
@@ -1397,9 +1389,6 @@ fn parse_unkeyed_map(
 ) -> Result<MapExpression, SyntaxError> {
     // A trailing comma ends the list; it is no element.
     let tokens = crate::parse::strip_trailing_comma(tokens);
-    if context == StateMacroContext::Expression {
-        crate::term::reject_pattern_alias(&tokens)?;
-    }
     if let Some((base, bracket)) = split_bracket_update(&tokens) {
         if context == StateMacroContext::Pattern {
             return Err(state_error(
@@ -1564,9 +1553,6 @@ fn parse_unkeyed_cells(
 ) -> Result<CellsExpression, SyntaxError> {
     // A trailing comma ends the list; it is no element.
     let tokens = crate::parse::strip_trailing_comma(tokens);
-    if context == StateMacroContext::Expression {
-        crate::term::reject_pattern_alias(&tokens)?;
-    }
     let original = tokens.clone();
     structured_with(
         tokens,
@@ -2212,17 +2198,9 @@ fn parse_state_item(
             let start = input.cursor();
             let fork = input.fork();
             let pattern = input
-                .call(syn::Pat::parse_multi)
+                .call(crate::term::parse_term_pattern)
                 .map_err(|error| crate::notation::pattern_parse_error(&fork, error))?;
-            let mut tokens = TokenStream::new();
-            let mut cursor = start;
-            while cursor != input.cursor() {
-                let Some((token, next)) = cursor.token_tree() else {
-                    break;
-                };
-                tokens.extend([token]);
-                cursor = next;
-            }
+            let tokens = crate::term::tokens_between(start, input.cursor());
             let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
             TermExpression::from_pattern(pattern, tokens, signs)
         }
@@ -2230,7 +2208,7 @@ fn parse_state_item(
             // Full expression syntax, so an item may be a record constructor
             // (`Tag { b: x }`), as any term may.
             let expression = input
-                .call(<Expr as syn::parse::Parse>::parse)
+                .call(crate::term::parse_term_expression)
                 .map_err(SyntaxError::from)?;
             TermExpression::from_expression(expression)
         }
@@ -2244,10 +2222,7 @@ fn state_term_tokens(
 ) -> Result<TermExpression, SyntaxError> {
     match context {
         StateMacroContext::Pattern => TermExpression::parse_pattern_tokens(tokens),
-        StateMacroContext::Expression => {
-            crate::term::reject_pattern_alias(&tokens)?;
-            TermExpression::from_expression(syn::parse2::<Expr>(tokens)?)
-        }
+        StateMacroContext::Expression => TermExpression::parse_tokens(tokens),
     }
 }
 

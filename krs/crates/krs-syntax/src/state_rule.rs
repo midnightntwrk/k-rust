@@ -1732,16 +1732,8 @@ fn collect_term_bindings(
 ) -> Result<(), SyntaxError> {
     // Only the left image binds (KF-011): the right side of a `k::rewrite!`
     // uses the subject's bindings.
-    let (left, _) = crate::term::split_rewrite_images(term.nodes());
-    for node in left {
-        let binding = match node {
-            TermNode::Reference(path) => crate::path::pattern_binder(path),
-            TermNode::As { binding, .. } => Some(binding),
-            _ => None,
-        };
-        if let Some(binding) = binding {
-            push_binding(binding, StateRuleBindingKind::Term, output)?;
-        }
+    for binding in crate::term::pattern_tree_binders(term.tree(), false) {
+        push_binding(&binding, StateRuleBindingKind::Term, output)?;
     }
     Ok(())
 }
@@ -2255,10 +2247,8 @@ fn take_ensures_helper(
             }
             let payload =
                 crate::parse::strip_trailing_comma(helper_payload(&attribute, "ensures")?);
-            crate::term::reject_pattern_alias(&payload)?;
-            let expression: Expr = syn::parse2(payload)?;
             found = Some(ClaimEnsures {
-                term: TermExpression::from_expression(expression)?,
+                term: TermExpression::parse_tokens(payload)?,
             });
         } else {
             retained.push(attribute);

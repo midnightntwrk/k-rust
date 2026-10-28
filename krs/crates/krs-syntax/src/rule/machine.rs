@@ -16,7 +16,7 @@ use super::item::RuleItem;
 use super::pattern::{
     NegativeLiteralSpans, PatternRoot, RulePattern, parse_pattern_with_signs, parse_rule_pattern,
 };
-use crate::parse::{ParseError, validate_authored_binder};
+use crate::parse::{KrsSyntax as _, ParseError, validate_authored_binder};
 use crate::path::{is_plain_path, parametric_collection_error};
 use crate::{
     InstanceField, InstanceItem, InstanceList, InstanceListDelimiter, InstanceRest,
@@ -165,7 +165,7 @@ fn parse_readable_result_state(
                     let expression = input.call(|input| {
                         let inner;
                         syn::parenthesized!(inner in input);
-                        let expression: Expr = inner.parse()?;
+                        let expression: Expr = inner.call(crate::term::parse_term_expression)?;
                         if !inner.is_empty() {
                             return Err(inner.error("`Some(..)` holds one term"));
                         }
@@ -433,9 +433,7 @@ fn readable_term(
 ) -> Result<TermExpression, ParseError> {
     Ok(match context {
         StateMacroContext::Pattern => TermExpression::parse_pattern_tokens(tokens)?,
-        StateMacroContext::Expression => {
-            TermExpression::from_expression(syn::parse2::<Expr>(tokens)?)?
-        }
+        StateMacroContext::Expression => TermExpression::parse_tokens(tokens)?,
     })
 }
 
@@ -445,18 +443,12 @@ fn readable_term(
 fn readable_state_bindings(state: &StateTerm) -> Vec<Ident> {
     let mut output: Vec<Ident> = Vec::new();
     for term in state.terms() {
-        for node in crate::term::split_rewrite_images(term.nodes()).0 {
-            let binding = match node {
-                crate::TermNode::Reference(path) => crate::path::pattern_binder(path),
-                crate::TermNode::As { binding, .. } => Some(binding),
-                _ => None,
-            };
-            if let Some(binding) = binding
-                && !output
-                    .iter()
-                    .any(|existing| existing.unraw() == binding.unraw())
+        for binding in crate::term::pattern_tree_binders(term.tree(), false) {
+            if !output
+                .iter()
+                .any(|existing| existing.unraw() == binding.unraw())
             {
-                output.push(binding.clone());
+                output.push(binding);
             }
         }
     }
@@ -695,7 +687,7 @@ fn parse_machine_result_record(
         } else if content.peek(syn::token::Bracket) {
             MachineResultCell::Bracket(content.parse()?)
         } else {
-            MachineResultCell::Term(Box::new(content.parse::<Expr>()?))
+            MachineResultCell::Term(Box::new(content.call(crate::term::parse_term_expression)?))
         };
         cells.push((cell, value));
         if content.peek(Token![,]) {
@@ -1040,9 +1032,10 @@ fn read_brackets(
             // A cell its subject matches with one term is written with
             // one term, which brackets spell in list notation.
             MachineResultCell::Bracket(group) if matched_by_term(cell) => {
-                MachineResultCell::Term(Box::new(syn::parse2::<Expr>(TokenStream::from(
-                    TokenTree::Group(group.clone()),
-                ))?))
+                MachineResultCell::Term(Box::new(
+                    crate::term::parse_term_expression
+                        .parse2(TokenStream::from(TokenTree::Group(group.clone())))?,
+                ))
             }
             MachineResultCell::Bracket(group) => {
                 let (items, exact) = bracket_items(group)?;
@@ -1132,7 +1125,7 @@ fn bracket_items(group: &proc_macro2::Group) -> Result<(Vec<Expr>, bool), ParseE
                 exact = false;
                 break;
             }
-            items.push(sequence.parse::<Expr>()?);
+            items.push(sequence.call(crate::term::parse_term_expression)?);
             if !sequence.is_empty() {
                 sequence.parse::<Token![,]>()?;
             }
@@ -1251,11 +1244,13 @@ fn list_result(group: &proc_macro2::Group) -> Result<ListResult, ParseError> {
                 let term = if sequence.is_empty() || sequence.peek(Token![,]) {
                     None
                 } else {
-                    Some(sequence.parse::<Expr>()?)
+                    Some(sequence.call(crate::term::parse_term_expression)?)
                 };
                 entries.push(ListEntry::Rest(start, dots, term));
             } else {
-                entries.push(ListEntry::Item(sequence.parse::<Expr>()?));
+                entries.push(ListEntry::Item(
+                    sequence.call(crate::term::parse_term_expression)?,
+                ));
             }
             if !sequence.is_empty() {
                 sequence.parse::<Token![,]>()?;
@@ -1638,78 +1633,70 @@ fn assemble_machine_clause(
             (crate::RuleAttribute::default(), Some(claim), retained)
         }
     };
-    let (rule, head, head_result, computation_cell) = if let Some((computation_cell, pattern)) =
-        subject_k
-    {
-        let (head_result, placeholder) =
-            computation_result(&computation_cell, &pattern, result_cells, name)?;
-        let (result_cell, head_result) = head_result.unzip();
-        // The item writes the fields into its own placeholder result.
-        let placeholder = if fields.is_some() {
-            computation_result(&computation_cell, &pattern, authored_cells, name)?.1
-        } else {
-            placeholder
-        };
-        let placeholder =
-            placeholder.unwrap_or_else(|| quote_spanned!(result_record.span()=> true));
-        let has_first = !pattern.items.is_empty();
-        let mut items = pattern.items.into_iter();
-        let rule = if let Some((first, signs)) = items.next() {
-            // A fn parameter takes `A | B` only in parentheses; the item
-            // keeps the authored pattern, as in a readable clause.
-            let top_level_or = matches!(first, Pat::Or(_));
-            let parameter = if top_level_or {
-                quote!((#first))
+    let (rule, head, head_result, computation_cell) =
+        if let Some((computation_cell, pattern)) = subject_k {
+            let (head_result, placeholder) =
+                computation_result(&computation_cell, &pattern, result_cells, name)?;
+            let (result_cell, head_result) = head_result.unzip();
+            // The item writes the fields into its own placeholder result.
+            let placeholder = if fields.is_some() {
+                computation_result(&computation_cell, &pattern, authored_cells, name)?.1
             } else {
-                quote!(#first)
+                placeholder
             };
-            let mut item: ItemFn = syn::parse2(quote! {
-                #(#retained)*
-                pub fn #name(#parameter: #configuration_type) -> #configuration_type { #placeholder }
-            })?;
-            if top_level_or && let Some(syn::FnArg::Typed(typed)) = item.sig.inputs.first_mut() {
-                *typed.pat = first;
-            }
-            RuleItem::from_readable_value_item(item, signs)?
+            let placeholder = placeholder
+                .unwrap_or_else(|| syn::parse_quote_spanned!(result_record.span()=> true));
+            let has_first = !pattern.items.is_empty();
+            let mut items = pattern.items.into_iter();
+            let rule = if let Some((first, signs)) = items.next() {
+                let item = super::item::clause_item(
+                    &retained,
+                    &quote!(pub),
+                    name,
+                    configuration_type,
+                    first,
+                    placeholder,
+                )?;
+                RuleItem::from_readable_value_item(item, signs)?
+            } else {
+                // `[]` matches the empty computation: like a record without
+                // the computation cell, its subject is a placeholder.
+                framed_rule_item(
+                    &retained,
+                    name,
+                    configuration_type,
+                    pattern_record,
+                    result_record,
+                )?
+            };
+            let following = items
+                .map(|(pattern, signs)| {
+                    let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
+                    Ok(RuleHeadItem { pattern, tree })
+                })
+                .collect::<Result<Vec<_>, ParseError>>()?;
+            let head = RuleHead {
+                subject: has_first,
+                following,
+                exact: pattern.exact,
+            };
+            let computation_cell = ComputationCell {
+                cell: computation_cell,
+                result_cell,
+            };
+            (rule, Some(head), head_result, Some(computation_cell))
         } else {
-            // `[]` matches the empty computation: like a record without
-            // the computation cell, its subject is a placeholder.
-            framed_rule_item(
+            // A record without the computation cell frames it like any omitted
+            // cell (E7).
+            let rule = framed_rule_item(
                 &retained,
                 name,
                 configuration_type,
                 pattern_record,
                 result_record,
-            )?
+            )?;
+            (rule, None, None, None)
         };
-        let following = items
-            .map(|(pattern, signs)| {
-                let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
-                Ok(RuleHeadItem { pattern, tree })
-            })
-            .collect::<Result<Vec<_>, ParseError>>()?;
-        let head = RuleHead {
-            subject: has_first,
-            following,
-            exact: pattern.exact,
-        };
-        let computation_cell = ComputationCell {
-            cell: computation_cell,
-            result_cell,
-        };
-        (rule, Some(head), head_result, Some(computation_cell))
-    } else {
-        // A record without the computation cell frames it like any omitted
-        // cell (E7).
-        let rule = framed_rule_item(
-            &retained,
-            name,
-            configuration_type,
-            pattern_record,
-            result_record,
-        )?;
-        (rule, None, None, None)
-    };
     let mut bindings = if head.as_ref().is_some_and(|head| head.subject) {
         rule.parameter.pattern.bindings().to_vec()
     } else {
@@ -1867,7 +1854,7 @@ fn framed_rule_item(
 }
 
 /// What [`computation_result`] reads.
-type ComputationResult = (Option<(Ident, RuleHeadResult)>, Option<TokenStream>);
+type ComputationResult = (Option<(Ident, RuleHeadResult)>, Option<Expr>);
 
 /// The rewrite of the computation cell, with the result record's field that
 /// writes it, and the rule item's placeholder body: a result the record
@@ -1922,14 +1909,13 @@ fn computation_result(
         },
     };
     let placeholder = match &head_result {
-        RuleHeadResult::Replace(term) => Some(
-            term.expression()
-                .as_expression()
-                .cloned()
-                .expect("readable results are expressions")
-                .into_token_stream(),
-        ),
-        RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => Some(quote!(true)),
+        // A result read as a pattern holds `name @ pattern`
+        // ([`crate::term::parse_term_expression`]).
+        RuleHeadResult::Replace(term) => Some(term.expression().as_expression().map_or_else(
+            || Expr::Verbatim(term.expression().to_token_stream()),
+            Clone::clone,
+        )),
+        RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => Some(syn::parse_quote!(true)),
     };
     Ok((Some((result_cell.clone(), head_result)), placeholder))
 }

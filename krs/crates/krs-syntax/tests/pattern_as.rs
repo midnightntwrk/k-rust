@@ -225,14 +225,6 @@ fn malformed_aliases_are_rejected() {
             "fn r(k::term![p @ Dup(_)]: Term<Exp>) -> Term<Exp> { p }",
             "cannot alias a whole rule subject",
         ),
-        (
-            "fn r(k::term![Dup(a)]: Term<Exp>) -> Term<Exp> { Pair(p @ a, a) }",
-            "binds only on a left-hand side (K's #as is LHS-only)",
-        ),
-        (
-            "#[k::requires(is(p @ a))] fn r(k::term![Dup(a)]: Term<Exp>) -> Term<Exp> { a }",
-            "binds only on a left-hand side (K's #as is LHS-only)",
-        ),
     ] {
         let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
         assert!(reason(&error).contains(expected), "{source}: {error}");
@@ -245,14 +237,26 @@ fn malformed_aliases_are_rejected() {
         reason(&clause).contains("cannot alias a whole rule subject"),
         "{clause}"
     );
+}
+
+/// An alias in a term a sentence builds (a result, a condition, a `cells!`
+/// value) is read as the pattern its tokens are, and the position table
+/// refuses it there (`krs_syntax::positions`), as it judges every construct.
+#[test]
+fn an_alias_in_a_built_term_is_read_where_it_stands() {
+    for source in [
+        "fn r(k::term![Dup(a)]: Term<Exp>) -> Term<Exp> { Pair(p @ a, a) }",
+        "#[k::requires(is(p @ a))] fn r(k::term![Dup(a)]: Term<Exp>) -> Term<Exp> { a }",
+    ] {
+        let rule = krs_syntax::RuleItem::parse_source(source);
+        assert!(rule.is_ok(), "{source}: {:?}", rule.err());
+    }
     let readable = krs_syntax::RuleBlock::parse_source(
         "for Exp; use ExpSyntax::*; bad: Dup(a) => Pair(p @ a, a);",
-    )
-    .unwrap_err();
-    assert!(reason(&readable).contains("LHS-only"), "{readable}");
-    let result =
-        krs_syntax::parse_cells_expression(tokens("k: KCell(Pair(p @ a, a), ..tail)")).unwrap_err();
-    assert!(reason(&result).contains("LHS-only"), "{result}");
+    );
+    assert!(readable.is_ok(), "{:?}", readable.err());
+    let result = krs_syntax::parse_cells_expression(tokens("k: KCell(Pair(p @ a, a), ..tail)"));
+    assert!(result.is_ok(), "{:?}", result.err());
 }
 
 #[test]

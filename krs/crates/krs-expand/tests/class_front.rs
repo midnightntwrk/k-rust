@@ -864,9 +864,9 @@ doc = "`k::or_bool!` outside a claim"
 code = "krs::analysis::invalid-term"
 doc = "another mistake"
 
-[class.local-rewrite]
-code = "krs::syntax::invalid-local-rewrite"
-doc = "a predicate in a local rule's subject"
+[class.no-effect]
+code = "krs::syntax::rust-syntax"
+doc = "a subject entry that matches any content of a cell the result leaves out"
 
 [[refuse]]
 match = "terms/{init,equation}/{item,guard}/k::or_bool!(true, false)"
@@ -879,8 +879,8 @@ class = "other"
 at = "spelling"
 
 [[refuse]]
-match = "terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"
-class = "local-rewrite"
+match = "readable/subject/pc/_"
+class = "no-effect"
 at = "spelling"
 
 [accept."terms/init/item/1"]
@@ -918,8 +918,8 @@ k = ""
     }
     // The class's code, but outside the spelling.
     assert_eq!(
-        verdict("terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"),
-        "K2 front: krs::syntax::invalid-local-rewrite @ item"
+        verdict("readable/subject/pc/_"),
+        "K2 front: krs::syntax::rust-syntax @ entry"
     );
     // Located, but with another class's code.
     assert_eq!(

@@ -540,8 +540,17 @@ pub(super) struct TermBuilder<'a> {
     /// used.
     lexical_imports: Option<&'a [syn::ItemUse]>,
     pub(super) tooling_binding_references: Vec<Path>,
-    /// Whether a `k::rewrite!` is being expanded.
-    in_rewrite: bool,
+    /// The side of the `k::rewrite!` being expanded, or `None` outside one.
+    rewrite: Option<RewriteSide>,
+}
+
+/// A side of a `k::rewrite!` (K's local `=>`).
+#[derive(Clone, Copy)]
+enum RewriteSide {
+    /// The left side, which matches.
+    Left,
+    /// The right side, which builds.
+    Right,
 }
 
 impl<'a> TermBuilder<'a> {
@@ -570,22 +579,27 @@ impl<'a> TermBuilder<'a> {
             let_scopes: Vec::new(),
             lexical_imports: None,
             tooling_binding_references: Vec::new(),
-            in_rewrite: false,
+            rewrite: None,
         }
     }
 
     /// The position a construct at the current node stands at, on `side`.
     pub(super) const fn position(&self, side: TermSide) -> Position {
-        Position {
+        let position = Position {
             form: self.form,
             slot: side.slot(self.form),
             nesting: Nesting {
                 below_root: self.depth > 1,
                 in_matches_pattern: self.in_matches_pattern(),
                 in_let_pattern: self.in_let_pattern(),
-                in_rewrite: self.in_rewrite,
+                in_rewrite: false,
                 in_collection_entry: self.in_collection_entry,
             },
+        };
+        match self.rewrite {
+            None => position,
+            Some(RewriteSide::Left) => position.rewrite_left(),
+            Some(RewriteSide::Right) => position.rewrite_right(),
         }
     }
 
@@ -632,25 +646,9 @@ impl<'a> TermBuilder<'a> {
         Ok(())
     }
 
-    /// Starts one `k::rewrite!` (K's local `=>`, KF-011) on `side`;
-    /// [`Self::leave_rewrite`] ends it.
-    pub(super) fn enter_rewrite(
-        &mut self,
-        range: krs_syntax::TokenRange,
-        side: TermSide,
-    ) -> crate::Result<()> {
-        self.admit(side, Construct::Rewrite, range)?;
-        self.in_rewrite = true;
-        Ok(())
-    }
-
-    /// Ends the `k::rewrite!` [`Self::enter_rewrite`] started.
-    pub(super) fn leave_rewrite(&mut self) {
-        self.in_rewrite = false;
-    }
-
     /// Expands `k::rewrite!(from => to)` (K's local `=>`, KF-011): the left
-    /// side, then the right side, both keyed as the subject's.
+    /// side, which matches, then the right side, which builds, both keyed as
+    /// the subject's.
     fn expand_rewrite(
         &mut self,
         range: krs_syntax::TokenRange,
@@ -661,15 +659,17 @@ impl<'a> TermBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         let node = keys.node(NodeKind::Rewrite, range)?;
-        self.enter_rewrite(range, side)?;
+        self.admit(side, Construct::Rewrite, range)?;
+        self.rewrite = Some(RewriteSide::Left);
         let from = self.expand_node(from, keys, side, slots);
+        self.rewrite = Some(RewriteSide::Right);
         let to = match (from.is_ok(), to) {
             (true, Some(to)) => {
                 Some(self.expand_node(to, keys, side, slots).map(Box::new)).transpose()
             }
             _ => Ok(None),
         };
-        self.leave_rewrite();
+        self.rewrite = None;
         rewrite_wire(node, from?, to?)
     }
 

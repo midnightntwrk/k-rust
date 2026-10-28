@@ -157,22 +157,30 @@ fn a_readable_value_reads_islands_at_its_root_and_below() {
 
 #[test]
 fn islands_that_are_not_patterns_keep_their_reasons() {
+    let source = |value: &str| {
+        format!("for Machine; r: {{ k: [Go(), ..], pc: {value} }} => {{ k: [..], pc: 0 }};")
+    };
     let message = |source: &str| match RuleBlock::parse_source(source) {
         Ok(_) => panic!("{source} parsed"),
         Err(error) => error.to_string(),
     };
+    // A compiler-owned island is read where it stands, and the position
+    // table judges it there (`krs_syntax::positions`).
+    for value in [
+        "Wrap(k::matches!(x, Foo()))",
+        "Wrap(k::is!(Int, x))",
+        "Wrap(k::project!(Int, x))",
+        "Wrap(k::rewrite!(a => b))",
+    ] {
+        let parsed = RuleBlock::parse_source(&source(value));
+        assert!(parsed.is_ok(), "{value}: {:?}", parsed.err());
+    }
     for (value, expected) in [
-        ("Wrap(k::matches!(x, Foo()))", "Bool test"),
         ("Wrap(matches!(x, Foo()))", "did you mean `k::matches!`?"),
-        ("Wrap(k::is!(Int, x))", "cannot be matched"),
-        ("Wrap(k::project!(Int, x))", "cannot be matched"),
         ("k::bits!(\"0000 00xx\")", "`k::bits!` is a pattern"),
-        ("Wrap(k::rewrite!(a => b))", "reference-only"),
         ("Wrap(other![x])", "macros are not terms unless"),
     ] {
-        let source =
-            format!("for Machine; r: {{ k: [Go(), ..], pc: {value} }} => {{ k: [..], pc: 0 }};");
-        let error = message(&source);
+        let error = message(&source(value));
         assert!(
             error.contains(expected),
             "{value}: expected {expected:?}, got {error}"

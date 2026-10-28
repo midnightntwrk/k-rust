@@ -119,13 +119,14 @@ fn position(form: &str, slot: &str) -> Position {
 enum Inner {
     Hole,
     MatchesPattern,
-    Rewrite,
+    RewriteLeft,
+    RewriteRight,
 }
 
 /// The nodes of a construct the table judges, in the walker's order (preorder).
 fn nodes(construct: &str) -> Vec<(Construct, Inner)> {
     use Construct as C;
-    use Inner::{Hole, MatchesPattern, Rewrite};
+    use Inner::{Hole, MatchesPattern, RewriteLeft, RewriteRight};
     match construct {
         "x" | "Cmd::Go" | "Cmd::Go()" | "Cmd::Hold(x)" | "Go()" | "Hold(x)" => Vec::new(),
         "k::builtin::int::add(1, 2)" => vec![
@@ -152,8 +153,8 @@ fn nodes(construct: &str) -> Vec<(Construct, Inner)> {
         "k::ml::exists(|v: Int| k::ml::equals(v, 0))" => vec![(C::MlPredicate, Hole)],
         "k::rewrite!(_ => 1)" => vec![
             (C::Rewrite, Hole),
-            (C::Wildcard, Rewrite),
-            (C::Literal, Rewrite),
+            (C::Wildcard, RewriteLeft),
+            (C::Literal, RewriteRight),
         ],
         other => panic!("no nodes for the construct {other}"),
     }
@@ -168,7 +169,8 @@ fn decide(hole: Position, construct: &str) -> (Option<Class>, BTreeSet<&'static 
         match inner {
             Inner::Hole => {}
             Inner::MatchesPattern => position.nesting.in_matches_pattern = true,
-            Inner::Rewrite => position.nesting.in_rewrite = true,
+            Inner::RewriteLeft => position = position.rewrite_left(),
+            Inner::RewriteRight => position = position.rewrite_right(),
         }
         match admits(position, construct) {
             Admission::Admit => {}

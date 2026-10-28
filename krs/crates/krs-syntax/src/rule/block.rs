@@ -3,7 +3,7 @@ use quote::quote;
 use syn::ext::IdentExt;
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
-use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Path, Token, Type};
+use syn::{Attribute, Expr, Ident, ItemUse, Meta, Path, Token, Type};
 
 use super::condition::{
     HaveMapExtra, MapUpdateExtra, RuleExtra, condition_token_range, parse_have_extra,
@@ -1318,18 +1318,7 @@ impl RuleBlock {
                 return Err(error.into());
             }
             input.parse::<Token![=>]>()?;
-            let result_tokens = input.fork();
-            let result = input.parse::<Expr>();
-            if result.is_err() || input.peek(Token![@]) {
-                // `name @ pattern` binds only on a left-hand side; syn would
-                // report it as an unexpected token.
-                let mut tokens = proc_macro2::TokenStream::new();
-                while !result_tokens.is_empty() && !result_tokens.peek(Token![;]) {
-                    tokens.extend([result_tokens.parse::<proc_macro2::TokenTree>()?]);
-                }
-                crate::term::reject_pattern_alias(&tokens)?;
-            }
-            let result: Expr = result?;
+            let result: Expr = input.call(crate::term::parse_term_expression)?;
             // The clause's item below may hold a placeholder result, so the
             // fields of the pattern's bit templates are written into the
             // clause's own result here.
@@ -1399,22 +1388,14 @@ impl RuleBlock {
                 RuleHeadResult::Replace(_) => result,
                 RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => syn::parse_quote!(true),
             };
-            // A parameter takes one pattern, so a top-level `A | B` is
-            // parenthesised to parse and then restored, keeping every range
-            // on the authored tokens.
-            let top_level_or = matches!(pattern, syn::Pat::Or(_));
-            let parameter = if top_level_or {
-                quote!((#pattern))
-            } else {
-                quote!(#pattern)
-            };
-            let mut item: ItemFn = syn::parse2(quote! {
-                #(#retained)*
-                pub fn #name(#parameter: #sort_type) -> #sort_type { #placeholder }
-            })?;
-            if top_level_or && let Some(syn::FnArg::Typed(typed)) = item.sig.inputs.first_mut() {
-                *typed.pat = pattern.clone();
-            }
+            let item = super::item::clause_item(
+                &retained,
+                &quote!(pub),
+                &name,
+                &sort_type,
+                pattern.clone(),
+                placeholder,
+            )?;
             let rule = RuleItem::from_readable_item(item, signs)?;
             let mut bindings = rule.parameter.pattern.bindings().to_vec();
             for extra in &extras {

@@ -416,6 +416,10 @@ pub(crate) fn notation_in_pattern(expression: &Expr) -> Option<SyntaxError> {
             }
             syn::visit::visit_expr(self, expression);
         }
+        // A `let` block and an `ml::exists` closure are terms of their own,
+        // which the position table judges first.
+        fn visit_expr_block(&mut self, _: &'ast syn::ExprBlock) {}
+        fn visit_expr_closure(&mut self, _: &'ast syn::ExprClosure) {}
     }
     let mut first = First(None);
     first.visit_expr(expression);

@@ -168,14 +168,20 @@ fn an_ascription_names_one_binder() {
     );
 }
 
+/// A block in a pattern is the `let` it denotes, which the position table
+/// refuses where it stands (`krs_syntax::positions`), as it judges every
+/// construct.
 #[test]
-fn a_block_is_rejected_in_a_pattern() {
-    let error = krs_syntax::RuleItem::parse_source(
+fn a_block_in_a_pattern_is_read_as_a_let() {
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn second(k::term![Second(Pair(_, { let y = 1; y }))]: Term<Exp>) -> Term<Exp> { 1 }",
     )
-    .unwrap_err();
+    .unwrap();
     assert!(
-        reason(&error).starts_with("a `let` block (K's #let) is a term"),
-        "{error}"
+        rule.parameter()
+            .pattern
+            .nodes()
+            .iter()
+            .any(|node| matches!(node, TermNode::Let { .. }))
     );
 }

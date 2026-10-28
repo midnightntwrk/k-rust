@@ -1295,6 +1295,11 @@ impl TermExpression {
         mut expression: Expr,
         context: TermExpressionContext,
     ) -> Result<Self, SyntaxError> {
+        // Tokens [`parse_term_expression`] read as no expression hold
+        // `name @ pattern`: they are read as the pattern they are.
+        if let Expr::Verbatim(tokens) = expression {
+            return Self::from_aliased_tokens(tokens);
+        }
         // A `k::bits!(value, "..")` test is sugar for its `Bool` long form.
         if context == TermExpressionContext::Expression {
             crate::rule::expand_bit_tests(&mut expression)?;
@@ -1323,7 +1328,7 @@ impl TermExpression {
             }) => TermRootKind::Literal,
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
             // A term block (K's `#let`) applies a generated function.
-            Expr::Block(_) if context == TermExpressionContext::Expression => TermRootKind::Call,
+            Expr::Block(_) => TermRootKind::Call,
             Expr::Macro(value) => special_macro_kind(&value.mac.path)
                 .ok_or_else(|| unsupported_root_macro(&value.mac.path, value.span()))?
                 .root_kind(),
@@ -1368,28 +1373,33 @@ impl TermExpression {
     /// named-term subset.
     pub fn parse_pattern_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
-        let source = tokens.clone();
-        let pattern = match Pat::parse_multi.parse2(tokens.clone()) {
-            Ok(pattern) => pattern,
-            // A form that is no Rust pattern but a term expression the
-            // grammar rejects (such as `-f64::INFINITY`) keeps the
-            // expression grammar's specific reason.
-            Err(error) => {
-                if let Ok(expression) = syn::parse2::<Expr>(tokens) {
-                    // A term block is no pattern (KF-032).
-                    if let Some(span) = first_block(&expression) {
-                        return Err(let_error(LET_IN_PATTERN.to_owned(), span));
-                    }
-                    // Nor is `&&`, `||`, or a method call.
+        match Pat::parse_multi.parse2(tokens.clone()) {
+            Ok(pattern) => Self::from_pattern(pattern, tokens, signs),
+            // Tokens that are no Rust pattern but a term expression are the
+            // term they denote, a `let` block or an `ml::exists` closure
+            // among them, and the position table judges it where it stands.
+            // `&&`, `||` and a method call, which no pattern holds, denote a
+            // builtin call, and a pattern names its head instead.
+            Err(error) => match syn::parse2::<Expr>(tokens) {
+                Ok(expression) => {
                     if let Some(error) = crate::notation::notation_in_pattern(&expression) {
                         return Err(error);
                     }
-                    Self::from_expression(expression)?;
+                    Self::from_pattern_expression(expression)
                 }
-                return Err(error.into());
-            }
-        };
-        Self::from_pattern(pattern, source, signs)
+                Err(_) => Err(error.into()),
+            },
+        }
+    }
+
+    /// Reads tokens that hold `name @ pattern` at a position that builds a
+    /// term: no Rust expression holds the alias, so the tokens are read as
+    /// the pattern they are, and the position table refuses the alias at its
+    /// own tokens, as it refuses every construct its position cannot hold.
+    fn from_aliased_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
+        let pattern = Pat::parse_multi.parse2(tokens.clone())?;
+        Self::from_pattern(pattern, tokens, signs)
     }
 
     /// Validates a previously parsed Rust pattern as a term pattern; `signs`
@@ -1404,6 +1414,11 @@ impl TermExpression {
         tokens: TokenStream,
         mut signs: crate::rule::NegativeLiteralSpans,
     ) -> Result<Self, SyntaxError> {
+        // Tokens [`parse_term_pattern`] read as no pattern are a term
+        // expression.
+        if let Pat::Verbatim(tokens) = pattern {
+            return Self::parse_pattern_tokens(tokens);
+        }
         let root_kind = pattern_root_kind(&pattern)?;
         let mut symbols = Vec::new();
         let mut nodes = Vec::new();
@@ -1675,52 +1690,124 @@ enum TermExpressionContext {
 }
 
 impl KrsSyntax for TermExpression {
+    /// Parses a term at a position that builds one: an expression, or tokens
+    /// that hold `name @ pattern` ([`parse_term_expression`]).
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        reject_pattern_alias(&tokens)?;
-        let expression = syn::parse2::<Expr>(tokens)?;
+        let expression = parse_term_expression.parse2(tokens)?;
         Self::from_expression(expression)
     }
 }
 
-/// The reason given for `name @ pattern` outside a left-hand side.
-pub(crate) const PATTERN_AS_OUTSIDE_LHS: &str = "`name @ pattern` binds only on a left-hand side (K's #as is LHS-only); refer to the name without `@` here";
-
-/// Rejects `name @ pattern` in tokens that are parsed as an expression (a
-/// result, condition, or initializer), which syn would otherwise report as
-/// an unexpected token. Tokens inside nested macro invocations are skipped:
-/// a nested `term!` or `cells!` checks its own payload.
+/// Reads one term at a position that builds a term (a result, a condition, a
+/// value): a Rust expression, or, when the tokens are no expression but a
+/// pattern that holds `name @ pattern`, those tokens as [`Expr::Verbatim`],
+/// which [`TermExpression::from_expression`] reads as the pattern they are.
+/// A pattern alias is a construct like any other, so its position decides
+/// it, not the expression grammar.
 ///
 /// # Errors
 ///
-/// Returns [`SyntaxErrorKind::InvalidPatternAs`] at the first `@`.
-pub(crate) fn reject_pattern_alias(tokens: &TokenStream) -> Result<(), SyntaxError> {
-    match find_pattern_alias(tokens) {
-        Some(span) => Err(SyntaxError::new(
-            SyntaxErrorKind::InvalidPatternAs {
-                reason: PATTERN_AS_OUTSIDE_LHS.to_owned(),
-            },
-            span,
-        )),
-        None => Ok(()),
+/// The expression's parse error, when the tokens are neither.
+pub(crate) fn parse_term_expression(input: syn::parse::ParseStream<'_>) -> syn::Result<Expr> {
+    use syn::parse::discouraged::Speculative as _;
+    let expression = input.fork();
+    let error = match expression.parse::<Expr>() {
+        // An expression stops before the `@` of an alias at its root.
+        Ok(parsed) if !expression.peek(syn::Token![@]) => {
+            input.advance_to(&expression);
+            return Ok(parsed);
+        }
+        Ok(_) => expression.error("expected an expression"),
+        Err(error) => error,
+    };
+    let pattern = input.fork();
+    let start = pattern.cursor();
+    if pattern.call(Pat::parse_multi).is_ok() {
+        let tokens = tokens_between(start, pattern.cursor());
+        if find_pattern_alias(&tokens).is_some() {
+            input.advance_to(&pattern);
+            return Ok(Expr::Verbatim(tokens));
+        }
     }
+    Err(error)
 }
 
-/// Rejects `name @ pattern` in the body (the result) of the `fn` item in
-/// `tokens`, before syn reports it as an unexpected token.
+/// Reads one term at a position that matches terms (a subject): a Rust
+/// pattern, or, when the tokens are no pattern but a term expression (a
+/// `let` block, an `ml::exists` closure), those tokens as [`Pat::Verbatim`],
+/// which the pattern readers read as the term they denote, so that the
+/// position table judges the construct where it stands.
 ///
 /// # Errors
 ///
-/// Returns [`SyntaxErrorKind::InvalidPatternAs`] at the first `@`.
-pub(crate) fn reject_pattern_alias_in_fn_body(tokens: &TokenStream) -> Result<(), SyntaxError> {
-    let body = tokens.clone().into_iter().last();
-    match body {
-        Some(proc_macro2::TokenTree::Group(group))
-            if group.delimiter() == proc_macro2::Delimiter::Brace =>
-        {
-            reject_pattern_alias(&group.stream())
+/// The pattern's parse error, when the tokens are neither.
+pub(crate) fn parse_term_pattern(input: syn::parse::ParseStream<'_>) -> syn::Result<Pat> {
+    use syn::parse::discouraged::Speculative as _;
+    let pattern = input.fork();
+    let error = match pattern.call(Pat::parse_multi) {
+        Ok(parsed) => {
+            input.advance_to(&pattern);
+            return Ok(parsed);
         }
-        _ => Ok(()),
+        Err(error) => error,
+    };
+    let expression = input.fork();
+    let start = expression.cursor();
+    if expression.parse::<Expr>().is_ok() {
+        let tokens = tokens_between(start, expression.cursor());
+        input.advance_to(&expression);
+        return Ok(Pat::Verbatim(tokens));
     }
+    Err(error)
+}
+
+/// The tokens from `start` up to `end`.
+pub(crate) fn tokens_between(
+    start: syn::buffer::Cursor<'_>,
+    end: syn::buffer::Cursor<'_>,
+) -> TokenStream {
+    let mut tokens = TokenStream::new();
+    let mut cursor = start;
+    while cursor != end {
+        let Some((token, next)) = cursor.token_tree() else {
+            break;
+        };
+        tokens.extend([token]);
+        cursor = next;
+    }
+    tokens
+}
+
+/// Parses the `fn` item in `tokens`. A body that holds `name @ pattern`,
+/// which no Rust block holds, is read as one term with the pattern grammar
+/// ([`parse_term_expression`]), so that the position table refuses the alias
+/// in the result, at its own tokens.
+///
+/// # Errors
+///
+/// Rust syntax errors.
+pub(crate) fn parse_fn_item(tokens: TokenStream) -> Result<syn::ItemFn, SyntaxError> {
+    let mut tokens = tokens.into_iter().collect::<Vec<_>>();
+    let body = match tokens.last() {
+        Some(proc_macro2::TokenTree::Group(group))
+            if group.delimiter() == proc_macro2::Delimiter::Brace
+                && find_pattern_alias(&group.stream()).is_some() =>
+        {
+            let body = group.stream();
+            let mut empty =
+                proc_macro2::Group::new(proc_macro2::Delimiter::Brace, TokenStream::new());
+            empty.set_span(group.span());
+            *tokens.last_mut().expect("a body") = proc_macro2::TokenTree::Group(empty);
+            Some(body)
+        }
+        _ => None,
+    };
+    let mut item = syn::parse2::<syn::ItemFn>(tokens.into_iter().collect())?;
+    if let Some(body) = body {
+        let result = parse_term_expression.parse2(body)?;
+        item.block.stmts = vec![syn::Stmt::Expr(result, None)];
+    }
+    Ok(item)
 }
 
 fn find_pattern_alias(tokens: &TokenStream) -> Option<Span> {
@@ -2274,10 +2361,7 @@ fn validate_expression(
             Ok(TermTree::Wildcard(TokenRange::for_tokens(infer)?))
         }
         Expr::Macro(value) => validate_special_macro(value, context, symbols, nodes),
-        Expr::Block(block) if context == TermExpressionContext::Expression => {
-            validate_let_block(block, symbols, nodes)
-        }
-        Expr::Block(block) => Err(let_error(LET_IN_PATTERN.to_owned(), block.span())),
+        Expr::Block(block) => validate_let_block(block, symbols, nodes),
         // A closure is only the one argument of `ml::exists` (KF-039),
         // which `validate_call` admits.
         Expr::Closure(closure) => Err(ml_exists_error(
@@ -2509,24 +2593,8 @@ fn validate_special_macro(
         Some(TermMacroKind::Project) => {
             validate_sort_test(value, SortTestKind::Projection, context, symbols, nodes)
         }
-        Some(TermMacroKind::Matches) => {
-            if context == TermExpressionContext::Pattern {
-                return Err(matches_error(
-                    MATCHES_IN_PATTERN.to_owned(),
-                    value.mac.path.span(),
-                ));
-            }
-            validate_matches(value, symbols, nodes)
-        }
-        Some(TermMacroKind::Rewrite) => {
-            if context == TermExpressionContext::Expression {
-                return Err(local_rewrite_error(
-                    REWRITE_OUTSIDE_SUBJECT.to_owned(),
-                    value.mac.path.span(),
-                ));
-            }
-            validate_rewrite(value, symbols, nodes)
-        }
+        Some(TermMacroKind::Matches) => validate_matches(value, symbols, nodes),
+        Some(TermMacroKind::Rewrite) => validate_rewrite(value, symbols, nodes),
         None if crate::rule::is_bits_macro(&value.mac.path) => {
             Err(crate::rule::misplaced_bit_template(value.mac.path.span()))
         }
@@ -2542,9 +2610,6 @@ fn validate_special_macro(
 /// The reason given for std's bare `matches!` in a term.
 pub(crate) const STD_MATCHES: &str =
     "did you mean `k::matches!`? std's matches! tests a host value";
-
-/// The reason given for `k::matches!` in a pattern.
-pub(crate) const MATCHES_IN_PATTERN: &str = "`k::matches!` is a Bool test (K's :=K); it cannot appear on a left-hand side or inside a pattern";
 
 /// The reason given for an `if` guard in `k::matches!`.
 const MATCHES_GUARD: &str = "K's :=K has no guard; conjoin a separate condition with bool::and";
@@ -2566,27 +2631,6 @@ pub(crate) fn is_std_matches(path: &Path) -> bool {
                 .segments
                 .first()
                 .is_some_and(|first| first.ident == "std" || first.ident == "core"))
-}
-
-/// Whether `path` names `k::matches!`.
-pub(crate) fn is_matches_macro(path: &Path) -> bool {
-    is_plain_path(path)
-        && path.segments.len() > 1
-        && path
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == "matches")
-}
-
-/// The error for `k::matches!` (or std's `matches!`) in a pattern position,
-/// at the macro's name.
-pub(crate) fn matched_matches(path: &Path) -> SyntaxError {
-    let reason = if is_std_matches(path) {
-        STD_MATCHES
-    } else {
-        MATCHES_IN_PATTERN
-    };
-    matches_error(reason.to_owned(), path.span())
 }
 
 /// Splits the arguments of `k::matches!(subject, pattern)` into the subject
@@ -2622,14 +2666,17 @@ pub fn parse_matches_arguments(tokens: TokenStream) -> Result<(Expr, TokenStream
     Ok((subject, pattern))
 }
 
-/// The local binders of a `k::matches!` pattern (BIND-1), in first-occurrence
-/// order: every `name @ ..` alias and every unqualified single-identifier
-/// reference below the root (a bare root path is a unit constructor, as in a
-/// rule subject).
-///
-/// A `let` pattern's bare root is a binder too (`let n = ..`), so
-/// `root_is_constructor` is false for it.
-fn local_binders(pattern: &TermTree, root_is_constructor: bool) -> Vec<syn::Ident> {
+/// The binders of a pattern (BIND-1), in first-occurrence order: every
+/// `name @ ..` alias and every unqualified single-identifier reference, but a
+/// bare path at the root when `root_is_constructor` (a rule subject's or a
+/// `k::matches!` pattern's root is a unit constructor; a `let` pattern's bare
+/// root binds, `let n = ..`). The names a `let`, an `ml::exists` closure or a
+/// `k::matches!` pattern inside the pattern binds are local to that
+/// construct, and the right side of a `k::rewrite!` binds nothing.
+pub(crate) fn pattern_tree_binders(
+    pattern: &TermTree,
+    root_is_constructor: bool,
+) -> Vec<syn::Ident> {
     fn walk(tree: &TermTree, root: bool, output: &mut Vec<syn::Ident>) {
         let mut push = |ident: &syn::Ident| {
             if !output.contains(ident) {
@@ -2675,7 +2722,8 @@ fn local_binders(pattern: &TermTree, root_is_constructor: bool) -> Vec<syn::Iden
                 }
             }
             TermTree::Matches { subject, .. } => walk(subject, false, output),
-            TermTree::Rewrite { from, .. } => walk(from, false, output),
+            // A rewrite's left side stands where the rewrite does.
+            TermTree::Rewrite { from, .. } => walk(from, root, output),
             TermTree::Let { .. }
             | TermTree::Closure { .. }
             | TermTree::Reference(_)
@@ -2713,7 +2761,7 @@ fn validate_matches(
     let mut wildcards = Vec::new();
     pattern.wildcard_ranges_preorder(&mut wildcards);
     nodes.extend(wildcards.into_iter().map(TermNode::MatchesWildcard));
-    let binders = local_binders(&pattern, true);
+    let binders = pattern_tree_binders(&pattern, true);
     Ok(TermTree::Matches {
         range,
         subject: Box::new(subject),
@@ -2721,16 +2769,6 @@ fn validate_matches(
         binders,
     })
 }
-
-/// The reason given for `k::rewrite!` outside a single-body rule's subject.
-pub(crate) const REWRITE_OUTSIDE_SUBJECT: &str = "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body `#[k::rule]` fn (one that returns `()`), or rewrites the hole of a `#[k::context]` fn; it cannot appear in a result, a condition, or another sentence";
-
-/// The reason given for `k::rewrite!` in a readable clause.
-pub(crate) const REWRITE_IN_READABLE: &str = "`k::rewrite!` is reference-only: a readable clause restates the before and after of each cell; write a single-body `#[k::rule]` fn that returns `()` instead";
-
-/// The reason given for a rewrite inside another rewrite.
-const NESTED_REWRITE: &str =
-    "`k::rewrite!` cannot occur inside another rewrite; K rewrites do not nest";
 
 /// The expected `k::rewrite!` arguments.
 const REWRITE_SHAPE: &str =
@@ -2806,15 +2844,6 @@ fn validate_rewrite(
         )?))
     };
     let end = nodes.len();
-    if let Some(nested) = nodes[shell + 1..]
-        .iter()
-        .find(|node| matches!(node, TermNode::Rewrite { .. }))
-    {
-        return Err(local_rewrite_error(
-            NESTED_REWRITE.to_owned(),
-            nested.range()?.first(),
-        ));
-    }
     nodes[shell] = TermNode::Rewrite {
         range,
         from: from_range,
@@ -2919,29 +2948,9 @@ pub(crate) fn allocate_rewrite_keys(
     Ok(())
 }
 
-/// The span of the first block expression in `expression`, if any.
-pub(crate) fn first_block(expression: &Expr) -> Option<Span> {
-    struct Blocks(Option<Span>);
-    impl<'ast> syn::visit::Visit<'ast> for Blocks {
-        fn visit_expr_block(&mut self, block: &'ast syn::ExprBlock) {
-            if self.0.is_none() {
-                self.0 = Some(block.span());
-            }
-        }
-        fn visit_macro(&mut self, _: &'ast syn::Macro) {}
-    }
-    let mut blocks = Blocks(None);
-    syn::visit::Visit::visit_expr(&mut blocks, expression);
-    blocks.0
-}
-
 /// The shape every term block takes (KF-032).
 pub(crate) const LET_BLOCK_SHAPE: &str =
     "a term block is `let pattern = term;`* followed by one result term (K's #let)";
-
-/// The reason given for a term block in a pattern.
-pub(crate) const LET_IN_PATTERN: &str =
-    "a `let` block (K's #let) is a term; it cannot appear on a left-hand side or inside a pattern";
 
 /// The reason given for `|` in a `let` pattern.
 const LET_PATTERN_OR: &str = "#let patterns take one alternative";
@@ -3075,7 +3084,7 @@ fn validate_let_statement(
         symbols,
         nodes,
     )?;
-    let binders = local_binders(&pattern, false);
+    let binders = pattern_tree_binders(&pattern, false);
     Ok(LetStatement {
         range,
         pattern,
@@ -3108,11 +3117,8 @@ fn reject_let_pattern_forms(pattern: &TermTree) -> Result<(), SyntaxError> {
         TermTree::OrBool { arguments, .. } => {
             arguments.iter().try_for_each(reject_let_pattern_forms)
         }
-        TermTree::Rewrite { range, .. } => Err(local_rewrite_error(
-            REWRITE_OUTSIDE_SUBJECT.to_owned(),
-            range.first(),
-        )),
-        TermTree::Reference(_)
+        TermTree::Rewrite { .. }
+        | TermTree::Reference(_)
         | TermTree::Literal(_)
         | TermTree::Wildcard(_)
         | TermTree::IdToken { .. }
@@ -3666,7 +3672,6 @@ fn validate_call(
         // argument. Semantic lowering checks that the head is `ml::exists`.
         if let Expr::Closure(closure) = argument
             && call.args.len() == 1
-            && context == TermExpressionContext::Expression
         {
             arguments.push(validate_closure(closure, symbols, nodes)?);
             continue;
@@ -4249,31 +4254,6 @@ pub(crate) fn is_term_macro(path: &Path) -> bool {
             .segments
             .last()
             .is_some_and(|segment| segment.ident == "term")
-}
-
-/// Whether `path` names `k::is!` or `k::project!`, which may be a whole
-/// result term but are never matched.
-pub(crate) fn is_sort_test_macro(path: &Path) -> bool {
-    is_plain_path(path)
-        && path
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == "is" || segment.ident == "project")
-}
-
-/// The error for `k::is!` or `k::project!` in a pattern position, at the
-/// macro's name.
-pub(crate) fn matched_sort_test(path: &Path) -> SyntaxError {
-    let span = path
-        .segments
-        .last()
-        .map_or_else(|| path.span(), |segment| segment.ident.span());
-    SyntaxError::new(
-        SyntaxErrorKind::UnsupportedTermExpression {
-            reason: "`k::is!` and `k::project!` are function calls and cannot be matched; restrict the binder with a typed parameter or `where x: S`",
-        },
-        span,
-    )
 }
 
 pub(crate) fn unexpected_macro(path: &Path) -> SyntaxError {

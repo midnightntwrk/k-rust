@@ -51,7 +51,7 @@ use syn::{Attribute, Block, Expr, Ident, ItemFn, Pat, Stmt, Token, braced, paren
 
 use super::{ShorthandEquation, shorthand_error};
 use crate::parse::{ParseError, structured};
-use crate::rule::{NegativeLiteralSpans, parse_pattern_with_signs};
+use crate::rule::{NegativeLiteralSpans, parse_rust_pattern_with_signs};
 use crate::{SyntaxError, TokenRange};
 
 /// What a function shorthand's equations are made of.
@@ -292,7 +292,7 @@ fn parse_arm(input: ParseStream<'_>, arity: usize, tuple: bool) -> Result<Arm, P
     let components = if tuple {
         parse_tuple_pattern(input, arity)?
     } else {
-        let (pattern, signs) = parse_pattern_with_signs(input)?;
+        let (pattern, signs) = parse_rust_pattern_with_signs(input)?;
         vec![Component { pattern, signs }]
     };
     let guard = if input.peek(Token![if]) {
@@ -363,7 +363,7 @@ fn arm_label(attributes: Vec<Attribute>) -> Result<Option<Ident>, ParseError> {
 /// An arm of a tuple `match`: `(p1, .., pn)` with at most one `..`, or `_`.
 fn parse_tuple_pattern(input: ParseStream<'_>, arity: usize) -> Result<Vec<Component>, ParseError> {
     if !input.peek(syn::token::Paren) {
-        let (pattern, _) = parse_pattern_with_signs(input)?;
+        let (pattern, _) = parse_rust_pattern_with_signs(input)?;
         let Pat::Wild(wild) = pattern else {
             return Err(shorthand_error(
                 "an arm of a tuple `match` lists one pattern per component, `(p1, p2)`, or is `_`",
@@ -376,7 +376,7 @@ fn parse_tuple_pattern(input: ParseStream<'_>, arity: usize) -> Result<Vec<Compo
     let (parentheses, content) = parentheses(input)?;
     let mut written = Vec::new();
     while !content.is_empty() {
-        let (pattern, signs) = parse_pattern_with_signs(&content)?;
+        let (pattern, signs) = parse_rust_pattern_with_signs(&content)?;
         written.push(Component { pattern, signs });
         if content.is_empty() {
             break;

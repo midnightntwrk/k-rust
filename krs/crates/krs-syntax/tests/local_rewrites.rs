@@ -115,13 +115,6 @@ fn a_single_body_term_rule_has_no_result() {
 fn misplaced_and_malformed_rewrites_are_rejected() {
     for (source, expected) in [
         (
-            ASSIGN.replace(
-                "k::rewrite!(_ => value)",
-                "k::rewrite!(k::rewrite!(_ => value) => value)",
-            ),
-            "cannot occur inside another rewrite",
-        ),
-        (
             ASSIGN.replace("k::rewrite!(_ => value)", "k::rewrite!(_ => other)"),
             "`other` on the right of `k::rewrite!` is not bound",
         ),
@@ -169,10 +162,25 @@ fn misplaced_and_malformed_rewrites_are_rejected() {
     }
 }
 
+/// A rewrite outside a single-body rule's subject, or inside another
+/// rewrite, is read as the rewrite it is; the position table refuses it where
+/// it stands (`krs_syntax::positions`). A fn with a result is no single-body
+/// rule, which the rule itself says, readable or not.
 #[test]
-fn a_rewrite_outside_a_pattern_is_rejected() {
-    let error = TermExpression::parse_source("int::add(k::rewrite!(a => b), 1)").unwrap_err();
-    assert!(reason(&error).contains("marks what changes inside the subject"));
+fn a_rewrite_outside_a_subject_is_read_where_it_stands() {
+    let rewrites = |nodes: &[TermNode]| {
+        nodes
+            .iter()
+            .filter(|node| matches!(node, TermNode::Rewrite { .. }))
+            .count()
+    };
+    let term = TermExpression::parse_source("int::add(k::rewrite!(a => b), 1)").unwrap();
+    assert_eq!(rewrites(term.nodes()), 1);
+    let nested = StateRuleItem::parse_source(&ASSIGN.replace(
+        "k::rewrite!(_ => value)",
+        "k::rewrite!(k::rewrite!(_ => value) => value)",
+    ));
+    assert!(nested.is_ok(), "{:?}", nested.err());
     let error = krs_syntax::RuleItem::parse_source(
         "#[k::rule] fn f(k::term![Pair(k::rewrite!(a => b), c)]: Term<Exp>) -> Term<Exp> { c }",
     )
@@ -181,5 +189,5 @@ fn a_rewrite_outside_a_pattern_is_rejected() {
     let error =
         krs_syntax::RuleBlock::parse_source("for Exp; bad: Pair(k::rewrite!(a => b), c) => c;")
             .unwrap_err();
-    assert!(reason(&error).contains("reference-only"));
+    assert!(reason(&error).contains("a rule with a result"));
 }

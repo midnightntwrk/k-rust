@@ -21,7 +21,7 @@ use syn::ext::IdentExt;
 use syn::parse::{ParseStream, Parser};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Pat, Path, Token};
+use syn::{Attribute, Expr, Ident, ItemUse, Pat, Path, Token};
 
 use super::block::RuleClauseLayout;
 use super::item::RuleItem;
@@ -246,7 +246,7 @@ fn parse_row(input: ParseStream<'_>, function: &Path) -> Result<EquationRow, Par
         argument_patterns(&arguments).map_err(|error| arguments_error(&arguments, error))?;
     let arity = patterns.len();
     input.parse::<Token![=>]>()?;
-    let result: Expr = input.parse()?;
+    let result: Expr = input.call(crate::term::parse_term_expression)?;
     if input.peek(Token![where]) {
         return Err(table_error(
             "a `k::equations!` row takes no `where` narrowing; declare the binder sorts in a `#[k::equation]` fn",
@@ -275,10 +275,21 @@ fn parse_row(input: ParseStream<'_>, function: &Path) -> Result<EquationRow, Par
     });
     let subject = quote!(#function #arguments);
     let signs = NegativeLiteralSpans::scan(subject.clone());
-    let item: ItemFn = syn::parse2(quote! {
-        #(#retained)*
-        fn #label(#subject: #function) -> #function { #result }
-    })?;
+    let subject = Pat::TupleStruct(syn::PatTupleStruct {
+        attrs: Vec::new(),
+        qself: None,
+        path: function.clone(),
+        paren_token: syn::token::Paren(arguments.delim_span()),
+        elems: patterns,
+    });
+    let item = super::item::clause_item(
+        &retained,
+        &TokenStream::new(),
+        &label,
+        function,
+        subject,
+        result.clone(),
+    )?;
     let rule = RuleItem::from_table_item(item, signs)?;
     if rule.function_context().is_some() {
         return Err(table_error(
@@ -584,7 +595,7 @@ fn row_patterns(row: &EquationRow) -> Vec<Pat> {
 /// The comma-separated argument patterns of a row; each may be `A | B`.
 fn argument_patterns(arguments: &Group) -> syn::Result<Punctuated<Pat, Token![,]>> {
     (|input: ParseStream<'_>| {
-        Punctuated::<Pat, Token![,]>::parse_terminated_with(input, Pat::parse_multi)
+        Punctuated::<Pat, Token![,]>::parse_terminated_with(input, crate::term::parse_term_pattern)
     })
     .parse2(arguments.stream())
 }
