@@ -98,7 +98,7 @@ doc = "`k::fragment!` in an initializer, which builds nested cells with their st
 
 [class.function-in-pattern]
 code = "krs::analysis::function-in-pattern"
-doc = "a function application below the root of a rewrite rule's or equation's pattern, outside a collection's key, value or element: a pattern matches terms as written, and an application is evaluated"
+doc = "a function application at a matched position of a rewrite rule's or equation's pattern, a slot's root as below it, other than an equation's subject root (the function it defines) and a collection's key, value or element: a pattern matches terms as written, and an application is evaluated"
 
 [class.initializer-remainder]
 code = "krs::syntax::unsupported-initializer-body"
@@ -197,7 +197,7 @@ doc = "a turbofish instance (`Choose::<Int> { .. }`) in an initializer, which bu
 
 [class.unbound-name]
 code = "krs::expand::unbound-name"
-doc = "a binder that nothing in the sentence or initializer binds"
+doc = "a binder that nothing in the sentence or initializer binds, a name a map key reads only below a function application included"
 
 [class.unused-configuration-variable]
 code = "krs::analysis::unused-configuration-variable"
