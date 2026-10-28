@@ -431,14 +431,14 @@ theorem chooseFirst_eq_findSome [DecidableEq M] {β : Type} {m : M} {hw : WF m}
     rw [dif_pos (concat_element_remove hw (lookup_of_mem_toList hw p.2))]
   rw [h, ← List.findSome?_map, List.attach_map_subtype_val]
 
-theorem _root_.List.findSome?_map_of_mem {α β β' : Type} {G : α → Option β} {H : α → Option β'}
+theorem findSome?_map_of_mem {α β β' : Type} {G : α → Option β} {H : α → Option β'}
     {φ : β → β'} : ∀ {l : List α}, (∀ x ∈ l, H x = (G x).map φ) →
       l.findSome? H = (l.findSome? G).map φ
   | [], _ => rfl
   | a :: t, h => by
     simp only [List.findSome?_cons, h a (List.mem_cons_self ..)]
     cases G a with
-    | none => exact List.findSome?_map_of_mem (fun x hx => h x (List.mem_cons_of_mem _ hx))
+    | none => exact findSome?_map_of_mem (fun x hx => h x (List.mem_cons_of_mem _ hx))
     | some b => rfl
 
 /-- `chooseFirst` on a translated map, with a continuation that agrees with the translation of
@@ -450,7 +450,7 @@ theorem chooseFirst_pointwise [DecidableEq M] [DecidableEq M'] {β β' : Type}
     {φ : β → β'} (h : ∀ k v hc hc', F' (f k) (g v) hc' = (F k v hc).map φ) :
     chooseFirst (T m) hw' F' = (chooseFirst m hw F).map φ := by
   rw [chooseFirst_eq_findSome, chooseFirst_eq_findSome, hT, SAL.mapPairs, List.findSome?_map]
-  apply List.findSome?_map_of_mem
+  apply findSome?_map_of_mem
   intro p hp
   have hc := concat_element_remove hw (lookup_of_mem_toList hw hp)
   have hc' : concat (element (f p.1) (g p.2)) (remove (T m) (f p.1)) = some (T m) := by

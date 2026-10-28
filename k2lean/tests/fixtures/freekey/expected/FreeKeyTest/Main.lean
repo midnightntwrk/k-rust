@@ -8,7 +8,9 @@ A `run` case follows `step` (the first defined rule and match, as krust `--strat
 configurations without successors. Each final configuration is printed (`FINAL name: …`) for
 the acceptance script. -/
 
-open FreeKey FreeKeyTest KPrelude
+namespace FreeKeyTest
+
+open FreeKey KPrelude
 
 def runFuel : Nat := 100000000
 def maxStates : Nat := 2000000
@@ -37,7 +39,7 @@ def bfs (enough : List SortGeneratedTopCell → Bool) : Nat → List SortGenerat
       (next, seen, finals, n + 1)) ([], seen, finals, n)
     bfs enough fuel next.reverse seen finals n
 
-def main : IO UInt32 := do
+def testMain : IO UInt32 := do
   let mut failed := 0
   for c in cases do
     match c.mode with
@@ -67,3 +69,7 @@ def main : IO UInt32 := do
       IO.println s!"{if ok then "PASS" else "FAIL"} {c.name} (search): {n} states, {finals.length} final, krust {c.expected.length}, krust's among ours: {found}, same set: {same}, complete: {complete}, {(t1 - t0) / 1000000} ms"
   if failed == 0 then IO.println "PASS" else IO.println s!"FAIL ({failed})"
   return if failed == 0 then 0 else 1
+
+end FreeKeyTest
+
+def main : IO UInt32 := FreeKeyTest.testMain

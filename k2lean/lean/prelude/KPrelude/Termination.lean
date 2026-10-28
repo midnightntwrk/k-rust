@@ -171,9 +171,9 @@ theorem length_erase_of_lookup {k : α} {v : β} : ∀ {m : List (α × β)}, lo
       simp only [List.length_cons]
       omega
 
-theorem _root_.List.length_le_sizeOf {γ : Type} [SizeOf γ] : ∀ l : List γ, l.length ≤ sizeOf l
+theorem length_le_sizeOf {γ : Type} [SizeOf γ] : ∀ l : List γ, l.length ≤ sizeOf l
   | [] => by simp
-  | _ :: t => by have := List.length_le_sizeOf t; simp only [List.cons.sizeOf_spec, List.length_cons]; omega
+  | _ :: t => by have := length_le_sizeOf t; simp only [List.cons.sizeOf_spec, List.length_cons]; omega
 
 theorem sizeOf_erase_add {k : α} {v : β} : ∀ {m : List (α × β)}, lookup k m = some v →
     sizeOf (erase k m) + 2 + sizeOf v ≤ sizeOf m
@@ -221,7 +221,7 @@ theorem mapSizeOf_of_add (h : ∀ l : List (K × V), sizeOf (ofList l : M) + l.l
     rw [ofList_toList] at h2
     have h4 := SAL.sizeOf_erase_add hl
     have h5 := SAL.length_erase_of_lookup hl
-    have h6 := List.length_le_sizeOf (SAL.erase k (toList m))
+    have h6 := SAL.length_le_sizeOf (SAL.erase k (toList m))
     omega
   sizeOf_remove {m k v} hl := by
     rw [lookup_def] at hl
