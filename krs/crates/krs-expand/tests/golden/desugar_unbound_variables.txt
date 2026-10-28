@@ -16,14 +16,6 @@ fn __krs_rule_application_54c108346aea8a97_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Shapes>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_54c108346aea8a97_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Pair>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_54c108346aea8a97_2() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Pair>()
-}
-#[doc(hidden)]
 fn __krs_rule_descriptor_54c108346aea8a97() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
@@ -56,12 +48,22 @@ fn __krs_rule_descriptor_54c108346aea8a97() -> ::core::result::Result<
                         ),
                         marker: ::k::HostTypeKey(Shapes::__krs_variant_type_id_Twin),
                     },
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_54c108346aea8a97_1),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_54c108346aea8a97_2),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Pair { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            3312157943746072081u64,
+                        >(&__krs_rule_application_witness, "Pair")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Pair { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            3312157943746072081u64,
+                        >(&__krs_rule_application_witness, "Pair")
+                    }),
                 ],
             },
         ),

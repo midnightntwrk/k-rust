@@ -16,10 +16,6 @@ fn __krs_rule_result_sort_eabeb5c6c53ab4d4() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_eabeb5c6c53ab4d4_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<AddOne>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_eabeb5c6c53ab4d4_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::add>()
 }
 #[doc(hidden)]
@@ -49,11 +45,16 @@ fn __krs_rule_descriptor_eabeb5c6c53ab4d4() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(AddOne { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            1367238503555607272u64,
+                        >(&__krs_rule_application_witness, "AddOne")
+                    }),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_eabeb5c6c53ab4d4_0),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_eabeb5c6c53ab4d4_1),
                     ),
                 ],
             },

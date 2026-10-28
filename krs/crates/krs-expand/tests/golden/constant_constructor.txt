@@ -22,10 +22,6 @@ fn __krs_rule_application_355c619cc632d47b_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Instruction>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_355c619cc632d47b_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<IF>()
-}
-#[doc(hidden)]
 fn __krs_constant_descriptor_355c619cc632d47b() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
@@ -59,9 +55,14 @@ fn __krs_constant_descriptor_355c619cc632d47b() -> ::core::result::Result<
                         ),
                         marker: ::k::HostTypeKey(Instruction::__krs_variant_type_id_Jump),
                     },
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_355c619cc632d47b_1),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(IF { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            658669070802540966u64,
+                        >(&__krs_rule_application_witness, "IF")
+                    }),
                 ],
             },
         ),

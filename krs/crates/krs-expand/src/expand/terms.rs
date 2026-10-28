@@ -501,10 +501,6 @@ impl TermSide {
     }
 }
 
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "Each flag selects one independent sentence-kind policy or records one mode or nesting context of the shared term builder."
-)]
 pub(super) struct TermBuilder<'a> {
     facade: &'a Path,
     /// The ledger of the descriptor whose terms this builder expands.
@@ -533,15 +529,15 @@ pub(super) struct TermBuilder<'a> {
     /// The local binders of the enclosing `let` statements and `ml::exists`
     /// closures, innermost last.
     let_scopes: Vec<Vec<Ident>>,
-    lexical_rule_head: bool,
     /// The `use` items of a `k::equations!` table or a readable block: rustc
-    /// resolves every one-segment path through them, as the author's Rust
-    /// would with those items in scope. An import supplies only the names it
-    /// imports, so `Frame { .. }` names a variant when an imported enum has
-    /// one and the `#[k::cell]` struct otherwise (KF-016, KF-023), a crate
-    /// function no import supplies resolves in the enclosing module, an
-    /// explicit import shadows a glob, and a name two globs supply is
-    /// rustc's ambiguity error where it is used.
+    /// resolves every one-segment path through them and the enclosing
+    /// module's, as the author's Rust would with those items in scope. An
+    /// import supplies only the names it imports, so `Frame { .. }` names a
+    /// variant when an imported enum has one and the `#[k::cell]` struct
+    /// otherwise (KF-016, KF-023), a crate function no import supplies
+    /// resolves in the enclosing module, an explicit import shadows a glob,
+    /// and a name two globs supply is rustc's ambiguity error where it is
+    /// used.
     lexical_imports: Option<&'a [syn::ItemUse]>,
     pub(super) tooling_binding_references: Vec<Path>,
     /// Whether a `k::rewrite!` is being expanded.
@@ -572,7 +568,6 @@ impl<'a> TermBuilder<'a> {
             local_binders: None,
             let_pattern_binders: None,
             let_scopes: Vec::new(),
-            lexical_rule_head: false,
             lexical_imports: None,
             tooling_binding_references: Vec::new(),
             in_rewrite: false,
@@ -701,11 +696,6 @@ impl<'a> TermBuilder<'a> {
         imports: Option<&'a [syn::ItemUse]>,
     ) -> Self {
         self.lexical_imports = imports;
-        self
-    }
-
-    pub(super) fn with_lexical_rule_head(mut self, enabled: bool) -> Self {
-        self.lexical_rule_head = enabled;
         self
     }
 
@@ -944,15 +934,8 @@ impl<'a> TermBuilder<'a> {
                 let path_key = keys.path(application.head())?;
                 let node = keys.node(NodeKind::ApplicationHead, head_range)?;
                 let (key, path_key) = node.head(path_key)?;
-                let lexical = if self.lexical_imports.is_some() {
-                    !application.is_notation()
-                        && application.head().leading_colon.is_none()
-                        && application.head().segments.len() == 1
-                } else {
-                    self.take_lexical_rule_head(application.head())
-                };
                 let authored_path = spelling(application.head());
-                let target = if lexical {
+                let target = if !application.is_notation() && is_lexical_path(application.head()) {
                     let expression =
                         self.lexical_rule_application_target(&turbofish_path(application));
                     slots.target_slot_unique(&expression)
@@ -1007,7 +990,6 @@ impl<'a> TermBuilder<'a> {
                 })
             }
             TermTree::Reference(path) => {
-                let lexical = self.take_lexical_rule_head(path);
                 let path_key = keys.path(path)?;
                 let node = keys.node(NodeKind::Reference, TokenRange::for_tokens(path)?)?;
                 let (key, path_key) = node.head(path_key)?;
@@ -1032,7 +1014,7 @@ impl<'a> TermBuilder<'a> {
                     Err(self.unbound_name(path, &name))
                 } else {
                     let authored_path = spelling(path);
-                    let target = if lexical {
+                    let target = if is_lexical_path(path) {
                         let expression = self.lexical_rule_application_target(path);
                         slots.target_slot_unique(&expression)
                     } else {
@@ -1644,14 +1626,6 @@ impl<'a> TermBuilder<'a> {
         quote!(#(#items)*)
     }
 
-    fn take_lexical_rule_head(&mut self, path: &Path) -> bool {
-        if self.lexical_imports.is_some() {
-            return path.leading_colon.is_none() && path.segments.len() == 1;
-        }
-        let enabled = ::core::mem::take(&mut self.lexical_rule_head);
-        enabled && path.leading_colon.is_none() && path.segments.len() == 1
-    }
-
     fn lexical_rule_application_target(&self, authored: &Path) -> TokenStream {
         let path = authored.clone();
         let ident = authored
@@ -1740,8 +1714,21 @@ fn turbofish_text(
     format!("{}::<{arguments}>", path_text(application.head()))
 }
 
-/// The head of `application` with its turbofish restored, for a readable
-/// rule head whose owning type rustc infers from a witness pattern (KF-027).
+/// Whether `path` names its declaration through the lexical witness: an
+/// unqualified one-segment path. Such a path means what rustc makes of it in
+/// the author's scope, which is the enclosing module's items and imports
+/// (`use Cmd::*;` at the top of the module), plus a block's or table's own
+/// `use` items. That is the same in every form and at every place of a term,
+/// so every term form resolves it the one way. A type key cannot: it asks
+/// whether the path is a type, which an imported enum variant is not
+/// (E0573). A qualified path keeps its type key, which names the owner type
+/// and the variant's marker.
+fn is_lexical_path(path: &Path) -> bool {
+    path.leading_colon.is_none() && path.segments.len() == 1
+}
+
+/// The head of `application` with its turbofish restored, for a one-segment
+/// head whose owning type rustc infers from a witness pattern (KF-027).
 fn turbofish_path(application: &krs_syntax::TermApplication) -> Path {
     let mut path = application.head().clone();
     if application.instance().is_empty() {

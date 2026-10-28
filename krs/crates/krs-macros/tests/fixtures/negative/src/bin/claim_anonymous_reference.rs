@@ -11,7 +11,7 @@ fn invalid(
     }: Machine,
 ) -> Machine {
     cells! {
-        k: renamed_krs::configuration::KCell(_B, ..tail), //~ ERROR cannot find type `_B`
+        k: renamed_krs::configuration::KCell(_B, ..tail), //~ ERROR cannot find struct, variant or union type `_B`
         ..state
     }
 }

@@ -106,8 +106,7 @@ fn expand_head_rule(
         Form::SortRule
     };
     let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents, form)
-        .with_lexical_imports((!imports.is_empty()).then_some(imports))
-        .with_lexical_rule_head(imports.is_empty());
+        .with_lexical_imports((!imports.is_empty()).then_some(imports));
     let mut refinement_functions = Vec::new();
     let mut bindings = Vec::new();
     let mut binding_checks = Vec::new();

@@ -12,10 +12,6 @@ fn __krs_rule_result_sort_9fce9b8b5e80c281() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Int>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_9fce9b8b5e80c281_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<PriorityChoice>()
-}
-#[doc(hidden)]
 fn __krs_rule_descriptor_9fce9b8b5e80c281() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
@@ -42,9 +38,14 @@ fn __krs_rule_descriptor_9fce9b8b5e80c281() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_9fce9b8b5e80c281_0),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(PriorityChoice { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            8896111987580914170u64,
+                        >(&__krs_rule_application_witness, "PriorityChoice")
+                    }),
                 ],
             },
         ),

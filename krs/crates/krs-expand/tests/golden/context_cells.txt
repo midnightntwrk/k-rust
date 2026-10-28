@@ -17,10 +17,6 @@ fn __krs_rule_application_210761781d1d4fda_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<StmtSyntax>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_210761781d1d4fda_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<LValue>()
-}
-#[doc(hidden)]
 fn __krs_rule_binding_sort_210761781d1d4fda_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Exp>()
 }
@@ -64,9 +60,14 @@ fn __krs_configuration_rule_210761781d1d4fda() -> ::core::result::Result<
                         ),
                         marker: ::k::HostTypeKey(StmtSyntax::__krs_variant_type_id_Inc),
                     },
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_210761781d1d4fda_1),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(LValue { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            12591284865548001864u64,
+                        >(&__krs_rule_application_witness, "LValue")
+                    }),
                 ],
             },
         ),

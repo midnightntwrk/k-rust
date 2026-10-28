@@ -15,16 +15,12 @@ fn __krs_rule_result_sort_717fa4c662d1e5c8() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Exp>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_717fa4c662d1e5c8_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Choose>()
-}
-#[doc(hidden)]
 #[allow(dead_code)]
-fn __krs_rule_instance_check_717fa4c662d1e5c8_1() {
+fn __krs_rule_instance_check_717fa4c662d1e5c8_0() {
     let _: ::core::marker::PhantomData<Choose<dyn ExpSort>>;
 }
 #[doc(hidden)]
-fn __krs_rule_instance_717fa4c662d1e5c8_2() -> ::core::any::TypeId {
+fn __krs_rule_instance_717fa4c662d1e5c8_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::Term<dyn ExpSort>>()
 }
 #[doc(hidden)]
@@ -51,13 +47,20 @@ fn __krs_rule_descriptor_717fa4c662d1e5c8() -> ::core::result::Result<
                 types: &[
                     ::k::HostTypeKey(__krs_rule_subject_sort_717fa4c662d1e5c8),
                     ::k::HostTypeKey(__krs_rule_result_sort_717fa4c662d1e5c8),
-                    ::k::HostTypeKey(__krs_rule_instance_717fa4c662d1e5c8_2),
+                    ::k::HostTypeKey(__krs_rule_instance_717fa4c662d1e5c8_1),
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_717fa4c662d1e5c8_0),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(
+                            Choose::<dyn ExpSort> { .. },
+                        ) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            13783276144296438272u64,
+                        >(&__krs_rule_application_witness, "Choose :: < dyn ExpSort >")
+                    }),
                 ],
             },
         ),

@@ -16,10 +16,6 @@ fn __krs_rule_result_sort_ebde7156db94a5c8() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_ebde7156db94a5c8_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Chop>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_ebde7156db94a5c8_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::rem_euclid>()
 }
 #[doc(hidden)]
@@ -49,11 +45,16 @@ fn __krs_rule_descriptor_ebde7156db94a5c8() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Chop { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            2090090915063556473u64,
+                        >(&__krs_rule_application_witness, "Chop")
+                    }),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_ebde7156db94a5c8_0),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_ebde7156db94a5c8_1),
                     ),
                 ],
             },

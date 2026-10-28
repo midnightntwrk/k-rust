@@ -14,19 +14,19 @@ fn __krs_rule_result_sort_d72b2cfa0297bc32() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_d72b2cfa0297bc32_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Decode>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_d72b2cfa0297bc32_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Instruction>()
 }
 #[doc(hidden)]
+fn __krs_rule_application_d72b2cfa0297bc32_1() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<::k::builtin::int::bit_range>()
+}
+#[doc(hidden)]
 fn __krs_rule_application_d72b2cfa0297bc32_2() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<R8>()
+    ::core::any::TypeId::of::<::k::builtin::bool::and_then>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_d72b2cfa0297bc32_3() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<::k::builtin::int::bit_range>()
+    ::core::any::TypeId::of::<::k::builtin::bool::and_then>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_d72b2cfa0297bc32_4() -> ::core::any::TypeId {
@@ -34,19 +34,19 @@ fn __krs_rule_application_d72b2cfa0297bc32_4() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_d72b2cfa0297bc32_5() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<::k::builtin::bool::and_then>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_d72b2cfa0297bc32_6() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<::k::builtin::bool::and_then>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_d72b2cfa0297bc32_7() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::int::ge>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_d72b2cfa0297bc32_8() -> ::core::any::TypeId {
+fn __krs_rule_application_d72b2cfa0297bc32_6() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::int::lt>()
+}
+#[doc(hidden)]
+fn __krs_rule_application_d72b2cfa0297bc32_7() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<::k::builtin::int::eq>()
+}
+#[doc(hidden)]
+fn __krs_rule_application_d72b2cfa0297bc32_8() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<::k::builtin::int::bit_range>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_d72b2cfa0297bc32_9() -> ::core::any::TypeId {
@@ -54,14 +54,6 @@ fn __krs_rule_application_d72b2cfa0297bc32_9() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_d72b2cfa0297bc32_10() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<::k::builtin::int::bit_range>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_d72b2cfa0297bc32_11() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<::k::builtin::int::eq>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_d72b2cfa0297bc32_12() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::int::bit_range>()
 }
 #[doc(hidden)]
@@ -91,15 +83,31 @@ fn __krs_rule_descriptor_d72b2cfa0297bc32() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_d72b2cfa0297bc32_0),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Decode { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            713486326494870703u64,
+                        >(&__krs_rule_application_witness, "Decode")
+                    }),
                     ::k::__KrsTargetSlot::Variant {
                         owner: ::k::HostTypeKey(
-                            __krs_rule_application_d72b2cfa0297bc32_1,
+                            __krs_rule_application_d72b2cfa0297bc32_0,
                         ),
                         marker: ::k::HostTypeKey(Instruction::__krs_variant_type_id_Inc),
                     },
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(R8 { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            669079246896361239u64,
+                        >(&__krs_rule_application_witness, "R8")
+                    }),
+                    ::k::__KrsTargetSlot::Nominal(
+                        ::k::HostTypeKey(__krs_rule_application_d72b2cfa0297bc32_1),
+                    ),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_d72b2cfa0297bc32_2),
                     ),
@@ -126,12 +134,6 @@ fn __krs_rule_descriptor_d72b2cfa0297bc32() -> ::core::result::Result<
                     ),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_d72b2cfa0297bc32_10),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_d72b2cfa0297bc32_11),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_d72b2cfa0297bc32_12),
                     ),
                 ],
             },

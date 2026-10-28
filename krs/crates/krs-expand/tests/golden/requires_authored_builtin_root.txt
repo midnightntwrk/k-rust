@@ -16,14 +16,6 @@ fn __krs_rule_result_sort_75fd62d8f4ded67d() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_75fd62d8f4ded67d_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Admit>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_75fd62d8f4ded67d_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Admitted>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_75fd62d8f4ded67d_2() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<__krs_builtin::bool::not>()
 }
 #[doc(hidden)]
@@ -53,14 +45,24 @@ fn __krs_rule_descriptor_75fd62d8f4ded67d() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Admit { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            12313317530273521746u64,
+                        >(&__krs_rule_application_witness, "Admit")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Admitted { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            5862946544671652899u64,
+                        >(&__krs_rule_application_witness, "Admitted")
+                    }),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_75fd62d8f4ded67d_0),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_75fd62d8f4ded67d_1),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_75fd62d8f4ded67d_2),
                     ),
                 ],
             },

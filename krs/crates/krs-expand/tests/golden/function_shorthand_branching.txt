@@ -329,10 +329,6 @@ fn __krs_rule_result_sort_aa140baf70bf05d4() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_aa140baf70bf05d4_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Clamp>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_aa140baf70bf05d4_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::lt>()
 }
 #[doc(hidden)]
@@ -362,11 +358,16 @@ fn __krs_rule_descriptor_aa140baf70bf05d4() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Clamp { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            10430681964881026268u64,
+                        >(&__krs_rule_application_witness, "Clamp")
+                    }),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_aa140baf70bf05d4_0),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_aa140baf70bf05d4_1),
                     ),
                 ],
             },
@@ -592,10 +593,6 @@ fn __krs_rule_result_sort_b30bd4dcc63fdb77() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<k::builtin::int::Int>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_b30bd4dcc63fdb77_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Clamp>()
-}
-#[doc(hidden)]
 fn __krs_rule_descriptor_b30bd4dcc63fdb77() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
@@ -622,9 +619,14 @@ fn __krs_rule_descriptor_b30bd4dcc63fdb77() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_b30bd4dcc63fdb77_0),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Clamp { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            10430681964881026268u64,
+                        >(&__krs_rule_application_witness, "Clamp")
+                    }),
                 ],
             },
         ),

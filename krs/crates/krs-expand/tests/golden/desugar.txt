@@ -21,14 +21,6 @@ fn __krs_rule_application_de7e25b297a661c7_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Sugar>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_de7e25b297a661c7_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<IfThenElse>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_de7e25b297a661c7_2() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<EmptyBlock>()
-}
-#[doc(hidden)]
 fn __krs_rule_descriptor_de7e25b297a661c7() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
@@ -61,12 +53,22 @@ fn __krs_rule_descriptor_de7e25b297a661c7() -> ::core::result::Result<
                         ),
                         marker: ::k::HostTypeKey(Sugar::__krs_variant_type_id_Unless),
                     },
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_de7e25b297a661c7_1),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_de7e25b297a661c7_2),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(IfThenElse { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            3043676815155510508u64,
+                        >(&__krs_rule_application_witness, "IfThenElse")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(EmptyBlock { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            8741854360747725131u64,
+                        >(&__krs_rule_application_witness, "EmptyBlock")
+                    }),
                 ],
             },
         ),

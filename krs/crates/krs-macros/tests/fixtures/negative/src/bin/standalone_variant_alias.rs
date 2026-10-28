@@ -11,8 +11,8 @@ pub enum Boolean {
 
 use Boolean::False as No;
 
-#[k::rule]
-pub fn bad(No: k::Term<dyn ExprSort>) -> k::Term<dyn ExprSort> { //~ ERROR expected type, found variant
+#[k::rule] //~ ERROR the trait bound `Boolean: krs::__KrsRuleApplication<
+pub fn bad(No: k::Term<dyn ExprSort>) -> k::Term<dyn ExprSort> {
     No
 }
 

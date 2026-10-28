@@ -15,18 +15,6 @@ fn __krs_rule_result_sort_39053d92a044b0a1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Seq>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_39053d92a044b0a1_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Rest>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_39053d92a044b0a1_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Cons>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_39053d92a044b0a1_2() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Cons>()
-}
-#[doc(hidden)]
 fn __krs_rule_descriptor_39053d92a044b0a1() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
@@ -53,15 +41,30 @@ fn __krs_rule_descriptor_39053d92a044b0a1() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_39053d92a044b0a1_0),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_39053d92a044b0a1_1),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_39053d92a044b0a1_2),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Rest { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            8349234092369390775u64,
+                        >(&__krs_rule_application_witness, "Rest")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Cons { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            3915887147827983720u64,
+                        >(&__krs_rule_application_witness, "Cons")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Cons { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            3915887147827983720u64,
+                        >(&__krs_rule_application_witness, "Cons")
+                    }),
                 ],
             },
         ),

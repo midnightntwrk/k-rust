@@ -1,13 +1,20 @@
 //@ check-pass
 use krs_macros::{rule, term};
-use renamed_krs::Term;
+use renamed_krs as k;
 
-trait Expr {}
-struct Dup;
-struct Pair;
+renamed_krs::sorts! {
+    Expr;
+}
+
+#[k::constructors(sort = Expr, reference)]
+pub enum ExprSyntax {
+    Dup { pair: k::Term<dyn ExprSort> },
+    Pair { left: k::Term<dyn ExprSort>, right: k::Term<dyn ExprSort> },
+}
+use ExprSyntax::*;
 
 #[rule]
-fn dup(term![Dup(p @ Pair(a, b))]: Term<dyn Expr>) -> Term<dyn Expr> {
+fn dup(term![Dup(p @ Pair(a, b))]: k::Term<dyn ExprSort>) -> k::Term<dyn ExprSort> {
     term![Pair(p, Pair(b, a))]
 }
 

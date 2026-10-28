@@ -24,42 +24,34 @@ fn __krs_rule_result_sort_6aa585d12fa6b0b2() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_6aa585d12fa6b0b2_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Boundary>()
+    ::core::any::TypeId::of::<::k::builtin::bool::or_else>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_6aa585d12fa6b0b2_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Reject>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_6aa585d12fa6b0b2_2() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<::k::builtin::bool::or_else>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_6aa585d12fa6b0b2_3() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::kequal::eq>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_6aa585d12fa6b0b2_4() -> ::core::any::TypeId {
+fn __krs_rule_application_6aa585d12fa6b0b2_2() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::bool::and_then>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_6aa585d12fa6b0b2_5() -> ::core::any::TypeId {
+fn __krs_rule_application_6aa585d12fa6b0b2_3() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::int::gt>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_6aa585d12fa6b0b2_6() -> ::core::any::TypeId {
+fn __krs_rule_application_6aa585d12fa6b0b2_4() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::bool::or_else>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_6aa585d12fa6b0b2_7() -> ::core::any::TypeId {
+fn __krs_rule_application_6aa585d12fa6b0b2_5() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::int::lt>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_6aa585d12fa6b0b2_8() -> ::core::any::TypeId {
+fn __krs_rule_application_6aa585d12fa6b0b2_6() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::int::ne>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_6aa585d12fa6b0b2_9() -> ::core::any::TypeId {
+fn __krs_rule_application_6aa585d12fa6b0b2_7() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<::k::builtin::int::bit_and>()
 }
 #[doc(hidden)]
@@ -89,6 +81,22 @@ fn __krs_rule_descriptor_6aa585d12fa6b0b2() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Boundary { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            2901643531680436039u64,
+                        >(&__krs_rule_application_witness, "Boundary")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Reject { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            1314383658367835526u64,
+                        >(&__krs_rule_application_witness, "Reject")
+                    }),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_6aa585d12fa6b0b2_0),
                     ),
@@ -112,12 +120,6 @@ fn __krs_rule_descriptor_6aa585d12fa6b0b2() -> ::core::result::Result<
                     ),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_6aa585d12fa6b0b2_7),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_6aa585d12fa6b0b2_8),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_6aa585d12fa6b0b2_9),
                     ),
                 ],
             },

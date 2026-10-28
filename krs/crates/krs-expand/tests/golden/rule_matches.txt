@@ -16,10 +16,6 @@ fn __krs_rule_result_sort_873c7320344bed8a() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_873c7320344bed8a_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Twin>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_873c7320344bed8a_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<ExpSyntax>()
 }
 #[doc(hidden)]
@@ -49,12 +45,17 @@ fn __krs_rule_descriptor_873c7320344bed8a() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_873c7320344bed8a_0),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Twin { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            11497157665204347795u64,
+                        >(&__krs_rule_application_witness, "Twin")
+                    }),
                     ::k::__KrsTargetSlot::Variant {
                         owner: ::k::HostTypeKey(
-                            __krs_rule_application_873c7320344bed8a_1,
+                            __krs_rule_application_873c7320344bed8a_0,
                         ),
                         marker: ::k::HostTypeKey(ExpSyntax::__krs_variant_type_id_Pair),
                     },

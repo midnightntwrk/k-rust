@@ -12,22 +12,6 @@ fn __krs_rule_result_sort_e677ad51b5e0e21d() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Int>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_e677ad51b5e0e21d_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ColorCode>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_e677ad51b5e0e21d_1() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Red>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_e677ad51b5e0e21d_2() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Green>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_e677ad51b5e0e21d_3() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Blue>()
-}
-#[doc(hidden)]
 fn __krs_rule_descriptor_e677ad51b5e0e21d() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
@@ -54,18 +38,38 @@ fn __krs_rule_descriptor_e677ad51b5e0e21d() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_e677ad51b5e0e21d_0),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_e677ad51b5e0e21d_1),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_e677ad51b5e0e21d_2),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_e677ad51b5e0e21d_3),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(ColorCode { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            14132497335091515773u64,
+                        >(&__krs_rule_application_witness, "ColorCode")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Red { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            11525237124646050684u64,
+                        >(&__krs_rule_application_witness, "Red")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Green { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            14916158978614705948u64,
+                        >(&__krs_rule_application_witness, "Green")
+                    }),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Blue { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            17074223329749581357u64,
+                        >(&__krs_rule_application_witness, "Blue")
+                    }),
                 ],
             },
         ),

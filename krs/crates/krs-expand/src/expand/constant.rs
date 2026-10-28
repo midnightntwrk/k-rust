@@ -3,8 +3,8 @@
 //! The `const` item becomes a unit struct of the same name, so the name
 //! keeps Rust's scoping, imports, and visibility, and a use resolves through
 //! rustc as a constructor's name does: by `TypeId` where the path is
-//! qualified, and through the readable-rule witness where a block's or a
-//! table's imports are in scope. The descriptor carries the declared sort and
+//! qualified, and through the lexical witness where it is one segment. The
+//! descriptor carries the declared sort and
 //! the value; the compiler substitutes the value at every use.
 
 use krs_ir::wire::{WireConstant, WirePayload, WireSortReference, WireTypeReference};
@@ -125,8 +125,8 @@ pub(crate) fn constant(
             ::core::any::TypeId::of::<#sort_type>()
         }
 
-        // A one-segment use under a block's or a table's imports resolves
-        // through the readable-rule witness, as a constructor's name does.
+        // A one-segment use resolves through the lexical witness, as a
+        // constructor's name does.
         #(#cfg)*
         impl<const __KRS_SELECTOR: u64> #facade::__KrsRuleApplication<__KRS_SELECTOR> for #declared {
             fn __krs_rule_application(authored_path: &str) -> #facade::HostApplicationTarget {

@@ -341,10 +341,6 @@ fn __krs_rule_result_sort_6a824b11184ae9b9() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_6a824b11184ae9b9_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Byte>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_6a824b11184ae9b9_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::rem_euclid>()
 }
 #[doc(hidden)]
@@ -374,11 +370,16 @@ fn __krs_rule_descriptor_6a824b11184ae9b9() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Byte { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            10571824814360791775u64,
+                        >(&__krs_rule_application_witness, "Byte")
+                    }),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_6a824b11184ae9b9_0),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_6a824b11184ae9b9_1),
                     ),
                 ],
             },

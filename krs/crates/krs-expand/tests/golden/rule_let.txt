@@ -16,18 +16,14 @@ fn __krs_rule_result_sort_8ec4be92f59557c8() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_8ec4be92f59557c8_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Scale>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_8ec4be92f59557c8_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<ExpSyntax>()
 }
 #[doc(hidden)]
-fn __krs_let_sort_8ec4be92f59557c8_2() -> ::core::any::TypeId {
+fn __krs_let_sort_8ec4be92f59557c8_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Int>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_8ec4be92f59557c8_3() -> ::core::any::TypeId {
+fn __krs_rule_application_8ec4be92f59557c8_2() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::mul>()
 }
 #[doc(hidden)]
@@ -54,21 +50,26 @@ fn __krs_rule_descriptor_8ec4be92f59557c8() -> ::core::result::Result<
                 types: &[
                     ::k::HostTypeKey(__krs_rule_subject_sort_8ec4be92f59557c8),
                     ::k::HostTypeKey(__krs_rule_result_sort_8ec4be92f59557c8),
-                    ::k::HostTypeKey(__krs_let_sort_8ec4be92f59557c8_2),
+                    ::k::HostTypeKey(__krs_let_sort_8ec4be92f59557c8_1),
                 ],
                 items: &[],
                 targets: &[
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_8ec4be92f59557c8_0),
-                    ),
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(Scale { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            2812112460260853489u64,
+                        >(&__krs_rule_application_witness, "Scale")
+                    }),
                     ::k::__KrsTargetSlot::Variant {
                         owner: ::k::HostTypeKey(
-                            __krs_rule_application_8ec4be92f59557c8_1,
+                            __krs_rule_application_8ec4be92f59557c8_0,
                         ),
                         marker: ::k::HostTypeKey(ExpSyntax::__krs_variant_type_id_Pair),
                     },
                     ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_8ec4be92f59557c8_3),
+                        ::k::HostTypeKey(__krs_rule_application_8ec4be92f59557c8_2),
                     ),
                 ],
             },

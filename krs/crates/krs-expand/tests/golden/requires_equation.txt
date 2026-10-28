@@ -16,10 +16,6 @@ fn __krs_rule_result_sort_1c3ba8e873dc1273() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_1c3ba8e873dc1273_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<NonnegativeIdentity>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_1c3ba8e873dc1273_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::le>()
 }
 #[doc(hidden)]
@@ -49,11 +45,18 @@ fn __krs_rule_descriptor_1c3ba8e873dc1273() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(
+                            NonnegativeIdentity { .. },
+                        ) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            3022659555991353189u64,
+                        >(&__krs_rule_application_witness, "NonnegativeIdentity")
+                    }),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_1c3ba8e873dc1273_0),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_1c3ba8e873dc1273_1),
                     ),
                 ],
             },

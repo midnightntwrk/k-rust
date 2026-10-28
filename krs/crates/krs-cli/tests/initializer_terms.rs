@@ -208,7 +208,7 @@ fn initializer_terms_are_resolved_by_rustc_and_sorted_by_krs() {
         (
             "misspelled",
             "k::k![pgm, StmtSyntax::Tag(bytes::empty()), Mkk(1)]",
-            "error[E0425]: cannot find type `Mkk` in this scope",
+            "error[E0422]: cannot find struct, variant or union type `Mkk` in this scope",
             "Mkk",
         ),
         (

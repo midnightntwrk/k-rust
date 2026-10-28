@@ -33,14 +33,10 @@ fn __krs_rule_binder_sort_20b87c6f090dfac7_1() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_rule_application_20b87c6f090dfac7_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<BarPlus>()
-}
-#[doc(hidden)]
-fn __krs_rule_application_20b87c6f090dfac7_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::add>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_20b87c6f090dfac7_2() -> ::core::any::TypeId {
+fn __krs_rule_application_20b87c6f090dfac7_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::le>()
 }
 #[doc(hidden)]
@@ -82,14 +78,19 @@ fn __krs_rule_descriptor_20b87c6f090dfac7() -> ::core::result::Result<
                 ],
                 items: &[],
                 targets: &[
+                    ::k::__KrsTargetSlot::Target({
+                        let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                        if let ::core::option::Option::Some(BarPlus { .. }) = &__krs_rule_application_witness {}
+                        ::k::__krs_resolve_rule_application::<
+                            _,
+                            15589073865789388702u64,
+                        >(&__krs_rule_application_witness, "BarPlus")
+                    }),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_20b87c6f090dfac7_0),
                     ),
                     ::k::__KrsTargetSlot::Nominal(
                         ::k::HostTypeKey(__krs_rule_application_20b87c6f090dfac7_1),
-                    ),
-                    ::k::__KrsTargetSlot::Nominal(
-                        ::k::HostTypeKey(__krs_rule_application_20b87c6f090dfac7_2),
                     ),
                 ],
             },
