@@ -44,6 +44,47 @@ fn a_term_subject_nests_alternatives_below_its_root() {
     assert_eq!(roles, [0]);
 }
 
+/// `k::term![..]` is optional around a subject, so its root reads `|` as a
+/// native subject's root does: each alternative is a whole subject, whose
+/// root is the matched constructor or function and takes no alias.
+#[test]
+fn a_term_subject_root_takes_alternatives_as_a_native_root_does() {
+    let tree = |source: &str| {
+        krs_syntax::RuleItem::parse_source(source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"))
+            .subject_tree()
+            .clone()
+    };
+    let wrapped =
+        tree("fn r(k::term![Code(Red(), x) | Code(Green(), x)]: Term<Int>) -> Term<Int> { x }");
+    let native = tree("fn r((Code(Red(), x) | Code(Green(), x)): Term<Int>) -> Term<Int> { x }");
+    // The trees are one tree, read without their spans.
+    let shape = |tree: &TermTree| {
+        let mut shape = format!("{tree:?}");
+        while let Some(start) = shape.find("bytes(") {
+            let end = start + shape[start..].find(')').unwrap() + 1;
+            shape.replace_range(start..end, "_");
+        }
+        shape
+    };
+    assert_eq!(alternatives(&wrapped).len(), 2);
+    assert_eq!(shape(&wrapped), shape(&native));
+    for source in [
+        "fn r(k::term![y @ Code(Red()) | y @ Code(Green())]: Term<Int>) -> Term<Int> { 1 }",
+        "fn r((y @ Code(Red()) | y @ Code(Green())): Term<Int>) -> Term<Int> { 1 }",
+    ] {
+        let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
+        assert!(
+            matches!(
+                error.kind(),
+                SyntaxErrorKind::InvalidPatternAs { reason }
+                    if reason.contains("cannot alias a whole rule subject")
+            ),
+            "{source}: {error}"
+        );
+    }
+}
+
 #[test]
 fn alternatives_that_bind_the_same_names_bind_them_once() {
     let rule = krs_syntax::RuleItem::parse_source(
@@ -105,19 +146,14 @@ fn state_island_items_take_alternatives() {
 
 #[test]
 fn malformed_or_patterns_are_rejected() {
-    for (source, expected) in [
-        (
-            "fn r(k::term![First(Pair(x, _) | Pair(_, y))]: Term<Exp>) -> Term<Exp> { x }",
-            "variable `x` is not bound in all alternatives",
-        ),
-        (
-            "fn r(k::term![Red() | Green()]: Term<Int>) -> Term<Int> { 1 }",
-            "`|` cannot join whole `k::term!` subjects",
-        ),
-    ] {
-        let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
-        assert!(reason(&error).contains(expected), "{source}: {error}");
-    }
+    let error = krs_syntax::RuleItem::parse_source(
+        "fn r(k::term![First(Pair(x, _) | Pair(_, y))]: Term<Exp>) -> Term<Exp> { x }",
+    )
+    .unwrap_err();
+    assert!(
+        reason(&error).contains("variable `x` is not bound in all alternatives"),
+        "{error}"
+    );
     let error =
         krs_syntax::parse_cells_pattern(tokens("k: KCell(A(), tail @ .. | B())")).unwrap_err();
     assert!(

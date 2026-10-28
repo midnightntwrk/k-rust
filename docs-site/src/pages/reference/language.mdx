@@ -519,7 +519,7 @@ A group child that the base's pattern matches with a group record is rebuilt fro
 `Red() | Green() | Blue()` in a left-hand side is the Rust or-pattern you know: it matches what any of its alternatives matches.
 K spells it `( red ( ) #Or green ( ) #Or blue ( ) )`, and KRS emits exactly that, always parenthesised and in source order.
 `rgb: Color(Red() | Green() | Blue()) => 1;` turns `color(green())` into `1` and leaves `color(3)` stuck, and the equation `fn code_rgb(k::term![ColorCode(Red() | Green() | Blue())]: Term<Int>) -> Term<Int> { 1 }` emits `rule code ( ( red ( ) #Or green ( ) #Or blue ( ) ) ) => 1`.
-In a readable clause the whole subject may be an or-pattern, `primary: Red() | Green() | Blue() => 1;`, which matches at the head of the computation cell; alternatives may also appear in any subterm of a `k::term![..]` subject, a `cells!` cell value, a `k!` item, or a `map!` key or value.
+In a readable clause the whole subject may be an or-pattern, `primary: Red() | Green() | Blue() => 1;`, which matches at the head of the computation cell, and so may a fn's subject, with or without `k::term![..]`: `fn warm(k::term![Red() | Green()]: Term<Stmt>) -> Term<Stmt> { 1 }` emits `rule ( red ( ) #Or green ( ) ) => 1`; alternatives may also appear in any subterm of a subject, a `cells!` cell value, a `k!` item, or a `map!` key or value.
 A readable record's values are not rule subjects, so `|` and parentheses there read as below a constructor: `pc: (p)` binds `p` as `pc: p` does, a bare name inside `|` is a binder (`k: [(Nop | Halt), ..]` is ``variable `Nop` is not bound in all alternatives``), and a unit constructor is written `Name()` (`k: [Nop() | Halt(), ..]`).
 A record entry that names a group cell, an optional group's `Some(..)`, and a group child of a cell term are not terms but cells, which K places by their labels, so `|` cannot join alternatives there, also below an alias (`krs::analysis::invalid-pattern-or`).
 Write the alternatives at the child they test, `outer: Outer { flag: 0 | 1, .. }`, which a cell term distributes over as a constructor does, or write one rule per alternative, in a `nondet` group when both can match one configuration.
@@ -533,7 +533,7 @@ Every alternative of an equation's whole subject applies the one function the eq
 An or-pattern in each of two arguments is one equation per pair of alternatives. Alternatives in a function context cell, which is one more argument of the function, and in a `k::matches!` pattern, which K tests with a generated equation, are read the same way.
 A simplification rewrites one term, so its left-hand side takes no `|` at all (`krs::analysis::invalid-pattern-or`).
 In a result, a requires or ensures condition, or an initializer, `|` is the [bitwise-or operator](#operator-and-method-notation) on `Int`, never an alternative: `Red() | Green()` there is an error (`krs::analysis::ambiguous-operator`) that says `|` joins alternatives only on a left-hand side, and `|` on `Bool` points to `||`.
-`|` next to a `..` remainder, `|` between whole machine records, and `|` joining whole `k::term![..]` subjects, whose root is the matched constructor or function, are syntax errors.
+`|` next to a `..` remainder and `|` between whole machine records are syntax errors.
 
 ### Shape tests
 

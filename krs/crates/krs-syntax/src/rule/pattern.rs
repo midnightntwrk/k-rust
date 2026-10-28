@@ -367,27 +367,8 @@ pub(super) fn parse_rule_pattern(
             ))?;
             // A readable value stands below the rule's subject, so `|` and
             // an alias at its root read as they do below a constructor.
-            if let TermTree::As { binding, .. } = term.tree()
-                && root != PatternRoot::Value
-            {
-                return Err(SyntaxError::new(
-                    crate::SyntaxErrorKind::InvalidPatternAs {
-                        reason: format!(
-                            "`{binding} @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
-                        ),
-                    },
-                    binding.span(),
-                ));
-            }
-            if let TermTree::Or { range, .. } = term.tree()
-                && root != PatternRoot::Value
-            {
-                return Err(SyntaxError::new(
-                    crate::SyntaxErrorKind::InvalidPatternOr {
-                        reason: "`|` cannot join whole `k::term!` subjects: the root is the matched constructor or function; put the alternatives inside its arguments".to_owned(),
-                    },
-                    range.first(),
-                ));
+            if root != PatternRoot::Value {
+                reject_subject_root_alias(term.tree())?;
             }
             let bindings = term_pattern_bindings(&term, root != PatternRoot::Value)?;
             let tree = term.tree().clone();
@@ -498,6 +479,26 @@ pub(crate) fn validate_pattern_literal(
     };
     nodes.push(TermNode::Literal(literal.clone()));
     Ok(literal)
+}
+
+/// Refuses an alias that stands for a whole rule subject: the subject's root
+/// is the matched constructor or function, and each alternative of a root
+/// `A | B` is a whole subject, as at a native subject's root.
+fn reject_subject_root_alias(tree: &TermTree) -> Result<(), SyntaxError> {
+    match tree {
+        TermTree::As { binding, .. } => Err(SyntaxError::new(
+            crate::SyntaxErrorKind::InvalidPatternAs {
+                reason: format!(
+                    "`{binding} @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
+                ),
+            },
+            binding.span(),
+        )),
+        TermTree::Or { alternatives, .. } => {
+            alternatives.iter().try_for_each(reject_subject_root_alias)
+        }
+        _ => Ok(()),
+    }
 }
 
 fn term_pattern_bindings(

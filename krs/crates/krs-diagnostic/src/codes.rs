@@ -363,7 +363,7 @@ register_codes! {
         UNSUPPORTED_TERM_EXPRESSION: "krs::syntax::unsupported-term-expression" => "A Rust expression is outside the closed named-term grammar.",
         INVALID_RECORD_UPDATE: "krs::syntax::invalid-record-update" => "A record update `Ctor { f: e, ..t }` has a base that is not one binder, names a field twice, or stands in a pattern.",
         INVALID_PATTERN_AS: "krs::syntax::invalid-pattern-as" => "A `name @ pattern` (K's `#as`) is malformed or occurs outside a left-hand side.",
-        INVALID_PATTERN_OR: "krs::syntax::invalid-pattern-or" => "An `A | B` or-pattern (K's `#Or`) is malformed, binds different names in its alternatives, or joins whole rule subjects, machine records, or remainders.",
+        INVALID_PATTERN_OR: "krs::syntax::invalid-pattern-or" => "An `A | B` or-pattern (K's `#Or`) is malformed, binds different names in its alternatives, or joins whole machine records or remainders.",
         INVALID_MATCHES: "krs::syntax::invalid-matches" => "A `k::matches!` (K's `:=K`) is malformed, has an `if` guard, or is written as std's bare `matches!`.",
         INVALID_LET: "krs::syntax::invalid-let" => "A term block is not `let pattern = term;` statements followed by one result term (K's `#let`), its sort ascription is not one binder at a plain sort, or its pattern has alternatives or an alias.",
         INVALID_FUNCTION_CONTEXT: "krs::syntax::invalid-function-context" => "A function context (K's `[[ .. ]]` configuration context) is not a final `k::cells! { .., .. }` parameter of an `#[k::equation]` typed by the configuration struct and framed by an anonymous `..`.",

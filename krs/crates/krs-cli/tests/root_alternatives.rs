@@ -1,9 +1,10 @@
-//! `A | B` at an equation's subject root. An equation's root alternatives are one equation per
-//! alternative: every alternative applies the one function the equation defines, and an
-//! application distributes over `|`, so `F(a) | F(b)` is `F(a | b)`, emitted as the alternatives
-//! below the root are. Alternatives that are no one function's, or that differ in two arguments,
-//! which no one equation matches, are refused at the alternative or the `|`; a subject rewritten
-//! as one term takes no alternatives either way.
+//! `A | B` at a subject's root, with and without `k::term![..]`, which is optional around a
+//! subject and so reads the root alike. A transition's root alternatives match either term. An
+//! equation's are one equation per alternative: every alternative applies the one function the
+//! equation defines, and an application distributes over `|`, so `F(a) | F(b)` is `F(a | b)`,
+//! emitted as the alternatives below the root are. Alternatives that are no one function's, or
+//! that differ in two arguments, which no one equation matches, are refused at the alternative
+//! or the `|`; a subject rewritten as one term takes no alternatives either way.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -88,19 +89,29 @@ fn tone_other(Tone { c: _ }: Term<Int>) -> Term<Int> {
 }
 "#;
 
-/// Root alternatives on an equation, one of them differing in one of two arguments written in
-/// another field order.
-const ACCEPTED: &str = r"
+/// Root alternatives on an equation, natively and in `k::term!`, one of them differing in one
+/// of two arguments written in another field order, and on a transition in `k::term!`.
+const ACCEPTED: &str = r#"
 #[k::equation]
 fn code_warm((Code { c: Cmd::Red() } | Code { c: Cmd::Green() }): Term<Int>) -> Term<Int> {
     10
 }
 
 #[k::equation]
+fn tone_warm(k::term![Tone { c: Cmd::Red() } | Tone { c: Cmd::Green() }]: Term<Int>) -> Term<Int> {
+    11
+}
+
+#[k::equation]
 fn mix_warm((Mix { c: Cmd::Red(), n } | Mix { n, c: Cmd::Green() }): Term<Int>) -> Term<Int> {
     n
 }
-";
+
+#[k::rule(label = "warm")]
+fn warm(k::term![Cmd::Red() | Cmd::Green()]: Term<Stmt>) -> Term<Stmt> {
+    1
+}
+"#;
 
 fn krs_path() -> String {
     let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -174,8 +185,18 @@ fn root_alternatives_emit_as_below_the_root_and_run() {
     let k = fs::read_to_string(output.join("definition.k")).unwrap();
     expect_test::expect![[r"
         rule code ( ( red #Or green ) ) => 10 [label(krsRule_4ece98de534f7cd06929841e)]
-        rule mix ( ( red #Or green ) , N:Int ) => N:Int [label(krsRule_019352ddef449f4bd3f0e54d)]"]]
-    .assert_eq(&[rules(&k, "=> 10 "), rules(&k, "rule mix")].join("\n"));
+        rule tone ( ( red #Or green ) ) => 11 [label(krsRule_191a607f9091cbf632f97fdd)]
+        rule mix ( ( red #Or green ) , N:Int ) => N:Int [label(krsRule_019352ddef449f4bd3f0e54d)]
+        rule ( red #Or green ) => 1 [label(warm)]"]]
+    .assert_eq(
+        &[
+            rules(&k, "=> 10 "),
+            rules(&k, "=> 11 "),
+            rules(&k, "rule mix"),
+            rules(&k, "label(warm)"),
+        ]
+        .join("\n"),
+    );
     let program = manifest.with_file_name("program.txt");
     let runs = [
         "show(red)",
@@ -209,12 +230,12 @@ fn root_alternatives_emit_as_below_the_root_and_run() {
             "show(red) => <k> 10 ~> .K </k>",
             "show(green) => <k> 10 ~> .K </k>",
             "show(blue) => <k> 20 ~> .K </k>",
-            "tint(red) => <k> 30 ~> .K </k>",
-            "tint(green) => <k> 30 ~> .K </k>",
+            "tint(red) => <k> 11 ~> .K </k>",
+            "tint(green) => <k> 11 ~> .K </k>",
             "tint(blue) => <k> 30 ~> .K </k>",
             "duo(green, 7) => <k> 7 ~> .K </k>",
-            "red => <k> red ~> .K </k>",
-            "green => <k> green ~> .K </k>",
+            "red => <k> 1 ~> .K </k>",
+            "green => <k> 1 ~> .K </k>",
             "blue => <k> blue ~> .K </k>",
         ]
     "#]]
@@ -247,13 +268,16 @@ fn refusals<const N: usize>(cases: [(&'static str, &str); N]) -> String {
 
 /// Alternatives of an equation's whole subject that apply different functions define no one
 /// function, refused at the first that differs; alternatives that differ in both arguments of
-/// a function are no one equation, refused at the `|`.
+/// a function are no one equation, refused at the `|`. Both read alike in `k::term!`.
 #[test]
 fn root_alternatives_that_are_no_one_equation_are_refused() {
     expect_test::expect![[r"
         heads:
         error[krs::analysis::invalid-pattern-or]: an equation defines one function, and every alternative of its whole subject applies it, but this alternative applies `Tone` and the first applies `Code`; write an equation per function
         --> src/lib.rs:78:40
+        heads-term:
+        error[krs::analysis::invalid-pattern-or]: an equation defines one function, and every alternative of its whole subject applies it, but this alternative applies `Tone` and the first applies `Code`; write an equation per function
+        --> src/lib.rs:78:48
         arguments:
         error[krs::analysis::invalid-pattern-or]: these alternatives of an equation's whole subject differ in more than one argument; an equation matches each argument on its own, so `F(a, b) | F(c, d)` is not `F(a | c, b | d)`, which also matches `F(a, d)`: write the alternatives in the one argument where they differ, or write one equation per alternative
         --> src/lib.rs:78:13"]]
@@ -262,7 +286,11 @@ fn root_alternatives_that_are_no_one_equation_are_refused() {
             "heads",
             "#[k::equation]\nfn code_warm((Code { c: Cmd::Red() } | Tone { c: Cmd::Green() }): Term<Int>) -> Term<Int> {\n    10\n}\n",
         ),
-                (
+        (
+            "heads-term",
+            "#[k::equation]\nfn code_warm(k::term![Code { c: Cmd::Red() } | Tone { c: Cmd::Green() }]: Term<Int>) -> Term<Int> {\n    10\n}\n",
+        ),
+        (
             "arguments",
             "#[k::equation]\nfn mix_two((Mix { c: Cmd::Red(), n: 1 } | Mix { c: Cmd::Green(), n: 2 }): Term<Int>) -> Term<Int> {\n    5\n}\n",
         ),
@@ -270,23 +298,37 @@ fn root_alternatives_that_are_no_one_equation_are_refused() {
 }
 
 /// A single-body rule and a simplification rewrite one term, so their subject takes no
-/// alternatives, at its root as below it.
+/// alternatives, at its root as below it, with or without `k::term!`.
 #[test]
 fn a_subject_rewritten_as_one_term_refuses_root_alternatives() {
     expect_test::expect![[r"
         single-body:
         error[krs::analysis::invalid-pattern-or]: `A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative; here it stands in the subject of a single-body `#[k::rule]` fn
         --> src/lib.rs:78:8
+        single-body-term:
+        error[krs::analysis::invalid-pattern-or]: `A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative; here it stands in the subject of a single-body `#[k::rule]` fn
+        --> src/lib.rs:78:16
         simplification:
         error[krs::analysis::invalid-pattern-or]: `A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative; here it stands in the subject of a `#[k::simplification]` fn
-        --> src/lib.rs:78:9"]].assert_eq(&refusals([
+        --> src/lib.rs:78:9
+        simplification-term:
+        error[krs::analysis::invalid-pattern-or]: `A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative; here it stands in the subject of a `#[k::simplification]` fn
+        --> src/lib.rs:78:17"]].assert_eq(&refusals([
         (
             "single-body",
             "#[k::rule(label = \"sb\")]\nfn sb((Cmd::Show { c: k::rewrite!(Cmd::Red() => Cmd::Blue()) } | Cmd::Show { c: k::rewrite!(Cmd::Green() => Cmd::Blue()) }): Term<Stmt>) {}\n",
         ),
-                (
+        (
+            "single-body-term",
+            "#[k::rule(label = \"sb\")]\nfn sb(k::term![Cmd::Show { c: k::rewrite!(Cmd::Red() => Cmd::Blue()) } | Cmd::Show { c: k::rewrite!(Cmd::Green() => Cmd::Blue()) }]: Term<Stmt>) {}\n",
+        ),
+        (
             "simplification",
             "#[k::simplification]\nfn sim((Code { c: Cmd::Red() } | Code { c: Cmd::Green() }): Term<Int>) -> Term<Int> {\n    10\n}\n",
         ),
-            ]));
+        (
+            "simplification-term",
+            "#[k::simplification]\nfn sim(k::term![Code { c: Cmd::Red() } | Code { c: Cmd::Green() }]: Term<Int>) -> Term<Int> {\n    10\n}\n",
+        ),
+    ]));
 }
