@@ -603,7 +603,14 @@ The repository's own Lean proofs (`lean/`) are a separate project with a toolcha
 - Determinism is not generated for definitions with several-match rules; `uniqueAt c` checks it at one configuration.
 - Recursive functions on lists close only in the fold shape `k2l_fold_eqn` recognizes; other equations the tactics cannot prove stay open obligations (`generated/*/open-obligations.txt` lists them per library).
 - Equations of hooked functions are stated for well-formed set and map values only (§3, "Well-formedness premises"): `S1 |Set S2 => S1 (S2 -Set S1)` is false at a carrier value that is not a set (an unsorted list, or one with a repeated element), where `_Set_` is undefined and `|Set` is not (`SetHook.union_eqn_not_wf`), and is proved under the premise.
-  The carriers keep their values that are not K values; making them subtypes, so that well-formedness holds by construction and the premise disappears, is an open design question.
+  The carriers keep their values that are not K values, by decision (2026-10-28).
+  A carrier sorted by construction would need the order on keys inside the term universe's own definition, while that order is defined by recursion on the universe after it exists (induction-recursion, which Lean 4 does not have).
+  A subtype of the whole universe by a canonicity predicate can be written, but every function and rule would need a proof that it preserves canonicity, an unproved one blocking the definition rather than leaving one theorem open, and `relate` would have to re-sort a map whose keys it translates (§3.2).
+  The theorems would gain nothing: at every K value they say what the premise form says, and as Lean facts they say less, since today's also hold at the other carrier values.
+  For whoever changes the generated code or the prelude, three consequences.
+  Lean's `=` is K's equality only on well-formed values: `[2, 1]` and `[1, 2]` are different lists for the same set.
+  A `WF` premise is part of what the generator states, as the K variable's sort is: a proof may not drop or add one to make a statement hold.
+  A definition proved equal to a generated one at well-formed values only (an optimized function, say) can replace it in statements about K values, but not in the generated theorems that quantify over every carrier value (Adequacy, Determinism, the invariants, `relate`): they would have to be proved again, or restated under the premise.
   Equations of generated functions and simplification rules are stated without the premise.
 - One equation of `domains.md` is false in this model, so it stays open in every library that has it; `KPrelude.HookLaws` proves the counterexample.
   `countAllOccurrences` equation 2 fails at an empty `ToCount`: its condition holds there (`findString(S, "", 0)` is `0`) and it reads `countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")`, which no total function satisfies (`domains.md` declares `countAllOccurrences` `total`).
