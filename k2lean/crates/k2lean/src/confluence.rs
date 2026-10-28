@@ -255,8 +255,9 @@ fn element_keys(h: &str) -> Vec<&str> {
         .collect()
 }
 
-/// The thread-map role of a rule for `--threads` (`None`: a global rule).
-fn view_role(r: &Rule, role: &MapRole) -> Option<VRole> {
+/// The thread-map role of a rule for `--threads` (`None`: a global rule), for the thread map in
+/// the cell `<threads>`.
+fn view_role(r: &Rule, role: &MapRole, threads: &str) -> Option<VRole> {
     if let MapRole::Update { hm, hr } = role {
         return Some(VRole::Update {
             hm: hm.clone(),
@@ -273,9 +274,19 @@ fn view_role(r: &Rule, role: &MapRole) -> Option<VRole> {
         .filter(|(h, _)| lhs_hyps.contains(h))
         .filter_map(|(h, p)| map_hyp(p).map(|(rest, x)| (h, p, rest, x)))
         .collect();
+    // the match of the thread map's content: whatever else reads its key (an owner check on
+    // another cell), a step at one binding of the thread map is a view; without the cell's
+    // content as a variable, a match at a free key
+    let tvar = match cell_content(&r.step.index, threads) {
+        Some(L::Var(v)) => Some(v),
+        _ => None,
+    };
     let tops: Vec<_> = lhs_maps
         .iter()
-        .filter(|(h, p, _, x)| in_lhs.contains(x) && free_key(r, h, p))
+        .filter(|(h, p, _, x)| match tvar {
+            Some(t) => x == t,
+            None => in_lhs.contains(x) && free_key(r, h, p),
+        })
         .collect();
     let [(hm, _, rest, x)] = tops.as_slice() else {
         return None;
@@ -285,6 +296,23 @@ fn view_role(r: &Rule, role: &MapRole) -> Option<VRole> {
     }
     if in_rhs.contains(rest) {
         return Some(VRole::Remove { hm: (*hm).clone() });
+    }
+    // one binding rebound beside the rest (`map_role`'s update, when the key is read elsewhere)
+    let rebound: Vec<&String> = r
+        .step
+        .hyps
+        .iter()
+        .filter(|(h, p)| {
+            !lhs_hyps.contains(h)
+                && map_hyp(p).is_some_and(|(rr, y)| &rr == rest && in_rhs.contains(&y))
+        })
+        .map(|(h, _)| h)
+        .collect();
+    if let [hr] = rebound.as_slice() {
+        return Some(VRole::Update {
+            hm: (*hm).clone(),
+            hr: (*hr).clone(),
+        });
     }
     // a second binding matched in the rest
     let inner: Vec<_> = lhs_maps
@@ -918,10 +946,13 @@ pub fn main(args: &[String]) {
             write_file(p, &(rep + &counts.report()));
         }
         eprintln!(
-            "confluence: {} rules by threads, {} pairs left open, {} same-thread pairs",
+            "confluence: {} rules by threads, {} pairs left open, {} same-thread pairs{}",
             counts.rules,
-            counts.open_global + counts.open_cells + counts.open_priority,
-            counts.same_thread
+            counts.open_global + counts.open_cells + counts.open_priority + counts.open_insert,
+            counts.same_thread,
+            counts
+                .key_joins
+                .map_or(String::new(), |k| format!(", {k} in KeyJoins"))
         );
         return;
     }
@@ -1805,7 +1836,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
             .rules
             .iter()
             .zip(roles)
-            .map(|(r, ro)| super::view_role(r, ro))
+            .map(|(r, ro)| super::view_role(r, ro, threads))
             .collect();
         // whether an item injected by `inj_S` with a constructor of `S` is a `KResult`: `S` is
         // one of `KResult`'s leaves (`None` without a sort `KResult`)

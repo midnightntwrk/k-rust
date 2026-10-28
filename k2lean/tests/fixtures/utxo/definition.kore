@@ -127,7 +127,11 @@ module UTXO
     ),
     unit{}(Lbl'Stop'Map{}())
   ]
+  sort SortNonceCell{} []
+  sort SortNonceCellOpt{} []
+  sort SortOid{} []
   sort SortPgm{} []
+  sort SortPid{} []
   sort SortPidCell{} []
   sort SortPidCellOpt{} []
   sort SortProcCell{} []
@@ -1209,22 +1213,61 @@ module UTXO
   ]
   symbol LblisMap{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol Lblproject'Coln'Map{}(SortK{}) : SortMap{} [function{}()]
-  symbol Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(SortInt{}) : SortInstr{}
+  symbol Lblroot'Unds'UTXO-SYNTAX'Unds'Pid{}() : SortPid{}
   [
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,20,12,40)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,18,14,24)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
   ]
-  symbol Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(SortInt{}) : SortInstr{}
+  symbol Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+    SortPid{},
+    SortInt{}
+  ) : SortPid{}
   [
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,20,13,39)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,27,14,54)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/utxo/utxo.k)"
+    )
+  ]
+  symbol Lbloid'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Oid'Unds'Pid'Unds'Int{}(
+    SortPid{},
+    SortInt{}
+  ) : SortOid{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,18,15,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/utxo/utxo.k)"
+    )
+  ]
+  symbol Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+    SortPid{},
+    SortInt{}
+  ) : SortInstr{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,20,16,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/utxo/utxo.k)"
+    )
+  ]
+  symbol Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(SortOid{}) : SortInstr{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,20,17,39)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
@@ -1234,7 +1277,7 @@ module UTXO
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,20,14,39)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,20,18,39)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
@@ -1244,17 +1287,17 @@ module UTXO
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,20,15,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,20,19,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
   ]
-  symbol Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(SortInt{}) : SortInstr{}
+  symbol Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(SortPid{}) : SortInstr{}
   [
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,20,16,40)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,20,20,40)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
@@ -1264,7 +1307,7 @@ module UTXO
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,18,17,34)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,18,21,34)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
@@ -1274,65 +1317,92 @@ module UTXO
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,18,17,34)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,18,21,34)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     ),
     symbol'Kywd'{}(".List{\"_;__UTXO-SYNTAX\"}")
   ]
   symbol LblisInstr{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+  symbol LblisOid{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol LblisPgm{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+  symbol LblisPid{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol Lblproject'Coln'Instr{}(SortK{}) : SortInstr{} [function{}()]
+  symbol Lblproject'Coln'Oid{}(SortK{}) : SortOid{} [function{}()]
   symbol Lblproject'Coln'Pgm{}(SortK{}) : SortPgm{} [function{}()]
+  symbol Lblproject'Coln'Pid{}(SortK{}) : SortPid{} [function{}()]
   symbol Lbl'Hash'suspended'Unds'UTXO'Unds'KItem{}() : SortKItem{}
   [
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,20,24,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,20,28,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
   ]
-  symbol Lbl'-LT-'pid'-GT-'{}(SortInt{}) : SortPidCell{}
+  symbol Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(SortPid{}, SortInt{}) : SortKItem{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,35,28,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/utxo/utxo.k)"
+    )
+  ]
+  symbol Lbl'-LT-'pid'-GT-'{}(SortPid{}) : SortPidCell{}
   [
     cell{}(),
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,28,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,34,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
   ]
   symbol LblinitPidCell{}() : SortPidCell{} [function{}(), functional{}(), total{}()]
+  symbol Lbl'-LT-'nonce'-GT-'{}(SortInt{}) : SortNonceCell{}
+  [
+    cell{}(),
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,34,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/utxo/utxo.k)"
+    )
+  ]
+  symbol LblinitNonceCell{}() : SortNonceCell{} [function{}(), functional{}(), total{}()]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
     cell{}(),
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,28,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,34,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
   ]
   symbol LblinitKCell{}(SortMap{}) : SortKCell{} [function{}()]
-  symbol Lbl'-LT-'proc'-GT-'{}(SortPidCell{}, SortKCell{}) : SortProcCell{}
+  symbol Lbl'-LT-'proc'-GT-'{}(SortPidCell{}, SortNonceCell{}, SortKCell{}) : SortProcCell{}
   [
     cell{}(),
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,28,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,34,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
   ]
   symbol LblinitProcCell{}(SortMap{}) : SortProcCellMap{} [function{}()]
   symbol LblnoPidCell{}() : SortPidCellOpt{} [constructor{}(), functional{}(), injective{}()]
+  symbol LblnoNonceCell{}() : SortNonceCellOpt{} [constructor{}(), functional{}(), injective{}()]
   symbol LblnoKCell{}() : SortKCellOpt{} [constructor{}(), functional{}(), injective{}()]
-  symbol Lbl'-LT-'proc'-GT-'-fragment{}(SortPidCellOpt{}, SortKCellOpt{}) : SortProcCellFragment{}
+  symbol Lbl'-LT-'proc'-GT-'-fragment{}(SortPidCellOpt{}, SortNonceCellOpt{}, SortKCellOpt{}) : SortProcCellFragment{}
   [constructor{}(), functional{}(), injective{}()]
   hooked-symbol LblProcCellMapItem{}(SortPidCell{}, SortProcCell{}) : SortProcCellMap{}
   [function{}(), hook{}("MAP.element")]
@@ -1354,7 +1424,7 @@ module UTXO
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,28,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,34,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
@@ -1368,7 +1438,7 @@ module UTXO
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,28,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,34,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
@@ -1380,7 +1450,7 @@ module UTXO
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,28,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,34,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/utxo/utxo.k)"
     )
@@ -1394,6 +1464,8 @@ module UTXO
   symbol LblisKCellOpt{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol LblisLedgerCell{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol LblisLedgerCellOpt{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+  symbol LblisNonceCell{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+  symbol LblisNonceCellOpt{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol LblisPidCell{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol LblisPidCellOpt{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol LblisProcCell{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
@@ -1408,6 +1480,8 @@ module UTXO
   symbol Lblproject'Coln'KCellOpt{}(SortK{}) : SortKCellOpt{} [function{}()]
   symbol Lblproject'Coln'LedgerCell{}(SortK{}) : SortLedgerCell{} [function{}()]
   symbol Lblproject'Coln'LedgerCellOpt{}(SortK{}) : SortLedgerCellOpt{} [function{}()]
+  symbol Lblproject'Coln'NonceCell{}(SortK{}) : SortNonceCell{} [function{}()]
+  symbol Lblproject'Coln'NonceCellOpt{}(SortK{}) : SortNonceCellOpt{} [function{}()]
   symbol Lblproject'Coln'PidCell{}(SortK{}) : SortPidCell{} [function{}()]
   symbol Lblproject'Coln'PidCellOpt{}(SortK{}) : SortPidCellOpt{} [function{}()]
   symbol Lblproject'Coln'ProcCell{}(SortK{}) : SortProcCell{} [function{}()]
@@ -1775,6 +1849,17 @@ module UTXO
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortKItem{}}(
+      \and{SortKItem{}}(
+        Lbl'Hash'KConfigValue{}(X0:SortK{}),
+        Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(
+          Y0:SortPid{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \equals{SortSet{}, R}(
       Lbl'Unds'Set'Unds'{}(Lbl'Unds'Set'Unds'{}(K1:SortSet{}, K2:SortSet{}), K3:SortSet{}),
@@ -1984,53 +2069,78 @@ module UTXO
     [subsort{SortMap{}, SortKItem{}}()]
   axiom{R}
     \exists{R}(
-      Val:SortInstr{},
-      \equals{SortInstr{}, R}(
-        Val:SortInstr{},
-        Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(K0:SortInt{})
+      Val:SortPid{},
+      \equals{SortPid{}, R}(Val:SortPid{}, Lblroot'Unds'UTXO-SYNTAX'Unds'Pid{}())
+    )
+    [functional{}()]
+  axiom{}
+    \not{SortPid{}}(
+      \and{SortPid{}}(
+        Lblroot'Unds'UTXO-SYNTAX'Unds'Pid{}(),
+        Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+          Y0:SortPid{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortPid{},
+      \equals{SortPid{}, R}(
+        Val:SortPid{},
+        Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+          K0:SortPid{},
+          K1:SortInt{}
+        )
       )
     )
     [functional{}()]
   axiom{}
-    \implies{SortInstr{}}(
-      \and{SortInstr{}}(
-        Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
-        Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(Y0:SortInt{})
+    \implies{SortPid{}}(
+      \and{SortPid{}}(
+        Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+          X0:SortPid{},
+          X1:SortInt{}
+        ),
+        Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+          Y0:SortPid{},
+          Y1:SortInt{}
+        )
       ),
-      Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(
-        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{})
+      Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+        \and{SortPid{}}(X0:SortPid{}, Y0:SortPid{}),
+        \and{SortInt{}}(X1:SortInt{}, Y1:SortInt{})
       )
     )
     [constructor{}()]
-  axiom{}
-    \not{SortInstr{}}(
-      \and{SortInstr{}}(
-        Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
-        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(Y0:SortInt{})
+  axiom{R}
+    \exists{R}(
+      Val:SortOid{},
+      \equals{SortOid{}, R}(
+        Val:SortOid{},
+        Lbloid'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Oid'Unds'Pid'Unds'Int{}(
+          K0:SortPid{},
+          K1:SortInt{}
+        )
       )
     )
-    [constructor{}()]
+    [functional{}()]
   axiom{}
-    \not{SortInstr{}}(
-      \and{SortInstr{}}(
-        Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
-        Lblspawn'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pgm{}(Y0:SortPgm{})
-      )
-    )
-    [constructor{}()]
-  axiom{}
-    \not{SortInstr{}}(
-      \and{SortInstr{}}(
-        Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
-        Lblyield'Unds'UTXO-SYNTAX'Unds'Instr{}()
-      )
-    )
-    [constructor{}()]
-  axiom{}
-    \not{SortInstr{}}(
-      \and{SortInstr{}}(
-        Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
-        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(Y0:SortInt{})
+    \implies{SortOid{}}(
+      \and{SortOid{}}(
+        Lbloid'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Oid'Unds'Pid'Unds'Int{}(
+          X0:SortPid{},
+          X1:SortInt{}
+        ),
+        Lbloid'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Oid'Unds'Pid'Unds'Int{}(
+          Y0:SortPid{},
+          Y1:SortInt{}
+        )
+      ),
+      Lbloid'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Oid'Unds'Pid'Unds'Int{}(
+        \and{SortPid{}}(X0:SortPid{}, Y0:SortPid{}),
+        \and{SortInt{}}(X1:SortInt{}, Y1:SortInt{})
       )
     )
     [constructor{}()]
@@ -2039,25 +2149,49 @@ module UTXO
       Val:SortInstr{},
       \equals{SortInstr{}, R}(
         Val:SortInstr{},
-        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(K0:SortInt{})
+        Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+          K0:SortPid{},
+          K1:SortInt{}
+        )
       )
     )
     [functional{}()]
   axiom{}
     \implies{SortInstr{}}(
       \and{SortInstr{}}(
-        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
-        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(Y0:SortInt{})
+        Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+          X0:SortPid{},
+          X1:SortInt{}
+        ),
+        Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+          Y0:SortPid{},
+          Y1:SortInt{}
+        )
       ),
-      Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(
-        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{})
+      Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+        \and{SortPid{}}(X0:SortPid{}, Y0:SortPid{}),
+        \and{SortInt{}}(X1:SortInt{}, Y1:SortInt{})
       )
     )
     [constructor{}()]
   axiom{}
     \not{SortInstr{}}(
       \and{SortInstr{}}(
-        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
+        Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+          X0:SortPid{},
+          X1:SortInt{}
+        ),
+        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(Y0:SortOid{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortInstr{}}(
+      \and{SortInstr{}}(
+        Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+          X0:SortPid{},
+          X1:SortInt{}
+        ),
         Lblspawn'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pgm{}(Y0:SortPgm{})
       )
     )
@@ -2065,7 +2199,10 @@ module UTXO
   axiom{}
     \not{SortInstr{}}(
       \and{SortInstr{}}(
-        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
+        Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+          X0:SortPid{},
+          X1:SortInt{}
+        ),
         Lblyield'Unds'UTXO-SYNTAX'Unds'Instr{}()
       )
     )
@@ -2073,8 +2210,55 @@ module UTXO
   axiom{}
     \not{SortInstr{}}(
       \and{SortInstr{}}(
-        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
-        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(Y0:SortInt{})
+        Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+          X0:SortPid{},
+          X1:SortInt{}
+        ),
+        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(Y0:SortPid{})
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInstr{},
+      \equals{SortInstr{}, R}(
+        Val:SortInstr{},
+        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(K0:SortOid{})
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortInstr{}}(
+      \and{SortInstr{}}(
+        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(X0:SortOid{}),
+        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(Y0:SortOid{})
+      ),
+      Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(
+        \and{SortOid{}}(X0:SortOid{}, Y0:SortOid{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortInstr{}}(
+      \and{SortInstr{}}(
+        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(X0:SortOid{}),
+        Lblspawn'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pgm{}(Y0:SortPgm{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortInstr{}}(
+      \and{SortInstr{}}(
+        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(X0:SortOid{}),
+        Lblyield'Unds'UTXO-SYNTAX'Unds'Instr{}()
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortInstr{}}(
+      \and{SortInstr{}}(
+        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(X0:SortOid{}),
+        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(Y0:SortPid{})
       )
     )
     [constructor{}()]
@@ -2110,7 +2294,7 @@ module UTXO
     \not{SortInstr{}}(
       \and{SortInstr{}}(
         Lblspawn'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pgm{}(X0:SortPgm{}),
-        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(Y0:SortInt{})
+        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(Y0:SortPid{})
       )
     )
     [constructor{}()]
@@ -2124,7 +2308,7 @@ module UTXO
     \not{SortInstr{}}(
       \and{SortInstr{}}(
         Lblyield'Unds'UTXO-SYNTAX'Unds'Instr{}(),
-        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(Y0:SortInt{})
+        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(Y0:SortPid{})
       )
     )
     [constructor{}()]
@@ -2133,18 +2317,18 @@ module UTXO
       Val:SortInstr{},
       \equals{SortInstr{}, R}(
         Val:SortInstr{},
-        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(K0:SortInt{})
+        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(K0:SortPid{})
       )
     )
     [functional{}()]
   axiom{}
     \implies{SortInstr{}}(
       \and{SortInstr{}}(
-        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{}),
-        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(Y0:SortInt{})
+        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(X0:SortPid{}),
+        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(Y0:SortPid{})
       ),
-      Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(
-        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{})
+      Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(
+        \and{SortPid{}}(X0:SortPid{}, Y0:SortPid{})
       )
     )
     [constructor{}()]
@@ -2202,7 +2386,13 @@ module UTXO
     \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisInstr{}(K0:SortK{})))
     [functional{}()]
   axiom{R}
+    \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisOid{}(K0:SortK{})))
+    [functional{}()]
+  axiom{R}
     \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisPgm{}(K0:SortK{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisPid{}(K0:SortK{})))
     [functional{}()]
   axiom{R}
     \exists{R}(
@@ -2213,29 +2403,103 @@ module UTXO
   axiom{R}
     \exists{R}(
       Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortOid{}, SortKItem{}}(From:SortOid{}))
+    )
+    [subsort{SortOid{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
       \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortPgm{}, SortKItem{}}(From:SortPgm{}))
     )
     [subsort{SortPgm{}, SortKItem{}}()]
   axiom{R}
     \exists{R}(
       Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortPid{}, SortKItem{}}(From:SortPid{}))
+    )
+    [subsort{SortPid{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
       \equals{SortKItem{}, R}(Val:SortKItem{}, Lbl'Hash'suspended'Unds'UTXO'Unds'KItem{}())
     )
     [functional{}()]
+  axiom{}
+    \not{SortKItem{}}(
+      \and{SortKItem{}}(
+        Lbl'Hash'suspended'Unds'UTXO'Unds'KItem{}(),
+        Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(
+          Y0:SortPid{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(
+          K0:SortPid{},
+          K1:SortInt{}
+        )
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortKItem{}}(
+      \and{SortKItem{}}(
+        Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(
+          X0:SortPid{},
+          X1:SortInt{}
+        ),
+        Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(
+          Y0:SortPid{},
+          Y1:SortInt{}
+        )
+      ),
+      Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(
+        \and{SortPid{}}(X0:SortPid{}, Y0:SortPid{}),
+        \and{SortInt{}}(X1:SortInt{}, Y1:SortInt{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortPidCell{},
-      \equals{SortPidCell{}, R}(Val:SortPidCell{}, Lbl'-LT-'pid'-GT-'{}(K0:SortInt{}))
+      \equals{SortPidCell{}, R}(Val:SortPidCell{}, Lbl'-LT-'pid'-GT-'{}(K0:SortPid{}))
     )
     [functional{}()]
   axiom{}
     \implies{SortPidCell{}}(
-      \and{SortPidCell{}}(Lbl'-LT-'pid'-GT-'{}(X0:SortInt{}), Lbl'-LT-'pid'-GT-'{}(Y0:SortInt{})),
-      Lbl'-LT-'pid'-GT-'{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
+      \and{SortPidCell{}}(Lbl'-LT-'pid'-GT-'{}(X0:SortPid{}), Lbl'-LT-'pid'-GT-'{}(Y0:SortPid{})),
+      Lbl'-LT-'pid'-GT-'{}(\and{SortPid{}}(X0:SortPid{}, Y0:SortPid{}))
     )
     [constructor{}()]
   axiom{R}
     \exists{R}(Val:SortPidCell{}, \equals{SortPidCell{}, R}(Val:SortPidCell{}, LblinitPidCell{}()))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortNonceCell{},
+      \equals{SortNonceCell{}, R}(Val:SortNonceCell{}, Lbl'-LT-'nonce'-GT-'{}(K0:SortInt{}))
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortNonceCell{}}(
+      \and{SortNonceCell{}}(
+        Lbl'-LT-'nonce'-GT-'{}(X0:SortInt{}),
+        Lbl'-LT-'nonce'-GT-'{}(Y0:SortInt{})
+      ),
+      Lbl'-LT-'nonce'-GT-'{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortNonceCell{},
+      \equals{SortNonceCell{}, R}(Val:SortNonceCell{}, LblinitNonceCell{}())
+    )
     [functional{}()]
   axiom{R}
     \exists{R}(
@@ -2254,19 +2518,20 @@ module UTXO
       Val:SortProcCell{},
       \equals{SortProcCell{}, R}(
         Val:SortProcCell{},
-        Lbl'-LT-'proc'-GT-'{}(K0:SortPidCell{}, K1:SortKCell{})
+        Lbl'-LT-'proc'-GT-'{}(K0:SortPidCell{}, K1:SortNonceCell{}, K2:SortKCell{})
       )
     )
     [functional{}()]
   axiom{}
     \implies{SortProcCell{}}(
       \and{SortProcCell{}}(
-        Lbl'-LT-'proc'-GT-'{}(X0:SortPidCell{}, X1:SortKCell{}),
-        Lbl'-LT-'proc'-GT-'{}(Y0:SortPidCell{}, Y1:SortKCell{})
+        Lbl'-LT-'proc'-GT-'{}(X0:SortPidCell{}, X1:SortNonceCell{}, X2:SortKCell{}),
+        Lbl'-LT-'proc'-GT-'{}(Y0:SortPidCell{}, Y1:SortNonceCell{}, Y2:SortKCell{})
       ),
       Lbl'-LT-'proc'-GT-'{}(
         \and{SortPidCell{}}(X0:SortPidCell{}, Y0:SortPidCell{}),
-        \and{SortKCell{}}(X1:SortKCell{}, Y1:SortKCell{})
+        \and{SortNonceCell{}}(X1:SortNonceCell{}, Y1:SortNonceCell{}),
+        \and{SortKCell{}}(X2:SortKCell{}, Y2:SortKCell{})
       )
     )
     [constructor{}()]
@@ -2287,6 +2552,21 @@ module UTXO
     [functional{}()]
   axiom{R}
     \exists{R}(
+      Val:SortNonceCellOpt{},
+      \equals{SortNonceCellOpt{}, R}(
+        Val:SortNonceCellOpt{},
+        inj{SortNonceCell{}, SortNonceCellOpt{}}(From:SortNonceCell{})
+      )
+    )
+    [subsort{SortNonceCell{}, SortNonceCellOpt{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortNonceCellOpt{},
+      \equals{SortNonceCellOpt{}, R}(Val:SortNonceCellOpt{}, LblnoNonceCell{}())
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
       Val:SortKCellOpt{},
       \equals{SortKCellOpt{}, R}(
         Val:SortKCellOpt{},
@@ -2302,19 +2582,32 @@ module UTXO
       Val:SortProcCellFragment{},
       \equals{SortProcCellFragment{}, R}(
         Val:SortProcCellFragment{},
-        Lbl'-LT-'proc'-GT-'-fragment{}(K0:SortPidCellOpt{}, K1:SortKCellOpt{})
+        Lbl'-LT-'proc'-GT-'-fragment{}(
+          K0:SortPidCellOpt{},
+          K1:SortNonceCellOpt{},
+          K2:SortKCellOpt{}
+        )
       )
     )
     [functional{}()]
   axiom{}
     \implies{SortProcCellFragment{}}(
       \and{SortProcCellFragment{}}(
-        Lbl'-LT-'proc'-GT-'-fragment{}(X0:SortPidCellOpt{}, X1:SortKCellOpt{}),
-        Lbl'-LT-'proc'-GT-'-fragment{}(Y0:SortPidCellOpt{}, Y1:SortKCellOpt{})
+        Lbl'-LT-'proc'-GT-'-fragment{}(
+          X0:SortPidCellOpt{},
+          X1:SortNonceCellOpt{},
+          X2:SortKCellOpt{}
+        ),
+        Lbl'-LT-'proc'-GT-'-fragment{}(
+          Y0:SortPidCellOpt{},
+          Y1:SortNonceCellOpt{},
+          Y2:SortKCellOpt{}
+        )
       ),
       Lbl'-LT-'proc'-GT-'-fragment{}(
         \and{SortPidCellOpt{}}(X0:SortPidCellOpt{}, Y0:SortPidCellOpt{}),
-        \and{SortKCellOpt{}}(X1:SortKCellOpt{}, Y1:SortKCellOpt{})
+        \and{SortNonceCellOpt{}}(X1:SortNonceCellOpt{}, Y1:SortNonceCellOpt{}),
+        \and{SortKCellOpt{}}(X2:SortKCellOpt{}, Y2:SortKCellOpt{})
       )
     )
     [constructor{}()]
@@ -2513,6 +2806,15 @@ module UTXO
     )
     [functional{}()]
   axiom{R}
+    \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisNonceCell{}(K0:SortK{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(Val:SortBool{}, LblisNonceCellOpt{}(K0:SortK{}))
+    )
+    [functional{}()]
+  axiom{R}
     \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisPidCell{}(K0:SortK{})))
     [functional{}()]
   axiom{R}
@@ -2593,6 +2895,24 @@ module UTXO
       )
     )
     [subsort{SortLedgerCellOpt{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortNonceCell{}, SortKItem{}}(From:SortNonceCell{})
+      )
+    )
+    [subsort{SortNonceCell{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(
+        Val:SortKItem{},
+        inj{SortNonceCellOpt{}, SortKItem{}}(From:SortNonceCellOpt{})
+      )
+    )
+    [subsort{SortNonceCellOpt{}, SortKItem{}}()]
   axiom{R}
     \exists{R}(
       Val:SortKItem{},
@@ -2908,21 +3228,27 @@ module UTXO
   axiom{}
     \or{SortInstr{}}(
       \exists{SortInstr{}}(
-        X0:SortInt{},
-        Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{})
+        X0:SortPid{},
+        \exists{SortInstr{}}(
+          X1:SortInt{},
+          Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+            X0:SortPid{},
+            X1:SortInt{}
+          )
+        )
       ),
       \exists{SortInstr{}}(
-        X0:SortInt{},
-        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{})
+        X0V2:SortOid{},
+        Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(X0V2:SortOid{})
       ),
       \exists{SortInstr{}}(
-        X0V2:SortPgm{},
-        Lblspawn'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pgm{}(X0V2:SortPgm{})
+        X0V3:SortPgm{},
+        Lblspawn'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pgm{}(X0V3:SortPgm{})
       ),
       Lblyield'Unds'UTXO-SYNTAX'Unds'Instr{}(),
       \exists{SortInstr{}}(
-        X0:SortInt{},
-        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(X0:SortInt{})
+        X0:SortPid{},
+        Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(X0:SortPid{})
       ),
       \bottom{SortInstr{}}()
     )
@@ -2948,6 +3274,16 @@ module UTXO
     \or{SortKItem{}}(
       \exists{SortKItem{}}(X0:SortK{}, Lbl'Hash'KConfigValue{}(X0:SortK{})),
       Lbl'Hash'suspended'Unds'UTXO'Unds'KItem{}(),
+      \exists{SortKItem{}}(
+        X0V2:SortPid{},
+        \exists{SortKItem{}}(
+          X1:SortInt{},
+          Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(
+            X0V2:SortPid{},
+            X1:SortInt{}
+          )
+        )
+      ),
       \exists{SortKItem{}}(Val:SortBool{}, inj{SortBool{}, SortKItem{}}(Val:SortBool{})),
       \exists{SortKItem{}}(
         ValV2:SortGeneratedCounterCell{},
@@ -2986,48 +3322,58 @@ module UTXO
       ),
       \exists{SortKItem{}}(ValV13:SortList{}, inj{SortList{}, SortKItem{}}(ValV13:SortList{})),
       \exists{SortKItem{}}(ValV14:SortMap{}, inj{SortMap{}, SortKItem{}}(ValV14:SortMap{})),
-      \exists{SortKItem{}}(ValV15:SortPgm{}, inj{SortPgm{}, SortKItem{}}(ValV15:SortPgm{})),
       \exists{SortKItem{}}(
-        ValV16:SortPidCell{},
-        inj{SortPidCell{}, SortKItem{}}(ValV16:SortPidCell{})
+        ValV15:SortNonceCell{},
+        inj{SortNonceCell{}, SortKItem{}}(ValV15:SortNonceCell{})
       ),
       \exists{SortKItem{}}(
-        ValV17:SortPidCellOpt{},
-        inj{SortPidCellOpt{}, SortKItem{}}(ValV17:SortPidCellOpt{})
+        ValV16:SortNonceCellOpt{},
+        inj{SortNonceCellOpt{}, SortKItem{}}(ValV16:SortNonceCellOpt{})
+      ),
+      \exists{SortKItem{}}(ValV17:SortOid{}, inj{SortOid{}, SortKItem{}}(ValV17:SortOid{})),
+      \exists{SortKItem{}}(ValV18:SortPgm{}, inj{SortPgm{}, SortKItem{}}(ValV18:SortPgm{})),
+      \exists{SortKItem{}}(ValV19:SortPid{}, inj{SortPid{}, SortKItem{}}(ValV19:SortPid{})),
+      \exists{SortKItem{}}(
+        ValV20:SortPidCell{},
+        inj{SortPidCell{}, SortKItem{}}(ValV20:SortPidCell{})
       ),
       \exists{SortKItem{}}(
-        ValV18:SortProcCell{},
-        inj{SortProcCell{}, SortKItem{}}(ValV18:SortProcCell{})
+        ValV21:SortPidCellOpt{},
+        inj{SortPidCellOpt{}, SortKItem{}}(ValV21:SortPidCellOpt{})
       ),
       \exists{SortKItem{}}(
-        ValV19:SortProcCellFragment{},
-        inj{SortProcCellFragment{}, SortKItem{}}(ValV19:SortProcCellFragment{})
+        ValV22:SortProcCell{},
+        inj{SortProcCell{}, SortKItem{}}(ValV22:SortProcCell{})
       ),
       \exists{SortKItem{}}(
-        ValV20:SortProcCellMap{},
-        inj{SortProcCellMap{}, SortKItem{}}(ValV20:SortProcCellMap{})
+        ValV23:SortProcCellFragment{},
+        inj{SortProcCellFragment{}, SortKItem{}}(ValV23:SortProcCellFragment{})
       ),
       \exists{SortKItem{}}(
-        ValV21:SortProcsCell{},
-        inj{SortProcsCell{}, SortKItem{}}(ValV21:SortProcsCell{})
+        ValV24:SortProcCellMap{},
+        inj{SortProcCellMap{}, SortKItem{}}(ValV24:SortProcCellMap{})
       ),
       \exists{SortKItem{}}(
-        ValV22:SortProcsCellFragment{},
-        inj{SortProcsCellFragment{}, SortKItem{}}(ValV22:SortProcsCellFragment{})
+        ValV25:SortProcsCell{},
+        inj{SortProcsCell{}, SortKItem{}}(ValV25:SortProcsCell{})
       ),
       \exists{SortKItem{}}(
-        ValV23:SortProcsCellOpt{},
-        inj{SortProcsCellOpt{}, SortKItem{}}(ValV23:SortProcsCellOpt{})
-      ),
-      \exists{SortKItem{}}(ValV24:SortSet{}, inj{SortSet{}, SortKItem{}}(ValV24:SortSet{})),
-      \exists{SortKItem{}}(ValV25:SortTCell{}, inj{SortTCell{}, SortKItem{}}(ValV25:SortTCell{})),
-      \exists{SortKItem{}}(
-        ValV26:SortTCellFragment{},
-        inj{SortTCellFragment{}, SortKItem{}}(ValV26:SortTCellFragment{})
+        ValV26:SortProcsCellFragment{},
+        inj{SortProcsCellFragment{}, SortKItem{}}(ValV26:SortProcsCellFragment{})
       ),
       \exists{SortKItem{}}(
-        ValV27:SortTCellOpt{},
-        inj{SortTCellOpt{}, SortKItem{}}(ValV27:SortTCellOpt{})
+        ValV27:SortProcsCellOpt{},
+        inj{SortProcsCellOpt{}, SortKItem{}}(ValV27:SortProcsCellOpt{})
+      ),
+      \exists{SortKItem{}}(ValV28:SortSet{}, inj{SortSet{}, SortKItem{}}(ValV28:SortSet{})),
+      \exists{SortKItem{}}(ValV29:SortTCell{}, inj{SortTCell{}, SortKItem{}}(ValV29:SortTCell{})),
+      \exists{SortKItem{}}(
+        ValV30:SortTCellFragment{},
+        inj{SortTCellFragment{}, SortKItem{}}(ValV30:SortTCellFragment{})
+      ),
+      \exists{SortKItem{}}(
+        ValV31:SortTCellOpt{},
+        inj{SortTCellOpt{}, SortKItem{}}(ValV31:SortTCellOpt{})
       ),
       \bottom{SortKItem{}}()
     )
@@ -3049,6 +3395,37 @@ module UTXO
     )
     [constructor{}()]
   axiom{}
+    \or{SortNonceCell{}}(
+      \exists{SortNonceCell{}}(X0:SortInt{}, Lbl'-LT-'nonce'-GT-'{}(X0:SortInt{})),
+      \bottom{SortNonceCell{}}()
+    )
+    [constructor{}()]
+  axiom{}
+    \or{SortNonceCellOpt{}}(
+      LblnoNonceCell{}(),
+      \exists{SortNonceCellOpt{}}(
+        Val:SortNonceCell{},
+        inj{SortNonceCell{}, SortNonceCellOpt{}}(Val:SortNonceCell{})
+      ),
+      \bottom{SortNonceCellOpt{}}()
+    )
+    [constructor{}()]
+  axiom{}
+    \or{SortOid{}}(
+      \exists{SortOid{}}(
+        X0:SortPid{},
+        \exists{SortOid{}}(
+          X1:SortInt{},
+          Lbloid'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Oid'Unds'Pid'Unds'Int{}(
+            X0:SortPid{},
+            X1:SortInt{}
+          )
+        )
+      ),
+      \bottom{SortOid{}}()
+    )
+    [constructor{}()]
+  axiom{}
     \or{SortPgm{}}(
       \exists{SortPgm{}}(
         X0:SortInstr{},
@@ -3065,8 +3442,24 @@ module UTXO
     )
     [constructor{}()]
   axiom{}
+    \or{SortPid{}}(
+      Lblroot'Unds'UTXO-SYNTAX'Unds'Pid{}(),
+      \exists{SortPid{}}(
+        X0:SortPid{},
+        \exists{SortPid{}}(
+          X1:SortInt{},
+          Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+            X0:SortPid{},
+            X1:SortInt{}
+          )
+        )
+      ),
+      \bottom{SortPid{}}()
+    )
+    [constructor{}()]
+  axiom{}
     \or{SortPidCell{}}(
-      \exists{SortPidCell{}}(X0:SortInt{}, Lbl'-LT-'pid'-GT-'{}(X0:SortInt{})),
+      \exists{SortPidCell{}}(X0:SortPid{}, Lbl'-LT-'pid'-GT-'{}(X0:SortPid{})),
       \bottom{SortPidCell{}}()
     )
     [constructor{}()]
@@ -3085,8 +3478,11 @@ module UTXO
       \exists{SortProcCell{}}(
         X0:SortPidCell{},
         \exists{SortProcCell{}}(
-          X1:SortKCell{},
-          Lbl'-LT-'proc'-GT-'{}(X0:SortPidCell{}, X1:SortKCell{})
+          X1:SortNonceCell{},
+          \exists{SortProcCell{}}(
+            X2:SortKCell{},
+            Lbl'-LT-'proc'-GT-'{}(X0:SortPidCell{}, X1:SortNonceCell{}, X2:SortKCell{})
+          )
         )
       ),
       \bottom{SortProcCell{}}()
@@ -3097,8 +3493,15 @@ module UTXO
       \exists{SortProcCellFragment{}}(
         X0:SortPidCellOpt{},
         \exists{SortProcCellFragment{}}(
-          X1:SortKCellOpt{},
-          Lbl'-LT-'proc'-GT-'-fragment{}(X0:SortPidCellOpt{}, X1:SortKCellOpt{})
+          X1:SortNonceCellOpt{},
+          \exists{SortProcCellFragment{}}(
+            X2:SortKCellOpt{},
+            Lbl'-LT-'proc'-GT-'-fragment{}(
+              X0:SortPidCellOpt{},
+              X1:SortNonceCellOpt{},
+              X2:SortKCellOpt{}
+            )
+          )
         )
       ),
       \bottom{SortProcCellFragment{}}()
@@ -5939,6 +6342,54 @@ module UTXO
       \and{R}(
         \top{R}(),
         \and{R}(
+          \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortOid{}, SortKItem{}}(VarK:SortOid{}), dotk{}())),
+          \top{R}()
+        )
+      ),
+      \equals{SortOid{}, R}(
+        Lblproject'Coln'Oid{}(X0:SortK{}),
+        \and{SortOid{}}(VarK:SortOid{}, \top{SortOid{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("09f1e675a8ddff254ad22f83cf01ea575fc901492a3bf2965fc6882600a9c51a")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortOid{}, R}(Lblproject'Coln'Oid{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortOid{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortOid{}, SortKItem{}}(VarK:SortOid{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "09f1e675a8ddff254ad22f83cf01ea575fc901492a3bf2965fc6882600a9c51a.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortOid{}, R}(Lblproject'Coln'Oid{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortOid{}, SortKItem{}}(Lblproject'Coln'Oid{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "09f1e675a8ddff254ad22f83cf01ea575fc901492a3bf2965fc6882600a9c51a.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
           \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortPgm{}, SortKItem{}}(VarK:SortPgm{}), dotk{}())),
           \top{R}()
         )
@@ -5979,6 +6430,54 @@ module UTXO
     [
       UNIQUE'Unds'ID{}(
         "ddb4777eb97ab87ee0e1ea5bab55f10607991a4f447f275af1037d1b7c18329d.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortPid{}, SortKItem{}}(VarK:SortPid{}), dotk{}())),
+          \top{R}()
+        )
+      ),
+      \equals{SortPid{}, R}(
+        Lblproject'Coln'Pid{}(X0:SortK{}),
+        \and{SortPid{}}(VarK:SortPid{}, \top{SortPid{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("30bc25f0246ad154d62408f6df1e7e6323d783cd47bd2cfdf9d478cd3e3598e6")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortPid{}, R}(Lblproject'Coln'Pid{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortPid{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortPid{}, SortKItem{}}(VarK:SortPid{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "30bc25f0246ad154d62408f6df1e7e6323d783cd47bd2cfdf9d478cd3e3598e6.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortPid{}, R}(Lblproject'Coln'Pid{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortPid{}, SortKItem{}}(Lblproject'Coln'Pid{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "30bc25f0246ad154d62408f6df1e7e6323d783cd47bd2cfdf9d478cd3e3598e6.selector-inverse"
       ),
       simplification{}("")
     ]
@@ -6039,6 +6538,56 @@ module UTXO
         \and{R}(
           \in{SortK{}, R}(
             X0:SortK{},
+            kseq{}(inj{SortOid{}, SortKItem{}}(VarOid:SortOid{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblisOid{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("3a589af4cc05f2e7c3cc19853a74e5c5991ec488650ce0878eaba2ac6d4c2957")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortOid{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortK{}, R}(
+                    X0:SortK{},
+                    kseq{}(inj{SortOid{}, SortKItem{}}(Var'Unds'Gen0:SortOid{}), dotk{}())
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}()))
+      ),
+      \equals{SortBool{}, R}(
+        LblisOid{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("a49cd26cb20a373783f7d4dccfdd4c4c5c15e8f5d71c856dd21db9beb147b546"),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
             kseq{}(inj{SortPgm{}, SortKItem{}}(VarPgm:SortPgm{}), dotk{}())
           ),
           \top{R}()
@@ -6082,6 +6631,56 @@ module UTXO
       UNIQUE'Unds'ID{}("d81e24a5fb48fd63fad83552f4be2f353fc339daa0f1287ac210fda817b975c8"),
       owise{}()
     ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(inj{SortPid{}, SortKItem{}}(VarPid:SortPid{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblisPid{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("f721f97264078dcae5491941767c61c52970451f1f13d02e990135fa68e505ed")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortPid{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortK{}, R}(
+                    X0:SortK{},
+                    kseq{}(inj{SortPid{}, SortKItem{}}(Var'Unds'Gen0:SortPid{}), dotk{}())
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}()))
+      ),
+      \equals{SortBool{}, R}(
+        LblisPid{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("182d6eb204b27863640c5361d6d70b4c3113878ea925ad0a59fcd44c6ba8a537"),
+      owise{}()
+    ]
   axiom{}
     \rewrites{SortGeneratedTopCell{}}(
       \and{SortGeneratedTopCell{}}(
@@ -6090,9 +6689,10 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar3:SortPidCell{},
+                  Var'Unds'Gen6:SortPidCell{},
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar3:SortPidCell{},
+                    Var'Unds'Gen6:SortPidCell{},
+                    Var'Unds'Gen5:SortNonceCell{},
                     Lbl'-LT-'k'-GT-'{}(
                       kseq{}(
                         inj{SortPgm{}, SortKItem{}}(
@@ -6121,9 +6721,10 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar3:SortPidCell{},
+                  Var'Unds'Gen6:SortPidCell{},
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar3:SortPidCell{},
+                    Var'Unds'Gen6:SortPidCell{},
+                    Var'Unds'Gen5:SortNonceCell{},
                     Lbl'-LT-'k'-GT-'{}(
                       kseq{}(
                         inj{SortInstr{}, SortKItem{}}(VarI:SortInstr{}),
@@ -6148,7 +6749,7 @@ module UTXO
     [
       UNIQUE'Unds'ID{}("22d8a3b2ca18457ab32a4bac26197b9f8df63752834a13e059d626e9215be004"),
       label{}("seq"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,30,59)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,3,36,59)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/utxo/utxo.k)"
       )
@@ -6161,9 +6762,10 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar3:SortPidCell{},
+                  Var'Unds'Gen6:SortPidCell{},
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar3:SortPidCell{},
+                    Var'Unds'Gen6:SortPidCell{},
+                    Var'Unds'Gen5:SortNonceCell{},
                     Lbl'-LT-'k'-GT-'{}(
                       kseq{}(
                         inj{SortPgm{}, SortKItem{}}(
@@ -6189,9 +6791,10 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar3:SortPidCell{},
+                  Var'Unds'Gen6:SortPidCell{},
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar3:SortPidCell{},
+                    Var'Unds'Gen6:SortPidCell{},
+                    Var'Unds'Gen5:SortNonceCell{},
                     Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar4:SortK{})
                   )
                 ),
@@ -6208,7 +6811,7 @@ module UTXO
     [
       UNIQUE'Unds'ID{}("853470ad1c8e0a6a1ab082bfc7cecacf0d10f52a6bd42df80222fd8be7f27d20"),
       label{}("nil"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,3,31,44)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,3,37,44)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/utxo/utxo.k)"
       )
@@ -6221,27 +6824,29 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar4:SortPidCell{},
+                  Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar4:SortPidCell{},
+                    Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
+                    Lbl'-LT-'nonce'-GT-'{}(VarN:SortInt{}),
                     Lbl'-LT-'k'-GT-'{}(
                       kseq{}(
                         inj{SortInstr{}, SortKItem{}}(
-                          Lblcreate'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(
+                          Lblcreate'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid'Unds'Int{}(
+                            VarQ:SortPid{},
                             VarV:SortInt{}
                           )
                         ),
-                        Var'Unds'DotVar5:SortK{}
+                        Var'Unds'DotVar3:SortK{}
                       )
                     )
                   )
                 ),
-                Var'Unds'DotVar3:SortProcCellMap{}
+                Var'Unds'DotVar2:SortProcCellMap{}
               )
             ),
-            Lbl'-LT-'ledger'-GT-'{}(Var'Unds'DotVar2:SortMap{})
+            Lbl'-LT-'ledger'-GT-'{}(Var'Unds'DotVar4:SortMap{})
           ),
-          Lbl'-LT-'generatedCounter'-GT-'{}(Var'Hash'Fresh:SortInt{})
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
         ),
         \top{SortGeneratedTopCell{}}()
       ),
@@ -6251,40 +6856,45 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar4:SortPidCell{},
+                  Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar4:SortPidCell{},
-                    Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar5:SortK{})
+                    Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
+                    Lbl'-LT-'nonce'-GT-'{}(
+                      Lbl'UndsPlus'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("1"))
+                    ),
+                    Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar3:SortK{})
                   )
                 ),
-                Var'Unds'DotVar3:SortProcCellMap{}
+                Var'Unds'DotVar2:SortProcCellMap{}
               )
             ),
             Lbl'-LT-'ledger'-GT-'{}(
               Lbl'Unds'Map'Unds'{}(
                 Lbl'UndsPipe'-'-GT-Unds'{}(
-                  inj{SortInt{}, SortKItem{}}(
-                    LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int{}(
-                      Lbl'UndsPlus'Int'Unds'{}(Var'Hash'Fresh:SortInt{}, \dv{SortInt{}}("0"))
+                  inj{SortOid{}, SortKItem{}}(
+                    Lbloid'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Oid'Unds'Pid'Unds'Int{}(
+                      VarP:SortPid{},
+                      VarN:SortInt{}
                     )
                   ),
-                  inj{SortInt{}, SortKItem{}}(VarV:SortInt{})
+                  Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(
+                    VarQ:SortPid{},
+                    VarV:SortInt{}
+                  )
                 ),
-                Var'Unds'DotVar2:SortMap{}
+                Var'Unds'DotVar4:SortMap{}
               )
             )
           ),
-          Lbl'-LT-'generatedCounter'-GT-'{}(
-            Lbl'UndsPlus'Int'Unds'{}(Var'Hash'Fresh:SortInt{}, \dv{SortInt{}}("1"))
-          )
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
         ),
         \top{SortGeneratedTopCell{}}()
       )
     )
     [
-      UNIQUE'Unds'ID{}("b241d4f2f265c69ff7b789e5613010692cf9f3a08ba6c0386a7d84bdc100c131"),
+      UNIQUE'Unds'ID{}("29d8bb212ec8298971e550c9057bdd6ec5f2afa38384ec9ba8dd82b477f4eee9"),
       label{}("create"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,32,100)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,39,82)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/utxo/utxo.k)"
       )
@@ -6297,31 +6907,35 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar4:SortPidCell{},
+                  Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar4:SortPidCell{},
+                    Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
+                    Var'Unds'DotVar3:SortNonceCell{},
                     Lbl'-LT-'k'-GT-'{}(
                       kseq{}(
                         inj{SortInstr{}, SortKItem{}}(
-                          Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(
-                            VarI:SortInt{}
+                          Lblspend'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Oid{}(
+                            VarI:SortOid{}
                           )
                         ),
-                        Var'Unds'DotVar5:SortK{}
+                        Var'Unds'DotVar4:SortK{}
                       )
                     )
                   )
                 ),
-                Var'Unds'DotVar3:SortProcCellMap{}
+                Var'Unds'DotVar2:SortProcCellMap{}
               )
             ),
             Lbl'-LT-'ledger'-GT-'{}(
               Lbl'Unds'Map'Unds'{}(
                 Lbl'UndsPipe'-'-GT-Unds'{}(
-                  inj{SortInt{}, SortKItem{}}(VarI:SortInt{}),
-                  Var'Unds'Gen0:SortKItem{}
+                  inj{SortOid{}, SortKItem{}}(VarI:SortOid{}),
+                  Lblout'LParUndsCommUndsRParUnds'UTXO'Unds'KItem'Unds'Pid'Unds'Int{}(
+                    VarP:SortPid{},
+                    Var'Unds'Gen0:SortInt{}
+                  )
                 ),
-                Var'Unds'DotVar2:SortMap{}
+                Var'Unds'DotVar5:SortMap{}
               )
             )
           ),
@@ -6335,16 +6949,17 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar4:SortPidCell{},
+                  Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar4:SortPidCell{},
-                    Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar5:SortK{})
+                    Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
+                    Var'Unds'DotVar3:SortNonceCell{},
+                    Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar4:SortK{})
                   )
                 ),
-                Var'Unds'DotVar3:SortProcCellMap{}
+                Var'Unds'DotVar2:SortProcCellMap{}
               )
             ),
-            Lbl'-LT-'ledger'-GT-'{}(Var'Unds'DotVar2:SortMap{})
+            Lbl'-LT-'ledger'-GT-'{}(Var'Unds'DotVar5:SortMap{})
           ),
           Var'Unds'DotVar0:SortGeneratedCounterCell{}
         ),
@@ -6352,9 +6967,9 @@ module UTXO
       )
     )
     [
-      UNIQUE'Unds'ID{}("7c0a85904d0dc5a769352ef098bf9a398f86889c128c4ac87d7f58628534fdef"),
+      UNIQUE'Unds'ID{}("7ea8750689a834c9494dbb5e192922d4f479b16a8e8b579a64837b1a594b433b"),
       label{}("spend"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,3,33,89)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,41,73)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/utxo/utxo.k)"
       )
@@ -6367,14 +6982,15 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                  Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
                   Lbl'-LT-'proc'-GT-'{}(
-                    Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                    Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
+                    Lbl'-LT-'nonce'-GT-'{}(VarN:SortInt{}),
                     Lbl'-LT-'k'-GT-'{}(
                       kseq{}(
                         inj{SortInstr{}, SortKItem{}}(
                           Lblspawn'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pgm{}(
-                            VarP:SortPgm{}
+                            VarG:SortPgm{}
                           )
                         ),
                         Var'Unds'DotVar3:SortK{}
@@ -6387,7 +7003,7 @@ module UTXO
             ),
             Var'Unds'DotVar1:SortLedgerCell{}
           ),
-          Lbl'-LT-'generatedCounter'-GT-'{}(Var'Hash'Fresh:SortInt{})
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
         ),
         \top{SortGeneratedTopCell{}}()
       ),
@@ -6398,26 +7014,32 @@ module UTXO
               Lbl'Unds'ProcCellMap'Unds'{}(
                 Lbl'Unds'ProcCellMap'Unds'{}(
                   LblProcCellMapItem{}(
-                    Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                    Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
                     Lbl'-LT-'proc'-GT-'{}(
-                      Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                      Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
+                      Lbl'-LT-'nonce'-GT-'{}(
+                        Lbl'UndsPlus'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("1"))
+                      ),
                       Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar3:SortK{})
                     )
                   ),
                   LblProcCellMapItem{}(
                     Lbl'-LT-'pid'-GT-'{}(
-                      LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int{}(
-                        Lbl'UndsPlus'Int'Unds'{}(Var'Hash'Fresh:SortInt{}, \dv{SortInt{}}("0"))
+                      Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+                        VarP:SortPid{},
+                        VarN:SortInt{}
                       )
                     ),
                     Lbl'-LT-'proc'-GT-'{}(
                       Lbl'-LT-'pid'-GT-'{}(
-                        LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int{}(
-                          Lbl'UndsPlus'Int'Unds'{}(Var'Hash'Fresh:SortInt{}, \dv{SortInt{}}("0"))
+                        Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+                          VarP:SortPid{},
+                          VarN:SortInt{}
                         )
                       ),
+                      Lbl'-LT-'nonce'-GT-'{}(\dv{SortInt{}}("0")),
                       Lbl'-LT-'k'-GT-'{}(
-                        kseq{}(inj{SortPgm{}, SortKItem{}}(VarP:SortPgm{}), dotk{}())
+                        kseq{}(inj{SortPgm{}, SortKItem{}}(VarG:SortPgm{}), dotk{}())
                       )
                     )
                   )
@@ -6427,17 +7049,15 @@ module UTXO
             ),
             Var'Unds'DotVar1:SortLedgerCell{}
           ),
-          Lbl'-LT-'generatedCounter'-GT-'{}(
-            Lbl'UndsPlus'Int'Unds'{}(Var'Hash'Fresh:SortInt{}, \dv{SortInt{}}("1"))
-          )
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
         ),
         \top{SortGeneratedTopCell{}}()
       )
     )
     [
-      UNIQUE'Unds'ID{}("f1f51014f19b98251e77e54e2ca286af527a0914ed1f77612d5ada05f77f8cac"),
+      UNIQUE'Unds'ID{}("9170d9fcbdf1eaca4978707da1d30b0463d2763ffc84e5b7f247239e9dec481d"),
       label{}("spawn"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(34,3,35,93)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,3,43,117)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/utxo/utxo.k)"
       )
@@ -6450,9 +7070,10 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar3:SortPidCell{},
+                  Var'Unds'Gen6:SortPidCell{},
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar3:SortPidCell{},
+                    Var'Unds'Gen6:SortPidCell{},
+                    Var'Unds'Gen5:SortNonceCell{},
                     Lbl'-LT-'k'-GT-'{}(
                       kseq{}(
                         inj{SortInstr{}, SortKItem{}}(Lblyield'Unds'UTXO-SYNTAX'Unds'Instr{}()),
@@ -6476,9 +7097,10 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Var'Unds'DotVar3:SortPidCell{},
+                  Var'Unds'Gen6:SortPidCell{},
                   Lbl'-LT-'proc'-GT-'{}(
-                    Var'Unds'DotVar3:SortPidCell{},
+                    Var'Unds'Gen6:SortPidCell{},
+                    Var'Unds'Gen5:SortNonceCell{},
                     Lbl'-LT-'k'-GT-'{}(
                       kseq{}(Lbl'Hash'suspended'Unds'UTXO'Unds'KItem{}(), Var'Unds'DotVar4:SortK{})
                     )
@@ -6497,7 +7119,7 @@ module UTXO
     [
       UNIQUE'Unds'ID{}("9a51d7a1f12d1d51dadefa7b99426443175e00fd2b4699eb1dbe9109b816d965"),
       label{}("yield"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,3,36,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/utxo/utxo.k)"
       )
@@ -6511,29 +7133,44 @@ module UTXO
               Lbl'Unds'ProcCellMap'Unds'{}(
                 Lbl'Unds'ProcCellMap'Unds'{}(
                   LblProcCellMapItem{}(
-                    Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                    Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
                     Lbl'-LT-'proc'-GT-'{}(
-                      Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                      Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
+                      Var'Unds'DotVar3:SortNonceCell{},
                       Lbl'-LT-'k'-GT-'{}(
                         kseq{}(
                           inj{SortInstr{}, SortKItem{}}(
-                            Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Int{}(
-                              VarQ:SortInt{}
+                            Lblresume'LParUndsRParUnds'UTXO-SYNTAX'Unds'Instr'Unds'Pid{}(
+                              Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+                                VarP:SortPid{},
+                                VarM:SortInt{}
+                              )
                             )
                           ),
-                          Var'Unds'DotVar3:SortK{}
+                          Var'Unds'DotVar4:SortK{}
                         )
                       )
                     )
                   ),
                   LblProcCellMapItem{}(
-                    Lbl'-LT-'pid'-GT-'{}(VarQ:SortInt{}),
+                    Lbl'-LT-'pid'-GT-'{}(
+                      Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+                        VarP:SortPid{},
+                        VarM:SortInt{}
+                      )
+                    ),
                     Lbl'-LT-'proc'-GT-'{}(
-                      Lbl'-LT-'pid'-GT-'{}(VarQ:SortInt{}),
+                      Lbl'-LT-'pid'-GT-'{}(
+                        Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+                          VarP:SortPid{},
+                          VarM:SortInt{}
+                        )
+                      ),
+                      Var'Unds'DotVar5:SortNonceCell{},
                       Lbl'-LT-'k'-GT-'{}(
                         kseq{}(
                           Lbl'Hash'suspended'Unds'UTXO'Unds'KItem{}(),
-                          Var'Unds'DotVar4:SortK{}
+                          Var'Unds'DotVar6:SortK{}
                         )
                       )
                     )
@@ -6555,17 +7192,29 @@ module UTXO
               Lbl'Unds'ProcCellMap'Unds'{}(
                 Lbl'Unds'ProcCellMap'Unds'{}(
                   LblProcCellMapItem{}(
-                    Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                    Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
                     Lbl'-LT-'proc'-GT-'{}(
-                      Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
-                      Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar3:SortK{})
+                      Lbl'-LT-'pid'-GT-'{}(VarP:SortPid{}),
+                      Var'Unds'DotVar3:SortNonceCell{},
+                      Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar4:SortK{})
                     )
                   ),
                   LblProcCellMapItem{}(
-                    Lbl'-LT-'pid'-GT-'{}(VarQ:SortInt{}),
+                    Lbl'-LT-'pid'-GT-'{}(
+                      Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+                        VarP:SortPid{},
+                        VarM:SortInt{}
+                      )
+                    ),
                     Lbl'-LT-'proc'-GT-'{}(
-                      Lbl'-LT-'pid'-GT-'{}(VarQ:SortInt{}),
-                      Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar4:SortK{})
+                      Lbl'-LT-'pid'-GT-'{}(
+                        Lblchild'LParUndsCommUndsRParUnds'UTXO-SYNTAX'Unds'Pid'Unds'Pid'Unds'Int{}(
+                          VarP:SortPid{},
+                          VarM:SortInt{}
+                        )
+                      ),
+                      Var'Unds'DotVar5:SortNonceCell{},
+                      Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar6:SortK{})
                     )
                   )
                 ),
@@ -6580,9 +7229,9 @@ module UTXO
       )
     )
     [
-      UNIQUE'Unds'ID{}("5498ee7f3cee1875a22dc4504cf475d0b95d17220aeea4b0db70a8f3ef27a9f3"),
+      UNIQUE'Unds'ID{}("b728a5dc8c8ebefc768fdfca9a35340c2a07f6f1de7172aa3af9282d4290c6a4"),
       label{}("resume"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,3,38,98)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,3,46,112)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/utxo/utxo.k)"
       )
@@ -6595,9 +7244,10 @@ module UTXO
             Lbl'-LT-'procs'-GT-'{}(
               Lbl'Unds'ProcCellMap'Unds'{}(
                 LblProcCellMapItem{}(
-                  Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                  Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortPid{}),
                   Lbl'-LT-'proc'-GT-'{}(
-                    Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                    Lbl'-LT-'pid'-GT-'{}(Var'Unds'Gen0:SortPid{}),
+                    Var'Unds'DotVar3:SortNonceCell{},
                     Lbl'-LT-'k'-GT-'{}(dotk{}())
                   )
                 ),
@@ -6622,9 +7272,9 @@ module UTXO
       )
     )
     [
-      UNIQUE'Unds'ID{}("1fd38d9f6a243afd694ec9b187a78c0d99f21821b47b63cb803c6188d6d208fe"),
+      UNIQUE'Unds'ID{}("334b7811f94dbab24f83c16a77c30c65d1631be16d8346023253211b26660a69"),
       label{}("done"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,3,39,94)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,47,98)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/utxo/utxo.k)"
       )
@@ -6634,10 +7284,22 @@ module UTXO
       \and{R}(\top{R}(), \top{R}()),
       \equals{SortPidCell{}, R}(
         LblinitPidCell{}(),
-        \and{SortPidCell{}}(Lbl'-LT-'pid'-GT-'{}(\dv{SortInt{}}("-1")), \top{SortPidCell{}}())
+        \and{SortPidCell{}}(
+          Lbl'-LT-'pid'-GT-'{}(Lblroot'Unds'UTXO-SYNTAX'Unds'Pid{}()),
+          \top{SortPidCell{}}()
+        )
       )
     )
-    [UNIQUE'Unds'ID{}("ddfb9c1354a6212f77a28e662c8a6e0a26f97eead18eae8df285d7a3ccea7eb6")]
+    [UNIQUE'Unds'ID{}("39394f747f699132ee27754fd735d7d75baeac1ddf1606bb0f79a3d500f431a9")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \top{R}()),
+      \equals{SortNonceCell{}, R}(
+        LblinitNonceCell{}(),
+        \and{SortNonceCell{}}(Lbl'-LT-'nonce'-GT-'{}(\dv{SortInt{}}("0")), \top{SortNonceCell{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("e708184bf2ec909442bb8b80597acd51d40fd733cfec4cc51e619571aec389d2")]
   axiom{R}
     \implies{R}(
       \and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{}, VarInit:SortMap{}), \top{R}())),
@@ -6672,13 +7334,17 @@ module UTXO
         \and{SortProcCellMap{}}(
           LblProcCellMapItem{}(
             LblinitPidCell{}(),
-            Lbl'-LT-'proc'-GT-'{}(LblinitPidCell{}(), LblinitKCell{}(VarInit:SortMap{}))
+            Lbl'-LT-'proc'-GT-'{}(
+              LblinitPidCell{}(),
+              LblinitNonceCell{}(),
+              LblinitKCell{}(VarInit:SortMap{})
+            )
           ),
           \top{SortProcCellMap{}}()
         )
       )
     )
-    [UNIQUE'Unds'ID{}("d5732afe1e39641361596572afe2b6ef9cfacfc0ddf5b4a521b48f75a434c9b3")]
+    [UNIQUE'Unds'ID{}("1b9eff114b508c9b26291f9611c889417c086e68661eae6063cae690ad04225f")]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -6686,7 +7352,11 @@ module UTXO
         \and{R}(
           \in{SortProcCell{}, R}(
             X0:SortProcCell{},
-            Lbl'-LT-'proc'-GT-'{}(VarKey:SortPidCell{}, Var'Unds'DotVar0:SortKCell{})
+            Lbl'-LT-'proc'-GT-'{}(
+              VarKey:SortPidCell{},
+              Var'Unds'Gen2:SortNonceCell{},
+              Var'Unds'Gen1:SortKCell{}
+            )
           ),
           \top{R}()
         )
@@ -6945,6 +7615,116 @@ module UTXO
     [
       UNIQUE'Unds'ID{}(
         "10985457d3f1827b1b098e4ff6ed1ce97fac34965581a258f4e54fc526353352.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(inj{SortNonceCell{}, SortKItem{}}(VarK:SortNonceCell{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortNonceCell{}, R}(
+        Lblproject'Coln'NonceCell{}(X0:SortK{}),
+        \and{SortNonceCell{}}(VarK:SortNonceCell{}, \top{SortNonceCell{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("226bc1c099270aaa62d87e4bc641e719f9761c79699104f290c31e159d061eb9")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortNonceCell{}, R}(Lblproject'Coln'NonceCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortNonceCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortNonceCell{}, SortKItem{}}(VarK:SortNonceCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "226bc1c099270aaa62d87e4bc641e719f9761c79699104f290c31e159d061eb9.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortNonceCell{}, R}(Lblproject'Coln'NonceCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortNonceCell{}, SortKItem{}}(Lblproject'Coln'NonceCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "226bc1c099270aaa62d87e4bc641e719f9761c79699104f290c31e159d061eb9.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(inj{SortNonceCellOpt{}, SortKItem{}}(VarK:SortNonceCellOpt{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortNonceCellOpt{}, R}(
+        Lblproject'Coln'NonceCellOpt{}(X0:SortK{}),
+        \and{SortNonceCellOpt{}}(VarK:SortNonceCellOpt{}, \top{SortNonceCellOpt{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("44d4ab6dcbfb14ff5dbafd84a7f3cc1e5a3e9a8f1e6d1b8ec4ea7358f3fe0121")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortNonceCellOpt{}, R}(Lblproject'Coln'NonceCellOpt{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortNonceCellOpt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortNonceCellOpt{}, SortKItem{}}(VarK:SortNonceCellOpt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "44d4ab6dcbfb14ff5dbafd84a7f3cc1e5a3e9a8f1e6d1b8ec4ea7358f3fe0121.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortNonceCellOpt{}, R}(Lblproject'Coln'NonceCellOpt{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortNonceCellOpt{}, SortKItem{}}(
+            Lblproject'Coln'NonceCellOpt{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "44d4ab6dcbfb14ff5dbafd84a7f3cc1e5a3e9a8f1e6d1b8ec4ea7358f3fe0121.selector-inverse"
       ),
       simplification{}("")
     ]
@@ -8324,6 +9104,115 @@ module UTXO
         \and{R}(
           \in{SortK{}, R}(
             X0:SortK{},
+            kseq{}(inj{SortNonceCell{}, SortKItem{}}(VarNonceCell:SortNonceCell{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblisNonceCell{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("7b38db3cbbb9995a36f92d285082527abf36ab72627e0a283fb7b507b8da2a69")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortNonceCell{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortK{}, R}(
+                    X0:SortK{},
+                    kseq{}(
+                      inj{SortNonceCell{}, SortKItem{}}(Var'Unds'Gen0:SortNonceCell{}),
+                      dotk{}()
+                    )
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}()))
+      ),
+      \equals{SortBool{}, R}(
+        LblisNonceCell{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("fcbdc4b3e3795a041fbab9491cffed5e43088d8419ef906dae37ee1f86d24cbe"),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(
+              inj{SortNonceCellOpt{}, SortKItem{}}(VarNonceCellOpt:SortNonceCellOpt{}),
+              dotk{}()
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblisNonceCellOpt{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("ac935942530db7ddb810f73963d9e8c3d968cb48fa5978095474724cc797f4b6")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortNonceCellOpt{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortK{}, R}(
+                    X0:SortK{},
+                    kseq{}(
+                      inj{SortNonceCellOpt{}, SortKItem{}}(Var'Unds'Gen0:SortNonceCellOpt{}),
+                      dotk{}()
+                    )
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}()))
+      ),
+      \equals{SortBool{}, R}(
+        LblisNonceCellOpt{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("3d94ea9d03fd398a591080fdf6383331f3dda97c2a46252ab0d56d84516ec712"),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
             kseq{}(inj{SortPidCell{}, SortKItem{}}(VarPidCell:SortPidCell{}), dotk{}())
           ),
           \top{R}()
@@ -8960,7 +9849,7 @@ module UTXO
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,1,40,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,1,48,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/utxo/utxo.k)"
   )

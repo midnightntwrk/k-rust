@@ -827,12 +827,15 @@ fn confluence_threads_views_a_message_to_a_named_process() {
         "{r}"
     );
     assert!(
-        r.contains("open = 4\nopen-global = 0\nopen-cells = 4\n"),
+        r.contains("open = 1\nopen-global = 0\nopen-cells = 0\n"),
         "{r}"
     );
     let v = std::fs::read_to_string(&out).unwrap();
     assert!(v.contains("| .resume => .thread"), "{v}");
-    // the relation bound beside the rule's variable `Q` takes another name
+    // `spend` reads its process's key again in the ledger (only the owner spends): still a step
+    // at one binding of the process map
+    assert!(v.contains("| .spend => .thread"), "{v}");
+    // the relation bound beside the rule's variable `Q` (`create(Q, V)`) takes another name
     assert!(v.contains("fun k2l_Q k2l_hQ => k2l_hQ"), "{v}");
     // no sort `KResult`: no item is one, and `isKResult` is not referenced
     assert!(!v.contains("isKResult"), "{v}");
@@ -840,7 +843,8 @@ fn confluence_threads_views_a_message_to_a_named_process() {
 
 /// `confluence --threads` on the `utxo` fixture: every rule touching `<ledger>` changes it at one
 /// binding (`create` inserts, `spend` removes), so the ledger is keyed (`MCh`) and only the pairs
-/// whose bindings overlap are left, as `KeyJoins`; the counter races stay in `OpenJoins`.
+/// whose bindings overlap are left, as `KeyJoins`; with ids derived from content, no fresh value,
+/// two spawns are the one pair left in `OpenJoins` (both add a process).
 #[test]
 fn confluence_threads_views_a_map_cell_by_binding() {
     let d = tmp("cli-confluence-keyed");
@@ -869,8 +873,11 @@ fn confluence_threads_views_a_map_cell_by_binding() {
         .unwrap();
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let r = std::fs::read_to_string(&report).unwrap();
-    // spend|spend, create|spend, spend|create
-    assert!(r.contains("same-thread = 8\nkey-joins = 3\n"), "{r}");
+    // create|create, spend|spend, create|spend, spend|create
+    assert!(
+        r.contains("open-insert = 1\nsame-thread = 8\nkey-joins = 4\n"),
+        "{r}"
+    );
     let v = std::fs::read_to_string(&out).unwrap();
     assert!(v.contains("  ledger : Utxo.SortMap\n"), "{v}");
     assert!(v.contains("  ledger : MCh Utxo.SortMap := none\n"), "{v}");

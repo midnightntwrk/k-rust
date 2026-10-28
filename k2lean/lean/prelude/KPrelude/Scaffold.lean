@@ -477,15 +477,14 @@ theorem concat_filter {a m : List (α × β)} (sa : Sorted a) (sm : Sorted m) (s
       have hq := lookup_mem hv
       exact Or.inl (eq_of_mem_key sm hp (sub _ hq) rfl ▸ hq)
 
-/-- Two steps of a map at disjoint parts commute: one turns `m = a₁ R₁` into `m₁ = b₁ R₁`, the
-other `m = a₂ R₂` into `m₂ = b₂ R₂`. When `a₁` and `a₂` share no key and one of `b₁`, `b₂` has no
-key outside its `a` (inserts no binding), each still matches after the other, at a rest, and both
-orders give one map. -/
-theorem concat_frame {a₁ b₁ R₁ a₂ b₂ R₂ m m₁ m₂ : List (α × β)}
+/-- Two steps of a map at parts with no key in common commute when what they put back shares no
+key either: one turns `m = a₁ R₁` into `m₁ = b₁ R₁`, the other `m = a₂ R₂` into `m₂ = b₂ R₂`; the
+second still matches `m₁` and the first `m₂`, and both orders give one map. -/
+theorem concat_frame_b {a₁ b₁ R₁ a₂ b₂ R₂ m m₁ m₂ : List (α × β)}
     (h₁ : concat a₁ R₁ = some m) (r₁ : concat b₁ R₁ = some m₁)
     (h₂ : concat a₂ R₂ = some m) (r₂ : concat b₂ R₂ = some m₂)
     (dA : ∀ p ∈ a₁, ∀ q ∈ a₂, p.1 ≠ q.1)
-    (dB : (∀ p ∈ b₁, HasKey a₁ p.1) ∨ (∀ p ∈ b₂, HasKey a₂ p.1)) :
+    (dB' : ∀ p ∈ b₁, ∀ q ∈ b₂, p.1 ≠ q.1) :
     ∃ R₁₂ R₂₁ m', concat a₂ R₁₂ = some m₁ ∧ concat b₂ R₁₂ = some m' ∧
       concat a₁ R₂₁ = some m₂ ∧ concat b₁ R₂₁ = some m' := by
   have sa₁ := sorted_of_concat_left h₁
@@ -514,14 +513,6 @@ theorem concat_frame {a₁ b₁ R₁ a₂ b₂ R₂ m m₁ m₂ : List (α × β
     concat_disj r₁ hp (a₂R₁ q hq) e.symm
   have b₂a₁ : ∀ p ∈ b₂, ¬ HasKey a₁ p.1 := fun p hp ⟨q, hq, e⟩ =>
     concat_disj r₂ hp (a₁R₂ q hq) e.symm
-  -- `b₁` and `b₂` share no key
-  have dB' : ∀ p ∈ b₁, ∀ q ∈ b₂, p.1 ≠ q.1 := by
-    intro p hp q hq e
-    rcases dB with d | d
-    · obtain ⟨x, hx, ex⟩ := d p hp
-      exact concat_disj r₂ hq (a₁R₂ x hx) (e.symm.trans ex.symm)
-    · obtain ⟨x, hx, ex⟩ := d q hq
-      exact b₁a₂ p hp ⟨x, hx, ex.trans e.symm⟩
   -- the rests
   have sub₂ : ∀ p ∈ a₂, p ∈ m₁ := fun p hp => (mem_concat r₁).2 (Or.inr (a₂R₁ p hp))
   have sub₁ : ∀ p ∈ a₁, p ∈ m₂ := fun p hp => (mem_concat r₂).2 (Or.inr (a₁R₂ p hp))
@@ -571,6 +562,30 @@ theorem concat_frame {a₁ b₁ R₁ a₂ b₂ R₂ m m₁ m₂ : List (α × β
     · exact Or.inl hp
     · have hm := (mem_concat h₁).2 (Or.inr hp)
       exact Or.inr ⟨Or.inr (inR₂ p hm hk), nR₁ p hp⟩
+
+/-- Two steps of a map at disjoint parts commute: one turns `m = a₁ R₁` into `m₁ = b₁ R₁`, the
+other `m = a₂ R₂` into `m₂ = b₂ R₂`. When `a₁` and `a₂` share no key and one of `b₁`, `b₂` has no
+key outside its `a` (inserts no binding), each still matches after the other, at a rest, and both
+orders give one map. -/
+theorem concat_frame {a₁ b₁ R₁ a₂ b₂ R₂ m m₁ m₂ : List (α × β)}
+    (h₁ : concat a₁ R₁ = some m) (r₁ : concat b₁ R₁ = some m₁)
+    (h₂ : concat a₂ R₂ = some m) (r₂ : concat b₂ R₂ = some m₂)
+    (dA : ∀ p ∈ a₁, ∀ q ∈ a₂, p.1 ≠ q.1)
+    (dB : (∀ p ∈ b₁, HasKey a₁ p.1) ∨ (∀ p ∈ b₂, HasKey a₂ p.1)) :
+    ∃ R₁₂ R₂₁ m', concat a₂ R₁₂ = some m₁ ∧ concat b₂ R₁₂ = some m' ∧
+      concat a₁ R₂₁ = some m₂ ∧ concat b₁ R₂₁ = some m' := by
+  refine concat_frame_b h₁ r₁ h₂ r₂ dA fun p hp q hq e => ?_
+  -- a key `b₁` keeps is one of `a₁`, so in `R₂`, which `b₂` avoids; a key `b₂` keeps is one of
+  -- `a₂`, so in `R₁`, which `b₁` avoids
+  have inR : ∀ {a R a' R' : List (α × β)}, concat a R = some m → concat a' R' = some m →
+      (∀ p ∈ a, ∀ q ∈ a', p.1 ≠ q.1) → ∀ x ∈ a', x ∈ R := fun ha ha' d x hx =>
+    ((mem_concat ha).1 ((mem_concat ha').2 (Or.inl hx))).resolve_left fun hx' => d x hx' x hx rfl
+  rcases dB with d | d
+  · obtain ⟨x, hx, ex⟩ := d p hp
+    exact concat_disj r₂ hq (inR h₂ h₁ (fun p hp q hq e => dA q hq p hp e.symm) x hx)
+      (e.symm.trans ex.symm)
+  · obtain ⟨x, hx, ex⟩ := d q hq
+    exact concat_disj r₁ hp (inR h₁ h₂ dA x hx) (e.trans ex.symm)
 
 /-- `_Map_` is associative where defined: `(a b) c` defined gives `a (b c)`, the same map. -/
 theorem concat_assoc_right {a b c ab m : List (α × β)} (h₁ : concat a b = some ab)
@@ -741,6 +756,32 @@ theorem concat_frame {a₁ b₁ R₁ a₂ b₂ R₂ m m₁ m₂ : M}
       exact ⟨(p.1, v), SAL.lookup_mem hv, rfl⟩
   have dB' := dB.imp (key wb₁) (key wb₂)
   obtain ⟨F₁, F₂, l, e₁, e₂, e₃, e₄⟩ := SAL.concat_frame H₁ S₁ H₂ S₂ dA' dB'
+  refine ⟨ofList F₁, ofList F₂, ofList l, concat_of_toList ?_, concat_of_toList ?_,
+    concat_of_toList ?_, concat_of_toList ?_⟩ <;> simpa only [toList_ofList]
+
+/-- Two steps of a map at bindings with no key in common commute when what they put back shares no
+key either (`SAL.concat_frame_b`). -/
+theorem concat_frame_b {a₁ b₁ R₁ a₂ b₂ R₂ m m₁ m₂ : M}
+    (h₁ : concat a₁ R₁ = some m) (r₁ : concat b₁ R₁ = some m₁)
+    (h₂ : concat a₂ R₂ = some m) (r₂ : concat b₂ R₂ = some m₂)
+    (dA : ∀ k, lookup a₁ k = none ∨ lookup a₂ k = none)
+    (dB : ∀ k, lookup b₁ k = none ∨ lookup b₂ k = none) :
+    ∃ R₁₂ R₂₁ m', concat a₂ R₁₂ = some m₁ ∧ concat b₂ R₁₂ = some m' ∧
+      concat a₁ R₂₁ = some m₂ ∧ concat b₁ R₂₁ = some m' := by
+  have H₁ := concat_toList h₁
+  have H₂ := concat_toList h₂
+  have S₁ := concat_toList r₁
+  have S₂ := concat_toList r₂
+  have disj : ∀ {a b : M}, WF a → WF b → (∀ k, lookup a k = none ∨ lookup b k = none) →
+      ∀ p ∈ toList a, ∀ q ∈ toList b, p.1 ≠ q.1 := fun {a b} wa wb d p hp q hq e => by
+    have l₁ : lookup a p.1 = some p.2 := by rw [lookup_def]; exact SAL.lookup_of_mem wa hp
+    have l₂ : lookup b p.1 = some q.2 := by rw [lookup_def, e]; exact SAL.lookup_of_mem wb hq
+    rcases d p.1 with h | h
+    · rw [l₁] at h; cases h
+    · rw [l₂] at h; cases h
+  obtain ⟨F₁, F₂, l, e₁, e₂, e₃, e₄⟩ := SAL.concat_frame_b H₁ S₁ H₂ S₂
+    (disj (SAL.sorted_of_concat_left H₁) (SAL.sorted_of_concat_left H₂) dA)
+    (disj (SAL.sorted_of_concat_left S₁) (SAL.sorted_of_concat_left S₂) dB)
   refine ⟨ofList F₁, ofList F₂, ofList l, concat_of_toList ?_, concat_of_toList ?_,
     concat_of_toList ?_, concat_of_toList ?_⟩ <;> simpa only [toList_ofList]
 
@@ -927,7 +968,7 @@ theorem Ch.Compat.symm {α : Type} {a b : Ch α} (h : Ch.Compat a b) : Ch.Compat
 The change a step makes to a cell holding a map, at the bindings it matches: none, or the
 bindings `a` it matches, replaced by `b`, the rest of the map kept (`b = a` for a read, `b` empty
 for a removal, `a` empty for an insertion). Two changes commute when one leaves the cell alone,
-when they match no key in common and one of them adds no key (`MapHook.concat_frame`), or when
+when they match no key in common and put back none in common (`MapHook.concat_frame_b`), or when
 both only read. -/
 
 /-- A change of a map at some of its bindings: none, or the bindings `a` and what replaces them. -/
@@ -954,7 +995,7 @@ noncomputable def MCh.apply (c : MCh M) (x : M) : M :=
 
 def MCh.Compat (c d : MCh M) : Prop :=
   c = none ∨ d = none ∨ ∃ a₁ b₁ a₂ b₂, c = some (a₁, b₁) ∧ d = some (a₂, b₂) ∧
-    (((∀ k, lookup a₁ k = none ∨ lookup a₂ k = none) ∧ (KeysIn b₁ a₁ ∨ KeysIn b₂ a₂)) ∨
+    (((∀ k, lookup a₁ k = none ∨ lookup a₂ k = none) ∧ (∀ k, lookup b₁ k = none ∨ lookup b₂ k = none)) ∨
       (a₁ = b₁ ∧ a₂ = b₂))
 
 theorem MCh.pre_none {x : M} : MCh.pre (none : MCh M) x := fun _ h => by cases h
@@ -987,7 +1028,7 @@ theorem MCh.pre_apply {c d : MCh M} {x : M} (h : MCh.Compat c d) (hc : c.pre x) 
   · exact MCh.pre_none
   · obtain ⟨R₁, m₁, h₁, r₁⟩ := hc _ rfl
     obtain ⟨R₂, m₂, h₂, r₂⟩ := hd _ rfl
-    obtain ⟨R₁₂, -, m', e₁, e₂, -, -⟩ := concat_frame h₁ r₁ h₂ r₂ dA dB
+    obtain ⟨R₁₂, -, m', e₁, e₂, -, -⟩ := concat_frame_b h₁ r₁ h₂ r₂ dA dB
     rw [MCh.apply_of h₁ r₁]
     exact MCh.pre_of e₁ e₂
   · rw [MCh.apply_read hc]; exact hd
@@ -999,7 +1040,7 @@ theorem MCh.apply_comm {c d : MCh M} {x : M} (h : MCh.Compat c d) (hc : c.pre x)
   · rfl
   · obtain ⟨R₁, m₁, h₁, r₁⟩ := hc _ rfl
     obtain ⟨R₂, m₂, h₂, r₂⟩ := hd _ rfl
-    obtain ⟨R₁₂, R₂₁, m', e₁, e₂, e₃, e₄⟩ := concat_frame h₁ r₁ h₂ r₂ dA dB
+    obtain ⟨R₁₂, R₂₁, m', e₁, e₂, e₃, e₄⟩ := concat_frame_b h₁ r₁ h₂ r₂ dA dB
     rw [MCh.apply_of h₁ r₁, MCh.apply_of h₂ r₂, MCh.apply_of e₁ e₂, MCh.apply_of e₃ e₄]
   · rw [MCh.apply_read hc, MCh.apply_read hd, MCh.apply_read hc]
 
@@ -1019,7 +1060,7 @@ theorem MCh.Compat.symm {c d : MCh M} (h : MCh.Compat c d) : MCh.Compat d c := b
   rcases h with h | h | ⟨a₁, b₁, a₂, b₂, e₁, e₂, ⟨dA, dB⟩ | ⟨r₁, r₂⟩⟩
   · exact Or.inr (Or.inl h)
   · exact Or.inl h
-  · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inl ⟨fun k => (dA k).symm, dB.symm⟩⟩)
+  · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inl ⟨fun k => (dA k).symm, fun k => (dB k).symm⟩⟩)
   · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inr ⟨r₂, r₁⟩⟩)
 
 end MCh
