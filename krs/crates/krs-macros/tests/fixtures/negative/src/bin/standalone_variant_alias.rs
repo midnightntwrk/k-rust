@@ -11,9 +11,9 @@ pub enum Boolean {
 
 use Boolean::False as No;
 
-#[k::rule] //~ ERROR the trait bound `Boolean: krs::__KrsRuleApplication<
-pub fn bad(No: k::Term<dyn ExprSort>) -> k::Term<dyn ExprSort> {
-    No
+#[k::rule]
+pub fn bad(No: k::Term<dyn ExprSort>) -> k::Term<dyn ExprSort> { //~ ERROR [krs::expand::not-a-declaration] `Boolean` is not a KRS declaration of this name
+    No //~ ERROR [krs::expand::not-a-declaration] `Boolean` is not a KRS declaration of this name
 }
 
 fn main() {}

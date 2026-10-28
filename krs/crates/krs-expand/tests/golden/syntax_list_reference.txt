@@ -3,6 +3,11 @@ pub enum Args {
     Nil(),
 }
 ///Membership marker generated for the `Args` syntactic list: only a strict list's value list may join it.
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the syntactic list sort `Args`",
+    label = "`{Self}` is not declared below the syntactic list sort `Args`",
+    note = "only a strict list's value list joins a list sort, through a `k::sorts!` membership line (`impl Args for Values;`)"
+)]
 pub trait ArgsSort: ::k::KItemSort {}
 impl ::k::KItemSort for Args {}
 #[doc(hidden)]

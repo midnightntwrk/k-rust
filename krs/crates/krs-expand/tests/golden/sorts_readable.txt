@@ -1,4 +1,9 @@
 #[doc = concat!("Membership marker generated for the `", "ReadableExpr", "` K sort.")]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the K sort `ReadableExpr`",
+    label = "`{Self}` is not declared below the K sort `ReadableExpr`",
+    note = "a `k::sorts!` membership line (`impl ReadableExpr for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+)]
 pub trait ReadableExprSort {}
 #[doc = concat!("Symbolic term type generated for the `", "ReadableExpr", "` K sort.")]
 pub type ReadableExpr = ::k::Term<dyn ReadableExprSort>;
@@ -294,6 +299,11 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
     __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229
 );
 #[doc = concat!("Membership marker generated for the `", "ReadableValue", "` K sort.")]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the K sort `ReadableValue`",
+    label = "`{Self}` is not declared below the K sort `ReadableValue`",
+    note = "a `k::sorts!` membership line (`impl ReadableValue for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+)]
 pub trait ReadableValueSort: ReadableExprSort + ::k::KResultSort {}
 #[doc = concat!("Symbolic term type generated for the `", "ReadableValue", "` K sort.")]
 pub type ReadableValue = ::k::Term<dyn ReadableValueSort>;
@@ -606,6 +616,11 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
     __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529
 );
 #[doc = concat!("Membership marker generated for the `", "DiamondTop", "` K sort.")]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the K sort `DiamondTop`",
+    label = "`{Self}` is not declared below the K sort `DiamondTop`",
+    note = "a `k::sorts!` membership line (`impl DiamondTop for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+)]
 pub trait DiamondTopSort {}
 #[doc = concat!("Symbolic term type generated for the `", "DiamondTop", "` K sort.")]
 pub type DiamondTop = ::k::Term<dyn DiamondTopSort>;
@@ -681,6 +696,11 @@ fn __krs_sort_descriptor_a39f6dc1d44893ad() -> ::core::result::Result<
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_a39f6dc1d44893ad);
 #[doc = concat!("Membership marker generated for the `", "DiamondLeft", "` K sort.")]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the K sort `DiamondLeft`",
+    label = "`{Self}` is not declared below the K sort `DiamondLeft`",
+    note = "a `k::sorts!` membership line (`impl DiamondLeft for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+)]
 pub trait DiamondLeftSort: DiamondTopSort {}
 #[doc = concat!("Symbolic term type generated for the `", "DiamondLeft", "` K sort.")]
 pub type DiamondLeft = ::k::Term<dyn DiamondLeftSort>;
@@ -771,6 +791,11 @@ fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::core::result::Result<
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_3d2b6e3da09d4920);
 #[doc = concat!("Membership marker generated for the `", "DiamondRight", "` K sort.")]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the K sort `DiamondRight`",
+    label = "`{Self}` is not declared below the K sort `DiamondRight`",
+    note = "a `k::sorts!` membership line (`impl DiamondRight for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+)]
 pub trait DiamondRightSort: DiamondTopSort {}
 #[doc = concat!("Symbolic term type generated for the `", "DiamondRight", "` K sort.")]
 pub type DiamondRight = ::k::Term<dyn DiamondRightSort>;
@@ -861,6 +886,11 @@ fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::core::result::Result<
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_6a7ca0e7c3857a9a);
 #[doc = concat!("Membership marker generated for the `", "Diamond", "` K sort.")]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the K sort `Diamond`",
+    label = "`{Self}` is not declared below the K sort `Diamond`",
+    note = "a `k::sorts!` membership line (`impl Diamond for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+)]
 pub trait DiamondSort: DiamondLeftSort + DiamondRightSort {}
 #[doc = concat!("Symbolic term type generated for the `", "Diamond", "` K sort.")]
 pub type Diamond = ::k::Term<dyn DiamondSort>;

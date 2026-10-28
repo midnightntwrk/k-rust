@@ -318,7 +318,7 @@ register_codes! {
         MISSING_FUNCTION_SYNTAX: "krs::syntax::missing-function-syntax" => "A `#[k::function]` that is program syntax (`pub` and not `internal`) omitted `syntax`; only a production that is not program syntax gets the default `symbol({field}, ..)`.",
         INVALID_FUNCTION_SHORTHAND: "krs::syntax::invalid-function-shorthand" => "A `#[k::function]` on a `fn` was malformed: its name is not in upper camel case, a parameter is not `name: k::Term<S>`, it is generic or async, has a `sort` key, a `hook` with a body, a body that is not one term, or `#[k::requires]` without a body.",
         INVALID_CONSTANT: "krs::syntax::invalid-constant" => "A `#[k::constant]` item was malformed: not a `const` item (a `static`, or generic), its type is not a KRS sort, or its value is not a ground constructor term (a literal, a constructor application of ground terms, or another constant).",
-        INVALID_EQUATION_TABLE: "krs::syntax::invalid-equation-table" => "A `k::equations!` table was malformed: a missing `for Function;` header, no row, a repeated or missing row label, a row attribute other than `#[k::equation(..)]`, `#[k::requires(..)]`, or documentation, or arguments that are not one pattern or a parenthesized list.",
+        INVALID_EQUATION_TABLE: "krs::syntax::invalid-equation-table" => "A `k::equations!` table was malformed: a missing `for Function;` header or one that names no non-parametric `#[k::function]`, no row, a repeated or missing row label, a row attribute other than `#[k::equation(..)]`, `#[k::requires(..)]`, or documentation, or arguments that are not one pattern or a parenthesized list.",
         DUPLICATE_EQUATION_ROW: "krs::syntax::duplicate-equation-row" => "Two unguarded rows of one `k::equations!` table at one priority have the same literal arguments: the definition would state one application equals both results, or one row is redundant.",
         CATCH_ALL_EQUATION_ROW: "krs::syntax::catch-all-equation-row" => "An unguarded `k::equations!` row whose arguments are all wildcards shares its priority with another row, so it overlaps every row; equations are unordered, so mark it `#[k::equation(owise)]`.",
         INVALID_BIT_TEMPLATE: "krs::syntax::invalid-bit-template" => "A `k::bits!` template was malformed: not one string literal, no bit, a character other than `0`, `1`, `_`, a lowercase field letter, or a space, more than 128 bits, or a field whose bits are not adjacent.",
@@ -438,6 +438,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         DUPLICATE_ALIAS: "krs::expand::duplicate-alias" => "A constructor declares its alias helper more than once.",
         ORPHAN_HELPER: "krs::expand::orphan-helper" => "A helper attribute is expanded without its required preceding declaration attribute.",
         SORT_PARENT_MISMATCH: "krs::expand::sort-parent-mismatch" => "A reference sort lacks one semantic parent path per Rust marker supertrait.",
+        SORT_MEMBERSHIP: "krs::expand::sort-membership" => "A type stands where membership in a K sort is required (the parent of a sort it is declared in, a sort marker's bound) but no `k::sorts!` membership line or subsort impl places it below that sort: a membership line covers its sort's parents in the same block only.",
         DUPLICATE_MEMBERSHIP_RELATION: "krs::expand::duplicate-membership-relation" => "A readable sort block declares a membership relation more than once.",
         FRAMEWORK_SORT_ENTRY: "krs::expand::framework-sort-entry" => "A framework sort block contains a membership line or a bracket.",
         EMPTY_SORT_DECLARATION: "krs::expand::empty-sort-declaration" [Internal] => "A sort declaration contains no descriptor-bearing tokens.",
@@ -445,6 +446,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         EMPTY_BRACKET: "krs::expand::empty-bracket" [Internal] => "A bracket template contains no descriptor-bearing tokens.",
         ENUM_VARIANT_COLLISION: "krs::expand::enum-variant-collision" => "Two enum variants have the same readable rule resolution name.",
         RULE_RESULT_WILDCARD: "krs::expand::rule-result-wildcard" => "A rule result contains a wildcard.",
+        NOT_A_DECLARATION: "krs::expand::not-a-declaration" => "A term names, through an unqualified path, a Rust item that is no KRS declaration of that name (the prelude's `Some`, a variant under a renaming `use`): a term names a constructor, function, constant, cell group or builtin operation.",
         UNBOUND_NAME: "krs::expand::unbound-name" => "A bare snake-case name outside a pattern is not bound by the sentence: not by its pattern, an existential or fresh binder, a parameter, or an enclosing `let`.",
         INVALID_RECORD_UPDATE: "krs::expand::invalid-record-update" => "The base `t` of a record update `Ctor { f: e, ..t }` is not a binder of the rule.",
         PATTERN_AS_OUTSIDE_LHS: "krs::expand::pattern-as-outside-lhs" => "A `name @ pattern` (K's `#as`) occurs outside a left-hand side.",
@@ -466,7 +468,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         ML_PLACEMENT: "krs::expand::ml-placement" => "An `ml::Predicate` subject or result is on a sentence other than a simplification, the subject and result types of a predicate simplification disagree, or an `ml::exists` closure occurs in an initializer or a `cells!` cell value.",
         UNKNOWN_ML_ITEM: "krs::expand::unknown-ml-item" => "A term names an `ml::` item outside the closed set of matching-logic connectives.",
         CELL_COLLECTION_PLACEMENT: "krs::expand::cell-collection-placement" => "An optional-cell `Some`/`None` entry or a cell-collection entry occurs in a context alias or an equation's function context, which read fixed cells only.",
-        TURBOFISH_SPELLING: "krs::expand::turbofish-spelling" => "A readable `k::rules!` clause writes a sort marker (`Choose::<dyn ExpSort>`) as a turbofish argument; readable clauses name the sort (`Choose::<Exp>`) and reference code the marker.",
+        TURBOFISH_SPELLING: "krs::expand::turbofish-spelling" => "A turbofish argument is spelled for the other layer: a readable `k::rules!` clause writes a sort marker (`Choose::<dyn ExpSort>`), or reference code writes a sort's `k::Term<..>` alias (`Choose::<Exp>`); readable clauses name the sort and reference code the marker.",
     }
     /// Diagnostics from the editable-surface lesson policy and its protocol.
     policy {

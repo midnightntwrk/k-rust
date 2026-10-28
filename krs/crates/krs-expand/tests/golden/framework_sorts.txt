@@ -1,4 +1,9 @@
 #[doc = concat!("Membership marker generated for the `", "KItem", "` K sort.")]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the K sort `KItem`",
+    label = "`{Self}` is not declared below the K sort `KItem`",
+    note = "a `k::sorts!` membership line (`impl KItem for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+)]
 pub trait KItemSort {}
 #[doc = concat!("Symbolic term type generated for the `", "KItem", "` K sort.")]
 pub type KItem = ::k::Term<dyn KItemSort>;
@@ -73,6 +78,11 @@ fn __krs_sort_descriptor_01e0b0fa3b2b0c81() -> ::core::result::Result<
     })
 }
 #[doc = concat!("Membership marker generated for the `", "KResult", "` K sort.")]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the K sort `KResult`",
+    label = "`{Self}` is not declared below the K sort `KResult`",
+    note = "a `k::sorts!` membership line (`impl KResult for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+)]
 pub trait KResultSort: ::k::KItemSort {}
 #[doc = concat!("Symbolic term type generated for the `", "KResult", "` K sort.")]
 pub type KResult = ::k::Term<dyn KResultSort>;

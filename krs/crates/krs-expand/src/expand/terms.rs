@@ -24,7 +24,8 @@ use syn::{Attribute, Ident, Path};
 use super::ledger::KeyLedger;
 use super::nonce::rule_application_selector;
 use super::tokens::{
-    enum_variant_parts, is_bound_ident_path, spelling, variant_marker_function, wire_literal,
+    enum_variant_parts, is_bound_ident_path, respanned, spelling, variant_marker_function,
+    wire_literal,
 };
 
 /// Resolved expressions retained by a factory's static host wire.
@@ -1621,7 +1622,8 @@ impl<'a> TermBuilder<'a> {
         let marker = format!("dyn {alias}Sort");
         let suggestion = turbofish_text(application, index, &marker);
         let message = format!(
-            "a turbofish in reference code names the sort marker, the type inside `k::Term<..>`, not the alias `{alias}`: write `{suggestion}`"
+            "[{}] a turbofish in reference code names the sort marker, the type inside `k::Term<..>`, not the alias `{alias}`: write `{suggestion}`",
+            expand::TURBOFISH_SPELLING
         );
         let label = format!("`{alias}` is a `k::Term<..>` alias; did you mean `{marker}`?");
         let cfg = self.cfg;
@@ -1685,17 +1687,27 @@ impl<'a> TermBuilder<'a> {
         // scope, so `Frame` names the variant when an imported enum has one
         // and the item in scope otherwise, as in the author's Rust.
         let imports = self.lexical_import_items();
+        // The resolution is spanned at the authored path, where rustc reports
+        // a name that resolves to no KRS declaration (`Some` under the
+        // prelude), through `__KrsRuleApplication`'s message.
+        // The witness is named at that span wherever it occurs, so the
+        // binding and its uses have one hygiene.
+        let span = syn::spanned::Spanned::span(authored);
+        let witness = Ident::new("__krs_rule_application_witness", span);
+        let resolution = respanned(
+            quote! {
+                #facade::__krs_resolve_rule_application::<_, #selector>(
+                    &#witness,
+                    #authored_spelling,
+                )
+            },
+            span,
+        );
         quote! {{
             #imports
-            let __krs_rule_application_witness: ::core::option::Option<_> =
-                ::core::option::Option::None;
-            if let ::core::option::Option::Some(#pattern) =
-                &__krs_rule_application_witness
-            {}
-            #facade::__krs_resolve_rule_application::<_, #selector>(
-                &__krs_rule_application_witness,
-                #authored_spelling,
-            )
+            let #witness: ::core::option::Option<_> = ::core::option::Option::None;
+            if let ::core::option::Option::Some(#pattern) = &#witness {}
+            #resolution
         }}
     }
 }

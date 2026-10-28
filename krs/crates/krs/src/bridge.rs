@@ -10,14 +10,23 @@ use std::marker::PhantomData;
 
 use crate::{HostApplicationTarget, Term};
 
-/// Rust-resolved metadata for an unqualified constructor application in a
-/// readable rule table.
+/// Rust-resolved metadata for an unqualified term head: the declaration a
+/// one-segment path names, as rustc resolves it in the author's scope.
 ///
-/// This is a hidden proc-macro implementation seam. The const selector keeps
-/// enum variants distinct after rustc has inferred their owning enum from the
-/// author's lexical imports. Standalone constructor types implement every
-/// selector.
+/// This is a hidden proc-macro implementation seam. The const selector is the
+/// authored name, which keeps enum variants distinct after rustc has inferred
+/// their owning enum from the author's lexical imports. Standalone
+/// constructor types implement every selector.
+///
+/// A name that resolves to a Rust item no KRS macro declared (the prelude's
+/// `Some`), or to a constructor family under a name none of its variants is
+/// declared with, reaches this trait unimplemented, at the authored path.
 #[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::not-a-declaration] `{Self}` is not a KRS declaration of this name: a term names a constructor, function, constant, cell group or builtin operation",
+    label = "this name resolves to `{Self}`, which KRS did not declare under it",
+    note = "a constructor family's variant is named as it is declared; a `use` that renames it (`use Family::Variant as Other;`) gives rustc a name KRS does not declare"
+)]
 pub trait __KrsRuleApplication<const SELECTOR: u64>: 'static {
     /// Produces the exact host declaration target for the resolved Rust type.
     #[doc(hidden)]
@@ -98,7 +107,7 @@ impl<T: ?Sized> __KrsTurbofishMarkerKind for __KrsTurbofishProbe<T> {}
 /// is checked against [`Self::Arguments`].
 #[doc(hidden)]
 #[diagnostic::on_unimplemented(
-    message = "`{Self}` is not a non-parametric `#[k::function]`",
+    message = "[krs::syntax::invalid-equation-table] `{Self}` is not a non-parametric `#[k::function]`",
     label = "a `k::equations!` header names the function its rows define",
     note = "the header names a function declared with `#[k::function]`; a parametric function names its instance in each equation, so it takes `#[k::equation]` fns instead"
 )]

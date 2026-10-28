@@ -1,4 +1,9 @@
 #[doc = concat!("Membership marker generated for the `", "ObjectTerm", "` K sort.")]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::sort-membership] `{Self}` is not a member of the K sort `ObjectTerm`",
+    label = "`{Self}` is not declared below the K sort `ObjectTerm`",
+    note = "a `k::sorts!` membership line (`impl ObjectTerm for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+)]
 pub trait ObjectTermSort: ::k::KResultSort {}
 #[doc = concat!("Symbolic term type generated for the `", "ObjectTerm", "` K sort.")]
 pub type ObjectTerm = ::k::Term<dyn ObjectTermSort>;

@@ -5,7 +5,7 @@ use renamed_krs::builtin::Int;
 pub struct Seven;
 
 k::equations! {
-    for Seven; //~ ERROR `Seven` is not a non-parametric `#[k::function]`
+    for Seven; //~ ERROR [krs::syntax::invalid-equation-table] `Seven` is not a non-parametric `#[k::function]`
     zero: () => 1;
 }
 

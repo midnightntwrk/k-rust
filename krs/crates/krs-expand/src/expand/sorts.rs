@@ -353,6 +353,7 @@ fn expand_readable_sort(
         .iter()
         .map(|parent| readable_sort_marker_path(facade, parent))
         .collect::<Result<Vec<_>, _>>()?;
+    let marker_trait = readable_sort_marker(&name, &marker, &parent_markers);
 
     let mut parent_functions = Vec::new();
     let mut parents = Vec::new();
@@ -423,8 +424,7 @@ fn expand_readable_sort(
     };
 
     let tokens = quote! {
-        #[doc = concat!("Membership marker generated for the `", #name, "` K sort.")]
-        pub trait #marker: #(#parent_markers)+* {}
+        #marker_trait
         #[doc = concat!("Symbolic term type generated for the `", #name, "` K sort.")]
         pub type #alias = #facade::Term<dyn #marker>;
 
@@ -564,6 +564,36 @@ fn canonical_readable_path(path: &Path) -> String {
 
 fn rust_identifier_key(value: &str) -> String {
     lower_hex(value.as_bytes())
+}
+
+/// A readable sort's marker trait. A Rust bound on the marker is a membership
+/// KRS states only where a `k::sorts!` line or a subsort impl says so: one a
+/// type lacks is the author's missing line.
+fn readable_sort_marker(name: &str, marker: &Ident, parent_markers: &[Path]) -> TokenStream {
+    let membership = sort_membership_attribute(
+        &format!("the K sort `{name}`"),
+        &format!(
+            "a `k::sorts!` membership line (`impl {name} for T;`) places a type below the sort it names and that sort's parents in the same block; a sort another block or the framework declares takes a line of its own"
+        ),
+    );
+    quote! {
+        #[doc = concat!("Membership marker generated for the `", #name, "` K sort.")]
+        #membership
+        pub trait #marker: #(#parent_markers)+* {}
+    }
+}
+
+/// The KRS-coded diagnostic of a generated sort marker: rustc reports it where
+/// a type stands that no membership places below the marker's sort.
+pub(super) fn sort_membership_attribute(sort: &str, note: &str) -> TokenStream {
+    let message = format!(
+        "[{}] `{{Self}}` is not a member of {sort}",
+        expand::SORT_MEMBERSHIP
+    );
+    let label = format!("`{{Self}}` is not declared below {sort}");
+    quote! {
+        #[diagnostic::on_unimplemented(message = #message, label = #label, note = #note)]
+    }
 }
 
 fn readable_sort_marker_path(facade: &Path, path: &Path) -> crate::Result<Path> {

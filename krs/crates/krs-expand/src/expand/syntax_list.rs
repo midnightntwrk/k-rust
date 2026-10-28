@@ -195,11 +195,19 @@ fn syntax_list_inner(
         "Membership marker generated for the `{enum_name}` syntactic list: only a strict list's value list may join it."
     );
 
+    let membership = super::sorts::sort_membership_attribute(
+        &format!("the syntactic list sort `{enum_name}`"),
+        &format!(
+            "only a strict list's value list joins a list sort, through a `k::sorts!` membership line (`impl {enum_name} for Values;`)"
+        ),
+    );
+
     Ok(quote! {
         #item
 
         #(#cfg)*
         #[doc = #marker_doc]
+        #membership
         pub trait #marker: #facade::KItemSort {}
 
         #(#cfg)*
