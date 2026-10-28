@@ -1,5 +1,6 @@
 //! A function application where a rule's or an equation's pattern matches a term
-//! (`krs::analysis::function-in-pattern`) end to end: authored packages through `krs check`. The class
+//! (`krs::analysis::function-in-pattern`), and a name a map key reads below one
+//! (`krs::expand::unbound-name`), end to end: authored packages through `krs check`. The class
 //! tests cover the computation cell of every sentence form below its root; these cover the roots
 //! of the slots a rule matches, the other places a rule matches, and the places the application is
 //! the meaning.
@@ -326,7 +327,8 @@ fn a_function_below_the_root_of_any_pattern_a_rule_matches_is_refused() {
 }
 
 /// The application is the meaning at an equation's root (a fn's and a table row's), anywhere in a
-/// simplification's and a claim's subject, in a map key, and in a result.
+/// simplification's and a claim's subject, in a map key whose names the pattern binds elsewhere,
+/// and in a result.
 #[test]
 fn an_application_that_is_the_meaning_is_accepted() {
     let target = shared_fixture_target();
@@ -370,5 +372,83 @@ k::claims! {
 ";
     let manifest = package(&temporary.path().join("accepted"), source);
     let (success, errors) = check(target.path(), &manifest);
+    assert!(success, "{errors:#?}");
+}
+
+/// A map key is evaluated, so a name only a function application in a key reads binds nothing.
+#[test]
+fn a_name_only_a_function_in_a_map_key_reads_is_unbound() {
+    let outcomes = outcomes([
+        (
+            "readable-builtin",
+            "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    read: { k: [Done(), ..], env: { k::builtin::int::add(x, 1) -> v, .. } } => { k: [Wrap(v), ..] };\n}\n",
+        ),
+        (
+            "readable-function",
+            "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    read: { k: [Done(), ..], env: { Size(ExpSyntax::Wrap(n)) -> v, .. } } => { k: [Wrap(v), ..] };\n}\n",
+        ),
+        (
+            "cells",
+            "#[k::rule(label = \"read\")]\npub fn read(\n    n: KItem,\n    v: KItem,\n    k::cells! { k: k::configuration::KCell(ExpSyntax::Done(), tail @ ..), env: k::configuration::Cell(k::map![Size(n) -> v, ..]), state @ .. }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(ExpSyntax::Wrap(v), ..tail), ..state }\n}\n",
+        ),
+    ]);
+    expect_test::expect![[r#"
+        [
+            (
+                "readable-builtin",
+                (
+                    false,
+                    [
+                        "error[krs::expand::unbound-name]: `x` is not bound in this sentence: it stands only below the builtin function `k::builtin::int::add` in a map key, and a key is evaluated to look its entry up, so the key reads `x` and binds nothing; bind `x` elsewhere in the pattern",
+                        "--> src/lib.rs:52:58",
+                    ],
+                ),
+            ),
+            (
+                "readable-function",
+                (
+                    false,
+                    [
+                        "error[krs::expand::unbound-name]: `n` is not bound in this sentence: it stands only below the function `Size` in a map key, and a key is evaluated to look its entry up, so the key reads `n` and binds nothing; bind `n` elsewhere in the pattern",
+                        "--> src/lib.rs:52:58",
+                    ],
+                ),
+            ),
+            (
+                "cells",
+                (
+                    false,
+                    [
+                        "error[krs::expand::unbound-name]: `n` is not bound in this sentence: it stands only below the function `Size` in a map key, and a key is evaluated to look its entry up, so the key reads `n` and binds nothing; bind `n` elsewhere in the pattern",
+                        "--> src/lib.rs:53:116",
+                    ],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// A name a key reads is bound by the rest of the pattern, in any cell order, and a name a key
+/// matches as it stands binds there.
+#[test]
+fn a_name_a_map_key_reads_may_be_bound_elsewhere() {
+    let source = r#"
+k::rules! {
+    for Machine;
+    use ExpSyntax::*;
+    after: { env: { Size(n) -> v, .. }, k: [Wrap(n), ..] } => { k: [Load(1), ..] };
+    matched: { k: [Done(), ..], env: { Wrap(n) -> v, .. } } => { k: [Wrap(n), ..] };
+}
+
+#[k::rule(label = "read")]
+pub fn read(
+    n: Int,
+    v: KItem,
+    k::cells! { k: k::configuration::KCell(ExpSyntax::Load(n), tail @ ..), env: k::configuration::Cell(k::map![k::builtin::int::add(n, 1) -> v, ..]), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(ExpSyntax::Wrap(v), ..tail), ..state }
+}
+"#;
+    let [(_, (success, errors))] = outcomes([("bound", source)]);
     assert!(success, "{errors:#?}");
 }
