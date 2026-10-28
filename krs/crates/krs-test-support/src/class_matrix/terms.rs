@@ -556,6 +556,39 @@ impl Slot {
         Self { binders, ..self }
     }
 
+    /// The position `opener` opens at this host: `text` replaces the host's hole and holds the
+    /// new one, `before` and `after` are the opener's nodes before and after its hole, and `hole`
+    /// the openings from the opener to it.
+    fn open(
+        &self,
+        opener: &'static str,
+        text: &str,
+        before: &[Node],
+        hole: &[Opening],
+        after: &[Node],
+    ) -> Self {
+        let (prefix, suffix) = text.split_once("HOLE").expect("an opener has a hole");
+        let outer = |nodes: &[Node]| nodes.iter().cloned().map(Node::outer).collect();
+        Self {
+            form: self.form,
+            position: self.position,
+            opener: Some(opener),
+            side: self.side,
+            at: self.at,
+            path: self.path.clone(),
+            before: outer(before),
+            after: outer(after),
+            hole: hole.to_vec(),
+            around: (prefix.to_owned(), suffix.to_owned()),
+            groups_alternatives: opener == "as-body",
+            template: self.template.clone(),
+            rustc_parses: self.rustc_parses,
+            arity: self.arity,
+            marker: self.marker,
+            binders: self.binders,
+        }
+    }
+
     /// A `cells!` sentence's binder parameters, one line each, typed by the `KItem` field or map
     /// value each fills. A result's or a condition's `y @ P` binds nothing, and a `let`'s or a
     /// closure's names are their own.
@@ -1365,6 +1398,7 @@ fn slots() -> Vec<Slot> {
         slot.template = template;
         slot.binders = binders;
     }
+    slots.extend(openers());
     slots
 }
 
@@ -1373,6 +1407,181 @@ fn initializer(item: &str) -> String {
     format!(
         "impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {{\n        Self {{\n            k: k::k![pgm, {item}],\n            env: k::map![],\n            stack: list::empty(),\n            frame: Frame {{ ret: 0 }},\n        }}\n    }}\n}}\n"
     )
+}
+
+/// The positions constructs open (depth 2): each opener at one host per kind where it can stand,
+/// matched (a `#[k::rule]` fn's subject), evaluated (a readable map key), built (a `for Stmt`
+/// clause's result) and guard (a `#[k::rule]` fn's condition), with the single-body rule's
+/// subject for a rewrite's sides and a claim's condition for a predicate's body.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One list of the openers and their hosts; each entry is one position."
+)]
+fn openers() -> Vec<Slot> {
+    let matched = slot(
+        "rule",
+        "subject",
+        Side::Subject,
+        (RuleFn, Part::Subject, &[Argument]),
+        RULE_SUBJECT,
+    );
+    let evaluated = slot(
+        "readable",
+        "map-key",
+        Side::Subject,
+        (ReadableRule, Part::Subject, &[MapKey]),
+        READABLE_MAP_KEY,
+    );
+    let built = slot(
+        "sort-rule",
+        "result",
+        Side::Result,
+        (SortRule, Part::Result, &[Argument]),
+        SORT_RULE_RESULT,
+    );
+    let guard = slot(
+        "rule",
+        "guard",
+        Side::Guard,
+        (RuleFn, Part::Requires, &[]),
+        RULE_GUARD,
+    );
+    let local = slot(
+        "local-rule",
+        "subject",
+        Side::Subject,
+        (LocalRule, Part::Subject, &[Argument]),
+        LOCAL_RULE_SUBJECT,
+    );
+    let claim_guard = slot(
+        "cells-claim",
+        "guard",
+        Side::Guard,
+        (CellsClaim, Part::Requires, &[]),
+        CELLS_CLAIM_GUARD,
+    )
+    .binding(&[Binder::X]);
+    // A record update's base is the alias `p` of the record the subject matches.
+    let update_built = slot(
+        "sort-rule",
+        "result",
+        Side::Result,
+        (SortRule, Part::Result, &[Argument]),
+        "k::rules! {\n    for Stmt;\nUSES\n    case_TAG: Cmd::NAME(x, p @ Cmd::Pair { .. }) => Cmd::Hold(HOLE);\n}\n",
+    );
+    let update_evaluated = slot(
+        "readable",
+        "map-key",
+        Side::Subject,
+        (ReadableRule, Part::Subject, &[MapKey]),
+        "k::rules! {\n    for Machine;\nUSES\n    case_TAG: { k: [Cmd::NAME(x, p @ Cmd::Pair { .. }), ..], env: { HOLE -> v, .. } } => { k: [..] };\n}\n",
+    );
+
+    let let_value = [node(C::Reference, &[LetValue])];
+    let let_pattern = |host: &Slot, body: &str, result: C| {
+        host.open(
+            "let-pattern",
+            &format!("{{ let HOLE = x; {body} }}"),
+            &[node(C::Let, &[])],
+            &[LetPattern],
+            &[let_value[0].clone(), node(result, &[LetBody])],
+        )
+    };
+    let let_body = |host: &Slot| {
+        host.open(
+            "let-body",
+            "{ let y = x; HOLE }",
+            &[
+                node(C::Let, &[]),
+                node(C::Reference, &[LetPattern]),
+                let_value[0].clone(),
+            ],
+            &[LetBody],
+            &[],
+        )
+    };
+    let matches_pattern = |host: &Slot| {
+        host.open(
+            "matches-pattern",
+            "k::matches!(x, HOLE)",
+            &[node(C::Matches, &[]), node(C::Reference, &[MatchesSubject])],
+            &[MatchesPattern],
+            &[],
+        )
+    };
+    let or_branch = |host: &Slot| {
+        host.open(
+            "or-branch",
+            "HOLE | Cmd::Go()",
+            &[node(C::Or, &[])],
+            &[OrBranch],
+            &[node(C::Constructor, &[OrBranch])],
+        )
+    };
+    let as_body =
+        |host: &Slot| host.open("as-body", "y @ HOLE", &[node(C::As, &[])], &[AsBody], &[]);
+    let function_argument = |host: &Slot| {
+        host.open(
+            "function-argument",
+            "Size(HOLE)",
+            &[node(C::FunctionApplication, &[])],
+            &[FunctionArgument],
+            &[],
+        )
+    };
+    let update_field = |host: &Slot| {
+        host.open(
+            "update-field",
+            "Cmd::Pair { a: HOLE, ..p }",
+            &[node(C::RecordUpdate, &[])],
+            &[UpdateField],
+            &[node(C::Reference, &[UpdateBase])],
+        )
+    };
+    let closure_body = |host: &Slot| {
+        host.open(
+            "closure-body",
+            "k::ml::exists(|v: Int| HOLE)",
+            &[node(C::MlPredicate, &[])],
+            &[PredicateBody],
+            &[],
+        )
+    };
+    vec![
+        let_pattern(&built, "x", C::Reference),
+        let_pattern(&guard, "true", C::Literal),
+        let_pattern(&evaluated, "x", C::Reference),
+        let_body(&built),
+        let_body(&guard),
+        let_body(&evaluated),
+        matches_pattern(&built),
+        matches_pattern(&guard),
+        matches_pattern(&evaluated),
+        local.open(
+            "rewrite-left",
+            "k::rewrite!(HOLE => Cmd::Go())",
+            &[node(C::Rewrite, &[])],
+            &[RewriteLeft],
+            &[node(C::Constructor, &[RewriteRight])],
+        ),
+        local.open(
+            "rewrite-right",
+            "k::rewrite!(_ => HOLE)",
+            &[node(C::Rewrite, &[]), node(C::Wildcard, &[RewriteLeft])],
+            &[RewriteRight],
+            &[],
+        ),
+        or_branch(&matched),
+        or_branch(&evaluated),
+        as_body(&matched),
+        as_body(&evaluated),
+        function_argument(&built),
+        function_argument(&evaluated),
+        update_field(&update_built),
+        update_field(&update_evaluated),
+        closure_body(&guard),
+        closure_body(&claim_guard),
+    ]
 }
 
 /// The term family: every slot × every construct, and the import axis: every slot of depth 1 ×
