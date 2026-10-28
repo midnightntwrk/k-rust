@@ -54,6 +54,8 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 
 `docs/invariants.md`, §2, explains the flags and the work-tree layout.
 
+A release (`pipelines/release.sh VERSION`) is one commit of k-rust and its tag `k2lean-vVERSION-leanTOOLCHAIN`: the generator and the package at the same version; the release binary is built with `K2LEAN_PACKAGE_GIT=URL@COMMIT`, so that `gen` without `--prelude` requires the package at that commit.
+
 A project of your own uses the generated library through Lake alone (`demos/PkgDemo`, built by the gate): its lakefile requires `k2lean` at the same commit (Lake resolves a package by name, the root's requirement first; the library's root module checks the release, `#k2l_check_prelude`), the generated library by path or git, and any other Lean library. A library with parameters (`class Hooks`: hooks the hook library does not implement, functions without equations) is stated for every implementation of them; the project supplies one, an `@[instance_reducible] def` made a local instance where it is used, possibly from another library (`demos/PkgDemo/Consumer/Consumer/Hooks.lean`), and declares the executables, `def main` applying the generated `{NS}Test.testMain` or `{NS}Bench.benchMain` to its instance. Its lean-toolchain must be the library's (every generated lakefile sets `fixedToolchain`).
 
 ## Demos
