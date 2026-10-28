@@ -13,10 +13,11 @@ generated library. A loop that finds nothing to case on leaves the goal as it is
   `f` (an `Option`, or a `Bool`), with an equation, and on the enumeration-typed value inside
   `some`; used by the inversion lemmas of a type checker's functions, whose two sides compute
   once the recursive calls have values.
-- `k2l_cases_args [C, …] [T, …] fuel n`: case on the variables of the types `T` that are
-  arguments of the argument of an application of one of the constructors `C` (the operands of
-  the head item of `<k>`: whether an operand is a value decides between heating and the
-  operator's own rule).
+- `k2l_cases_args [C, …] [T, …] within [U, …] fuel n`: case on the variables of the types `T`
+  that are arguments of the argument of an application of one of the constructors `C` (the
+  operands of the head item of `<k>`: whether an operand is a value decides between heating and
+  the operator's own rule); with `within`, also on the variables of the types `T` or `U` inside an
+  argument of a type `U` (a hole inside a list argument, IMP++'s `print(E, AEs)`), nearest first.
 - `k2l_cases_bools fuel n`: case on the Boolean variables of the goal (a literal decides between
   `if-true` and `if-false`).
 - `k2l_cases_frz [C] [T] fuel n => tac`: run `tac`, then case on a variable of type `T` that is an
@@ -214,19 +215,28 @@ partial def appsLoop (fs : Array Name) (fuel : Nat) : TacticM Unit := do
   caseValue e
   eachGoal (appsLoop fs (fuel - 1))
 
-partial def argsLoop (cs ts : Array Name) (fuel : Nat) : TacticM Unit := do
+partial def argsLoop (cs ts : Array Name) (fuel : Nat) (us : Array Name := #[]) : TacticM Unit := do
   if (← getGoals).isEmpty || fuel = 0 then return
   let g ← getMainGoal
   let t ← instantiateMVars (← g.getType)
   let x? ← g.withContext do
     if let some arg ← findCtorArg cs t then
-      for x in arg.getAppArgs do
-        if x.isFVar then
-          if ← isOneOf (← inferType x) ts then return some x
+      -- the operands, nearest first: a direct argument, then one inside an argument of a sort
+      -- of `us` (IMP++'s `print(E, AEs)` evaluates `E`, the head of its list argument)
+      let mut level := arg.getAppArgs
+      for _ in [0:3] do
+        let mut next := #[]
+        for x in level do
+          let tx ← inferType x
+          if x.isFVar then
+            if ← isOneOf tx ts <||> isOneOf tx us then return some x
+          else if x.isApp && (← isOneOf tx us) then
+            next := next ++ x.getAppArgs
+        level := next
     return none
   let some x := x? | return
   casesVar x
-  eachGoal (argsLoop cs ts (fuel - 1))
+  eachGoal (argsLoop cs ts (fuel - 1) us)
 
 partial def boolsLoop (fuel : Nat) : TacticM Unit := do
   if (← getGoals).isEmpty || fuel = 0 then return
@@ -284,6 +294,7 @@ def names (xs : Array Ident) : TacticM (Array Name) :=
   xs.mapM fun i => realizeGlobalConstNoOverloadWithInfo i
 
 syntax fuelOpt := &" fuel " num
+syntax withinOpt := &" within " "[" ident,* "]"
 
 /-- See the module documentation. -/
 elab "k2l_cases_apps " "[" fs:ident,* "]" f:(fuelOpt)? : tactic => do
@@ -291,9 +302,12 @@ elab "k2l_cases_apps " "[" fs:ident,* "]" f:(fuelOpt)? : tactic => do
   appsLoop (← names fs.getElems) fuel
 
 /-- See the module documentation. -/
-elab "k2l_cases_args " "[" cs:ident,* "]" " [" ts:ident,* "]" f:(fuelOpt)? : tactic => do
+elab "k2l_cases_args " "[" cs:ident,* "]" " [" ts:ident,* "]" w:(withinOpt)? f:(fuelOpt)? : tactic => do
   let fuel := match f with | some s => s.raw[1].isNatLit?.getD 2 | none => 2
-  argsLoop (← names cs.getElems) (← names ts.getElems) fuel
+  let us ← match w with
+    | some s => names (s.raw[2].getSepArgs.map (⟨·⟩))
+    | none => pure #[]
+  argsLoop (← names cs.getElems) (← names ts.getElems) fuel us
 
 /-- See the module documentation. -/
 elab "k2l_cases_bools" f:(fuelOpt)? : tactic => do

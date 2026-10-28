@@ -1,0 +1,4 @@
+Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2»
+Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_2»
+Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_3»
+Eqn.«wt(_,_)_IMPPLUS-TYPING_Bool_Stmt_Map_8»

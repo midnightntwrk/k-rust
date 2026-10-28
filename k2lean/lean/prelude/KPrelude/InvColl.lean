@@ -149,6 +149,22 @@ theorem value_of_lookupOrDefault {R : V → Prop} {d : V} (hm : EntriesOn (fun p
   | none => exact hd
   | some w => exact hm (k, w) (SAL.lookup_mem hl)
 
+/-- A rule that rewrites one binding `k |-> v` of a map into the bindings `b`, keeping the rest
+`d`, keeps `EntriesOn Q` when the new bindings satisfy `Q` given the old one (a thread of a cell
+map that takes a step, and possibly starts another thread). -/
+theorem entriesOn_rebuild {b d r : M} (hm : concat (element k v) d = some m)
+    (hr : concat b d = some r) (h : EntriesOn Q m) (hb : Q (k, v) → EntriesOn Q b) :
+    EntriesOn Q r :=
+  entriesOn_concat hr (hb (entry_of_concat_element hm h)) (entriesOn_of_concat_right hm h)
+
+/-- A well-formed map with a binding that fails `Q` matches `K |-> V REST` at such a binding
+(the progress of a semantics with a cell map of threads picks a thread this way). -/
+theorem exists_not_of_not_entriesOn (hw : WF m) (h : ¬ EntriesOn Q m) :
+    ∃ k v r, concat (element k v) r = some m ∧ ¬ Q (k, v) := by
+  refine Classical.byContradiction fun hne => h fun p hp => Classical.byContradiction fun hq => ?_
+  have hl : lookup m p.1 = some p.2 := by rw [lookup_def]; exact SAL.lookup_of_mem hw hp
+  exact hne ⟨p.1, p.2, remove m p.1, concat_element_remove hw hl, hq⟩
+
 /-- Every binding of a well-formed map is one of its matches `K |-> V REST` (`MapHook.choose`
 enumerates them); its key and value satisfy `Q`. -/
 theorem entry_of_mem (hm : EntriesOn Q m) {p : K × V} (hp : p ∈ toList m) : Q p := hm p hp

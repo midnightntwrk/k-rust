@@ -6,6 +6,9 @@ LIBS = {
     # kimp's expression language and its checker, for ExprTypes (below)
     "kexpr": {"ns": "KExpr", "tier": "light"},
     "exprtypes": {"ns": "KExprTypes", "tier": "light"},
+    # IMP++ (K's tutorial) and its checker, for ImpPlusTypes (below)
+    "impplus": {"ns": "KImpPlus", "tier": "light"},
+    "impplustypes": {"ns": "KImpPlusTypes", "tier": "light"},
 }
 
 DEMOS = {
@@ -14,4 +17,7 @@ DEMOS = {
     # a language whose programs end with a value, with no cell typed by hand (`soundness --typing typeOf`)
     "ExprTypes": {"tier": "light", "sources": ["demos/ExprTypes/ExprTypes/Tr.lean", "demos/ExprTypes/correspondence.toml",
                                                 "demos/ExprTypes/ExprTypes/Typing.lean", "demos/ExprTypes/ExprTypes/Soundness.lean"]},
+    # a second semantics: threads in a cell map (`Final` waits at `join`), ranked rules, two hole sorts
+    "ImpPlusTypes": {"tier": "light", "sources": ["demos/ImpPlusTypes/ImpPlusTypes/Tr.lean", "demos/ImpPlusTypes/correspondence.toml",
+                                                    "demos/ImpPlusTypes/ImpPlusTypes/Typing.lean", "demos/ImpPlusTypes/ImpPlusTypes/Soundness.lean"]},
 }

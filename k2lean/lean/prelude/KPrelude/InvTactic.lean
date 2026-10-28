@@ -808,6 +808,41 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
   setGoals [g]
   closeRule k
 
+/-- The closers of `k2l_preserve` and `k2l_close` on goal `g`: the unfolding set (`headNames`, the
+predicate's heads, then `k2l_pres`, `↓reduceIte` and the user's lemmas) and the tactics built on it;
+the hypotheses of `g`'s context not named in the user's list are ambient. -/
+def mkClosers (g : MVarId) (headNames : Array Name) (userArgs : Array SimpArg) (heads : Array Name)
+    (fuel : Nat) (keepCtx : Bool := false) : TacticM Closers := do
+  let mut U : Array SimpArg := #[]
+  for n in headNames do U := U.push (← simpArgOfName n)
+  U := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_pres)).raw⟩
+  U := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| ↓reduceIte)).raw⟩
+  U := U ++ userArgs
+  let Ustar : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpStar| *)).raw⟩
+  let coll ← labelled `k2l_coll
+  let unfoldBoth ← `(tactic| (try simp only [$U,*] at h ⊢))
+  let Ua : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_arith)).raw⟩
+  let arith ← `(tactic| ((try simp only [$Ua,*] at *) <;> omega))
+  let disch ← `(tactic| first
+    | assumption | rfl | decide
+    | (simp only [$U,*]; done) | (simp [$U,*]; done) | (simp [$Ustar,*]; done) | $arith:tactic)
+  let simpU ← `(tactic| simp only [$Ustar,*])
+  let Ul : Array (TSyntax [`Lean.Parser.Tactic.simpErase, `Lean.Parser.Tactic.simpLemma]) :=
+    U.map (⟨·.raw⟩)
+  let simpAllU ← `(tactic| simp_all [$Ul,*])
+  -- ambient hypotheses (not the rule's): kept out of the closers' `simp [*]` and `simp_all`,
+  -- unless named in the simp list, and restored in residual goals
+  let named : Array Name := userArgs.foldl (init := #[]) fun acc a =>
+    acc ++ identsOf a.raw
+  let ambient : Array FVarId ← if keepCtx then pure #[] else g.withContext do
+    let mut acc := #[]
+    for d in (← getLCtx) do
+      if d.isImplementationDetail || named.contains d.userName then continue
+      if ← isProp d.type then acc := acc.push d.fvarId
+    return acc
+  let norm ← `(tactic| simp only [$U,*])
+  return { unfoldBoth, arith, norm, U, disch, simpU, simpAllU, coll, heads, fuel, ambient }
+
 @[tactic k2lPreserve] def evalK2LPreserve : Tactic := fun stx => do
   -- an optional multi-token group is a null node holding the tokens themselves
   let userArgs : Array SimpArg :=
@@ -833,36 +868,7 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
     | some (_, _, P), _ => pure P
     | none, (``KPrelude.Preserved, #[_, _, P]) => pure P
     | _, _ => throwError "k2l_preserve: the goal must be `Preserved S P` or a rule case `Step.Case.r P`"
-  let headNames ← predHeads P
-  let mut U : Array SimpArg := #[]
-  for n in headNames do U := U.push (← simpArgOfName n)
-  U := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_pres)).raw⟩
-  U := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| ↓reduceIte)).raw⟩
-  U := U ++ userArgs
-  let Ustar : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpStar| *)).raw⟩
-  let coll ← labelled `k2l_coll
-  let unfoldBoth ← `(tactic| (try simp only [$U,*] at h ⊢))
-  let Ua : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_arith)).raw⟩
-  let arith ← `(tactic| ((try simp only [$Ua,*] at *) <;> omega))
-  let disch ← `(tactic| first
-    | assumption | rfl | decide
-    | (simp only [$U,*]; done) | (simp [$U,*]; done) | (simp [$Ustar,*]; done) | $arith:tactic)
-  let simpU ← `(tactic| simp only [$Ustar,*])
-  let Ul : Array (TSyntax [`Lean.Parser.Tactic.simpErase, `Lean.Parser.Tactic.simpLemma]) :=
-    U.map (⟨·.raw⟩)
-  let simpAllU ← `(tactic| simp_all [$Ul,*])
-  -- ambient hypotheses (not the rule's): kept out of the closers' `simp [*]` and `simp_all`,
-  -- unless named in the simp list, and restored in residual goals
-  let named : Array Name := userArgs.foldl (init := #[]) fun acc a =>
-    acc ++ identsOf a.raw
-  let ambient : Array FVarId ← g.withContext do
-    let mut acc := #[]
-    for d in (← getLCtx) do
-      if d.isImplementationDetail || named.contains d.userName then continue
-      if ← isProp d.type then acc := acc.push d.fvarId
-    return acc
-  let norm ← `(tactic| simp only [$U,*])
-  let k : Closers := { unfoldBoth, arith, norm, U, disch, simpU, simpAllU, coll, heads, fuel, ambient }
+  let k ← mkClosers g (← predHeads P) userArgs heads fuel
   -- per-case mode: one rule's case `Step.Case.r P`, as `Step.preserves_of` asks for it
   if let some (n, r, _) := case? then
     if handNs.isSome then
@@ -933,6 +939,87 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
     logInfo m!"k2l_preserve: {closed} of {total} rules closed"
   else
     logInfo m!"k2l_preserve: {closed} of {total} rules closed; open: {openNames.toList}"
+
+/-- `k2l_close [simp lemmas] split [f, …] fuel n`: the closers of `k2l_preserve` (1–6 of the
+module documentation) on the current goal, any implication `A → B` (one thread's step, after
+`k2l_thread_case`), with the given unfolding set; an error when they do not close it. -/
+syntax (name := k2lClose) "k2l_close"
+  (" [" (Lean.Parser.Tactic.simpStar <|> Lean.Parser.Tactic.simpErase <|>
+    Lean.Parser.Tactic.simpLemma),* "]")? (splitHeads)? (fuelArg)? : tactic
+
+@[tactic k2lClose] def evalK2LClose : Tactic := fun stx => do
+  let userArgs : Array SimpArg :=
+    if stx[1].getNumArgs > 0 then stx[1][1].getSepArgs.map (⟨·⟩) else #[]
+  let heads : Array Name ←
+    match stx[2].getOptional? with
+    | some a => a[2].getSepArgs.mapM fun i => realizeGlobalConstNoOverloadWithInfo i
+    | none => pure #[]
+  let fuel : Nat :=
+    match stx[3].getOptional? with
+    | some a => a[1].isNatLit?.getD 5
+    | none => 5
+  let g ← getMainGoal
+  checkSimpNames g userArgs
+  -- the context is the rule's (`k2l_thread_case` introduced it): nothing is ambient
+  let k ← mkClosers g #[] userArgs heads fuel (keepCtx := true)
+  unless ← withRuleBudget (closeRule k) do
+    throwError "k2l_close: the closers do not close the goal"
+
+/-- `k2l_thread_case [defs]` on a rule's case `Step.Case.r P`, where `P` holds of a configuration
+when a predicate `Q` holds of every binding of one cell map (`WF m ∧ EntriesOn Q m` once `defs`
+are unfolded: `P`, the projections to the map): introduce the rule's variables, side conditions and
+`P lhs`; when the rule rewrites one binding `k |-> v` into bindings `b` and keeps the rest `d`
+(hypotheses `concat (element k v) d = some m` and `concat b d = some r`, `m` the map of the
+left-hand side and `r` of the right-hand side: a thread's step, which may start other threads),
+reduce the goal to one goal `Q (k, v) → Q (k', v')` per binding `k' |-> v'` of `b`
+(`MapHook.entriesOn_rebuild`). Fails on any other rule. -/
+syntax (name := k2lThreadCase) "k2l_thread_case" " [" ident,* "]" : tactic
+
+@[tactic k2lThreadCase] def evalK2LThreadCase : Tactic := fun stx => do
+  let g ← getMainGoal
+  let ty0 ← instantiateMVars (← g.getType)
+  let some (n, _, _) := caseGoal? ty0
+    | throwError "k2l_thread_case: the goal must be a rule case `Step.Case.r P`"
+  let g ← g.deltaTarget (· == n)
+  let (_, g) ← g.intros
+  setGoals [g]
+  let defs : Array Ident := stx[2].getSepArgs.map (⟨·⟩)
+  let hw ← g.withContext do
+    let some d := (← getLCtx).lastDecl | throwError "k2l_thread_case: no hypothesis"
+    pure d.userName
+  let hwI := mkIdent hw
+  let args ← defs.mapM fun i => `(Lean.Parser.Tactic.simpLemma| $i:ident)
+  evalTactic (← `(tactic| simp only [$args,*] at $hwI:ident ⊢))
+  let g ← getMainGoal
+  -- the rewritten binding: the pair of matches with one key and one rest
+  let pair? ← g.withContext do
+    let ds := (← getLCtx).foldl (init := #[]) fun acc d =>
+      if d.isImplementationDetail then acc else acc.push d
+    for d1 in ds do
+      let some (a1, b1, m) := concatEq? (← instantiateMVars d1.type) | continue
+      unless a1.isAppOf `KPrelude.MapHook.element do continue
+      for d2 in ds do
+        if d1.fvarId == d2.fvarId then continue
+        let some (_, b2, r) := concatEq? (← instantiateMVars d2.type) | continue
+        unless ← isDefEq b1 b2 do continue
+        if ← isDefEq m r then continue
+        let gt ← instantiateMVars (← g.getType)
+        unless gt.containsFVar r.fvarId! || !r.isFVar do continue
+        return some (d1.userName, d2.userName)
+    return none
+  let some (h1, h2) := pair? | throwError "k2l_thread_case: the rule does not rewrite one binding of the map"
+  let h1I := mkIdent h1
+  let h2I := mkIdent h2
+  -- the lemmas of `KPrelude.InvColl`, which the file using the tactic imports
+  let wf := mkIdent `KPrelude.MapHook.wf_of_concat
+  let reb := mkIdent `KPrelude.MapHook.entriesOn_rebuild
+  let el := mkIdent `KPrelude.MapHook.entriesOn_element
+  let cc := mkIdent `KPrelude.MapHook.entriesOn_concat
+  evalTactic (← `(tactic| refine ⟨$wf $h2I, $reb $h1I $h2I ($hwI).2 ?_⟩))
+  -- the new bindings, one goal each, from the old binding's `Q`
+  evalTactic (← `(tactic| intro hq))
+  evalTactic (← `(tactic| repeat' (first | (apply $el:ident) | (refine $cc (by assumption) ?_ ?_))))
+  evalTactic (← `(tactic| all_goals revert hq))
 
 /-- `k2l_coll_close [simp lemmas]`: the *collections* closer of `k2l_preserve` on its own, for
 a residual case (split conjunctions, hypotheses, `@[k2l_coll]` lemmas, simp on the leaves). -/

@@ -313,9 +313,22 @@ A program then ends with its value on `<k>`, so `kty` accepts what the last item
 With no `--store-cell`, `WTc G c` is the typing of `<k>` alone and the hand module is empty.
 With a Bool-valued function, all of it is as above (ImpTypes generates as before).
 On EXPR (2026-10-25, Lean v4.34.0): 16 inversion lemmas, 24 cases of `plug`, `k2l_preserve` 66 of 66 rules, and `Soundness.lean` builds in about 20 s; nothing is written by hand.
-Not supported (the command stops with a message): rules of several priorities; a top cell whose children are not leaf cells; holes of several sorts; types that are not an enumeration; typing functions that are not `Option`-valued or take other than a term and an environment; a store-reading rule whose head of `<k>` is not a `KItem` injection of variables, or two such rules with one head.
+**A semantics with threads** (`demos/ImpPlusTypes`: IMP++, the last lesson of K's tutorial, `pl-tutorial/1_k/4_imp++/lesson_7/imp.k`, written by others and not for this tool, against the checker `k/impplus-typing.k`; SND-6).
+Its configuration is `<T> <threads> <thread>* (<id> <k> <env>) </threads> <store> <input> <output> </T>`, a cell map of threads keyed by `<id>`, and five things differ from kimp's, each read off K's meaning rather than off IMP++:
 
-**Shapes beyond the supported ones**, in the order a typed SIMPLE would meet them (SND-3; none built).
+- *A ranked `Step`.* A free-key match of the thread map (every rule matches some thread) and K's stdin/stdout stream rules (priorities 25 and 30) make `Step` the ranked one (`App i c`, a rule of rank `i` applies; `Step` takes the highest rank that applies, §2). The theorem's alternative is `Applies c := ∃ i, App i c`; preservation ignores the ranks' premise.
+- *`<k>` in each thread.* `WTc G c` is `WF m ∧ EntriesOn (threadTy G) m` for the thread map `m` (read through one projection per cell level, as kind 1 invariants read a cell), and `threadTy G (k, th)` says that the thread is stored under its own key (the `<id>` that every rule's match `<thread> <id> K </id> … </thread>` reads twice) and that its `<k>` is a well-typed continuation. `Final c` says that every thread is done: its `<k>` is empty, or it waits at a head that needs another thread (`Waits`, read off the rules that match two elements of the thread map: IMP++'s `join T;`, which needs thread `T` to have finished). `progress` picks a thread that is not done (`MapHook.exists_not_of_not_entriesOn`), takes it apart, and runs the per-head analysis above inside it; its key equation is what lets a rule's match `<thread> <id> I </id> …` find the thread.
+  Preservation of a rule that rewrites one thread into bindings `b` and keeps the rest (`concat (element k v) d = some m`, `concat b d = some r`) is reduced to one goal per new binding, `threadTy G (k, v) → threadTy G (k', v')` (`k2l_thread_case`, by `MapHook.entriesOn_rebuild`), closed by `k2l_preserve`'s closers on that goal alone (`k2l_close`); `spawn`, which starts a thread, gives two such goals. Any other rule (two threads, or none) goes to `k2l_preserve`. Measured on the closers over the whole configuration, before the reduction: 21 of 62 rules within 400,000 heartbeats each, 737 s; after it, 62 of 62 in 9.7 s.
+- *Holes of two sorts* (`AExp`, `BExp`). `dflt t` is an item, and each case of `plug` projects it to its hole's sort, so a value of the wrong sort plugs into nothing; `proj_KItem_H (dflt t)` is stated per hole sort `H` by `rfl`. A hole inside a list argument (`print(HOLE, AEs)`, from IMP++'s `context`) is reached by `k2l_cases_args … within [AExps, …]`, which also splits the variables inside an argument of a container sort, nearest first; the functions a cooling item calls (K's overloaded list constructor `_,_`, whose normalization turns a list of identifiers into an `Ids`) are unfolded.
+- *An environment item.* A block leaves its saved environment on `<k>` (`{Ss} => Ss ~> Rho`); `--env-item Map` types such an item as leaving nothing. This checker types no variable, so restoring an environment changes no typing; typing variables needs the typing environment to follow declarations and scopes along `<k>` (SND-6's next slice).
+- *Checker equations.* Besides `==K` and `andBool`, a condition may be `=/=K`, `orBool`, or a call of a `Bool`-valued typing function (`spawn B` is typed when `wt(B, G)`); several typing functions may be `Bool`-valued (`--program wts` names the one that accepts programs); `--aux printable` names a function the equations call on syntax that is never an item of `<k>`. A constructor of a typed sort that no equation matches gets the lemma of the function's `owise` value there, or of no value (IMP++'s `read()`, which this checker rejects).
+
+The checker accepts the programs without variables, `read()` or division: `read()` waits on empty input and `I / 0` is stuck by design (IMP++'s rule requires a nonzero divisor), two more outcomes the theorem does not have yet. It found one fact about IMP++: `E;` discards an integer only (`rule _:Int; => .K`), so a string statement is stuck, and the checker types `E;` at `int`.
+On IMP++ (2026-10-28, Lean v4.34.0): the library builds in 48 s with every equation but `countAllOccurrences` equation 2 (core's known open one, false in the model); 28 inversion lemmas, 13 cooling rules; `Soundness.lean` builds in 142 s and 3.1 GB (progress 132 s); nothing is written by hand.
+
+Not supported (the command stops with a message): types that are not an enumeration; typing functions that are not `Option`-valued or take other than a term and an environment; a store-reading rule whose head of `<k>` is not a `KItem` injection of variables, or two such rules with one head; with threads, cells typed by hand, nested cell collections, and programs that end with a value.
+
+**Shapes beyond the supported ones**, in the order a typed SIMPLE would meet them (SND-3; items 2, 5 and 7 built for IMP++, above, differently from these notes where they say so).
 Each says what the statement would become and what obligation it adds.
 
 1. *A checker written as rewrite rules.* SIMPLE's type system (`pl-tutorial/2_languages/1_simple/2_typed/1_static/simple-typed-static.md`) computes types on `<k>`, with typing tasks in a `<tasks>` cell (each function body typed in a task of its own) and types as `KResult`s; `soundness` reads typing functions.
@@ -325,6 +338,7 @@ Each says what the statement would become and what obligation it adds.
    `WTc` quantifies over threads: each thread's `<k>` typed by `kty` under its environment's typing, and the store typed once; `Final c` holds when every thread's `<k>` is empty or one value.
    A thread whose head is a synchronization (`acquire`, `join`, `rendezvous`) can have no rule, legitimately, so the statement becomes `Final c ∨ App c ∨ Blocked c`, with `Blocked c` stating that every thread not final is at a synchronization whose condition is false.
    The obligations added: for each synchronization rule, a hand progress case (its head with the condition true has the rule apply, as store-reading rules have); and preservation of a per-thread typing over the thread cell map, whose cases have the element-wise shape of INV-2's walks (`invariants.md`, §3).
+   Built (IMP++): `Final` includes the waiting threads instead of a third alternative, read off the rules, so no hand progress case is needed; preservation is per thread (`k2l_thread_case`).
 3. *Types that are not an enumeration* (`Types -> Type`, `Type[]`).
    `Ty` becomes the checker's sort of types, as terms with a decidable equality (generated), and `kty` stays computable.
    `dflt t`, the placeholder value of type `t`, does not exist for every type: a function type has lambdas, but an array type's values are locations, typed only through the store typing.
@@ -333,11 +347,13 @@ Each says what the statement would become and what obligation it adds.
    The environment generalizes to a structure of the extra arguments, as long as no rule changes them; a total typing function is the `Option`-valued one composed with `some`.
 5. *Holes of several sorts* (SIMPLE's calls and `print` evaluate `Exps`, lists of expressions).
    The pending typing becomes `Option (HoleSort × Ty)` (a list of values is typed by `Types`), with one `plug` per hole sort, and the obligation of item 3 per hole sort.
+   Built (IMP++), more simply: the pending typing stays `Option Ty`, `dflt t` is an item, and `plug` projects it to each hole's sort.
 6. *A store-reading rule whose head is not a `KItem` injection of variables, or two such rules with one head* (SIMPLE reads a variable through `<env>` and then `<store>`, and `++X` and `X = V` read its location through `lvalue`).
    The hand progress case is keyed by the rule rather than by the head: the head is cased like the other leaves, and the hand case receives the case's shape.
 7. *Rules of several priorities* (none in SIMPLE).
    A lower-priority rule's `Step` constructor carries the premise that no rule of a higher priority applies.
    The statements stay as they are: `App c` is "some rule applies", and one generic lemma turns an applicable rule into a step by the highest-priority applicable one; preservation ignores the extra premise.
+   Built (IMP++): `Applies c := ∃ i, App i c`.
 
 ### 3.4 Scaffolds: what is generated and what is supplied
 

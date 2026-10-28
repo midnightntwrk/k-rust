@@ -1,7 +1,11 @@
 # shellcheck shell=bash
 # The soundness area: `soundness` (ImpTypes: kimp against the type checker demos/k/imp-typing.k,
 # library imptypes; ExprTypes: kimp's expression language EXPR against demos/k/expr-typing.k,
-# libraries kexpr and exprtypes). Registry: soundness.py.
+# libraries kexpr and exprtypes; ImpPlusTypes: IMP++ of K's tutorial, whose threads are a cell map,
+# against demos/k/impplus-typing.k, libraries impplus and impplustypes). Registry: soundness.py.
+
+# IMP++ (K's tutorial, beside SIMPLE's sources)
+IMPPP=${IMPPP:-$SD/../../../1_k/4_imp++/lesson_7}
 
 kore_soundness() {
   case $1 in
@@ -9,6 +13,8 @@ kore_soundness() {
     # kimp's expression language (expr.k, whose programs end with a value) and its checker
     expr) f=$KIMP/expr.k m=EXPR s=EXPR-SYNTAX inc=$KIMP ;;
     expr-typing) f=$DEMOS/k/expr-typing.k m=EXPR-TYPING s=EXPR-TYPING-SYNTAX inc=$KIMP ;;
+    impplus) f=$IMPPP/imp.k m=IMP s=IMP-SYNTAX inc=$IMPPP ;;
+    impplus-typing) f=$DEMOS/k/impplus-typing.k m=IMPPLUS-TYPING s=IMPPLUS-TYPING-SYNTAX inc=$IMPPP ;;
     *) return 1 ;;
   esac
 }
@@ -18,6 +24,8 @@ name_soundness() {
     imptypes) echo KImpTypes ;;
     kexpr) echo KExpr ;;
     exprtypes) echo KExprTypes ;;
+    impplus) echo KImpPlus ;;
+    impplustypes) echo KImpPlusTypes ;;
     *) return 1 ;;
   esac
 }
@@ -34,6 +42,13 @@ gen_soundness() {
     exprtypes) GEN_ARGS=(--kore "$(kore_dir expr-typing)/definition.kore" --runtime "$(kore_dir expr-typing)/runtime.json"
             --out "$o" --name KExprTypes --prelude ../../lean/prelude
             --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf") ;;
+    # IMP++ and its checker, for ImpPlusTypes
+    impplus) GEN_ARGS=(--kore "$(kore_dir impplus)/definition.kore" --runtime "$(kore_dir impplus)/runtime.json"
+            --out "$o" --name KImpPlus --prelude ../../lean/prelude
+            --open-obligations "$o/open-obligations.txt") ;;
+    impplustypes) GEN_ARGS=(--kore "$(kore_dir impplus-typing)/definition.kore" --runtime "$(kore_dir impplus-typing)/runtime.json"
+            --out "$o" --name KImpPlusTypes --prelude ../../lean/prelude
+            --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,typeOfB,wt,wts,printable") ;;
     *) return 1 ;;
   esac
   return 0
@@ -45,6 +60,8 @@ relate_soundness() {
     ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr") ;;
     ExprTypes) na=KExpr ka=$(kore_dir expr) nb=KExprTypes kd=$(kore_dir expr-typing)
                extra=(--roots "SortExpr") ;;
+    ImpPlusTypes) na=KImpPlus ka=$(kore_dir impplus) nb=KImpPlusTypes kd=$(kore_dir impplus-typing)
+               extra=(--roots "SortStmts,SortStmt,SortAExp,SortBExp") ;;
     *) return 1 ;;
   esac
 }
@@ -63,6 +80,13 @@ libs_soundness() {
         --kore-b "$(kore_dir expr-typing)/definition.kore" --name-b KExprTypes --ns ExprTypes \
         --typing typeOf \
         --out-typing "$DEMOS/ExprTypes/ExprTypes/Typing.lean" --out-soundness "$DEMOS/ExprTypes/ExprTypes/Soundness.lean" ;;
+    # threads in a cell map, holes of two sorts, rules of three ranks (K's I/O streams); the
+    # checker types statements without variables (`wt`, `wts`, accepting programs) and calls
+    # `printable` on `print`'s arguments; a block's saved environment is an item of `<k>`
+    ImpPlusTypes) "$G" soundness --kore-a "$(kore_dir impplus)/definition.kore" --name-a KImpPlus \
+        --kore-b "$(kore_dir impplus-typing)/definition.kore" --name-b KImpPlusTypes --ns ImpPlusTypes \
+        --typing typeOf,typeOfB,wt,wts --aux printable --program wts --env-item Map \
+        --out-typing "$DEMOS/ImpPlusTypes/ImpPlusTypes/Typing.lean" --out-soundness "$DEMOS/ImpPlusTypes/ImpPlusTypes/Soundness.lean" ;;
     *) echo "libs_soundness: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -86,6 +110,14 @@ gate_soundness() {
     scaffold soundness-ExprTypes libs_soundness ExprTypes
     dbuild ExprTypes
   fi
+  runs lib impplus && kc impplus && lib impplus KImpPlus
+  runs lib impplustypes && kc impplus-typing && lib impplustypes KImpPlusTypes
+  if runs demo ImpPlusTypes; then
+    phase "demo ImpPlusTypes"
+    kc impplus && kc impplus-typing && rel ImpPlusTypes
+    scaffold soundness-ImpPlusTypes libs_soundness ImpPlusTypes
+    dbuild ImpPlusTypes
+  fi
   phase "diff soundness"
-  diffs imptypes kexpr exprtypes
+  diffs imptypes kexpr exprtypes impplus impplustypes
 }

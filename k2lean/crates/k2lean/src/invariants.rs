@@ -225,51 +225,51 @@ pub fn resolve(def: &Def, name: &str) -> Result<String, String> {
 /// One level of a cell path: the constructor `ctor` (of `sort`) and the argument `index` that holds
 /// the next cell.
 #[derive(Clone, Debug)]
-struct Level {
-    sort: String,
-    lean: String,
-    arity: usize,
-    index: usize,
-    child: String,
+pub(crate) struct Level {
+    pub(crate) sort: String,
+    pub(crate) lean: String,
+    pub(crate) arity: usize,
+    pub(crate) index: usize,
+    pub(crate) child: String,
     /// The child cell's name (`env`), for the projection's name.
-    name: String,
-    sym: String,
+    pub(crate) name: String,
+    pub(crate) sym: String,
 }
 
 /// The cell collection on a cell path (SIMPLE's `<thread>` cell map, inside `<threads>`): the
 /// cell that holds it, and the collection's sort and element sorts.
 #[derive(Clone, Debug)]
-struct CollLevel {
+pub(crate) struct CollLevel {
     /// The holding cell (`<threads>`): its sort, constructor (Lean, full), arity, symbol, name, and
     /// the argument that is the collection.
-    holder_sort: String,
-    holder_lean: String,
-    holder_arity: usize,
-    holder_sym: String,
-    holder_name: String,
-    index: usize,
+    pub(crate) holder_sort: String,
+    pub(crate) holder_lean: String,
+    pub(crate) holder_arity: usize,
+    pub(crate) holder_sym: String,
+    pub(crate) holder_name: String,
+    pub(crate) index: usize,
     /// The collection sort (`SortThreadCellMap`) and its kind.
-    sort: String,
-    kind: Coll,
+    pub(crate) sort: String,
+    pub(crate) kind: Coll,
     /// `[key, value]` for a cell map, `[element]` for a cell list or set: the element cell is the
     /// last one.
-    elems: Vec<String>,
+    pub(crate) elems: Vec<String>,
 }
 
 /// The path from the top cell to a cell.
 #[derive(Clone, Debug)]
-struct CellPath {
+pub(crate) struct CellPath {
     /// From the top cell to the cell (or, with `colls`, to the cell holding the first collection).
-    levels: Vec<Level>,
+    pub(crate) levels: Vec<Level>,
     /// The cell collections the cell is inside, outermost first, each with the path from its
     /// element cell (`<thread>`) to the cell holding the next collection, or to the cell itself
     /// for the last one.
-    colls: Vec<(CollLevel, Vec<Level>)>,
+    pub(crate) colls: Vec<(CollLevel, Vec<Level>)>,
     /// The cell's own constructor (Lean, full), its sort, its argument sorts.
-    cell_sort: String,
-    cell_lean: String,
-    cell_args: Vec<String>,
-    cell_sym: String,
+    pub(crate) cell_sort: String,
+    pub(crate) cell_lean: String,
+    pub(crate) cell_args: Vec<String>,
+    pub(crate) cell_sym: String,
 }
 
 /// `e`, parenthesized when it is an application.
@@ -300,7 +300,7 @@ fn cell_ctor<'a>(m: &'a Model, sort: &str) -> Option<&'a crate::model::CtorInfo>
     cell_name(&ci.klabel).map(|_| ci)
 }
 
-fn find_cell(m: &Model, top: &str, cell: &str) -> Result<CellPath, String> {
+pub(crate) fn find_cell(m: &Model, top: &str, cell: &str) -> Result<CellPath, String> {
     let want = format!("<{cell}>");
     let Some(target) = m.ctors.values().find(|c| c.klabel == want) else {
         return Err(format!("the configuration has no cell {want}"));

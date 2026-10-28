@@ -29,6 +29,9 @@ lake-manifest.json
 /demos/ExprTypes/ExprTypes/Tr.lean
 /demos/ExprTypes/ExprTypes/Typing.lean
 /demos/ExprTypes/ExprTypes/Soundness.lean
+/demos/ImpPlusTypes/ImpPlusTypes/Tr.lean
+/demos/ImpPlusTypes/ImpPlusTypes/Typing.lean
+/demos/ImpPlusTypes/ImpPlusTypes/Soundness.lean
 /demos/ImpMut/ImpMut/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Refine.lean
