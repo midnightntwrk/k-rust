@@ -852,6 +852,32 @@ fn main() {
                 );
                 guard = format!("import {ns}Test.Refuted\n{guard}");
             }
+            // the open obligations retried (INFRA-6), the refuted ones aside
+            let retry: Vec<&eqns::Stated> = stated
+                .iter()
+                .filter(|s| open.contains(&s.name) && !open_list.refuted.contains_key(&s.name))
+                .collect();
+            let retry_file = out.join(format!("{ns}Test")).join("Retry.lean");
+            if retry.is_empty() {
+                let _ = std::fs::remove_file(&retry_file);
+            } else {
+                write(
+                    &retry_file,
+                    &with_hooks(
+                        eqns::emit_retry(
+                            ns,
+                            &retry,
+                            &eq_base,
+                            &fgen.unfold,
+                            &fgen.recursive,
+                            &fgen.list_recursive,
+                            &budget,
+                        ),
+                        ns,
+                        &fgen.params,
+                    ),
+                );
+            }
             // the divergence obligations of the least fixed points (TERM-1)
             let div_file = out.join(ns).join("Diverges.lean");
             let div_check = out.join(format!("{ns}Test")).join("Diverges.lean");
