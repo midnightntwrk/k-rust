@@ -980,7 +980,7 @@ fn basic(
          namespace {ns}\n\nopen {sem}\n\n\
          instance : KClaims.ExecSucc Step := ⟨_, successors_iff⟩\n\n\
          kc_det_instances\n\n\
-         attribute [kc_simp] {}\n\n{inv_attr}end {ns}\n",
+         kc_simp_attr {}\n\n{inv_attr}end {ns}\n",
         unfold.join(" ")
     )
 }
@@ -1131,8 +1131,28 @@ pub fn main(args: &[String]) {
         None => Default::default(),
     };
     let ns = &a.name;
+    // a semantics with parameters (`class Hooks`: hooks with no model, such as KEVM's
+    // `ecdsaPubKey`): `Step` takes the instance, so every claim is stated, and every instance
+    // declared, for every instance, as the library's own theorems are. The library says whether
+    // it has them (its function closure, not this one's, decides); without its sources, this one
+    let lib_fns = lexical(&a.out.join(&a.sem_path).join(&a.sem).join("Functions.lean"));
+    let has_hooks = match std::fs::read_to_string(&lib_fns) {
+        Ok(t) => t.lines().any(|l| l.starts_with("class Hooks")),
+        Err(_) => !fgen.params.is_empty(),
+    };
+    let hooks_var = has_hooks.then(|| format!("variable [{}.Hooks]", a.sem));
     let write = |p: PathBuf, t: &str| {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        let t = match &hooks_var {
+            Some(v) => match t.find("\nnamespace ") {
+                Some(i) => {
+                    let j = i + 1 + t[i + 1..].find('\n').unwrap_or(t.len() - i - 1);
+                    format!("{}\n\n{v}{}", &t[..j], &t[j..])
+                }
+                None => t.to_string(),
+            },
+            None => t.to_string(),
+        };
         std::fs::write(p, t).unwrap();
     };
     let mut modules = vec![];

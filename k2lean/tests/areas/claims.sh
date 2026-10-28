@@ -5,6 +5,31 @@
 
 # ---------------------------------------------------------------- gate phases (tests/gate.sh)
 
+# The area's own definition, kstrict (demos/claims/specs/strict.k): `+` strict in both arguments,
+# so either heats first (a `Step` that is not a function), and cooling rules that match the item
+# after the hole.
+kore_claims() {
+  case $1 in
+    kstrict) f=$DEMOS/claims/specs/strict.k m=STRICT s=STRICT-SYNTAX inc=$DEMOS/claims/specs ;;
+    *) return 1 ;;
+  esac
+}
+
+name_claims() {
+  case $1 in
+    kstrict) echo KStrict ;;
+    *) return 1 ;;
+  esac
+}
+
+gen_claims() {
+  case $1 in
+    kstrict) GEN_ARGS=(--kore "$(kore_dir kstrict)/definition.kore" --runtime "$(kore_dir kstrict)/runtime.json"
+            --out "$o" --name KStrict --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+    *) return 1 ;;
+  esac
+}
+
 needs_claims() {
   if runs record claims; then
     [ -d "$SPECS" ] || need "kimp's claims at $SPECS (set GATE_IMP_CHECKOUT)"
@@ -141,7 +166,41 @@ impplus_claims() {
   else bad "claims-impplus gen" "$L/claims-impplus-gen.log"; fi
 }
 
+strict_claims() {
+  # kstrict's claims (demos/claims/specs/strict-spec.k): with a symbolic rest of `<k>`, the cooling
+  # rules' matchers do not reduce, and `kc_auto` steps by the cases of `Step` (`tryRel`)
+  phase "strict claims"
+  local OUTP=$GEN/strict-claims
+  if ! "$KRUST" kcompile "$T/demos/claims/specs/strict-spec.k" --main-module STRICT-SPEC --definition-module STRICT \
+      --for-proving --output-directory "$KO/strict-spec" --builtin-directory "$BUILTIN" -I "$T/demos/claims/specs" -w none \
+      > "$L/kcompile-strict-spec.log" 2>&1; then
+    bad "kcompile strict-spec" "$L/kcompile-strict-spec.log"; return
+  fi
+  if "$G" claims --kore "$(kore_dir kstrict)/definition.kore" --spec "$KO/strict-spec/definition.kore" \
+      --out "$OUTP" --name KStrictClaims --semantics KStrict --semantics-path ../kstrict \
+      --kclaims-path ../../lean/claims > "$L/claims-strict-gen.log" 2>&1; then
+    ok "claims-strict gen"
+    cp "$OUTP/claims.toml" "$MEAS/claims-strict.toml"
+    if lbuild "$OUTP" build-claims-strict; then
+      ok "build claims-strict" "$L/build-claims-strict.log"
+      if lbuild "$OUTP" build-claims-strict-guard KStrictClaimsTest; then
+        ok "guard claims-strict" "$L/build-claims-strict-guard.log"
+      else bad "guard claims-strict" "$L/build-claims-strict-guard.log"; fi
+      grep -o 'KStrictClaims[^ ]*\.holds depends on axioms: .*' "$L/build-claims-strict-guard.log" \
+        > "$MEAS/axioms-strict.txt" || true
+      grep -E 'kc_auto' "$L/build-claims-strict.log" > "$MEAS/kc-auto-strict.txt" || true
+    else bad "build claims-strict" "$L/build-claims-strict.log"; fi
+  else bad "claims-strict gen" "$L/claims-strict-gen.log"; fi
+}
+
 gate_claims() {
+  runs lib kstrict && kc kstrict && lib kstrict KStrict
+  if runs record strict-claims; then
+    kc kstrict && strict_claims
+    # importing KClaims leaves common names usable (lean/claims/KClaimsTest/Keywords.lean)
+    if lbuild "$T/lean/claims" build-kclaims-test KClaimsTest; then ok "KClaims importers" "$L/build-kclaims-test.log"
+    else bad "KClaims importers" "$L/build-kclaims-test.log"; fi
+  fi
   if runs record impplus-claims; then
     kc impplus && impplus_claims
   fi

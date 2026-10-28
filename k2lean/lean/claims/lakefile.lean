@@ -11,3 +11,7 @@ require KPrelude from "../prelude"
 
 @[default_target]
 lean_lib KClaims
+
+/-- Checks of the library's interface for importers (`KClaimsTest.Keywords`). -/
+lean_lib KClaimsTest where
+  roots := #[`KClaimsTest.Keywords]

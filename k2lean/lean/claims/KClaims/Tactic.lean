@@ -24,7 +24,10 @@ configuration at a time:
    arithmetic, map and `ensures` goals are closed by the closing tactic;
 2. **claim**: an instance of a circularity (after at least one step: the index has decreased)
    or of an already proved claim — continue from its post-condition (`AFn.trans`);
-3. **rule**: some rule matcher returns a successor — continue there (`AFn.of_rule`);
+3. **rule**: some rule matcher returns a successor — continue there (`AFn.of_rule`); for a
+   relation that is not a function, every successor (`ExecSucc`), and where those do not reduce
+   (a symbolic part read before the position that decides), the cases of the relation itself
+   (`tryRel`);
 4. **split**: no rule fires because a Boolean in the configuration is not a literal — case
    split on it (the branch's path condition becomes a hypothesis; a branch whose condition
    simplifies to `False` closes).
@@ -603,7 +606,7 @@ structure Cfg where
   /-- proved claims; a local hypothesis is kept by its name, since a case split replaces it -/
   lemmas : Array (Expr ⊕ Name)
   fuel : Nat
-  /-- rule steps, splits, kept claim applications, configurations -/
+  /-- rule steps, splits, kept claim applications, configurations, frame refinements -/
   stats : IO.Ref (Array Nat)
   /-- the assumed invariant (`inv [hP]`): `hP : Preserved R P`, and `P` -/
   inv : Option (Expr × Expr) := none
@@ -779,6 +782,211 @@ inductive Outcome where
   /-- No step applies; `g` is the goal to leave open (after the index split, a new goal). -/
   | stuck (g : MVarId)
 
+/-- Run `tac` on `g` within `limit` thousand heartbeats; whether it closed `g`. A failure, or
+running out of heartbeats, leaves the state as it was. -/
+def closesWithin (g : MVarId) (tac : TSyntax `tactic) (limit : Nat := 400000) : TacticM Bool := do
+  let s ← saveState
+  tryCatchRuntimeEx
+    (withCurrHeartbeats <| withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := limit * 1000 }) do
+      setGoals [g]
+      evalTactic tac
+      if (← getUnsolvedGoals).isEmpty then return true
+      s.restore; return false)
+    (fun _ => do s.restore; return false)
+
+/-- `kc_whnf_contra`: close the goal when an equation hypothesis `a = b` relates two different
+constructors once both sides are reduced (`whnfD`), as a rule's premise does when the executable
+semantics evaluates it to the other value (`isKResult(1 + 2) = true`, a projection that is
+`none`). -/
+elab "kc_whnf_contra" : tactic => liftMetaFinishingTactic fun g => g.withContext do
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let some (ty, a, b) := (← instantiateMVars d.type).eq? | continue
+    if ← isProp ty then continue
+    let a' ← whnfD a
+    let b' ← whnfD b
+    let some ca := a'.getAppFn.constName? | continue
+    let some cb := b'.getAppFn.constName? | continue
+    unless ca != cb && (← isConstructorApp a') && (← isConstructorApp b') do continue
+    let g' ← g.replaceLocalDeclDefEq d.fvarId (← mkEq a' b')
+    if ← g'.contradictionCore {} then return
+  throwError "kc_whnf_contra: no equation hypothesis relates two different constructors"
+
+/-- A case of `cases` on a relation whose premises contradict each other (a rule whose left-hand
+side unifies with the configuration but whose requires is false there). -/
+def closeSpurious (g : MVarId) : TacticM Bool := do
+  closesWithin g (← `(tactic| first
+    | contradiction
+    | kc_whnf_contra
+    | (exfalso; simp_all; done)
+    | (exfalso; simp_all [kc_simp]; done)
+    | (exfalso; simp [kc_simp] at * <;> omega)))
+
+/-- Whether `ty` is a priority premise `∀ j, j < i → ¬ A j c` (a rule of a later rank: no rule of
+an earlier rank applies); its `A`. -/
+def priorityApp? (ty : Expr) : MetaM (Option Name) :=
+  forallTelescopeReducing ty fun xs b => do
+    -- (the nested action would run before the size test: a separate test)
+    unless xs.size == 2 do return none
+    unless (← whnfR (← inferType xs[0]!)).isConstOf ``Nat do return none
+    let some a := b.not? | return none
+    return a.getAppFn.constName?
+
+/-- The priority premise among `g`'s hypotheses, and its `App`. -/
+def priorityHyp? (g : MVarId) : MetaM (Option (FVarId × Name)) := g.withContext do
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    if let some app ← priorityApp? d.type then return some (d.fvarId, app)
+  return none
+
+/-- The rank `k` of a constructor `App k …` of `App`, a literal. -/
+def ctorRank? (ctor : Name) : MetaM (Option Nat) := do
+  let some ci := (← getEnv).find? ctor | return none
+  forallTelescopeReducing ci.type fun _ b => do
+    let some k := b.getAppArgs.find? (fun a => (a.rawNatLit? <|> a.nat?).isSome) | return none
+    return k.rawNatLit? <|> k.nat?
+
+/-- The first `next` result of a rule matcher's value (a `RuleResult`, or the list of them of a
+rule matching several elements of a cell collection), reduced: the successor and its proof. -/
+partial def nextOf? (r : Expr) : MetaM (Option (Expr × Expr)) := do
+  let r ← whnfD r
+  if r.isAppOfArity ``KPrelude.RuleResult.next 6 then return some (r.getArg! 4, r.getArg! 5)
+  if r.isAppOfArity ``List.cons 3 then
+    if let some x ← nextOf? (r.getArg! 1) then return some x
+    return ← nextOf? (r.getArg! 2)
+  return none
+
+/-- The tactic for a priority premise `∀ j, j < i → ¬ App j c`: every case of `App j c` is
+contradictory (its premises opened first, as for `Step`'s cases). -/
+def priorityTac : TacticM (TSyntax `tactic) :=
+  `(tactic| (intro j hj ha; cases ha <;> first | omega | contradiction | kc_whnf_contra | (exfalso; simp_all; done) | (exfalso; simp_all [kc_simp]; done)))
+
+/-- A step of `R` from `c` by rule `ctor` (a constructor of `R`, `NS.Step.x`) through its
+executable matcher `NS.Rules.x`, when that reduces to a successor: the matcher's proof is of
+`R c d`, or of `Step0 i c d`, lifted to `R` by `NS.Step0.lift` with no rule of an earlier rank
+applying (`priorityTac`). -/
+def progressByMatcher (R c : Expr) (ctor : Name) : TacticM (Option Expr) := do
+  let .str (.str ns _) x := ctor | return none
+  let m := (ns ++ `Rules).str x
+  unless (← getEnv).contains m do return none
+  let some (d, h) ← nextOf? (← mkAppM m #[c]) | return none
+  let α ← inferType c
+  let pLam ← withLocalDeclD `e α fun e => do mkLambdaFVars #[e] (mkApp2 R c e)
+  let hty ← whnfR (← inferType h)
+  if hty.getAppFn == R.getAppFn then return some (← mkAppOptM ``Exists.intro #[α, pLam, d, h])
+  let lift := (ns ++ `Step0).str "lift"
+  unless (← getEnv).contains lift do return none
+  let lh ← mkAppM lift #[h]
+  let .forallE _ hiTy _ _ ← whnfR (← inferType lh) | return none
+  let hi ← mkFreshExprSyntheticOpaqueMVar hiTy
+  unless ← closesWithin hi.mvarId! (← priorityTac) do return none
+  let st := mkApp lh (← instantiateMVars hi)
+  return some (← mkAppOptM ``Exists.intro #[α, pLam, d, st])
+
+/-- Step by the relation itself, where the executable successors do not reduce (a symbolic part
+of the configuration is read by the rule index or a matcher before a position that decides).
+`R` is an inductive relation with one constructor per rule; `cases` on `R c e` unifies every
+rule's left-hand side with `c` at once, so a rule whose left-hand side clashes anywhere is
+dropped whatever is symbolic elsewhere. A case whose premises are contradictory is closed
+(`closeSpurious`); a case of a later rank is closed by an earlier-rank rule that applies (its
+`App` constructor, of the same name). Progress: a remaining rule's matcher reduced to a
+successor (`progressByMatcher`), else its constructor applied with its premises proved; if
+neither works (a premise not proved, or the rule's result undefined), the configuration stays
+open, with a message. The cases left are the successors.
+
+Unification may instantiate variables of the configuration (the head of a symbolic `K` rest,
+say): then a case covers only part of the configurations, and the cases together cover them
+all. Such steps are counted (`frame refinements`), since they are an implicit case split.
+
+What it does not decide: a rule matching a cell map states its left-hand side as `concat …`
+premises, which unification does not see; where `openAll` and the closers cannot refute them,
+the rule stays a candidate (IMP++'s thread map, for one). -/
+def tryRel (cfg : Cfg) (g : MVarId) : TacticM (Option (List MVarId)) := g.withContext do
+  let t ← instantiateMVars (← g.getType)
+  let some (c, _) := configOf t | return none
+  let (α, R, mkNext, lem) ← match t.getAppFnArgs with
+    | (``KClaims.AFn, #[α, R, P, n, _]) =>
+      let some n' := predIndex n | return none
+      pure (α, R, fun e => mkAppN t.getAppFn #[α, R, P, n', e], ``KClaims.AFn.step)
+    | (``KClaims.AF, #[α, R, P, _]) => pure (α, R, fun e => mkAppN t.getAppFn #[α, R, P, e], ``KClaims.AF.step)
+    | _ => return none
+  let .const rn us := R.getAppFn | return none
+  let some (.inductInfo ri) := (← getEnv).find? rn | return none
+  unless ri.numIndices == 2 && R.getAppArgs.size == ri.numParams do return none
+  let vars := fvarsInOrder c
+  let s ← saveState
+  -- every successor: the cases of `R c e`
+  let hallTy ← withLocalDeclD `e α fun e => do
+    mkForallFVars #[e] (← mkArrow (mkApp2 R c e) (mkNext e))
+  let hall ← mkFreshExprSyntheticOpaqueMVar hallTy
+  let (fvs, g1) ← hall.mvarId!.introN 2
+  let subs ← try g1.cases fvs[1]! catch _ => s.restore; return none
+  -- the cases left: the rule, the goal, and whether unification instantiated a variable of `c`
+  let mut left : Array (Name × MVarId × Bool) := #[]
+  for sg in subs do
+    let refined := vars.any fun v => !(sg.subst.get v).isFVar
+    -- open the case's premises first (a rule matching a cell map states its left-hand side as
+    -- `concat … = some m` premises, which `openAll` evaluates at the configuration's map)
+    let gs ← try openAll sg.mvarId catch _ => pure [sg.mvarId]
+    for g in gs do
+      unless ← closeSpurious g do left := left.push (sg.ctorName.getD .anonymous, g, refined)
+  -- a case of a later rank, when a rule of an earlier rank applies
+  let mut early : Array Name := #[]
+  for (n, sg, _) in left do
+    if (← priorityHyp? sg).isNone then early := early.push n
+  let mut out : Array (Name × MVarId × Bool) := #[]
+  for (n, sg, r) in left do
+    let some (h, app) ← priorityHyp? sg | out := out.push (n, sg, r); continue
+    let sg ← sg.rename h `kcpri
+    let mut closed := false
+    for e in early do
+      let ctor := app ++ Name.mkSimple e.getString!
+      let some k ← ctorRank? ctor | continue
+      let tac ← `(tactic| (exfalso; exact $(mkIdent `kcpri) $(Syntax.mkNumLit (toString k)) (by omega) (by apply $(mkIdent ctor) <;> ($(cfg.closer):tactic))))
+      if ← closesWithin sg tac then closed := true; break
+    unless closed do out := out.push (n, sg, r)
+  if out.isEmpty then s.restore; return none
+  -- progress: a remaining rule's matcher, else its constructor with its premises proved
+  let pLam ← withLocalDeclD `e α fun e => do mkLambdaFVars #[e] (mkApp2 R c e)
+  let mut hs? : Option Expr := none
+  let names := out.foldl (fun acc (n, _, _) => if acc.contains n then acc else acc.push n) #[]
+  for n in names do
+    let s1 ← saveState
+    match ← (try progressByMatcher R c n catch _ => pure none) with
+    | some p => hs? := some p; break
+    | none => s1.restore
+  for n in names do
+    if hs?.isSome then break
+    let e ← mkFreshExprMVar α
+    let hst ← mkFreshExprSyntheticOpaqueMVar (mkApp2 R c e)
+    let s1 ← saveState
+    try
+      let prem ← hst.mvarId!.apply (mkAppN (mkConst n us) R.getAppArgs)
+      let mut ok := true
+      for p in prem do
+        if ← p.isAssigned then continue
+        let pt ← instantiateMVars (← p.getType)
+        unless ← isProp pt do continue
+        let tac ← if (← priorityApp? pt).isSome then priorityTac else pure cfg.closer
+        unless ← closesWithin p tac do ok := false; break
+      let pf ← instantiateMVars hst
+      if ok && !pf.hasExprMVar then
+        hs? := some (← mkAppOptM ``Exists.intro #[α, pLam, ← instantiateMVars e, pf])
+        break
+      s1.restore
+    catch _ => s1.restore
+  let some hs := hs? | do
+    -- (after the restore, which would drop the message)
+    s.restore
+    logInfo m!"kc_auto: the rules {names} unify with{indentExpr c}\nbut none applies with its premises proved (a premise not proved, or the rule's result undefined); left open"
+    return none
+  g.assign (← mkAppM lem #[hs, hall])
+  let mut res := []
+  for (_, sg, _) in out do
+    res := res ++ [← normGoal sg]
+  if out.any (·.2.2) then cfg.stats.modify (·.modify 4 (· + 1))
+  return some res
+
 /-- A lemma of `using […]` in the goal's context: a local hypothesis is looked up by its name. -/
 def resolveLemma (l : Expr ⊕ Name) : MetaM (Option Expr) := do
   match l with
@@ -841,6 +1049,7 @@ partial def exploreOne (cfg : Cfg) (g : MVarId) (fuel : Nat) : TacticM Outcome :
   if let some g' ← tryRules cfg.rules g (cfg.inv.map (·.1)) then return .next [g'] 0
   if cfg.succ && cfg.inv.isNone then
     if let some gs ← trySucc g then return .next gs 0
+    if let some gs ← tryRel cfg g then return .next gs 0
   if let some gs ← trySplit g cfg.splitVars then return .next gs 1
   if cfg.splitVars then
     if let some gs ← trySplitVar g then return .next gs 1
@@ -878,12 +1087,12 @@ macro "kc_close" : tactic => `(tactic| first
   | (kc_norm; simp_all [kc_simp]; done)
   | (kc_norm; simp [kc_simp] at *; grind [Int.tdiv_eq_ediv_of_nonneg, Int.mul_nonneg]))
 
-syntax kcCircs := " circ " "[" ident,* "]"
+syntax kcCircs := &" circ " "[" ident,* "]"
 syntax kcLemmas := " using " "[" term,* "]"
-syntax kcInv := " inv " "[" term "]"
+syntax kcInv := &" inv " "[" term "]"
 syntax kcSplit := " split"
-syntax kcClose := " close " "(" tactic ")"
-syntax kcFuel := " fuel " num
+syntax kcClose := &" close " "(" tactic ")"
+syntax kcFuel := &" fuel " num
 
 /-- `kc_auto [circ [ih]] [using [lemma, …]] [inv [hP]] [split] [close (tac)] [fuel n]`, on a goal
 `AF R Q c`, `AFn R Q n c` or `Reach R Q c`.
@@ -942,13 +1151,15 @@ elab "kc_auto" c:(kcCircs)? l:(kcLemmas)? v:(kcInv)? sp:(kcSplit)? cl:(kcClose)?
         | _ => throwError "kc_auto: inv expects a proof of `Preserved R P`"
       | _ => pure none
     | none => pure none
-  let stats ← IO.mkRef #[0, 0, 0, 0]
+  let stats ← IO.mkRef #[0, 0, 0, 0, 0]
   let cfg : Cfg := { closer, rules, circs, lemmas, fuel, stats, inv, splitVars := sp.isSome, succ }
   let rest ← explore cfg [g] cfg.fuel
   if kc.stats.get (← getOptions) then
     let st ← stats.get
     let decl := (← Term.getDeclName?).map toString |>.getD "?"
-    logInfo m!"kc_auto {decl}: {st[3]!} configurations, {st[0]!} rule steps, {st[1]!} splits, {st[2]!} claim applications, {rest.length} open"
+    -- frame refinements only when there are some, so that existing counts read as before
+    let fr := if st[4]! > 0 then m!", {st[4]!} frame refinements" else m!""
+    logInfo m!"kc_auto {decl}: {st[3]!} configurations, {st[0]!} rule steps, {st[1]!} splits, {st[2]!} claim applications, {rest.length} open{fr}"
   setGoals rest
 
 end KClaims.Tactic
@@ -1080,5 +1291,28 @@ elab "kc_det_instances" : command => do
       ⟨$(mkIdent `rules), $(mkIdent `Step.deterministic)⟩))
     elabCommand (← `(instance : KClaims.ExecDet $(mkIdent `Step) $(mkIdent `step) :=
       ⟨$(mkIdent `step_sound), $(mkIdent `step_complete)⟩))
+
+end KClaims.Tactic
+
+namespace KClaims.Tactic
+
+open Lean Elab Command
+
+/-- `kc_simp_attr f g …`: each name in the `kc_simp` set, as `attribute [kc_simp] f g …` does, except
+that a name whose registration fails is left out with a warning rather than failing the module.
+Registering a definition produces its equation lemmas, under the heartbeats of the module that
+defines it; on a large definition a few of them do not fit (KEVM: 2 of 1,487), and the claims
+then do not unfold that definition by `simp`, which costs proofs, not correctness. -/
+elab "kc_simp_attr " ids:ident* : command => do
+  for id in ids do
+    let n := id.getId
+    let r ← liftCoreM do
+      Core.tryCatchRuntimeEx
+        (do
+          let attr ← ofExcept <| getAttributeImpl (← getEnv) `kc_simp
+          attr.add n (← `(Parser.Attr.simple| kc_simp)) AttributeKind.global
+          pure none)
+        (fun e => do pure (some (← e.toMessageData.toString)))
+    if let some msg := r then logWarning m!"kc_simp: {n} left out ({msg})"
 
 end KClaims.Tactic

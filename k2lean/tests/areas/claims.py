@@ -1,6 +1,11 @@
 # The claims area's registry (tests/gate-check.py loads it; the gate phases are in claims.sh).
 # The format of every area's registry is described in gate-check.py's docstring.
 
+LIBS = {
+    # a strict operator in a `Step` that is not a function (demos/claims/specs/strict.k)
+    "kstrict": {"ns": "KStrict", "tier": "light"},
+}
+
 DEMOS = {
     # on ImpRel and kimp-claims (the arity universe)
     "ImpRelClaims": {"tier": "heavy", "sources": ["demos/ImpRelClaims/ImpRelClaims/Transfers.lean"]},
@@ -24,16 +29,19 @@ def measure_claims(c):
             "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}
 
 
-def measure_impplus(c):
-    """IMP++'s claims (claims-impplus.toml), their guard and kc_auto lines."""
-    ct = read(c.meas / "claims-impplus.toml")
-    ax = read(c.meas / "axioms-impplus.txt")
-    kc = read(c.meas / "kc-auto-impplus.txt")
-    return {"claims": len(re.findall(r"^\[\[claim\]\]", ct, re.M)) if ct else None,
-            "stated": len(re.findall(r"^stated = true", ct, re.M)) if ct else None,
-            "guarded": len([l for l in ax.splitlines() if l.strip()]) if ax else None,
-            "kc_auto": len([l for l in kc.splitlines() if "kc_auto" in l]) if kc else None,
-            "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}
+def measure_spec(tag):
+    """The claims of one specification (claims-TAG.toml), their guard (axioms-TAG.txt) and kc_auto
+    lines (kc-auto-TAG.txt)."""
+    def measure(c):
+        ct = read(c.meas / f"claims-{tag}.toml")
+        ax = read(c.meas / f"axioms-{tag}.txt")
+        kc = read(c.meas / f"kc-auto-{tag}.txt")
+        return {"claims": len(re.findall(r"^\[\[claim\]\]", ct, re.M)) if ct else None,
+                "stated": len(re.findall(r"^stated = true", ct, re.M)) if ct else None,
+                "guarded": len([l for l in ax.splitlines() if l.strip()]) if ax else None,
+                "kc_auto": len([l for l in kc.splitlines() if "kc_auto" in l]) if kc else None,
+                "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}
+    return measure
 
 
 RECORDS = {
@@ -41,8 +49,11 @@ RECORDS = {
     "claims": {"tier": "heavy", "measure": measure_claims,
                "sources": ["generated/kimp-claims", "generated/kimpinv-claims"]},
     # on impplus (the soundness area's library; a `Step` that is not a function)
-    "impplus-claims": {"tier": "light", "measure": measure_impplus,
+    "impplus-claims": {"tier": "light", "measure": measure_spec("impplus"),
                        "sources": ["generated/impplus-claims"]},
+    # on kstrict (the area's own library; claims whose successors do not reduce: `tryRel`)
+    "strict-claims": {"tier": "light", "measure": measure_spec("strict"),
+                      "sources": ["generated/strict-claims"]},
 }
 
 OUTPUTS = {
@@ -56,4 +67,6 @@ OUTPUTS = {
     "replay/sum-loop.toml": {"tier": "heavy", "compare": "strip-seconds"},
     "claims-impplus.toml": {"tier": "light", "compare": "exact"},
     "kc-auto-impplus.txt": {"tier": "light", "compare": "sorted-lines"},
+    "claims-strict.toml": {"tier": "light", "compare": "exact"},
+    "kc-auto-strict.txt": {"tier": "light", "compare": "sorted-lines"},
 }

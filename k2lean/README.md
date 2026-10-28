@@ -93,7 +93,7 @@ target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/de
 | `--transfer REL` | every proved claim carried to the definition `--transfer-target B` along `REL.bisim`, one theorem per claim, into the module `--transfer-out FILE` (namespace `--transfer-ns`); repeatable, the other `--transfer-…` options apply to the last one |
 | `--transfer-kind stutter` | `REL.bisim` is `refine`'s stuttering bisimulation, not `relate`'s: one-path claims carry, and all-path ones only as one-path claims unless `--transfer-det MODULE` names `B`'s determinism module (`B.Step.deterministic`), on which every claim keeps its modality |
 
-A semantics whose `Step` is not a function (overlapping rules, strictness in two positions, matches of several cell-collection elements) is explored by every successor (`design.md` §3.8; the gate's IMP++ claims).
+A semantics whose `Step` is not a function (overlapping rules, strictness in two positions, matches of several cell-collection elements) is explored by every successor, and where those do not reduce on a symbolic part, by the cases of `Step` (`design.md` §3.8; the gate's IMP++ and kstrict claims).
 A claim may apply a function that no rule of the definition applies (KEVM's `MerkleUpdate`, `#padRightToWidth`): it is part of the definition, so the library defines it too when generated with `gen --spec FILE` (repeatable, the spec's compiled `definition.kore`).
 `gen --spec` lists the library's functions in `functions.txt`, which `claims` reads beside the library (`--semantics-path`); a claim that needs a function the library does not define is not stated, and `claims` names the functions in a note.
 
