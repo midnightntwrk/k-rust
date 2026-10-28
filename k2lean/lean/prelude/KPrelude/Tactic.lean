@@ -380,6 +380,11 @@ macro "k2l_hook_law" : tactic => `(tactic| first
   | (with_reducible apply KPrelude.SetHook.union_eqn <;> assumption)
   | (with_reducible apply KPrelude.MapHook.ceil_concat_element_eqn <;> assumption))
 
+/-- Refute a generated statement that is false in the model, with a refutation of the prelude
+stated in the generator's shape (the mirror of `k2l_hook_law`; `NS/Refuted.lean`). -/
+macro "k2l_hook_refute" : tactic => `(tactic| first
+  | (with_reducible exact KPrelude.StringHook.countAllOccurrences_eqn2_false))
+
 declare_syntax_cat k2lPat
 syntax "_" : k2lPat
 syntax ident : k2lPat

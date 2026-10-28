@@ -442,6 +442,14 @@ theorem countAllOccurrences_eqn2_empty :
   unfold countAllOccurrences
   decide
 
+/-- `countAllOccurrences` equation 2, in the shape `Equations.lean` states it, is false: at an
+empty `ToCount` it would make `countAllOccurrences(S, "")` its own successor. `k2l_hook_refute`
+refutes the generated statement with it. -/
+theorem countAllOccurrences_eqn2_false : ¬ ∀ (Source ToCount : String)
+    (_hreq0 : (Option.bind (find Source ToCount (0 : Int)) fun r => some (IntHook.ge r (0 : Int))) = some true),
+    some (countAllOccurrences Source ToCount) = (Option.bind (find Source ToCount (0 : Int)) fun r_1 => some (IntHook.add (1 : Int) (countAllOccurrences (substr Source (IntHook.add r_1 (length ToCount)) (length Source)) ToCount))) :=
+  fun h => countAllOccurrences_eqn2_empty.2 (h "" "" countAllOccurrences_eqn2_empty.1)
+
 end KPrelude.StringHook
 
 namespace KPrelude.SetHook

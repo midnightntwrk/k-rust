@@ -31,6 +31,7 @@ mod pairs;
 mod preserves;
 mod ranked;
 mod refine;
+mod refuted;
 mod relate;
 mod render;
 mod rulename;
@@ -167,12 +168,9 @@ fn open_from_log(args: &[String]) {
         panic!("usage: open-from-log EQUATIONS.lean BUILD.log OPEN.txt")
     };
     let log = std::fs::read_to_string(log).unwrap();
-    let mut open: std::collections::BTreeSet<String> = std::fs::read_to_string(out)
-        .unwrap_or_default()
-        .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect();
+    // the names of the failed proofs, added to the list; its markers and comments are kept
+    let list_text = std::fs::read_to_string(out).unwrap_or_default();
+    let mut open: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for (file, suffix) in module_files(std::path::Path::new(eq_file)) {
         let Ok(text) = std::fs::read_to_string(&file) else {
             continue;
@@ -206,9 +204,14 @@ fn open_from_log(args: &[String]) {
             }
         }
     }
-    let joined: Vec<String> = open.into_iter().collect();
-    std::fs::write(out, joined.join("\n") + "\n").unwrap();
-    eprintln!("{} open obligations", joined.len());
+    let text = refuted::add_names(&list_text, &open);
+    eprintln!(
+        "{} open obligations",
+        text.lines()
+            .filter(|l| refuted::name_of(l).is_some())
+            .count()
+    );
+    std::fs::write(out, text).unwrap();
 }
 
 fn main() {
@@ -584,15 +587,13 @@ fn main() {
                 }
             }
             // K equations and simplification rules as theorems
-            let open: std::collections::BTreeSet<String> = match &a.open {
-                Some(p) => std::fs::read_to_string(p)
-                    .unwrap_or_default()
-                    .lines()
-                    .map(|l| l.trim().to_string())
-                    .filter(|l| !l.is_empty())
-                    .collect(),
+            // the open obligations, and those of them marked refuted (`refuted.rs`)
+            let open_list = match &a.open {
+                Some(p) => refuted::parse(&std::fs::read_to_string(p).unwrap_or_default())
+                    .unwrap_or_else(|e| panic!("{}: {e}", p.display())),
                 None => Default::default(),
             };
+            let open = open_list.names.clone();
             let eqs = funcs::equations(&def);
             // statements may mention any hook the library implements, not only the used ones
             let mut stmt_fns = fgen.fns.clone();
@@ -807,10 +808,55 @@ fn main() {
                 .map(|s| s.name.clone())
                 .chain(fgen.agree_thms.iter().cloned())
                 .collect();
-            write(
-                &out.join(format!("{ns}Test")).join("Axioms.lean"),
-                &drivers::axioms_with(ns, &proved, ranked, multi, init_ok),
-            );
+            let mut guard = drivers::axioms_with(ns, &proved, ranked, multi, init_ok);
+            if !open_list.refuted.is_empty() {
+                // the refutations of the obligations marked refuted, under the guard
+                let prelude: Vec<&String> = open_list
+                    .refuted
+                    .iter()
+                    .filter(|(_, s)| **s == refuted::Source::Prelude)
+                    .map(|(n, _)| n)
+                    .collect();
+                let hand: Vec<&String> = open_list
+                    .refuted
+                    .iter()
+                    .filter(|(_, s)| **s == refuted::Source::Hand)
+                    .map(|(n, _)| n)
+                    .collect();
+                if !prelude.is_empty() {
+                    if !fgen.params.is_empty() {
+                        panic!(
+                            "{}: refuting an obligation for every implementation of the parameters needs an instance: mark it `refuted hand`",
+                            prelude[0]
+                        );
+                    }
+                    write(
+                        &out.join(ns).join("Refuted.lean"),
+                        &refuted::emit_refuted(ns, &prelude),
+                    );
+                }
+                let hand_file = out.join(ns).join("RefutedHand.lean");
+                if !hand.is_empty() && !hand_file.exists() {
+                    write(
+                        &hand_file,
+                        &with_hooks(
+                            refuted::hand_template(ns, &hand, !fgen.params.is_empty()),
+                            ns,
+                            &fgen.params,
+                        ),
+                    );
+                    eprintln!(
+                        "note: wrote the hand-refutation file {} (it is never overwritten)",
+                        hand_file.display()
+                    );
+                }
+                write(
+                    &out.join(format!("{ns}Test")).join("Refuted.lean"),
+                    &refuted::emit_check(ns, &open_list),
+                );
+                guard = format!("import {ns}Test.Refuted\n{guard}");
+            }
+            write(&out.join(format!("{ns}Test")).join("Axioms.lean"), &guard);
             if !multi {
                 write(
                     &out.join(format!("{ns}Test")).join("DetAxioms.lean"),

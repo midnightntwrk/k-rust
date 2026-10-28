@@ -63,8 +63,9 @@
 #   GATE_SEED=DIR       when the work tree has no .lake/ yet, copy those of another work tree first
 #                       (the .lake/ directories only, not its Cargo target)
 #   GATE_CLEAN=1        delete the work tree's .lake/ directories and Cargo target first
-#   GATE_RETRY_OPEN=1   start every library from an empty open-obligation list, so every open
-#                       obligation is attempted again (finds removals; rebuilds every Equations)
+#   GATE_RETRY_OPEN=1   start every library from an open-obligation list holding only the entries
+#                       marked refuted, so every other open obligation is attempted again (finds
+#                       removals; rebuilds every Equations)
 #   GATE_BASELINE=DIR   the baseline (default tests/baseline next to this script): one AREA.toml per
 #                       area; the recorded outputs are in expected/AREA/ beside it
 #   GATE_CACHE=DIR      outputs cached by the hash of their inputs (default target/k2lean-gate/cache
@@ -239,7 +240,11 @@ lbuild() { # DIR LOGNAME TARGET...: lake build in a project, timed
 }
 lib_open() { # DIR: the library's directory and open-obligation list (emptied under GATE_RETRY_OPEN)
   mkdir -p "$GEN/$1"; touch "$GEN/$1/open-obligations.txt"
-  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$1/open-obligations.txt"
+  # a retry keeps the obligations marked refuted (a proof of one cannot exist) and the comments
+  if [ "${GATE_RETRY_OPEN:-0}" = 1 ]; then
+    grep -E '^#| \| refuted( hand)?( *#.*)?$' "$GEN/$1/open-obligations.txt" > "$GEN/$1/open-obligations.txt.keep" || true
+    mv -f "$GEN/$1/open-obligations.txt.keep" "$GEN/$1/open-obligations.txt"
+  fi
   return 0
 }
 seed_lake() { # DIR FROM: start library DIR's build from library FROM's (same Terms … Equations)
