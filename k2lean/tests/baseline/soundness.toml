@@ -63,17 +63,17 @@ preserve = []
 [sources]
 
 [sources.sha256]
-"demos/ExprTypes/ExprTypes/Soundness.lean" = { tier = "light", sha256 = "1d75e58a3037328fc535205c56d74ec1e80dc965373c18de80dc762aaf3f7bc3" }
+"demos/ExprTypes/ExprTypes/Soundness.lean" = { tier = "light", sha256 = "1357b7408b219806771cc00c8b1f95ef82a63aa1eadb0a5d0d3144988aeb96ad" }
 "demos/ExprTypes/ExprTypes/Tr.lean" = { tier = "light", sha256 = "dc09b4178ea59ae4676ef82b902ec2a9553b28245491f7ba9af509b484dac5b7" }
-"demos/ExprTypes/ExprTypes/Typing.lean" = { tier = "light", sha256 = "98403b67b010869bc0b0162c0a8476b50fe515cf4a9cd1e324860bafc4913406" }
+"demos/ExprTypes/ExprTypes/Typing.lean" = { tier = "light", sha256 = "f806d8d228960da00a1f7a7933ccc37f5d037c8121a3e0b175a821e4bb700c7c" }
 "demos/ExprTypes/correspondence.toml" = { tier = "light", sha256 = "8ed5d7a2993eab53ac52755a55e3027c0df6dc2ab6e5c0bea84bd4a0e64092c6" }
-"demos/ImpPlusTypes/ImpPlusTypes/Soundness.lean" = { tier = "light", sha256 = "9b38a3f80239c34d844fa4d2f36095d81778f3bfb816b89cce28720e18b7c254" }
+"demos/ImpPlusTypes/ImpPlusTypes/Soundness.lean" = { tier = "light", sha256 = "0133e868d585720f161e1df1c62446613d2beb3e7f000c6fd5b51f04921efa82" }
 "demos/ImpPlusTypes/ImpPlusTypes/Tr.lean" = { tier = "light", sha256 = "9ede93254af11530504c5e70fd1619fdb610ff560406afbcf617b665a75ac8a3" }
-"demos/ImpPlusTypes/ImpPlusTypes/Typing.lean" = { tier = "light", sha256 = "6aeae97ac797651d9c472a86816acea79f6a41c0429abf7adabda438f60daa2b" }
+"demos/ImpPlusTypes/ImpPlusTypes/Typing.lean" = { tier = "light", sha256 = "9142270d90d4d60dbf10fa1aaaa741dda55626e0d4d73c45a2c70a7850c8d0ac" }
 "demos/ImpPlusTypes/correspondence.toml" = { tier = "light", sha256 = "5277ddf9a97b7a5f166d384128334792c35d3b96c3597763297eca731dc1de94" }
-"demos/ImpTypes/ImpTypes/Soundness.lean" = { tier = "light", sha256 = "d1b55d1ff865142eb1217766e5b0b7316d6c22bcb548d48753ae74d70101bee7" }
+"demos/ImpTypes/ImpTypes/Soundness.lean" = { tier = "light", sha256 = "3127ca02858cca9d6e32b498fb59862ae329525efb1abc1ceefa99ca8921b3a1" }
 "demos/ImpTypes/ImpTypes/Tr.lean" = { tier = "light", sha256 = "7d5c653d47818914f8b4e8a1ceadc5213b911f3397f98ad4dbb29687f6a0d0bc" }
-"demos/ImpTypes/ImpTypes/Typing.lean" = { tier = "light", sha256 = "7fa3f60ee3f5fc24e4c5a68490c134973a0bb2edf127ebaf1ae8a53aa8ca40eb" }
+"demos/ImpTypes/ImpTypes/Typing.lean" = { tier = "light", sha256 = "c83295e94a7e2606af8ea5e354d17a48db9eff97cd6cd76eff77c49e0e7a818e" }
 "demos/ImpTypes/correspondence.toml" = { tier = "light", sha256 = "d718a02a680fc8ebdc94898d98af4ef880e228e13fcbc185f1170668c8194572" }
 "generated/exprtypes/KExprTypes.lean" = { tier = "light", sha256 = "c871136796bf3a8bf3d76d78a97f2ef2999117d8c58caa2131c6ea9e4cc04588" }
 "generated/exprtypes/KExprTypes/Adequacy.lean" = { tier = "light", sha256 = "b990d2dd22e77c24bc9da7d014f19d56936fa75e28809a551244928677ecf4e4" }
