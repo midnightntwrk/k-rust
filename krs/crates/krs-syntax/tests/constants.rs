@@ -38,6 +38,10 @@ fn a_constant_names_a_ground_term_of_a_sort() {
         "const HALF: Float = 0.5;",
         "const NAME: String = \"main\";",
         "const ON: k::Term<Bool> = true;",
+        "const MAIN: Id = k::id!(\"$main\");",
+        "const MAGIC: Bytes = k::bytes!(b\"\\x7fELF\");",
+        "const WORD: Word = k::lexeme!(Word, \"word\");",
+        "const CALL: Exp = Call(k::id!(\"$main\"));",
     ] {
         ConstantItem::parse_source(source).unwrap_or_else(|error| panic!("{source}: {error}"));
     }
@@ -51,6 +55,10 @@ fn a_constant_value_applies_constructors_only() {
         ("const X: Int = !1;", "a builtin operation"),
         ("const X: Exp = Choose::<Int>(1);", "turbofish"),
         ("const X: Exp = k::k![1];", "this expression"),
+        (
+            "const X: Int = k::anonymous!(Int, \"_V\");",
+            "this expression",
+        ),
         ("const X: Exp = { 1 };", "this expression"),
     ] {
         let reason = invalid_constant(source);

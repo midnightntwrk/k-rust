@@ -1236,7 +1236,7 @@ pub const IF: Int = 0xFF0F;
 pub const START: Instr = Instruction::Jump(IF);
 ```
 
-The type is a KRS sort, such as `Int`, `Bool`, or a sort alias, and the value is a ground constructor term: a [literal](#literals), a constructor application whose arguments are ground terms, or another constant.
+The type is a KRS sort, such as `Int`, `Bool`, or a sort alias, and the value is a ground constructor term: a [literal](#literals) or a `k::id!`, `k::bytes!` or `k::lexeme!` token, each one constant of its sort, a constructor application whose arguments are ground terms, or another constant.
 A constant is a name for that term, so every use stands for it: `int::add(g, IF)`, a table row `port_if: IF => 1;`, a readable record `{ pc: PC_START }`, an initializer, a claim, and a `requires` all mean what they would with `65295` written there.
 KRS substitutes the value at every use before it analyses anything, so sort inference, the overlap and coverage checks, and the emitted K see the value and never a symbol for the constant: two rows of one table keyed `IF` and `65295` overlap, and `krs check` says so.
 
@@ -1245,7 +1245,7 @@ In a pattern, a bare name spelled as Rust spells a constant, with an uppercase l
 KRS binders are snake case, so the two never meet, and a bare uppercase name that names no constant is rustc's unresolved-name error at the name, never a binder.
 Rust shares one hazard: a misspelled lowercase name in a pattern is a binder, which matches everything.
 
-The value is restricted to ground constructor terms so that every use is a value a pattern can match and nothing about it depends on evaluation: an application of a function or a builtin operation (`int::add(1, 2)`, `1.add::<Int>(2)`) is rejected (`krs::syntax::invalid-constant` for notation and term macros, `krs::analysis::invalid-constant` for a function), as are a `static`, generics, and a type that is not a sort (`krs::syntax::invalid-constant`).
+The value is restricted to ground constructor terms so that every use is a value a pattern can match and nothing about it depends on evaluation: an application of a function or a builtin operation (`int::add(1, 2)`, `1.add::<Int>(2)`) is rejected (`krs::syntax::invalid-constant` for notation and the other term macros, `krs::analysis::invalid-constant` for a function), as are a `static`, generics, and a type that is not a sort (`krs::syntax::invalid-constant`).
 The value's sort must be the declared sort or one below it, which `krs check` reports as an ordinary sort error at the value, so a use is well sorted wherever the declared sort is; a use is then checked at the value's own sort, as if the value were written there.
 Constants that refer to each other in a cycle, and a use that passes a constant arguments (`IF(1)`), are rejected (`krs::analysis::invalid-constant`).
 The Rust item a constant expands to is a unit struct of the same name, which gives the name its place in Rust's scopes; Rust code does not use it as a value.

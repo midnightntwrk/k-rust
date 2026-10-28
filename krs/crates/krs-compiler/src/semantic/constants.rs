@@ -230,6 +230,21 @@ impl Substitution<'_> {
                 key: self.key(origin)?,
                 literal: literal.clone(),
             },
+            // `k::id!`, `k::bytes!` and `k::lexeme!` each denote one token of
+            // their sort, a ground term as a literal is.
+            DescriptorTerm::BuiltinToken { sort, value, .. } => DescriptorTerm::BuiltinToken {
+                key: self.key(origin)?,
+                sort: *sort,
+                value: value.clone(),
+            },
+            DescriptorTerm::Lexeme { sort, text, .. } => DescriptorTerm::Lexeme {
+                key: self.key(origin)?,
+                sort: krs_ir::DescriptorSortReference {
+                    key: self.key(origin)?,
+                    sort: sort.sort.clone(),
+                },
+                text: text.clone(),
+            },
             DescriptorTerm::Application {
                 head_class,
                 reference,
@@ -243,7 +258,7 @@ impl Substitution<'_> {
                 if update.is_some() {
                     return Err(DescriptorLoweringError::unsupported_shape(
                         "constant value",
-                        "a constant's value is a literal or a constructor application",
+                        "a constant's value is a literal, a token, or a constructor application",
                     ));
                 }
                 let reference = krs_ir::DescriptorApplicationReference {
@@ -284,7 +299,7 @@ impl Substitution<'_> {
             _ => {
                 return Err(DescriptorLoweringError::unsupported_shape(
                     "constant value",
-                    "a constant's value is a literal or a constructor application",
+                    "a constant's value is a literal, a token, or a constructor application",
                 ));
             }
         })

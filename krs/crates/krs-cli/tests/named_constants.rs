@@ -224,6 +224,15 @@ fn krs(
 
 /// The emitted `definition.k` and `spec.k`.
 fn emitted_k(target: &Path, manifest: &Path) -> (String, String) {
+    let output = emit_k(target, manifest);
+    (
+        fs::read_to_string(output.join("definition.k")).unwrap(),
+        fs::read_to_string(output.join("spec.k")).unwrap(),
+    )
+}
+
+/// The directory `krs emit-k` wrote.
+fn emit_k(target: &Path, manifest: &Path) -> PathBuf {
     let output = manifest.with_file_name("emitted");
     let (success, _, stderr) = krs(
         target,
@@ -233,10 +242,7 @@ fn emitted_k(target: &Path, manifest: &Path) -> (String, String) {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    (
-        fs::read_to_string(output.join("definition.k")).unwrap(),
-        fs::read_to_string(output.join("spec.k")).unwrap(),
-    )
+    output
 }
 
 /// The `<k>` and `<pc>` cells after `krs run` of `program`.
@@ -319,6 +325,79 @@ fn a_constant_stands_for_its_value_at_every_use() {
         stdout.contains("Port(crate ::IF)") || stdout.contains("Port(crate::IF)"),
         "{stdout}"
     );
+}
+
+/// The constant islands `k::id!`, `k::bytes!` and `k::lexeme!` as constant
+/// values, used in a pattern and a result directly and through a constant
+/// built from them.
+const ISLANDS: &str = r#"
+use k::builtin::{Bytes, Id};
+
+/// A closed token sort, for `k::lexeme!`.
+#[k::token(regex = r"w[a-z]*")]
+pub struct Word(pub String);
+
+#[k::constructors(sort = Instr, result = KResult)]
+pub enum Named {
+    #[k::syntax("named({name}, {code}, {word})")]
+    Entry { name: Id, code: Bytes, word: Word },
+}
+"#;
+
+#[test]
+fn a_constant_island_stands_for_its_token_at_every_use() {
+    let target = shared_fixture_target();
+    let named = temp_dir();
+    let inline = temp_dir();
+    let named_manifest = package(
+        named.path(),
+        &format!(
+            r#"{ISLANDS}{INITIALIZER}
+#[k::constant]
+pub const MAIN: Id = k::id!("$main");
+
+#[k::constant]
+pub const MAGIC: Bytes = k::bytes!(b"ab");
+
+#[k::constant]
+pub const WORD: Word = k::lexeme!(Word, "word");
+
+#[k::constant]
+pub const ENTRY: Instr = Named::Entry(MAIN, MAGIC, WORD);
+
+k::rules! {{
+    for Exp;
+    use ExpSyntax::*;
+
+    entry: Fetch(Named::Entry(MAIN, MAGIC, WORD)) => Wrap(1);
+    exit : Load(0)                                => Fetch(ENTRY);
+}}
+"#
+        ),
+    );
+    let inline_manifest = package(
+        inline.path(),
+        &format!(
+            r#"{ISLANDS}{INITIALIZER}
+k::rules! {{
+    for Exp;
+    use ExpSyntax::*;
+
+    entry: Fetch(Named::Entry(k::id!("$main"), k::bytes!(b"ab"), k::lexeme!(Word, "word")))
+        => Wrap(1);
+    exit : Load(0)
+        => Fetch(Named::Entry(k::id!("$main"), k::bytes!(b"ab"), k::lexeme!(Word, "word")));
+}}
+"#
+        ),
+    );
+    let definition = |manifest| {
+        fs::read_to_string(emit_k(target.path(), manifest).join("definition.k")).unwrap()
+    };
+    let named = definition(&named_manifest);
+    assert_eq!(named, definition(&inline_manifest));
+    let entry = r#"named ( #token("$main","Id") , #token("b\"\x61\x62\"","Bytes") , #token("word","Word") )"#;
+    assert_eq!(named.matches(entry).count(), 2, "{named}");
 }
 
 #[test]

@@ -7,8 +7,9 @@
 //! ```
 //!
 //! The type is a KRS sort and the value a ground constructor term: a
-//! literal, a constructor application whose arguments are ground terms, or
-//! another constant. The compiler substitutes the value at every use, in
+//! literal (`k::id!`, `k::bytes!` and `k::lexeme!` among them), a
+//! constructor application whose arguments are ground terms, or another
+//! constant. The compiler substitutes the value at every use, in
 //! patterns as in results, so a value that applies a function or a builtin
 //! operation, which could not be matched, is rejected (the compiler rejects
 //! the functions it alone can recognise). Both the macro and the collector
@@ -71,7 +72,8 @@ impl ConstantItem {
 
     /// Keys the constant: its name, its type, its value as the value's
     /// payload, then the value's paths, nodes and record field names, which
-    /// are numbered as the nodes of a rule result are.
+    /// are numbered as the nodes of a rule result are, and its constant
+    /// islands.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
         self.name_key = Some(keys.key(
@@ -105,6 +107,10 @@ impl ConstantItem {
             term_keys,
             ProvenanceRole::RuleRightRecordFieldName,
         )?;
+        // The constant islands, each kind numbered in preorder, as in an
+        // initializer.
+        crate::state_rule::allocate_claim_node_keys(&mut keys, [(nodes, &mut *term_keys)])?;
+        crate::term::allocate_lexeme_keys(&mut keys, nodes, term_keys)?;
         self.anchors = keys.into_anchors();
         Ok(self)
     }
@@ -187,10 +193,11 @@ fn invalid(reason: &str, span: proc_macro2::Span) -> SyntaxError {
 
 /// Checks that `expression` is built of literals, constructor applications,
 /// and paths only. A path is another constant or a unit constructor: a
-/// constant has no binders, so no name in it is a variable. Notation such as
-/// `a.add::<Int>(b)` or `a && b` and term macros are builtin operations or
-/// non-constructor terms, so they are rejected here, where their authored
-/// span is still at hand.
+/// constant has no binders, so no name in it is a variable. `k::id!`,
+/// `k::bytes!` and `k::lexeme!` each denote one constant of their sort, so
+/// they are literals too. Notation such as `a.add::<Int>(b)` or `a && b` and
+/// the other term macros are builtin operations or non-constructor terms, so
+/// they are rejected here, where their authored span is still at hand.
 fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
     let not_ground = |what: &str, span: proc_macro2::Span| {
         Err(invalid(
@@ -209,6 +216,7 @@ fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
         Expr::Paren(inner) => check_ground(&inner.expr, name),
         Expr::Group(inner) => check_ground(&inner.expr, name),
         Expr::Lit(_) => Ok(()),
+        Expr::Macro(island) if crate::term::is_constant_island_macro(&island.mac.path) => Ok(()),
         Expr::Unary(syn::ExprUnary {
             op: syn::UnOp::Neg(_),
             expr,
