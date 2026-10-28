@@ -9,6 +9,7 @@ What k2lean is for, and where a piece of work belongs, is in [`product.md`](prod
 
 The input is krust's compiled definition: `definition.kore` and `runtime.json` from `krust kcompile` (the KORE theory of the definition, and its configuration variables).
 The output of `k2lean gen --kore definition.kore --runtime runtime.json --out DIR --name NS` is a Lake project in `DIR` that requires the Lake package `k2lean` (`lean`: `KPrelude` and `KClaims`) by relative path (`--prelude`, relative to `DIR`):
+With `--prelude-git URL@REV` (or, with no `--prelude`, the release the binary was built for, `K2LEAN_PACKAGE_GIT`) it requires the package by git at that commit (`require k2lean from git "URL" @ "REV" / "k2lean/lean"`): a commit rather than a tag, since the statements are about one revision's hook models. Lake uses the root package's revision of a package that several require, without a word, so the library's root module checks it: `#k2l_check_prelude "V"` fails unless the package is k2lean `V` (`KPrelude.version`; `dev` in the checkout matches any).
 
 | module | content |
 |---|---|

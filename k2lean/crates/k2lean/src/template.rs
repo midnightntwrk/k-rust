@@ -36,6 +36,8 @@ struct Lib {
     /// `init`'s parameters, `(name, sort)`, when the library has `Init.lean`.
     init: Option<Vec<(String, String)>>,
     prelude: Option<PathBuf>,
+    /// The library's `require` of `k2lean` by git (PKG-5), which a project over it repeats.
+    prelude_git: Option<String>,
 }
 
 fn read(p: &Path) -> Result<String, String> {
@@ -59,6 +61,10 @@ fn load_lib(dir: &Path) -> Result<Lib, String> {
         .lines()
         .find_map(|l| l.strip_prefix("require k2lean from \""))
         .map(|l| dir.join(l.trim_end_matches('"')));
+    let prelude_git = lake
+        .lines()
+        .find(|l| l.starts_with("require k2lean from git "))
+        .map(str::to_string);
     let g = casediff::load(dir)?;
     if g.ns != ns {
         return Err(format!(
@@ -101,6 +107,7 @@ fn load_lib(dir: &Path) -> Result<Lib, String> {
         cases: g.cases,
         init,
         prelude,
+        prelude_git,
     })
 }
 
@@ -147,13 +154,7 @@ pub struct Skeleton {
     pub files: Vec<(PathBuf, String)>,
 }
 
-fn skeleton(
-    lib: &Lib,
-    name: &str,
-    lib_rel: &Path,
-    prelude_rel: &Path,
-    toolchain: &str,
-) -> Skeleton {
+fn skeleton(lib: &Lib, name: &str, lib_rel: &Path, require: &str, toolchain: &str) -> Skeleton {
     let ns = &lib.ns;
     let top = format!("{ns}.{}", lib.top);
     let n_rules = lib.cases.len();
@@ -162,8 +163,7 @@ fn skeleton(
     files.push((
         PathBuf::from("lakefile.lean"),
         format!(
-            "import Lake\nopen Lake DSL\n\n/-- A kind 2 invariant of `{ns}`: a predicate written in Lean, proved to be kept by every rule\n(skeleton written by `k2lean new-invariant`; every file is hand-written from here on). -/\npackage «{name}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n  fixedToolchain := true\n\nrequire k2lean from \"{}\"\nrequire «{ns}» from \"{}\"\n\n@[default_target]\nlean_lib {name}\n",
-            quote_rel(prelude_rel),
+            "import Lake\nopen Lake DSL\n\n/-- A kind 2 invariant of `{ns}`: a predicate written in Lean, proved to be kept by every rule\n(skeleton written by `k2lean new-invariant`; every file is hand-written from here on). -/\npackage «{name}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n  fixedToolchain := true\n\n{require}\nrequire «{ns}» from \"{}\"\n\n@[default_target]\nlean_lib {name}\n",
             quote_rel(lib_rel)
         ),
     ));
@@ -354,18 +354,18 @@ pub fn main(args: &[String]) {
         ));
     }
     std::fs::create_dir_all(&out).unwrap_or_else(|e| fail(&format!("{}: {e}", out.display())));
-    let prelude = prelude
-        .or(l.prelude.clone())
-        .unwrap_or_else(|| fail("no --prelude, and the library's lakefile names none"));
+    // the package by path (`--prelude`, else the library's path, relative to the new project),
+    // else by the library's git `require`
+    let require = match prelude.or(l.prelude.clone()) {
+        Some(p) => format!("require k2lean from \"{}\"", quote_rel(&relative(&out, &p))),
+        None => l
+            .prelude_git
+            .clone()
+            .unwrap_or_else(|| fail("no --prelude, and the library's lakefile requires no k2lean")),
+    };
     let toolchain = std::fs::read_to_string(l.dir.join("lean-toolchain"))
         .unwrap_or_else(|_| crate::LEAN_TOOLCHAIN.to_string());
-    let sk = skeleton(
-        &l,
-        &name,
-        &relative(&out, &l.dir),
-        &relative(&out, &prelude),
-        &toolchain,
-    );
+    let sk = skeleton(&l, &name, &relative(&out, &l.dir), &require, &toolchain);
     for (p, text) in &sk.files {
         let f = out.join(p);
         if f.exists() {
