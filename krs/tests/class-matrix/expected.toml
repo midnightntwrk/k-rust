@@ -794,7 +794,7 @@ at = "spelling"
 
 # list-notation-sort (NT-2): list brackets at a `KItem` position
 [[refuse]]
-match = 'terms/{alias/subject,alias/subject-root,cells-claim/item-root,cells-claim/subject,cells-local/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,context/subject-root,desugar/subject,desugar/subject-root,equation/subject,equation/subject-depth-2,local-rule/subject,local-rule/subject/rewrite-left,readable/item-root,readable/list-element,readable/subject,readable/subject-depth-2,rule/guard/let-pattern,rule/subject,rule/subject-depth-2,rule/subject-root,rule/subject/as-body,simplification/subject,simplification/subject-root,sort-rule/result/let-pattern,sort-rule/subject,sort-rule/subject-depth-2,sort-rule/subject-root,sort-rule/subject-root-term,table/subject,table/subject-depth-2}/[x\, ..]'
+match = 'terms/{alias/subject,alias/subject-root,cells-claim/item-root,cells-claim/subject,cells-local/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,context/subject-root,desugar/subject,desugar/subject-root,equation/subject,equation/subject-depth-2,local-rule/subject,local-rule/subject/rewrite-left,readable/collection-child,readable/cons-element,readable/item-root,readable/list-element,readable/subject,readable/subject-depth-2,rule/guard/let-pattern,rule/subject,rule/subject-depth-2,rule/subject-root,rule/subject/as-body,simplification/subject,simplification/subject-root,sort-rule/result/let-pattern,sort-rule/subject,sort-rule/subject-depth-2,sort-rule/subject-root,sort-rule/subject-root-term,table/subject,table/subject-depth-2}/[x\, ..]'
 class = "list-notation-sort"
 at = "spelling"
 
@@ -933,7 +933,7 @@ at = "spelling"
 
 # alternatives-bind-unequally (NT-2 review): alternatives in a subject that bind other names, at a sibling whose product refuses it for another reason first, and at the review's new positions
 [[refuse]]
-match = 'terms/{alias/subject,cells-claim/item-root,cells-claim/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,desugar/subject,equation/subject,equation/subject-depth-2,readable/item-root,readable/list-element,readable/map-key/matches-pattern,readable/subject,readable/subject-depth-2,rule/guard/matches-pattern,rule/subject,rule/subject-depth-2,rule/subject/as-body,rule/subject/or-branch,rule/subject/set-element,sort-rule/result/matches-pattern,sort-rule/subject,sort-rule/subject-depth-2,table/subject,table/subject-depth-2}/x | 1'
+match = 'terms/{alias/subject,cells-claim/item-root,cells-claim/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,desugar/subject,equation/subject,equation/subject-depth-2,readable/collection-child,readable/cons-element,readable/item-root,readable/list-element,readable/map-key/matches-pattern,readable/subject,readable/subject-depth-2,rule/guard/matches-pattern,rule/subject,rule/subject-depth-2,rule/subject/as-body,rule/subject/or-branch,rule/subject/set-element,sort-rule/result/matches-pattern,sort-rule/subject,sort-rule/subject-depth-2,table/subject,table/subject-depth-2}/x | 1'
 class = "alternatives-bind-unequally"
 at = "spelling"
 

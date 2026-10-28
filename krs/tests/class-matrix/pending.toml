@@ -2884,6 +2884,8 @@ deviation = "krs::expand::let-outside-term @ spelling"
 # emitted as matched (`<stack> ListItem(size ( V0:KItem )) ... </stack>`), so the rule never applies:
 # the list holds evaluated values. An element of a list in a pattern is matched as any argument is,
 # unlike a map key, which is looked up (decision D1, NT-F4).
+# The generator's D1 positions show the same in a cons list's element and a List collection's
+# instance child (`size(X) : Rest`, `<item> size(X) </item>`).
 
 ["terms/readable/list-element/Size(x)"]
 finding = "NT-1-2"
@@ -2904,6 +2906,42 @@ deviation = "accepted"
 ["terms/readable/list-element/k::builtin::int::add(x, 1)"]
 finding = "NT-1-2"
 deviation = "accepted"
+
+["terms/readable/collection-child/Size(x)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+["terms/readable/collection-child/k::builtin::int::add(1, 2)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+["terms/readable/collection-child/k::builtin::int::add(x, 1)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+["terms/readable/cons-element/Size(x)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+["terms/readable/cons-element/k::builtin::int::add(1, 2)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+["terms/readable/cons-element/k::builtin::int::add(x, 1)"]
+finding = "NT-1-2"
+deviation = "accepted"
+
+["k3/terms/readable/cons-element/Size(x)"]
+finding = "NT-1-2"
+deviation = "printed surface refused: krs::analysis::function-in-pattern @ item"
+
+["k3/terms/readable/cons-element/k::builtin::int::add(1, 2)"]
+finding = "NT-1-2"
+deviation = "printed surface refused: krs::analysis::function-in-pattern @ item"
+
+["k3/terms/readable/cons-element/k::builtin::int::add(x, 1)"]
+finding = "NT-1-2"
+deviation = "printed surface refused: krs::analysis::function-in-pattern @ item"
 
 # NT-1-3: a claim's and a simplification's subject refuse `k::is!` and `k::project!`, though they admit a function application
 # A sort test lowers to an application of the sort's generated predicate or projection
@@ -4067,6 +4105,38 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
+["terms/readable/cons-element/x & 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/cons-element/x && true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/cons-element/x + 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/cons-element/x < 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/cons-element/x << 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/cons-element/x == 1"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/cons-element/x || true"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["terms/readable/cons-element/x.add::<Int>(1)"]
+finding = "NT-2-6"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
 # NT-2-7: `_` where no production field gives it a sort is the descriptor validator's internal message
 # `k::matches!(x, _)` and a `cells!` computation item `KCell(_, ..)` (also the `cells!` rule `krs
 # expand` prints for the readable `{ k: [_, ..] }`) report `krs::analysis::invalid-term` "wildcard has
@@ -4466,6 +4536,14 @@ finding = "NT-2-16"
 deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
 
 ["k3/terms/table/subject/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/collection-child/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/cons-element/Wrap::<KItem>(x)"]
 finding = "NT-2-16"
 deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
 

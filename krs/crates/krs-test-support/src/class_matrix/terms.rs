@@ -48,6 +48,7 @@ use k::{KItem, KResult, Term};
 
 k::sorts! {
     Stmt;
+    Items;
     Value: Stmt + KResult;
     impl Value for Int;
 }
@@ -71,6 +72,7 @@ use Cmd::*;
 
 k::sorts! {
     Stmt;
+    Items;
     Value: Stmt + KResult;
     impl Value for Int;
 }
@@ -102,6 +104,15 @@ pub struct Size {
     pub a: Term<KItem>,
 }
 
+/// A cons list of items, whose elements bracket notation reads.
+#[k::constructors(sort = Items, result = KResult)]
+#[k::cons_list]
+#[rustfmt::skip]
+pub enum Seq {
+    #[k::syntax("nil")] Nil(),
+    #[k::syntax("cons({head}, {tail})")] Cons { head: KItem, tail: Items },
+}
+
 /// A parametric constructor, whose turbofish names its instance.
 #[k::constructor(sort = S, syntax = "wrap({inner})")]
 pub struct Wrap<S: ?Sized> {
@@ -115,6 +126,21 @@ pub struct Frame {
     pub ret: Int,
 }
 
+/// The parent of the `member` collection.
+#[k::cell]
+pub struct Pool {
+    #[k::cell(multiplicity = "*", cell_type = "List", nested)]
+    pub member: Member,
+}
+
+/// One instance of the `member` collection, whose child holds a command: an initializer writes
+/// a value of its cell's own sort.
+#[k::cell]
+pub struct Member {
+    #[k::cell]
+    pub item: Stmt,
+}
+
 #[k::configuration]
 pub struct Machine {
     #[k::cell]
@@ -125,6 +151,10 @@ pub struct Machine {
     pub stack: List,
     #[k::cell(nested)]
     pub frame: Frame,
+    #[k::cell]
+    pub seq: Items,
+    #[k::cell(nested)]
+    pub pool: Pool,
 }
 
 "#;
@@ -137,6 +167,8 @@ const INITIALIZER: &str = r#"impl Machine {
             env: k::map![],
             stack: list::empty(),
             frame: Frame { ret: 0 },
+            seq: Seq::Nil(),
+            pool: Pool { member: Member { item: Cmd::Go() } },
         }
     }
 }
@@ -1292,6 +1324,22 @@ fn slots() -> Vec<Slot> {
             (ReadableRule, Part::Subject, &[ListElement]),
             "k::rules! {\n    for Machine;\nUSES\n    case_TAG: { k: [Cmd::NAME(x, _), ..], stack: [HOLE, ..] } => { k: [..] };\n}\n",
         ),
+        // A cons list's element and a List collection's instance's child, matched as the values
+        // the list holds (decision D1).
+        slot(
+            "readable",
+            "cons-element",
+            Side::Subject,
+            (ReadableRule, Part::Subject, &[ListElement]),
+            "k::rules! {\n    for Machine;\nUSES\n    case_TAG: { k: [Cmd::NAME(x, _), ..], seq: [HOLE, ..] } => { k: [..] };\n}\n",
+        ),
+        slot(
+            "readable",
+            "collection-child",
+            Side::Subject,
+            (ReadableRule, Part::Subject, &[ListElement, Argument, Argument]),
+            "k::rules! {\n    for Machine;\nUSES\n    case_TAG: { k: [Cmd::NAME(x, _), ..], member: [Member { item: Cmd::Hold(HOLE) }, ..] } => { k: [..] };\n}\n",
+        ),
         slot(
             "readable",
             "result-list-element",
@@ -1461,7 +1509,7 @@ fn slots() -> Vec<Slot> {
 /// An initializer whose computation cell holds `pgm` and `item`.
 fn initializer(item: &str) -> String {
     format!(
-        "impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {{\n        Self {{\n            k: k::k![pgm, {item}],\n            env: k::map![],\n            stack: list::empty(),\n            frame: Frame {{ ret: 0 }},\n        }}\n    }}\n}}\n"
+        "impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {{\n        Self {{\n            k: k::k![pgm, {item}],\n            env: k::map![],\n            stack: list::empty(),\n            frame: Frame {{ ret: 0 }},\n            seq: Seq::Nil(),\n            pool: Pool {{ member: Member {{ item: Cmd::Go() }} }},\n        }}\n    }}\n}}\n"
     )
 }
 

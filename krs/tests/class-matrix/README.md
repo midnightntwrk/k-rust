@@ -24,7 +24,10 @@ construct means something and which mistake it is elsewhere. The precedence for 
 The term family's positions (`class_matrix::terms`) are of three kinds, each a path of openings
 from a slot's root, so a case's position is data the oracle reads, never parsed from its ID:
 
-- the argument positions of the 17 sentence forms (`terms/rule/subject/..`);
+- the argument positions of the 17 sentence forms (`terms/rule/subject/..`), a readable record's
+  collection entries among them: a map read's key and value, and the elements of a List cell, a
+  cons list (`terms/readable/cons-element/..`) and a List collection's instances
+  (`terms/readable/collection-child/..`), which a pattern matches (decision D1);
 - the slots' roots: a fn's, an equation's, a simplification's, a context's and a static clause's
   whole subject, a `for KItem` clause's bare and in `k::term!` (`terms/sort-rule/subject-root-term/..`),
   a result's, a constant's and a computation item's (`terms/readable/item-root/..`);
@@ -48,7 +51,7 @@ on every term case, and a case they disagree on must be pending.
 A refusal of the oracle lies at the spelling, or at the entry (the outer construct's text) when the
 refused construct is the one a depth-2 case's construct stands in.
 
-**Size.** The term family is about 4,600 cases and the import axis 150, of about 5,500 in all; the
+**Size.** The term family is about 4,650 cases and the import axis 154, of about 5,600 in all; the
 generator caps the total at `FRONT_CASE_CAP` (6,000), whose documentation argues the fast tier's
 budget (7.5 ms a case single-threaded). The full tier's `terms` shard takes about 4 minutes with 22
 workers. The term families' accept entries are most of the table, so they live in

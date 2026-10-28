@@ -55,7 +55,7 @@ const KNOWN: [(&str, &str); 21] = [
         "NT-1-1",
     ),
     (
-        r"terms/{cells/map-value,readable/list-element}/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
+        r"terms/{cells/map-value,readable/collection-child,readable/cons-element,readable/list-element}/{Size(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1)}",
         "NT-1-2",
     ),
     (
