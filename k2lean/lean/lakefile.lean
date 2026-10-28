@@ -24,3 +24,11 @@ lean_lib KClaims where
 lean_lib KClaimsTest where
   srcDir := "claims"
   roots := #[`KClaimsTest.Keywords]
+
+/-- `k2l-eval FILE MODULE [OUT.jsonl [SPEC.MODULE]]`: heartbeats per command of one module and each
+theorem's status against its frozen statement; `k2l-eval --replay MODULE`: a kernel replay (CT-4a).
+Compiled: interpreted, it needs twice the memory. -/
+lean_exe «k2l-eval» where
+  srcDir := "eval"
+  root := `K2lEval
+  supportInterpreter := true

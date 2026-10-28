@@ -217,7 +217,15 @@ gate_core() {
   # the fixture of alias patterns (`P #as X`) in equations and owise competitors
   runs lib alias && lib alias KAlias
   # the fixture of equations over an overloaded list, matched modulo its overload axioms
-  runs lib overload && lib overload KOverload
+  if runs lib overload && lib overload KOverload; then
+    # the evaluator (CT-4a): heartbeats per command and each theorem against its frozen statement,
+    # deterministic, no error; and a kernel replay of the module
+    if (cd "$T/lean" && "$RT" lake build k2l-eval) > "$L/k2l-eval.log" 2>&1 &&
+       (cd "$GEN/overload" && "$RT" lake env "$T/lean/.lake/build/bin/k2l-eval" KOverload/Equations.lean \
+          KOverload.Equations "$L/k2l-eval-overload.jsonl" &&
+        "$RT" lake env "$T/lean/.lake/build/bin/k2l-eval" --replay KOverload.Equations) >> "$L/k2l-eval.log" 2>&1
+    then ok "evaluator" "$L/k2l-eval.log"; else bad "evaluator" "$L/k2l-eval.log"; fi
+  fi
   # recursive functions whose termination measures the generator synthesizes (demos/k/term);
   # its least fixed points diverge, proved in the hand module KTerm/DivergesHand.lean and
   # checked under the axiom guard (KTermTest/Diverges.lean)
