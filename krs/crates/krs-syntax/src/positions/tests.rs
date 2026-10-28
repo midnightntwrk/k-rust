@@ -362,3 +362,22 @@ fn a_refusal_names_the_position() {
         )
     );
 }
+
+#[test]
+fn a_subject_root_is_the_matched_head_and_a_value_root_a_term() {
+    for construct in [
+        RootConstruct::As,
+        RootConstruct::Wildcard,
+        RootConstruct::Island,
+    ] {
+        assert!(!PatternRoot::Subject.admits(construct), "{construct:?}");
+        assert!(PatternRoot::Value.admits(construct), "{construct:?}");
+    }
+    assert!(PatternRoot::Subject.names_constructor());
+    assert!(!PatternRoot::Value.names_constructor());
+    // A clause's root binds a bare name and holds an alias or an island as a value does, and is
+    // otherwise a subject's.
+    assert_eq!(PatternRoot::Clause.at(true), PatternRoot::Value);
+    assert_eq!(PatternRoot::Clause.at(false), PatternRoot::Subject);
+    assert_eq!(PatternRoot::Subject.at(true), PatternRoot::Subject);
+}

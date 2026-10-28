@@ -320,6 +320,67 @@ impl fmt::Display for Position {
     }
 }
 
+/// What the root of a subject is, which the pattern reader applies where it reads a subject's
+/// root: the one rule of a pattern that needs the root rather than a construct's position below
+/// it, because it decides what a bare name at the root means.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum PatternRoot {
+    /// The subject of a fn, a table row, a desugar clause or a context: its root is the
+    /// constructor or function the sentence matches. A bare name there names a unit constructor,
+    /// and an alias, `_` or a compiler-owned island cannot stand for the whole subject; each
+    /// alternative of a root `A | B` is a whole subject.
+    Subject,
+    /// The subject of a `for Sort` clause: its root is the constructor the clause matches, as a
+    /// [`Self::Subject`]'s, but a bare name binds the whole subject, and an alias or an island
+    /// stands at the root as it does below a constructor.
+    Clause,
+    /// A readable record's value, which is no sentence's root: the whole pattern, `|` and
+    /// parentheses at its root included, reads as below a constructor.
+    Value,
+}
+
+impl PatternRoot {
+    /// The policy the reader applies to `pattern` at this root, by what the root holds:
+    /// [`Self::Subject`] or [`Self::Value`], since a [`Self::Clause`]'s root reads a bare name,
+    /// an alias or an island as a value and anything else as a subject.
+    #[must_use]
+    pub const fn at(self, holds_name_or_island: bool) -> Self {
+        match self {
+            Self::Clause if holds_name_or_island => Self::Value,
+            Self::Clause | Self::Subject => Self::Subject,
+            Self::Value => Self::Value,
+        }
+    }
+
+    /// Whether a bare name at the root names a unit constructor rather than binding.
+    #[must_use]
+    pub const fn names_constructor(self) -> bool {
+        matches!(self, Self::Subject)
+    }
+
+    /// Whether `construct` may stand for the whole subject at this root. Alternatives and every
+    /// other term may; an alias, `_` and an island stand below a subject's root.
+    #[must_use]
+    pub const fn admits(self, construct: RootConstruct) -> bool {
+        match construct {
+            RootConstruct::As | RootConstruct::Wildcard | RootConstruct::Island => {
+                matches!(self, Self::Value)
+            }
+        }
+    }
+}
+
+/// A construct whose admission at a pattern's root [`PatternRoot`] decides.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum RootConstruct {
+    /// `name @ pattern`.
+    As,
+    /// `_`.
+    Wildcard,
+    /// A compiler-owned island (`k::fragment!`, `k::bytes!`, `k::rewrite!`, ..) or any macro.
+    Island,
+}
+
 /// A term construct whose legality depends on where it stands. Every other term (a binder, a
 /// path, a constructor application) may stand wherever a term may.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

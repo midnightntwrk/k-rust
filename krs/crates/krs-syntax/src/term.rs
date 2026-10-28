@@ -11,6 +11,7 @@ use syn::{
 
 use crate::parse::{KeyAllocator, KrsSyntax};
 use crate::path::{is_plain_path, path_text};
+use crate::positions::{PatternRoot, RootConstruct};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 use krs_ir::ProvenanceKey;
 
@@ -1999,19 +2000,6 @@ fn pattern_or_error(reason: String, span: Span) -> SyntaxError {
 /// The reason given for `|` next to a `..` remainder.
 pub(crate) const PATTERN_OR_REMAINDER: &str = "or-patterns combine terms, not remainders";
 
-/// The variables a term pattern's nodes bind: every bare single-identifier
-/// reference and every `name @ pattern` alias, in preorder.
-fn pattern_binders(nodes: &[TermNode]) -> Vec<syn::Ident> {
-    nodes
-        .iter()
-        .filter_map(|node| match node {
-            TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
-            TermNode::As { binding, .. } => Some(binding.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
 /// Validates `A | B | ..` (K's `#Or`, KF-030): every alternative is a term,
 /// not a `..` remainder, and every alternative binds the same names (rustc's
 /// E0408). The shell node precedes the alternatives' nodes. `validate`
@@ -2105,22 +2093,62 @@ pub(crate) fn validate_pattern_or(
     ))
 }
 
-/// The pattern twin of [`validate_expression`] in pattern context.
+/// The pattern twin of [`validate_expression`] in pattern context, below a
+/// subject's root.
 fn validate_pattern(
     pattern: &Pat,
     signs: &mut crate::rule::NegativeLiteralSpans,
     symbols: &mut Vec<TermSymbol>,
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
+    read_pattern(pattern, PatternRoot::Value, signs, symbols, nodes)
+}
+
+/// Reads a pattern of the term grammar: the one pattern reader, for a
+/// `k::term!` payload, a native rule subject, a readable value, and a
+/// `k::matches!`, `let` or rewrite pattern. `root` is what the pattern's root
+/// is ([`PatternRoot`]); everything below it reads at [`PatternRoot::Value`].
+/// Every construct builds its node wherever it stands; the position table
+/// judges where it may.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One match over syn's closed pattern variants."
+)]
+pub(crate) fn read_pattern(
+    pattern: &Pat,
+    root: PatternRoot,
+    signs: &mut crate::rule::NegativeLiteralSpans,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    let root = root.at(matches!(pattern, Pat::Ident(_) | Pat::Macro(_)));
     match pattern {
         Pat::Ident(identifier) => {
             if let Some((_, subpattern)) = &identifier.subpat {
+                if !root.admits(RootConstruct::As) {
+                    let name = &identifier.ident;
+                    return Err(pattern_as_error(
+                        format!(
+                            "`{name} @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
+                        ),
+                        name.span(),
+                    ));
+                }
                 return validate_pattern_as(identifier, subpattern, nodes, |subpattern, nodes| {
                     validate_pattern(subpattern, signs, symbols, nodes)
                 });
             }
+            let adorned = identifier.by_ref.is_some() || identifier.mutability.is_some();
+            if root.names_constructor() && (adorned || !identifier.attrs.is_empty()) {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::UnsupportedRulePattern {
+                        reason: "a unit constructor subject must be one unadorned Rust identifier",
+                    },
+                    identifier.span(),
+                ));
+            }
             reject_attributes(&identifier.attrs, identifier.span())?;
-            if identifier.by_ref.is_some() || identifier.mutability.is_some() {
+            if adorned {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnsupportedTermExpression {
                         reason: "`ref` and `mut` bindings are not term patterns",
@@ -2161,13 +2189,14 @@ fn validate_pattern(
         Pat::Struct(record) => validate_struct_pattern(record, signs, symbols, nodes),
         Pat::Paren(paren) => {
             reject_attributes(&paren.attrs, paren.span())?;
-            validate_pattern(&paren.pat, signs, symbols, nodes)
+            read_pattern(&paren.pat, root, signs, symbols, nodes)
         }
+        // At a subject's root, each alternative is a whole subject.
         Pat::Or(or) => {
             let (tree, _) = validate_pattern_or(or, nodes, |alternative, nodes| {
-                let start = nodes.len();
-                let tree = validate_pattern(alternative, signs, symbols, nodes)?;
-                Ok((tree, pattern_binders(&nodes[start..])))
+                let tree = read_pattern(alternative, root, signs, symbols, nodes)?;
+                let names = pattern_tree_binders(&tree, root.names_constructor());
+                Ok((tree, names))
             })?;
             Ok(tree)
         }
@@ -2175,9 +2204,12 @@ fn validate_pattern(
             let literal = crate::rule::validate_pattern_literal(literal, nodes, signs)?;
             Ok(TermTree::Literal(literal))
         }
-        Pat::Wild(wildcard) => {
+        Pat::Wild(wildcard) if root.admits(RootConstruct::Wildcard) => {
             reject_attributes(&wildcard.attrs, wildcard.span())?;
             Ok(TermTree::Wildcard(TokenRange::for_tokens(wildcard)?))
+        }
+        Pat::Macro(value) if !root.admits(RootConstruct::Island) => {
+            Err(subject_root_macro(&value.mac.path))
         }
         Pat::Macro(value)
             if matches!(
@@ -2187,22 +2219,53 @@ fn validate_pattern(
         {
             validate_cell_pattern(value, signs, symbols, nodes)
         }
-        Pat::Macro(value)
+        // Every other island parses its own tokens: their negative literals
+        // leave the enclosing pattern's queue.
+        Pat::Macro(value) => {
+            signs.skip(crate::rule::NegativeLiteralSpans::scan(value.mac.tokens.clone()).len());
             if matches!(
                 special_macro_kind(&value.mac.path),
                 Some(TermMacroKind::Rewrite)
-            ) =>
-        {
-            // The rewrite parses its own sides; their negative literals
-            // leave the enclosing pattern's queue.
-            signs.skip(crate::rule::NegativeLiteralSpans::scan(value.mac.tokens.clone()).len());
-            validate_rewrite(value, symbols, nodes)
-        }
-        Pat::Macro(value) => {
+            ) {
+                reject_attributes(&value.attrs, value.span())?;
+                return validate_rewrite(value, symbols, nodes);
+            }
             validate_special_macro(value, TermExpressionContext::Pattern, symbols, nodes)
         }
+        // Tokens that are no Rust pattern but a term expression
+        // ([`parse_term_pattern`]) build the tree they denote.
+        Pat::Verbatim(tokens) => {
+            signs.skip(crate::rule::NegativeLiteralSpans::scan(tokens.clone()).len());
+            let term = TermExpression::parse_pattern_tokens(tokens.clone())?;
+            symbols.extend(term.symbols);
+            nodes.extend(term.nodes);
+            Ok(term.tree)
+        }
+        Pat::Wild(_) => Err(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedRulePattern {
+                reason: "a rule subject's root is the constructor or function the rule matches, so `_` stands only below it",
+            },
+            pattern.span(),
+        )),
         other => Err(unsupported_pattern_form(other)),
     }
+}
+
+/// The error for a macro at the root of a rule's subject. A compiler-owned
+/// island stands below the root, which is the constructor or function the
+/// rule matches; any other macro is not a pattern.
+fn subject_root_macro(path: &Path) -> SyntaxError {
+    let reason = if is_rewrite_macro(path) {
+        "a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root"
+    } else if is_island_macro(path) {
+        "a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b\"..\"))`"
+    } else {
+        return unexpected_macro(path);
+    };
+    SyntaxError::new(
+        SyntaxErrorKind::UnsupportedRulePattern { reason },
+        path.span(),
+    )
 }
 
 fn validate_tuple_struct_pattern(
@@ -2442,35 +2505,9 @@ pub fn is_constant_island_macro(path: &Path) -> bool {
     )
 }
 
-/// Whether `path` names `k::fragment!`, a complete nested-cell term.
-pub(crate) fn is_fragment_macro(path: &Path) -> bool {
-    matches!(special_macro_kind(path), Some(TermMacroKind::Fragment))
-}
-
 /// Whether `path` names `k::rewrite!`, K's local rewrite.
 pub(crate) fn is_rewrite_macro(path: &Path) -> bool {
     matches!(special_macro_kind(path), Some(TermMacroKind::Rewrite))
-}
-
-/// Validates a compiler-owned island inside a pattern that the pattern
-/// grammar of a `k::term!` payload would read: the island builds the tree
-/// and nodes it builds there, so a pattern means the same with or without
-/// the wrapper. `k::fragment!` is read by the caller, whose own grammar reads
-/// the cell's child patterns; `k::rewrite!` is read here, and its caller
-/// decides whether the position admits one. The island's negative literals
-/// leave `signs`, since the island parses its own tokens.
-pub(crate) fn validate_pattern_island(
-    value: &ExprMacro,
-    signs: &mut crate::rule::NegativeLiteralSpans,
-    symbols: &mut Vec<TermSymbol>,
-    nodes: &mut Vec<TermNode>,
-) -> Result<TermTree, SyntaxError> {
-    signs.skip(crate::rule::NegativeLiteralSpans::scan(value.mac.tokens.clone()).len());
-    if is_rewrite_macro(&value.mac.path) {
-        reject_attributes(&value.attrs, value.span())?;
-        return validate_rewrite(value, symbols, nodes);
-    }
-    validate_special_macro(value, TermExpressionContext::Pattern, symbols, nodes)
 }
 
 fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {

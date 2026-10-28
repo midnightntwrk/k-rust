@@ -259,10 +259,8 @@ fn term_sentence_binder_lists_reject_contract_violations() {
 fn malformed_rule_patterns_and_bodies_are_rejected() {
     let cases = [
         ("fn wild(_: Term<Expr>) -> Term<Expr> { Done }", "pattern"),
-        (
-            "fn range(0..=3: Term<Expr>) -> Term<Expr> { Done }",
-            "pattern",
-        ),
+        // A range is no pattern of the term grammar.
+        ("fn range(0..=3: Term<Expr>) -> Term<Expr> { Done }", "term"),
         (
             "fn other(other![Foo]: Term<Expr>) -> Term<Expr> { Done }",
             "macro",
