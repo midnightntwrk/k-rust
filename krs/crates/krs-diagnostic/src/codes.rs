@@ -255,6 +255,7 @@ register_codes! {
         SMT_LEMMA_UNTRANSLATABLE: "krs::analysis::smt-lemma-untranslatable" => "An `smt_lemma` equation or simplification mentions a function Z3 cannot see: a user function without `smtlib` or `smt_hook`, or a builtin without an SMT translation.",
         INVALID_FRESH_GENERATOR: "krs::analysis::invalid-fresh-generator" => "A `fresh_generator` function is not total, does not take exactly one Int argument, or does not return the sort it generates.",
         RAW_K: "krs::semantic::raw-k" => "A `raw_k!` sentence is unchecked K text: a warning in a package that allows raw K, otherwise an error.",
+        FUNCTION_IN_PATTERN: "krs::analysis::function-in-pattern" => "A rule's or an equation's pattern applies a function below its root, outside a collection's key, value or element: the terms a rule or an equation applies to have their functions evaluated, so the pattern describes a term that never occurs.",
         INVALID_SORT_TEST: "krs::analysis::invalid-sort-test" => "A `k::is!` or `k::project!` term occurs in a left-hand side or pattern, or projects into `K`.",
         BIT_TEMPLATE_SORT: "krs::analysis::bit-template-sort" => "A `k::bits!` template, which matches an `Int`, stands at a position whose sort is neither `Int` nor a sort above it.",
         TRIVIAL_SORT_TEST: "krs::analysis::trivial-sort-test" => "A `k::project!` term projects to a supersort of its operand's sort, or `k::is!(K, ..)` is always true.",

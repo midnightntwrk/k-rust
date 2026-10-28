@@ -12,6 +12,7 @@ mod error;
 mod evaluation;
 mod family_precedence;
 mod fresh;
+mod function_patterns;
 mod grammar;
 mod infer;
 mod lexicals;
@@ -164,6 +165,7 @@ pub fn lower_descriptor_bundle(
         &production_catalog,
         &semantic_sort_parents,
     )?;
+    function_patterns::check_function_patterns(&descriptors, &production_catalog)?;
     let mut declaration_metadata = bundle
         .declarations()
         .iter()

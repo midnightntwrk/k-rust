@@ -358,6 +358,17 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending name or term.
         range: Option<Box<SourceRange>>,
     },
+    /// A function application below the root of a rule's or an equation's
+    /// pattern, which matches terms whose functions are evaluated, so the
+    /// pattern describes a term that never occurs.
+    FunctionInPattern {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the function.
+        reason: String,
+        /// Sole exact authored range of the application's head.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `let` statement's (K's `#let`) pattern cannot meet its value's sort,
     /// one of its names has no single sort, or a let-bound name is used at a
     /// sort it does not have (KF-032).
@@ -839,6 +850,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::FunctionInPattern {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidLet {
                 range: $named_range,
                 item: $named_item,
@@ -1293,6 +1309,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidPatternOr { reason, .. }
             | Self::InvalidOperator { reason, .. }
             | Self::InvalidMatches { reason, .. }
+            | Self::FunctionInPattern { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
             | Self::InvalidMlPredicate { reason, .. }
@@ -1384,6 +1401,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 OperatorProblem::Undefined => codes::syntax::INVALID_EXPRESSION_NOTATION,
             },
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
+            Self::FunctionInPattern { .. } => codes::analysis::FUNCTION_IN_PATTERN,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,
             Self::InvalidMlPredicate { .. } => codes::analysis::INVALID_ML_PREDICATE,

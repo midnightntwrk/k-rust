@@ -1,0 +1,213 @@
+//! A function application below a pattern's root (`krs::analysis::function-in-pattern`) end to
+//! end: authored packages through `krs check`. The class tests cover the computation cell of
+//! every sentence form; these cover the other places a rule matches, and the places the
+//! application is the meaning.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+
+const PREAMBLE: &str = r#"
+use k::builtin::{Int, KSequence, List, Map};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("load({n})")]
+    Load { n: Int },
+    #[k::syntax("wrap({e})")]
+    Wrap { e: KItem },
+    #[k::syntax("done")]
+    Done(),
+}
+
+#[k::function(partial, sort = Int, syntax = "size({a})")]
+pub struct Size {
+    pub a: Term<KItem>,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub acc: Exp,
+    #[k::cell]
+    pub env: Map,
+    #[k::cell]
+    pub stack: List,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            acc: ExpSyntax::Done(),
+            env: k::map![],
+            stack: k::builtin::list::empty(),
+        }
+    }
+}
+"#;
+
+fn krs_path() -> String {
+    let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../krs")
+        .canonicalize()
+        .unwrap();
+    serde_json::to_string(krs.to_str().unwrap()).unwrap()
+}
+
+/// A one-package workspace named `patterns` whose library is the preamble and `source`.
+fn package(root: &Path, source: &str) -> PathBuf {
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/lib.rs"), format!("{PREAMBLE}{source}")).unwrap();
+    let manifest = root.join("Cargo.toml");
+    fs::write(
+        &manifest,
+        format!(
+            "[package]\nname = \"patterns\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-FUNCTION-PATTERNS\"\n\n[package.metadata.krs.definitions.main]\n\n[workspace]\nresolver = \"3\"\n",
+            krs_path(),
+        ),
+    )
+    .unwrap();
+    manifest
+}
+
+/// `krs check` of the package: whether it passed, and its `error[..]` headlines with the
+/// locations they point at.
+fn check(target: &Path, manifest: &Path) -> (bool, Vec<String>) {
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target);
+    let output = process
+        .args(["check", "--manifest-path"])
+        .arg(manifest)
+        .args(["--package", "patterns", "--definition", "main"])
+        .env("NO_COLOR", "1")
+        .env("KRS_STAGE_CACHE_DIR", target.join("stages"))
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let directory = format!("{}/", manifest.parent().unwrap().display());
+    let errors = stderr
+        .lines()
+        .filter(|line| line.starts_with("error") || line.trim_start().starts_with("--> "))
+        .map(|line| line.trim().replace(&directory, ""))
+        .collect();
+    (output.status.success(), errors)
+}
+
+#[test]
+fn a_function_below_the_root_of_any_pattern_a_rule_matches_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = [
+        (
+            "readable-cell",
+            "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    reset: { k: [Done(), ..], acc: Wrap(Size(x)) } => { k: [..], acc: Done() };\n}\n",
+        ),
+        (
+            "cells-cell",
+            "#[k::rule(label = \"clear\")]\npub fn clear(\n    x: KItem,\n    k::cells! { k: k::configuration::KCell(ExpSyntax::Done(), tail @ ..), acc: k::configuration::Cell(ExpSyntax::Wrap(Size(x))), state @ .. }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), acc: k::configuration::Cell(ExpSyntax::Done()), ..state }\n}\n",
+        ),
+        (
+            "function-context",
+            "#[k::equation]\nfn probe(\n    x: Term<KItem>,\n    k::term![Size(x)]: Term<Int>,\n    k::cells! { acc: k::configuration::Cell(ExpSyntax::Wrap(Size(x))), .. }: Machine,\n) -> Term<Int> {\n    0\n}\n",
+        ),
+        (
+            "collection-function",
+            "#[k::rule(label = \"count\")]\nfn count(k::term![ExpSyntax::Load(k::builtin::list::size(l))]: Term<Exp>) -> Term<Exp> {\n    ExpSyntax::Done()\n}\n",
+        ),
+    ];
+    let outcomes = cases.map(|(name, source)| {
+        let manifest = package(&temporary.path().join(name), source);
+        (name, check(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "readable-cell",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: `Size` is a function, and it is applied below the root of a pattern; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "--> src/lib.rs:52:41",
+                    ],
+                ),
+            ),
+            (
+                "cells-cell",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: `Size` is a function, and it is applied below the root of a pattern; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "--> src/lib.rs:52:119",
+                    ],
+                ),
+            ),
+            (
+                "function-context",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: `Size` is a function, and it is applied below the root of a pattern; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "--> src/lib.rs:53:61",
+                    ],
+                ),
+            ),
+            (
+                "collection-function",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: `k::builtin::list::size` is a builtin function, and it is applied below the root of a pattern; a function application denotes the value evaluation produces, and every term a rule or an equation is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "--> src/lib.rs:50:35",
+                    ],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// The application is the meaning at an equation's root, in a simplification's and a claim's
+/// subject, in a map key, and in a result.
+#[test]
+fn an_application_that_is_the_meaning_is_accepted() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let source = r"
+#[k::equation]
+fn size_wrap(k::term![Size(ExpSyntax::Wrap(x))]: Term<Int>) -> Term<Int> {
+    Size(x)
+}
+
+#[k::simplification]
+fn size_of_size(k::term![Size(ExpSyntax::Wrap(Size(x)))]: Term<Int>) -> Term<Int> {
+    Size(x)
+}
+
+k::rules! {
+    for Machine;
+    use ExpSyntax::*;
+    read: { k: [Load(n), ..], env: { Size(n) -> v, .. } } => { k: [Wrap(v), ..] };
+}
+
+k::claims! {
+    for Machine;
+    use ExpSyntax::*;
+    #[k::claim(all_paths)]
+    sized: { k: [Wrap(Size(x)), ..] } => { k: [..] };
+}
+";
+    let manifest = package(&temporary.path().join("accepted"), source);
+    let (success, errors) = check(target.path(), &manifest);
+    assert!(success, "{errors:#?}");
+}
