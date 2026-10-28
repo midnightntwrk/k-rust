@@ -712,12 +712,13 @@ pairs = [
 
 [threads]
 rules = 169
-thread = 158
+thread = 162
 shared = 7
-global = 4
+global = 0
 classes = 12
-open = 1699
-open-global = 1304
-open-cells = 75
-open-priority = 320
-same-thread = 700
+open = 420
+open-global = 0
+open-cells = 92
+open-priority = 328
+open-insert = 0
+same-thread = 708
