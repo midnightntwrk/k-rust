@@ -464,7 +464,7 @@ impl RuleItem {
                 ));
             }
             (true, Some(_)) => {
-                crate::term::check_rewrite_right_bindings(pattern.nodes(), pattern.bindings())?;
+                crate::term::check_rewrite_right_bindings(&subject_tree, pattern.bindings())?;
             }
             (false, None) => {}
         }

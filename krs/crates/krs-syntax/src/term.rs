@@ -2903,60 +2903,147 @@ fn validate_rewrite(
     })
 }
 
-/// Splits nodes into those of the left image (KF-011), every node outside
-/// the right side of a `k::rewrite!` (the rewrite shells excluded), and
-/// those of the right sides.
-#[must_use]
-pub(crate) fn split_rewrite_images(nodes: &[TermNode]) -> (Vec<&TermNode>, Vec<&TermNode>) {
-    let mut left = Vec::new();
-    let mut right = Vec::new();
-    let mut index = 0;
-    while index < nodes.len() {
-        if let TermNode::Rewrite {
-            from_nodes,
-            to_nodes,
-            ..
-        } = &nodes[index]
-        {
-            let from_end = index + 1 + from_nodes;
-            left.extend(&nodes[index + 1..from_end]);
-            right.extend(&nodes[from_end..from_end + to_nodes]);
-            index = from_end + to_nodes;
-            continue;
-        }
-        left.push(&nodes[index]);
-        index += 1;
-    }
-    (left, right)
-}
-
 /// Checks that every unqualified bare name on the right side of a
-/// `k::rewrite!` is one of `bindings`, the left image's term bindings
-/// (KF-011): the right side is part of the subject, where a bare name is a
-/// variable.
+/// `k::rewrite!` in `tree` is one of `bindings`, the left image's term
+/// bindings (KF-011), or a name the right side binds around it: the right
+/// side is a term built over the subject's bindings, in which a `let` binds
+/// its names in the rest of its block, an `ml::exists` closure its parameter
+/// in its body, and a `k::matches!` pattern its names in itself, as they do in
+/// a result.
 ///
 /// # Errors
 ///
 /// Returns [`SyntaxErrorKind::InvalidLocalRewrite`] at the first unbound name.
 pub(crate) fn check_rewrite_right_bindings(
-    nodes: &[TermNode],
+    tree: &TermTree,
     bindings: &[syn::Ident],
 ) -> Result<(), SyntaxError> {
-    let (_, right) = split_rewrite_images(nodes);
-    for node in right {
-        if let TermNode::Reference(path) = node
-            && let Some(name) = crate::path::pattern_binder(path)
-            && !bindings.iter().any(|binding| binding == name)
-        {
-            return Err(local_rewrite_error(
-                format!(
-                    "`{name}` on the right of `k::rewrite!` is not bound by the rule's left image (its subject with each rewrite replaced by its left side); bind it in the pattern, or qualify a unit constructor"
-                ),
-                name.span(),
-            ));
+    RewriteRightNames {
+        bindings,
+        scopes: Vec::new(),
+    }
+    .find_rewrites(tree)
+}
+
+/// The names in scope on the right side of a `k::rewrite!`.
+struct RewriteRightNames<'a> {
+    /// The left image's term bindings.
+    bindings: &'a [syn::Ident],
+    /// The names the enclosing `let` statements and closures of the right
+    /// side bind, innermost last.
+    scopes: Vec<&'a [syn::Ident]>,
+}
+
+impl<'a> RewriteRightNames<'a> {
+    /// Checks the right side of every rewrite at or below `tree`, a part of
+    /// the subject.
+    fn find_rewrites(&mut self, tree: &'a TermTree) -> Result<(), SyntaxError> {
+        match tree {
+            TermTree::Rewrite { to, .. } => to.as_deref().map_or(Ok(()), |to| self.right(to)),
+            other => subterms(other)
+                .into_iter()
+                .try_for_each(|subterm| self.find_rewrites(subterm)),
         }
     }
-    Ok(())
+
+    /// Checks the names of `tree`, a part of a rewrite's right side.
+    fn right(&mut self, tree: &'a TermTree) -> Result<(), SyntaxError> {
+        match tree {
+            TermTree::Reference(path) => self.name(path),
+            // The value is read outside the pattern's scope, the rest of the
+            // block inside it.
+            TermTree::Let {
+                value,
+                body,
+                binders,
+                ..
+            } => {
+                self.right(value)?;
+                self.scoped(binders, body)
+            }
+            TermTree::Closure { binder, body, .. } => {
+                self.scoped(std::slice::from_ref(binder), body)
+            }
+            // The pattern's names are its own.
+            TermTree::Matches { subject, .. } => self.right(subject),
+            other => subterms(other)
+                .into_iter()
+                .try_for_each(|subterm| self.right(subterm)),
+        }
+    }
+
+    fn scoped(&mut self, names: &'a [syn::Ident], body: &'a TermTree) -> Result<(), SyntaxError> {
+        self.scopes.push(names);
+        let checked = self.right(body);
+        self.scopes.pop();
+        checked
+    }
+
+    fn name(&self, path: &Path) -> Result<(), SyntaxError> {
+        let Some(name) = crate::path::pattern_binder(path) else {
+            return Ok(());
+        };
+        if self
+            .bindings
+            .iter()
+            .chain(self.scopes.iter().copied().flatten())
+            .any(|binding| binding == name)
+        {
+            return Ok(());
+        }
+        Err(local_rewrite_error(
+            format!(
+                "`{name}` on the right of `k::rewrite!` is not bound by the rule's left image (its subject with each rewrite replaced by its left side); bind it in the pattern, or qualify a unit constructor"
+            ),
+            name.span(),
+        ))
+    }
+}
+
+/// The terms directly below `tree`, in source order.
+fn subterms(tree: &TermTree) -> Vec<&TermTree> {
+    match tree {
+        TermTree::Application(application) => {
+            let mut subterms = match &application.arguments {
+                TermArguments::Positional(arguments) => arguments.iter().collect::<Vec<_>>(),
+                TermArguments::Named(arguments) => {
+                    arguments.iter().map(|argument| &argument.value).collect()
+                }
+            };
+            subterms.extend(application.update.as_deref());
+            subterms
+        }
+        TermTree::Cell(cell) => cell
+            .fields
+            .iter()
+            .map(|field| &field.value)
+            .chain(cell.update.as_deref())
+            .collect(),
+        TermTree::SortTest { operand, .. } => vec![operand],
+        TermTree::OrBool { arguments, .. } => arguments.iter().collect(),
+        TermTree::As { pattern, .. } => vec![pattern],
+        TermTree::Or { alternatives, .. } => alternatives.iter().collect(),
+        TermTree::Matches {
+            subject, pattern, ..
+        } => vec![subject, pattern],
+        TermTree::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => vec![pattern, value, body],
+        TermTree::Closure { body, .. } => vec![body],
+        TermTree::Rewrite { from, to, .. } => std::iter::once(from.as_ref())
+            .chain(to.as_deref())
+            .collect(),
+        TermTree::Reference(_)
+        | TermTree::Literal(_)
+        | TermTree::Wildcard(_)
+        | TermTree::IdToken { .. }
+        | TermTree::BytesToken { .. }
+        | TermTree::Anonymous { .. }
+        | TermTree::Lexeme { .. } => Vec::new(),
+    }
 }
 
 /// Keys the `rule_local_rewrite`, `rule_local_rewrite_from`, and

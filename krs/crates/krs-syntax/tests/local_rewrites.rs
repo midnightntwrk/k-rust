@@ -111,6 +111,39 @@ fn a_single_body_term_rule_has_no_result() {
     assert_eq!(rule.parameter().pattern.bindings().len(), 1);
 }
 
+/// The right side of a rewrite is a term built over the left image's
+/// bindings, in which a `let` binds its names in the rest of its block, a
+/// `k::matches!` pattern its names in itself, and an `ml::exists` closure its
+/// parameter in its body; a name outside those scopes is still unbound.
+#[test]
+fn a_right_side_scopes_the_names_it_binds() {
+    let rule = |right: &str| {
+        krs_syntax::RuleItem::parse_source(&format!(
+            "#[k::rule] fn step(k::term![Step(k::rewrite!(p => {right}), k::rewrite!(No() => Yes()))]: Term<Exp>) {{}}"
+        ))
+    };
+    for right in [
+        "{ let Pair(x, y) = p; Pair(y, x) }",
+        "{ let Pair(x, _) = p; let y = x; Pair(y, y) }",
+        "k::matches!(p, Pair(x, x))",
+        "k::ml::exists(|v: Int| k::ml::equals(v, p))",
+    ] {
+        let parsed = rule(right);
+        assert!(parsed.is_ok(), "{right}: {:?}", parsed.err());
+    }
+    for (right, unbound) in [
+        ("Pair({ let x = p; x }, x)", "x"),
+        ("{ let y = x; y }", "x"),
+        ("Pair(k::matches!(p, Pair(x, x)), x)", "x"),
+    ] {
+        let error = rule(right).unwrap_err();
+        assert!(
+            reason(&error).starts_with(&format!("`{unbound}` on the right of `k::rewrite!`")),
+            "{right}: {error}"
+        );
+    }
+}
+
 #[test]
 fn misplaced_and_malformed_rewrites_are_rejected() {
     for (source, expected) in [

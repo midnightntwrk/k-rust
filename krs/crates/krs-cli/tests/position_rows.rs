@@ -269,3 +269,94 @@ fn a_rewrite_in_a_map_key_is_refused_at_the_rewrite() {
         ]
     "#]].assert_debug_eq(&outcomes);
 }
+
+/// Single-body rules whose rewrites build their right sides with a `let` and a `k::matches!` test:
+/// each names its own binders, which the right side reads within their scope.
+const RIGHT_SIDE_SCOPES: &str = r#"
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Step, Test, No, Yes))]
+pub enum StepSyntax {
+    #[k::syntax("step({e}, {flag})")]
+    Step { e: KItem, flag: Exp },
+    #[k::syntax("test({e}, {flag})")]
+    Test { e: KItem, flag: Exp },
+    #[k::syntax("no")]
+    No(),
+    #[k::syntax("yes")]
+    Yes(),
+}
+
+#[k::rule(label = "swap")]
+fn swap(
+    k::term![StepSyntax::Step {
+        e: k::rewrite!(p => { let ExpSyntax::Pair { a: x, b: y } = p; ExpSyntax::Pair { a: y, b: x } }),
+        flag: k::rewrite!(StepSyntax::No() => StepSyntax::Yes()),
+    }]: Term<Exp>,
+) {}
+
+#[k::rule(label = "twin")]
+fn twin(
+    k::term![StepSyntax::Test {
+        e: k::rewrite!(p => k::matches!(p, ExpSyntax::Pair { a: x, b: x })),
+        flag: k::rewrite!(StepSyntax::No() => StepSyntax::Yes()),
+    }]: Term<Exp>,
+) {}
+"#;
+
+/// The emitted term rule labelled `label`, one line.
+fn rule<'a>(k: &'a str, label: &str) -> &'a str {
+    k.lines()
+        .find(|line| line.ends_with(&format!("[label({label})]")))
+        .unwrap_or_else(|| panic!("rule `{label}` is emitted:\n{k}"))
+        .trim()
+}
+
+/// A rewrite's right side binds names of its own with a `let` and a `k::matches!` pattern; the
+/// rules emit those binders local to their constructs, build natively, and run.
+#[test]
+fn a_right_side_reads_the_names_it_binds() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), RIGHT_SIDE_SCOPES);
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let k = fs::read_to_string(output.join("definition.k")).unwrap();
+    expect_test::expect![[r"
+        rule step ( (P:KItem => ( #let pair ( X:Exp , Y:Exp ) = P:KItem #in pair ( Y:Exp , X:Exp ) )) , (no => yes) ) [label(swap)]
+        rule test ( (P:KItem => ( pair ( X:Exp , X:Exp ) :=K P:KItem )) , (no => yes) ) [label(twin)]"]].assert_eq(&format!("{}\n{}", rule(&k, "swap"), rule(&k, "twin")));
+    let program = manifest.with_file_name("program.txt");
+    let runs = [
+        "step(pair(1, 2), no)",
+        "test(pair(1, 1), no)",
+        "test(pair(1, 2), no)",
+    ]
+    .map(|source| {
+        fs::write(&program, source).unwrap();
+        let (_, stdout, stderr) = krs(
+            target.path(),
+            &manifest,
+            "run",
+            &[program.to_str().unwrap()],
+        );
+        let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        let start = flat
+            .find("<k>")
+            .unwrap_or_else(|| panic!("{source}:\n{stdout}\n{stderr}"));
+        let end = flat.find("</k>").unwrap() + "</k>".len();
+        format!("{source} => {}", &flat[start..end])
+    });
+    expect_test::expect![[r#"
+        [
+            "step(pair(1, 2), no) => <k> step(pair(2, 1), yes) ~> .K </k>",
+            "test(pair(1, 1), no) => <k> test(true, yes) ~> .K </k>",
+            "test(pair(1, 2), no) => <k> test(false, yes) ~> .K </k>",
+        ]
+    "#]]
+    .assert_debug_eq(&runs);
+}

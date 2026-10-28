@@ -192,6 +192,7 @@ where
             keying,
             in_matches_pattern: false,
             in_let_pattern: false,
+            in_rewrite_right: false,
             error: PhantomData,
         },
     )
@@ -204,6 +205,9 @@ struct TermKeys<'a, E> {
     keying: TermKeying,
     in_matches_pattern: bool,
     in_let_pattern: bool,
+    /// Whether the walk stands in the right side of a `k::rewrite!`, which
+    /// builds the term its left side matched.
+    in_rewrite_right: bool,
     error: PhantomData<fn() -> E>,
 }
 
@@ -246,10 +250,12 @@ impl<E: From<KeyFailure> + From<TermRefusal>> TermKeys<'_, E> {
         }
     }
 
-    /// Whether the walk stands in a left-hand side or a pattern, where an
-    /// expression node is refused.
+    /// Whether the walk stands in a left-hand side outside the right side of
+    /// its rewrites, or in a pattern, where an expression node is refused.
     fn in_pattern(&self) -> bool {
-        matches!(self.side, ValidationSide::Left) || self.in_matches_pattern || self.in_let_pattern
+        (matches!(self.side, ValidationSide::Left) && !self.in_rewrite_right)
+            || self.in_matches_pattern
+            || self.in_let_pattern
     }
 }
 
@@ -432,7 +438,9 @@ where
         self.node(to_key, ProvenanceRole::RuleLocalRewriteTo)
     }
 
-    fn rewrite_right(&mut self, _: bool) {}
+    fn rewrite_right(&mut self, inside: bool) {
+        self.in_rewrite_right = inside;
+    }
 
     fn argument(
         &mut self,

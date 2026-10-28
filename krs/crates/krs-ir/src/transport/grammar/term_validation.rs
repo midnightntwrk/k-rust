@@ -38,6 +38,17 @@ pub(super) struct GrammarTermValidation<'a, F> {
     pub(super) in_rewrite_right: bool,
 }
 
+impl<F> GrammarTermValidation<'_, F> {
+    /// Whether the term being validated is matched: a subject outside the
+    /// right side of its `k::rewrite!` islands, which builds the term the
+    /// left side matched, or a local pattern.
+    const fn in_pattern(&self) -> bool {
+        (self.allow_wildcards && !self.in_rewrite_right)
+            || self.in_matches_pattern
+            || self.in_let_pattern
+    }
+}
+
 impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
     for GrammarTermValidation<'_, F>
 {
@@ -238,7 +249,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if self.allow_wildcards || self.in_matches_pattern || self.in_let_pattern {
+        if self.in_pattern() {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::MatchesInPattern,
             ));
@@ -256,7 +267,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         sort: Option<&DescriptorSortReference>,
     ) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
-        if self.allow_wildcards || self.in_matches_pattern || self.in_let_pattern {
+        if self.in_pattern() {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::LetInPattern,
             ));
@@ -281,7 +292,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         require_key(key, self.provenance)?;
         require_key(binder_key, self.provenance)?;
         require_key(&sort.key, self.provenance)?;
-        if self.allow_wildcards || self.in_matches_pattern || self.in_let_pattern {
+        if self.in_pattern() {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::ClosureInPattern,
             ));

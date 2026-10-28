@@ -1458,7 +1458,7 @@ fn validate_rewrite_right_sides(
         .map(|binding| binding.name.clone())
         .collect::<Vec<_>>();
     for term in terms {
-        crate::term::check_rewrite_right_bindings(term.nodes(), &names)?;
+        crate::term::check_rewrite_right_bindings(term.tree(), &names)?;
     }
     Ok(())
 }
