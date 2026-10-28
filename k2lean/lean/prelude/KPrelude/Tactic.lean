@@ -480,17 +480,9 @@ elab "#k2l_assert_axioms " ids:ident* : command => do
       throwError m!"{n} depends on disallowed axioms {bad}"
     logInfo m!"{n} depends on axioms: {axs}"
 
-/-- `#k2l_refuted X`: fail unless `X.refuted` proves the negation of the obligation `X.statement`,
-and depends only on `propext`, `Quot.sound` and `Classical.choice`. The obligation a library
-states is the statement's closure over its own binders (its `[Hooks]` instance, when it reads the
-library's parameters: the statement for every implementation), so the refutation's type must be
-`¬ X.statement`, or `¬ ∀ [Hooks], X.statement` (written `omit [Hooks] in`; inside the section
-`¬ X.statement` would be quantified over every instance, the negation of a weaker claim).
-Compared structurally, not up to definitional unfolding: a refutation names the generated
-statement instead of restating it. -/
-elab "#k2l_refuted " id:ident : command => do
-  let sn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo (mkIdent (id.getId ++ `statement))
-  let rn := sn.getPrefix ++ `refuted
+/-- Fail unless the theorem `rn` proves the negation of the obligation `sn` (the statement's
+closure over its own binders) and depends only on Lean's three axioms. -/
+def checkRefuted (sn rn : Name) : CommandElabM Unit := do
   let s ← getConstInfo sn
   let some r := (← getEnv).find? rn | throwError m!"{rn}: no such theorem"
   let expected ← liftTermElabM <| Meta.forallTelescope s.type fun xs _ =>
@@ -503,6 +495,24 @@ elab "#k2l_refuted " id:ident : command => do
   unless bad.isEmpty do
     throwError m!"{rn} depends on disallowed axioms {bad}"
   logInfo m!"{rn} refutes {sn}; depends on axioms: {axs}"
+
+/-- `#k2l_refuted X`: fail unless `X.refuted` proves the negation of the obligation `X.statement`,
+and depends only on `propext`, `Quot.sound` and `Classical.choice`. The obligation a library
+states is the statement's closure over its own binders (its `[Hooks]` instance, when it reads the
+library's parameters: the statement for every implementation), so the refutation's type must be
+`¬ X.statement`, or `¬ ∀ [Hooks], X.statement` (written `omit [Hooks] in`; inside the section
+`¬ X.statement` would be quantified over every instance, the negation of a weaker claim).
+Compared structurally, not up to definitional unfolding: a refutation names the generated
+statement instead of restating it. `#k2l_refuted S R`: the same for the statement constant `S`
+and the theorem `R` (claims, whose statement constant is the claim itself). -/
+elab "#k2l_refuted " id:ident : command => do
+  let sn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo (mkIdent (id.getId ++ `statement))
+  checkRefuted sn (sn.getPrefix ++ `refuted)
+
+elab "#k2l_refuted " s:ident r:ident : command => do
+  let sn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo s
+  let rn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo r
+  checkRefuted sn rn
 
 end KPrelude
 

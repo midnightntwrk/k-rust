@@ -69,4 +69,12 @@ error: RefutedCheck.Eqn.e6.refuted : ∀ [inst : Hooks], ¬Eqn.e6.statement, but
 #guard_msgs (whitespace := lax, error, drop warning) in
 #k2l_refuted Eqn.e6
 
+/-- a claim: the statement constant is the obligation itself, its refutation a theorem of any name -/
+def Claim.copy : Prop := ∀ (n : Nat), n = n + 1
+theorem copy_false : ¬ Claim.copy := by intro h; have := h 0; simp at this
+
+/-- info: RefutedCheck.copy_false refutes RefutedCheck.Claim.copy; depends on axioms: [propext] -/
+#guard_msgs (info, drop warning) in
+#k2l_refuted Claim.copy copy_false
+
 end RefutedCheck
