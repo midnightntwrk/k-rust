@@ -32,11 +32,13 @@ To generate a library of your own definition:
 
 ```sh
 target/release/krust kcompile my.k --main-module MY --syntax-module MY-SYNTAX --output-directory out/my
-mkdir -p out && cp -a k2lean/lean out/
+K2LEAN=https://github.com/midnightntwrk/k-rust@$(git rev-parse HEAD)   # a commit the URL serves
 target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime.json \
-  --out out/generated/my --name My --prelude ../../lean
-(cd out/generated/my && lake build My.Equations > build.log 2>&1)
+  --out out/generated/my --name My --prelude-git "$K2LEAN"
+(cd out/generated/my && lake update && lake build My.Equations > build.log 2>&1)
 ```
+
+The library requires the Lake package `k2lean` (`lean/`: `KPrelude`, `KClaims`) by git at that commit, the revision whose hook models its statements are about; `--prelude PATH` requires a local copy of `lean/` instead, by a path relative to `--out` (the gate and the demos do).
 
 An equation whose generated proof fails (here, a `Set` equation of `domains.md`) is turned into a named open obligation, and the library is generated again:
 
@@ -45,12 +47,14 @@ touch out/generated/my/open-obligations.txt
 target/release/k2lean open-from-log out/generated/my/My/Equations.lean out/generated/my/build.log \
   out/generated/my/open-obligations.txt
 target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime.json \
-  --out out/generated/my --name My --prelude ../../lean \
+  --out out/generated/my --name My --prelude-git "$K2LEAN" \
   --open-obligations out/generated/my/open-obligations.txt
 (cd out/generated/my && lake build My My.Equations MyTest.Axioms)
 ```
 
 `docs/invariants.md`, §2, explains the flags and the work-tree layout.
+
+A project of your own uses the generated library through Lake alone (`demos/PkgDemo`, built by the gate): its lakefile requires `k2lean` at the same commit (Lake resolves a package by name, the root's requirement first; the library's root module checks the release, `#k2l_check_prelude`), the generated library by path or git, and any other Lean library. A library with parameters (`class Hooks`: hooks the hook library does not implement, functions without equations) is stated for every implementation of them; the project supplies one, an `@[instance_reducible] def` made a local instance where it is used, possibly from another library (`demos/PkgDemo/Consumer/Consumer/Hooks.lean`), and declares the executables, `def main` applying the generated `{NS}Test.testMain` or `{NS}Bench.benchMain` to its instance. Its lean-toolchain must be the library's (every generated lakefile sets `fixedToolchain`).
 
 ## Demos
 
@@ -74,6 +78,7 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/claims` | K claims of kimp proved in Lean, generically or by hand; claims under an invariant; the termination of kimp's expressions |
 | `demos/ImpRelClaims` | a K claim proved on kimp holds for the KRS IMP port, through `relate`'s bisimulation |
 | `demos/ImpUnrollClaims` | kimp's claims hold for its unrolling variant, through `refine`'s stuttering bisimulation |
+| `demos/PkgDemo` | a user's project through Lake alone: a generated library (the `params` fixture) required with `k2lean` by git, its hooks implemented by another library (`HexLib`), a generated theorem at that instance, a run, and the generated run driver as the project's executable |
 
 ## Claims
 

@@ -24,6 +24,26 @@ name_core() {
   esac
 }
 
+# pkg_demo: demos/PkgDemo built in $W/pkgdemo against a git clone of the tree under test's k2lean
+# package (`lean`), as a user's project would be
+pkg_demo() {
+  local d=$W/pkgdemo fx rev
+  fx=$(libs_fixture params)
+  rm -rf "$d" && mkdir -p "$d/repo/k2lean" || return 1
+  rsync -a --exclude=.lake --exclude=lake-manifest.json "$T/lean/" "$d/repo/k2lean/lean/" &&
+    cp "$T/lean/lake-manifest.json" "$d/repo/k2lean/lean/" &&
+    git -C "$d/repo" init -q && git -C "$d/repo" add -A &&
+    git -C "$d/repo" -c user.name=gate -c user.email=gate@localhost commit -qm k2lean || return 1
+  rev=$(git -C "$d/repo" rev-parse HEAD)
+  "$G" gen --kore "$fx/definition.kore" --runtime "$fx/runtime.json" --out "$d/params" --name Params \
+    --prelude-git "file://$d/repo@$rev" || return 1
+  "$G" configs --kore "$fx/definition.kore" --name Params --lean-out "$d/params/ParamsBench/Programs.lean" || return 1
+  cp -a "$D/PkgDemo/HexLib" "$D/PkgDemo/Consumer" "$d/" &&
+    sed -i "s|^require k2lean from git .*|require k2lean from git \"file://$d/repo\" @ \"$rev\" / \"k2lean/lean\"|" \
+      "$d/Consumer/lakefile.lean" || return 1
+  (cd "$d/Consumer" && "$RT" lake update && "$RT" lake build && "$RT" lake exe consumer-run --list)
+}
+
 gen_core() {
   case $1 in
     kimp) GEN_ARGS=(--kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json"
@@ -208,6 +228,11 @@ gate_core() {
   # the checks of `#k2l_proves` (a proof's form: the statement named or written out, its closure, axioms)
   if (cd "$T/lean" && "$RT" lake env lean "$D/k/proves/proves-check.lean") > "$L/proves-check.log" 2>&1
   then ok "proves check" "$L/proves-check.log"; else bad "proves check" "$L/proves-check.log"; fi
+  # a user's project through Lake alone (PKG-7, demos/PkgDemo): the k2lean package of the tree under
+  # test as a git repository, the params fixture generated with `--prelude-git`, an external
+  # library implementing its hooks, and the user's statements and run executable
+  if pkg_demo > "$L/pkg-demo.log" 2>&1; then ok "package demo" "$L/pkg-demo.log"
+  else bad "package demo" "$L/pkg-demo.log"; fi
   if runs lib simple; then
     phase "lib simple"
     kc simple && libs_simple_cases && lib_simple simple && ok "simple acceptance" "$MEAS/simple-acceptance.md"
