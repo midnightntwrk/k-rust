@@ -532,6 +532,10 @@ initialize registerBuiltinAttribute {
   name := `k2l_fact
   descr := "a fact about a generated function, for `k2l_facts` (KPrelude.Termination)"
   add := fun decl _ kind => do
+    -- a lemma proved by well-founded recursion is elaborated through an auxiliary `_unary`
+    -- (or `_mutual`) declaration, which synchronous elaboration (`-DElab.async=false`) also
+    -- gives the lemma's attributes; the lemma itself is registered when it is added (TERM-3)
+    if decl.isInternalDetail then return
     let e ← (factLemmaOf decl).run' {} {}
     factExt.add e kind
 }
