@@ -149,7 +149,7 @@ allowed_axioms = []
 "generated/alias/lakefile.lean" = { tier = "light", sha256 = "d34e1cbf397447330b0f624b6ba5f98f292b1f7bb47d627384c7cbce658f402c" }
 "generated/alias/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/ens/KEns.lean" = { tier = "light", sha256 = "49d4b3acfbf57c1dcd49bc3faff6dce5c43f742b26210702e3d7c146a60452d8" }
-"generated/ens/KEns/Adequacy.lean" = { tier = "light", sha256 = "0d2eedc5629d6b3991f7753ad3ec2f802a52e3c029179a8aff2afb95a228f1a9" }
+"generated/ens/KEns/Adequacy.lean" = { tier = "light", sha256 = "b4fcf6fc1d6962676f62860db67701640d764a75ad5f4df3fc741299e7db72d7" }
 "generated/ens/KEns/Determinism.lean" = { tier = "light", sha256 = "ae840677539f38571bf2357b502bc126c6aa8fc40a3bbbadcc110ce6f2064bb9" }
 "generated/ens/KEns/Determinism/L1.lean" = { tier = "light", sha256 = "d828de0a8722c47241092ef22b3877e3cb15f00bae2ff84e1a3df1302b70766c" }
 "generated/ens/KEns/Determinism/Pre.lean" = { tier = "light", sha256 = "21e11e8948383a5796088134b1909cb7f106871906d67cbc80e81eb115052efb" }
@@ -158,7 +158,7 @@ allowed_axioms = []
 "generated/ens/KEns/Functions.lean" = { tier = "light", sha256 = "82bad776ec7dfc3b928ea6b3d6cd8590fd889a78038522a4bf440be121f4bac8" }
 "generated/ens/KEns/Init.lean" = { tier = "light", sha256 = "846bcd10749c33b5e988d0d413fb65a5609b66fb8d58276405bbf763f004ef82" }
 "generated/ens/KEns/Preserves.lean" = { tier = "light", sha256 = "75bffe3cd0d931b7e17bd117d13c7feb54c3ac360bcdd9370d25f28afb9801ef" }
-"generated/ens/KEns/Rules.lean" = { tier = "light", sha256 = "3c47cccae78f0855d3c3ab493fadc246a5dffd273a1b0ce731151a44780db7ec" }
+"generated/ens/KEns/Rules.lean" = { tier = "light", sha256 = "accf074aff2c91209c00c0ab84f96c1252f3d84d8aa305d6610ad66fc4508f3f" }
 "generated/ens/KEns/Terms.lean" = { tier = "light", sha256 = "26fbb5aa45c7ee88a4d24415f861749128be9ce8e10f2ee4880ed20be6eda33a" }
 "generated/ens/KEnsBench/Main.lean" = { tier = "light", sha256 = "d79fe54da8be4f6e9efeb14ba370a3c4eaa0a2cf72bef22573a50967875c2a67" }
 "generated/ens/KEnsTest/Axioms.lean" = { tier = "light", sha256 = "4414e0728344319f754f5c66a81268e6250308bee4792d6f8537a3c23606709f" }
