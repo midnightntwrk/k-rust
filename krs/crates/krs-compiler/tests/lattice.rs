@@ -108,9 +108,8 @@ fn sort_with_parents(id: StableItemId, parents: &[StableItemId]) -> DescriptorIn
 
 /// The definitions the judges are compared on: the fixture bundles, and edits of them that
 /// declare a chain of sorts beside one with an explicit `KItem` parent, and put a builtin sort
-/// below a chain that ends at `KItem`. Lowering refuses a bundle without the framework's `KItem`,
-/// so the grammar fixture, which has none, gets one; a definition emits `KItem` only when it
-/// uses it, so only the edits ask the judges about it.
+/// below a chain that ends at `KItem`. A definition emits `KItem` only when it uses it, so only
+/// the edits ask the judges about it.
 fn definitions() -> Vec<(&'static str, DescriptorBundleInputs)> {
     let configuration = configuration::bundle();
 
@@ -127,10 +126,7 @@ fn definitions() -> Vec<(&'static str, DescriptorBundleInputs)> {
         sort_with_parents(code, &[configuration::framework_kitem()]),
     ]);
 
-    let (mut grammar, _) = grammar::bundle();
-    grammar
-        .descriptors
-        .push(sort_with_parents(configuration::framework_kitem(), &[]));
+    let (grammar, _) = grammar::bundle();
     let mut builtin = grammar.clone();
     grammar::add_builtin_expr_subsort(&mut builtin, BuiltinSort::Int, "Int");
     let expr = grammar::id("Expr", ItemKind::Sort);

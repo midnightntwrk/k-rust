@@ -26,7 +26,7 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) descriptor: &'a Descriptor,
     pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     pub(super) declarations: &'a DescriptorIndex<'a>,
-    pub(super) k_item_sort: Option<SemanticSortRef>,
+    pub(super) k_item_sort: SemanticSortRef,
     pub(super) sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     pub(super) binding_names: &'a BTreeSet<String>,
     pub(super) pattern_key: Option<&'a ProvenanceKey>,
@@ -395,7 +395,7 @@ impl StructuredTermBuilder<'_> {
                 update,
                 ..
             } => {
-                let k_item = self.cell_k_item_sort()?;
+                let k_item = self.k_item_sort.clone();
                 let whole_group = expected_sort.is_some_and(|expected| {
                     *expected == SemanticSortRef::Cell(declaration.clone())
                 });
@@ -2115,11 +2115,7 @@ impl StructuredTermBuilder<'_> {
             | DescriptorApplicationRef::Operator(_)
             | DescriptorApplicationRef::ListNotation(_) => false,
         };
-        projected.then(|| {
-            self.k_item_sort
-                .clone()
-                .unwrap_or(SemanticSortRef::Builtin(BuiltinSort::KSequence))
-        })
+        projected.then(|| self.k_item_sort.clone())
     }
 
     #[expect(
@@ -2295,16 +2291,6 @@ impl StructuredTermBuilder<'_> {
         Ok(value)
     }
 
-    fn cell_k_item_sort(&self) -> Result<SemanticSortRef, DescriptorLoweringError> {
-        // A contract between the collector and the compiler, not the author's mistake.
-        self.k_item_sort.clone().ok_or_else(|| {
-            DescriptorLoweringError::unsupported_shape(
-                "framework sort",
-                "the descriptor bundle has no framework KItem sort, which every definition has",
-            )
-        })
-    }
-
     fn cell_declaration(
         &self,
         owner: &StableItemId,
@@ -2405,7 +2391,7 @@ impl StructuredTermBuilder<'_> {
                                 declared.rust_field
                             )));
                         }
-                        self.infer(&field.value, Some(&self.cell_k_item_sort()?), subject)?;
+                        self.infer(&field.value, Some(&self.k_item_sort.clone()), subject)?;
                     } else {
                         self.infer(
                             &field.value,
@@ -2435,7 +2421,7 @@ impl StructuredTermBuilder<'_> {
         let sort = if expected_sort == Some(&whole) {
             whole
         } else {
-            self.cell_k_item_sort()?
+            self.k_item_sort.clone()
         };
         let declaration = self.cell_declaration(owner)?.clone();
         let supplied = fields
@@ -2468,7 +2454,7 @@ impl StructuredTermBuilder<'_> {
                     };
                     SemanticTerm::cell(
                         origin,
-                        self.cell_k_item_sort()?,
+                        self.k_item_sort.clone(),
                         semantic_cell_id(&declared.reference.cell)?,
                         vec![content],
                     )
@@ -2488,7 +2474,7 @@ impl StructuredTermBuilder<'_> {
                         {
                             self.record_updates.alias = Some(child.clone());
                         }
-                        self.lower(value, Some(&self.cell_k_item_sort()?), record.subject)?
+                        self.lower(value, Some(&self.k_item_sort.clone()), record.subject)?
                     }
                     // A binder or `_` is matched or written at the child's
                     // cell sort, as a child the term leaves out is.
@@ -2604,7 +2590,7 @@ impl StructuredTermBuilder<'_> {
             // A group child is written as an authored child is, at the
             // KItem sort.
             Fill::Group(child) => {
-                let k_item = self.cell_k_item_sort()?;
+                let k_item = self.k_item_sort.clone();
                 self.rebuild_group(&child, key, Some(&k_item))
             }
         }
@@ -2632,7 +2618,7 @@ impl StructuredTermBuilder<'_> {
         let sort = if expected_sort == Some(&whole) {
             whole
         } else {
-            self.cell_k_item_sort()?
+            self.k_item_sort.clone()
         };
         let declaration = self.cell_declaration(&owner)?.clone();
         let mut children = Vec::with_capacity(declaration.fields.len());
@@ -2650,7 +2636,7 @@ impl StructuredTermBuilder<'_> {
                         self.lower_fill(fill, Some(&semantic_sort_ref(&sort.sort)), &field, key)?;
                     SemanticTerm::cell(
                         self.generated_record_origin(key, "cell-term-child")?,
-                        self.cell_k_item_sort()?,
+                        self.k_item_sort.clone(),
                         semantic_cell_id(&declared.reference.cell)?,
                         vec![content],
                     )

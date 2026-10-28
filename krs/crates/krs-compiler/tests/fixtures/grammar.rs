@@ -1,5 +1,6 @@
-//! The grammar fixture bundle: an `Expr` sort with constructors, productions, a bracket, and a
-//! structured rule, and the edit that adds `Value: Expr` with a builtin below `Value`.
+//! The grammar fixture bundle: the framework `KItem`, an `Expr` sort with constructors,
+//! productions, a bracket, and a structured rule, and the edit that adds `Value: Expr` with a
+//! builtin below `Value`.
 
 use krs_ir::testing::{DescriptorBundleInputs, DescriptorInputs};
 
@@ -24,6 +25,15 @@ pub fn package() -> PackageId {
 
 pub fn id(name: &str, kind: ItemKind) -> StableItemId {
     testing::item_in(package(), "expr", name, kind)
+}
+
+pub fn framework_kitem() -> StableItemId {
+    testing::item_in(
+        testing::package_with("KRS-FRAMEWORK", "krs", "0.1.0", "framework"),
+        "framework",
+        "KItem",
+        ItemKind::Sort,
+    )
 }
 
 pub fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
@@ -198,6 +208,14 @@ pub fn bundle() -> (DescriptorBundleInputs, StableItemId) {
     let atom = ProductionGroupId::new("atom").unwrap();
 
     let mut descriptors = vec![
+        // Every definition carries the framework `KItem`, the sort of a cell and of an item.
+        declaration(
+            framework_kitem(),
+            DescriptorPayload::Sort(SortDescriptor {
+                parents: BTreeSet::new(),
+            }),
+            ProvenanceRole::SortDeclaration,
+        ),
         declaration(
             expr.clone(),
             DescriptorPayload::Sort(SortDescriptor {

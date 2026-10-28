@@ -478,7 +478,7 @@ fn check_constant(
         descriptor,
         catalog,
         declarations,
-        k_item_sort: Some(super::rules::framework_k_item_sort(declarations)?),
+        k_item_sort: super::rules::framework_k_item_sort(declarations)?,
         sort_parents,
         binding_names: &binding_names,
         pattern_key: None,

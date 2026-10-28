@@ -520,7 +520,7 @@ pub(super) fn lower_head_rule_descriptor(
         descriptor,
         catalog,
         declarations,
-        k_item_sort: Some(framework_k_item_sort(declarations)?),
+        k_item_sort: framework_k_item_sort(declarations)?,
         sort_parents,
         binding_names: &binding_names,
         pattern_key: Some(&rule.pattern_key),
@@ -1110,7 +1110,7 @@ fn infer_head_rule(
         if let Some(head) = &rule.head {
             for item in &head.items {
                 let k_item = builder.k_item_sort.clone();
-                builder.infer(item, head_item_sort(item, head_sort, k_item.as_ref()), true)?;
+                builder.infer(item, head_item_sort(item, head_sort, &k_item), true)?;
             }
             match &head.result {
                 Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
@@ -1230,8 +1230,9 @@ fn default_item_binders(
     head_sort: Option<&SemanticSortRef>,
 ) {
     if head_sort.is_none()
-        && let (Some(head), Some(k_item)) = (&rule.head, builder.k_item_sort.clone())
+        && let Some(head) = &rule.head
     {
+        let k_item = builder.k_item_sort.clone();
         for item in &head.items {
             if let DescriptorTerm::Variable { name, .. } = item
                 && !builder.binding_sorts.contains_key(name)
@@ -1256,10 +1257,10 @@ fn default_item_binders(
 fn head_item_sort<'a>(
     item: &DescriptorTerm,
     head_sort: Option<&'a SemanticSortRef>,
-    k_item: Option<&'a SemanticSortRef>,
+    k_item: &'a SemanticSortRef,
 ) -> Option<&'a SemanticSortRef> {
     match (head_sort, item) {
-        (None, DescriptorTerm::Wildcard { .. }) => k_item,
+        (None, DescriptorTerm::Wildcard { .. }) => Some(k_item),
         _ => head_sort,
     }
 }
@@ -1282,11 +1283,7 @@ fn lower_head_rule_computation_clause(
         // Only the first item is the sentence's head (KF-027).
         builder.head_pending = index == 0;
         let k_item = builder.k_item_sort.clone();
-        subject_items.push(builder.lower(
-            item,
-            head_item_sort(item, head_sort, k_item.as_ref()),
-            true,
-        )?);
+        subject_items.push(builder.lower(item, head_item_sort(item, head_sort, &k_item), true)?);
     }
     builder.head_pending = false;
     // The matched items have no key of their own (the head's is the first item's), so a
@@ -1975,7 +1972,7 @@ pub(super) fn lower_structured_rule_descriptor(
         descriptor,
         catalog,
         declarations,
-        k_item_sort: None,
+        k_item_sort: framework_k_item_sort(declarations)?,
         sort_parents,
         binding_names: &binding_names,
         pattern_key: Some(&rule.pattern_key),

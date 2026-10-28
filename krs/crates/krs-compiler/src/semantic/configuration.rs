@@ -870,7 +870,7 @@ fn lower_initializer_term(
         descriptor,
         catalog,
         declarations,
-        k_item_sort: None,
+        k_item_sort: super::rules::framework_k_item_sort(declarations)?,
         sort_parents,
         binding_names: &binding_names,
         pattern_key: None,
