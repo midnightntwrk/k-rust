@@ -941,6 +941,7 @@ A readable rule, or a reference rule with a result, states the before and after 
 The left side of a rewrite is a pattern and binds like the rest of the subject; the right side is a term over those bindings, and `()` on the right is `.K`, which removes a whole K-sequence item.
 The binder list of a `cells!` rule declares the left image's binders (the subject with each rewrite replaced by its left side), in first-occurrence order.
 In a map a rewrite changes a value: `name -> k::rewrite!(_ => value)` requires the key to exist, while `map::update` in a result would add it, so assigning an undeclared variable is stuck in the local form and proceeds in the restating one.
+A key is what the map is looked up by, so a rewrite never stands in one: moving an entry to another key is a removal and an insertion, which may meet a key the map already holds; a rule with a result writes it with `map::remove` and `map::update`.
 A frame variable written once is a variable K sees once; write `_` for it.
 The syntax rejects `k::rewrite!` outside the subject of a single-body rule (in ordinary code it is a compile error), in a rule with a result, in a readable clause, inside another rewrite, in a map key, with a right-side name the left image does not bind, and a single-body rule without a rewrite, with statements in its body, or with `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]` (`krs::syntax::invalid-local-rewrite`).
 A single-body rule is a transition; the overlap check and inference read each rewrite through its left and right images.

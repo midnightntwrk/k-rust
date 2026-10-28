@@ -2930,9 +2930,6 @@ pub(crate) fn split_rewrite_images(nodes: &[TermNode]) -> (Vec<&TermNode>, Vec<&
     (left, right)
 }
 
-/// The reason given for a rewrite in a map key.
-pub(crate) const REWRITE_IN_MAP_KEY: &str = "`k::rewrite!` in a map changes a value: write `key -> k::rewrite!(old => new)`; a rewrite never adds or removes an entry (use `map::update` in a result to add one)";
-
 /// Checks that every unqualified bare name on the right side of a
 /// `k::rewrite!` is one of `bindings`, the left image's term bindings
 /// (KF-011): the right side is part of the subject, where a bare name is a

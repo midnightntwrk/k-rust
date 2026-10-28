@@ -119,13 +119,6 @@ fn misplaced_and_malformed_rewrites_are_rejected() {
             "`other` on the right of `k::rewrite!` is not bound",
         ),
         (
-            ASSIGN.replace(
-                "map![name -> k::rewrite!(_ => value), ..]",
-                "map![k::rewrite!(name => value) -> value, ..]",
-            ),
-            "a rewrite never adds or removes an entry",
-        ),
-        (
             ASSIGN
                 .replace(
                     "k::rewrite!(StmtSyntax::Assign(name, value) => ())",
@@ -162,9 +155,9 @@ fn misplaced_and_malformed_rewrites_are_rejected() {
     }
 }
 
-/// A rewrite outside a single-body rule's subject, or inside another
-/// rewrite, is read as the rewrite it is; the position table refuses it where
-/// it stands (`krs_syntax::positions`). A fn with a result is no single-body
+/// A rewrite outside a single-body rule's subject, inside another rewrite, or
+/// in a map key, is read as the rewrite it is; the position table refuses it
+/// where it stands (`krs_syntax::positions`). A fn with a result is no single-body
 /// rule, which the rule itself says, readable or not.
 #[test]
 fn a_rewrite_outside_a_subject_is_read_where_it_stands() {
@@ -181,6 +174,11 @@ fn a_rewrite_outside_a_subject_is_read_where_it_stands() {
         "k::rewrite!(k::rewrite!(_ => value) => value)",
     ));
     assert!(nested.is_ok(), "{:?}", nested.err());
+    let in_key = StateRuleItem::parse_source(&ASSIGN.replace(
+        "map![name -> k::rewrite!(_ => value), ..]",
+        "map![k::rewrite!(name => value) -> value, ..]",
+    ));
+    assert!(in_key.is_ok(), "{:?}", in_key.err());
     let error = krs_syntax::RuleItem::parse_source(
         "#[k::rule] fn f(k::term![Pair(k::rewrite!(a => b), c)]: Term<Exp>) -> Term<Exp> { c }",
     )

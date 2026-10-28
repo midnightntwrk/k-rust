@@ -234,6 +234,8 @@ pub struct Nesting {
     /// Inside a key, value or element of a collection (a readable map read's key, a List cell's
     /// element).
     pub in_collection_entry: bool,
+    /// Inside a map's key, which the map is looked up by.
+    pub in_map_key: bool,
 }
 
 /// Where a construct stands.
@@ -259,6 +261,7 @@ impl Position {
                 in_let_pattern: false,
                 in_rewrite: false,
                 in_collection_entry: false,
+                in_map_key: false,
             },
         }
     }
@@ -301,6 +304,8 @@ impl fmt::Display for Position {
             formatter.write_str("a `k::matches!` pattern in ")?;
         } else if self.nesting.in_let_pattern {
             formatter.write_str("a `let` pattern in ")?;
+        } else if self.nesting.in_map_key {
+            formatter.write_str("a map key in ")?;
         } else if self.nesting.in_rewrite {
             // Only a rewrite in a subject is walked into, so a result inside one is its right
             // side.
@@ -494,6 +499,8 @@ pub enum Class {
     RecordRemainderInInitializer,
     /// `record-update-in-pattern`.
     RecordUpdateInPattern,
+    /// `rewrite-in-map-key`.
+    RewriteInMapKey,
     /// `rewrite-outside-local-rule`.
     RewriteOutsideLocalRule,
     /// `rule-term-in-initializer`.
@@ -508,7 +515,7 @@ pub enum Class {
 
 impl Class {
     /// Every class.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::AliasInLetPattern,
         Self::AliasOutsidePattern,
         Self::AlternativesInLetPattern,
@@ -524,6 +531,7 @@ impl Class {
         Self::RecordRemainderInCellsTerm,
         Self::RecordRemainderInInitializer,
         Self::RecordUpdateInPattern,
+        Self::RewriteInMapKey,
         Self::RewriteOutsideLocalRule,
         Self::RuleTermInInitializer,
         Self::SortTestInPattern,
@@ -550,6 +558,7 @@ impl Class {
             Self::RecordRemainderInCellsTerm => "record-remainder-in-cells-term",
             Self::RecordRemainderInInitializer => "record-remainder-in-initializer",
             Self::RecordUpdateInPattern => "record-update-in-pattern",
+            Self::RewriteInMapKey => "rewrite-in-map-key",
             Self::RewriteOutsideLocalRule => "rewrite-outside-local-rule",
             Self::RuleTermInInitializer => "rule-term-in-initializer",
             Self::SortTestInPattern => "sort-test-in-pattern",
@@ -576,7 +585,9 @@ impl Class {
             Self::RecordRemainderInCellsTerm => codes::analysis::INVALID_RECORD_UPDATE,
             Self::RecordRemainderInInitializer => codes::expand::INITIALIZER_RECORD_UPDATE,
             Self::RecordUpdateInPattern => codes::syntax::INVALID_RECORD_UPDATE,
-            Self::RewriteOutsideLocalRule => codes::syntax::INVALID_LOCAL_REWRITE,
+            Self::RewriteInMapKey | Self::RewriteOutsideLocalRule => {
+                codes::syntax::INVALID_LOCAL_REWRITE
+            }
             Self::SortTestInPattern => codes::analysis::INVALID_SORT_TEST,
             Self::TurbofishInInitializer => codes::expand::TURBOFISH_PLACEMENT,
             Self::WildcardOutsidePattern => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
@@ -632,6 +643,9 @@ impl Class {
             }
             Self::RecordUpdateInPattern => {
                 "`..base` builds a record whose unlisted fields are those of the record the alias `base` matched, which only a term a sentence builds can say; a pattern denotes no record by it, and leaves out the fields it does not constrain with `..`"
+            }
+            Self::RewriteInMapKey => {
+                "a map key is what the map is looked up by, and a rewrite there would move the entry to another key, a removal and an insertion that may meet a key the map already holds: a rewrite in a map changes a value, `key -> k::rewrite!(old => new)`, and a rule with a result moves an entry with `map::remove` and `map::update`"
             }
             Self::RewriteOutsideLocalRule => {
                 "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body rule or the hole of a context, once and outside any local pattern"
@@ -794,15 +808,19 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
             }
             _ => After(Rule::MlPredicateAsTerm),
         },
+        // A rewrite marks what changes inside a single-body rule's subject, where a map changes
+        // values: its keys are what it is looked up by.
         Construct::Rewrite => {
-            if matches!(position.slot, Slot::Subject)
-                && form.rewrites_inside_subject()
-                && !nesting.in_rewrite
-                && !position.in_local_pattern()
+            if !matches!(position.slot, Slot::Subject)
+                || !form.rewrites_inside_subject()
+                || nesting.in_rewrite
+                || position.in_local_pattern()
             {
-                Admit
-            } else {
                 Refuse(Class::RewriteOutsideLocalRule)
+            } else if nesting.in_map_key {
+                Refuse(Class::RewriteInMapKey)
+            } else {
+                Admit
             }
         }
         Construct::SortTest => {

@@ -1445,31 +1445,11 @@ fn cells_rewrite_spans(cells: &CellsExpression) -> Vec<proc_macro2::Span> {
 }
 
 /// Checks the right side of every `k::rewrite!` (KF-011): each bare name
-/// there is a term binding of the left image, and a map key holds no
-/// rewrite.
+/// there is a term binding of the left image.
 fn validate_rewrite_right_sides(
     cells: &CellsExpression,
     bindings: &[StateRuleBinding],
 ) -> Result<(), SyntaxError> {
-    for entry in cells.entries() {
-        if let StateTerm::Map(map) = entry.value()
-            && let MapBody::Items { items, .. } = map.body()
-        {
-            for item in items {
-                if let Some(TermNode::Rewrite { range, .. }) = item
-                    .key()
-                    .nodes()
-                    .iter()
-                    .find(|node| matches!(node, TermNode::Rewrite { .. }))
-                {
-                    return Err(local_rewrite_error(
-                        crate::term::REWRITE_IN_MAP_KEY.to_owned(),
-                        range.first(),
-                    ));
-                }
-            }
-        }
-    }
     let mut terms = Vec::new();
     append_cells_terms(cells, &mut terms);
     let names = bindings

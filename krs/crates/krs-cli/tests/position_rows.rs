@@ -227,3 +227,45 @@ fn a_record_update_in_a_pattern_is_refused_at_its_base() {
         ]
     "#]].assert_debug_eq(&outcomes);
 }
+
+/// A single-body rule's map changes values: a rewrite in a key is refused at the rewrite, and the
+/// same rewrite in the value is accepted.
+#[test]
+fn a_rewrite_in_a_map_key_is_refused_at_the_rewrite() {
+    let rule = |entry: &str| {
+        format!(
+            "#[k::rule(label = \"rekey\")]\npub fn rekey(\n    x: Exp,\n    v: KItem,\n    k::cells! {{\n        k: k::configuration::KCell(k::rewrite!(ExpSyntax::Swap {{ e: x }} => ()), ..),\n        env: k::configuration::Cell(k::map![{entry}, ..]),\n        state @ ..\n    }}: Machine,\n) {{}}\n"
+        )
+    };
+    let outcomes = outcomes([
+        (
+            "in-key",
+            rule("k::rewrite!(x => ExpSyntax::Done()) -> v").as_str(),
+        ),
+        (
+            "in-value",
+            rule("x -> k::rewrite!(v => ExpSyntax::Done())").as_str(),
+        ),
+    ]);
+    expect_test::expect![[r#"
+        [
+            (
+                "in-key",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-local-rewrite]: a map key is what the map is looked up by, and a rewrite there would move the entry to another key, a removal and an insertion that may meet a key the map already holds: a rewrite in a map changes a value, `key -> k::rewrite!(old => new)`, and a rule with a result moves an entry with `map::remove` and `map::update`; here it stands in a map key in the subject of a single-body `cells!` rule",
+                        "--> src/lib.rs:47:45",
+                    ],
+                ),
+            ),
+            (
+                "in-value",
+                (
+                    true,
+                    [],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}

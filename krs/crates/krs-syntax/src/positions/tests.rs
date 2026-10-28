@@ -12,7 +12,7 @@ fn positions() -> Vec<Position> {
             _ => &[Slot::Subject, Slot::Result, Slot::Requires, Slot::Ensures],
         };
         for &slot in slots {
-            for bits in 0_u8..16 {
+            for bits in 0_u8..32 {
                 positions.push(Position {
                     form,
                     slot,
@@ -21,6 +21,7 @@ fn positions() -> Vec<Position> {
                         in_let_pattern: bits & 2 != 0,
                         in_rewrite: bits & 4 != 0,
                         in_collection_entry: bits & 8 != 0,
+                        in_map_key: bits & 16 != 0,
                     },
                 });
             }
@@ -314,6 +315,33 @@ fn a_single_body_rule_rewrites_only_inside_its_subject_and_once() {
             Construct::Rewrite
         ),
         Admission::Admit
+    );
+}
+
+#[test]
+fn a_rewrite_changes_a_map_value_and_never_a_key() {
+    let subject = Position::root(Form::CellsLocalRule, Slot::Subject);
+    let entry = |in_map_key| Position {
+        nesting: Nesting {
+            in_collection_entry: true,
+            in_map_key,
+            ..Nesting::default()
+        },
+        ..subject
+    };
+    assert_eq!(admits(entry(false), Construct::Rewrite), Admission::Admit);
+    assert_eq!(
+        admits(entry(true), Construct::Rewrite),
+        Admission::Refuse(Class::RewriteInMapKey)
+    );
+    // Where no rewrite stands at all, that is the answer, key or not.
+    let readable_key = Position {
+        form: Form::ReadableRule,
+        ..entry(true)
+    };
+    assert_eq!(
+        admits(readable_key, Construct::Rewrite),
+        Admission::Refuse(Class::RewriteOutsideLocalRule)
     );
 }
 

@@ -192,6 +192,12 @@ doc = "a record update (`Ctor { f: e, ..t }`) in a pattern, which denotes no rec
 code = "krs::syntax::invalid-list-notation"
 doc = "a `..` rest on one side of a cell only: a result rest the subject's entry did not match, or a subject rest the result drops"
 
+# A position-table class no generated case makes (`krs_syntax::positions`): the term families hold
+# no map in a single-body rule's subject.
+[class.rewrite-in-map-key]
+code = "krs::syntax::invalid-local-rewrite"
+doc = "`k::rewrite!` in a map key of a single-body rule's subject: a key is what the map is looked up by, and re-keying an entry may meet a key the map holds"
+
 [class.rewrite-outside-local-rule]
 code = "krs::syntax::invalid-local-rewrite"
 doc = "`k::rewrite!` outside the subject of a single-body `#[k::rule]` fn"

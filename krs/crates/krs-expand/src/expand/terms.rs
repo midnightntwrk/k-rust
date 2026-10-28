@@ -520,6 +520,8 @@ pub(super) struct TermBuilder<'a> {
     depth: usize,
     /// Whether a collection's key, value or element is being expanded.
     in_collection_entry: bool,
+    /// Whether a map's key is being expanded.
+    in_map_key: bool,
     /// The local binders (BIND-1) of the `k::matches!` pattern being
     /// expanded, or `None` outside one.
     local_binders: Option<Vec<Ident>>,
@@ -578,6 +580,7 @@ impl<'a> TermBuilder<'a> {
             form,
             depth: 0,
             in_collection_entry: false,
+            in_map_key: false,
             local_binders: None,
             let_pattern_binders: None,
             let_scopes: Vec::new(),
@@ -598,6 +601,7 @@ impl<'a> TermBuilder<'a> {
                 in_let_pattern: self.in_let_pattern(),
                 in_rewrite: false,
                 in_collection_entry: self.in_collection_entry,
+                in_map_key: self.in_map_key,
             },
         };
         match self.rewrite {
@@ -905,6 +909,20 @@ impl<'a> TermBuilder<'a> {
         let enclosing = ::core::mem::replace(&mut self.in_collection_entry, true);
         let wire = self.expand_wire(term, side, slots);
         self.in_collection_entry = enclosing;
+        wire
+    }
+
+    /// [`Self::expand_entry_wire`] for a map's key, which the map is looked
+    /// up by.
+    pub(super) fn expand_key_wire(
+        &mut self,
+        term: KeyedTerm<'_>,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        let enclosing = ::core::mem::replace(&mut self.in_map_key, true);
+        let wire = self.expand_entry_wire(term, side, slots);
+        self.in_map_key = enclosing;
         wire
     }
 

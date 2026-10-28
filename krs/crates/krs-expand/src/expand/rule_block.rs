@@ -212,7 +212,7 @@ fn expand_head_rule(
                     .map(|entry| {
                         Ok(krs_ir::wire::WireHeadRuleMapEntry {
                             key_key: ledger.define(entry.key.keys().payload())?,
-                            key: builder.expand_entry_wire(
+                            key: builder.expand_key_wire(
                                 KeyedTerm::of(&entry.key),
                                 TermSide::Left,
                                 &mut slots,

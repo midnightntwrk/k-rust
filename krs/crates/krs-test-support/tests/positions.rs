@@ -80,9 +80,10 @@ fn every_position_class_of_the_spec_is_in_the_table() {
 
 /// Where a term case's hole stands, from its slot (`rule/subject`).
 fn position(form: &str, slot: &str) -> Position {
-    let entry = |form, slot| Position {
+    let entry = |form, slot, in_map_key| Position {
         nesting: Nesting {
             in_collection_entry: true,
+            in_map_key,
             ..Nesting::default()
         },
         ..Position::root(form, slot)
@@ -108,8 +109,9 @@ fn position(form: &str, slot: &str) -> Position {
         "result" => Position::root(form_of, Slot::Result),
         // A guard's hole is the whole condition.
         "guard" => Position::root(form_of, Slot::Requires),
-        "map-key" | "list-element" => entry(form_of, Slot::Subject),
-        "result-list-element" => entry(form_of, Slot::Result),
+        "map-key" => entry(form_of, Slot::Subject, true),
+        "list-element" => entry(form_of, Slot::Subject, false),
+        "result-list-element" => entry(form_of, Slot::Result, false),
         other => panic!("no slot for {form}/{other}"),
     }
 }
