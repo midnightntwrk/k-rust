@@ -369,9 +369,10 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the application's head.
         range: Option<Box<SourceRange>>,
     },
-    /// A name that a map key of a rule's or an equation's pattern reads
-    /// below a function application, and that the pattern binds nowhere
-    /// else: the key is evaluated, so the name binds nothing.
+    /// A name that a map key or a set element of a rule's or an equation's
+    /// pattern reads below a function application, and that the pattern
+    /// binds nowhere else: the key or element is evaluated, so the name
+    /// binds nothing.
     UnboundKeyName {
         /// Item the diagnostic is about.
         item: Box<StableItemId>,

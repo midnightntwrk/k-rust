@@ -1,5 +1,5 @@
-//! A name a map key reads below a function application, which the pattern
-//! binds nowhere else (`krs::expand::unbound-name`).
+//! A name a map key or a set element reads below a function application,
+//! which the pattern binds nowhere else (`krs::expand::unbound-name`).
 //!
 //! A map pattern's key is evaluated: the rule looks its entry up by the
 //! key's value. A name in the key binds where the key is matched as it
@@ -9,6 +9,12 @@
 //! reads `x`. With `x` bound nowhere else the lookup reads a value nothing
 //! gave, so the name is unbound, as a name only a result reads is.
 //!
+//! A set is a map with no values: its elements are what it is looked up by,
+//! so a set element (`set::item(e)` in a set pattern) is evaluated and
+//! looked up as a key is, and a name below a function application in it
+//! reads a value and binds nothing: `set::concat(set::item(Size(n)), rest)`
+//! reads `n`.
+//!
 //! Whether an application in a key is a function's is a fact of the
 //! declaration its head resolves to, so this is decided here, after
 //! resolution: the front binds every name of a key, since it cannot tell
@@ -17,9 +23,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    Descriptor, DescriptorHeadRuleExtra, DescriptorPayload, DescriptorTerm, ProtocolHeadRuleExtra,
-    ProtocolHeadRuleListRest, ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleMapBody,
-    ProtocolRuleStateTerm, ProvenanceKey, StableItemId, TermArgumentRef,
+    Descriptor, DescriptorApplicationRef, DescriptorHeadRuleExtra, DescriptorPayload,
+    DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolRuleCells,
+    ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SetOperation,
+    StableItemId, TermArgumentRef,
 };
 
 use super::{
@@ -27,8 +34,9 @@ use super::{
     matches_evaluated_sentence,
 };
 
-/// Refuses the first name that a map key of the descriptor's pattern reads
-/// below a function application, and that the pattern binds nowhere else.
+/// Refuses the first name that a map key or a set element of the
+/// descriptor's pattern reads below a function application, and that the
+/// pattern binds nowhere else.
 ///
 /// # Errors
 ///
@@ -54,10 +62,20 @@ pub(super) fn check(
     else {
         return Ok(());
     };
+    let (place, why) = match read.lookup {
+        Lookup::MapKey => (
+            "a map key",
+            "a key is evaluated to look its entry up, so the key",
+        ),
+        Lookup::SetElement => (
+            "a set element",
+            "an element is evaluated to look it up in the set, so the element",
+        ),
+    };
     Err(DescriptorLoweringError::UnboundKeyName {
         item: Box::new(descriptor.id().clone()),
         reason: format!(
-            "`{name}` is not bound in this sentence: it stands only below {function} in a map key, and a key is evaluated to look its entry up, so the key reads `{name}` and binds nothing; bind `{name}` elsewhere in the pattern",
+            "`{name}` is not bound in this sentence: it stands only below {function} in {place}, and {why} reads `{name}` and binds nothing; bind `{name}` elsewhere in the pattern",
             name = read.name,
             function = read.function,
         ),
@@ -80,17 +98,28 @@ struct Read<'t> {
     key: &'t ProvenanceKey,
     /// The innermost function application above the name, described.
     function: String,
+    /// The key it stands in.
+    lookup: Lookup,
+}
+
+/// What a collection is looked up by.
+#[derive(Clone, Copy)]
+enum Lookup {
+    /// A map's key.
+    MapKey,
+    /// A set's element.
+    SetElement,
 }
 
 /// Where in a key a term stands.
 #[derive(Clone, Copy)]
 enum InKey {
-    /// Outside every map key.
+    /// Outside every key.
     No,
     /// In a key, matched as it stands.
-    Matched,
+    Matched(Lookup),
     /// In a key, below a function application.
-    Read,
+    Read(Lookup),
 }
 
 impl<'t> Names<'_, 't> {
@@ -133,7 +162,7 @@ impl<'t> Names<'_, 't> {
             ProtocolRuleStateTerm::Map(map) => match &map.body {
                 ProtocolRuleMapBody::Items { items, remainder } => {
                     for item in items {
-                        self.term(&item.key, InKey::Matched, None);
+                        self.term(&item.key, InKey::Matched(Lookup::MapKey), None);
                         self.term(&item.value, InKey::No, None);
                     }
                     self.frame(remainder);
@@ -167,7 +196,7 @@ impl<'t> Names<'_, 't> {
         match extra {
             ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
                 for entry in entries {
-                    self.term(&entry.key, InKey::Matched, None);
+                    self.term(&entry.key, InKey::Matched(Lookup::MapKey), None);
                     self.bound.insert(&entry.value_binding);
                 }
             }
@@ -201,10 +230,11 @@ impl<'t> Names<'_, 't> {
         function: Option<&str>,
     ) {
         match (in_key, function) {
-            (InKey::Read, Some(function)) => self.read.push(Read {
+            (InKey::Read(lookup), Some(function)) => self.read.push(Read {
                 name,
                 key,
                 function: function.to_owned(),
+                lookup,
             }),
             _ => {
                 self.bound.insert(name);
@@ -233,8 +263,15 @@ impl<'t> Names<'_, 't> {
             } => {
                 let applied = applied_function(&reference.application, self.catalog);
                 let (in_key, function) = match (&applied, in_key) {
-                    (Applied::Function(applied), InKey::Matched | InKey::Read) => {
-                        (InKey::Read, Some(applied.as_str()))
+                    (Applied::Function(applied), InKey::Matched(lookup) | InKey::Read(lookup)) => {
+                        (InKey::Read(lookup), Some(applied.as_str()))
+                    }
+                    // A set's element is what the set is looked up by.
+                    (_, InKey::No)
+                        if reference.application
+                            == DescriptorApplicationRef::Set(SetOperation::Item) =>
+                    {
+                        (InKey::Matched(Lookup::SetElement), function)
                     }
                     _ => (in_key, function),
                 };

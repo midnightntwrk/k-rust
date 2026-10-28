@@ -1,5 +1,5 @@
 //! A function application where a rule's or an equation's pattern matches a term
-//! (`krs::analysis::function-in-pattern`), and a name a map key reads below one
+//! (`krs::analysis::function-in-pattern`), and a name a map key or a set element reads below one
 //! (`krs::expand::unbound-name`), end to end: authored packages through `krs check`. The class
 //! tests cover the computation cell of every sentence form below its root; these cover the roots
 //! of the slots a rule matches, the other places a rule matches, and the places the application is
@@ -450,5 +450,80 @@ pub fn read(
 }
 "#;
     let [(_, (success, errors))] = outcomes([("bound", source)]);
+    assert!(success, "{errors:#?}");
+}
+
+/// A constructor holding a set, for the set-element cases.
+const BAG: &str = "#[k::constructors(sort = Exp, result = KResult)]\npub enum BagSyntax {\n    #[k::syntax(\"bag({s})\")]\n    Bag { s: k::builtin::Set },\n}\n";
+
+/// A set is looked up by its elements as a map by its keys, so a name only a function
+/// application in a set element reads binds nothing, in a fn rule's subject, a readable cell and
+/// a `cells!` cell alike.
+#[test]
+fn a_name_only_a_function_in_a_set_element_reads_is_unbound() {
+    let outcomes = outcomes([
+        (
+            "rule-subject",
+            &format!(
+                "{BAG}#[k::rule(label = \"has\")]\nfn has(BagSyntax::Bag {{ s: k::builtin::set::concat(k::builtin::set::item(Size(n)), rest) }}: Term<Exp>) -> Term<Exp> {{\n    BagSyntax::Bag {{ s: rest }}\n}}\n"
+            ),
+        ),
+        (
+            "readable",
+            &format!(
+                "{BAG}k::rules! {{\n    for Machine;\n    use ExpSyntax::*;\n    pick: {{ k: [Done(), ..], acc: BagSyntax::Bag {{ s: k::builtin::set::concat(k::builtin::set::item(Size(n)), rest) }} }} => {{ k: [..], acc: BagSyntax::Bag {{ s: rest }} }};\n}}\n"
+            ),
+        ),
+        (
+            "cells",
+            &format!(
+                "{BAG}#[k::rule(label = \"pick\")]\npub fn pick(\n    n: KItem,\n    rest: k::builtin::Set,\n    k::cells! {{ k: k::configuration::KCell(ExpSyntax::Done(), tail @ ..), acc: k::configuration::Cell(BagSyntax::Bag {{ s: k::builtin::set::concat(k::builtin::set::item(Size(n)), rest) }}), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), acc: k::configuration::Cell(BagSyntax::Bag {{ s: rest }}), ..state }}\n}}\n"
+            ),
+        ),
+    ]);
+    expect_test::expect![[r#"
+        [
+            (
+                "rule-subject",
+                (
+                    false,
+                    [
+                        "error[krs::expand::unbound-name]: `n` is not bound in this sentence: it stands only below the function `Size` in a set element, and an element is evaluated to look it up in the set, so the element reads `n` and binds nothing; bind `n` elsewhere in the pattern",
+                        "--> src/lib.rs:55:79",
+                    ],
+                ),
+            ),
+            (
+                "readable",
+                (
+                    false,
+                    [
+                        "error[krs::expand::unbound-name]: `n` is not bound in this sentence: it stands only below the function `Size` in a set element, and an element is evaluated to look it up in the set, so the element reads `n` and binds nothing; bind `n` elsewhere in the pattern",
+                        "--> src/lib.rs:57:106",
+                    ],
+                ),
+            ),
+            (
+                "cells",
+                (
+                    false,
+                    [
+                        "error[krs::expand::unbound-name]: `n` is not bound in this sentence: it stands only below the function `Size` in a set element, and an element is evaluated to look it up in the set, so the element reads `n` and binds nothing; bind `n` elsewhere in the pattern",
+                        "--> src/lib.rs:58:174",
+                    ],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// A name a set element reads is bound by the rest of the pattern, and a name an element
+/// matches as it stands binds there.
+#[test]
+fn a_name_a_set_element_reads_may_be_bound_elsewhere() {
+    let source = format!(
+        "{BAG}k::rules! {{\n    for Machine;\n    use ExpSyntax::*;\n    after: {{ acc: BagSyntax::Bag {{ s: k::builtin::set::concat(k::builtin::set::item(Size(n)), rest) }}, k: [Wrap(n), ..] }} => {{ k: [Load(1), ..], acc: BagSyntax::Bag {{ s: rest }} }};\n    matched: {{ k: [Done(), ..], acc: BagSyntax::Bag {{ s: k::builtin::set::concat(k::builtin::set::item(Wrap(n)), rest) }} }} => {{ k: [Wrap(n), ..], acc: BagSyntax::Bag {{ s: rest }} }};\n}}\n"
+    );
+    let [(_, (success, errors))] = outcomes([("bound", source.as_str())]);
     assert!(success, "{errors:#?}");
 }

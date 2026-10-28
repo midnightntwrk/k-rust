@@ -455,6 +455,7 @@ Match a variable there and relate it to the application in a `#[k::requires]` gu
 A rule whose whole subject applies a function, `fn twist(k::term![Size(x)]: Term<Int>) -> Term<Int>`, would otherwise read as a definition of that function, not a step of the computation; to define the function, write the sentence as an equation, a `#[k::equation]` fn or a `k::equations!` row.
 The application is the meaning, and is accepted, at the root of an equation's subject (the function the equation defines), anywhere in a simplification's subject, which rewrites symbolic terms whose applications stand unevaluated, anywhere in a claim's subject, a symbolic state, and in a collection's key, value or element, `env: { Size(x) -> v, .. }`, where a lookup evaluates the key.
 Because the key is evaluated, its names below the application must be bound elsewhere in the subject (here `x`); one bound nowhere else is `krs::expand::unbound-name` ([map reads](#rules-that-leave-the-computation-cell-out)).
+A set is looked up by its elements as a map by its keys, so the same holds for a set element: in `set::concat(set::item(Size(n)), rest)`, `n` must be bound elsewhere in the subject.
 
 ### Pattern aliases
 

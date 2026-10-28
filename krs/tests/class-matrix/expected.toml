@@ -223,7 +223,7 @@ doc = "a turbofish instance (`Choose::<Int> { .. }`) in an initializer, which bu
 
 [class.unbound-name]
 code = "krs::expand::unbound-name"
-doc = "a binder that nothing in the sentence or initializer binds, a name a map key reads only below a function application included"
+doc = "a binder that nothing in the sentence or initializer binds, a name a map key or a set element reads only below a function application included"
 
 [class.unused-configuration-variable]
 code = "krs::analysis::unused-configuration-variable"

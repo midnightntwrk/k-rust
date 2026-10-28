@@ -33,9 +33,9 @@
 //! `k::rewrite!`'s left side is matched where it stands; its right side is
 //! built and is no pattern.
 //!
-//! A key is evaluated, so a name below a function application in a map key
-//! reads a value and binds none; [`key_names`] refuses a name that the
-//! pattern binds nowhere else.
+//! A key is evaluated, so a name below a function application in a map key,
+//! or in a set element, which a set is looked up by, reads a value and binds
+//! none; [`key_names`] refuses a name that the pattern binds nowhere else.
 
 use std::collections::BTreeMap;
 
@@ -53,9 +53,9 @@ use super::origin::key_range;
 mod key_names;
 
 /// Refuses the first function application where a pattern matches a term,
-/// and then the first name a map key reads below a function application and
-/// the pattern binds nowhere else, of each sentence whose subject every term
-/// it applies to matches with its functions evaluated.
+/// and then the first name a map key or a set element reads below a function
+/// application and the pattern binds nowhere else, of each sentence whose
+/// subject every term it applies to matches with its functions evaluated.
 ///
 /// # Errors
 ///
