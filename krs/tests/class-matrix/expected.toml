@@ -99,7 +99,6 @@ doc = "`k::fragment!` in an initializer, which builds nested cells with their st
 [class.function-in-pattern]
 code = "krs::analysis::function-in-pattern"
 doc = "a function application below the root of a rewrite rule's or equation's pattern, outside a collection's key, value or element: a pattern matches terms as written, and an application is evaluated"
-proposed = true
 
 [class.initializer-remainder]
 code = "krs::syntax::unsupported-initializer-body"
