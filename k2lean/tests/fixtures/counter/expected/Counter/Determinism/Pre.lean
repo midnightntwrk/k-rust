@@ -56,6 +56,7 @@ def Det.kkey (k : SortK) : Det.Key :=
 def Det.key (c : SortGeneratedTopCell) : Det.Key :=
   match c with
   | SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» k) _) _ => Det.kkey k
+  | _ => .none
 
 /-- internal: the rank-0 rules with key 3. -/
 inductive Det.K0_3 : SortGeneratedTopCell → SortGeneratedTopCell → Prop where

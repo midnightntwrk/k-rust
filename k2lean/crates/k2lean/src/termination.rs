@@ -921,8 +921,6 @@ pub struct Ctx {
     pub injs: BTreeMap<String, bool>,
     /// the Lean types of builtin sorts
     pub builtin: BTreeSet<String>,
-    /// the arity-indexed universe, where `KPrelude.Shape` is defined (`Term.shape`)
-    pub arity: bool,
     /// the library has parameters (`variable [Hooks]`)
     pub has_hooks: bool,
     lemmas: std::cell::RefCell<Lemmas>,
@@ -969,7 +967,6 @@ impl Ctx {
         sole: BTreeSet<String>,
         injs: BTreeMap<String, bool>,
         builtin: BTreeSet<String>,
-        arity: bool,
         has_hooks: bool,
     ) -> Ctx {
         Ctx {
@@ -978,7 +975,6 @@ impl Ctx {
             sole,
             injs,
             builtin,
-            arity,
             has_hooks,
             lemmas: Default::default(),
         }
@@ -1679,37 +1675,27 @@ impl Ctx {
     }
 
     /// The `simp` names of constructors: the reducible definitions of the arity-indexed universe
-    /// and the injectivity lemmas of the family's constructors they use, the constructors'
-    /// injectivity lemmas otherwise.
+    /// and the injectivity lemmas of the family's constructors they use.
     fn simp_names(&self, names: BTreeSet<String>) -> Vec<String> {
-        if self.arity {
-            let mut inj: BTreeSet<String> = BTreeSet::new();
-            for n in &names {
-                if let Some(tys) = self.ctors.get(n) {
-                    inj.insert(format!("Term.c{}.injEq", tys.len()));
-                    for t in tys {
-                        if self.builtin.contains(t) {
-                            inj.insert(format!("Term.«b_{t}».injEq"));
-                        }
+        let mut inj: BTreeSet<String> = BTreeSet::new();
+        for n in &names {
+            if let Some(tys) = self.ctors.get(n) {
+                inj.insert(format!("Term.c{}.injEq", tys.len()));
+                for t in tys {
+                    if self.builtin.contains(t) {
+                        inj.insert(format!("Term.«b_{t}».injEq"));
                     }
-                } else if self.injs.contains_key(n) {
-                    inj.insert("Term.inj.injEq".into());
                 }
+            } else if self.injs.contains_key(n) {
+                inj.insert("Term.inj.injEq".into());
             }
-            let mut out: Vec<String> = names.into_iter().collect();
-            if !inj.is_empty() {
-                out.extend(inj);
-                out.push("heq_eq_eq".into());
-            }
-            return out;
         }
-        names
-            .into_iter()
-            .filter(|n| {
-                self.injs.contains_key(n) || self.ctors.get(n).is_some_and(|a| !a.is_empty())
-            })
-            .map(|n| format!("{n}.injEq"))
-            .collect()
+        let mut out: Vec<String> = names.into_iter().collect();
+        if !inj.is_empty() {
+            out.extend(inj);
+            out.push("heq_eq_eq".into());
+        }
+        out
     }
 
     /// `omit [Hooks] in` before a declaration that does not use the library's parameters.
@@ -1890,9 +1876,6 @@ impl Ctx {
     /// `shape r ≤ shape x_j` for `f x̄ = some r`, when every equation of `f` builds its result
     /// from pieces of `x_j` (and recursive calls on pieces of it), as a lemma `@[k2l_fact]`.
     fn shape_lemma(&self, fname: &str, j: usize) -> Option<Lemma> {
-        if !self.arity {
-            return None;
-        }
         let key = (fname.to_string(), j);
         if let Some(l) = self.lemmas.borrow().shape.get(&key) {
             return l.clone();
@@ -3289,7 +3272,7 @@ impl Ctx {
             let shape_opts: Vec<Vec<Comp>> = (0..n)
                 .map(|f| {
                     let mut o = Vec::new();
-                    if self.arity && inv_fns.contains(&f) {
+                    if inv_fns.contains(&f) {
                         for (k, t) in group[f].arg_tys.iter().enumerate() {
                             if !self.builtin.contains(t) {
                                 o.push(Comp::Shape(k));

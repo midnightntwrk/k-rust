@@ -14,13 +14,12 @@ usage: gate-check.py check WORK BASELINE TIER    measure WORK, write WORK/measur
 BASELINE is a directory with one AREA.toml per area; the recorded outputs of area AREA are in
 expected/AREA/ beside it. The registries are tests/areas/AREA.py (GATE_AREAS=DIR overrides the
 directory), for the areas of LIBS_AREAS in tests/libs.sh beside them. A registry defines any of:
-  LIBS      name -> {ns, tier, encoding ("arity", the default, or "per-sort": a label;
-            the `gen` arm of the area selects the encoding), guard (False: built only as far as
+  LIBS      name -> {ns, tier, guard (False: built only as far as
             its invariant, no `…Test.Axioms`), not_regenerated (files of generated/name that the gate
             does not regenerate)}; generated/name is hashed
   INVS      name -> {ns, tier}: the kind 1 invariant of library name
   DEMOS     name -> {tier, sources (files or directories under k2lean/ that the demo's phase
-            generates, hashed), encoding (as LIBS': the encoding of the libraries it is built on)}
+            generates, hashed)}
   NEGATIVE  name -> {tier}: an entry of measured/negative.toml
   RECORDS   name -> {tier, compare_in, measure (a function of the run, returning the record's
             fields), sources}
@@ -107,7 +106,6 @@ def load_registry(adir=None):
                 e.setdefault("compare_in", [])
                 e["area"] = a
         for e in r["LIBS"].values():
-            e.setdefault("encoding", "arity")
             e.setdefault("guard", True)
             e.setdefault("not_regenerated", [])
         reg[a] = r
@@ -918,8 +916,6 @@ def list_entries(tier=None):
             extra.append(f"compared in {','.join(e['compare_in'])}")
         if e.get("same_as"):
             extra.append(f"compared with {e['same_as']}")
-        if e.get("encoding", "arity") != "arity":
-            extra.append(f"encoding {e['encoding']}")
         print(f"{a:16} {kind:9} {name:24} {e['tier']:6} {'; '.join(extra)}".rstrip())
     return 0
 

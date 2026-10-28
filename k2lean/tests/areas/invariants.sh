@@ -69,19 +69,19 @@ gen_invariants() {
     # SIMPLE with the K function `holdsOk` (demos/k/simple-inv): a cell predicate of `<holds>`, which
     # is inside the `<thread>` cell map, so it is lifted to "every thread"
     simpleinv) GEN_ARGS=(--kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json"
-            --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms
+            --out "$o" --name KSimpleInv --prelude ../../lean/prelude
             --open-obligations "$o/open-obligations.txt" --invariant holdsOk@holds) ;;
     # the same definition with "every store value is a Val or undefined", as a function of the `<store>` cell's
     # content and as a function of SIMPLE's top cell `<T>`
     simplestore|simplet) GEN_ARGS=(--kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json"
-            --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms
+            --out "$o" --name KSimpleInv --prelude ../../lean/prelude
             --open-obligations "$o/open-obligations.txt"
             --invariant "$([ "$1" = simplet ] && echo tStoreOk@T || echo storeOk@store)") ;;
     # SIMPLE with `envsOk` (demos/k/simple-inv/simple-envs.k): every environment, of every thread and
     # of every stack frame, maps into the store, through walks, folds over `K` and lists, and their
     # monotonicity in the store
     simpleenvs) GEN_ARGS=(--kore "$(kore_dir simple-envs)/definition.kore" --runtime "$(kore_dir simple-envs)/runtime.json"
-            --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms
+            --out "$o" --name KSimpleInv --prelude ../../lean/prelude
             --open-obligations "$o/open-obligations.txt" --invariant envsOk@T) ;;
     *) return 1 ;;
   esac
@@ -284,7 +284,7 @@ gate_invariants() {
     seed_lake "$d" simpleinv
     kc simple-inv && inv_lib "$d" KSimpleInv
   done
-  # SIMPLE's environments in the store (envsOk@T), per-sort, from its own definition
+  # SIMPLE's environments in the store (envsOk@T), from its own definition
   runs lib simpleenvs && kc simple-envs && inv_lib simpleenvs KSimpleInv
   phase "diff invariants"
   diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested range walk kfold anyfold simpleinv simplestore simplet simpleenvs

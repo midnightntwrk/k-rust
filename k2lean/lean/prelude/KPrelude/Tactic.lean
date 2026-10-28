@@ -433,8 +433,8 @@ function `inj_…` in the goal. An injection is defined by cases on its argument
 it reduces: a `match` of the cascade on the injected term (the pattern of another subsort) then
 reduces too, which `simp` cannot do on the variable. Fails when there is no such variable.
 
-A generated sort is an inductive type `Sort…` (one type per sort), or `Term t` of the
-arity-indexed family; on the family the split is `familyCases` without the enumeration split. -/
+A sort is an inductive type `Sort…`, or `Term t` of the arity-indexed family (every generated
+sort); on the family the split is `familyCases` without the enumeration split. -/
 elab "k2l_case_inj" : tactic => do
   liftMetaTactic fun g => g.withContext do
     let env ← getEnv

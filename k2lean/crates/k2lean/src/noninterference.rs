@@ -244,13 +244,9 @@ fn relation(
     };
     let nb = get("checker-name");
     let ckore = get("checker-kore");
-    // `--per-sort-terms true`: the libraries are in the one type per sort encoding (as `relate`'s
-    // and `soundness`'s option); otherwise the arity-indexed family (design.md §2.1)
-    let per_sort = match opt.get("per-sort-terms").map(String::as_str) {
-        None | Some("false") => false,
-        Some("true") => true,
-        Some(v) => fail(&format!("--per-sort-terms {v}: true or false")),
-    };
+    if opt.contains_key("per-sort-terms") {
+        fail("--per-sort-terms: removed with the per-sort encoding");
+    }
     let text = std::fs::read_to_string(&ckore).unwrap_or_else(|e| fail(&format!("{ckore}: {e}")));
     let cdef = crate::ir::load(&text).unwrap_or_else(|e| fail(&format!("{ckore}: {e}")));
     let find = |w: &str| -> String {
@@ -428,7 +424,6 @@ components (its equations at that constructor, in order, then its `owise` value)
         )
         .unwrap();
     }
-    let trs = snd::tr_names(&a.m, &[lev.sort.clone(), sec.sort.clone()]);
     let fnames: Vec<String> = tfs.iter().map(|f| f.name.clone()).collect();
     let convs: Vec<String> = tfs
         .iter()
@@ -436,11 +431,8 @@ components (its equations at that constructor, in order, then its `owise` value)
         .collect();
     writeln!(
         t,
-        "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of its calls, and compute. -/\nlocal macro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, {}]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]\n  all_goals simp_all [KEqHook.eq, BoolHook.and, BoolHook.or{}]))\n",
+        "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of its calls, and compute. -/\nlocal macro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, k2l_tr]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]\n  all_goals simp_all [KEqHook.eq, BoolHook.and, BoolHook.or{}]))\n",
         fnames.join(", "),
-        // the translation's equations at each constructor: on the arity universe `tr_S` names the
-        // one recursive `tr`, whose equations `relate` states as the `k2l_tr` lemmas
-        if per_sort { trs.join(", ") } else { "k2l_tr".to_string() },
         convs.join("\n    | "),
         tfs.iter().map(|f| f.lean_b.clone()).collect::<Vec<_>>().join(", "),
         unfolds.iter().map(|u| format!(", {u}")).collect::<String>()
@@ -480,15 +472,13 @@ stack), `SQ` (a step from a low stack), `SameQ` (two runs at one low stack). -/\
     )
     .unwrap();
     let projs = snd::plug_def(&a, &cools, &hole, &mut s);
-    if !per_sort {
-        // realized here, under this file's `maxHeartbeats 0`: a module that imports `plug` and
-        // unfolds it realizes its equation lemmas under Lean's default limit whatever it sets
-        // (design.md §9), and on the arity universe the fallback's equation has a side condition
-        // per cooling rule, a family constructor against a family constructor, beyond that limit
-        s.push_str(
-            "\n/-- `plug`'s equation lemmas, realized in this module (see `k2lean noninterference`). -/\ntheorem plug_eqns_realized : True := by\n  have := @plug.eq_1\n  trivial\n",
-        );
-    }
+    // realized here, under this file's `maxHeartbeats 0`: a module that imports `plug` and
+    // unfolds it realizes its equation lemmas under Lean's default limit whatever it sets
+    // (design.md §9), and the fallback's equation has a side condition
+    // per cooling rule, a family constructor against a family constructor, beyond that limit
+    s.push_str(
+        "\n/-- `plug`'s equation lemmas, realized in this module (see `k2lean noninterference`). -/\ntheorem plug_eqns_realized : True := by\n  have := @plug.eq_1\n  trivial\n",
+    );
     // the items with no pending value
     let kitem = a.m.sort("SortKItem");
     let mut larms: Vec<(String, String, String, String, String)> = Vec::new(); // (short, ctor, arg type, low rhs, confined rhs)
@@ -541,14 +531,10 @@ stack), `SQ` (a step from a low stack), `SameQ` (two runs at one low stack). -/\
     for (_, c, _, _, cr) in &larms {
         writeln!(s, "  | {c} x => {cr}").unwrap();
     }
-    // on the arity universe: case splits by `k2l_cases` (only the sort's value forms), and the
-    // equations of `lk` and `CK`, whose recursion on `SortK` (the family at one index) is
-    // well-founded, not structural, so they do not reduce by `rfl`
-    let (cases_t, lk_pf, ck_pf) = if per_sort {
-        ("cases", "rfl", "rfl")
-    } else {
-        ("k2l_cases", "by simp only [lk]", "by rw [CK]")
-    };
+    // case splits by `k2l_cases` (only the sort's value forms), and the equations of `lk` and
+    // `CK`, whose recursion on `SortK` (the family at one index) is well-founded, not structural,
+    // so they do not reduce by `rfl`
+    let (cases_t, lk_pf, ck_pf) = ("k2l_cases", "by simp only [lk]", "by rw [CK]");
     writeln!(
         s,
         "  | _ => none\n\n\
@@ -575,11 +561,7 @@ theorem CK_base (G : Lab) (K : {kt}) : CK G K false K := by\n  {cases_t} K <;> s
         if a.m.sort(srt).is_simple() {
             "rfl"
         } else {
-            if per_sort {
-                "by cases x <;> rfl"
-            } else {
-                "by k2l_cases x <;> rfl"
-            }
+            "by k2l_cases x <;> rfl"
         }
     };
     writeln!(
@@ -627,26 +609,17 @@ def SameQ (G : Lab) (c₁ c₁' : {topt}) : Prop :=\n  ∀ c₂ c₂', Sync G c�
     .unwrap();
     // the closers
     let store_sort = format!("{na}.{}", store_cell.sort);
-    // on the arity universe the store cell's sort is `Term t`, which `whnfR` unfolds the
-    // abbreviation to, and a field of a case split has it as `Term i` for an index `i` that
-    // computes to `t`: the test is definitional equality, and the split `familyCases`' (`casesVar`)
-    // a level, the value of a checker's call: on the arity universe its value forms by `k2l_cases`
-    let split_cases = if per_sort { "cases" } else { "k2l_cases" };
-    let (store_test, store_split) = if per_sort {
-        (
-            format!(
-                "let t ← whnfR d.type\n          return if t.isConstOf ``{store_sort} then some d else none"
-            ),
-            "let gs ← g.cases d.fvarId\n    replaceMainGoal (gs.map (·.mvarId)).toList".to_string(),
-        )
-    } else {
-        (
-            format!(
-                "let t ← instantiateMVars d.type\n          return if ← isDefEq t (mkConst ``{store_sort}) then some d else none"
-            ),
-            "g.withContext (KPrelude.Soundness.casesVar (mkFVar d.fvarId))".to_string(),
-        )
-    };
+    // the store cell's sort is `Term t`, which `whnfR` unfolds the abbreviation to, and a field
+    // of a case split has it as `Term i` for an index `i` that computes to `t`: the test is
+    // definitional equality, and the split is `familyCases`' `casesVar`; a level, the value of a
+    // checker's call, splits into its value forms by `k2l_cases`
+    let split_cases = "k2l_cases";
+    let (store_test, store_split) = (
+        format!(
+            "let t ← instantiateMVars d.type\n          return if ← isDefEq t (mkConst ``{store_sort}) then some d else none"
+        ),
+        "g.withContext (KPrelude.Soundness.casesVar (mkFVar d.fvarId))".to_string(),
+    );
     let fqn = |f: &TFn| format!("{ns}.{}", f.name);
     writeln!(
         s,
@@ -713,11 +686,13 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
     )
     .unwrap();
     writeln!(p, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
+    // `CK` is defined by well-founded recursion, so `exact` would try to unify `HiOnly` with an
+    // unfolding of it (`with_reducible exact`); reducibly the mismatch fails at once
     writeln!(
         p,
-        "/-- The generic case of `CQ`. -/\nlocal macro \"k2l_cq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold CQ\n  intro K hck hne hgood\n  simp only [kOf, storeOf, CK_kseq] at hck hne hgood ⊢\n  refine ⟨?_, ?_⟩\n  all_goals first\n    | {hi_refl}hiOnly_refl hgood\n    | (try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n       try subst_vars\n       try k2l_ni_comp)))\n\n\
+        "/-- The generic case of `CQ`. -/\nlocal macro \"k2l_cq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold CQ\n  intro K hck hne hgood\n  simp only [kOf, storeOf, CK_kseq] at hck hne hgood ⊢\n  refine ⟨?_, ?_⟩\n  all_goals first\n    | with_reducible exact hiOnly_refl hgood\n    | (try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n       try subst_vars\n       try k2l_ni_comp)))\n\n\
 /-- The generic case of `SQ`. -/\nlocal macro \"k2l_sq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold SQ\n  intro hlk hgood\n  simp only [kOf, storeOf] at hlk hgood ⊢\n  try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n  try subst_vars\n  try k2l_ni_simp\n  try k2l_ni_split\n  all_goals (try k2l_ni_simp)\n  all_goals first\n    | (apply sq_base; k2l_ni_comp; done)\n    | (apply sq_drop2 <;> simp only [dropK, CK_kseq] <;> k2l_ni_comp <;> done)\n    | skip))\n\n\
-/-- The generic case of `SameQ` for the rule whose `Step` constructor is `c`: the other run takes\nthe same rule (`Step.deterministic`), which reads and writes no store. -/\nlocal macro \"k2l_same \" c:ident : tactic => `(tactic| (\n  intros\n  unfold SameQ\n  intro c₂ c₂' hS h₂\n  obtain ⟨hk, hlk, hlow⟩ := hS\n  {rcases_t} c₂ with {pat}\n  simp only [kOf] at hk\n  subst hk\n  have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n  subst hd\n  k2l_cases_store\n  simp only [kOf, storeOf] at hlow ⊢\n  first\n    | (simp only [true_and]; assumption)\n    | exact ⟨rfl, by assumption⟩))\n",
+/-- The generic case of `SameQ` for the rule whose `Step` constructor is `c`: the other run takes\nthe same rule (`Step.deterministic`), which reads and writes no store. -/\nlocal macro \"k2l_same \" c:ident : tactic => `(tactic| (\n  intros\n  unfold SameQ\n  intro c₂ c₂' hS h₂\n  obtain ⟨hk, hlk, hlow⟩ := hS\n  k2l_cases c₂ with {pat}\n  simp only [kOf] at hk\n  subst hk\n  have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n  subst hd\n  k2l_cases_store\n  simp only [kOf, storeOf] at hlow ⊢\n  first\n    | (simp only [true_and]; assumption)\n    | exact ⟨rfl, by assumption⟩))\n",
         pat = {
             // `⟨⟨k₂⟩, e₂, g₂⟩`: the top cell's arguments, `<k>` destructured
             let ps: Vec<String> = (0..cells.len())
@@ -725,10 +700,6 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
                 .collect();
             format!("⟨{}⟩", ps.join(", "))
         },
-        // on the arity universe `CK` is defined by well-founded recursion, so `exact` would try to
-        // unify `HiOnly` with an unfolding of it; reducibly the mismatch fails at once
-        hi_refl = if per_sort { "exact " } else { "with_reducible exact " },
-        rcases_t = if per_sort { "rcases" } else { "k2l_cases" },
     )
     .unwrap();
     let mut generic = [0usize; 3];
@@ -768,12 +739,8 @@ tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_s
         )
         .unwrap();
     }
-    // on the arity universe `CK` does not reduce by `rfl` (its recursion is well-founded)
-    let ck_dotk_at = if per_sort {
-        ""
-    } else {
-        "rw [CK_dotk] at h\n  "
-    };
+    // `CK` does not reduce by `rfl` (its recursion is well-founded)
+    let ck_dotk_at = "rw [CK_dotk] at h\n  ";
     writeln!(
         p,
         "variable (G : Lab)\n\n\

@@ -1,8 +1,7 @@
 # shellcheck shell=bash
 # The core area: kimp (goldens and step traces), KRS IMP, determinism along the rule index
 # (kimp-d2, ovl), rules with `ensures` (ens), the fixture freekey, SIMPLE and its acceptance against
-# krust, the synthesized termination measures (kterm-ar), and kimp and SIMPLE in the per-sort encoding
-# (kimp-ps, simple-ps, for the holdouts built on it). Registry: core.py.
+# krust, the synthesized termination measures (kterm-ar). Registry: core.py.
 
 kore_core() {
   case $1 in
@@ -18,20 +17,18 @@ kore_core() {
 
 name_core() {
   case $1 in
-    kimp|kimp-d2|kimp-ps) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
-    simple|simple-ps) echo KSimple ;; freekey) echo FreeKey ;; symcoll) echo SymColl ;; alias) echo KAlias ;;
+    kimp|kimp-d2) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
+    simple) echo KSimple ;; freekey) echo FreeKey ;; symcoll) echo SymColl ;; alias) echo KAlias ;;
     kterm-ar) echo KTerm ;;
     *) return 1 ;;
   esac
 }
 
-# kimp-ps and simple-ps are kimp and SIMPLE in the per-sort encoding (`--per-sort-terms`)
 gen_core() {
   case $1 in
-    kimp|kimp-ps) GEN_ARGS=(--kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json"
+    kimp) GEN_ARGS=(--kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json"
             --out "$o" --name KImp --prelude ../../lean/prelude
-            --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt")
-      [ "$1" = kimp-ps ] && GEN_ARGS+=(--per-sort-terms) ;;
+            --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt") ;;
     # kimp with one exclusive pair of rules listed as overlapping (`--det2-overlap`), so that the
     # conditional statements of determinism (`Step.deterministic_of`) are built too;
     # and its Equations in parts of weight at most 30 (kimp's whole is 84), so that the parts, their
@@ -50,12 +47,9 @@ gen_core() {
     # by their ensures, and an overlap where both hold (witnessed)
     ens) GEN_ARGS=(--kore "$(kore_dir ens)/definition.kore" --runtime "$(kore_dir ens)/runtime.json"
             --out "$o" --name KEns --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
-    # `--linear-terms` (the per-sort encoding's linear constructor emission) changes nothing in the
-    # arity universe
-    simple|simple-ps) GEN_ARGS=(--kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json"
-            --out "$o" --name KSimple --prelude ../../lean/prelude --linear-terms
-            --open-obligations "$o/open-obligations.txt")
-      [ "$1" = simple-ps ] && GEN_ARGS+=(--per-sort-terms) ;;
+    simple) GEN_ARGS=(--kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json"
+            --out "$o" --name KSimple --prelude ../../lean/prelude
+            --open-obligations "$o/open-obligations.txt") ;;
     # the generator's fixture whose functions walk maps by free-key patterns (tests/fixtures/freekey)
     freekey) libs_fixture_args "$1" ;;
     # the fixture whose simplifications are domains.md's over maps and sets (tests/fixtures/symcoll)
@@ -106,7 +100,7 @@ libs_cases() {
 # ---------------------------------------------------------------- gate phases (tests/gate.sh)
 
 needs_core() {
-  if runs lib simple || runs lib simple-ps; then
+  if runs lib simple; then
     [ -d "$SD" ] || need "SIMPLE's sources at $SD (set GATE_K_CHECKOUT)"
   fi
   return 0
@@ -135,7 +129,7 @@ kimp_llvm() {
     else rm -rf "$tmp"; bad kompile-llvm "$L/kompile-llvm.log"; fi
   fi
 }
-kimp_goldens() { # DIR: the goldens and traces of kimp's library DIR (kimp or kimp-ps), after its generation
+kimp_goldens() { # DIR: the goldens and traces of kimp's library DIR, after its generation
   kimp_llvm
   if libs_goldens "$W/goldens-tmp" "$LLVM/interpreter" "$1" > "$L/goldens.log" 2>&1; then ok goldens "$L/goldens.log"
   else bad goldens "$L/goldens.log"; fi
@@ -148,7 +142,7 @@ kimp_tests() { # DIR [SUB]: build and run kimp's test driver of library DIR (gol
       && ok "$1-test" "$m/kimp-test.out" || bad "$1-test" "$m/kimp-test.out"
   else bad "build $1-test" "$L/build-$1-test.log"; fi
 }
-lib_simple() { # DIR [SUB] (simple, simple-ps): generate, cases, build, guard, run the cases, acceptance table into measured/SUB
+lib_simple() { # DIR [SUB]: generate, cases, build, guard, run the cases, acceptance table into measured/SUB
   local d=$1 o=$GEN/$1 m=$MEAS${2:+/$2}; mkdir -p "$m"
   lib_open "$d"
   genlib "$d" || { bad "gen $d" "$L/gen-$d.log"; return 1; }
@@ -200,9 +194,6 @@ gate_core() {
   runs lib symcoll && lib symcoll SymColl
   # the fixture of alias patterns (`P #as X`) in equations and owise competitors
   runs lib alias && lib alias KAlias
-  if runs lib kimp-ps; then
-    kc kimp && kc kimp-verif && lib kimp-ps KImp kimp_goldens kimp-ps && kimp_tests kimp-ps per-sort
-  fi
   # recursive functions whose termination measures the generator synthesizes (demos/k/term);
   # its least fixed points have no value where K's rewriting diverges (term-diverges.lean)
   if runs lib kterm-ar && kc kterm && lib kterm-ar KTerm; then
@@ -215,10 +206,6 @@ gate_core() {
   if runs lib simple; then
     phase "lib simple"
     kc simple && libs_simple_cases && lib_simple simple && ok "simple acceptance" "$MEAS/simple-acceptance.md"
-  fi
-  if runs lib simple-ps; then
-    phase "lib simple-ps"
-    kc simple && libs_simple_cases && lib_simple simple-ps per-sort && ok "simple-ps acceptance" "$MEAS/per-sort/simple-acceptance.md"
   fi
   phase "diff core"
   diffs kimp krsimp simple

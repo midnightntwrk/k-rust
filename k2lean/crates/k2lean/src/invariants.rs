@@ -2125,7 +2125,8 @@ fn cell_tree(
         }
         chain = format!(" | (simp only [{}]{cases})", unfolds.join(", "));
     }
-    let split = if cx.arity { "k2l_cases" } else { "rcases" };
+    // `k2l_cases` refutes the family's constructors that no value of the sort has
+    let split = "k2l_cases";
     let theorem = format!(
         "/-- `{}` at any `{arg}`: its one equation matches every value of the cell sort, whose\n\
 cells each have one constructor, so its value is the right-hand side at the projections. -/\n\
@@ -2182,9 +2183,6 @@ pub struct Ctx<'a> {
     pub ns: &'a str,
     /// The initial configuration, with the Lean parameters of `init` (name, sort, `$X`).
     pub init: Option<(&'a InitTerm, crate::init::InitParams)>,
-    /// The library is in the arity-indexed universe (`terms_arity.rs`): a case split on a term
-    /// is `k2l_cases`, which refutes the family's constructors that no value of the sort has.
-    pub arity: bool,
 }
 
 /// The files to write.

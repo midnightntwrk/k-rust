@@ -37,7 +37,7 @@ gen_relational() {
             --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
     # the variant of SIMPLE (tests/simple-variant.py), related to SIMPLE by demos/SimpleRel
     simplev) GEN_ARGS=(--kore "$(kore_dir simple-variant)/definition.kore" --runtime "$(kore_dir simple-variant)/runtime.json"
-            --out "$o" --name KSimpleV --prelude ../../lean/prelude --linear-terms
+            --out "$o" --name KSimpleV --prelude ../../lean/prelude
             --open-obligations "$o/open-obligations.txt") ;;
     # the generator's fixtures peano, cellmap and pick, each generated twice under two namespaces:
     # the two sides of the self-relations demos/PeanoRel, demos/CellMapRel and demos/PickRel

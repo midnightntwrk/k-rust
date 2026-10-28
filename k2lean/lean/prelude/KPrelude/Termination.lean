@@ -18,7 +18,7 @@ proofs need and the tactic the generator emits:
   destructure a collection give smaller pieces: `ListHook.uncons`, `ListHook.unsnoc`, and the
   value and the rest of a map pattern `K |-> V REST` (`MapHook.lookup`, `MapHook.remove`), for
   a bound key and, through the certificate `MapHook.chooseFirst` passes, for a free one
-  (`MapSizeOf`, which the per-sort carriers also have).
+  (`MapSizeOf`).
 * Facts about defined partial hooks, for `omega`: an index accepted by `BytesHook.get` or
   `BytesHook.substr` is in range, a defined `StringHook.find` is `-1` or an index at which the
   needle fits, the length of a `StringHook.substr` is at most what follows its start, a defined `IntHook.tdiv`/`IntHook.emod` by a literal is a
@@ -79,8 +79,7 @@ theorem sizeOf_dropLast_lt {E : Type} [SizeOf E] : ∀ (xs : List E), xs ≠ [] 
     omega
 
 /-- A list carrier whose `sizeOf` is its list's plus a constant: one (`ListSizeOf`, the
-arity-indexed universe) or none (the per-sort carriers `.nil`/`.cons x r`, whose instances
-`Functions.lean` declares). The termination facts of `ListItem(X) REST` and `REST ListItem(X)`. -/
+arity-indexed universe) or none (a carrier with constructors `.nil`/`.cons x r`). The termination facts of `ListItem(X) REST` and `REST ListItem(X)`. -/
 class ListSizeAffine (L E : Type) [ListIso L E] [SizeOf L] [SizeOf E] : Prop where
   affine : ∃ c : Nat, ∀ l : List E, sizeOf (ofList l : L) = c + sizeOf l
 
@@ -147,8 +146,8 @@ end SAL
 /-- A map carrier whose `sizeOf` decreases from a map to the value and to the rest of a binding:
 the termination facts of `K |-> V REST` (key bound or free). Instances: every carrier whose
 `sizeOf` is its list's plus one (`ListSizeOf`, the arity-indexed universe), and, through
-`MapHook.mapSizeOf_of_add`, the per-sort carriers (`.nil`/`.cons k v r`), whose `sizeOf` is
-their list's minus its length. -/
+`MapHook.mapSizeOf_of_add`, a carrier with constructors `.nil`/`.cons k v r`, whose `sizeOf` is
+its list's minus its length. -/
 class MapSizeOf (M K V : Type) [Ord K] [ListIso M (K × V)] [MapRepr M K V] [SizeOf M] [SizeOf V] :
     Prop where
   sizeOf_lookup : ∀ {m : M} {k : K} {v : V}, MapHook.lookup m k = some v → sizeOf v < sizeOf m
@@ -210,8 +209,8 @@ instance mapSizeOf_of_listSizeOf [ListSizeOf M (K × V)] : MapSizeOf M K V where
     have := SAL.sizeOf_erase_lt h
     omega
 
-/-- `MapSizeOf` for a carrier whose `sizeOf` plus its length is its list's `sizeOf` (the
-per-sort carriers `.nil`/`.cons k v r`: one constructor per binding instead of a cons and a
+/-- `MapSizeOf` for a carrier whose `sizeOf` plus its length is its list's `sizeOf` (a carrier
+`.nil`/`.cons k v r`: one constructor per binding instead of a cons and a
 pair). -/
 theorem mapSizeOf_of_add (h : ∀ l : List (K × V), sizeOf (ofList l : M) + l.length = sizeOf l) :
     MapSizeOf M K V where

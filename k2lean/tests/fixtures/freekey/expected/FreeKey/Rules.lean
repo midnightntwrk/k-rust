@@ -110,6 +110,7 @@ def sum (c : SortGeneratedTopCell) : List (RuleResult (App 0) (Step0 0) c) :=
           | none => [.undefined (by subst y; exact App.sum DotVar2 M DotVar1 DotVar0 W r hr hreq)]
         else []
       | none => []
+    | _ => []
   | _ => []
 
 def tick (c : SortGeneratedTopCell) : List (RuleResult (App 0) (Step0 0) c) :=
@@ -128,7 +129,10 @@ def tick (c : SortGeneratedTopCell) : List (RuleResult (App 0) (Step0 0) c) :=
                 [.next (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» Gen4 Gen5 (SortWorkersCell.«<workers>» r) Gen3) DotVar0) (by subst k; subst v; subst y; exact Step0.tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C r hc hr)]
               | none => [.undefined (by subst k; subst v; subst y; exact App.tick Gen4 Gen5 m Gen3 DotVar0 DotVar2 Gen0 C hc)]
             else []
+          | _ => []
+        | _ => []
     else []
+  | _ => []
 
 def take (c : SortGeneratedTopCell) : List (RuleResult (App 0) (Step0 0) c) :=
   match c with

@@ -244,13 +244,16 @@ fn main() {
         return open_from_log(&raw[1..]);
     }
     let a = parse_args();
-    // the arity-indexed term universe (design.md §2.1) unless `--per-sort-terms` asks for one Lean
-    // type per sort; `--arity-terms`, its former opt-in, is still accepted and changes nothing
-    let arity = !a.rest.iter().any(|x| x == "--per-sort-terms");
-    // fallback arms on irrefutable matches: for the arity-indexed family only, whose match
-    // compiler would otherwise refute every other constructor of the family; in the per-sort
-    // encoding such a match is exhaustive and Lean rejects the arm as redundant
-    render::set_fallback_arms(arity && !a.rest.iter().any(|x| x == "--no-fallback-arms"));
+    // the per-sort encoding (one Lean type per sort) is retired: the arity-indexed term universe
+    // (design.md §2.1) is the only one; `--arity-terms`, its former opt-in, changes nothing
+    for gone in ["--per-sort-terms", "--det-pairs", "--linear-terms"] {
+        if a.rest.iter().any(|x| x == gone) {
+            panic!("{gone}: removed with the per-sort encoding");
+        }
+    }
+    // fallback arms on irrefutable matches: the family's match compiler would otherwise refute
+    // every other constructor of the family
+    render::set_fallback_arms(!a.rest.iter().any(|x| x == "--no-fallback-arms"));
     let text = std::fs::read_to_string(&a.kore).unwrap();
     let def = ir::load(&text).unwrap();
     match a.cmd.as_str() {
@@ -341,11 +344,10 @@ fn main() {
             if let Ok(t) = &init_term {
                 roots.extend(init::functions(t, &def));
             }
-            let mut side = match &a.termination {
+            let side = match &a.termination {
                 Some(p) => funcs::Sidecar::load(p).unwrap_or_else(|e| panic!("--termination: {e}")),
                 None => funcs::Sidecar::default(),
             };
-            side.arity_terms = arity;
             let fgen = funcs::generate_with(&def, &m, &roots, &side)
                 .unwrap_or_else(|e| panic!("functions: {e}"));
             for n in &fgen.notes {
@@ -399,17 +401,8 @@ fn main() {
                     "import {ns}.Terms\nimport {ns}.Functions\nimport {ns}.Rules\nimport {ns}.Adequacy\nimport {ns}.Determinism\nimport {ns}.Equations\n"
                 ),
             );
-            let topts = terms::TermOpts {
-                linear: a.rest.iter().any(|x| x == "--linear-terms"),
-            };
-            let (terms_text, size_instances) = if arity {
-                (terms_arity::emit(&m, ns), funcs::list_size_instances(&m))
-            } else {
-                (
-                    terms::emit_with(&m, ns, topts),
-                    funcs::map_size_instances(&m),
-                )
-            };
+            let (terms_text, size_instances) =
+                (terms_arity::emit(&m, ns), funcs::list_size_instances(&m));
             write(&out.join(ns).join("Terms.lean"), &terms_text);
             write(
                 &out.join(ns).join("Functions.lean"),
@@ -486,14 +479,6 @@ fn main() {
                         &fgen.params,
                     ),
                 );
-                write(
-                    &out.join(ns).join("Determinism.lean"),
-                    &with_hooks(
-                        ranked::emit_determinism(&top, ns, &unfold),
-                        ns,
-                        &fgen.params,
-                    ),
-                );
             } else {
                 write(
                     &out.join(ns).join("Rules.lean"),
@@ -511,53 +496,44 @@ fn main() {
                         &fgen.params,
                     ),
                 );
-                write(
-                    &out.join(ns).join("Determinism.lean"),
-                    &with_hooks(rules::emit_determinism(&top, ns, &unfold), ns, &fgen.params),
-                );
             }
             // determinism along the rule index, modulo the overlapping pairs (`det2`), for every
-            // definition whose rules match once: the default (`--det2` is accepted and changes
-            // nothing); `--det-pairs` keeps the proof by cases on pairs of rules, except in the
-            // arity-indexed universe, where that proof does not finish
+            // definition whose rules match once (`--det2` is accepted and changes nothing)
             let mut det_overlaps = 0;
             let mut det_unwitnessed = 0;
             let mut det_witnessed = Vec::new();
-            let det_pairs = a.rest.iter().any(|x| x == "--det-pairs");
-            if arity || !det_pairs {
-                if multi {
-                    if a.rest.iter().any(|x| x == "--det2") {
-                        eprintln!(
-                            "note: --det2 needs every rule to match once; with free-key map rules Determinism.lean states `uniqueAt`"
-                        );
-                    }
-                } else {
-                    let d = det2::emit(
-                        &def,
-                        &m,
-                        &rs,
-                        &prios,
-                        ranked,
-                        &top,
-                        ns,
-                        &rules::ctor_info(&m),
-                        &unfold,
-                        &fgen.fns,
-                        &det2::Opts::from_args(&a.rest, arity),
-                    );
-                    // the lemma modules of an earlier generation may be more than this one's
-                    let _ = std::fs::remove_dir_all(out.join(ns).join("Determinism"));
-                    for (path, text) in d.files {
-                        write(&out.join(path), &with_hooks(text, ns, &fgen.params));
-                    }
+            if multi {
+                if a.rest.iter().any(|x| x == "--det2") {
                     eprintln!(
-                        "determinism: {} overlapping pairs\n{}",
-                        d.overlaps, d.report
+                        "note: --det2 needs every rule to match once; with free-key map rules Determinism.lean states `uniqueAt`"
                     );
-                    det_overlaps = d.overlaps;
-                    det_unwitnessed = d.unwitnessed;
-                    det_witnessed = d.witnessed.clone();
                 }
+            } else {
+                let d = det2::emit(
+                    &def,
+                    &m,
+                    &rs,
+                    &prios,
+                    ranked,
+                    &top,
+                    ns,
+                    &rules::ctor_info(&m),
+                    &unfold,
+                    &fgen.fns,
+                    &det2::Opts::from_args(&a.rest),
+                );
+                // the lemma modules of an earlier generation may be more than this one's
+                let _ = std::fs::remove_dir_all(out.join(ns).join("Determinism"));
+                for (path, text) in d.files {
+                    write(&out.join(path), &with_hooks(text, ns, &fgen.params));
+                }
+                eprintln!(
+                    "determinism: {} overlapping pairs\n{}",
+                    d.overlaps, d.report
+                );
+                det_overlaps = d.overlaps;
+                det_unwitnessed = d.unwitnessed;
+                det_witnessed = d.witnessed.clone();
             }
             // the per-rule preservation principle, and the initial configuration
             let ranks = if ranked { Some(prios.as_slice()) } else { None };
@@ -758,7 +734,6 @@ fn main() {
                         (Ok(t), Some(p)) => Some((t, p)),
                         _ => None,
                     },
-                    arity,
                 };
                 let o = invariants::emit(&cx, &specs, &declared, &open_cases, hand.exists())
                     .unwrap_or_else(|e| panic!("invariants: {e}"));
@@ -912,14 +887,7 @@ fn main() {
                 &out.join(format!("{ns}.lean")),
                 &format!("import {ns}.Terms\n"),
             );
-            let topts = terms::TermOpts {
-                linear: a.rest.iter().any(|x| x == "--linear-terms"),
-            };
-            let text = if arity {
-                terms_arity::emit(&m, ns)
-            } else {
-                terms::emit_with(&m, ns, topts)
-            };
+            let text = terms_arity::emit(&m, ns);
             write(&out.join(ns).join("Terms.lean"), &text);
             for n in &m.notes {
                 eprintln!("note: {n}");

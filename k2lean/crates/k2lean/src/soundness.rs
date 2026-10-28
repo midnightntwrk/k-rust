@@ -939,38 +939,6 @@ pub(crate) fn inversions_merged(
     (names_out, skipped)
 }
 
-/// The Lean types reachable from `roots` in `A`'s term universe whose translation is a
-/// generated function `tr_…` of a plain sort (or of its own constructors).
-pub(crate) fn tr_names(m: &Model, roots: &[String]) -> Vec<String> {
-    let mut seen = BTreeSet::new();
-    let mut todo: Vec<String> = roots.to_vec();
-    let mut out = Vec::new();
-    while let Some(s) = todo.pop() {
-        if !seen.insert(s.clone()) {
-            continue;
-        }
-        let Some(info) = m.sorts.get(&s) else {
-            continue;
-        };
-        if !matches!(info.kind, Kind::Plain) {
-            continue;
-        }
-        out.push(format!("tr_{}", terms::fsuffix(&s)));
-        if !info.is_simple() {
-            if !info.own.is_empty() {
-                out.push(format!("tr_{}", terms::fsuffix(&format!("{s}.Own"))));
-            }
-            todo.extend(info.leaves.iter().filter(|l| **l != s).cloned());
-        }
-        for c in &info.own {
-            todo.extend(m.ctors[c].args.iter().cloned());
-        }
-    }
-    out.sort();
-    out.dedup();
-    out
-}
-
 /// The literal a value sort's placeholder is built from.
 pub(crate) fn literal(m: &Model, s: &str) -> Option<&'static str> {
     match &m.sort(s).kind {
@@ -1678,9 +1646,6 @@ struct Opts {
     /// `--env-item S,…`: sorts of items that are environments a scope saves on `<k>` and a rule
     /// restores (IMP++'s `{Ss} => Ss ~> Rho`); such an item leaves nothing for the next one
     env_items: Vec<String>,
-    /// `--per-sort-terms true`: the libraries are in the one type per sort encoding (as `relate`'s
-    /// option of that name), else in the arity-indexed universe, the default of `gen`
-    per_sort: bool,
 }
 
 pub fn main(args: &[String]) {
@@ -1747,12 +1712,10 @@ pub fn main(args: &[String]) {
             .iter()
             .map(|x| format!("Sort{x}"))
             .collect(),
-        per_sort: match opt.get("per-sort-terms").map(String::as_str) {
-            None | Some("false") => false,
-            Some("true") => true,
-            Some(v) => fail(&format!("--per-sort-terms {v}: true or false")),
-        },
     };
+    if opt.contains_key("per-sort-terms") {
+        fail("--per-sort-terms: removed with the per-sort encoding");
+    }
     if o.store_cells.len() != o.store_typing.len() {
         fail("--store-typing names one typing per --store-cell");
     }
@@ -1934,10 +1897,6 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         )
         .unwrap();
     }
-    let trs = tr_names(
-        &a.m,
-        &tfs.iter().map(|f| f.sort.clone()).collect::<Vec<_>>(),
-    );
     let convs: Vec<String> = tfs
         .iter()
         .map(|f| format!("(conv => lhs; rw [{}.eq_def])", f.lean_b))
@@ -1978,11 +1937,8 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         .collect();
     writeln!(
         t,
-        "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of the typing functions, and compute. -/\nmacro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, {}]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]{bool_split}\n  all_goals simp_all [KEqHook.eq, BoolHook.and{extra_hooks}]))\n",
+        "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of the typing functions, and compute. -/\nmacro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, k2l_tr]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]{bool_split}\n  all_goals simp_all [KEqHook.eq, BoolHook.and{extra_hooks}]))\n",
         fnames.join(", "),
-        // the translation's equations at each constructor: on the arity universe `tr_S` names the
-        // one recursive `tr`, whose equations `relate` states as the `k2l_tr` lemmas
-        if o.per_sort { trs.join(", ") } else { "k2l_tr".to_string() },
         convs.join("\n    | "),
         tfs.iter().map(|f| f.lean_b.clone()).collect::<Vec<_>>().join(", ")
     )
@@ -2086,9 +2042,6 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         .as_ref()
         .map(|th| wait_heads(a, &th.ksym))
         .unwrap_or_default();
-    if thr.is_some() && o.per_sort {
-        fail("a cell map of threads is supported on the arity-indexed universe only");
-    }
 
     let TopCells {
         top,
@@ -2326,35 +2279,33 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         )
         .unwrap();
     }
-    if !o.per_sort {
-        // on the arity universe `item0` and `item` are not unfolded (`ty_simp`): a fallback arm's
-        // equation has a side condition per other arm, that the item is not built by that arm's
-        // constructor, which on the family is `Term.inj` against `Term.inj` and costly to refute;
-        // their value at each leaf is stated instead, by `rfl` at a concrete leaf
-        for l in &kitem.leaves {
-            let c = format!("{na}.{}", a.m.leaf_ctor("SortKItem", l));
-            if c == format!("{na}.SortKItem.inj_KItem") {
-                continue;
-            }
-            let lt = if matches!(a.m.sort(l).kind, Kind::Plain) {
-                ty(na, &a.m.own_ty(l))
-            } else {
-                ty(na, l)
-            };
-            let short = names::short_sort(l);
-            if !item_arms.iter().any(|(m, ..)| m == l) {
-                writeln!(
-                    t,
-                    "@[k2l_pres] theorem item0_inj_{short} (G : TEnv) (x : {lt}) : item0 G ({c} x) = none := rfl"
-                )
-                .unwrap();
-            }
+    // `item0` and `item` are not unfolded (`ty_simp`): a fallback arm's
+    // equation has a side condition per other arm, that the item is not built by that arm's
+    // constructor, which on the family is `Term.inj` against `Term.inj` and costly to refute;
+    // their value at each leaf is stated instead, by `rfl` at a concrete leaf
+    for l in &kitem.leaves {
+        let c = format!("{na}.{}", a.m.leaf_ctor("SortKItem", l));
+        if c == format!("{na}.SortKItem.inj_KItem") {
+            continue;
+        }
+        let lt = if matches!(a.m.sort(l).kind, Kind::Plain) {
+            ty(na, &a.m.own_ty(l))
+        } else {
+            ty(na, l)
+        };
+        let short = names::short_sort(l);
+        if !item_arms.iter().any(|(m, ..)| m == l) {
             writeln!(
                 t,
-                "@[k2l_pres] theorem item_some_inj_{short} (G : TEnv) (t : Ty) (x : {lt}) : item G (some t) ({c} x) = none := rfl"
+                "@[k2l_pres] theorem item0_inj_{short} (G : TEnv) (x : {lt}) : item0 G ({c} x) = none := rfl"
             )
             .unwrap();
         }
+        writeln!(
+            t,
+            "@[k2l_pres] theorem item_some_inj_{short} (G : TEnv) (t : Ty) (x : {lt}) : item G (some t) ({c} x) = none := rfl"
+        )
+        .unwrap();
     }
     writeln!(
         t,
@@ -2366,8 +2317,6 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         let inj = format!("{na}.inj_{}_KItem", names::short_sort(s));
         let proof = if a.m.sort(s).is_simple() {
             "rfl"
-        } else if o.per_sort {
-            "by cases x <;> rfl"
         } else {
             "by k2l_cases x <;> rfl"
         };
@@ -2381,14 +2330,10 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         )
         .unwrap();
     }
-    // on the arity universe: case splits by `k2l_cases` (only the sort's value forms), and `kty`'s
-    // equations, since recursion on `SortK` (the family at one index) is well-founded, not
-    // structural, so `kty` does not reduce by `rfl`
-    let (cases_t, kty_pf) = if o.per_sort {
-        ("cases", "rfl")
-    } else {
-        ("k2l_cases", "by simp only [kty]")
-    };
+    // case splits by `k2l_cases` (only the sort's value forms), and `kty`'s equations, since
+    // recursion on `SortK` (the family at one index) is well-founded, not structural, so `kty`
+    // does not reduce by `rfl`
+    let (cases_t, kty_pf) = ("k2l_cases", "by simp only [kty]");
     writeln!(
         t,
         "@[k2l_pres] theorem item_none (G : TEnv) (it : {kitem_t}) : item G none it = item0 G it := by {cases_t} it <;> rfl\n\
@@ -2885,10 +2830,10 @@ never gets stuck. -/\n",
         .into_iter()
         .filter(|s| !hole_sorts.contains(s))
         .flat_map(|s| {
-            // on the arity universe a sort's own constructors build its `Own` type
+            // a sort's own constructors build its `Own` type
             let own = a.m.own_ty(&s);
             let mut v = vec![ty(na, &s)];
-            if !o.per_sort && own != s && !a.m.sort(&s).own.is_empty() {
+            if own != s && !a.m.sort(&s).own.is_empty() {
                 v.push(ty(na, &own));
             }
             v
@@ -2912,7 +2857,7 @@ never gets stuck. -/\n",
         "/-! ## Progress -/\n\n\
 /-- Compute the typing of `<k>` (with the hypotheses, which record the cases taken); a typing that\n\
 computes to `false` is `false = true`, `False`, and closes the goal `typing → App c`. -/\n\
-macro \"ty_simp\" : tactic => `(tactic| simp only [k2l_pres, {item_unf}WTc, Option.map_some, Option.map_none, Option.bind_some, Option.bind_none, Option.isNone_some, Option.isNone_none, Bool.and_true, Bool.true_and, Bool.and_false, Bool.false_and, ite_true, ite_false, ↓reduceIte, and_self, and_true, true_and, Bool.false_eq_true, false_implies, reduceCtorEq, Option.some.injEq, *])\n\n\
+macro \"ty_simp\" : tactic => `(tactic| simp only [k2l_pres, WTc, Option.map_some, Option.map_none, Option.bind_some, Option.bind_none, Option.isNone_some, Option.isNone_none, Bool.and_true, Bool.true_and, Bool.and_false, Bool.false_and, ite_true, ite_false, ↓reduceIte, and_self, and_true, true_and, Bool.false_eq_true, false_implies, reduceCtorEq, Option.some.injEq, *])\n\n\
 /-- An ill-typed shape: the typing of `<k>` computes to `false`. -/\n\
 macro \"prog_absurd\" : tactic => `(tactic| (ty_simp; done))\n\n\
 /-- A side condition of a rule: by unification, an assumption, or by computing it. -/\n\
@@ -2927,7 +2872,6 @@ macro \"prog_leaf\" : tactic => `(tactic| {leaf})\n",
         proj_eqs.join(", "),
         proj_fns.join(", "),
         fnames.join(", "),
-        item_unf = if o.per_sort { "item, item0, " } else { "" },
         // the thread's macros name the proof's hypotheses `hnd` and `hcat`
         nohyg = if thr.is_some() { "set_option hygiene false in\n" } else { "" },
         // with threads, a thread at a head where it may wait is done (`hnd` says it is not)
@@ -3003,16 +2947,13 @@ macro \"prog_leaf\" : tactic => `(tactic| {leaf})\n",
     };
     // with a value result, a value alone is terminated, so each case chooses `App` itself
     // (`progress_app`), and the value case before it, where nothing follows, `Final`
-    let (right, to_app) = if value_result {
+    if value_result {
         writeln!(
             s,
             "/-- A case that ends in a rule that applies. -/\ntheorem progress_app {{p q r : Prop}} (h : p → r) : p → q ∨ r := fun hp => Or.inr (h hp)\n"
         )
         .unwrap();
-        ("", "apply progress_app\n      ")
-    } else {
-        ("    right\n", "")
-    };
+    }
     // the typing: a conjunction with the cells typed by hand, or the typing of `<k>` alone
     let hw_get = if he_names.is_empty() {
         unf.insert(0, wtc.to_string());
@@ -3037,144 +2978,85 @@ macro \"prog_leaf\" : tactic => `(tactic| {leaf})\n",
         .filter(|l| typed_leaf(l).is_some() && !a.m.sort(l).own.is_empty())
         .map(|l| format!("{na}.{}", a.m.leaf_ctor("SortKItem", l)))
         .collect();
-    if o.per_sort {
+    // (a freezer is not computed before its split, nor before its `SortK` arguments are split
+    // as far as the cooling patterns go: with the freezer or an argument a variable, every equation
+    // of `plug` but its fallback fails, and the fallback's side conditions, `Term.c…` against
+    // `Term.c…`, are costly)
+    // the splits are `k2l_cases` (the goals of the sort's value forms, which carry no
+    // constructor names to choose a case by), so each shape of the head of `<k>` is a case of
+    // `first`, guarded by its constructor (`k2l_has_ctor`); a guard or a case that fails leaves
+    // the goal to the next, and `prog_absurd`, last, closes the ill-typed shapes. After the split of
+    // the continuation the `kseq` case comes first: its first step names `it₂`, which the
+    // `dotk` case does not bind, so it fails there at once
+    let mut cases: Vec<String> = Vec::new();
+    if !values.is_empty() {
+        let vcs: Vec<String> = values
+            .iter()
+            .map(|l| format!("{na}.{}", a.m.leaf_ctor("SortKItem", l)))
+            .collect();
+        cases.push(format!(
+            "-- a value: the next item is a freezer waiting for it (a cooling rule applies)\n          | (k2l_has_ctor [{}]\n             k2l_cases K with ⟨it₂, K₂⟩ <;> first\n               | ({}k2l_cases it₂ with ⟨f⟩ <;> k2l_norm_idx <;>\n                    (first | k2l_has_ctor [{na}.SortKItem.inj_KItem] | (try prog_absurd))\n                  all_goals (k2l_cases f <;> k2l_norm_idx <;>\n                    (k2l_cases_frz [{na}.SortKItem.inj_KItem] [{na}.SortK] => skip) <;> k2l_norm_idx <;>\n                    (try prog_absurd) <;> prog_leaf)\n                  done)\n               | {})",
+            vcs.join(", "),
+            if value_result { "apply progress_app\n                  " } else { "" },
+            if value_result { "exact fun _ => Or.inl trivial" } else { "prog_absurd" }
+        ));
+    }
+    // the heads of rules that read a cell typed by hand
+    for (leaf, (rule, call_args)) in &prog_hand {
+        let hw_args = std::iter::once("hk".to_string())
+            .chain(he_names.iter().cloned())
+            .collect::<Vec<_>>()
+            .join(", ");
+        cases.push(format!(
+            "-- the head of rule {rule}, which reads a cell typed by hand\n          | (k2l_has_ctor [{na}.{}]\n             exact fun hk => {}hand.progress.{rule} {} ⟨{hw_args}⟩{})",
+            a.m.leaf_ctor("SortKItem", leaf),
+            if value_result { "Or.inr (" } else { "" },
+            call_args.join(" "),
+            if value_result { ")" } else { "" }
+        ));
+    }
+    for l in &kitem.leaves {
+        if !is_typed(l) || values.contains(l) || prog_hand.contains_key(l) {
+            continue;
+        }
+        let guard = format!("{na}.{}", a.m.leaf_ctor("SortKItem", l));
+        let to_app_f = if value_result {
+            "apply progress_app\n             "
+        } else {
+            ""
+        };
+        if a.m.sort(l).own.is_empty() {
+            cases.push(format!(
+                "| (k2l_has_ctor [{guard}]\n             {to_app_f}prog_leaf\n             done)"
+            ));
+        } else {
+            cases.push(format!(
+                "| (k2l_has_ctor [{guard}]\n             {to_app_f}k2l_cases x <;> k2l_norm_idx <;> k2l_cases_args [{}] [{}]{within} <;> prog_leaf\n             done)",
+                own_typed.join(", "),
+                hole_tys
+            ));
+        }
+    }
+    let right_f = if value_result { "" } else { "right\n       " };
+    if let Some(th) = &thr {
         writeln!(
             s,
-            "theorem progress {{G : TEnv}} (c : {top_t}) (hw : {wtc} G c) : Final c ∨ {app} c := by\n  obtain ⟨{}⟩ := c\n  cases k with\n  | dotk => exact Or.inl trivial\n  | kseq it K =>\n{right}    {hw_get}\n    simp only [{}] at hk{he_at}\n    revert hk\n    cases it",
-            obt.join(", "),
-            unf.join(", ")
+            "theorem progress {{G : TEnv}} (c : {top_t}) (hw : {wtc} G c) : Final c ∨ {app} c := by\n  by_cases hd : Final c\n  · exact Or.inl hd\n  right\n  k2l_cases c with {}\n  simp only [WTc, Final, threadsOf, {projs}] at hw hd\n  obtain ⟨hwf, hall⟩ := hw\n  -- a thread that is not done\n  obtain ⟨key, th, rest, hcat, hnd⟩ := KPrelude.MapHook.exists_not_of_not_entriesOn hwf hd\n  have hth := KPrelude.MapHook.entry_of_concat_element hcat hall\n  k2l_cases th with {}\n  simp only [threadTy, keyOf, kOf, {projs}] at hth hnd\n  obtain ⟨rfl, hk⟩ := hth\n  revert hk\n  k2l_cases k with ⟨it, K⟩\n  all_goals first\n    | exact absurd (Or.inl rfl) hnd\n    | (k2l_cases it with ⟨x⟩\n       all_goals k2l_norm_idx\n       all_goals first\n          {}\n          | prog_absurd\n       done)\n",
+            th.top_destr,
+            th.elem_destr,
+            cases.join("\n          "),
+            projs = th.proj_names.join(", "),
         )
         .unwrap();
-        if !values.is_empty() {
-            let cs: Vec<String> = values
-                .iter()
-                .map(|l| format!("inj_{} x", names::short_sort(l)))
-                .collect();
-            writeln!(
-                s,
-                "    -- a value: the next item is a freezer waiting for it (a cooling rule applies)\n    case {} =>\n      cases K with\n      | dotk => {}\n      | kseq it₂ K₂ =>\n        {}cases it₂ <;> (try prog_absurd)\n        rename_i f\n        cases f <;> (try prog_absurd) <;>\n          (k2l_cases_frz [{na}.SortKItem.inj_KItem] [{na}.SortK] => prog_absurd) <;> prog_leaf",
-                cs.join(" | "),
-                if value_result { "exact fun _ => Or.inl trivial" } else { "prog_absurd" },
-                if value_result { "apply progress_app\n        " } else { "" }
-            )
-            .unwrap();
-        }
-        // the heads of rules that read a cell typed by hand
-        for (leaf, (rule, call_args)) in &prog_hand {
-            let hw_args = std::iter::once("hk".to_string())
-                .chain(he_names.iter().cloned())
-                .collect::<Vec<_>>()
-                .join(", ");
-            writeln!(
-                s,
-                "    -- the head of rule {rule}, which reads a cell typed by hand\n    case inj_{} x => exact fun hk => {}hand.progress.{rule} {} ⟨{hw_args}⟩{}",
-                names::short_sort(leaf),
-                if value_result { "Or.inr (" } else { "" },
-                call_args.join(" "),
-                if value_result { ")" } else { "" }
-            )
-            .unwrap();
-        }
-        for l in &kitem.leaves {
-            if !is_typed(l) || values.contains(l) || prog_hand.contains_key(l) {
-                continue;
-            }
-            let short = names::short_sort(l);
-            if a.m.sort(l).own.is_empty() {
-                writeln!(s, "    case inj_{short} x =>\n      {to_app}prog_leaf").unwrap();
-            } else {
-                writeln!(
-                    s,
-                    "    case inj_{short} x =>\n      {to_app}cases x <;> k2l_cases_args [{}] [{}] <;> prog_leaf",
-                    own_typed.join(", "),
-                    hole_tys
-                )
-                .unwrap();
-            }
-        }
-        s.push_str("    all_goals prog_absurd\n\n");
     } else {
-        // (a freezer is not computed before its split, nor before its `SortK` arguments are split
-        // as far as the cooling patterns go: with the freezer or an argument a variable, every equation
-        // of `plug` but its fallback fails, and the fallback's side conditions, `Term.c…` against
-        // `Term.c…`, are costly; the one type per sort proof's `try prog_absurd` there fails)
-        // the arity universe: the splits are `k2l_cases` (the goals of the sort's value forms,
-        // which carry no constructor names to choose a case by), so each shape of the head of
-        // `<k>` is a case of `first`, guarded by its constructor (`k2l_has_ctor`); a guard or a
-        // case that fails leaves the goal to the next, and `prog_absurd`, last as the one type per
-        // sort proof's `all_goals prog_absurd`, closes the ill-typed shapes. After the split of
-        // the continuation the `kseq` case comes first: its first step names `it₂`, which the
-        // `dotk` case does not bind, so it fails there at once
-        let mut cases: Vec<String> = Vec::new();
-        if !values.is_empty() {
-            let vcs: Vec<String> = values
-                .iter()
-                .map(|l| format!("{na}.{}", a.m.leaf_ctor("SortKItem", l)))
-                .collect();
-            cases.push(format!(
-                "-- a value: the next item is a freezer waiting for it (a cooling rule applies)\n          | (k2l_has_ctor [{}]\n             k2l_cases K with ⟨it₂, K₂⟩ <;> first\n               | ({}k2l_cases it₂ with ⟨f⟩ <;> k2l_norm_idx <;>\n                    (first | k2l_has_ctor [{na}.SortKItem.inj_KItem] | (try prog_absurd))\n                  all_goals (k2l_cases f <;> k2l_norm_idx <;>\n                    (k2l_cases_frz [{na}.SortKItem.inj_KItem] [{na}.SortK] => skip) <;> k2l_norm_idx <;>\n                    (try prog_absurd) <;> prog_leaf)\n                  done)\n               | {})",
-                vcs.join(", "),
-                if value_result { "apply progress_app\n                  " } else { "" },
-                if value_result { "exact fun _ => Or.inl trivial" } else { "prog_absurd" }
-            ));
-        }
-        // the heads of rules that read a cell typed by hand
-        for (leaf, (rule, call_args)) in &prog_hand {
-            let hw_args = std::iter::once("hk".to_string())
-                .chain(he_names.iter().cloned())
-                .collect::<Vec<_>>()
-                .join(", ");
-            cases.push(format!(
-                "-- the head of rule {rule}, which reads a cell typed by hand\n          | (k2l_has_ctor [{na}.{}]\n             exact fun hk => {}hand.progress.{rule} {} ⟨{hw_args}⟩{})",
-                a.m.leaf_ctor("SortKItem", leaf),
-                if value_result { "Or.inr (" } else { "" },
-                call_args.join(" "),
-                if value_result { ")" } else { "" }
-            ));
-        }
-        for l in &kitem.leaves {
-            if !is_typed(l) || values.contains(l) || prog_hand.contains_key(l) {
-                continue;
-            }
-            let guard = format!("{na}.{}", a.m.leaf_ctor("SortKItem", l));
-            let to_app_f = if value_result {
-                "apply progress_app\n             "
-            } else {
-                ""
-            };
-            if a.m.sort(l).own.is_empty() {
-                cases.push(format!(
-                    "| (k2l_has_ctor [{guard}]\n             {to_app_f}prog_leaf\n             done)"
-                ));
-            } else {
-                cases.push(format!(
-                    "| (k2l_has_ctor [{guard}]\n             {to_app_f}k2l_cases x <;> k2l_norm_idx <;> k2l_cases_args [{}] [{}]{within} <;> prog_leaf\n             done)",
-                    own_typed.join(", "),
-                    hole_tys
-                ));
-            }
-        }
-        let right_f = if value_result { "" } else { "right\n       " };
-        if let Some(th) = &thr {
-            writeln!(
-                s,
-                "theorem progress {{G : TEnv}} (c : {top_t}) (hw : {wtc} G c) : Final c ∨ {app} c := by\n  by_cases hd : Final c\n  · exact Or.inl hd\n  right\n  k2l_cases c with {}\n  simp only [WTc, Final, threadsOf, {projs}] at hw hd\n  obtain ⟨hwf, hall⟩ := hw\n  -- a thread that is not done\n  obtain ⟨key, th, rest, hcat, hnd⟩ := KPrelude.MapHook.exists_not_of_not_entriesOn hwf hd\n  have hth := KPrelude.MapHook.entry_of_concat_element hcat hall\n  k2l_cases th with {}\n  simp only [threadTy, keyOf, kOf, {projs}] at hth hnd\n  obtain ⟨rfl, hk⟩ := hth\n  revert hk\n  k2l_cases k with ⟨it, K⟩\n  all_goals first\n    | exact absurd (Or.inl rfl) hnd\n    | (k2l_cases it with ⟨x⟩\n       all_goals k2l_norm_idx\n       all_goals first\n          {}\n          | prog_absurd\n       done)\n",
-                th.top_destr,
-                th.elem_destr,
-                cases.join("\n          "),
-                projs = th.proj_names.join(", "),
-            )
-            .unwrap();
-        } else {
-            writeln!(
-            s,
-            "theorem progress {{G : TEnv}} (c : {top_t}) (hw : {wtc} G c) : Final c ∨ {app} c := by\n  k2l_cases c with ⟨{}⟩\n  k2l_cases k with ⟨it, K⟩\n  all_goals first\n    | exact Or.inl trivial\n    | ({right_f}{hw_get}\n       simp only [{}] at hk{he_at}\n       revert hk\n       k2l_cases it with ⟨x⟩\n       all_goals k2l_norm_idx\n       all_goals first\n          {}\n          | prog_absurd\n       done)\n",
-            obt.join(", "),
-            unf.join(", "),
-            cases.join("\n          ")
-        )
-        .unwrap();
-        }
+        writeln!(
+        s,
+        "theorem progress {{G : TEnv}} (c : {top_t}) (hw : {wtc} G c) : Final c ∨ {app} c := by\n  k2l_cases c with ⟨{}⟩\n  k2l_cases k with ⟨it, K⟩\n  all_goals first\n    | exact Or.inl trivial\n    | ({right_f}{hw_get}\n       simp only [{}] at hk{he_at}\n       revert hk\n       k2l_cases it with ⟨x⟩\n       all_goals k2l_norm_idx\n       all_goals first\n          {}\n          | prog_absurd\n       done)\n",
+        obt.join(", "),
+        unf.join(", "),
+        cases.join("\n          ")
+    )
+    .unwrap();
     }
     // soundness
     let he_bs: Vec<String> = store_vars

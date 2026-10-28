@@ -33,8 +33,8 @@ generated library. A loop that finds nothing to case on leaves the goal as it is
 On the arity-indexed term family (design.md §2.1) the loops split a family term by
 `familyCases`, with its sort index computed first; they recognize an enumeration sort by its value
 forms, which have no arguments; and they find a constructor application up to unfolding the K
-constructor's reducible definition. On the one type per sort encoding they are `cases` and a
-syntactic search, as before.
+constructor's reducible definition. On an inductive type without indices they are `cases` and a
+syntactic search.
 -/
 
 namespace KPrelude.Soundness

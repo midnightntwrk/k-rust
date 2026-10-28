@@ -48,8 +48,6 @@ struct Side {
     prios: Vec<i64>,
     ranked: bool,
     ns: String,
-    /// The library is in the arity-indexed universe (`terms_arity.rs`, design.md §2.1).
-    arity: bool,
 }
 
 impl Side {
@@ -81,7 +79,7 @@ fn fail(msg: &str) -> ! {
     std::process::exit(2)
 }
 
-fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool, arity: bool) -> Side {
+fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool) -> Side {
     let def = ir::load(&std::fs::read_to_string(kore).unwrap()).unwrap();
     let syn = syn.map(|p| ir::load(&std::fs::read_to_string(p).unwrap()).unwrap());
     let m = Model::build(&def).unwrap_or_else(|e| panic!("{e}"));
@@ -94,12 +92,8 @@ fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool, arity: b
         }
     }
     roots.extend(m.anywhere.iter().cloned());
-    // the functions as `gen` generates them in the library's encoding (their termination measures
-    // depend on it)
-    let side = crate::funcs::Sidecar {
-        arity_terms: arity,
-        ..Default::default()
-    };
+    // the functions as `gen` generates them
+    let side = crate::funcs::Sidecar::default();
     let fgen = crate::funcs::generate_with(&def, &m, &roots, &side)
         .unwrap_or_else(|e| fail(&format!("functions: {e}")));
     let (rules, prios, ranked) = if want_rules {
@@ -121,7 +115,6 @@ fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool, arity: b
         prios,
         ranked,
         ns: ns.to_string(),
-        arity,
     }
 }
 
@@ -597,22 +590,20 @@ pub fn main(args: &[String]) {
     if per_rule && !full {
         fail("--per-rule needs the whole correspondence (not --roots)");
     }
-    // the encoding of the two libraries' terms, as `gen` was given it: the arity-indexed universe
-    // unless `--per-sort-terms true` (`--arity-terms true`, its former opt-in, changes nothing)
-    let arity = !opt.get("per-sort-terms").is_some_and(|v| v == "true");
+    if opt.contains_key("per-sort-terms") {
+        fail("--per-sort-terms: removed with the per-sort encoding");
+    }
     let a = load_side(
         &get("kore-a"),
         opt.get("syntax-a").map(|s| s.as_str()),
         &get("name-a"),
         full,
-        arity,
     );
     let b = load_side(
         &get("kore-b"),
         opt.get("syntax-b").map(|s| s.as_str()),
         &get("name-b"),
         full,
-        arity,
     );
     let ns = get("ns");
     let sm = match_symbols(&a, &b);
@@ -928,12 +919,9 @@ pub fn main(args: &[String]) {
     );
 }
 
-/// The tactic that splits a term variable into its sort's values: `cases` on a type per sort, and
-/// on the arity-indexed family `k2l_cases`, which also refutes the family's constructors that no
-/// value of the sort has.
-fn cases_tac(a: &Side) -> &'static str {
-    if a.arity { "k2l_cases" } else { "cases" }
-}
+/// The tactic that splits a term variable into its sort's values: `k2l_cases`, which also refutes
+/// the family's constructors that no value of the sort has.
+const CASES_TAC: &str = "k2l_cases";
 
 fn tr_name(ty: &str) -> String {
     format!("tr_{}", terms::fsuffix(ty))
@@ -1016,76 +1004,7 @@ fn emit(
         }
     }
     writeln!(o, "/-! ## The translation -/\n").unwrap();
-    if a.arity {
-        emit_arity_tr(a, b, sm, covered, &mut o)?;
-    } else {
-        for t in &tokens {
-            writeln!(o, "def {} (x : {na}.{t}) : {nb}.{t} := ⟨x.val⟩", tr_name(t)).unwrap();
-        }
-        writeln!(o, "\nmutual").unwrap();
-        for (t, _, k) in &uni {
-            if !covered.contains(t) {
-                continue;
-            }
-            writeln!(
-                o,
-                "def {} (a : {na}.{t}) : {nb}.{t} :=\n  match a with",
-                tr_name(t)
-            )
-            .unwrap();
-            match k {
-                TyKind::Own(cs) => {
-                    for (sym, lean, args) in cs {
-                        let bsym = &sm.map[sym].0;
-                        let blean = &b.m.ctors[bsym].lean;
-                        let xs: Vec<String> = (0..args.len()).map(|i| format!("a{i}")).collect();
-                        let vs: Vec<String> =
-                            args.iter().zip(&xs).map(|(s, x)| val(&a.m, s, x)).collect();
-                        writeln!(
-                            o,
-                            "  | .{lean} {} => .{blean} {}",
-                            xs.join(" "),
-                            vs.join(" ")
-                        )
-                        .unwrap();
-                    }
-                }
-                TyKind::Sum(ls) => {
-                    for (l, own) in ls {
-                        let short = names::short_sort(l);
-                        writeln!(
-                            o,
-                            "  | .inj_{short} x => .inj_{short} {}",
-                            val(&a.m, own, "x")
-                        )
-                        .unwrap();
-                    }
-                }
-                TyKind::Coll(c, es) => {
-                    writeln!(o, "  | .nil => .nil").unwrap();
-                    match c {
-                        Coll::Map => writeln!(
-                            o,
-                            "  | .cons k v r => .cons {} {} ({} r)",
-                            val(&a.m, &es[0], "k"),
-                            val(&a.m, &es[1], "v"),
-                            tr_name(t)
-                        )
-                        .unwrap(),
-                        _ => writeln!(
-                            o,
-                            "  | .cons x r => .cons {} ({} r)",
-                            val(&a.m, &es[0], "x"),
-                            tr_name(t)
-                        )
-                        .unwrap(),
-                    }
-                }
-            }
-            writeln!(o, "  termination_by structural a").unwrap();
-        }
-        writeln!(o, "end\n").unwrap();
-    }
+    emit_arity_tr(a, b, sm, covered, &mut o)?;
     // fold lemmas
     writeln!(
         o,
@@ -1097,40 +1016,7 @@ fn emit(
         if !covered.contains(t) {
             continue;
         }
-        let ctors: Vec<(String, String, Vec<String>)> = match k {
-            TyKind::Own(cs) => cs
-                .iter()
-                .map(|(sym, lean, args)| {
-                    (
-                        lean.clone(),
-                        b.m.ctors[&sm.map[sym].0].lean.clone(),
-                        args.clone(),
-                    )
-                })
-                .collect(),
-            TyKind::Sum(ls) => ls
-                .iter()
-                .map(|(l, own)| {
-                    let n = format!("inj_{}", names::short_sort(l));
-                    (n.clone(), n, vec![own.clone()])
-                })
-                .collect(),
-            TyKind::Coll(c, es) => {
-                let mut v = vec![("nil".to_string(), "nil".to_string(), vec![])];
-                match c {
-                    Coll::Map => v.push((
-                        "cons".into(),
-                        "cons".into(),
-                        vec![es[0].clone(), es[1].clone(), t.clone()],
-                    )),
-                    _ => v.push(("cons".into(), "cons".into(), vec![es[0].clone(), t.clone()])),
-                }
-                v
-            }
-        };
-        if a.arity
-            && let TyKind::Coll(c, es) = k
-        {
+        if let TyKind::Coll(c, es) = k {
             // a collection value is `coll_T l` of a list, translated by `trL_T`
             let f = terms::fsuffix(t);
             let elem = |e: &str| {
@@ -1156,6 +1042,26 @@ fn emit(
             fold_names.push(format!("fold_{f}_0"));
             continue;
         }
+        let ctors: Vec<(String, String, Vec<String>)> = match k {
+            TyKind::Own(cs) => cs
+                .iter()
+                .map(|(sym, lean, args)| {
+                    (
+                        lean.clone(),
+                        b.m.ctors[&sm.map[sym].0].lean.clone(),
+                        args.clone(),
+                    )
+                })
+                .collect(),
+            TyKind::Sum(ls) => ls
+                .iter()
+                .map(|(l, own)| {
+                    let n = format!("inj_{}", names::short_sort(l));
+                    (n.clone(), n, vec![own.clone()])
+                })
+                .collect(),
+            TyKind::Coll(..) => unreachable!("a collection is folded above"),
+        };
         for (i, (la, lb, args)) in ctors.iter().enumerate() {
             let xs: Vec<String> = (0..args.len()).map(|i| format!("x{i}")).collect();
             let binders: String = args
@@ -1219,7 +1125,7 @@ fn emit(
             "@[k2l_rel] theorem fold_inj_{sx}_{sy} (x : {na}.{tx}) : {nb}.inj_{sx}_{sy} {} = {} ({na}.inj_{sx}_{sy} x) := by\n  first | rfl | ({} x <;> rfl)",
             val(&a.m, &x, "x"),
             tr_name(&y),
-            cases_tac(a)
+            CASES_TAC
         )
         .unwrap();
         let mapf = if is_builtin(&a.m, &x) {
@@ -1232,7 +1138,7 @@ fn emit(
         } else {
             format!("({na}.proj_{sy}_{sx} y).map {mapf}")
         };
-        writeln!(o, "@[k2l_rel] theorem comm_proj_{sy}_{sx} (y : {na}.{y}) : {nb}.proj_{sy}_{sx} ({} y) = {rhs} := by\n  {} y <;> rfl", tr_name(&y), cases_tac(a)).unwrap();
+        writeln!(o, "@[k2l_rel] theorem comm_proj_{sy}_{sx} (y : {na}.{y}) : {nb}.proj_{sy}_{sx} ({} y) = {rhs} := by\n  {} y <;> rfl", tr_name(&y), CASES_TAC).unwrap();
         writeln!(o, "attribute [k2l_rel] {na}.proj_inj_{sy}_{sx}").unwrap();
     }
     // functions defined by equations, used by the rules
@@ -1613,23 +1519,15 @@ fn emit(
         o,
         "theorem pres : SAL.PresOn (fun k => keyOK k = true) tr_SortKItem := by\n  intro a b ha hb\n  {ct} a <;> simp [keyOK] at ha <;> {ct} b <;> simp [keyOK] at hb <;> first | rfl | simp [compare, {na}.cmp_SortKItem, {nb}.cmp_SortKItem, {}]\n",
         tokens.iter().map(|t| format!("{na}.cmp_{t}, {nb}.cmp_{t}, {}", tr_name(t))).collect::<Vec<_>>().join(", "),
-        ct = cases_tac(a)
+        ct = CASES_TAC
     )
     .unwrap();
-    if a.arity {
-        // a map value is `coll_SortMap l`, translated by `trL_SortMap` on the list
-        writeln!(
-            o,
-            "theorem toList_tr_SortMap : MapHook.Pointwise tr_SortKItem tr_SortKItem tr_SortMap := by\n  intro m\n  match m with\n  | .«coll_SortMap» l => exact go l\nwhere\n  go : ∀ l : List ({na}.SortKItem × {na}.SortKItem), trL_SortMap l = SAL.mapPairs tr_SortKItem tr_SortKItem l\n    | [] => rfl\n    | (k, v) :: r => congrArg (List.cons (tr_SortKItem k, tr_SortKItem v)) (go r)\n"
-        )
-        .unwrap();
-    } else {
-        writeln!(
+    // a map value is `coll_SortMap l`, translated by `trL_SortMap` on the list
+    writeln!(
         o,
-        "theorem toList_tr_SortMap : MapHook.Pointwise tr_SortKItem tr_SortKItem tr_SortMap := by\n  intro m\n  show {nb}.SortMap.toList (tr_SortMap m) = SAL.mapPairs tr_SortKItem tr_SortKItem ({na}.SortMap.toList m)\n  exact go m\nwhere\n  go : ∀ m, {nb}.SortMap.toList (tr_SortMap m) = SAL.mapPairs tr_SortKItem tr_SortKItem ({na}.SortMap.toList m)\n    | .nil => rfl\n    | .cons k v r => by\n      simp only [tr_SortMap, {nb}.SortMap.toList, {na}.SortMap.toList, SAL.mapPairs_cons, go r]\n"
+        "theorem toList_tr_SortMap : MapHook.Pointwise tr_SortKItem tr_SortKItem tr_SortMap := by\n  intro m\n  match m with\n  | .«coll_SortMap» l => exact go l\nwhere\n  go : ∀ l : List ({na}.SortKItem × {na}.SortKItem), trL_SortMap l = SAL.mapPairs tr_SortKItem tr_SortKItem l\n    | [] => rfl\n    | (k, v) :: r => congrArg (List.cons (tr_SortKItem k, tr_SortKItem v)) (go r)\n"
     )
     .unwrap();
-    }
     writeln!(
         o,
         "theorem map_fwd {{k v : {na}.SortKItem}} {{D m : {na}.SortMap}} (hk : keyOK k = true) (hm : KeysOK m)\n    (h : MapHook.concat (MapHook.element k v) D = some m) :\n    MapHook.concat (MapHook.element (tr_SortKItem k) (tr_SortKItem v)) (tr_SortMap D) = some (tr_SortMap m) :=\n  MapHook.concat_element_pointwise toList_tr_SortMap pres hk hm h\n"
@@ -2417,9 +2315,7 @@ fn positions_kept(
             }
         }
     }
-    if a.arity {
-        arity_positions_kept(a, b, covered)?;
-    }
+    arity_positions_kept(a, b, covered)?;
     Ok(())
 }
 
@@ -2638,77 +2534,7 @@ fn emit_ordered_terms(
         "\n/-! ## The translation keeps every constructor's position, so it keeps every term's serialization -/\n"
     )
     .unwrap();
-    if a.arity {
-        emit_arity_ser_tr(a, b, o, &block);
-    } else {
-        writeln!(*o, "mutual").unwrap();
-        for (t, ctors) in &block {
-            let f = terms::fsuffix(t);
-            writeln!(
-            o,
-            "theorem ser_tr_{f} (a : {na}.{t}) : {nb}.ser_{f} ({} a) = {na}.ser_{f} a :=\n  match a with",
-            tr_name(t)
-        )
-        .unwrap();
-            for (i, c) in ctors.iter().enumerate() {
-                let xs: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
-                if c.args.is_empty() {
-                    writeln!(*o, "  | .{} => rfl", c.name).unwrap();
-                    continue;
-                }
-                let part = |side: &str, s: &str, x: &str, translate: bool| {
-                    let arg = if translate {
-                        val(&a.m, s, x)
-                    } else {
-                        x.to_string()
-                    };
-                    format!("{side}.ser_{} {arg}", terms::fsuffix(s))
-                };
-                let join = |ps: Vec<String>| {
-                    let mut body = ps.last().unwrap().clone();
-                    for p in ps.iter().rev().skip(1) {
-                        body = format!("({p} ++ {body})");
-                    }
-                    body
-                };
-                let lhs = join(
-                    c.args
-                        .iter()
-                        .zip(&xs)
-                        .map(|(s, x)| part(nb, s, x, true))
-                        .collect(),
-                );
-                let rhs = join(
-                    c.args
-                        .iter()
-                        .zip(&xs)
-                        .map(|(s, x)| part(na, s, x, false))
-                        .collect(),
-                );
-                let ih: Vec<String> = c
-                    .args
-                    .iter()
-                    .zip(&xs)
-                    .filter(|(s, _)| in_block.contains(s))
-                    .map(|(s, x)| format!("ser_tr_{} {x}", terms::fsuffix(s)))
-                    .collect();
-                let fin = if ih.is_empty() {
-                    "exact rfl".to_string()
-                } else {
-                    format!("rw [{}] <;> exact rfl", ih.join(", "))
-                };
-                writeln!(
-                o,
-                "  | .{} {} => by\n    show (Tok.c {i} :: {lhs} : List Tok) = Tok.c {i} :: {rhs}\n    {fin}",
-                c.name,
-                xs.join(" ")
-            )
-            .unwrap();
-            }
-            writeln!(*o, "  termination_by structural a").unwrap();
-        }
-        writeln!(*o, "end\n").unwrap();
-    }
+    emit_arity_ser_tr(a, b, o, &block);
     // the collection sorts and their key types
     let colls: Vec<(String, Coll, Vec<String>)> = universe(&a.m)
         .into_iter()
@@ -2772,37 +2598,29 @@ fn emit_ordered_terms(
                 if pass == 1 {
                     return;
                 }
-                if a.arity {
-                    // a collection value is `coll_T l`: the translation is `trL_T` on the list
-                    let elem = |e: &str| {
-                        if in_block.contains(&e.to_string()) {
-                            format!("{na}.Term .«{e}»")
-                        } else {
-                            format!("{na}.{e}")
-                        }
-                    };
-                    let lt = match c {
-                        Coll::Map => format!("({} × {})", elem(&es[0]), elem(&es[1])),
-                        Coll::Set => format!("({} × Unit)", elem(&es[0])),
-                        Coll::List => format!("({})", elem(&es[0])),
-                    };
-                    let cons = cons
-                        .replacen(".cons k v r", "(k, v) :: r", 1)
-                        .replacen(".cons k r", "(k, ()) :: r", 1)
-                        .replacen(".cons x r", "x :: r", 1);
-                    writeln!(
-                        o,
-                        "theorem pw_{f} : {pw} {tr} := by\n  intro m\n  match m with\n  | .«coll_{f}» l => exact go l\nwhere\n  go : ∀ l : List {lt}, trL_{f} l = {}\n    | [] => rfl\n    | {cons}\n",
-                        rhs.replacen("(ListIso.toList m)", "l", 1)
-                    )
-                    .unwrap();
-                    return;
-                }
+                // a collection value is `coll_T l`: the translation is `trL_T` on the list
+                let elem = |e: &str| {
+                    if in_block.contains(&e.to_string()) {
+                        format!("{na}.Term .«{e}»")
+                    } else {
+                        format!("{na}.{e}")
+                    }
+                };
+                let lt = match c {
+                    Coll::Map => format!("({} × {})", elem(&es[0]), elem(&es[1])),
+                    Coll::Set => format!("({} × Unit)", elem(&es[0])),
+                    Coll::List => format!("({})", elem(&es[0])),
+                };
+                let cons = cons
+                    .replacen(".cons k v r", "(k, v) :: r", 1)
+                    .replacen(".cons k r", "(k, ()) :: r", 1)
+                    .replacen(".cons x r", "x :: r", 1);
                 writeln!(
-                o,
-                "theorem pw_{f} : {pw} {tr} := by\n  intro m\n  exact go m\nwhere\n  go : ∀ m : {na}.{t}, ListIso.toList ({tr} m) = {rhs}\n    | .nil => rfl\n    | {cons}\n"
-            )
-            .unwrap();
+                    o,
+                    "theorem pw_{f} : {pw} {tr} := by\n  intro m\n  match m with\n  | .«coll_{f}» l => exact go l\nwhere\n  go : ∀ l : List {lt}, trL_{f} l = {}\n    | [] => rfl\n    | {cons}\n",
+                    rhs.replacen("(ListIso.toList m)", "l", 1)
+                )
+                .unwrap();
             };
             match c {
                 Coll::Map => {
@@ -3075,15 +2893,11 @@ fn emit_ordered_terms(
         .map(|n| format!("← {n}"))
         .collect();
     writeln!(o, "set_option hygiene false in\n/-- Push `tr` into constructors, injections and collection operations, in the goal and the hypotheses. -/\nlocal macro \"push_ctor\" : tactic => `(tactic| simp only [{}] at *)\n", push.join(", ")).unwrap();
-    // on the arity-indexed family a match on variables is split first (`k2l_split_var`), by its
+    // a match on variables is split first (`k2l_split_var`), by its
     // patterns, which it substitutes for the variables everywhere (also in the generalized
     // parameters' equations that the termination proof reads); a match on `tr x` taken first
     // would be inverted by casing `x` over its sort's values, unlinked to the pattern
-    let split_var = if a.arity {
-        "(k2l_split_var <;> (try k2l_inv) <;> (try push_ctor)) | "
-    } else {
-        ""
-    };
+    let split_var = "(k2l_split_var <;> (try k2l_inv) <;> (try push_ctor)) | ";
     writeln!(o, "set_option hygiene false in\n/-- `B.f (tr x…) = (A.f x…).map tr` for a recursive `f`, after unfolding both once: case the parameters generalized (so that a split keeps `x = pattern`, which the termination proof reads), split `A`'s cascade and `B`'s (inverting `tr x = pattern`, pushing `tr` in, so that both reduce), rewrite `B`'s calls by the group's lemmas (`ls`, the induction; `rw`, not under binders), in rounds, since a call on the result of another (`f (f x y) z`) is a translation only once the inner call's value is identified; then identify the values, or refute a case where one cascade falls through a pattern that the other's translated scrutinee matches. -/\nlocal macro \"comm_rec\" \"[\" ls:ident,* \"]\" : tactic => do\n  let rw ← ls.getElems.foldlM (fun acc l => `(tactic| first | rw [$l:ident] at * | $acc:tactic)) (← `(tactic| fail))\n  `(tactic| (\n  symm\n  repeat' (first | {split_var}(split <;> (try k2l_inv) <;> (try push_ctor)) | (k2l_split_hyps <;> (try k2l_inv) <;> (try push_ctor)))\n  all_goals (try simp only [k2l_rel] at *)\n  all_goals (repeat ($rw:tactic))\n  all_goals (iterate 4 ((try subst_vars); (try simp only [Option.some.injEq, Option.map_some, Option.map_none, reduceCtorEq] at *)))\n  all_goals (first\n    | (simp_all [k2l_rel]; done)\n    | (exfalso; solve_by_elim; done)\n    | (iterate 2 ((try simp only [@eq_comm _ none] at *); (try simp_all only [Option.some.injEq, Option.map_some, Option.map_none, reduceCtorEq]); (repeat ($rw:tactic)); (try subst_vars))\n       first | (simp_all [k2l_rel]; done) | (exfalso; solve_by_elim; done) | (simp_all; subst_vars; simp_all [k2l_rel]))\n    | (simp_all; subst_vars; simp_all [k2l_rel]))))\n").unwrap();
     (push_ops, map_bwd)
 }

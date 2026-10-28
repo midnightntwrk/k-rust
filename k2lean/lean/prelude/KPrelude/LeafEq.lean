@@ -1,7 +1,7 @@
 /-!
 # Equality of builtin values that the kernel decides by structural recursion
 
-The term universe of `gen --arity-terms` decides `a = b` with a Boolean equality on terms
+The generated term universe decides `a = b` with a Boolean equality on terms
 (`Term.beq`, generated), which compares the builtin values at the leaves with `LeafEq.beq`.
 Its instances only use definitions by structural recursion and the kernel's arithmetic on
 `Nat` literals, so the kernel evaluates `decide (a = b)` on closed terms without unfolding a

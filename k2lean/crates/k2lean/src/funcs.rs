@@ -472,9 +472,6 @@ pub struct SideEntry {
 #[derive(Default, Clone, Debug)]
 pub struct Sidecar {
     pub functions: BTreeMap<String, SideEntry>,
-    /// the arity-indexed term universe (`gen --arity-terms`), where termination measures may
-    /// use the shape of terms (`termination.rs`)
-    pub arity_terms: bool,
 }
 
 impl Sidecar {
@@ -552,32 +549,6 @@ pub fn list_size_instances(m: &Model) -> String {
         o.push_str(&format!(
             "instance : KPrelude.ListSizeOf {s} ({elem}) := ⟨fun _ => by simp [ListIso.ofList, {s}.ofList]⟩\n"
         ));
-    }
-    if !o.is_empty() {
-        o.push('\n');
-    }
-    o
-}
-
-/// `MapSizeOf` for each map sort of the per-sort universe, from the structural facts of
-/// `Terms.lean` (`S.sizeOf_lookupR`, `S.sizeOf_eraseR`): the termination facts of a function that
-/// recurses on the value or the rest of `K |-> V REST`; `ListSizeAffine` for each list sort (its
-/// `sizeOf` is its list's), those of `ListItem(X) REST`.
-pub fn map_size_instances(m: &Model) -> String {
-    let mut o = String::new();
-    for s in &m.block {
-        let info = m.sort(s);
-        match info.kind {
-            crate::model::Kind::Coll(crate::model::Coll::Map) => o.push_str(&format!(
-                "instance : KPrelude.MapSizeOf {s} {} {} := ⟨{s}.sizeOf_lookupR, {s}.sizeOf_eraseR⟩\n",
-                info.elems[0], info.elems[1]
-            )),
-            crate::model::Kind::Coll(crate::model::Coll::List) => o.push_str(&format!(
-                "instance : KPrelude.ListSizeAffine {s} {} := ⟨⟨0, {s}.sizeOf_ofList_eq⟩⟩\n",
-                info.elems[0]
-            )),
-            _ => {}
-        }
     }
     if !o.is_empty() {
         o.push('\n');
@@ -1148,7 +1119,7 @@ fn list_measure_holds(fname: &str, params: &[String], meas: &str, lowered: &Lowe
 
 /// The termination planner's view of the model: constructors with their argument types, the
 /// constructors that are their sort's only value, injections, builtin sorts.
-fn termination_ctx(m: &Model, arity: bool, has_hooks: bool) -> crate::termination::Ctx {
+fn termination_ctx(m: &Model, has_hooks: bool) -> crate::termination::Ctx {
     let builtin: BTreeSet<String> = m
         .sorts
         .iter()
@@ -1179,15 +1150,7 @@ fn termination_ctx(m: &Model, arity: bool, has_hooks: bool) -> crate::terminatio
             injs.insert(m.leaf_ctor(s, l), builtin.contains(l));
         }
     }
-    crate::termination::Ctx::new(
-        BTreeMap::new(),
-        ctors,
-        sole,
-        injs,
-        builtin,
-        arity,
-        has_hooks,
-    )
+    crate::termination::Ctx::new(BTreeMap::new(), ctors, sole, injs, builtin, has_hooks)
 }
 
 /// The length measure of a function that recurses on a builtin `List` parameter: an equation that
@@ -1507,12 +1470,7 @@ pub fn generate_with(
         ));
     }
     // what the termination planner knows of the definition (`termination.rs`)
-    let shape = if side.arity_terms {
-        Some(crate::terms_arity::shape_support(m))
-    } else {
-        None
-    };
-    let mut ctx = termination_ctx(m, side.arity_terms, !params.is_empty());
+    let mut ctx = termination_ctx(m, !params.is_empty());
     // generate, deciding purity on the way (callees first, so their purity is known)
     let mut lean = String::new();
     let mut unfold = Vec::new();
@@ -1716,9 +1674,10 @@ pub fn generate_with(
         }
     }
     // the shape of terms, when a termination measure or lemma uses it
-    let lean = match (&shape, ctx.shape_used()) {
-        (Some(defs), true) => format!("{helpers}{defs}{lean}"),
-        _ => format!("{helpers}{lean}"),
+    let lean = if ctx.shape_used() {
+        format!("{helpers}{}{lean}", crate::terms_arity::shape_support(m))
+    } else {
+        format!("{helpers}{lean}")
     };
     // the instances of the functions with a free-key equation, once every function is defined
     let mut agree_thms = Vec::new();

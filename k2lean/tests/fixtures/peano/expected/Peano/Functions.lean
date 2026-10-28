@@ -12,8 +12,9 @@ namespace Peano
 
 open KPrelude
 
-instance : KPrelude.ListSizeAffine SortList SortKItem := ⟨⟨0, SortList.sizeOf_ofList_eq⟩⟩
-instance : KPrelude.MapSizeOf SortMap SortKItem SortKItem := ⟨SortMap.sizeOf_lookupR, SortMap.sizeOf_eraseR⟩
+instance : KPrelude.ListSizeOf SortList (SortKItem) := ⟨fun _ => by simp [ListIso.ofList, SortList.ofList]⟩
+instance : KPrelude.ListSizeOf SortMap (SortKItem × SortKItem) := ⟨fun _ => by simp [ListIso.ofList, SortMap.ofList]⟩
+instance : KPrelude.ListSizeOf SortSet (SortKItem × Unit) := ⟨fun _ => by simp [ListIso.ofList, SortSet.ofList]⟩
 
 /-! `plus(_,_)_PEANO_Nat_Nat_Nat` (recursive) -/
 def K.«plus(_,_)_PEANO_Nat_Nat_Nat» (x0 : SortNat) (x1 : SortNat) : Option SortNat :=

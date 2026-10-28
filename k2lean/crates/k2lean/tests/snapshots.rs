@@ -63,11 +63,9 @@ pub fn generate(name: &str, ns: &str, extra: &[&str]) -> PathBuf {
     out
 }
 
-/// The snapshot of `gen` in the one type per sort encoding (`--per-sort-terms`), recorded in the
-/// fixture's `expected/`: the fixtures' recorded output predates the arity-indexed default, and
-/// keeps that encoding under test while libraries still use it.
+/// The snapshot of `gen`, recorded in the fixture's `expected/`.
 fn snapshot(name: &str, ns: &str) {
-    snapshot_with(name, ns, &["--per-sort-terms"], "expected");
+    snapshot_with(name, ns, &[], "expected");
 }
 
 /// The snapshot of `gen` with `extra` flags, recorded in the fixture's directory `dir`.
@@ -127,7 +125,9 @@ fn peano() {
 }
 
 /// Int, Map and Id from domains.md, a cell with a map, a partial function with an `owise`
-/// equation, a labelled rule, and two priority ranks (the stratified `Step`).
+/// equation, a labelled rule, and two priority ranks (the stratified `Step`): the `Term` family,
+/// fallback arms on every non-variable match, the collections' `ListSizeOf` instances, and
+/// determinism along the rule index.
 #[test]
 fn counter() {
     snapshot("counter", "Counter");
@@ -135,7 +135,7 @@ fn counter() {
 
 /// Function equations with a free-key map pattern `K |-> V REST` (`MapHook.chooseFirst`): not
 /// recursive (`hasNeg`, with an `owise` equation), recursive over a map (`allNat`) and over a
-/// cell map (`total`), whose termination comes from the map carriers' `MapSizeOf`.
+/// cell map (`total`), whose termination comes from the collections' `ListSizeOf`.
 #[test]
 fn freekey() {
     snapshot("freekey", "FreeKey");
@@ -157,28 +157,7 @@ fn measure() {
     snapshot_with(
         "measure",
         "Measure",
-        &["--per-sort-terms", "--termination", side.to_str().unwrap()],
+        &["--termination", side.to_str().unwrap()],
         "expected",
     );
-}
-
-/// The counter fixture with `--det2`: determinism through relations split by the first `<k>`
-/// item, with one certificate per surviving pair of rules, per priority rank.
-#[test]
-fn counter_det2() {
-    snapshot_with(
-        "counter",
-        "Counter",
-        &["--per-sort-terms", "--det2"],
-        "expected-det2",
-    );
-}
-
-/// The counter fixture in the arity-indexed term universe (the default; `--arity-terms` is its
-/// former opt-in, accepted and without effect): the `Term` family,
-/// fallback arms on every non-variable match, the collections' `ListSizeOf` instances, and
-/// determinism along the rule index.
-#[test]
-fn counter_arity() {
-    snapshot_with("counter", "Counter", &["--arity-terms"], "expected-arity");
 }

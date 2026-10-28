@@ -12,11 +12,6 @@ LIBS = {
     "alias": {"ns": "KAlias", "tier": "light"},
     "simple": {"ns": "KSimple", "tier": "heavy"},
     "kterm-ar": {"ns": "KTerm", "tier": "light"},
-    # kimp and SIMPLE in the per-sort encoding (`gen --per-sort-terms`), for the holdouts that are
-    # still built on it (design.md §2.1); their goldens, traces and cases are compared with kimp's
-    # and SIMPLE's recorded outputs, so both encodings stay cross-checked while it is in use
-    "kimp-ps": {"ns": "KImp", "tier": "light", "encoding": "per-sort", "not_regenerated": ["KImpBench/Programs.lean"]},
-    "simple-ps": {"ns": "KSimple", "tier": "heavy", "encoding": "per-sort"},
 }
 
 
@@ -52,14 +47,9 @@ RECORDS = {
     "simple": {"tier": "heavy", "measure": measure_simple},
 }
 
-# kimp-ps and simple-ps write the same files under per-sort/, compared with kimp's and SIMPLE's
 OUTPUTS = {
     "goldens.toml": {"tier": "light", "compare": "exact"},
     "kimp-test.out": {"tier": "light", "compare": "exact"},
     "simple-acceptance.toml": {"tier": "heavy", "compare": "strip-ms"},
     "simple-acceptance.md": {"tier": "heavy", "compare": "strip-ms"},
-    "per-sort/goldens.toml": {"tier": "light", "compare": "exact", "same_as": "goldens.toml"},
-    "per-sort/kimp-test.out": {"tier": "light", "compare": "exact", "same_as": "kimp-test.out"},
-    "per-sort/simple-acceptance.toml": {"tier": "heavy", "compare": "strip-ms", "same_as": "simple-acceptance.toml"},
-    "per-sort/simple-acceptance.md": {"tier": "heavy", "compare": "strip-ms", "same_as": "simple-acceptance.md"},
 }

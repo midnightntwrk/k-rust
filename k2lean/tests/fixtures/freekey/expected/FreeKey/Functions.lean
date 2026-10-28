@@ -12,10 +12,11 @@ namespace FreeKey
 
 open KPrelude
 
-instance : KPrelude.MapSizeOf SortJobCellMap SortJidCell SortJobCell := ⟨SortJobCellMap.sizeOf_lookupR, SortJobCellMap.sizeOf_eraseR⟩
-instance : KPrelude.ListSizeAffine SortList SortKItem := ⟨⟨0, SortList.sizeOf_ofList_eq⟩⟩
-instance : KPrelude.MapSizeOf SortMap SortKItem SortKItem := ⟨SortMap.sizeOf_lookupR, SortMap.sizeOf_eraseR⟩
-instance : KPrelude.MapSizeOf SortWorkerCellMap SortWidCell SortWorkerCell := ⟨SortWorkerCellMap.sizeOf_lookupR, SortWorkerCellMap.sizeOf_eraseR⟩
+instance : KPrelude.ListSizeOf SortJobCellMap (SortJidCell × SortJobCell) := ⟨fun _ => by simp [ListIso.ofList, SortJobCellMap.ofList]⟩
+instance : KPrelude.ListSizeOf SortList (SortKItem) := ⟨fun _ => by simp [ListIso.ofList, SortList.ofList]⟩
+instance : KPrelude.ListSizeOf SortMap (SortKItem × SortKItem) := ⟨fun _ => by simp [ListIso.ofList, SortMap.ofList]⟩
+instance : KPrelude.ListSizeOf SortSet (SortKItem × Unit) := ⟨fun _ => by simp [ListIso.ofList, SortSet.ofList]⟩
+instance : KPrelude.ListSizeOf SortWorkerCellMap (SortWidCell × SortWorkerCell) := ⟨fun _ => by simp [ListIso.ofList, SortWorkerCellMap.ofList]⟩
 
 /-! `isNat(_)_FREEKEY_Bool_KItem` -/
 def K.«isNat(_)_FREEKEY_Bool_KItem».rule1 (x0 : SortKItem) : Option (SortBool) :=
@@ -99,6 +100,7 @@ def K.«jobsOk(_)_FREEKEY_Bool_JobsCell» (x0 : SortJobsCell) : Option SortBool 
       if hu : m = KPrelude.MapHook.unit then
         some (some true)
       else none
+    | _ => none
   match e1 with
   | some r => r
   | none =>
@@ -118,7 +120,10 @@ def K.«jobsOk(_)_FREEKEY_Bool_JobsCell» (x0 : SortJobsCell) : Option SortBool 
                     some (some (KPrelude.BoolHook.and (KPrelude.IntHook.le L H) r))
                   | none => some none
                 else none
+              | _ => none
+            | _ => none
         else none
+      | _ => none
     match e2 with
     | some r => r
     | none =>
@@ -180,6 +185,8 @@ def K.«total(_)_FREEKEY_Int_WorkerCellMap» (x0 : SortWorkerCellMap) : Option S
                   some (some (KPrelude.IntHook.add C r))
                 | none => some none
               else none
+            | _ => none
+          | _ => none
       else none
     match e2 with
     | some r => r
@@ -370,6 +377,7 @@ def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn1 (x0 : SortJobsCell) : Option (Opt
     if hu : m = KPrelude.MapHook.unit then
       some (some true)
     else none
+  | _ => none
 /-- The matcher of equation 2 in `jobsOk(_)_FREEKEY_Bool_JobsCell`'s cascade. -/
 def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn2 (x0 : SortJobsCell) : Option (Option SortBool) :=
   match x0 with
@@ -387,7 +395,10 @@ def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».eqn2 (x0 : SortJobsCell) : Option (Opt
                 some (some (KPrelude.BoolHook.and (KPrelude.IntHook.le L H) r))
               | none => some none
             else none
+          | _ => none
+        | _ => none
     else none
+  | _ => none
 /-- The instances of equation 1 of `jobsOk(_)_FREEKEY_Bool_JobsCell` at the arguments. -/
 def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst1 (x0 : SortJobsCell) : List (Option SortBool) :=
   match x0 with
@@ -395,6 +406,7 @@ def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst1 (x0 : SortJobsCell) : List (Opti
     if m = KPrelude.MapHook.unit then
       [some true]
     else []
+  | _ => []
 /-- The instances of equation 2 of `jobsOk(_)_FREEKEY_Bool_JobsCell` at the arguments. -/
 def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst2 (x0 : SortJobsCell) : List (Option SortBool) :=
   match x0 with
@@ -412,7 +424,10 @@ def K.«jobsOk(_)_FREEKEY_Bool_JobsCell».inst2 (x0 : SortJobsCell) : List (Opti
                 [some (KPrelude.BoolHook.and (KPrelude.IntHook.le L H) r)]
               | none => [none]
             else []
+          | _ => []
+        | _ => []
     else []
+  | _ => []
 /-- The instances of `jobsOk(_)_FREEKEY_Bool_JobsCell` at the arguments that K's axioms equate with its value: those of the
 first priority group of its equations that has one (one per matching binding of a free-key map
 pattern, in the map's order), or the value where no equation applies. -/
@@ -549,6 +564,8 @@ def K.«total(_)_FREEKEY_Int_WorkerCellMap».eqn2 (x0 : SortWorkerCellMap) : Opt
               some (some (KPrelude.IntHook.add C r))
             | none => some none
           else none
+        | _ => none
+      | _ => none
   else none
 /-- The instances of equation 1 of `total(_)_FREEKEY_Int_WorkerCellMap` at the arguments. -/
 def K.«total(_)_FREEKEY_Int_WorkerCellMap».inst1 (x0 : SortWorkerCellMap) : List (Option SortInt) :=
@@ -570,6 +587,8 @@ def K.«total(_)_FREEKEY_Int_WorkerCellMap».inst2 (x0 : SortWorkerCellMap) : Li
               [some (KPrelude.IntHook.add C r)]
             | none => [none]
           else []
+        | _ => []
+      | _ => []
   else []
 /-- The instances of `total(_)_FREEKEY_Int_WorkerCellMap` at the arguments that K's axioms equate with its value: those of the
 first priority group of its equations that has one (one per matching binding of a free-key map

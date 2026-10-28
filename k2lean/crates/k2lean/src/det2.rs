@@ -180,8 +180,6 @@ pub struct Out {
 
 /// The options of `gen --det2`.
 pub struct Opts {
-    /// The term universe is the arity-indexed family (the injection-algebra proofs differ).
-    pub arity: bool,
     /// Pairs of rules (display names) listed as overlapping whatever their class
     /// (`--det2-overlap A,B`): the theorem then assumes them apart, which exercises the
     /// conditional statements on a definition whose classification finds no overlap.
@@ -203,9 +201,8 @@ pub struct Opts {
 }
 
 impl Opts {
-    pub fn from_args(rest: &[String], arity: bool) -> Opts {
+    pub fn from_args(rest: &[String]) -> Opts {
         let mut o = Opts {
-            arity,
             forced: vec![],
             heartbeats: 400_000,
             module_cost: 2000,
@@ -551,10 +548,8 @@ both apply at one configuration ({} pairs)",
             let n = format!("Det.comp_{fb}_{fa}_{fd}");
             let proof = if simple(b) {
                 "rfl".to_string()
-            } else if opts.arity {
-                "match x with\n  | Term.inj _ _ _ _ => rfl".to_string()
             } else {
-                "by cases x <;> rfl".to_string()
+                "match x with\n  | Term.inj _ _ _ _ => rfl".to_string()
             };
             let _ = writeln!(
                 o,
@@ -573,13 +568,9 @@ both apply at one configuration ({} pairs)",
             let n = format!("Det.projinj_{fb}_{fa}_{fc}");
             let proof = if simple(b) {
                 format!("by first | rfl | simp [inj_{fb}_{fa}, proj_{fa}_{fc}, inj_{fb}_{fc}]")
-            } else if opts.arity {
-                format!(
-                    "match x with\n  | Term.inj _ l h _ => by simp [inj_{fb}_{fa}, proj_{fa}_{fc}, inj_{fb}_{fc}, sub_{fb}_{fc} l h]"
-                )
             } else {
                 format!(
-                    "by cases x <;> first | rfl | simp [inj_{fb}_{fa}, proj_{fa}_{fc}, inj_{fb}_{fc}]"
+                    "match x with\n  | Term.inj _ l h _ => by simp [inj_{fb}_{fa}, proj_{fa}_{fc}, inj_{fb}_{fc}, sub_{fb}_{fc} l h]"
                 )
             };
             let _ = writeln!(
@@ -627,13 +618,11 @@ both apply at one configuration ({} pairs)",
     // `X:S` injected into `A`, is a case of every rule's determinism theorem, and it matches
     // another rule's `inj{T, A}(…)` only where the projection from `A` to `S` of that injection
     // is defined, which it is not when `T` and `S` have no common leaf (KMIR's `ERR:MIRError`
-    // against a cooling rule's `HOLE:Evaluation`). In the arity universe only: there the
-    // projection of an injection is a test of the term's leaf, which the generic closers do not
-    // decide at a variable term of a sort with many leaves (KMIR's `Evaluation`); the per-sort
-    // libraries of the gate close these cases without the lemmas, so they are not added there
-    // (design.md §9)
+    // against a cooling rule's `HOLE:Evaluation`). The projection of an injection is a test of
+    // the term's leaf, which the generic closers do not decide at a variable term of a sort with
+    // many leaves (KMIR's `Evaluation`) (design.md §9)
     for (r, k) in rs.iter().zip(&keys) {
-        if opts.arity && k.is_none() {
+        if k.is_none() {
             injections(&r.kore.0, true, &mut tested);
         }
     }
@@ -663,17 +652,15 @@ both apply at one configuration ({} pairs)",
             );
             let proof = if simple(t) {
                 format!("by simp [inj_{ft}_{fa}, proj_{fa}_{fs}]")
-            } else if opts.arity && simple(sv) {
+            } else if simple(sv) {
                 // a sort that is its own leaf: its projection tests the leaf tag itself
                 format!(
                     "match x with\n  | Term.inj _ l h _ => by\n    have hn : l ≠ .«{sv}» := by intro he; subst he; revert h; decide\n    simp [inj_{ft}_{fa}, proj_{fa}_{fs}, hn]"
                 )
-            } else if opts.arity {
+            } else {
                 format!(
                     "match x with\n  | Term.inj _ l h _ => by\n    have hl : leafOK .«{sv}» l = false := by revert h; cases l <;> decide\n    simp [inj_{ft}_{fa}, proj_{fa}_{fs}, hl]"
                 )
-            } else {
-                format!("by cases x <;> first | rfl | simp [inj_{ft}_{fa}, proj_{fa}_{fs}]")
             };
             let _ = writeln!(
                 o,
@@ -727,7 +714,6 @@ both apply at one configuration ({} pairs)",
         .find(|c| c.ends_with("SortK.dotk"))
         .cloned()
         .unwrap_or_else(|| "SortK.dotk".into());
-    let k_ctors = info.get(&kseq).map(|x| x.0).unwrap_or(2);
     let _ = writeln!(
         o,
         "/-- internal: the key of the content of the `<k>` cell. -/\ndef Det.kkey (k : {k_ty}) : Det.Key :=\n  match k with\n  | {kseq} x _ => Det.ikey x"
@@ -739,9 +725,7 @@ both apply at one configuration ({} pairs)",
     match dot {
         Some(n) => {
             let _ = writeln!(o, "  | {dotk} => .k{n}");
-            if opts.arity || k_ctors > 2 {
-                let _ = writeln!(o, "  | _ => .none");
-            }
+            let _ = writeln!(o, "  | _ => .none");
         }
         None => {
             let _ = writeln!(o, "  | _ => .none");
@@ -760,11 +744,6 @@ both apply at one configuration ({} pairs)",
         .trim_start_matches('(')
         .trim_end_matches(')')
         .to_string();
-    let path_exhaustive = !opts.arity
-        && path
-            .iter()
-            .all(|(h, _, _)| info.get(h).is_some_and(|x| x.0 == 1))
-        && info.get("SortKCell.«<k>»").is_none_or(|x| x.0 == 1);
     let _ = writeln!(
         o,
         "/-- internal: the first item of the `<k>` cell, as a key. -/\ndef Det.key (c : {top}) : Det.Key :=\n  match c with"
@@ -773,9 +752,7 @@ both apply at one configuration ({} pairs)",
         let _ = writeln!(o, "  | _ => .none\n");
     } else {
         let _ = writeln!(o, "  | {pat} => Det.kkey k");
-        if !path_exhaustive {
-            let _ = writeln!(o, "  | _ => .none");
-        }
+        let _ = writeln!(o, "  | _ => .none");
         o.push('\n');
     }
     let mut report = String::new();

@@ -271,8 +271,7 @@ def familyOneForm (fam : Name) (t : Expr) : MetaM Bool := do
       if r == some t then return false
   return n == 1
 
-/-- Case each variable whose type has one constructor and no indices (a K cell sort, on the
-per-sort encoding), or that is a term of the arity-indexed family at a sort with one value form
+/-- Case each variable whose type has one constructor and no indices (an inductive type), or that is a term of the arity-indexed family at a sort with one value form
 (`familyOneForm`, split by `familyCases`): the variable is that constructor applied to fresh
 variables, so the split is complete, and the rule's terms then show the cell's content, which
 equations matching inside the cell need (SIMPLE's frames save a `<control>` fragment whose

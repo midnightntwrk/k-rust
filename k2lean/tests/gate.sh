@@ -9,8 +9,7 @@
 #                                 it, and the claims)
 #   k2lean/tests/gate.sh list [TIER]
 #                                 print the registered entries by area: kind, name, tier, the tiers
-#                                 that only compare it, and its term encoding (arity or per-sort;
-#                                 all entries, or those a TIER run measures)
+#                                 that only compare it (all entries, or those a TIER run measures)
 #   k2lean/tests/gate.sh accept [--area NAME]
 #                                 make the last run's measurements the baseline, of every area, or of
 #                                 area NAME only, which is refused (naming the entries) when another

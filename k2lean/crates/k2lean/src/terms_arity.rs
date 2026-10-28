@@ -1,4 +1,4 @@
-//! `Terms.lean` in the arity-indexed encoding (`gen --arity-terms`, `k2lean/docs/design.md`, §2.1).
+//! `Terms.lean`: the arity-indexed term universe (`k2lean/docs/design.md`, §2.1).
 //!
 //! The term universe is one inductive family `Term : Tag → Type`, indexed by sorts, with one
 //! constructor per *arity* (`c0`, `c1`, …), one per builtin carrier used as an argument
@@ -13,8 +13,7 @@
 //!
 //! `Ck s` is the enumeration of sort `s`'s constructors of arity k (`Empty` if it has none) and
 //! `Ak_i s c` the sort of argument i, so a value of sort `s` is exactly one constructor of `s`
-//! applied to arguments of its argument sorts: the same values as the per-sort mutual block,
-//! with the same canonical forms (Lean `=` is K's equality). Each K constructor is a reducible
+//! applied to arguments of its argument sorts, with canonical forms (Lean `=` is K's equality). Each K constructor is a reducible
 //! `@[match_pattern]` definition with the generator's name, so the rest of the generated code
 //! builds and matches terms as before.
 //!

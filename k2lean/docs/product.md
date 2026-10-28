@@ -57,7 +57,7 @@ Speed is not the argument: compiled Lean already runs a semantics 2 to 4 times f
 
 ### 3.3 Generality
 8. **Every K definition, up to KEVM's and KMIR's size.** A feature is justified by what a K construct means, and tested on a second definition (decided 2026-10-28, §6). Soundness asks for two validation definitions per feature, and that is the bar for every area (proposed).
-9. **One encoding.** The arity-indexed term family is the only specification of terms. A convenience it lacks comes back as a view proved from it (`contract.md` §3.3; retiring the per-sort encoding awaits Sebastien's go, ticket CT-1).
+9. **One encoding.** The arity-indexed term family is the only specification of terms. A convenience it lacks comes back as a view proved from it (`contract.md` §3.3; the per-sort encoding was retired on 2026-10-28, ticket CT-1).
 
 ### 3.4 Automation
 10. **Push-button where the proof is generic.** Hand-written proofs are for cases the tactics do not close, and a hand case proves the generated statement by name (established; §6).
