@@ -317,6 +317,27 @@ elab "k2l_owise_arm" : tactic => withMainContext do
     replaceMainGoal [g]
     evalTactic (← `(tactic| k2l_no_arm))
 
+/-- `k2l_owise_apply`: close a case that a no-match premise `∀ xs, x = p → … → c = some true →
+False` refutes once its last hypotheses are computed: apply the premise, unify its equations by
+reflexivity (the case's argument is the pattern's instance), and close the rest by `simp_all` (a
+`requires` over partial calls, such as `typeOf(E)`, which the case's own facts decide;
+`k2l_no_arm` takes only a hypothesis as it stands). -/
+elab "k2l_owise_apply" : tactic => withMainContext do
+  let mut hs := #[]
+  for d in (← getLCtx) do
+    if d.isImplementationDetail then continue
+    let ty ← instantiateMVars d.type
+    if ty.isForall && ty.getForallBody.isConstOf ``False then hs := hs.push d
+  for d in hs do
+    let s ← saveState
+    try
+      let t ← Term.exprToSyntax d.toExpr
+      evalTactic (← `(tactic| (exfalso; apply $t <;> first | rfl | assumption | (simp_all; done))))
+      if (← getGoals).isEmpty then return
+      s.restore
+    catch _ => s.restore
+  throwError "k2l_owise_apply: no no-match premise refutes the case"
+
 /-- `k2l_case_choose`: from `h : MapHook.chooseFirst m hw f = some b` (the matcher of a
 free-key map pattern found a binding), a binding `k |-> v` of `m`, its decomposition
 `hc : (k |-> v) (remove m k) = some m`, and `f k v hc = some b` in place of `h`; an `owise`

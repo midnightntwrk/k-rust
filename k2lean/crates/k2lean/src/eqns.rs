@@ -1079,7 +1079,7 @@ all_goals first\n      \
             Some(nf) => (
                 " | (k2l_case_sub <;> try simp only [])".to_string(),
                 format!(
-                    " | ((simp_all only [{nf}]); first | rfl | k2l_no_arm | (simp_all [{u}]; done))"
+                    " | ((simp_all only [{nf}]); first | rfl | k2l_no_arm | k2l_owise_apply | (simp_all [{u}]; done))"
                 ),
             ),
             None => (String::new(), String::new()),
@@ -1093,8 +1093,9 @@ all_goals first\n      \
             "/-- The proof of an equation with no-match premises (an `owise` rule's, whose left-hand side\n\
 is usually a variable), after the function is unfolded: reduce the cascade as `k2l_eqn_r` does,\n\
 also splitting a list variable that it takes apart (`k2l_case_lvar`), then close each case by\n\
-reduction, by the no-match premise of the rule whose arm the case is (`k2l_owise_arm`), or as the\n\
-generic tactics do, after splitting the remaining `if`s and `match`es (a rule's `requires`). -/\n\
+reduction, by the no-match premise of the rule whose arm the case is (`k2l_owise_arm`; applied,\n\
+with its `requires` computed from the case's facts, `k2l_owise_apply`), or as the generic tactics\n\
+do, after splitting the remaining `if`s and `match`es (a rule's `requires`). -/\n\
 local macro \"k2l_eqn_o\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| (\n    \
 (try simp only [])\n    \
 (try (repeat' (first | k2l_case_list | k2l_case_lvar | (k2l_case_discr <;> try simp only []){case_sub}{case_rec} | (k2l_case_call <;> try simp only [Option.bind]))))\n    \
@@ -1102,7 +1103,7 @@ all_goals first\n      \
 | rfl\n      \
 | k2l_owise_arm\n      \
 {nf_arm_top}| (simp_all [{u}]; done)\n      \
-| ((repeat' (first | split | k2l_split_hyps | k2l_case_choose)) <;> first | rfl | k2l_owise_arm{nf_arm} | (simp_all [{u}]; done) | ((try simp_all [{u}]) <;> omega))))\n\n"
+| ((repeat' (first | split | k2l_split_hyps | k2l_case_choose)) <;> first | rfl | k2l_owise_arm{nf_arm} | (simp_all [{u}]; done) | k2l_owise_apply | ((try simp_all [{u}]) <;> omega))))\n\n"
         ));
     }
     for s in stated {
@@ -1125,17 +1126,22 @@ all_goals first\n      \
         let owise = uses_eqn_o(s, defs, recursive);
         let tac = match rec_of(s, recursive) {
             Some(f) if list_recursive.contains(&f) || owise => {
-                let mut t = format!("by\n  intros\n  first\n  | k2l_eqn_r {f} [{own}]");
+                // an equation with no-match premises gets `k2l_eqn_o` first: `k2l_eqn_r` cases on
+                // every call of the cascade, which on an `owise` equation over a sort of many
+                // constructors exceeds any budget (impplustypes' `wt` equation 8), and a timeout
+                // is not caught by `first`
+                let mut t = if owise {
+                    format!(
+                        "by\n  intros\n  first\n  | ((conv => lhs; rw [{f}.eq_def]); k2l_eqn_o [{own}])\n  | k2l_eqn_r {f} [{own}]"
+                    )
+                } else {
+                    format!("by\n  intros\n  first\n  | k2l_eqn_r {f} [{own}]")
+                };
                 // `k2l_fold_eqn` can leave goals, so it ends in `done` for `first` to go on
                 match (list_recursive.contains(&f), owise) {
                     (true, false) => t.push_str(&format!("\n  | k2l_fold_eqn {f}")),
                     (true, true) => t.push_str(&format!("\n  | (k2l_fold_eqn {f}; done)")),
                     _ => {}
-                }
-                if owise {
-                    t.push_str(&format!(
-                        "\n  | ((conv => lhs; rw [{f}.eq_def]); k2l_eqn_o [{own}])"
-                    ));
                 }
                 t
             }
@@ -1469,7 +1475,7 @@ mod tests {
         assert!(o.contains("k2l_split_hyps | k2l_case_choose"), "{o}");
         // a recursive function's: unfolded by its equation lemma, after the recursive proof
         assert!(o.contains(
-            "K.f Gen0 = none := by\n  intros\n  first\n  | k2l_eqn_r K.f [K.f]\n  | ((conv => lhs; rw [K.f.eq_def]); k2l_eqn_o [K.f])\n"
+            "K.f Gen0 = none := by\n  intros\n  first\n  | ((conv => lhs; rw [K.f.eq_def]); k2l_eqn_o [K.f])\n  | k2l_eqn_r K.f [K.f]\n"
         ), "{o}");
         // the other's: unfolded as `k2l_eqn_c` unfolds it, after the generic proofs
         assert!(o.contains(
