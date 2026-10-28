@@ -113,7 +113,38 @@ kimpinv_claims() {
   else bad "build kimpinv" "$L/build-kimpinv-full.log"; fi
 }
 
+impplus_claims() {
+  # IMP++ (the soundness area's library impplus): a `Step` that is not a function (ranked: `join`
+  # matches two threads; strict operators heat either argument), explored by every successor
+  # (`KClaims.ExecSucc`). The spec is example material (demos/claims/specs/impplus-spec.k)
+  phase "impplus claims"
+  local OUTP=$GEN/impplus-claims
+  if ! "$KRUST" kcompile "$T/demos/claims/specs/impplus-spec.k" --main-module IMPPLUS-SPEC --definition-module IMP \
+      --for-proving --output-directory "$KO/impplus-spec" --builtin-directory "$BUILTIN" -I "$IMPPP" -w none \
+      > "$L/kcompile-impplus-spec.log" 2>&1; then
+    bad "kcompile impplus-spec" "$L/kcompile-impplus-spec.log"; return
+  fi
+  if "$G" claims --kore "$KO/impplus/definition.kore" --spec "$KO/impplus-spec/definition.kore" \
+      --out "$OUTP" --name KImpPlusClaims --semantics KImpPlus --semantics-path ../impplus \
+      --kclaims-path ../../lean/claims > "$L/claims-impplus-gen.log" 2>&1; then
+    ok "claims-impplus gen"
+    cp "$OUTP/claims.toml" "$MEAS/claims-impplus.toml"
+    if lbuild "$OUTP" build-claims-impplus; then
+      ok "build claims-impplus" "$L/build-claims-impplus.log"
+      if lbuild "$OUTP" build-claims-impplus-guard KImpPlusClaimsTest; then
+        ok "guard claims-impplus" "$L/build-claims-impplus-guard.log"
+      else bad "guard claims-impplus" "$L/build-claims-impplus-guard.log"; fi
+      grep -o 'KImpPlusClaims[^ ]*\.holds depends on axioms: .*' "$L/build-claims-impplus-guard.log" \
+        > "$MEAS/axioms-impplus.txt" || true
+      grep -E 'kc_auto' "$L/build-claims-impplus.log" > "$MEAS/kc-auto-impplus.txt" || true
+    else bad "build claims-impplus" "$L/build-claims-impplus.log"; fi
+  else bad "claims-impplus gen" "$L/claims-impplus-gen.log"; fi
+}
+
 gate_claims() {
+  if runs record impplus-claims; then
+    kc impplus && impplus_claims
+  fi
   if runs record claims; then
     kc kimp && kc kimp-inv
     kimp_claims

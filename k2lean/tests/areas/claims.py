@@ -24,10 +24,25 @@ def measure_claims(c):
             "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}
 
 
+def measure_impplus(c):
+    """IMP++'s claims (claims-impplus.toml), their guard and kc_auto lines."""
+    ct = read(c.meas / "claims-impplus.toml")
+    ax = read(c.meas / "axioms-impplus.txt")
+    kc = read(c.meas / "kc-auto-impplus.txt")
+    return {"claims": len(re.findall(r"^\[\[claim\]\]", ct, re.M)) if ct else None,
+            "stated": len(re.findall(r"^stated = true", ct, re.M)) if ct else None,
+            "guarded": len([l for l in ax.splitlines() if l.strip()]) if ax else None,
+            "kc_auto": len([l for l in kc.splitlines() if "kc_auto" in l]) if kc else None,
+            "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}
+
+
 RECORDS = {
     # on kimp and kimpinv (the arity universe)
     "claims": {"tier": "heavy", "measure": measure_claims,
                "sources": ["generated/kimp-claims", "generated/kimpinv-claims"]},
+    # on impplus (the soundness area's library; a `Step` that is not a function)
+    "impplus-claims": {"tier": "light", "measure": measure_impplus,
+                       "sources": ["generated/impplus-claims"]},
 }
 
 OUTPUTS = {
@@ -39,4 +54,6 @@ OUTPUTS = {
     "replay/addition-2.toml": {"tier": "heavy", "compare": "strip-seconds"},
     "replay/branching.toml": {"tier": "heavy", "compare": "strip-seconds"},
     "replay/sum-loop.toml": {"tier": "heavy", "compare": "strip-seconds"},
+    "claims-impplus.toml": {"tier": "light", "compare": "exact"},
+    "kc-auto-impplus.txt": {"tier": "light", "compare": "sorted-lines"},
 }

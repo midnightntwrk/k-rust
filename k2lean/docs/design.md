@@ -538,6 +538,13 @@ The generation covers checkers of `imp-sec.k`'s shape: two levels (two constants
 
 `k2lean claims` (`crates/k2lean/src/claims.rs`, `lean/claims`) has three statements beyond the translation of K claims; their proofs are generic and checked by the kernel, like the claims'.
 
+**A `Step` that is not a function.** Where rules overlap, `Step` has several successors: strictness in two positions heats either argument first, a rule that matches several elements of a cell collection (IMP++'s `join`) makes `Step` the ranked one, and a definition's overlaps are listed (KEVM's 79).
+The claim statements are relational already (`AF`, `EF`, `Reach` over `Step`), so they do not change; what changes is the exploration.
+`kc_auto` steps a deterministic semantics by one rule matcher (`RuleSet` with `Step.deterministic`), and any other by every successor (`KClaims.ExecSucc`, from the library's `successors_iff`): `AF.of_succ` needs some successor and the claim at each.
+The claims module declares `ExecSucc` always and the one-matcher instances only where the library has them (`kc_det_instances`), so a deterministic semantics keeps its exploration.
+The gate's IMP++ claims (`demos/claims/specs/impplus-spec.k`, light) are proved this way, one of them through both heating orders of `(1 + 2) + (3 + 4)` (20 configurations, as krust's prover counts).
+A symbolic key of a map the matchers look up (a thread's `<id>`, a store location) does not reduce by evaluation (`Int`'s equality is decided by cases on its constructors), so such claims stay open: the IMP++ claims fix the thread's id, and the K tutorial's own `sum-spec.k`, with an abstract id and store locations, is open (2026-10-28).
+
 **The functions a claim applies.** A claim is a statement about the definition, so a function it applies, defined by its equations in the same KORE, belongs to the library as one a rule applies does, even when no rule applies it (KEVM's functional specs call 15 such functions in 53 of their 454 claims, `MerkleUpdateAux` among them).
 `gen --spec FILE` adds the functions the spec's claims apply to the library's functions and lists the library's functions in `functions.txt`; `claims` lowers the claims with the functions the rules apply and those of `functions.txt`, and leaves a claim that needs another one unstated, with a note.
 A library generated without `--spec` is unchanged: it has no `functions.txt`, and its claims are those its rules' functions can state, as before (2026-10-28).

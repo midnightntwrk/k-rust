@@ -1,6 +1,7 @@
 import Lean
 import KClaims.RuleStep
 import KClaims.Exec
+import KClaims.Succ
 import KClaims.StepInv
 import KClaims.SimpAttr
 import KPrelude.Hooks
@@ -191,6 +192,52 @@ def tryRules (rules : Array Expr) (g : MVarId) (inv : Option Expr := none) : Met
         return some k.mvarId!
     s.restore
   return none
+
+/-- The `ExecSucc` instance of relation `R`, if it has one. -/
+def getSucc? (R : Expr) : MetaM (Option Expr) := do
+  let rty ← whnfR (← inferType R)
+  let .forallE _ α _ _ := rty | return none
+  try
+    return some (← synthInstance (mkAppN (mkConst ``KClaims.ExecSucc) #[α, R]))
+  catch _ => return none
+
+/-- Step by every successor (`ExecSucc`, for a relation that is not a function): `succ c` reduced
+to an explicit list, then one goal per successor (`AF.of_succ`, `AFn.of_succ`). `none` when the
+list does not reduce (a symbolic part decides which rule applies: a split comes first) or is
+empty (no rule applies). -/
+def trySucc (g : MVarId) : MetaM (Option (List MVarId)) := g.withContext do
+  let t ← instantiateMVars (← g.getType)
+  let some (c, _) := configOf t | return none
+  let (lem, mk) ← match t.getAppFnArgs with
+    | (``KClaims.AFn, #[α, R, P, n, _]) =>
+      pure (``KClaims.AFn.of_succ, fun c' => mkAppN t.getAppFn #[α, R, P, (predIndex n).getD n, c'])
+    | (``KClaims.AF, #[α, R, P, _]) => pure (``KClaims.AF.of_succ, fun c' => mkAppN t.getAppFn #[α, R, P, c'])
+    | _ => return none
+  let R := t.getAppArgs[1]!
+  let α ← inferType c
+  let some inst ← getSucc? R | return none
+  let sc := mkAppN (mkConst ``KClaims.ExecSucc.succ) #[α, R, inst, c]
+  let mut l ← whnfD sc
+  let mut elems : Array Expr := #[]
+  repeat
+    match l.getAppFnArgs with
+    | (``List.cons, #[_, h, tl]) => elems := elems.push (← norm h); l ← whnfD tl
+    | (``List.nil, _) => break
+    | _ => return none
+  if elems.isEmpty then return none
+  let lst ← mkListLit α elems.toList
+  unless ← isDefEq sc lst do return none
+  let hl ← mkExpectedTypeHint (← mkEqRefl lst) (← mkEq sc lst)
+  let p ← withLocalDeclD `d α fun d => do mkLambdaFVars #[d] (mk d)
+  let ks ← elems.mapM fun e => mkFreshExprSyntheticOpaqueMVar (mk e)
+  let mut h := mkAppN (mkConst ``KClaims.allMem_nil) #[α, p]
+  let mut rest ← mkListLit α []
+  for i in (List.range elems.size).reverse do
+    h := mkAppN (mkConst ``KClaims.allMem_cons) #[α, p, elems[i]!, rest, ks[i]!, h]
+    rest ← mkAppM ``List.cons #[elems[i]!, rest]
+  let hne ← mkAppM ``List.cons_ne_nil #[elems[0]!, ← mkListLit α (elems.toList.drop 1)]
+  g.assign (← mkAppM lem #[hl, hne, h])
+  return some (ks.toList.map (·.mvarId!))
 
 /-- The first non-literal Boolean in `e`, left to right. -/
 partial def findBool (e : Expr) : MetaM (Option Expr) := do
@@ -562,6 +609,9 @@ structure Cfg where
   inv : Option (Expr × Expr) := none
   /-- split variables of small sum types when stuck (`split`) -/
   splitVars : Bool := false
+  /-- the relation has an `ExecSucc` instance: a step by every successor when no single rule
+  decides it (no `RuleSet`, so no determinism) -/
+  succ : Bool := false
 
 /-- A type whose values a case split enumerates cheaply: an inductive type without indices, with 2
 to 8 constructors, none of which has a field of the type itself (so `SortK`, maps and lists are
@@ -789,6 +839,8 @@ partial def exploreOne (cfg : Cfg) (g : MVarId) (fuel : Nat) : TacticM Outcome :
   let some g ← succIndex g | return .stuck g
   g.withContext do
   if let some g' ← tryRules cfg.rules g (cfg.inv.map (·.1)) then return .next [g'] 0
+  if cfg.succ && cfg.inv.isNone then
+    if let some gs ← trySucc g then return .next gs 0
   if let some gs ← trySplit g cfg.splitVars then return .next gs 1
   if cfg.splitVars then
     if let some gs ← trySplitVar g then return .next gs 1
@@ -860,10 +912,11 @@ elab "kc_auto" c:(kcCircs)? l:(kcLemmas)? v:(kcInv)? sp:(kcSplit)? cl:(kcClose)?
       | _ => 3000
     | none => 3000
   let g ← getMainGoal
-  let (rules, circs, lemmas) ← g.withContext do
+  let (rules, circs, lemmas, succ) ← g.withContext do
     let t ← instantiateMVars (← g.getType)
     let R := t.getAppArgs[1]!
-    let rules ← getRules R
+    -- a relation that is not a function has no `RuleSet` (its `det`), only `ExecSucc`
+    let rules ← try getRules R catch _ => pure #[]
     let circs ← match c with
       | some stx => match stx with
         | `(kcCircs| circ [$ids,*]) => pure (ids.getElems.map (·.getId))
@@ -876,7 +929,9 @@ elab "kc_auto" c:(kcCircs)? l:(kcLemmas)? v:(kcInv)? sp:(kcSplit)? cl:(kcClose)?
           if e.isFVar then return Sum.inr (← e.fvarId!.getUserName) else return Sum.inl e
         | _ => pure #[]
       | none => pure #[]
-    return (rules, circs, lemmas)
+    -- only without a `RuleSet`: a deterministic relation keeps its one-rule steps and splits
+    let succ := rules.isEmpty && (← getSucc? R).isSome
+    return (rules, circs, lemmas, succ)
   let inv ← match v with
     | some stx => match stx with
       | `(kcInv| inv [$t]) => g.withContext do
@@ -888,7 +943,7 @@ elab "kc_auto" c:(kcCircs)? l:(kcLemmas)? v:(kcInv)? sp:(kcSplit)? cl:(kcClose)?
       | _ => pure none
     | none => pure none
   let stats ← IO.mkRef #[0, 0, 0, 0]
-  let cfg : Cfg := { closer, rules, circs, lemmas, fuel, stats, inv, splitVars := sp.isSome }
+  let cfg : Cfg := { closer, rules, circs, lemmas, fuel, stats, inv, splitVars := sp.isSome, succ }
   let rest ← explore cfg [g] cfg.fuel
   if kc.stats.get (← getOptions) then
     let st ← stats.get
@@ -1003,5 +1058,27 @@ elab "kc_claim " ih:ident : tactic => do
   match gs? with
   | some gs => setGoals (gs ++ others)
   | none => throwError "kc_claim: {ih} does not apply"
+
+end KClaims.Tactic
+
+namespace KClaims.Tactic
+
+open Lean Elab Command
+
+/-- `kc_det_instances`, in a claims module with the semantics' namespace open: the `RuleSet` and
+`ExecDet` instances of a deterministic semantics (one whose library states `Step.deterministic`
+and has the unranked rule list `rules`), with which `kc_auto` steps by one rule at a time. A
+semantics without them is explored by its `ExecSucc` instance (`successors_iff`). -/
+elab "kc_det_instances" : command => do
+  let has (n : Name) : CommandElabM Bool := liftTermElabM do
+    try
+      let _ ← realizeGlobalConstNoOverloadWithInfo (mkIdent n)
+      pure true
+    catch _ => pure false
+  if (← has `Step.deterministic) && (← has `rules) && (← has `step_complete) then
+    elabCommand (← `(instance : KClaims.RuleSet $(mkIdent `App) $(mkIdent `Step) :=
+      ⟨$(mkIdent `rules), $(mkIdent `Step.deterministic)⟩))
+    elabCommand (← `(instance : KClaims.ExecDet $(mkIdent `Step) $(mkIdent `step) :=
+      ⟨$(mkIdent `step_sound), $(mkIdent `step_complete)⟩))
 
 end KClaims.Tactic

@@ -1,6 +1,7 @@
 import KClaims.Reach
 import KClaims.Exec
 import KClaims.RuleStep
+import KClaims.Succ
 import KClaims.SimpAttr
 import KClaims.Tactic
 import KClaims.Invariant

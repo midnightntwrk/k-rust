@@ -127,7 +127,7 @@ Each entry belongs to one area, which registers it in `k2lean/tests/areas/AREA.s
 | `soundness` | `soundness` (ImpTypes) |
 | `confluence` | `confluence` (RaceConf, and the classification of SIMPLE's pairs of rules) |
 | `noninterference` | `noninterference` (ImpNI) |
-| `claims` | `claims` over kimp's specifications, the claims under kimpinv's invariant, and the claim transferred along ImpRel's bisimulation |
+| `claims` | `claims` over kimp's specifications, the claims under kimpinv's invariant, and the claim transferred along ImpRel's bisimulation (heavy); IMP++'s claims, a `Step` that is not a function (light) |
 
 The areas run in that order, and an area's phase may use a library an earlier area built.
 
