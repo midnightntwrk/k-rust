@@ -48,8 +48,7 @@ gen_soundness() {
             --open-obligations "$o/open-obligations.txt") ;;
     impplustypes) GEN_ARGS=(--kore "$(kore_dir impplus-typing)/definition.kore" --runtime "$(kore_dir impplus-typing)/runtime.json"
             --out "$o" --name KImpPlusTypes --prelude ../../lean
-            --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,typeOfB,wt,wts,printable"
-            --equations-heartbeats-file "$LIBS_DIR/areas/impplustypes-heartbeats.txt") ;;
+            --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,typeOfB,wt,wts,printable") ;;
     *) return 1 ;;
   esac
   return 0
