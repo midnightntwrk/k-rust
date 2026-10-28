@@ -182,7 +182,7 @@ negative_ill_typed() {
   # records what happened
   local NEG=$T/negative/krsimp-ill-typed neg_built=false k last
   mkdir -p "$NEG"
-  rm -rf "$NEG/KrsImp"
+  rm -rf "$NEG/KrsImp" "$NEG/lake-manifest.json"   # the manifest resolves the lakefile gen rewrites
   [ -d "$NEG/.lake" ] || { [ -d "$GEN/krsimp/.lake" ] && cp -a "$GEN/krsimp/.lake" "$NEG/.lake"; }  # same Terms.lean
   cp "$GEN/krsimp/open-obligations.txt" "$NEG/open-obligations.txt"
   : > "$NEG/open-invariant-cases.txt"
@@ -218,13 +218,14 @@ PY
 
 kind2_template() {
   # the kind 2 template: the skeleton `k2lean new-invariant` writes for kimp, rewritten on every run
-  # (the command never overwrites a file, so the skeleton's files are deleted first; .lake/ and the
-  # manifest are kept), built like a demo (demo.Kind2Template)
+  # (the command never overwrites a file, so the skeleton's files are deleted first; .lake/ is kept,
+  # and the manifest, which records how the last lakefile's requires resolved, is deleted with them),
+  # built like a demo (demo.Kind2Template)
   phase "kind2 template"
   local K2T=$W/kind2/KImpTpl
   mkdir -p "$K2T"
   find "$K2T" -name .lake -prune -o -name '*.lean' -type f -exec rm -f {} +
-  rm -f "$K2T/lean-toolchain"
+  rm -f "$K2T/lean-toolchain" "$K2T/lake-manifest.json"
   if "$G" new-invariant --lib "$GEN/kimp" --out "$K2T" --name KImpTpl > "$L/kind2-new.log" 2>&1; then
     ok "new-invariant kimp" "$L/kind2-new.log"
     if lbuild "$K2T" build-Kind2Template; then ok "build Kind2Template" "$L/build-Kind2Template.log"
