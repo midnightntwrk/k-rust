@@ -33,8 +33,23 @@ pub enum Form {
     EquationFn,
     /// A `#[k::simplification]` fn.
     Simplification,
+    /// A `#[k::context]` fn: its subject is the context, and its one `k::rewrite!` rewrites the
+    /// hole.
+    Context,
+    /// A `#[k::alias]` clause, which expands a production marked `#[k::alias]` and runs backwards
+    /// when a result is printed.
+    Alias,
+    /// A `#[k::desugar]` clause, which expands a production marked `#[k::desugar]` once, before
+    /// anything runs.
+    Desugar,
     /// A `cells!` rule with a result.
     CellsRule,
+    /// A single-body `cells!` rule.
+    CellsLocalRule,
+    /// A `#[k::claim]` fn over `cells!` terms.
+    CellsClaim,
+    /// A `#[k::context_alias]`, a named configuration context.
+    ContextAlias,
     /// A `#[k::init]` initializer.
     Initializer,
     /// A `#[k::constant]`.
@@ -42,42 +57,94 @@ pub enum Form {
 }
 
 impl Form {
+    /// Every form.
+    pub const ALL: [Self; 17] = [
+        Self::ReadableRule,
+        Self::ReadableClaim,
+        Self::SortRule,
+        Self::EquationTable,
+        Self::RuleFn,
+        Self::LocalRule,
+        Self::EquationFn,
+        Self::Simplification,
+        Self::Context,
+        Self::Alias,
+        Self::Desugar,
+        Self::CellsRule,
+        Self::CellsLocalRule,
+        Self::CellsClaim,
+        Self::ContextAlias,
+        Self::Initializer,
+        Self::Constant,
+    ];
+
+    /// The slots the form has.
+    #[must_use]
+    pub const fn slots(self) -> &'static [Slot] {
+        match self {
+            Self::ReadableRule
+            | Self::ReadableClaim
+            | Self::SortRule
+            | Self::EquationTable
+            | Self::RuleFn
+            | Self::EquationFn
+            | Self::Simplification
+            | Self::CellsRule
+            | Self::CellsClaim => &[Slot::Subject, Slot::Result, Slot::Requires],
+            Self::LocalRule | Self::CellsLocalRule | Self::Context => {
+                &[Slot::Subject, Slot::Requires]
+            }
+            Self::Alias | Self::Desugar => &[Slot::Subject, Slot::Result],
+            Self::ContextAlias => &[Slot::Subject],
+            Self::Initializer | Self::Constant => &[Slot::Value],
+        }
+    }
+
     /// Whether the form is a claim: its sides describe symbolic states, which the prover reaches.
     #[must_use]
     pub const fn is_claim(self) -> bool {
-        matches!(self, Self::ReadableClaim)
+        matches!(self, Self::ReadableClaim | Self::CellsClaim)
     }
 
     /// Whether the form writes its cell values in the `cells!` reference notation, which names
     /// every field of every record.
     #[must_use]
     pub const fn writes_cells(self) -> bool {
-        matches!(self, Self::CellsRule)
+        matches!(
+            self,
+            Self::CellsRule | Self::CellsLocalRule | Self::CellsClaim | Self::ContextAlias
+        )
     }
 
     /// Whether the form's subject, outside its `k::rewrite!` islands, is both what the sentence
     /// matches and what it keeps: a single-body rule's.
     #[must_use]
     pub const fn keeps_subject(self) -> bool {
-        matches!(self, Self::LocalRule)
+        matches!(self, Self::LocalRule | Self::CellsLocalRule)
     }
 
-    /// Whether `k::rewrite!` marks what changes inside the form's subject.
+    /// Whether `k::rewrite!` marks what changes inside the form's subject: a single-body rule's,
+    /// and a context's, which rewrites its hole.
     #[must_use]
     pub const fn marks_rewrites(self) -> bool {
-        matches!(self, Self::LocalRule)
+        matches!(self, Self::LocalRule | Self::CellsLocalRule | Self::Context)
     }
 
     /// Whether the form rewrites its subject in place as the one term it matched: a single-body
     /// rule and a simplification.
     #[must_use]
     pub const fn rewrites_one_term(self) -> bool {
-        matches!(self, Self::LocalRule | Self::Simplification)
+        matches!(
+            self,
+            Self::LocalRule | Self::CellsLocalRule | Self::Simplification
+        )
     }
 
-    /// Whether the form's subject matches terms whose functions are evaluated: a rewrite rule's
-    /// and an equation's, but not a simplification's (it rewrites unevaluated applications) or a
-    /// claim's (its states are symbolic).
+    /// Whether the form's subject matches terms whose functions are evaluated: a rewrite rule's,
+    /// an equation's and a context's, which match the configuration a computation reached, but
+    /// not a simplification's (it rewrites unevaluated applications), a claim's (its states are
+    /// symbolic) or a static clause's (it expands program and rule terms as written, before
+    /// anything runs).
     #[must_use]
     pub const fn matches_evaluated_terms(self) -> bool {
         matches!(
@@ -88,7 +155,10 @@ impl Form {
                 | Self::RuleFn
                 | Self::LocalRule
                 | Self::EquationFn
+                | Self::Context
                 | Self::CellsRule
+                | Self::CellsLocalRule
+                | Self::ContextAlias
         )
     }
 
@@ -102,11 +172,21 @@ impl Form {
         )
     }
 
+    /// Whether the root of the form's subject is the production the clause expands: a static
+    /// clause's, a production marked as the clause is.
+    #[must_use]
+    pub const fn subject_root_expands_production(self) -> bool {
+        matches!(self, Self::Alias | Self::Desugar)
+    }
+
     /// Whether a matching-logic predicate may be the form's condition: a claim's, and a
     /// simplification's, which holds of symbolic terms.
     #[must_use]
     pub const fn admits_predicate_conditions(self) -> bool {
-        matches!(self, Self::ReadableClaim | Self::Simplification)
+        matches!(
+            self,
+            Self::ReadableClaim | Self::CellsClaim | Self::Simplification
+        )
     }
 
     /// The role of the form's subject root, `None` for a form with no subject.
@@ -117,9 +197,17 @@ impl Form {
             | Self::LocalRule
             | Self::EquationFn
             | Self::EquationTable
-            | Self::Simplification => Some(PatternRoot::Subject),
+            | Self::Simplification
+            | Self::Context
+            | Self::Alias
+            | Self::Desugar => Some(PatternRoot::Subject),
             Self::SortRule => Some(PatternRoot::Clause),
-            Self::ReadableRule | Self::ReadableClaim | Self::CellsRule => Some(PatternRoot::Value),
+            Self::ReadableRule
+            | Self::ReadableClaim
+            | Self::CellsRule
+            | Self::CellsLocalRule
+            | Self::CellsClaim
+            | Self::ContextAlias => Some(PatternRoot::Value),
             Self::Initializer | Self::Constant => None,
         }
     }
@@ -143,13 +231,18 @@ pub enum Slot {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Kind {
     /// A shape that already-evaluated values are compared against: a subject, a local pattern,
-    /// a collection element in a pattern.
+    /// a collection's element or value in a pattern.
     Matched,
-    /// The key a map read in a pattern finds its entry by: matched against the map's keys where
-    /// it is a pattern, computed and looked up where it is computed.
+    /// The key a map read in a pattern finds its entry by, which reads two ways. A pattern-only
+    /// construct (`_`, `@`, `|`), or a name nothing else in the pattern binds, selects an entry by
+    /// matching the map's keys, which are evaluated values: a choice among the entries. A
+    /// computed term (an application, an operator, a `let` block, ..) is computed from names
+    /// bound elsewhere and looked up. A value (a constructor, a literal) reads either way. The
+    /// positions below a key follow the reading its construct gives: those a pattern-only
+    /// construct opens are matched, those a computed one opens are built ([`Position::enter`]).
     Evaluated,
     /// A value to construct: a result, a rewrite's right side, an initializer's or a constant's
-    /// value, the operands of a function or a test.
+    /// value, the operands of a function or a test, and the key of a map that is built.
     Built,
     /// A Bool to compute: a condition.
     Guard,
@@ -158,8 +251,8 @@ pub enum Kind {
 /// The root of a pattern, whose role decides what may stand for the whole of it.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PatternRoot {
-    /// The subject of a fn or a table row: the constructor or function application the sentence
-    /// matches.
+    /// The subject of a fn, a table row, a context or a static clause: the constructor or
+    /// function application the sentence matches.
     Subject,
     /// The subject of a `for Sort` clause: the constructor the clause matches, or a bare name for
     /// the whole subject.
@@ -171,10 +264,89 @@ pub enum PatternRoot {
 /// A collection entry a position lies in.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Entry {
-    /// A map read's key.
-    MapKey,
+    /// An item of the computation cell's sequence.
+    ComputationItem,
     /// A list's element.
     ListElement,
+    /// A map's key.
+    MapKey,
+    /// A map's value.
+    MapValue,
+}
+
+impl Entry {
+    const fn same(self, other: Self) -> bool {
+        self as u8 == other as u8
+    }
+}
+
+/// The collection entries a position lies in, outermost first: a list element inside a map key
+/// keeps the key.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct Entries {
+    chain: [Option<Entry>; Self::DEPTH],
+}
+
+impl Entries {
+    /// The most entries a position lies in.
+    pub const DEPTH: usize = 4;
+
+    /// No entry.
+    pub const NONE: Self = Self {
+        chain: [None; Self::DEPTH],
+    };
+
+    /// These entries, with `entry` entered inside the innermost.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the chain already holds [`Self::DEPTH`] entries.
+    #[must_use]
+    pub const fn push(self, entry: Entry) -> Self {
+        let mut entries = self;
+        let mut index = 0;
+        while index < Self::DEPTH {
+            if entries.chain[index].is_none() {
+                entries.chain[index] = Some(entry);
+                return entries;
+            }
+            index += 1;
+        }
+        panic!("a position lies in at most four entries")
+    }
+
+    /// The innermost entry.
+    #[must_use]
+    pub const fn innermost(self) -> Option<Entry> {
+        let mut index = Self::DEPTH;
+        while index > 0 {
+            index -= 1;
+            if let Some(entry) = self.chain[index] {
+                return Some(entry);
+            }
+        }
+        None
+    }
+
+    /// Whether `entry` is one of the entries.
+    #[must_use]
+    pub const fn contains(self, entry: Entry) -> bool {
+        let mut index = 0;
+        while index < Self::DEPTH {
+            if let Some(held) = self.chain[index]
+                && held.same(entry)
+            {
+                return true;
+            }
+            index += 1;
+        }
+        false
+    }
+
+    /// The entries, outermost first.
+    pub fn iter(self) -> impl Iterator<Item = Entry> {
+        self.chain.into_iter().flatten()
+    }
 }
 
 /// A pattern a construct opens inside a term.
@@ -195,12 +367,12 @@ pub enum RewriteSide {
     Right,
 }
 
-/// What lies between the slot's root and a position: the innermost entry, local pattern and
-/// rewrite side it lies in.
+/// What lies between the slot's root and a position: the entries it lies in, and the innermost
+/// local pattern and rewrite side.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct Nesting {
-    /// The innermost collection entry entered.
-    pub entry: Option<Entry>,
+    /// The collection entries entered, outermost first.
+    pub entries: Entries,
     /// The innermost local pattern entered.
     pub local: Option<LocalPattern>,
     /// The `k::rewrite!` side entered.
@@ -248,8 +420,12 @@ pub enum Opening {
     UpdateField,
     /// A record update's base.
     UpdateBase,
-    /// The key of a map read's entry.
+    /// An item of the computation cell, `k: [item, ..]`, `KCell(item, ..)`, `k::k![.., item]`.
+    ComputationItem,
+    /// The key of a map's entry.
     MapKey,
+    /// The value of a map's entry.
+    MapValue,
     /// An element of a list read or written.
     ListElement,
 }
@@ -285,7 +461,7 @@ impl Position {
             kind,
             root,
             nesting: Nesting {
-                entry: None,
+                entries: Entries::NONE,
                 local: None,
                 rewrite: None,
                 in_predicate: false,
@@ -328,7 +504,14 @@ impl Position {
                     position.kind = Kind::Built;
                 }
             }
-            Opening::AsBody | Opening::OrBranch => position.root = self.root,
+            // Alternatives and an alias's pattern match what the construct does; in a key, they
+            // select an entry by matching the map's keys.
+            Opening::AsBody | Opening::OrBranch => {
+                position.root = self.root;
+                if matches!(self.kind, Kind::Evaluated) {
+                    position.kind = Kind::Matched;
+                }
+            }
             Opening::RewriteLeft => {
                 position.root = self.root;
                 position.nesting.rewrite = Some(RewriteSide::Left);
@@ -346,13 +529,10 @@ impl Position {
                 position.kind = Kind::Matched;
                 position.nesting.local = Some(LocalPattern::Matches);
             }
-            // A block's result is the block's value: a condition in a condition, built elsewhere.
-            Opening::LetBody => {
-                if !matches!(self.kind, Kind::Guard) {
-                    position.kind = Kind::Built;
-                }
-            }
-            Opening::LetValue
+            // A block's result is the value the block computes, an object term even in a
+            // condition: a predicate there is an operand of the block.
+            Opening::LetBody
+            | Opening::LetValue
             | Opening::MatchesSubject
             | Opening::SortTestOperand
             | Opening::UpdateField
@@ -363,14 +543,68 @@ impl Position {
                 position.kind = Kind::Guard;
                 position.nesting.in_predicate = true;
             }
+            // A map read in a pattern finds its entry by its key; a map that is built has its
+            // keys built.
             Opening::MapKey => {
-                position.kind = Kind::Evaluated;
-                position.nesting.entry = Some(Entry::MapKey);
+                position.kind = match self.kind {
+                    Kind::Matched | Kind::Evaluated => Kind::Evaluated,
+                    Kind::Built | Kind::Guard => Kind::Built,
+                };
+                position.nesting.entries = self.nesting.entries.push(Entry::MapKey);
             }
-            Opening::ListElement => position.nesting.entry = Some(Entry::ListElement),
+            Opening::MapValue => {
+                position.nesting.entries = self.nesting.entries.push(Entry::MapValue);
+            }
+            Opening::ListElement => {
+                position.nesting.entries = self.nesting.entries.push(Entry::ListElement);
+            }
+            Opening::ComputationItem => {
+                position.nesting.entries = self.nesting.entries.push(Entry::ComputationItem);
+            }
         }
         position
     }
+}
+
+/// A notation form of `krs_syntax::notation`: notation for one builtin call.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Notation {
+    /// `a + b`, `a - b`, `a * b`, `a / b`, `a % b`.
+    Arithmetic,
+    /// `a & b`, `a ^ b` (`a | b` is [`Construct::Or`] where no pattern is read).
+    Bitwise,
+    /// `a << b`, `a >> b`.
+    Shift,
+    /// `a < b`, `a <= b`, `a > b`, `a >= b`.
+    Comparison,
+    /// `a == b`, `a != b`.
+    Equality,
+    /// `a && b`, `bool::and_then`.
+    AndThen,
+    /// `a || b`, `bool::or_else`.
+    OrElse,
+    /// `!a`.
+    Not,
+    /// `-a` on anything but a literal.
+    Negation,
+    /// `recv.op::<D>(args..)`.
+    Method,
+}
+
+impl Notation {
+    /// Every notation form.
+    pub const ALL: [Self; 10] = [
+        Self::Arithmetic,
+        Self::Bitwise,
+        Self::Shift,
+        Self::Comparison,
+        Self::Equality,
+        Self::AndThen,
+        Self::OrElse,
+        Self::Not,
+        Self::Negation,
+        Self::Method,
+    ];
 }
 
 /// A term construct, as the oracle tells them apart.
@@ -380,6 +614,9 @@ pub enum Construct {
     Reference,
     /// A constructor application, a unit constructor's path included.
     Constructor,
+    /// A constructor application whose turbofish names its parametric production's instance,
+    /// `Wrap::<KItem>(x)`.
+    Turbofish,
     /// A literal: Int (a negative one included), Bool, String, Float.
     Literal,
     /// An application of a function the definition declares.
@@ -387,6 +624,8 @@ pub enum Construct {
     /// An application of a builtin operation (`k::builtin::int::add(..)`), a function no
     /// equation defines.
     BuiltinApplication,
+    /// A notation form, which denotes a builtin operation's application.
+    Notation(Notation),
     /// `_`.
     Wildcard,
     /// `name @ pattern`.
@@ -411,6 +650,14 @@ pub enum Construct {
     Fragment,
     /// A record update, `Ctor { f: e, ..base }`.
     RecordUpdate,
+    /// An open record, `Ctor { f: e, .. }`.
+    OpenRecord,
+    /// A map literal, `k::map![k -> v]` or `map![k -> v]`.
+    MapLiteral,
+    /// List brackets, `[x, ..]`.
+    ListBrackets,
+    /// An anonymous rest, the `..` of `[x, ..]`.
+    Rest,
     /// `k::id!`.
     IdToken,
     /// `k::bytes!`.
@@ -419,35 +666,119 @@ pub enum Construct {
     Lexeme,
 }
 
+impl Construct {
+    /// Every construct, each notation form apart.
+    pub const ALL: [Self; 35] = [
+        Self::Reference,
+        Self::Constructor,
+        Self::Turbofish,
+        Self::Literal,
+        Self::FunctionApplication,
+        Self::BuiltinApplication,
+        Self::Notation(Notation::Arithmetic),
+        Self::Notation(Notation::Bitwise),
+        Self::Notation(Notation::Shift),
+        Self::Notation(Notation::Comparison),
+        Self::Notation(Notation::Equality),
+        Self::Notation(Notation::AndThen),
+        Self::Notation(Notation::OrElse),
+        Self::Notation(Notation::Not),
+        Self::Notation(Notation::Negation),
+        Self::Notation(Notation::Method),
+        Self::Wildcard,
+        Self::As,
+        Self::Or,
+        Self::Matches,
+        Self::Let,
+        Self::MlPredicate,
+        Self::Rewrite,
+        Self::SortTest,
+        Self::Anonymous,
+        Self::OrBool,
+        Self::Fragment,
+        Self::RecordUpdate,
+        Self::OpenRecord,
+        Self::MapLiteral,
+        Self::ListBrackets,
+        Self::Rest,
+        Self::IdToken,
+        Self::BytesToken,
+        Self::Lexeme,
+    ];
+
+    /// Whether the construct is a compiler-owned island: a macro the compiler reads as a term of
+    /// its own.
+    #[must_use]
+    pub const fn is_island(self) -> bool {
+        matches!(
+            self,
+            Self::Matches
+                | Self::Rewrite
+                | Self::SortTest
+                | Self::Anonymous
+                | Self::OrBool
+                | Self::Fragment
+                | Self::IdToken
+                | Self::BytesToken
+                | Self::Lexeme
+        )
+    }
+}
+
 /// One construct of a spelling and where it stands: the openings from the hole to it.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Node {
     /// The construct.
     pub construct: Construct,
     /// The openings from the hole to the construct; empty for the construct at the hole.
-    pub path: &'static [Opening],
+    pub path: Vec<Opening>,
+    /// Whether the node is the outer construct's, whose opening the case's construct stands in
+    /// (depth 2), rather than the case's construct's.
+    pub outer: bool,
 }
 
 /// A node of `construct` at `path` below the hole.
 #[must_use]
-pub const fn node(construct: Construct, path: &'static [Opening]) -> Node {
-    Node { construct, path }
+pub fn node(construct: Construct, path: &[Opening]) -> Node {
+    Node {
+        construct,
+        path: path.to_vec(),
+        outer: false,
+    }
 }
 
-/// A construct's spelling and its nodes, in the walker's order (preorder, in source order).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Spelling {
-    /// The text written in the hole.
-    pub text: &'static str,
-    /// Every construct the text holds.
-    pub nodes: &'static [Node],
+impl Node {
+    /// The node, standing below `prefix`: the openings from an outer hole to this node's hole.
+    #[must_use]
+    pub fn below(&self, prefix: &[Opening]) -> Self {
+        let mut path = prefix.to_vec();
+        path.extend_from_slice(&self.path);
+        Self {
+            construct: self.construct,
+            path,
+            outer: self.outer,
+        }
+    }
+
+    /// The node, as the outer construct's.
+    #[must_use]
+    pub fn outer(self) -> Self {
+        Self {
+            outer: true,
+            ..self
+        }
+    }
 }
 
 /// A term case's position and its construct's nodes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TermCase {
-    /// Where the hole stands.
+    /// Where the slot's hole stands; for a construct inside another construct's opening (depth
+    /// 2), where the outer construct stands.
     pub position: Position,
-    /// The constructs the hole holds.
-    pub nodes: &'static [Node],
+    /// The openings from the slot's root to `position`.
+    pub path: Vec<Opening>,
+    /// The constructs the hole holds, the outer construct's included, in the walker's order
+    /// (preorder, in source order).
+    pub nodes: Vec<Node>,
 }

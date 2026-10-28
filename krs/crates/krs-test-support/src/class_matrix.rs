@@ -19,12 +19,18 @@
 //!   `Stmt` constructor and an `Int` binder in the `Value`, `Stmt` and `KItem` leaves, a typed
 //!   `List` element and `Map` value, a group child, an optional cell and a collection instance,
 //!   in readable records, claims and initializers, `readable/result/typed/list/Go()`;
-//! - term positions: every `TermTree` shape and literal kind at 31 positions of 12 forms (rule
-//!   and local-rule fns, `cells!` rules, equation fns and tables, the fn shorthand,
-//!   simplifications, `for Stmt` rules, readable records and claims, initializers and
-//!   constants), nesting depth 2 at one subject position per form that has one,
-//!   `terms/equation/guard/k::is!(Int, x)`, `terms/cells/result/_`;
-//! - the import axis: two bare variants at the same 31 positions under a module-level
+//! - term positions: every construct of the oracle's catalog (every `TermTree` shape, every
+//!   literal kind, every construct of the product's position table, every notation form of
+//!   `krs_syntax::notation`, the builtin and declared function applications and the collection
+//!   forms) at every position of the 17 sentence forms: their argument positions, their slots'
+//!   roots (a fn's, an equation's, a simplification's, a context's and a static clause's whole
+//!   subject, a `for KItem` clause's bare and wrapped, a result's, a value's and a computation
+//!   item's), and the positions the constructs open (depth 2: a `let` pattern and body, a
+//!   `k::matches!` pattern, a rewrite's sides, an `A | B` branch, an `@` body, a function's
+//!   argument, a record update's field, a closure's body), each at one host per kind,
+//!   `terms/equation/guard/k::is!(Int, x)`, `terms/rule/subject-root/_`,
+//!   `terms/sort-rule/result/let-body/Size(x)`;
+//! - the import axis: two bare variants at every position of depth 1 under a module-level
 //!   `use Cmd::*;`, `import/table/subject/Go()`.
 //!
 //! A case's ID is spelled from its axes, as above, so the expected-outcome table ([`table`])
@@ -40,8 +46,9 @@
 //! names.
 //!
 //! Every case records three byte ranges: the *spelling* (the construct itself), the *entry*
-//! (the smallest unit of the slot that holds the construct, `pc: Some(x)` for a cell entry and
-//! the spelling itself for a term position) and the *item* (the whole sentence or initializer
+//! (the smallest unit of the slot that holds the construct, `pc: Some(x)` for a cell entry, the
+//! spelling itself for a term position, and the outer construct's text, `{ let y = x; HOLE }`,
+//! for a construct inside another's opening) and the *item* (the whole sentence or initializer
 //! the case adds). The ranges are relative to the item's text; [`render`] places them in a
 //! package source.
 //!
@@ -53,9 +60,9 @@
 //! whose construct fills the computation cell's subject entry, because no command item is left
 //! there to tell it from the other cases.
 //!
-//! **Count.** [`cases`] asserts at most [`FRONT_CASE_CAP`] cases: the fast tier runs every case
-//! in-process at about 5.6 ms each, and the cap, not a timed assertion, keeps it inside its
-//! budget.
+//! **Count.** [`cases`] asserts at most [`FRONT_CASE_CAP`] cases, whose documentation argues the
+//! budget: the fast tier runs every case in-process, and the cap, not a timed assertion, keeps it
+//! inside its budget.
 
 mod cells;
 pub mod entry_points;
@@ -273,6 +280,9 @@ pub struct Command {
     pub arity: usize,
     /// The sort of every field.
     pub field_sort: &'static str,
+    /// The attribute that marks the variant a static clause's production (`#[k::desugar]`,
+    /// `#[k::alias]`), for a case whose clause expands it.
+    pub marker: Option<&'static str>,
 }
 
 impl Command {
@@ -287,7 +297,13 @@ impl Command {
             name: format!("C{:08x}", fnv1a(id)),
             arity,
             field_sort,
+            marker: None,
         }
+    }
+
+    /// The command, its variant marked by `marker`.
+    fn marked(self, marker: Option<&'static str>) -> Self {
+        Self { marker, ..self }
     }
 
     /// The variant's K terminal: its name with a lowercase first letter.
@@ -298,8 +314,15 @@ impl Command {
 
     fn declare(&self, text: &mut String) {
         let terminal = self.terminal();
+        let marker = self
+            .marker
+            .map_or_else(String::new, |marker| format!(" {marker}"));
         match self.arity {
-            0 => writeln!(text, "    #[k::syntax(\"{terminal}\")] {}(),", self.name),
+            0 => writeln!(
+                text,
+                "    #[k::syntax(\"{terminal}\")]{marker} {}(),",
+                self.name
+            ),
             arity => {
                 let fields = (0..arity).map(field_name).collect::<Vec<_>>();
                 // Parenthesized, so that no production ends at a field: a `KItem` field there
@@ -316,7 +339,7 @@ impl Command {
                     .join(", ");
                 writeln!(
                     text,
-                    "    #[k::syntax(\"{terminal}({template})\")] {} {{ {declared} }},",
+                    "    #[k::syntax(\"{terminal}({template})\")]{marker} {} {{ {declared} }},",
                     self.name
                 )
             }
@@ -414,7 +437,8 @@ impl Case {
     #[must_use]
     pub fn oracle(&self) -> Option<oracle::Outcome> {
         self.term
-            .map(|term| oracle::expected(term.position, term.nodes))
+            .as_ref()
+            .map(|term| oracle::expected(term.position, &term.nodes))
     }
 
     /// Whether the case replaces its base's initializer.
@@ -612,6 +636,16 @@ impl ItemBuilder {
     fn term(&mut self, construct: &str) -> &mut Self {
         self.spelling(construct);
         self.entry = self.spelling.clone();
+        self
+    }
+
+    /// Push `before`, the construct and `after`, recording the whole as the entry and the
+    /// construct as the spelling: a construct inside the text of the construct whose opening it
+    /// stands in.
+    fn inside(&mut self, before: &str, construct: &str, after: &str) -> &mut Self {
+        let start = self.text.len();
+        self.push(before).spelling(construct).push(after);
+        self.entry = Some(start..self.text.len());
         self
     }
 }

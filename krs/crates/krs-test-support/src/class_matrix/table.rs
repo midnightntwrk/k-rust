@@ -36,12 +36,14 @@
 //! entries decide only what the oracle leaves:
 //!
 //! 1. a refusal the oracle tells by the spelling and its position ([`Stage::Placement`]) decides,
-//!    at the spelling;
+//!    at the spelling, or at the entry when the refused construct is the outer one a depth-2
+//!    case's construct stands in (the entry is the outer construct's text);
 //! 2. otherwise the most specific refusal rule that covers the case decides: the rules left for
 //!    these families name a term's sort and names (`condition-sort`, `let-sort`, `unbound-name`,
 //!    `record-update-base`), which the compiler judges for every term alike;
 //! 3. otherwise a refusal the oracle tells by resolution ([`Stage::Resolution`]) decides, at the
-//!    spelling: a name or sort mistake is met before what a path resolves to is asked;
+//!    spelling or the outer construct's entry: a name or sort mistake is met before what a path
+//!    resolves to is asked;
 //! 4. otherwise the case is accepted, and its accept entry records its K.
 //!
 //! So no rule refuses such a case for its construct's position: a rule whose class is one the
@@ -535,7 +537,11 @@ impl Table {
         let refused = Expected::Refuse {
             name,
             class,
-            at: At::Spelling,
+            at: if refusal.outer {
+                At::Entry
+            } else {
+                At::Spelling
+            },
         };
         Some(self.refused(id, refused, errors))
     }

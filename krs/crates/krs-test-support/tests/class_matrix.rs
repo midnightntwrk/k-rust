@@ -16,7 +16,9 @@ use krs_test_support::class_matrix::oracle::{Class, Outcome, Refusal, Stage, adm
 use krs_test_support::class_matrix::pending::{
     Judgement, Observation, Pending, UNASSIGNED, case_of,
 };
-use krs_test_support::class_matrix::positions::{Construct, Form, Opening, Position, Slot as Part};
+use krs_test_support::class_matrix::positions::{
+    Construct, Entry, Form, Kind, Opening, Position, Slot as Part,
+};
 use krs_test_support::class_matrix::table::{At, Expected, Glob, Table, TableError};
 use krs_test_support::class_matrix::{
     self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, entry_points, render,
@@ -91,10 +93,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 16 values, the computation cell's remainder, 3 field orders and the
             // nested group's, and 8 typed cells × 4 contents.
             (Family::Init, 112 + 1 + 3 + 1 + 32),
-            // 31 term positions × 29 constructs.
-            (Family::Terms, 899),
-            // 31 term positions × 2 bare variants.
-            (Family::Import, 62),
+            // (73 positions of depth 1) × 29 constructs.
+            (Family::Terms, 73 * 29),
+            // 73 positions of depth 1 × 2 bare variants.
+            (Family::Import, 73 * 2),
         ])
     );
     assert!(cases.len() <= FRONT_CASE_CAP);
@@ -209,11 +211,11 @@ fn the_shared_cases_of_a_base_render_as_one_package() {
             assert_eq!(
                 rendered
                     .source
-                    .matches(&format!(")] {} ", command.name))
+                    .matches(&format!("] {} ", command.name))
                     .count()
                     + rendered
                         .source
-                        .matches(&format!(")] {}()", command.name))
+                        .matches(&format!("] {}()", command.name))
                         .count(),
                 1,
                 "{} declares its command once",
@@ -450,7 +452,13 @@ k = "rule X"
 k = "rule Z"
 "#,
     );
-    let refusal = |class, stage| Some(Outcome::Refuse(Refusal { class, stage }));
+    let refusal = |class, stage| {
+        Some(Outcome::Refuse(Refusal {
+            class,
+            stage,
+            outer: false,
+        }))
+    };
     let outcome = |id: &str| match id {
         "terms/a/_" | "terms/b/z" => refusal(Class::WildcardOutsidePattern, Stage::Placement),
         "terms/a/Size(x)" | "terms/b/add" => {
@@ -574,6 +582,99 @@ fn the_oracle_reads_a_subject_root_by_its_role() {
         Some(Class::FunctionInPattern)
     );
     assert_eq!(admits(Construct::Constructor, argument), None);
+    // The whole subject of a fn names the production the sentence is written for, which `_`, an
+    // alias and an island do not (D3); a `for Sort` clause's root reads as below a constructor.
+    for (construct, class) in [
+        (Construct::Wildcard, Class::WildcardAtSubjectRoot),
+        (Construct::As, Class::AliasAtSubjectRoot),
+        (Construct::BytesToken, Class::IslandAtSubjectRoot),
+        (Construct::SortTest, Class::IslandAtSubjectRoot),
+    ] {
+        assert_eq!(refused(construct, Form::RuleFn), Some(class));
+        assert_eq!(refused(construct, Form::Context), Some(class));
+    }
+    for construct in [
+        Construct::Reference,
+        Construct::Wildcard,
+        Construct::As,
+        Construct::BytesToken,
+    ] {
+        assert_eq!(refused(construct, Form::SortRule), None);
+    }
+    // A static clause's root is the production it expands.
+    for construct in [Construct::Constructor, Construct::FunctionApplication] {
+        assert_eq!(
+            refused(construct, Form::Desugar),
+            Some(Class::StaticClauseRootNotMarked)
+        );
+    }
+    // A static clause expands program terms as written, so an application below its root is one
+    // it matches.
+    let below = root(Form::Alias).enter(Opening::Argument);
+    assert_eq!(admits(Construct::FunctionApplication, below), None);
+}
+
+/// A map key reads by its parent's kind (D2): a key of a map in a pattern is evaluated, of a
+/// map that is built is built; in an evaluated key a pattern-only construct selects an entry by
+/// matching, so its openings are matched, and a computed one is looked up, so its openings are
+/// built. The entries a position lies in are kept outermost first (D4).
+#[test]
+fn a_map_key_reads_by_its_parent_and_its_construct() {
+    let pattern_key = Position::at(Form::CellsRule, Part::Subject, &[Opening::MapKey]);
+    let built_key = Position::at(Form::CellsRule, Part::Result, &[Opening::MapKey]);
+    assert_eq!(pattern_key.kind, Kind::Evaluated);
+    assert_eq!(built_key.kind, Kind::Built);
+    assert_eq!(pattern_key.enter(Opening::AsBody).kind, Kind::Matched);
+    assert_eq!(pattern_key.enter(Opening::OrBranch).kind, Kind::Matched);
+    assert_eq!(
+        pattern_key.enter(Opening::FunctionArgument).kind,
+        Kind::Built
+    );
+    assert_eq!(pattern_key.enter(Opening::Argument).kind, Kind::Evaluated);
+    let refused = |construct, position| admits(construct, position).map(|refusal| refusal.class);
+    // A function below an alias in a key would match the map's evaluated keys.
+    assert_eq!(
+        refused(
+            Construct::FunctionApplication,
+            Position::at(
+                Form::ReadableRule,
+                Part::Subject,
+                &[Opening::MapKey, Opening::AsBody]
+            )
+        ),
+        Some(Class::FunctionInPattern)
+    );
+    // `_` in a computed key's argument names no term.
+    assert_eq!(
+        refused(
+            Construct::Wildcard,
+            pattern_key.enter(Opening::FunctionArgument)
+        ),
+        Some(Class::WildcardOutsidePattern)
+    );
+    // A notation form in a key is the application it denotes, computed and looked up.
+    assert_eq!(
+        refused(
+            Construct::Notation(krs_test_support::class_matrix::positions::Notation::Arithmetic),
+            pattern_key
+        ),
+        None
+    );
+    let nested = Position::at(
+        Form::ReadableRule,
+        Part::Subject,
+        &[
+            Opening::ComputationItem,
+            Opening::MapKey,
+            Opening::ListElement,
+        ],
+    );
+    assert_eq!(
+        nested.nesting.entries.iter().collect::<Vec<_>>(),
+        vec![Entry::ComputationItem, Entry::MapKey, Entry::ListElement]
+    );
+    assert!(nested.nesting.entries.contains(Entry::MapKey));
+    assert_eq!(nested.nesting.entries.innermost(), Some(Entry::ListElement));
 }
 
 #[test]
@@ -878,11 +979,19 @@ fn rustc_parses_exactly_the_fn_bodies_and_the_constant_value() {
         slots,
         BTreeSet::from(
             [
+                "alias/result",
+                "alias/result-root",
                 "constant/value",
+                "constant/value-root",
+                "desugar/result",
+                "desugar/result-root",
                 "equation/result",
                 "rule/result",
+                "rule/result-root",
                 "shorthand/result",
+                "shorthand/result-root",
                 "simplification/result",
+                "simplification/result-root",
             ]
             .map(str::to_owned)
         )

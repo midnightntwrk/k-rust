@@ -712,16 +712,28 @@ impl Worker<'_> {
         }
         let rendered = render(&cases);
         let (collected, directory) = self.collect_kept(&rendered.source);
-        let printed = collected.map(|collected| collected.expand(collected.bundle.clone()));
+        // A panic of `krs expand` is the printer's, which K3 judges: it is bisected down to the
+        // case that makes it, as a refusal is.
+        let printed = collected.map(|collected| {
+            catch_unwind(AssertUnwindSafe(|| {
+                collected.expand(collected.bundle.clone())
+            }))
+        });
         let _ = fs::remove_dir_all(&directory);
         let error = match printed {
-            Ok(Ok(text)) => return self.printed(&text, cases, original, out),
-            Ok(Err(error)) => ("krs expand", error),
-            Err(error) => ("the accepted cases do not collect again", error),
+            Ok(Ok(Ok(text))) => return self.printed(&text, cases, original, out),
+            Ok(Ok(Err(error))) => ("krs expand", Some(error)),
+            Ok(Err(_)) => ("krs expand panicked", None),
+            Err(error) => ("the accepted cases do not collect again", Some(error)),
         };
         if let [placed] = rendered.cases.as_slice() {
-            let observed = refused(observe_error(&error.1));
-            let verdict = format!("{}: {}", error.0, signature(&observed, placed));
+            let verdict = error.1.map_or_else(
+                || error.0.to_owned(),
+                |refusal| {
+                    let observed = refused(observe_error(&refusal));
+                    format!("{}: {}", error.0, signature(&observed, placed))
+                },
+            );
             out.insert(placed.case.id.clone(), Closure::Refused(verdict));
         } else {
             let (left, right) = cases.split_at(cases.len() / 2);

@@ -15,11 +15,12 @@
 # The term families (`terms/..`, `import/..`) are judged by the oracle (`class_matrix::oracle`)
 # first, from each case's position and its construct's nodes, so no rule here refuses a term case
 # for where its construct stands. For such a case:
-# 1. a refusal the oracle tells from the spelling and its position decides, at the spelling;
+# 1. a refusal the oracle tells from the spelling and its position decides, at the spelling (at the
+#    entry when the refused construct is the outer one a depth-2 case's construct stands in);
 # 2. otherwise the most specific refusal rule decides: the rules left for these families name a
 #    term's sort and names (`condition-sort`, `let-sort`, `unbound-name`, `record-update-base`);
 # 3. otherwise a refusal the oracle tells by what a path resolves to or an operand's sort decides,
-#    at the spelling (a name or sort mistake is met first);
+#    at the spelling or the outer construct's entry (a name or sort mistake is met first);
 # 4. otherwise the case is accepted, and its accept entry records its K. An accept entry of a
 #    refused term case is a table error.
 #
@@ -41,6 +42,10 @@
 [class.absence-test-without-creation]
 code = "krs::analysis::optional-presence"
 doc = "a subject tests an optional cell's absence (`None`) and the result does not create it: K tests absence only by creating the cell"
+
+[class.alias-at-subject-root]
+code = "krs::syntax::invalid-pattern-as"
+doc = "`name @ pattern` for the whole subject of a fn, a context or a static clause, whose root names the production the sentence is written for: the fn already binds its whole subject (decision D3)"
 
 [class.alias-in-let-pattern]
 code = "krs::syntax::invalid-let"
@@ -118,8 +123,6 @@ doc = "a `#[k::constant]` value that is no ground constructor term"
 code = "krs::analysis::invalid-term"
 doc = "a term whose sort is not below the sort of the cell or position it fills"
 
-# A class of the compiler and the oracle that no generated case makes: the term families place
-# their constructs in argument holes, never at a subject's root.
 [class.equation-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor, a literal or a builtin operation at the root of an equation's subject, which is the application of the function the equation defines: a value defines no function"
@@ -144,6 +147,10 @@ doc = "an instance list a List collection does not admit: braced, matching a bac
 code = "krs::analysis::collection-entry"
 doc = "an instance list (`{ .. }`, `[.., Job { .. }]` read as instances) on a cell that is no `*` collection"
 
+[class.island-at-subject-root]
+code = "krs::syntax::unsupported-rule-pattern"
+doc = "a compiler-owned island (`k::fragment!`, `k::bytes!`, `k::is!`, `k::matches!`, ..) for the whole subject of a fn, a context or a static clause, whose root names the production the sentence is written for, which the island does not (decision D3)"
+
 [class.let-outside-term]
 code = "krs::expand::let-outside-term"
 doc = "a `let` block (K's `#let`) in a matched position, an initializer or a claim"
@@ -151,6 +158,10 @@ doc = "a `let` block (K's `#let`) in a matched position, an initializer or a cla
 [class.let-sort]
 code = "krs::analysis::invalid-let"
 doc = "a `let` block whose names or result have no sort its position admits"
+
+[class.map-literal-in-term]
+code = "krs::syntax::unsupported-term-expression"
+doc = "a map literal (`k::map![..]`, `map![..]`) at a term position: today it is notation of a `cells!` cell's and an initializer's map only, a product boundary kept until NT-6 makes it a built term"
 
 [class.map-notation-at-non-map]
 code = "krs::analysis::invalid-term"
@@ -188,6 +199,14 @@ doc = "a subject entry that matches any content of a cell the result leaves out 
 code = "krs::syntax::unsupported-initializer-body"
 doc = "`None` as an initial value: K needs a template for every cell"
 
+[class.notation-in-pattern]
+code = "krs::syntax::invalid-expression-notation"
+doc = "a notation form (an operator, `&&`, `||`, `!`, a method call) where a pattern is read: it denotes a builtin application but is no pattern, so a pattern spells the call"
+
+[class.open-record-outside-pattern]
+code = "krs::syntax::invalid-record-update"
+doc = "an open record (`Ctor { f: e, .. }`) in a built term or a condition, which has no value for the fields `..` leaves open: only a pattern leaves fields unconstrained"
+
 [class.optional-without-presence]
 code = "krs::analysis::optional-presence"
 doc = "an optional (`?`) cell written without `Some(..)`/`None`: a binder, `_`, a literal, a record, a wrapper or a template"
@@ -216,6 +235,10 @@ doc = "a record update (`Ctor { f: e, ..t }`) in a matched position, which denot
 code = "krs::syntax::invalid-list-notation"
 doc = "a `..` rest on one side of a cell only: a result rest the subject's entry did not match, or a subject rest the result drops"
 
+[class.rest-outside-pattern]
+code = "krs::syntax::invalid-list-notation"
+doc = "an anonymous `..` in list brackets outside a pattern (and outside a readable record cell, whose result keeps what its pattern's `..` matched): a built list has no rest it keeps"
+
 # A class of the position table (`krs_syntax::positions`) and the oracle that no generated case
 # makes: the term families hold no map in a single-body rule's subject.
 [class.rewrite-in-map-key]
@@ -230,8 +253,6 @@ doc = "`k::rewrite!` outside the subject of a single-body `#[k::rule]` fn"
 code = "krs::expand::claim-only-term"
 doc = "`k::is!`/`k::project!`, which are rule and claim terms, in an initializer"
 
-# A class of the compiler and the oracle that no generated case makes: the term families place
-# their constructs in argument holes, never at a subject's root.
 [class.simplification-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor or a literal at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify"
@@ -240,7 +261,10 @@ doc = "a constructor or a literal at the root of a simplification's subject, whi
 code = "krs::analysis::invalid-sort-test"
 doc = "`k::is!`/`k::project!`, which apply a generated function, in a matched position over evaluated terms: a rule's or an equation's pattern, or a local pattern"
 
-# A position-table class no generated case makes (`krs_syntax::positions`).
+[class.static-clause-root-not-marked]
+code = "krs::analysis::invalid-static-clause"
+doc = "a desugar or alias clause whose subject's root is no production marked as the clause is (a constructor of an unmarked production, a function, a value): the root is the production the clause expands"
+
 [class.turbofish-in-initializer]
 code = "krs::expand::turbofish-placement"
 doc = "a turbofish instance (`Choose::<Int> { .. }`) in an initializer, which builds concrete values"
@@ -252,6 +276,10 @@ doc = "a binder that nothing in the sentence or initializer binds, a name a map 
 [class.unused-configuration-variable]
 code = "krs::analysis::unused-configuration-variable"
 doc = "an initializer parameter (configuration variable) that no cell reads (X2)"
+
+[class.wildcard-at-subject-root]
+code = "krs::syntax::unsupported-rule-pattern"
+doc = "`_` for the whole subject of a fn, a context or a static clause, whose root names the production the sentence is written for (decision D3; a `for Sort` clause's bare-name root says \"any term of the sort\")"
 
 [class.wildcard-outside-pattern]
 code = "krs::syntax::unsupported-term-expression"
