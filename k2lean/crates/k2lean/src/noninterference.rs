@@ -315,7 +315,7 @@ fn relation(
         ty_sort: lvl.clone(),
         ext: true,
     };
-    let eqs = crate::funcs::equations(&b.def);
+    let eqs = crate::funcs::equations_modulo_overloads(&b.def, &b.m);
     // the low level and a low value: `lev(_:L, _) => lo` at a builtin sort `L`
     let mut low: Option<(String, String)> = None;
     for e in eqs.get(&lev.sym).into_iter().flatten() {

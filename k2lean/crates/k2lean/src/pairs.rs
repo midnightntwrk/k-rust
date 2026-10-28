@@ -2591,7 +2591,7 @@ pub fn run(def: &Def, rest: &[String], kore: &std::path::Path, runtime: Option<&
     }
     let rank = |r: &Rule| prios.iter().position(|p| *p == r.priority).unwrap();
     let info = crate::rules::ctor_info(&m);
-    let raw_eqs = crate::funcs::equations(def);
+    let raw_eqs = crate::funcs::equations_modulo_overloads(def, &m);
     let mut cx = Cx::new(def, &m, &raw_eqs);
     cx.same_binding = same_binding;
     let conv: Vec<CRule> = rs.iter().map(|r| cx.convert_rule(r)).collect();
@@ -2932,7 +2932,7 @@ pub fn classify_same_rank(
     rank: &dyn Fn(&Rule) -> usize,
     same_binding: bool,
 ) -> BTreeMap<(usize, usize), PairOut> {
-    let raw_eqs = crate::funcs::equations(def);
+    let raw_eqs = crate::funcs::equations_modulo_overloads(def, m);
     let mut cx = Cx::new(def, m, &raw_eqs);
     cx.same_binding = same_binding;
     let conv: Vec<CRule> = rs.iter().map(|r| cx.convert_rule(r)).collect();
@@ -4061,7 +4061,7 @@ pub fn witnesses(
     pairs: &[(usize, usize)],
     top: &str,
 ) -> BTreeMap<(usize, usize), Result<Witness, String>> {
-    let raw_eqs = crate::funcs::equations(def);
+    let raw_eqs = crate::funcs::equations_modulo_overloads(def, m);
     let mut cx = Cx::new(def, m, &raw_eqs);
     cx.use_memo = true;
     let conv: Vec<CRule> = rs.iter().map(|r| cx.convert_rule(r)).collect();
