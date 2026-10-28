@@ -362,12 +362,17 @@ pub(super) fn parse_rule_pattern(
 ) -> Result<(RulePattern, TermTree), SyntaxError> {
     match pattern {
         Pat::Macro(macro_pattern) if is_term_macro(&macro_pattern.mac.path) => {
-            let term = TermExpression::parse_pattern_tokens(crate::parse::strip_trailing_comma(
-                macro_pattern.mac.tokens.clone(),
-            ))?;
-            // A readable value stands below the rule's subject, so `|` and
-            // an alias at its root read as they do below a constructor.
-            if root != PatternRoot::Value {
+            let tokens = crate::parse::strip_trailing_comma(macro_pattern.mac.tokens.clone());
+            // The wrapper is optional around a pattern, so its payload reads
+            // at the pattern's root as a native pattern does: `_` and an
+            // island stand below a subject's root, and a readable value
+            // stands below the rule's subject, so `|` and an alias at its
+            // root read as they do below a constructor.
+            let term = TermExpression::parse_pattern_tokens_at(tokens, root)?;
+            // A wrapped clause root names a unit constructor with a bare
+            // name, as a subject's does, so an alias there would stand for
+            // the whole subject.
+            if root == PatternRoot::Clause {
                 reject_subject_root_alias(term.tree())?;
             }
             let bindings = term_pattern_bindings(&term, root != PatternRoot::Value)?;
@@ -481,9 +486,9 @@ pub(crate) fn validate_pattern_literal(
     Ok(literal)
 }
 
-/// Refuses an alias that stands for a whole rule subject: the subject's root
-/// is the matched constructor or function, and each alternative of a root
-/// `A | B` is a whole subject, as at a native subject's root.
+/// Refuses an alias that stands for a whole wrapped clause subject, which
+/// reads its root as a subject's: the root is the matched constructor or
+/// function, and each alternative of a root `A | B` is a whole subject.
 fn reject_subject_root_alias(tree: &TermTree) -> Result<(), SyntaxError> {
     match tree {
         TermTree::As { binding, .. } => Err(SyntaxError::new(

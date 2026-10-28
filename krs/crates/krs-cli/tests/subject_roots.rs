@@ -5,7 +5,9 @@
 //! simplification rewrites a function's unevaluated application. A constructor's application or
 //! a literal there is a value, which evaluation leaves as written, so it defines or simplifies
 //! nothing, and a builtin operation is its builtin domain's to define: each is refused at the
-//! root's head, also when root alternatives apply one constructor.
+//! root's head, also when root alternatives apply one constructor. A subject's root is the
+//! constructor or function the sentence matches, so `_`, an alias and a compiler-owned island
+//! stand below it, in each alternative of a root `A | B` too.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -292,6 +294,85 @@ fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
         (
             "literal",
             "#[k::simplification]\nfn simp(1: Term<Int>) -> Term<Int> {\n    2\n}\n",
+        ),
+    ]));
+}
+
+/// `_`, an alias and a compiler-owned island stand below a subject's root, refused there with
+/// and without `k::term!`, in a rule's and an equation's subject, in each alternative of a root
+/// `A | B`, and at a `for Sort` clause's root.
+#[test]
+fn a_wildcard_alias_or_island_at_a_subject_root_is_refused_with_or_without_the_wrapper() {
+    expect_test::expect![[r#"
+        rule-wildcard:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
+        --> src/lib.rs:62:9
+        rule-wildcard-term:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
+        --> src/lib.rs:62:18
+        equation-wildcard:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
+        --> src/lib.rs:62:8
+        equation-wildcard-term:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
+        --> src/lib.rs:62:17
+        alternative-wildcard-term:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
+        --> src/lib.rs:62:18
+        alias-term:
+        error[krs::syntax::invalid-pattern-as]: `x @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead
+        --> src/lib.rs:62:18
+        island:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b".."))`
+        --> src/lib.rs:62:9
+        island-term:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b".."))`
+        --> src/lib.rs:62:18
+        rewrite-term:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root
+        --> src/lib.rs:62:18
+        clause-wildcard-term:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
+        --> src/lib.rs:64:20"#]].assert_eq(&refusals([
+        (
+            "rule-wildcard",
+            "#[k::rule(label = \"warm\", owise)]\nfn warm(_: Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
+        ),
+        (
+            "rule-wildcard-term",
+            "#[k::rule(label = \"warm\", owise)]\nfn warm(k::term![_]: Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
+        ),
+        (
+            "equation-wildcard",
+            "#[k::equation(owise)]\nfn any(_: Term<Int>) -> Term<Int> {\n    3\n}\n",
+        ),
+        (
+            "equation-wildcard-term",
+            "#[k::equation(owise)]\nfn any(k::term![_]: Term<Int>) -> Term<Int> {\n    3\n}\n",
+        ),
+        (
+            "alternative-wildcard-term",
+            "#[k::rule(label = \"warm\", owise)]\nfn warm(k::term![_ | Cmd::Red()]: Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
+        ),
+        (
+            "alias-term",
+            "#[k::rule(label = \"warm\", owise)]\nfn warm(k::term![x @ Cmd::Red()]: Term<Stmt>) -> Term<Stmt> {\n    x\n}\n",
+        ),
+        (
+            "island",
+            "#[k::rule(label = \"warm\", owise)]\nfn warm(k::bytes!(b\"ab\"): Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
+        ),
+        (
+            "island-term",
+            "#[k::rule(label = \"warm\", owise)]\nfn warm(k::term![k::bytes!(b\"ab\")]: Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
+        ),
+        (
+            "rewrite-term",
+            "#[k::rule(label = \"warm\")]\nfn warm(k::term![k::rewrite!(Cmd::Red() => Cmd::Green())]: Term<Stmt>) {}\n",
+        ),
+        (
+            "clause-wildcard-term",
+            "k::rules! {\n    for Stmt;\n    #[k::rule(owise)]\n    warm: k::term![_] => 1;\n}\n",
         ),
     ]));
 }

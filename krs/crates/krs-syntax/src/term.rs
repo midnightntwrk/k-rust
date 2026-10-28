@@ -1372,9 +1372,26 @@ impl TermExpression {
     /// Returns a structured error at the first pattern outside the closed
     /// named-term subset.
     pub fn parse_pattern_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::parse_pattern_tokens_at(tokens, PatternRoot::Value)
+    }
+
+    /// Parses and validates a pattern payload whose root is `root`
+    /// ([`PatternRoot`]), as [`Self::parse_pattern_tokens`] does below a
+    /// root: a `k::term!` subject's payload is read at the subject's root, as
+    /// a native subject is, since the wrapper is optional around a subject
+    /// and changes nothing the subject means.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured error at the first pattern outside the closed
+    /// named-term subset, or at a construct the root does not admit.
+    pub(crate) fn parse_pattern_tokens_at(
+        tokens: TokenStream,
+        root: PatternRoot,
+    ) -> Result<Self, SyntaxError> {
         let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
         match Pat::parse_multi.parse2(tokens.clone()) {
-            Ok(pattern) => Self::from_pattern(pattern, tokens, signs),
+            Ok(pattern) => Self::from_pattern_at(pattern, tokens, signs, root),
             // Tokens that are no Rust pattern but a term expression are the
             // term they denote, a `let` block or an `ml::exists` closure
             // among them, and the position table judges it where it stands.
@@ -1412,7 +1429,17 @@ impl TermExpression {
     pub(crate) fn from_pattern(
         pattern: Pat,
         tokens: TokenStream,
+        signs: crate::rule::NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_pattern_at(pattern, tokens, signs, PatternRoot::Value)
+    }
+
+    /// [`Self::from_pattern`] with the pattern's root read as `root` says.
+    fn from_pattern_at(
+        pattern: Pat,
+        tokens: TokenStream,
         mut signs: crate::rule::NegativeLiteralSpans,
+        root: PatternRoot,
     ) -> Result<Self, SyntaxError> {
         // Tokens [`parse_term_pattern`] read as no pattern are a term
         // expression.
@@ -1422,7 +1449,7 @@ impl TermExpression {
         let root_kind = pattern_root_kind(&pattern)?;
         let mut symbols = Vec::new();
         let mut nodes = Vec::new();
-        let tree = validate_pattern(&pattern, &mut signs, &mut symbols, &mut nodes)?;
+        let tree = read_pattern(&pattern, root, &mut signs, &mut symbols, &mut nodes)?;
         Self {
             expression: TermSource::Pattern { pattern, tokens },
             root_kind,
