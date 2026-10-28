@@ -17,7 +17,7 @@ preserve = []
 
 [demo.UtxoConf]
 tier = "light"
-guarded = 8
+guarded = 12
 preserve = []
 
 [outputs]
@@ -28,8 +28,8 @@ preserve = []
 [sources.sha256]
 "demos/RaceConf/RaceConf/Confluence.lean" = { tier = "light", sha256 = "6babb033eefe8fed5b5a84e7b11510d957a8eb287bfcebcf7bf2a1cf24d66554" }
 "demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "c55fc58f8df1362826bcf25086e7e667cf25d10c8657a3ce7eb5e4f0f9a58f38" }
-"demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "e4a00f4ab342a47c93d30c7cd7fd507539dec3b778f6e23d41ce1b60e531013b" }
-"demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "fe04ec48bac8008ff3a58918d0ff204c4d533f5508185a09807f9e2349951449" }
+"demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "48484d166a6aff1ceec71f3bfbf51dcb7b8fa00b7404f5a9fa47e73f897acf8d" }
+"demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "7349a8b84f56751e9e007821795249fe5a3f70b9970a6ffe9ec72871a1ecbb45" }
 "demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "7b21641651a248d7132d58f4d9fa2afd3be925675778c1b8dd4aa61369112b4d" }
 "generated/race/Race.lean" = { tier = "light", sha256 = "b8730ce086f1156a15a41234a7b1614c2b14a61721db04e569ccf3562a8cd403" }
 "generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
