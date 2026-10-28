@@ -2,14 +2,19 @@ const _: () = {
     #[allow(unused_imports)]
     use StmtSyntax::*;
 };
-pub fn call_main(__krs_symbolic_subject: Stmt) -> Stmt {
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsBlockSort_9b72d0106fb9fa9e = Stmt;
+pub fn call_main(
+    __krs_symbolic_subject: __KrsBlockSort_9b72d0106fb9fa9e,
+) -> __KrsBlockSort_9b72d0106fb9fa9e {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_70d08f40fc5c88be() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Stmt>()
+    ::core::any::TypeId::of::<__KrsBlockSort_9b72d0106fb9fa9e>()
 }
 #[doc(hidden)]
 fn __krs_lexeme_sort_70d08f40fc5c88be_0() -> ::core::any::TypeId {

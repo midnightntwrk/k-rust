@@ -14,7 +14,7 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots};
-use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
+use super::tokens::{call_site_cfg_attributes, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -44,6 +44,28 @@ fn expand_block(
             };
         }
     });
+    // The `for` path names the sort (or configuration) every clause is
+    // over. It reaches rustc once, at its authored tokens, as this alias's
+    // definition; every generated mention of the block's sort names the
+    // alias, so a path that resolves to nothing is one error, at the path.
+    let sort = block.sort();
+    let sort_ident = &sort
+        .sort()
+        .segments
+        .last()
+        .expect("a readable sort path has a segment")
+        .ident;
+    let sort_nonce = expansion_nonce(
+        env,
+        "rule_block_sort",
+        sort_ident,
+        TokenRange::for_tokens(sort.ty())?,
+    );
+    let authored_sort = sort.ty();
+    let sort_alias = format_ident!(
+        "__KrsBlockSort_{sort_nonce:016x}",
+        span = syn::spanned::Spanned::span(authored_sort)
+    );
     let mut clauses = Vec::with_capacity(block.clauses().len());
     for clause in block.clauses() {
         clauses.push(expand_head_rule(
@@ -51,10 +73,14 @@ fn expand_block(
             clause,
             imports,
             block.is_configuration(),
+            &sort_alias,
         )?);
     }
     Ok(quote! {
         #(#import_checks)*
+        #[doc(hidden)]
+        #[allow(dead_code, non_camel_case_types)]
+        type #sort_alias = #authored_sort;
         #(#clauses)*
     })
 }
@@ -68,6 +94,7 @@ fn expand_head_rule(
     clause: &krs_syntax::RuleClause,
     imports: &[syn::ItemUse],
     configuration_owned: bool,
+    sort_alias: &syn::Ident,
 ) -> crate::Result<TokenStream> {
     let facade = env.facade_path()?;
     let rule = clause.rule();
@@ -85,8 +112,6 @@ fn expand_head_rule(
     let factory = format_ident!("__krs_head_rule_descriptor_{nonce:016x}");
     let sort_key = format_ident!("__krs_head_rule_sort_{nonce:016x}");
     let cfg = call_site_cfg_attributes(&rule.item().attrs)?;
-    let sort_path = call_site_path(rule.parameter().term_sort.sort())?;
-    let sort_type = sort_type_tokens(&facade, &sort_path, rule.parameter().term_sort.is_dynamic());
     let sort_spelling = rule.parameter().term_sort.sort_token_text();
     let mut slots = WireSlots::new(&facade);
     let sort_slot = slots.type_slot(quote!(#facade::HostTypeKey(#sort_key)));
@@ -613,7 +638,6 @@ fn expand_head_rule(
     let fn_token = original.sig.fn_token;
     let name_ident = &original.sig.ident;
     let name = name_ident.unraw().to_string();
-    let parameter_type = rule.parameter().term_sort.ty();
     // A clause's one sort is its subject's and its result's: the sentence
     // keys the authored sort as both types.
     let result_type_key = ledger.define(rule.result_type_key())?;
@@ -726,7 +750,7 @@ fn expand_head_rule(
         #scoped_binders
 
         #(#attrs)*
-        #visibility #fn_token #name_ident(__krs_symbolic_subject: #parameter_type) -> #parameter_type {
+        #visibility #fn_token #name_ident(__krs_symbolic_subject: #sort_alias) -> #sort_alias {
             let _krs_binding_check = || { #(#binding_checks)* };
             let _ = __krs_symbolic_subject;
             ::core::panic!("KRS rule declarations have no runtime implementation")
@@ -735,7 +759,7 @@ fn expand_head_rule(
         #(#cfg)*
         #[doc(hidden)]
         fn #sort_key() -> ::core::any::TypeId {
-            ::core::any::TypeId::of::<#sort_type>()
+            ::core::any::TypeId::of::<#sort_alias>()
         }
         #(#refinement_functions)*
         #(#key_functions)*

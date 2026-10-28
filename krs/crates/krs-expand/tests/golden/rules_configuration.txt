@@ -2,6 +2,9 @@ const _: () = {
     #[allow(unused_imports)]
     use StmtSyntax::Assign;
 };
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsBlockSort_61d42b1ed8f000ce = ReadableRuleMachine;
 const _: () = {
     #[allow(unused_imports, clippy::enum_glob_use)]
     use StmtSyntax::Assign;
@@ -15,7 +18,9 @@ const _: () = {
         let value = ();
     }
 };
-pub fn var(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachine {
+pub fn var(
+    __krs_symbolic_subject: __KrsBlockSort_61d42b1ed8f000ce,
+) -> __KrsBlockSort_61d42b1ed8f000ce {
     let _krs_binding_check = || {
         let name = ();
         let _: ::core::marker::PhantomData<Id> = ::core::marker::PhantomData;
@@ -29,7 +34,7 @@ pub fn var(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachine {
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_cf81ced6c10df23e() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ReadableRuleMachine>()
+    ::core::any::TypeId::of::<__KrsBlockSort_61d42b1ed8f000ce>()
 }
 #[doc(hidden)]
 fn __krs_head_rule_refinement_cf81ced6c10df23e_0() -> ::core::any::TypeId {
@@ -302,7 +307,9 @@ const _: () = {
         let e = ();
     }
 };
-pub fn assign(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachine {
+pub fn assign(
+    __krs_symbolic_subject: __KrsBlockSort_61d42b1ed8f000ce,
+) -> __KrsBlockSort_61d42b1ed8f000ce {
     let _krs_binding_check = || {
         let name = ();
         let value = ();
@@ -320,7 +327,7 @@ pub fn assign(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachin
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_0bef7846124f8528() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ReadableRuleMachine>()
+    ::core::any::TypeId::of::<__KrsBlockSort_61d42b1ed8f000ce>()
 }
 #[doc(hidden)]
 fn __krs_head_rule_refinement_0bef7846124f8528_0() -> ::core::any::TypeId {
@@ -714,7 +721,9 @@ const _: () = {
         let y = ();
     }
 };
-pub fn swap(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachine {
+pub fn swap(
+    __krs_symbolic_subject: __KrsBlockSort_61d42b1ed8f000ce,
+) -> __KrsBlockSort_61d42b1ed8f000ce {
     let _krs_binding_check = || {
         let a = ();
         let _: ::core::marker::PhantomData<Id> = ::core::marker::PhantomData;
@@ -734,7 +743,7 @@ pub fn swap(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachine 
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_a0220d7369180fb2() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ReadableRuleMachine>()
+    ::core::any::TypeId::of::<__KrsBlockSort_61d42b1ed8f000ce>()
 }
 #[doc(hidden)]
 fn __krs_head_rule_refinement_a0220d7369180fb2_0() -> ::core::any::TypeId {

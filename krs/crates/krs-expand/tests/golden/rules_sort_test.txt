@@ -2,6 +2,9 @@ const _: () = {
     #[allow(unused_imports)]
     use Op::*;
 };
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsBlockSort_bd3a6f172611edb3 = Expr;
 const _: () = {
     #[allow(unused_imports, clippy::enum_glob_use)]
     use Op::*;
@@ -14,7 +17,9 @@ const _: () = {
         let e = ();
     }
 };
-pub fn prj(__krs_symbolic_subject: Expr) -> Expr {
+pub fn prj(
+    __krs_symbolic_subject: __KrsBlockSort_bd3a6f172611edb3,
+) -> __KrsBlockSort_bd3a6f172611edb3 {
     let _krs_binding_check = || {
         let e = ();
         let _ = &e;
@@ -26,7 +31,7 @@ pub fn prj(__krs_symbolic_subject: Expr) -> Expr {
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_af94ef1853aebc59() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Expr>()
+    ::core::any::TypeId::of::<__KrsBlockSort_bd3a6f172611edb3>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_af94ef1853aebc59_0() -> ::core::any::TypeId {

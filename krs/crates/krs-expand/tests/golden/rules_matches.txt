@@ -2,6 +2,9 @@ const _: () = {
     #[allow(unused_imports)]
     use ExpSyntax::*;
 };
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsBlockSort_833b7bbfeb102baa = Exp;
 const _: () = {
     #[allow(unused_imports, clippy::enum_glob_use)]
     use ExpSyntax::*;
@@ -14,7 +17,9 @@ const _: () = {
         let e = ();
     }
 };
-pub fn boxed(__krs_symbolic_subject: Exp) -> Exp {
+pub fn boxed(
+    __krs_symbolic_subject: __KrsBlockSort_833b7bbfeb102baa,
+) -> __KrsBlockSort_833b7bbfeb102baa {
     let _krs_binding_check = || {
         let e = ();
         let _ = &e;
@@ -25,7 +30,7 @@ pub fn boxed(__krs_symbolic_subject: Exp) -> Exp {
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_166d94f90a0664ff() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Exp>()
+    ::core::any::TypeId::of::<__KrsBlockSort_833b7bbfeb102baa>()
 }
 #[doc(hidden)]
 fn __krs_head_rule_descriptor_166d94f90a0664ff() -> ::core::result::Result<
@@ -408,7 +413,9 @@ const _: () = {
         let e = ();
     }
 };
-pub fn atom(__krs_symbolic_subject: Exp) -> Exp {
+pub fn atom(
+    __krs_symbolic_subject: __KrsBlockSort_833b7bbfeb102baa,
+) -> __KrsBlockSort_833b7bbfeb102baa {
     let _krs_binding_check = || {
         let e = ();
         let _ = &e;
@@ -419,7 +426,7 @@ pub fn atom(__krs_symbolic_subject: Exp) -> Exp {
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_3b5c6a3778ee4efc() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Exp>()
+    ::core::any::TypeId::of::<__KrsBlockSort_833b7bbfeb102baa>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_3b5c6a3778ee4efc_0() -> ::core::any::TypeId {

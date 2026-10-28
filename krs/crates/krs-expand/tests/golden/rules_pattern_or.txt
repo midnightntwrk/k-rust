@@ -2,14 +2,19 @@ const _: () = {
     #[allow(unused_imports)]
     use ExpSyntax::*;
 };
-pub fn rgb(__krs_symbolic_subject: Exp) -> Exp {
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsBlockSort_833b7bbfeb102baa = Exp;
+pub fn rgb(
+    __krs_symbolic_subject: __KrsBlockSort_833b7bbfeb102baa,
+) -> __KrsBlockSort_833b7bbfeb102baa {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_b73018ec023e665e() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Exp>()
+    ::core::any::TypeId::of::<__KrsBlockSort_833b7bbfeb102baa>()
 }
 #[doc(hidden)]
 fn __krs_head_rule_descriptor_b73018ec023e665e() -> ::core::result::Result<
@@ -280,14 +285,16 @@ fn __krs_head_rule_descriptor_b73018ec023e665e() -> ::core::result::Result<
     })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_b73018ec023e665e);
-pub fn primary(__krs_symbolic_subject: Exp) -> Exp {
+pub fn primary(
+    __krs_symbolic_subject: __KrsBlockSort_833b7bbfeb102baa,
+) -> __KrsBlockSort_833b7bbfeb102baa {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_3baafdde062cd6bf() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Exp>()
+    ::core::any::TypeId::of::<__KrsBlockSort_833b7bbfeb102baa>()
 }
 #[doc(hidden)]
 fn __krs_head_rule_descriptor_3baafdde062cd6bf() -> ::core::result::Result<

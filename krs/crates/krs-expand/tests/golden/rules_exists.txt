@@ -1,4 +1,9 @@
-pub fn unknown(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachine {
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsBlockSort_61d42b1ed8f000ce = ReadableRuleMachine;
+pub fn unknown(
+    __krs_symbolic_subject: __KrsBlockSort_61d42b1ed8f000ce,
+) -> __KrsBlockSort_61d42b1ed8f000ce {
     let _krs_binding_check = || {
         let x = ();
         let _ = &x;
@@ -9,7 +14,7 @@ pub fn unknown(__krs_symbolic_subject: ReadableRuleMachine) -> ReadableRuleMachi
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_1ac40b1c366bbbf3() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ReadableRuleMachine>()
+    ::core::any::TypeId::of::<__KrsBlockSort_61d42b1ed8f000ce>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_1ac40b1c366bbbf3_0() -> ::core::any::TypeId {

@@ -1,5 +1,10 @@
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsBlockSort_bd3a6f172611edb3 = Expr;
 /// Evaluate integer negation after strictness has produced a value.
-pub fn eval_neg(__krs_symbolic_subject: Expr) -> Expr {
+pub fn eval_neg(
+    __krs_symbolic_subject: __KrsBlockSort_bd3a6f172611edb3,
+) -> __KrsBlockSort_bd3a6f172611edb3 {
     let _krs_binding_check = || {
         let value = ();
         let _ = &value;
@@ -10,7 +15,7 @@ pub fn eval_neg(__krs_symbolic_subject: Expr) -> Expr {
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_e51d7eb561f143b4() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Expr>()
+    ::core::any::TypeId::of::<__KrsBlockSort_bd3a6f172611edb3>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_e51d7eb561f143b4_0() -> ::core::any::TypeId {
@@ -256,7 +261,9 @@ fn __krs_head_rule_descriptor_e51d7eb561f143b4() -> ::core::result::Result<
     })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_e51d7eb561f143b4);
-pub fn eval_not(__krs_symbolic_subject: Expr) -> Expr {
+pub fn eval_not(
+    __krs_symbolic_subject: __KrsBlockSort_bd3a6f172611edb3,
+) -> __KrsBlockSort_bd3a6f172611edb3 {
     let _krs_binding_check = || {
         let value = ();
         let _ = &value;
@@ -267,7 +274,7 @@ pub fn eval_not(__krs_symbolic_subject: Expr) -> Expr {
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_c84c8a448ba7aa30() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Expr>()
+    ::core::any::TypeId::of::<__KrsBlockSort_bd3a6f172611edb3>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_c84c8a448ba7aa30_0() -> ::core::any::TypeId {
@@ -513,7 +520,9 @@ fn __krs_head_rule_descriptor_c84c8a448ba7aa30() -> ::core::result::Result<
     })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_c84c8a448ba7aa30);
-pub fn eval_bool_eq(__krs_symbolic_subject: Expr) -> Expr {
+pub fn eval_bool_eq(
+    __krs_symbolic_subject: __KrsBlockSort_bd3a6f172611edb3,
+) -> __KrsBlockSort_bd3a6f172611edb3 {
     let _krs_binding_check = || {
         let lhs = ();
         let _: ::core::marker::PhantomData<Bool> = ::core::marker::PhantomData;
@@ -529,7 +538,7 @@ pub fn eval_bool_eq(__krs_symbolic_subject: Expr) -> Expr {
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_6a376551c93fda1a() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Expr>()
+    ::core::any::TypeId::of::<__KrsBlockSort_bd3a6f172611edb3>()
 }
 #[doc(hidden)]
 fn __krs_head_rule_refinement_6a376551c93fda1a_0() -> ::core::any::TypeId {
@@ -853,14 +862,16 @@ fn __krs_head_rule_descriptor_6a376551c93fda1a() -> ::core::result::Result<
     })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_6a376551c93fda1a);
-pub fn and_false(__krs_symbolic_subject: Expr) -> Expr {
+pub fn and_false(
+    __krs_symbolic_subject: __KrsBlockSort_bd3a6f172611edb3,
+) -> __KrsBlockSort_bd3a6f172611edb3 {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_2883af4a4b250df7() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Expr>()
+    ::core::any::TypeId::of::<__KrsBlockSort_bd3a6f172611edb3>()
 }
 #[doc(hidden)]
 fn __krs_head_rule_descriptor_2883af4a4b250df7() -> ::core::result::Result<

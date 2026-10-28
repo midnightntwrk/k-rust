@@ -2,6 +2,9 @@ const _: () = {
     #[allow(unused_imports)]
     use Op::*;
 };
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsBlockSort_a1f135664895d928 = Machine;
 const _: () = {
     #[allow(unused_imports, clippy::enum_glob_use)]
     use Op::*;
@@ -15,7 +18,9 @@ const _: () = {
         let h = ();
     }
 };
-pub fn heat_add_rhs(__krs_symbolic_subject: Machine) -> Machine {
+pub fn heat_add_rhs(
+    __krs_symbolic_subject: __KrsBlockSort_a1f135664895d928,
+) -> __KrsBlockSort_a1f135664895d928 {
     let _krs_binding_check = || {
         let e = ();
         let h = ();
@@ -30,7 +35,7 @@ pub fn heat_add_rhs(__krs_symbolic_subject: Machine) -> Machine {
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_84fc04056855fe30() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<Machine>()
+    ::core::any::TypeId::of::<__KrsBlockSort_a1f135664895d928>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_84fc04056855fe30_0() -> ::core::any::TypeId {

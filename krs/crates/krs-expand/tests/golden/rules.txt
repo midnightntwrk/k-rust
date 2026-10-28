@@ -2,14 +2,19 @@ const _: () = {
     #[allow(unused_imports)]
     use Object::*;
 };
-pub fn foo_to_bar(__krs_symbolic_subject: ObjectTerm) -> ObjectTerm {
+#[doc(hidden)]
+#[allow(dead_code, non_camel_case_types)]
+type __KrsBlockSort_839ce21794a49373 = ObjectTerm;
+pub fn foo_to_bar(
+    __krs_symbolic_subject: __KrsBlockSort_839ce21794a49373,
+) -> __KrsBlockSort_839ce21794a49373 {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_7087aad6655bc41e() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<ObjectTerm>()
+    ::core::any::TypeId::of::<__KrsBlockSort_839ce21794a49373>()
 }
 #[doc(hidden)]
 fn __krs_head_rule_descriptor_7087aad6655bc41e() -> ::core::result::Result<
