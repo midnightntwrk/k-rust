@@ -116,7 +116,7 @@ preserve = []
 "generated/kstrict/KStrictBench/Main.lean" = { tier = "light", sha256 = "e8cc2031916c8bfd0f842a004323d98370e087216d7e6bd05d28056db1cac1a0" }
 "generated/kstrict/KStrictTest/Axioms.lean" = { tier = "light", sha256 = "13157bb7bda3b1b6648e9c4d4d981910ee4a62e30dff2a1f60b4a319d1ee45c6" }
 "generated/kstrict/KStrictTest/DetAxioms.lean" = { tier = "light", sha256 = "480ddaecea8d237083b20283f5cc31085c06e6c99c6c5a139278b21fcca25589" }
-"generated/kstrict/KStrictTest/Main.lean" = { tier = "light", sha256 = "0b94c2bcd15c246898a309a2adad5ee9c137fd4966224c6c4de1b9d035e9b029" }
+"generated/kstrict/KStrictTest/Main.lean" = { tier = "light", sha256 = "7dcb428e13418fea9889c106bc6116a0a68e2febfd6d9f37be2ee60c71f5e7c8" }
 "generated/kstrict/lakefile.lean" = { tier = "light", sha256 = "ef1869a2638d818163affc2563619e21bfd9922871b52a600ddf2fcddcd37ded" }
 "generated/kstrict/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/strict-claims/KStrictClaims.lean" = { tier = "light", sha256 = "942f776ef6a8682bde77d0abe77dbab8eda20be899c86f58bd241f84ca4e3d83" }

@@ -43,7 +43,7 @@ preserve = []
 "generated/race/RaceBench/Main.lean" = { tier = "light", sha256 = "99e8eef3d7416b857a814ca04416dce352d066f52ffd2bad3400cab69be476b9" }
 "generated/race/RaceBench/Programs.lean" = { tier = "light", sha256 = "86b8f6f7d8f4fc7f4db54f213a4542316ccd8039d099b722a4758a6e984682d5" }
 "generated/race/RaceTest/Axioms.lean" = { tier = "light", sha256 = "3f33464b9fd16c6c3508513334a2ca459b0addecd92af2c3ad1689b30b3471b5" }
-"generated/race/RaceTest/Main.lean" = { tier = "light", sha256 = "e5a5f0557d49ef5640fb233b640132cf94e6255ed53638d26378864641abbad4" }
+"generated/race/RaceTest/Main.lean" = { tier = "light", sha256 = "3abeeeba3c77ef4122c7fed8bf7d0f36e8797f8a3534f689c18db067ffe64956" }
 "generated/race/lakefile.lean" = { tier = "light", sha256 = "766c243d3af6a73c94f586086ee819e91885672579006e565e489eef631e9083" }
 "generated/race/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/utxo/Utxo.lean" = { tier = "light", sha256 = "50c40a2ed99c14a7374f38c71a353e71b16b805911972427a602669b423f38a8" }
@@ -58,6 +58,6 @@ preserve = []
 "generated/utxo/UtxoBench/Main.lean" = { tier = "light", sha256 = "683d962e3e5d73c3a00101dcb7c21c47c3a78134bb4eb707e451cbbaa037c7cc" }
 "generated/utxo/UtxoBench/Programs.lean" = { tier = "light", sha256 = "5a264a8520d70977f4e6c20160fb5dbf5cff4d3c9ffa219ed19987167ba42716" }
 "generated/utxo/UtxoTest/Axioms.lean" = { tier = "light", sha256 = "1f8933713952339237e73a35d82170397fd325c02eeeec38c2799900850d3ef0" }
-"generated/utxo/UtxoTest/Main.lean" = { tier = "light", sha256 = "d5ebbca2432520b7cd05bb3ec8ca50f86b6ab6d3355cd15951a6f09e6dc0815b" }
+"generated/utxo/UtxoTest/Main.lean" = { tier = "light", sha256 = "ec23996c710389c763b5d6a696d092544ac58655a53cd9082d43b16e805d39d8" }
 "generated/utxo/lakefile.lean" = { tier = "light", sha256 = "939226bd417accc0a65a1191519995dc32c59c8a800f2e37b2476052d8ddde0a" }
 "generated/utxo/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
