@@ -5,6 +5,7 @@ open Lake DSL
 package «Params» where
   leanOptions := #[⟨`autoImplicit, false⟩]
   weakLeanArgs := #["-DmaxErrors=0"]
+  fixedToolchain := true
 
 require k2lean from "../../prelude"
 

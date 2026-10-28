@@ -162,7 +162,7 @@ fn skeleton(
     files.push((
         PathBuf::from("lakefile.lean"),
         format!(
-            "import Lake\nopen Lake DSL\n\n/-- A kind 2 invariant of `{ns}`: a predicate written in Lean, proved to be kept by every rule\n(skeleton written by `k2lean new-invariant`; every file is hand-written from here on). -/\npackage «{name}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n\nrequire k2lean from \"{}\"\nrequire «{ns}» from \"{}\"\n\n@[default_target]\nlean_lib {name}\n",
+            "import Lake\nopen Lake DSL\n\n/-- A kind 2 invariant of `{ns}`: a predicate written in Lean, proved to be kept by every rule\n(skeleton written by `k2lean new-invariant`; every file is hand-written from here on). -/\npackage «{name}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n  fixedToolchain := true\n\nrequire k2lean from \"{}\"\nrequire «{ns}» from \"{}\"\n\n@[default_target]\nlean_lib {name}\n",
             quote_rel(prelude_rel),
             quote_rel(lib_rel)
         ),

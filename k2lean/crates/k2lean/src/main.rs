@@ -938,7 +938,7 @@ fn main() {
             write(
                 &out.join("lakefile.lean"),
                 &format!(
-                    "import Lake\nopen Lake DSL\n\npackage «{ns}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n\nrequire k2lean from \"{}\"\n\n@[default_target]\nlean_lib {ns}\n",
+                    "import Lake\nopen Lake DSL\n\npackage «{ns}» where\n  leanOptions := #[⟨`autoImplicit, false⟩]\n  fixedToolchain := true\n\nrequire k2lean from \"{}\"\n\n@[default_target]\nlean_lib {ns}\n",
                     a.prelude
                 ),
             );
@@ -1028,6 +1028,48 @@ fn with_hooks(text: String, ns: &str, params: &[(String, Vec<String>, String)]) 
 mod tests {
     //! `open-from-log`: the error lines of a Lake log name the theorems whose proofs failed.
     use super::*;
+
+    /// The `lean-toolchain` files under `root` that do not pin `LEAN_TOOLCHAIN` (Lake's build
+    /// directories and Cargo's skipped).
+    fn other_toolchains(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut todo = vec![root.to_path_buf()];
+        while let Some(d) = todo.pop() {
+            let Ok(rd) = std::fs::read_dir(&d) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                let p = e.path();
+                let name = e.file_name();
+                if p.is_dir() {
+                    if ![".lake", "target", ".git"].contains(&name.to_str().unwrap_or("")) {
+                        todo.push(p);
+                    }
+                } else if name == "lean-toolchain"
+                    && std::fs::read_to_string(&p).ok().as_deref() != Some(LEAN_TOOLCHAIN)
+                {
+                    out.push(p);
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// One toolchain (PKG-4): the `k2lean` package, the demos and the fixtures pin the Lean the
+    /// generator writes, so that a project requiring them never mixes two.
+    #[test]
+    fn every_checked_in_project_pins_the_generators_toolchain() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        assert!(root.join("lean/lean-toolchain").exists());
+        assert_eq!(other_toolchains(&root), Vec::<std::path::PathBuf>::new());
+        // and a project pinning another is reported
+        let d = std::env::temp_dir().join(format!("k2lean-toolchain-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("p")).unwrap();
+        std::fs::write(d.join("p/lean-toolchain"), "leanprover/lean4:v4.35.0\n").unwrap();
+        assert_eq!(other_toolchains(&d), vec![d.join("p/lean-toolchain")]);
+        std::fs::remove_dir_all(&d).unwrap();
+    }
 
     #[test]
     fn open_from_log_finds_the_enclosing_theorem() {

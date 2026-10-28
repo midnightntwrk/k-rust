@@ -6,6 +6,8 @@ imports (`KPrelude`), and the reachability claims over a transition relation (`K
 generated library, and a project that uses one, requires this package (PKG-1). -/
 package «k2lean» where
   leanOptions := #[⟨`autoImplicit, false⟩]
+  -- a consumer's `lake update` keeps its toolchain rather than taking this one's (PKG-4)
+  fixedToolchain := true
 
 /-- Everything a generated project needs that is not specific to one K definition. -/
 @[default_target]

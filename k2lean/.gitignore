@@ -2,6 +2,8 @@
 # k2lean's projects (rewritten whenever a lakefile changes).
 .lake/
 lake-manifest.json
+# the k2lean package's manifest carries `fixedToolchain` to the packages that require it (PKG-4)
+!/lean/lake-manifest.json
 
 # The generated libraries, which demos/regen.sh and tests/gate.sh regenerate from the K sources.
 # A library's open-obligation lists and its hand-written invariant module are inputs of the
