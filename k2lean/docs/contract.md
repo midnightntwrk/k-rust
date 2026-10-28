@@ -35,6 +35,13 @@ Weigh the cost only when it lies in the specification layer, which cannot be opt
 | **Checked** | every proof: the generated ones, the tactics and lemmas of `KPrelude`, termination proofs and measures, heartbeat budgets, the split of a module into parts | the kernel checks each proof against its statement; the axiom guard (`#k2l_assert_axioms`) admits only `propext`, `Classical.choice` and `Quot.sound`, which rules out `sorry` and `native_decide` | anyone, freely, including a user editing the generated proofs in their own project: the worst outcome is a proof that does not build |
 | **Derived** | definitions tied to the specification by a proved theorem: the executable `step`, `successors` and `run` (tied to `Step` by `Adequacy`); a faster function proved equal to a generated one (`@[csimp]`); views over the term family | the tying theorem, checked like any proof | anyone, provided the tying theorem is proved again |
 
+Specification the user writes is specification too, frozen like what the generator writes, and the user's assumption as an instance of `class Hooks` is:
+- K functions the user adds to the definition so that a generator can state a theorem about them (a type checker, a kind 1 invariant, a relation between the checker's typing and the runtime state; `design.md` §3, "What a generator knows"): they are generated into the library like the rest of the definition;
+- Lean the user writes to state a property, such as a kind 2 invariant's `P` (`invariants.md`), kept in its own module apart from its proofs;
+- the options that select which theorem is stated (`claims --assume-invariant`, `--induction`, `--transfer`, …): each states a different theorem, not a weaker form of the same one.
+
+The second kind is the one frozen part that no regeneration reproduces, so the loop has to pin it on its own (§5).
+
 ## 3. What follows
 
 1. **A cost in the checked layer is no reason to choose a less general specification.**
@@ -97,7 +104,7 @@ What makes a generated library a good target for the loop, and where k2lean stan
 
 | need | why the loop needs it | today |
 |---|---|---|
-| the frozen part delimited, with a cheap check that it did not move | accept or reject is automatic, and an edit that changes a statement by accident is rejected | statements sit next to their proofs in the same generated files; only an open obligation has a separate `def ….statement : Prop`. A statements module compared with a fresh regeneration (hash), with proof modules free, would give the check |
+| the frozen part delimited, with a cheap check that it did not move | accept or reject is automatic, and an edit that changes a statement by accident is rejected | statements sit next to their proofs in the same generated files; only an open obligation has a separate `def ….statement : Prop`. A statements module compared with a fresh regeneration (hash), with proof modules free, would give the check; specification written in Lean by the user (a kind 2 invariant's `P`) is reproduced by no regeneration and needs a pin of its own, and a hand module that mixes specification with proofs (ImpTypes' `Store.lean`, until the relation moves into the checker's K) blurs the boundary |
 | small search units | one experiment should rebuild one theorem or one function, not KEVM's whole `Equations`; iteration speed decides how much the loop explores | `Equations` is split into parts by weight (`gen --equations-part-weight`), and each proof has its own heartbeat budget; other modules (`Determinism`, relate's commutation lemmas) are one unit each |
 | a metric that does not depend on the machine's load | wall time on a shared, saturated host varies too much to compare two experiments | heartbeats count allocations and do not depend on load; they are measured per module by hand (`lean -j1 -DElab.async=false`, `design.md` §2.1), not per declaration, and no harness reports them |
 | a baseline that builds | the loop improves something that works; an open obligation is a slot to fill | every library builds with its open obligations listed (`open-obligations.txt`) |
