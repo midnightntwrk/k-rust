@@ -459,6 +459,94 @@ theorem Simp.s_93b8d798abd6 (B : SortBool) :
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
   | (k2l_eqn_c [])
 
+/-- simplification 88327456f824 (domains.md) -/
+theorem Simp.s_88327456f824 (B : Option SortBool) :
+    (some true = (Option.bind B fun r => some (KPrelude.BoolHook.not r))) ↔ (some false = (Option.bind B fun r_1 => some r_1)) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases B) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification 0ac934b76285 (domains.md) -/
+theorem Simp.s_0ac934b76285 (B : Option SortBool) :
+    ((Option.bind B fun r => some (KPrelude.BoolHook.not r)) = some true) ↔ ((Option.bind B fun r_1 => some r_1) = some false) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases B) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification 3c3fe078896d (domains.md) -/
+theorem Simp.s_3c3fe078896d (B : Option SortBool) :
+    (some false = (Option.bind B fun r => some (KPrelude.BoolHook.not r))) ↔ (some true = (Option.bind B fun r_1 => some r_1)) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases B) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification f849e4d67d2a (domains.md) -/
+theorem Simp.s_f849e4d67d2a (B : Option SortBool) :
+    ((Option.bind B fun r => some (KPrelude.BoolHook.not r)) = some false) ↔ ((Option.bind B fun r_1 => some r_1) = some true) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases B) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification 300cf41da7d5 (domains.md) -/
+theorem Simp.s_300cf41da7d5 (B1 : Option SortBool) (B2 : Option SortBool) :
+    (some true = (Option.bind B1 fun r => (Option.bind B2 fun r_1 => some (KPrelude.BoolHook.and r r_1)))) ↔ ((some true = (Option.bind B1 fun r_3 => some r_3)) ∧ (some true = (Option.bind B2 fun r_5 => some r_5))) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases B1) <;> (cases B2) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification 9aad9b95f738 (domains.md) -/
+theorem Simp.s_9aad9b95f738 (B1 : Option SortBool) (B2 : Option SortBool) :
+    ((Option.bind B1 fun r => (Option.bind B2 fun r_1 => some (KPrelude.BoolHook.and r r_1))) = some true) ↔ (((Option.bind B1 fun r_3 => some r_3) = some true) ∧ ((Option.bind B2 fun r_5 => some r_5) = some true)) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases B1) <;> (cases B2) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification defa1852968a (domains.md) -/
+theorem Simp.s_defa1852968a (B1 : Option SortBool) (B2 : Option SortBool) :
+    (some false = (Option.bind B1 fun r => (Option.bind B2 fun r_1 => some (KPrelude.BoolHook.or r r_1)))) ↔ ((some false = (Option.bind B1 fun r_3 => some r_3)) ∧ (some false = (Option.bind B2 fun r_5 => some r_5))) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases B1) <;> (cases B2) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification 8e69004f8524 (domains.md) -/
+theorem Simp.s_8e69004f8524 (B1 : Option SortBool) (B2 : Option SortBool) :
+    ((Option.bind B1 fun r => (Option.bind B2 fun r_1 => some (KPrelude.BoolHook.or r r_1))) = some false) ↔ (((Option.bind B1 fun r_3 => some r_3) = some false) ∧ ((Option.bind B2 fun r_5 => some r_5) = some false)) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases B1) <;> (cases B2) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
 /-- simplification 2397e65cf548 (domains.md) -/
 theorem Simp.s_2397e65cf548 (K1 : SortBool) (K2 : SortBool) :
     KPrelude.KEqHook.eq (SortK.kseq (SortKItem.inj_Bool K1) SortK.dotk) (SortK.kseq (SortKItem.inj_Bool K2) SortK.dotk) = KPrelude.BoolHook.eq K1 K2 := by
@@ -759,6 +847,61 @@ theorem Simp.s_942141263122 (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
   | (k2l_eqn_c [])
 
+/-- simplification 9a1834b97b96 (domains.md) -/
+theorem Simp.s_9a1834b97b96 (I1 : Option SortInt) (I2 : Option SortInt) :
+    (((Option.bind I1 fun r => (Option.bind I2 fun r_1 => (Option.bind (KPrelude.IntHook.tdiv r r_1) fun r_3 => some r_3)))).isSome = true) ↔ ((((Option.bind I2 fun r_5 => some (KPrelude.IntHook.ne r_5 (0 : Int))) = some true) ∧ (((Option.bind I1 fun r_7 => some r_7)).isSome = true)) ∧ (((Option.bind I2 fun r_9 => some r_9)).isSome = true)) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases I1) <;> (cases I2) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification b622ef8c085d (domains.md) -/
+theorem Simp.s_b622ef8c085d (I1 : Option SortInt) (I2 : Option SortInt) :
+    (((Option.bind I1 fun r => (Option.bind I2 fun r_1 => (Option.bind (KPrelude.IntHook.tmod r r_1) fun r_3 => some r_3)))).isSome = true) ↔ ((((Option.bind I2 fun r_5 => some (KPrelude.IntHook.ne r_5 (0 : Int))) = some true) ∧ (((Option.bind I1 fun r_7 => some r_7)).isSome = true)) ∧ (((Option.bind I2 fun r_9 => some r_9)).isSome = true)) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases I1) <;> (cases I2) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification ed8563f7c10f (domains.md) -/
+theorem Simp.s_ed8563f7c10f (I1 : Option SortInt) (I2 : Option SortInt) :
+    (((Option.bind I1 fun r => (Option.bind I2 fun r_1 => (Option.bind (KPrelude.IntHook.emod r r_1) fun r_3 => some r_3)))).isSome = true) ↔ ((((Option.bind I2 fun r_5 => some (KPrelude.IntHook.ne r_5 (0 : Int))) = some true) ∧ (((Option.bind I1 fun r_7 => some r_7)).isSome = true)) ∧ (((Option.bind I2 fun r_9 => some r_9)).isSome = true)) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases I1) <;> (cases I2) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification c8752947aadc (domains.md) -/
+theorem Simp.s_c8752947aadc (I1 : Option SortInt) (I2 : Option SortInt) :
+    (((Option.bind I1 fun r => (Option.bind I2 fun r_1 => (Option.bind (KPrelude.IntHook.shr r r_1) fun r_3 => some r_3)))).isSome = true) ↔ ((((Option.bind I2 fun r_5 => some (KPrelude.IntHook.ge r_5 (0 : Int))) = some true) ∧ (((Option.bind I1 fun r_7 => some r_7)).isSome = true)) ∧ (((Option.bind I2 fun r_9 => some r_9)).isSome = true)) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases I1) <;> (cases I2) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
+/-- simplification 5f8bf32bc6d2 (domains.md) -/
+theorem Simp.s_5f8bf32bc6d2 (I1 : Option SortInt) (I2 : Option SortInt) :
+    (((Option.bind I1 fun r => (Option.bind I2 fun r_1 => (Option.bind (KPrelude.IntHook.shl r r_1) fun r_3 => some r_3)))).isSome = true) ↔ ((((Option.bind I2 fun r_5 => some (KPrelude.IntHook.ge r_5 (0 : Int))) = some true) ∧ (((Option.bind I1 fun r_7 => some r_7)).isSome = true)) ∧ (((Option.bind I2 fun r_9 => some r_9)).isSome = true)) := by
+  intros
+  first
+  | k2l_eqn_a []
+  | ((cases I1) <;> (cases I2) <;> k2l_eqn_a [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
+
 /-- simplification aabd26e6a15f (domains.md) -/
 theorem Simp.s_aabd26e6a15f (I : SortInt) :
     KPrelude.IntHook.add I (0 : Int) = I := by
@@ -853,5 +996,17 @@ theorem Simp.s_44257f63a99a (I1 : SortInt) (I2 : SortInt)
   | (k2l_eqn_b []; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
   | (k2l_eqn_c [])
+
+/-- simplification c3ef047673d1 () -/
+theorem Simp.s_c3ef047673d1 (K0 : Option SortKItem) (K1 : Option SortKItem) (Rest : Option SortMap)
+    (hwf0 : ∀ m ∈ Rest, KPrelude.MapHook.WF m) :
+    (((Option.bind K0 fun r => (Option.bind K1 fun r_1 => (Option.bind Rest fun r_3 => (Option.bind (KPrelude.MapHook.concat (KPrelude.MapHook.element r r_1) r_3) fun r_5 => some r_5))))).isSome = true) ↔ (((Option.bind K0 fun r_7 => (Option.bind Rest fun r_9 => some (KPrelude.MapHook.inKeys r_7 r_9))) = some false) ∧ ((True) ∧ (((Option.bind K1 fun r_11 => some r_11)).isSome = true))) := by
+  intros
+  first
+  | k2l_eqn_a [k2l_hook]
+  | ((cases K0) <;> (cases K1) <;> (cases Rest) <;> k2l_eqn_a [k2l_hook])
+  | (k2l_eqn_b [k2l_hook]; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [k2l_hook])
+  | (k2l_eqn_c [k2l_hook])
 
 end Counter

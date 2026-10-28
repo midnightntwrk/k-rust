@@ -346,7 +346,8 @@ macro "k2l_hook_law" : tactic => `(tactic| first
   | (with_reducible apply KPrelude.StringHook.replaceFirst_eqn1 <;> assumption)
   | (with_reducible apply KPrelude.StringHook.replaceFirst_eqn2 <;> assumption)
   | (with_reducible apply KPrelude.StringHook.countAllOccurrences_eqn1 <;> assumption)
-  | (with_reducible apply KPrelude.SetHook.union_eqn <;> assumption))
+  | (with_reducible apply KPrelude.SetHook.union_eqn <;> assumption)
+  | (with_reducible apply KPrelude.MapHook.ceil_concat_element_eqn <;> assumption))
 
 declare_syntax_cat k2lPat
 syntax "_" : k2lPat

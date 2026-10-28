@@ -1,4 +1,5 @@
 import KPrelude.Ext
+import KPrelude.HookAttr
 
 /-!
 # Laws of the hooks that K states as equations
@@ -8,6 +9,8 @@ import KPrelude.Ext
 `countAllOccurrences`, `rfindChar`, `_|Set_`). Each theorem below is such an equation, stated over
 the hook definitions in the shape the generator writes it (`Equations.lean`), and proved from the
 definitions: `k2l_hook_law` (`KPrelude.Tactic`) closes a generated statement with it.
+The simplifications of `MAP-KORE-SYMBOLIC` and `SET-KORE-SYMBOLIC` are rewrite rules of the simp
+set `k2l_hook` instead, which the generic proof of a simplification about maps or sets uses.
 
 The generator states an equation of a hooked function for well-formed set and map values only
 (premises `SetHook.WF`, `MapHook.WF`, which a law takes as hypotheses): the carriers also hold
@@ -549,3 +552,421 @@ theorem union_eqn_dup {S K : Type} [Ord K] [ListIso S (K × Unit)] [MapRepr S K 
   | cons h _ => have := h (k, ()) (by simp); rw [SAL.cmp_self] at this; cases this
 
 end KPrelude.SetHook
+
+namespace KPrelude.MapHook
+
+/-! ## The frontend's map `#Ceil`
+
+`#Ceil(@K0 |-> @K1 @Rest) = {(@K0 in_keys(@Rest)) #Equals false} #And #Ceil(@K1)`, for `Map`
+and each cell-map sort. Its variables are set variables, which the generator binds as `Option`s
+(a model term denotes at most one value), with the well-formedness premise on the map one: at an
+unsorted carrier value, which is no map, `_Map_` is undefined while the key may be absent. -/
+
+/-- `K |-> V R` is defined exactly when `K` is not a key of the map `R`. -/
+theorem concat_element_isSome {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V]
+    [Std.TransOrd K] [Std.LawfulEqOrd K] (k : K) (v : V) (r : M) (hwf : WF r) :
+    (concat (element k v) r).isSome = !(inKeys k r) := by
+  cases h : concat (element k v) r with
+  | some m =>
+    obtain ⟨_, hl, _⟩ := concat_element_iff.1 h
+    simp only [inKeys, ← lookup.eq_def, hl]; rfl
+  | none =>
+    cases hl : lookup r k with
+    | none =>
+      have := concat_element_iff (k := k) (v := v) (r := r) (m := update r k v)
+      rw [h] at this; simp_all
+    | some x => simp only [inKeys, ← lookup.eq_def, hl]; rfl
+
+/-- The generated statement of the map `#Ceil`. -/
+theorem ceil_concat_element_eqn {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V]
+    [Std.TransOrd K] [Std.LawfulEqOrd K] (K0 : Option K) (K1 : Option V) (Rest : Option M)
+    (hwf0 : ∀ m ∈ Rest, WF m) :
+    (((Option.bind K0 fun r => (Option.bind K1 fun r_1 => (Option.bind Rest fun r_2 => (Option.bind (concat (element r r_1) r_2) fun r_3 => some r_3))))).isSome = true) ↔ (((Option.bind K0 fun r_4 => (Option.bind Rest fun r_5 => some (inKeys r_4 r_5))) = some false) ∧ ((True) ∧ (((Option.bind K1 fun r_6 => some r_6)).isSome = true))) := by
+  cases K0 <;> cases K1 <;> cases Rest <;> simp_all [concat_element_isSome]
+
+end KPrelude.MapHook
+
+namespace KPrelude.SAL
+
+/-! ## Sorted association lists: insert and erase
+
+Facts the collection simplifications below need. `insert` and `erase` scan a list from the left
+whether or not it is sorted; the `Sorted` ones hold at maps only. -/
+
+variable {K V : Type} [Ord K]
+
+/-- `erase` and `lookup` read the same prefix: where `lookup` finds nothing, `erase` changes
+nothing, at every list. -/
+theorem erase_of_lookup_none {k : K} : ∀ {l : List (K × V)}, lookup k l = none → erase k l = l
+  | [], _ => rfl
+  | (k', v') :: t, h => by
+    cases hc : compare k k' with
+    | lt => simp [erase, hc]
+    | eq => simp [lookup, hc] at h
+    | gt =>
+      simp only [lookup, hc] at h
+      simp only [erase, hc]; rw [erase_of_lookup_none h]
+
+variable [Std.LawfulEqOrd K]
+
+/-- Two inserts at one key: the second wins, at every list. -/
+theorem insert_insert (k : K) (v₀ v : V) : ∀ (l : List (K × V)),
+    insert k v (insert k v₀ l) = insert k v l
+  | [] => by simp [insert]
+  | (k', v') :: t => by
+    cases hc : compare k k' with
+    | lt => simp [insert, hc]
+    | eq => simp [insert, hc]
+    | gt => simp only [insert, hc]; rw [insert_insert k v₀ v t]
+
+variable [Std.TransOrd K]
+
+theorem mem_erase_of_ne {k : K} {p : K × V} : ∀ {l : List (K × V)}, p ∈ l → p.1 ≠ k → p ∈ erase k l
+  | [], h, _ => by simp at h
+  | (k', v') :: t, h, hne => by
+    cases hc : compare k k' with
+    | lt => simpa [erase, hc] using h
+    | eq =>
+      cases eq_of_cmp hc
+      simp only [erase, hc]
+      rcases List.mem_cons.1 h with rfl | h
+      · exact absurd rfl hne
+      · exact h
+    | gt =>
+      simp only [erase, hc, List.mem_cons] at h ⊢
+      rcases h with h | h
+      · exact Or.inl h
+      · exact Or.inr (mem_erase_of_ne h hne)
+
+theorem mem_erase_iff {k : K} {p : K × V} {l : List (K × V)} (hs : Sorted l) :
+    p ∈ erase k l ↔ p ∈ l ∧ p.1 ≠ k := by
+  refine ⟨fun h => ⟨mem_erase h, fun he => ?_⟩, fun h => mem_erase_of_ne h.1 h.2⟩
+  have h1 := lookup_of_mem (sorted_erase hs) (k := p.1) (v := p.2) h
+  rw [he, lookup_erase_self k hs] at h1; cases h1
+
+theorem mem_insert_iff {k : K} {v : V} {p : K × V} {l : List (K × V)} (hs : Sorted l) :
+    p ∈ insert k v l ↔ p = (k, v) ∨ (p ∈ l ∧ p.1 ≠ k) := by
+  constructor
+  · intro h
+    by_cases he : p.1 = k
+    · left
+      have h1 := lookup_of_mem (sorted_insert hs) (k := p.1) (v := p.2) h
+      rw [he, lookup_insert_self] at h1
+      cases h1; exact Prod.ext he rfl
+    · rcases mem_insert h with h | h
+      · exact absurd (by rw [h]) he
+      · exact Or.inr ⟨h, he⟩
+  · rintro (rfl | ⟨h, hne⟩)
+    · exact mem_insert_self _ _ _
+    · exact mem_insert_of_mem_ne h hne
+
+theorem lookup_iff_mem {k : K} {v : V} {l : List (K × V)} (hs : Sorted l) :
+    lookup k l = some v ↔ (k, v) ∈ l := ⟨lookup_mem, lookup_of_mem hs⟩
+
+end KPrelude.SAL
+
+namespace KPrelude.MapHook
+
+/-! ## `MAP-KORE-SYMBOLIC`
+
+Its simplifications, as rewrite rules (`@[k2l_hook]`). The generator states a simplification for
+maps only (`MapHook.WF` premises), and some of them are false at a carrier value that is no map
+(`inKeys_remove_self`, `concat_element_of_not_inKeys`, `concat_element_remove_ne`): their laws take
+the premise. The others hold at every carrier value and are stated without it. -/
+
+open ListIso
+
+variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V]
+
+/-- `M[K]` is defined exactly when `K` is a key of `M` (`#Ceil(M[K])`). -/
+@[k2l_hook] theorem lookup_isSome (m : M) (k : K) : (lookup m k).isSome = inKeys k m := rfl
+
+/-- `K in_keys(.Map) => false` -/
+@[k2l_hook] theorem inKeys_unit (k : K) : inKeys k (unit : M) = false := by
+  unfold inKeys unit; rw [MapRepr.lookupR_eq, toList_ofList]; rfl
+
+variable [Std.TransOrd K] [Std.LawfulEqOrd K]
+
+/-- `K in_keys(M[K <- V]) => true` -/
+@[k2l_hook] theorem inKeys_update_same (m : M) (k : K) (v : V) : inKeys k (update m k v) = true := by
+  unfold inKeys; rw [MapRepr.lookupR_eq, update_def, toList_ofList, SAL.lookup_insert_self]; rfl
+
+/-- `K1 in_keys(M[K2 <- V]) => K1 in_keys(M) requires K1 =/=K K2` -/
+@[k2l_hook] theorem inKeys_update_ne (m : M) {k₁ k₂ : K} (v : V) (h : k₁ ≠ k₂) :
+    inKeys k₁ (update m k₂ v) = inKeys k₁ m := by
+  unfold inKeys; rw [MapRepr.lookupR_eq, MapRepr.lookupR_eq, update_def, toList_ofList,
+    SAL.lookup_insert_ne _ h]
+
+/-- `M[K <- V][K] orDefault D => V` -/
+@[k2l_hook] theorem lookupOrDefault_update_self (m : M) (k : K) (v d : V) :
+    lookupOrDefault (update m k v) k d = v := by
+  unfold lookupOrDefault; rw [MapRepr.lookupR_eq, update_def, toList_ofList, SAL.lookup_insert_self]; rfl
+
+/-- `M[K1 <- V][K2] orDefault D => M[K2] orDefault D requires K1 =/=K K2` -/
+@[k2l_hook] theorem lookupOrDefault_update_ne (m : M) {k₁ k₂ : K} (v d : V) (h : k₁ ≠ k₂) :
+    lookupOrDefault (update m k₁ v) k₂ d = lookupOrDefault m k₂ d := by
+  unfold lookupOrDefault; rw [MapRepr.lookupR_eq, MapRepr.lookupR_eq, update_def, toList_ofList,
+    SAL.lookup_insert_ne _ (Ne.symm h)]
+
+attribute [k2l_hook] lookup_update_self
+
+/-- `M[K1 <- V][K2] => M[K2] requires K1 =/=K K2` -/
+@[k2l_hook] theorem lookup_update_ne' (m : M) {k₁ k₂ : K} (v : V) (h : k₁ ≠ k₂) :
+    lookup (update m k₁ v) k₂ = lookup m k₂ := lookup_update_ne m v (Ne.symm h)
+
+omit [Std.TransOrd K] in
+/-- `M[K <- V0][K <- V] => M[K <- V]` -/
+@[k2l_hook] theorem update_update_self (m : M) (k : K) (v₀ v : V) :
+    update (update m k v₀) k v = update m k v := by
+  rw [update_def, update_def, update_def, toList_ofList, SAL.insert_insert]
+
+omit [Std.TransOrd K] [Std.LawfulEqOrd K] in
+/-- `M[K <- undef] => M requires notBool K in_keys(M)` -/
+@[k2l_hook] theorem remove_of_not_inKeys (m : M) (k : K) (h : inKeys k m = false) : remove m k = m := by
+  unfold inKeys at h
+  rw [MapRepr.lookupR_eq] at h
+  have hn : SAL.lookup k (toList m) = none := by simpa using h
+  rw [remove_def, SAL.erase_of_lookup_none hn, ofList_toList]
+
+/-- `K in_keys(M[K <- undef]) => false`, for maps: at `[1 |-> 0, 1 |-> 1]` one binding of `1`
+stays. -/
+@[k2l_hook] theorem inKeys_remove_self (m : M) (k : K) (hw : WF m) : inKeys k (remove m k) = false := by
+  unfold inKeys
+  rw [MapRepr.lookupR_eq, remove_def, toList_ofList, SAL.lookup_erase_self _ hw]; rfl
+
+/-- `K |-> V M` where `K` is not a key of the map `M`: `M[K <- V] => K |-> V M requires notBool
+K in_keys(M)`. At an unsorted list, which is no map, `_Map_` is undefined. -/
+@[k2l_hook] theorem concat_element_of_not_inKeys (m : M) (k : K) (v : V) (hw : WF m)
+    (h : inKeys k m = false) : concat (element k v) m = some (update m k v) := by
+  have hn : lookup m k = none := by unfold inKeys at h; rw [lookup]; simpa using h
+  exact concat_element_iff.2 ⟨hw, hn, rfl⟩
+
+/-- `(K |-> V0 M)[K <- V] => K |-> V M`, at every carrier value (both sides undefined where
+`K |-> V0 M` is). -/
+@[k2l_hook] theorem concat_element_update_self (k : K) (v₀ v : V) (m : M) :
+    (concat (element k v₀) m).bind (fun r => some (update r k v)) = concat (element k v) m := by
+  unfold concat element
+  simp only [toList_ofList]
+  cases h : SAL.concat [(k, v₀)] (toList m) with
+  | none =>
+    have h2 : SAL.concat [(k, v)] (toList m) = none := by
+      cases h3 : SAL.concat [(k, v)] (toList m) with
+      | none => rfl
+      | some l =>
+        obtain ⟨s, n, -⟩ := SAL.concat_singleton_iff.1 h3
+        exact absurd (SAL.concat_singleton_iff.2 ⟨s, n, rfl⟩) (by rw [h]; simp)
+    simp [h2]
+  | some l =>
+    obtain ⟨s, n, rfl⟩ := SAL.concat_singleton_iff.1 h
+    have h2 : SAL.concat [(k, v)] (toList m) = some (SAL.insert k v (toList m)) :=
+      SAL.concat_singleton_iff.2 ⟨s, n, rfl⟩
+    simp [h2, update_def, toList_ofList, SAL.insert_insert]
+
+/-- `(K1 |-> V1 M)[K2 <- undef] => K1 |-> V1 (M[K2 <- undef]) requires K1 =/=K K2`, for maps:
+at `[1 |-> 0, 1 |-> 1]` with `K2 = 1` the left side is undefined and the right side is not. -/
+@[k2l_hook] theorem concat_element_remove_ne {k₁ k₂ : K} (v₁ : V) (m : M) (hw : WF m) (hne : k₁ ≠ k₂) :
+    (concat (element k₁ v₁) m).bind (fun r => some (remove r k₂)) =
+      concat (element k₁ v₁) (remove m k₂) := by
+  have hwr : WF (remove m k₂) := wf_remove hw
+  have hlk : lookup (remove m k₂) k₁ = lookup m k₁ := by
+    rw [lookup_def, lookup_def, remove_def, toList_ofList]
+    unfold WF at hw
+    apply Option.ext; intro v
+    rw [SAL.lookup_iff_mem (SAL.sorted_erase hw), SAL.lookup_iff_mem hw, SAL.mem_erase_iff hw]
+    exact ⟨fun h => h.1, fun h => ⟨h, hne⟩⟩
+  cases hl : lookup m k₁ with
+  | some u =>
+    have h1 : concat (element k₁ v₁) m = none := by
+      cases e : concat (element k₁ v₁) m with
+      | none => rfl
+      | some r => rw [(concat_element_iff.1 e).2.1] at hl; cases hl
+    have h2 : concat (element k₁ v₁) (remove m k₂) = none := by
+      cases e : concat (element k₁ v₁) (remove m k₂) with
+      | none => rfl
+      | some r => rw [(concat_element_iff.1 e).2.1, hl] at hlk; cases hlk
+    rw [h1, h2]; rfl
+  | none =>
+    rw [concat_element_iff.2 ⟨hw, hl, rfl⟩, concat_element_iff.2 ⟨hwr, by rw [hlk, hl], rfl⟩]
+    simp only [Option.bind_some, Option.some.injEq]
+    rw [remove_def, update_def, update_def, remove_def, toList_ofList, toList_ofList]
+    congr 1
+    unfold WF at hw
+    refine SAL.eq_of_mem_iff (SAL.sorted_erase (SAL.sorted_insert hw))
+      (SAL.sorted_insert (SAL.sorted_erase hw)) fun p => ?_
+    rw [SAL.mem_erase_iff (SAL.sorted_insert hw), SAL.mem_insert_iff hw,
+      SAL.mem_insert_iff (SAL.sorted_erase hw), SAL.mem_erase_iff hw]
+    constructor
+    · rintro ⟨rfl | ⟨h, h1⟩, h2⟩
+      · exact Or.inl rfl
+      · exact Or.inr ⟨⟨h, h2⟩, h1⟩
+    · rintro (rfl | ⟨⟨h, h2⟩, h1⟩)
+      · exact ⟨Or.inl rfl, hne⟩
+      · exact ⟨Or.inr ⟨h, h1⟩, h2⟩
+
+/-- `(K1 |-> V1 M)[K2 <- V2] => K1 |-> V1 (M[K2 <- V2]) requires K1 =/=K K2`, for maps (it also
+holds at every other carrier value, where both sides are undefined). -/
+@[k2l_hook] theorem concat_element_update_ne {k₁ k₂ : K} (v₁ v₂ : V) (m : M) (hw : WF m) (hne : k₁ ≠ k₂) :
+    (concat (element k₁ v₁) m).bind (fun r => some (update r k₂ v₂)) =
+      concat (element k₁ v₁) (update m k₂ v₂) := by
+  have hlk : lookup (update m k₂ v₂) k₁ = lookup m k₁ := lookup_update_ne m v₂ hne
+  cases hl : lookup m k₁ with
+  | some u =>
+    have h1 : concat (element k₁ v₁) m = none := by
+      cases e : concat (element k₁ v₁) m with
+      | none => rfl
+      | some r => rw [(concat_element_iff.1 e).2.1] at hl; cases hl
+    have h2 : concat (element k₁ v₁) (update m k₂ v₂) = none := by
+      cases e : concat (element k₁ v₁) (update m k₂ v₂) with
+      | none => rfl
+      | some r => rw [(concat_element_iff.1 e).2.1, hl] at hlk; cases hlk
+    rw [h1, h2]; rfl
+  | none =>
+    rw [concat_element_iff.2 ⟨hw, hl, rfl⟩, concat_element_iff.2 ⟨wf_update hw, by rw [hlk, hl], rfl⟩]
+    simp only [Option.bind_some, Option.some.injEq]
+    rw [update_def, update_def, update_def, update_def, toList_ofList, toList_ofList]
+    congr 1
+    unfold WF at hw
+    refine SAL.eq_of_mem_iff (SAL.sorted_insert (SAL.sorted_insert hw))
+      (SAL.sorted_insert (SAL.sorted_insert hw)) fun p => ?_
+    rw [SAL.mem_insert_iff (SAL.sorted_insert hw), SAL.mem_insert_iff hw,
+      SAL.mem_insert_iff (SAL.sorted_insert hw), SAL.mem_insert_iff hw]
+    constructor
+    · rintro (rfl | ⟨rfl | ⟨h, h1⟩, h2⟩)
+      · exact Or.inr ⟨Or.inl rfl, hne.symm⟩
+      · exact Or.inl rfl
+      · exact Or.inr ⟨Or.inr ⟨h, h2⟩, h1⟩
+    · rintro (rfl | ⟨rfl | ⟨h, h1⟩, h2⟩)
+      · exact Or.inr ⟨Or.inl rfl, hne⟩
+      · exact Or.inl rfl
+      · exact Or.inr ⟨Or.inr ⟨h, h2⟩, h1⟩
+
+/-- `X in_keys(M[K <- V])`: a key of the result is `K` or a key of `M`. -/
+@[k2l_hook] theorem inKeys_update [DecidableEq K] (m : M) (x k : K) (v : V) :
+    inKeys x (update m k v) = (decide (x = k) || inKeys x m) := by
+  by_cases h : x = k
+  · subst h; simp [inKeys_update_same]
+  · simp [h, inKeys_update_ne m v h]
+
+/-- `X in_keys(K |-> V M)`, where `K |-> V M` is defined: as `X in_keys(M[K <- V])`. -/
+@[k2l_hook] theorem bind_concat_element_inKeys [DecidableEq K] (x k : K) (v : V) (m : M) :
+    (concat (element k v) m).bind (fun r => some (inKeys x r)) =
+      (concat (element k v) m).bind (fun _ => some (decide (x = k) || inKeys x m)) := by
+  cases h : concat (element k v) m with
+  | none => rfl
+  | some r =>
+    obtain ⟨_, _, rfl⟩ := concat_element_iff.1 h
+    simp [inKeys_update]
+
+end KPrelude.MapHook
+
+namespace KPrelude.SetHook
+
+/-! ## `SET-KORE-SYMBOLIC`
+
+As for maps: `intersectSet(S, S) => S`, `.Set |Set S => S` and `S |Set S => S` are false at a
+carrier value that is no set (at `[2, 1]`, `lookup 1` stops at `2`), and take `SetHook.WF`. -/
+
+open ListIso
+
+variable {S K : Type} [Ord K] [ListIso S (K × Unit)] [MapRepr S K Unit]
+
+/-- `S -Set .Set => S` -/
+@[k2l_hook] theorem difference_unit_right (s : S) : difference s unit = s := by
+  unfold difference unit MapHook.unit MapHook.inKeys
+  simp only [MapRepr.lookupR_eq, toList_ofList, SAL.lookup, Option.isSome_none, Bool.not_false]
+  rw [List.filter_eq_self.2 (by simp), ofList_toList]
+
+/-- `.Set -Set S => .Set` -/
+@[k2l_hook] theorem difference_unit_left (s : S) : difference unit s = (unit : S) := by
+  unfold difference unit MapHook.unit; simp [toList_ofList]
+
+/-- `S |Set .Set => S` -/
+@[k2l_hook] theorem union_unit_right (s : S) : union s unit = s := by
+  unfold union unit MapHook.unit; simp [toList_ofList]
+
+/-- `intersectSet(S, .Set) => .Set` -/
+@[k2l_hook] theorem intersection_unit_right (s : S) : intersection s unit = (unit : S) := by
+  unfold intersection unit MapHook.unit MapHook.inKeys
+  simp only [MapRepr.lookupR_eq, toList_ofList, SAL.lookup, Option.isSome_none]
+  rw [List.filter_eq_nil_iff.2 (by simp)]
+
+/-- `intersectSet(.Set, S) => .Set` -/
+@[k2l_hook] theorem intersection_unit_left (s : S) : intersection unit s = (unit : S) := by
+  unfold intersection unit MapHook.unit; simp [toList_ofList]
+
+variable [Std.TransOrd K] [Std.LawfulEqOrd K]
+
+theorem inKeys_of_mem {s : S} (hw : WF s) {p : K × Unit} (hp : p ∈ toList s) :
+    MapHook.inKeys p.1 s = true := by
+  unfold MapHook.inKeys; rw [MapRepr.lookupR_eq, SAL.lookup_of_mem hw hp]; rfl
+
+/-- `intersectSet(S, S) => S`, for sets. -/
+@[k2l_hook] theorem intersection_self (s : S) (hw : WF s) : intersection s s = s := by
+  unfold intersection
+  rw [List.filter_eq_self.2 (fun p hp => inKeys_of_mem hw hp), ofList_toList]
+
+/-- A union whose elements are those of the set `b` is `b`. -/
+theorem union_eq_of_mem {a b : S} (ha : WF a) (hb : WF b)
+    (h : ∀ p, p ∈ toList a ∨ p ∈ toList b ↔ p ∈ toList b) : union a b = b := by
+  unfold union
+  have e : toList (List.foldl (fun s q => MapHook.update s q.1 ()) a (toList b)) = toList b :=
+    SAL.eq_of_mem_iff (wf_foldl_update _ a ha) hb fun p => by
+      rw [mem_toList_foldl_update, h]
+  rw [← ofList_toList (List.foldl _ a _), e, ofList_toList]
+
+/-- `.Set |Set S => S`, for sets. -/
+@[k2l_hook] theorem union_unit_left (s : S) (hw : WF s) : union unit s = s :=
+  union_eq_of_mem MapHook.wf_unit hw fun p => by simp [unit, MapHook.unit, toList_ofList]
+
+/-- `S |Set S => S`, for sets. -/
+@[k2l_hook] theorem union_self (s : S) (hw : WF s) : union s s = s :=
+  union_eq_of_mem hw hw fun _ => ⟨fun h => h.elim id id, Or.inr⟩
+
+/-- `SetItem(X)` added to the set `S` is defined exactly when `X` is not in `S`
+(`#Ceil(S SetItem(X))`). -/
+@[k2l_hook] theorem concat_element_isSome (s : S) (x : K) (hw : WF s) :
+    (concat s (element x)).isSome = !(inSet x s) := by
+  have hs : SAL.sortedb (toList s) = true := (SAL.sortedb_iff _).2 hw
+  unfold concat MapHook.concat element MapHook.element inSet MapHook.inKeys
+  rw [MapRepr.lookupR_eq, toList_ofList]
+  simp only [SAL.concat, hs, Bool.true_and]
+  have h1 : SAL.sortedb [(x, ())] = true :=
+    (SAL.sortedb_iff _).2 (SAL.Sorted.cons (by simp) SAL.Sorted.nil)
+  rw [h1]
+  cases hl : SAL.lookup x (toList s) with
+  | none =>
+    have : (toList s).all (fun p => (SAL.lookup p.1 [(x, ())]).isNone) = true := by
+      rw [List.all_eq_true]; intro p hp
+      cases hc : compare p.1 x with
+      | eq =>
+        cases SAL.eq_of_cmp hc
+        rw [SAL.lookup_of_mem (k := p.1) (v := p.2) hw (by simpa using hp)] at hl; cases hl
+      | lt => simp [SAL.lookup, hc]
+      | gt => simp [SAL.lookup, hc]
+    simp [this]
+  | some u =>
+    have : (toList s).all (fun p => (SAL.lookup p.1 [(x, ())]).isNone) = false := by
+      rw [Bool.eq_false_iff]; intro h
+      have := List.all_eq_true.1 h _ (SAL.lookup_mem hl)
+      simp [SAL.lookup] at this
+    simp [this]
+
+end KPrelude.SetHook
+
+namespace KPrelude
+
+/-! ## Partial terms whose value does not depend on what they bind -/
+
+/-- `{b #Equals T}`, where `T` is `d` wherever the partial `o` is defined. -/
+@[k2l_hook] theorem some_eq_bind_const {α β : Type} (o : Option α) (b d : β) :
+    (some b = o.bind fun _ => some d) ↔ (o.isSome = true ∧ d = b) := by
+  cases o <;> simp [eq_comm]
+
+@[k2l_hook] theorem bind_const_eq_some {α β : Type} (o : Option α) (b d : β) :
+    (o.bind (fun _ => some d) = some b) ↔ (o.isSome = true ∧ d = b) := by
+  cases o <;> simp
+
+-- the right-hand sides of `domains.md`'s `#Ceil` rules are nested conjunctions
+attribute [k2l_hook] and_assoc
+
+end KPrelude

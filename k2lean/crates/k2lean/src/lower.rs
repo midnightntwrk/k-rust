@@ -134,6 +134,9 @@ pub struct Lower<'a> {
     pub vars: BTreeMap<String, String>,
     /// Lean variable → Lean type.
     pub ty: BTreeMap<String, String>,
+    /// KORE set variable → its Lean `Option` binder (a simplification's, `eqns.rs`
+    /// `state_simpl`); an occurrence binds the element the set denotes, if any.
+    pub set_vars: BTreeMap<String, String>,
     pub steps: Vec<Step>,
     used: BTreeSet<String>,
     counter: usize,
@@ -182,6 +185,7 @@ impl<'a> Lower<'a> {
             fns,
             vars: BTreeMap::new(),
             ty: BTreeMap::new(),
+            set_vars: BTreeMap::new(),
             steps: vec![],
             used,
             counter: 0,
@@ -824,6 +828,17 @@ impl<'a> Lower<'a> {
             P::Var(v, _) => self.vars.get(v).map(|n| L::Var(n.clone())).ok_or(format!(
                 "unbound variable {v} (existential ?X is not supported)"
             )),
+            P::SetVar(v, s) if self.set_vars.contains_key(v) => {
+                let x = self.set_vars[v].clone();
+                let r = self.fresh("r", s.name().ok_or("parametric set variable sort")?);
+                let h = self.hyp("hr");
+                self.steps.push(Step::Bind {
+                    expr: L::Var(x),
+                    var: r.clone(),
+                    hyp: h,
+                });
+                Ok(L::Var(r))
+            }
             P::Dv(s, val) => self.literal(s.name().unwrap_or_default(), val),
             P::App(f, params, args) if f == "inj" => {
                 let (a, b) = inj_sorts(params)?;

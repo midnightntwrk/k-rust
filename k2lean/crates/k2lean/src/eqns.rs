@@ -25,6 +25,11 @@ pub struct Stated {
     pub what: String,
     /// Definitions to unfold in the goal first (the generated function and its equations).
     pub unfold_first: Vec<String>,
+    /// The `Option` binders of a simplification's set variables, cased before the generic proof.
+    pub case_first: Vec<String>,
+    /// Simp sets the generic proof also uses (`k2l_hook`, the collection laws, for a
+    /// simplification over a `Set` or `Map`).
+    pub simp_with: Vec<String>,
 }
 
 fn vars_of(p: &P, out: &mut BTreeMap<String, S>) {
@@ -46,6 +51,25 @@ fn vars_of(p: &P, out: &mut BTreeMap<String, S>) {
             inner.remove(v);
             out.extend(inner);
         }
+        _ => {}
+    }
+}
+
+/// The set variables of a pattern (`@X`), with their sorts.
+fn set_vars_of(p: &P, out: &mut BTreeMap<String, S>) {
+    match p {
+        P::SetVar(n, s) => {
+            out.insert(n.clone(), s.clone());
+        }
+        P::App(_, _, args) | P::And(_, args) | P::Or(_, args) => {
+            args.iter().for_each(|a| set_vars_of(a, out))
+        }
+        P::Not(_, a) | P::Ceil(_, _, a) | P::Floor(_, _, a) => set_vars_of(a, out),
+        P::Equals(_, _, a, b) | P::In(_, _, a, b) | P::Implies(_, a, b) | P::Iff(_, a, b) => {
+            set_vars_of(a, out);
+            set_vars_of(b, out);
+        }
+        P::Exists(_, _, _, b) | P::Forall(_, _, _, b) => set_vars_of(b, out),
         _ => {}
     }
 }
@@ -97,6 +121,8 @@ pub fn equation_theorems(
                     statement,
                     what,
                     unfold_first,
+                    case_first: vec![],
+                    simp_with: vec![],
                 }),
                 Err(err) => eprintln!("note: {what} not stated: {err}"),
             }
@@ -139,12 +165,89 @@ fn wf_premises(m: &Model, sig: &crate::lower::FnSig, binders: &[(String, String)
     }
     binders
         .iter()
-        .filter_map(|(n, t)| match m.sorts.get(t).map(|s| &s.kind) {
-            Some(Kind::Coll(Coll::Set)) => Some(format!("KPrelude.SetHook.WF {n}")),
-            Some(Kind::Coll(Coll::Map)) => Some(format!("KPrelude.MapHook.WF {n}")),
-            _ => None,
-        })
+        .filter_map(|(n, t)| wf_pred(m, t).map(|w| format!("{w} {n}")))
         .collect()
+}
+
+/// The well-formedness predicate of a `Set` or `Map` sort (cell maps included).
+fn wf_pred(m: &Model, sort: &str) -> Option<&'static str> {
+    match m.sorts.get(sort).map(|s| &s.kind) {
+        Some(Kind::Coll(Coll::Set)) => Some("KPrelude.SetHook.WF"),
+        Some(Kind::Coll(Coll::Map)) => Some("KPrelude.MapHook.WF"),
+        _ => None,
+    }
+}
+
+/// The binders and well-formedness premises of a simplification, over the variables of `pats`.
+///
+/// A set variable (`@X`) ranges over sets of values, while a term of the model denotes at most
+/// one value: it is bound as an `Option` (`none` the empty set), and each occurrence binds the
+/// element (`Lower::set_vars`). Restricted to such sets, `domains.md`'s set-variable rules hold
+/// in the model; some are false at sets of two elements (`design.md` §3).
+///
+/// Every variable of a `Set` or `Map` sort, element or set, gets the well-formedness premise,
+/// whatever the head symbol: a simplification is an axiom K trusts about K values, which are the
+/// well-formed carrier values, so the premise is its statement; unlike a generated function's
+/// equation, it defines nothing, and some fail at carrier values that are no K value
+/// (`intersectSet(S, S) => S` at an unsorted list).
+fn simpl_binders(lw: &mut Lower, pats: &[&P]) -> Result<Simpl, String> {
+    let (mut vars, mut svars) = (BTreeMap::new(), BTreeMap::new());
+    for p in pats {
+        vars_of(p, &mut vars);
+        set_vars_of(p, &mut svars);
+    }
+    let binders = bind_vars(lw, &vars, "")?;
+    let mut opts = Vec::new();
+    for (v, s) in &svars {
+        let sort = s.name().ok_or("parametric variable sort")?.to_string();
+        if !m_has(lw, &sort) {
+            return Err(format!("set variable of unsupported sort {sort}"));
+        }
+        let n = lw.param(
+            &sanitize(v.trim_start_matches('@')),
+            &format!("Option {sort}"),
+        );
+        lw.set_vars.insert(v.clone(), n.clone());
+        opts.push((n, sort));
+    }
+    let mut text = String::new();
+    for (n, t) in &binders {
+        text.push_str(&format!(" ({n} : {t})"));
+    }
+    for (n, t) in &opts {
+        text.push_str(&format!(" ({n} : Option {t})"));
+    }
+    let wf = binders
+        .iter()
+        .filter_map(|(n, t)| wf_pred(lw.m, t).map(|w| format!("{w} {n}")))
+        .chain(
+            opts.iter()
+                .filter_map(|(n, t)| wf_pred(lw.m, t).map(|w| format!("∀ m ∈ {n}, {w} m"))),
+        );
+    for (k, h) in wf.enumerate() {
+        text.push_str(&format!("\n    (hwf{k} : {h})"));
+    }
+    Ok(Simpl {
+        binders: text,
+        case_first: opts.into_iter().map(|(n, _)| n).collect(),
+    })
+}
+
+/// A simplification's binders and premises (`simpl_binders`), and the `Option` binders its
+/// proof cases first.
+struct Simpl {
+    binders: String,
+    case_first: Vec<String>,
+}
+
+/// The simp sets a simplification's proof also uses: the collection laws (`k2l_hook`,
+/// `HookLaws.lean`) for one about maps or sets.
+fn simp_with(statement: &str) -> Vec<String> {
+    if statement.contains("KPrelude.MapHook.") || statement.contains("KPrelude.SetHook.") {
+        vec!["k2l_hook".to_string()]
+    } else {
+        vec![]
+    }
 }
 
 fn sanitize(v: &str) -> String {
@@ -365,7 +468,7 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
                 .unwrap_or_default()
         );
         match state_simpl(m, fns, &a.pattern) {
-            Ok(st) => {
+            Ok((st, Simpl { case_first, .. })) => {
                 // named by the rule's `UNIQUE'Unds'ID` (a digest of the rule), so that a name does not
                 // depend on where the rule is in the definition
                 let uid = a
@@ -378,9 +481,11 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
                 };
                 out.push(Stated {
                     name,
-                    statement: st,
                     what,
                     unfold_first: vec![],
+                    case_first,
+                    simp_with: simp_with(&st),
+                    statement: st,
                 })
             }
             Err(err) => eprintln!("note: {what} not stated: {err}"),
@@ -442,7 +547,7 @@ fn prop(lw: &mut Lower, p: &P) -> Result<String, String> {
     })
 }
 
-fn state_simpl(m: &Model, fns: &Fns, p: &P) -> Result<String, String> {
+fn state_simpl(m: &Model, fns: &Fns, p: &P) -> Result<(String, Simpl), String> {
     let (req, eq) = match p {
         P::Implies(_, l, r) => (Some(&**l), &**r),
         other => (None, other),
@@ -457,28 +562,21 @@ fn state_simpl(m: &Model, fns: &Fns, p: &P) -> Result<String, String> {
             other => other,
         };
         let mut lw = Lower::new(m, fns, &[]);
-        let mut vars = BTreeMap::new();
-        vars_of(lhs, &mut vars);
-        vars_of(rhs, &mut vars);
-        if let Some(r) = req {
-            vars_of(r, &mut vars);
-        }
-        let binders = bind_vars(&mut lw, &vars, "")?;
+        let mut pats = vec![&**lhs, rhs];
+        pats.extend(req);
+        let sb = simpl_binders(&mut lw, &pats)?;
+        let mut stmt = sb.binders.clone();
         let hyp = match req {
             Some(r) if !matches!(r, P::Top(_)) => Some(prop(&mut lw, r)?),
             _ => None,
         };
         let l = prop(&mut lw, lhs)?;
         let r = prop(&mut lw, rhs)?;
-        let mut stmt = String::new();
-        for (n, t) in &binders {
-            stmt.push_str(&format!(" ({n} : {t})"));
-        }
         if let Some(h) = hyp {
             stmt.push_str(&format!("\n    (hreq0 : {h})"));
         }
         stmt.push_str(&format!(" :\n    ({l}) ↔ ({r})"));
-        return Ok(stmt);
+        return Ok((stmt, sb));
     }
     let sort = os.name().ok_or("parametric equation sort")?.to_string();
     let rhs = match &**rhs {
@@ -498,13 +596,10 @@ fn state_simpl(m: &Model, fns: &Fns, p: &P) -> Result<String, String> {
         }
     }
     let mut lw = Lower::new(m, fns, &[]);
-    let mut vars = BTreeMap::new();
-    vars_of(lhs, &mut vars);
-    vars_of(rhs, &mut vars);
-    for r in &requires {
-        vars_of(r, &mut vars);
-    }
-    let binders = bind_vars(&mut lw, &vars, "")?;
+    let mut pats = vec![&**lhs, rhs];
+    pats.extend(requires.iter());
+    let sb = simpl_binders(&mut lw, &pats)?;
+    let mut stmt = sb.binders.clone();
     let hyps = cond_props(&mut lw, &requires)?;
     let l = lw.expr(lhs, &sort)?;
     let lsteps = std::mem::take(&mut lw.steps);
@@ -519,15 +614,11 @@ fn state_simpl(m: &Model, fns: &Fns, p: &P) -> Result<String, String> {
             option_expr(&rsteps, &r).ok_or("rhs")?
         )
     };
-    let mut stmt = String::new();
-    for (n, t) in &binders {
-        stmt.push_str(&format!(" ({n} : {t})"));
-    }
     for (k, h) in hyps.iter().enumerate() {
         stmt.push_str(&format!("\n    (hreq{k} : {h})"));
     }
     stmt.push_str(&format!(" :\n    {concl}"));
-    Ok(stmt)
+    Ok((stmt, sb))
 }
 
 /// The proposition of a theorem statement ` BINDERS :\n    CONCLUSION`, as the body of a `Prop`
@@ -825,7 +916,9 @@ all_goals first\n      \
                 uf.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(" ")
             )
         };
-        let own = own_defs(s, defs).join(", ");
+        let mut own = own_defs(s, defs);
+        own.extend(s.simp_with.iter().map(|x| x.as_str()));
+        let own = own.join(", ");
         // the generic tactics do not unfold a well-founded recursive function (none of the 32
         // such equations of SIMPLE and imp-typing closed that way), so its equations get only the
         // recursive proof
@@ -852,8 +945,20 @@ all_goals first\n      \
             // matches the injected term (`k2l_eqn_b` can leave goals, so it must end in `done`
             // for `first` to go on); then cases on the partial calls of the right-hand side
             None => {
+                // a simplification over set variables: each `Option` binder cased (the empty set,
+                // one element), then the generic proof
+                let cases = if s.case_first.is_empty() {
+                    String::new()
+                } else {
+                    let c: Vec<String> = s
+                        .case_first
+                        .iter()
+                        .map(|x| format!("(cases {x})"))
+                        .collect();
+                    format!("\n  | ({} <;> k2l_eqn_a [{own}])", c.join(" <;> "))
+                };
                 let mut t = format!(
-                    "by\n  intros\n  first\n  | k2l_eqn_a [{own}]\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
+                    "by\n  intros\n  first\n  | k2l_eqn_a [{own}]{cases}\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
                 );
                 if owise {
                     t.push_str(&format!("\n  | ({first}k2l_eqn_o [{own}])"));
@@ -1009,6 +1114,8 @@ mod tests {
             statement: statement.into(),
             what: format!("{name} (test)"),
             unfold_first: unfold_first.iter().map(|s| s.to_string()).collect(),
+            case_first: vec![],
+            simp_with: vec![],
         }
     }
 

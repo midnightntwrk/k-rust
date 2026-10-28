@@ -42,7 +42,7 @@ fn open_obligation_is_a_statement_not_a_theorem() {
     std::fs::write(&open, format!("{PLUS_2}\n")).unwrap();
     let log = gen_peano(&d.join("out"), Some(&open));
     assert!(
-        log.contains("11 equations and simplifications stated, 1 open"),
+        log.contains("12 equations and simplifications stated, 1 open"),
         "{log}"
     );
     let eqns = std::fs::read_to_string(d.join("out/Peano/Equations.lean")).unwrap();

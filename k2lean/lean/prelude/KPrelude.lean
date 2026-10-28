@@ -10,6 +10,7 @@ import KPrelude.Tactic
 import KPrelude.LeafEq
 import KPrelude.Delab
 import KPrelude.Ext
+import KPrelude.HookAttr
 import KPrelude.HookLaws
 import KPrelude.RelAttr
 import KPrelude.Relate

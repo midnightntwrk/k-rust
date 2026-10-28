@@ -156,4 +156,16 @@ theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
   | (k2l_eqn_c [])
 
+/-- simplification c3ef047673d1 () -/
+theorem Simp.s_c3ef047673d1 (K0 : Option SortKItem) (K1 : Option SortKItem) (Rest : Option SortMap)
+    (hwf0 : ∀ m ∈ Rest, KPrelude.MapHook.WF m) :
+    (((Option.bind K0 fun r => (Option.bind K1 fun r_1 => (Option.bind Rest fun r_3 => (Option.bind (KPrelude.MapHook.concat (KPrelude.MapHook.element r r_1) r_3) fun r_5 => some r_5))))).isSome = true) ↔ (((Option.bind K0 fun r_7 => (Option.bind Rest fun r_9 => some (KPrelude.MapHook.inKeys r_7 r_9))) = some false) ∧ ((True) ∧ (((Option.bind K1 fun r_11 => some r_11)).isSome = true))) := by
+  intros
+  first
+  | k2l_eqn_a [k2l_hook]
+  | ((cases K0) <;> (cases K1) <;> (cases Rest) <;> k2l_eqn_a [k2l_hook])
+  | (k2l_eqn_b [k2l_hook]; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [k2l_hook])
+  | (k2l_eqn_c [k2l_hook])
+
 end Peano
