@@ -170,6 +170,11 @@ lib_simple() { # DIR [SUB] (simple, simple-ps): generate, cases, build, guard, r
   ok "build $d" "$L/build-$d.log"
   lbuild "$o" "build-$d-guard" KSimpleTest.Axioms || { bad "guard $d" "$L/build-$d-guard.log"; return 1; }
   ok "guard $d" "$L/build-$d-guard.log"
+  # the fuel twins (as `lib` builds them), before any demo imports them
+  if [ -f "$o/KSimple/Fuel.lean" ]; then
+    lbuild "$o" "build-$d-fuel" KSimple.Fuel || { bad "fuel $d" "$L/build-$d-fuel.log"; return 1; }
+    ok "fuel $d" "$L/build-$d-fuel.log"
+  fi
   lbuild "$o" "build-$d-test" ksimple-test || { bad "build ksimple-test" "$L/build-$d-test.log"; return 1; }
   "$o/.lake/build/bin/ksimple-test" > "$L/$d-test.out" 2>&1
   python3 -I "$SELF/tests/simple-acceptance.py" "$L/$d-test.out" "$SD/tests" "$KRUST" "$KO/simple" \
