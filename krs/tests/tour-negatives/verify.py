@@ -226,8 +226,8 @@ def main() -> None:
         ),
         (
             "sort_test_in_pattern",
-            "unsupported term expression: `k::is!` and `k::project!` are function calls and cannot be matched; restrict the binder with a typed parameter or `where x: S`",
-            "is",
+            "`k::is!` and `k::project!` compute from a term, and a pattern matches terms as they are: restrict a binder's sort with a typed parameter or `where x: Sort` instead; here it stands in the subject of a `k::rules!` sort rule",
+            "k::is!(Int, x)",
         ),
         (
             "rule_fresh_in_pattern",
