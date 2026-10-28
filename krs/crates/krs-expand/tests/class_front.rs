@@ -589,8 +589,8 @@ fn judge(placed: &Placed<'_>, front: &Front, expected: Option<&Expected<'_>>) ->
     let off_table = match expected {
         None => false,
         Some(Expected::Accept(_)) => true,
-        Some(Expected::Refuse { rule, class }) => {
-            let site = rule.at.range(placed);
+        Some(Expected::Refuse { class, at, .. }) => {
+            let site = at.range(placed);
             let first = front.observed.errors().next();
             !(front.exact
                 && first.and_then(|error| error.code.as_deref()) == Some(class.code.as_str())
@@ -696,11 +696,7 @@ fn every_case_meets_the_front_invariants_and_keys_its_payloads() {
     let pending = Pending::parse(&read_class_matrix("pending.toml"))
         .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
     let cases = class_matrix::cases();
-    let ids = cases
-        .iter()
-        .map(|case| case.id.as_str())
-        .collect::<Vec<_>>();
-    let resolution = table.resolve(&ids, registry_kind);
+    let resolution = table.resolve_cases(&cases, registry_kind);
     let mut table_errors = resolution
         .errors
         .iter()
@@ -893,7 +889,8 @@ k = ""
         .iter()
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
-    let resolution = table.resolve(&ids, registry_kind);
+    // The table's own rules decide here, with no oracle: the test is about the judge.
+    let resolution = table.resolve(&ids, |_| None, registry_kind);
     let verdict = |id: &str| {
         let case = cases
             .iter()
