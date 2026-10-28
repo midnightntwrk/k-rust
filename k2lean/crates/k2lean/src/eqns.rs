@@ -30,6 +30,19 @@ pub struct Stated {
     /// Simp sets the generic proof also uses (`k2l_hook`, the collection laws, for a
     /// simplification over a `Set` or `Map`).
     pub simp_with: Vec<String>,
+    /// The normalizers of overloaded symbols in the left-hand side, with their equations
+    /// (`K.f`, `K.f.rule1`, …): a match on a normalizer's application decides only once it is
+    /// unfolded, which a recursive function's proof then tries (EQ-17).
+    pub normalizers: Vec<String>,
+}
+
+/// Whether symbol `g` occurs in `p`.
+fn mentions(p: &P, g: &str) -> bool {
+    match p {
+        P::App(f, _, args) => f == g || args.iter().any(|a| mentions(a, g)),
+        P::And(_, args) | P::Or(_, args) => args.iter().any(|a| mentions(a, g)),
+        _ => false,
+    }
 }
 
 fn vars_of(p: &P, out: &mut BTreeMap<String, S>) {
@@ -99,14 +112,30 @@ pub fn equation_theorems(
     eqs: &BTreeMap<String, Vec<Equation>>,
 ) -> Vec<Stated> {
     let mut out = Vec::new();
+    let supers = crate::funcs::overload_supers(def);
     for (f, es) in eqs {
         let Some(sig) = fns.get(f) else { continue };
         if sig.args.iter().any(|a| a == "?") {
             continue;
         }
-        let comps: Vec<&Equation> = es.iter().filter(|e| !e.owise).collect();
-        for (i, e) in es.iter().enumerate() {
+        // the equations K writes; their overload variants (`funcs::equations_modulo_overloads`)
+        // are arms of the definition, which the normalizers in the statements already cover
+        let comps: Vec<&Equation> = es.iter().filter(|e| !e.owise && e.variant == 0).collect();
+        for (i, e) in es.iter().filter(|e| e.variant == 0).enumerate() {
             let what = format!("{} equation {}", names::demangle(f), i + 1);
+            let mut normalizers = Vec::new();
+            for g in &supers {
+                if !e.args.iter().any(|a| mentions(a, g)) {
+                    continue;
+                }
+                let Some(gs) = fns.get(g).filter(|gs| gs.lean.starts_with("K.")) else {
+                    continue;
+                };
+                normalizers.push(gs.lean.clone());
+                for k in 1..=eqs.get(g).map_or(0, |v| v.len()) {
+                    normalizers.push(format!("{}.rule{k}", gs.lean));
+                }
+            }
             let unfold_first = if sig.lean.starts_with("K.") {
                 let mut v = vec![sig.lean.clone()];
                 for k in 1..=es.len() {
@@ -127,6 +156,7 @@ pub fn equation_theorems(
                     unfold_first,
                     case_first: vec![],
                     simp_with: vec![],
+                    normalizers: normalizers.clone(),
                 }),
                 Err(err) => eprintln!("note: {what} not stated: {err}"),
             }
@@ -594,6 +624,7 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
                     unfold_first: vec![],
                     case_first,
                     simp_with: simp_with(&st),
+                    normalizers: vec![],
                     statement: st,
                 })
             }
@@ -1060,6 +1091,11 @@ all_goals first\n      \
                 }
                 t
             }
+            Some(f) if !s.normalizers.is_empty() => format!(
+                // first: a heartbeat timeout of the other alternative is not caught by `first`
+                "by\n  intros\n  first\n  | (simp only [{}]; k2l_eqn_r {f} [{own}])\n  | k2l_eqn_r {f} [{own}]",
+                s.normalizers.join(", ")
+            ),
             Some(f) => format!("by\n  intros\n  k2l_eqn_r {f} [{own}]"),
             // last, a case split on the variables under injections, which reduces a cascade that
             // matches the injected term (`k2l_eqn_b` can leave goals, so it must end in `done`
@@ -1077,8 +1113,18 @@ all_goals first\n      \
                         .collect();
                     format!("\n  | ({} <;> k2l_eqn_a [{own}])", c.join(" <;> "))
                 };
+                // a normalizer in the left-hand side unfolded, then cases on the variables its
+                // matches inspect (EQ-17); first, as a timeout of a later one is not caught
+                let norm = if s.normalizers.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "\n  | (simp only [{}]; (repeat' (k2l_case_discr <;> try simp only [])) <;> k2l_eqn_a [{own}])",
+                        s.normalizers.join(", ")
+                    )
+                };
                 let mut t = format!(
-                    "by\n  intros\n  first\n  | k2l_eqn_a [{own}]{cases}\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
+                    "by\n  intros\n  first{norm}\n  | k2l_eqn_a [{own}]{cases}\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
                 );
                 if owise {
                     t.push_str(&format!("\n  | ({first}k2l_eqn_o [{own}])"));
@@ -1302,6 +1348,7 @@ mod tests {
             unfold_first: unfold_first.iter().map(|s| s.to_string()).collect(),
             case_first: vec![],
             simp_with: vec![],
+            normalizers: vec![],
         }
     }
 

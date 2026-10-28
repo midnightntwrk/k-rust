@@ -10,6 +10,7 @@ LIBS = {
     "freekey": {"ns": "FreeKey", "tier": "light"},
     "symcoll": {"ns": "SymColl", "tier": "light"},
     "alias": {"ns": "KAlias", "tier": "light"},
+    "overload": {"ns": "KOverload", "tier": "light"},
     "simple": {"ns": "KSimple", "tier": "heavy"},
     "kterm-ar": {"ns": "KTerm", "tier": "light"},
 }

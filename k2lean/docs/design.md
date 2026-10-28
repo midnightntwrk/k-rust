@@ -92,7 +92,10 @@ The generated Lean is a model of the KORE theory: every symbol gets an interpret
     For a function declared total (`functional`, `total`), a false ensures would contradict K's declaration; the generator refuses it with a message, since that needs a checked exception, not a definition.
   - A simplification rule with an ensures states `c → L = (r ∧ ⌈e = true⌉)`, in the model `L = if e = some true then r else none`; the 17 of `domains.md` (`(K |-> V M)[K] => V ensures notBool (K in_keys(M))` and the like) are in its `MAP-KORE-SYMBOLIC` and `SET-KORE-SYMBOLIC` modules, which neither KMIR nor a definition of the gate imports, so none is in their KORE; `gen` does not state one yet (its right-hand side is not lowered, and `gen` notes it).
   A map pattern whose key is bound nowhere else (`K |-> V REST`, the cell maps of SIMPLE's threads) matches once per binding, so `step` returns the first match whose result is defined and `successors` all of them.
-- **Overloads.** A left-hand side that mentions an overloaded symbol matches its variants modulo the `symbol-overload` axioms (`crates/k2lean/src/overload.rs`).
+- **Overloads.** A left-hand side that mentions an overloaded symbol matches its variants modulo the `symbol-overload` axioms (`crates/k2lean/src/overload.rs`), a rule's and a function equation's alike.
+  Values are kept in normal form, so `f(_,_Exps(E, Es))` also matches the `Ids` term `inj(_,_Ids(X, Xs))` with `E := inj(X)`, `Es := inj(Xs)`; each such variant is an arm of the definition next to its equation (`funcs::equations_modulo_overloads`), and K's own value of `len(x, y)` over an overloaded list is 2 (`tests/fixtures/overload`; krust agrees).
+  The statements keep K's form: their left-hand sides are built with the normalizers, which read them modulo the overloads.
+  An `owise` equation with an overloaded competitor quantifies over every carrier value, and a value such as `inj(_,_Exps(inj(X), inj(Xs)))` is no K value (it is the `Ids` term in K), where the definition can disagree with the statement; such equations stay open (EQ-18: a normal-form premise, as `WF` is for collections).
 
 ### 2.1 The arity-indexed universe
 

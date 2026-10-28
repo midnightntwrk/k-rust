@@ -1,5 +1,5 @@
 # countAllOccurrences equation 2 is false: at an empty ToCount it makes countAllOccurrences(S, "") its own successor (KPrelude.StringHook.countAllOccurrences_eqn2_false)
 Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2» | refuted
-Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_2»
+# printable equation 3 quantifies over values that are no K value (EQ-18): an AExps cons of an Id and an Ids is the Ids list in K
 Eqn.«printable(_,_)_IMPPLUS-TYPING_Bool_AExps_Map_3»
 Eqn.«wt(_,_)_IMPPLUS-TYPING_Bool_Stmt_Map_8»

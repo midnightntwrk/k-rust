@@ -601,7 +601,12 @@ fn main() {
                     },
                 );
             }
-            let mut stated = eqns::equation_theorems(&def, &m, &stmt_fns, &eqs);
+            let mut stated = eqns::equation_theorems(
+                &def,
+                &m,
+                &stmt_fns,
+                &funcs::equations_modulo_overloads(&def, &m),
+            );
             stated.extend(eqns::simplification_theorems(&def, &m, &stmt_fns));
             if let Some(lp) = &a.lemmas {
                 let ldef = ir::load(&std::fs::read_to_string(lp).unwrap()).unwrap();

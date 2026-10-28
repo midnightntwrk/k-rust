@@ -27,6 +27,9 @@ pub struct Equation {
     pub index: usize,
     pub owise: bool,
     pub uid: String,
+    /// 0 for the equation as K writes it; `k > 0` for its `k`-th overload variant
+    /// (`equations_modulo_overloads`)
+    pub variant: usize,
 }
 
 impl Equation {
@@ -112,6 +115,7 @@ pub fn equations(def: &Def) -> BTreeMap<String, Vec<Equation>> {
             index: a.index,
             owise,
             uid: a.attrs.string("UNIQUE'Unds'ID").unwrap_or_default(),
+            variant: 0,
         });
     }
     // overload axioms `f_super(inj(x)…) = inj(f_sub(x…))` (`symbol-overload`): the super symbol
@@ -135,10 +139,66 @@ pub fn equations(def: &Def) -> BTreeMap<String, Vec<Equation>> {
             index: a.index,
             owise: false,
             uid: format!("overload-{}", a.index),
+            variant: 0,
         });
     }
     for v in out.values_mut() {
         v.sort_by_key(|e| (e.priority, e.index));
+    }
+    out
+}
+
+/// `equations`, each followed by its overload variants: a left-hand side denotes its instances
+/// modulo the `symbol-overload` axioms, and values are kept in normal form, so an argument
+/// pattern `f(p1, …)` of an overloaded `f` also matches `inj(g(q1, …))` (`overload.rs`). A
+/// variant substitutes `inj(x)` for a variable of the super sort, in the requires and the
+/// right-hand side too; it keeps the equation's priority and index, so it stands next to the
+/// equation in the cascade, and the variants of one equation match disjoint normal forms. The
+/// statements (`eqns.rs`) are of the equations only: their left-hand sides are built with the
+/// normalizers, which read them modulo the overloads already.
+pub fn equations_modulo_overloads(def: &Def, m: &Model) -> BTreeMap<String, Vec<Equation>> {
+    let mut out = equations(def);
+    let mut ex = crate::overload::Expander::new(def, m);
+    for es in out.values_mut() {
+        let mut next: Vec<Equation> = Vec::with_capacity(es.len());
+        for e in es.drain(..) {
+            let variants = if e.uid.starts_with("overload-") {
+                Vec::new()
+            } else {
+                ex.expand_args(&e.args)
+            };
+            let mut k = 0;
+            for (args, sb) in variants.into_iter().skip(1) {
+                let args: Vec<P> = args
+                    .iter()
+                    .map(|a| crate::overload::subst(a, &sb))
+                    .collect();
+                if args == e.args || next.iter().any(|x| x.args == args) {
+                    continue;
+                }
+                k += 1;
+                let v = Equation {
+                    args,
+                    requires: e
+                        .requires
+                        .iter()
+                        .map(|r| crate::overload::subst(r, &sb))
+                        .collect(),
+                    rhs: crate::overload::subst(&e.rhs, &sb),
+                    total: e.total,
+                    priority: e.priority,
+                    index: e.index,
+                    owise: e.owise,
+                    uid: e.uid.clone(),
+                    variant: k,
+                };
+                // after the equation itself, pushed below
+                next.push(v);
+            }
+            let at = next.len() - k;
+            next.insert(at, e);
+        }
+        *es = next;
     }
     out
 }
@@ -1315,7 +1375,7 @@ pub fn generate_with(
     roots: &BTreeSet<String>,
     side: &Sidecar,
 ) -> Result<Generated, String> {
-    let eqs = equations(def);
+    let eqs = equations_modulo_overloads(def, m);
     // close over calls
     let mut used: BTreeSet<String> = BTreeSet::new();
     let mut todo: Vec<String> = roots.iter().cloned().collect();
@@ -1828,6 +1888,45 @@ pub(crate) mod tests {
         // mutual recursion is one `mutual` block; self-recursion is not
         assert_eq!(g.lean.matches("mutual\n").count(), 1);
         assert!(g.lean.contains("decreasing_by"));
+    }
+
+    #[test]
+    fn an_equation_over_an_overloaded_list_has_its_sub_sort_variant() {
+        // `len(_E, Es)` also matches the `Ids` term `inj(_,_Ids(X, Xs))`, with `Es := inj(Xs)`;
+        // `hd(I:Int, _)` has no variant (an `Int` is no `Id`)
+        let def = fixture("overload");
+        let m = Model::build(&def).unwrap();
+        let eqs = equations_modulo_overloads(&def, &m);
+        let of = |name: &str| eqs.iter().find(|(f, _)| f.contains(name)).unwrap().1;
+        let len = of("len");
+        assert_eq!(len.iter().map(|e| e.variant).collect::<Vec<_>>(), [0, 0, 1]);
+        assert_eq!(
+            (len[2].index, len[2].priority),
+            (len[1].index, len[1].priority)
+        );
+        let shown = format!("{:?}", len[2].args);
+        assert!(
+            shown.contains("Ids") && !shown.contains("Exps'Unds'Exp"),
+            "{shown}"
+        );
+        let hd = of("hd");
+        assert_eq!(
+            hd.iter().map(|e| e.variant).collect::<Vec<_>>(),
+            [0, 0, 1, 0]
+        );
+        assert!(hd[3].owise);
+        // the plain list has no variants
+        assert_eq!(
+            equations(&def).values().map(|v| v.len()).sum::<usize>() + 2,
+            eqs.values().map(|v| v.len()).sum::<usize>()
+        );
+        // the definition gets the variant's arm, the statements do not change
+        let (_, g) = generated(&def);
+        assert!(
+            g.lean.contains("SortExps.inj_Ids (SortIds.«_,_»"),
+            "{}",
+            g.lean
+        );
     }
 
     #[test]

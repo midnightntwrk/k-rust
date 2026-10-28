@@ -19,7 +19,7 @@ name_core() {
   case $1 in
     kimp|kimp-d2) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
     simple) echo KSimple ;; freekey) echo FreeKey ;; symcoll) echo SymColl ;; alias) echo KAlias ;;
-    kterm-ar) echo KTerm ;;
+    kterm-ar) echo KTerm ;; overload) echo KOverload ;;
     *) return 1 ;;
   esac
 }
@@ -56,6 +56,8 @@ gen_core() {
     symcoll) libs_fixture_args "$1" ;;
     # the fixture of alias patterns in function equations (tests/fixtures/alias)
     alias) libs_fixture_args "$1" ;;
+    # the fixture of function equations over an overloaded list (tests/fixtures/overload)
+    overload) libs_fixture_args "$1" ;;
     # recursive functions whose termination measures the generator synthesizes (demos/k/term),
     # and least fixed points where K's rewriting diverges (term-termination.toml)
     kterm-ar) GEN_ARGS=(--kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json"
@@ -194,6 +196,8 @@ gate_core() {
   runs lib symcoll && lib symcoll SymColl
   # the fixture of alias patterns (`P #as X`) in equations and owise competitors
   runs lib alias && lib alias KAlias
+  # the fixture of equations over an overloaded list, matched modulo its overload axioms
+  runs lib overload && lib overload KOverload
   # recursive functions whose termination measures the generator synthesizes (demos/k/term);
   # its least fixed points have no value where K's rewriting diverges (term-diverges.lean)
   if runs lib kterm-ar && kc kterm && lib kterm-ar KTerm; then

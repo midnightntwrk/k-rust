@@ -112,26 +112,32 @@ impl<'a> Expander<'a> {
         self.ovs[f].clone()
     }
 
+    /// The variants of a list of argument patterns, combined: (patterns, substitution of the
+    /// rule's variables); the first is the arguments themselves.
+    pub fn expand_args(&mut self, args: &[P]) -> Vec<(Vec<P>, Subst)> {
+        let mut combos: Vec<(Vec<P>, Subst)> = vec![(vec![], vec![])];
+        for a in args {
+            let va = self.expand(a);
+            let mut next = Vec::new();
+            for (prefix, s) in &combos {
+                for (q, s2) in &va {
+                    let mut pre = prefix.clone();
+                    pre.push(q.clone());
+                    let mut ss = s.clone();
+                    ss.extend(s2.iter().cloned());
+                    next.push((pre, ss));
+                }
+            }
+            combos = next;
+        }
+        combos
+    }
+
     /// The variants of pattern `p`: (pattern, substitution of the rule's variables).
     pub fn expand(&mut self, p: &P) -> Vec<(P, Subst)> {
         match p {
             P::App(f, ps, args) => {
-                // the variants of the arguments, combined
-                let mut combos: Vec<(Vec<P>, Subst)> = vec![(vec![], vec![])];
-                for a in args {
-                    let va = self.expand(a);
-                    let mut next = Vec::new();
-                    for (prefix, s) in &combos {
-                        for (q, s2) in &va {
-                            let mut pre = prefix.clone();
-                            pre.push(q.clone());
-                            let mut ss = s.clone();
-                            ss.extend(s2.iter().cloned());
-                            next.push((pre, ss));
-                        }
-                    }
-                    combos = next;
-                }
+                let combos = self.expand_args(args);
                 let mut out: Vec<(P, Subst)> = combos
                     .iter()
                     .map(|(a, s)| (P::App(f.clone(), ps.clone(), a.clone()), s.clone()))
