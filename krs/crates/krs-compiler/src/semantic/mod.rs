@@ -36,6 +36,7 @@ mod rules;
 mod smt;
 mod spec_modules;
 mod statics;
+mod subject_roots;
 mod token_collisions;
 mod tokens;
 mod visibility;
@@ -169,6 +170,7 @@ pub fn lower_descriptor_bundle(
         &production_catalog,
         &semantic_sort_parents,
     )?;
+    subject_roots::check_subject_roots(&descriptors, &production_catalog)?;
     function_patterns::check_function_patterns(&descriptors, &production_catalog)?;
     let mut declaration_metadata = bundle
         .declarations()

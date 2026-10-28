@@ -16,7 +16,7 @@
 //! heads define no one function and are refused at the first alternative
 //! whose head is not the first's, as is an alternative that is no
 //! application. Whether the one head is a function is the equation's own
-//! check, the same with or without `|`.
+//! check (`subject_roots`), the same with or without `|`.
 
 use std::borrow::Cow;
 

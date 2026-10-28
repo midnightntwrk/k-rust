@@ -369,6 +369,19 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the application's head.
         range: Option<Box<SourceRange>>,
     },
+    /// An equation's or a simplification's subject that is no function
+    /// application: an equation states the value of the function it defines
+    /// at its arguments, and a simplification rewrites an unevaluated
+    /// application, so a constructor, a literal or another value at the root
+    /// defines or simplifies nothing.
+    SubjectRootNotFunction {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the root and what to write instead.
+        reason: String,
+        /// Sole exact authored range of the root's head.
+        range: Option<Box<SourceRange>>,
+    },
     /// A name that a map key or a set element of a rule's or an equation's
     /// pattern reads below a function application, and that the pattern
     /// binds nowhere else: the key or element is evaluated, so the name
@@ -872,6 +885,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::SubjectRootNotFunction {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidLet {
                 range: $named_range,
                 item: $named_item,
@@ -1328,6 +1346,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidMatches { reason, .. }
             | Self::FunctionInPattern { reason, .. }
             | Self::UnboundKeyName { reason, .. }
+            | Self::SubjectRootNotFunction { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
             | Self::InvalidMlPredicate { reason, .. }
@@ -1421,6 +1440,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
             Self::FunctionInPattern { .. } => codes::analysis::FUNCTION_IN_PATTERN,
             Self::UnboundKeyName { .. } => codes::expand::UNBOUND_NAME,
+            Self::SubjectRootNotFunction { .. } => codes::analysis::SUBJECT_ROOT_NOT_FUNCTION,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,
             Self::InvalidMlPredicate { .. } => codes::analysis::INVALID_ML_PREDICATE,

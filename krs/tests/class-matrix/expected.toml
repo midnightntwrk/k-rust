@@ -106,6 +106,12 @@ doc = "a `#[k::constant]` value that is no ground constructor term"
 code = "krs::analysis::invalid-term"
 doc = "a term whose sort is not below the sort of the cell or position it fills"
 
+# A compiler class no generated case makes: the term families place their constructs in argument
+# holes, never at a subject's root.
+[class.equation-root-not-function]
+code = "krs::analysis::subject-root-not-function"
+doc = "a constructor, a literal or a builtin operation at the root of an equation's subject, which is the application of the function the equation defines: a value defines no function"
+
 [class.fragment-in-initializer]
 code = "krs::expand::initializer-fragment"
 doc = "`k::fragment!` in an initializer, which builds nested cells with their structs"
@@ -211,6 +217,12 @@ doc = "`k::rewrite!` outside the subject of a single-body `#[k::rule]` fn"
 [class.rule-term-in-initializer]
 code = "krs::expand::claim-only-term"
 doc = "`k::is!`/`k::project!`, which are rule and claim terms, in an initializer"
+
+# A compiler class no generated case makes: the term families place their constructs in argument
+# holes, never at a subject's root.
+[class.simplification-root-not-function]
+code = "krs::analysis::subject-root-not-function"
+doc = "a constructor or a literal at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify"
 
 [class.sort-test-in-pattern]
 code = "krs::analysis::invalid-sort-test"
