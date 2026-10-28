@@ -492,6 +492,8 @@ pub enum Class {
     RecordRemainderInCellsTerm,
     /// `record-remainder-in-initializer`.
     RecordRemainderInInitializer,
+    /// `record-update-in-pattern`.
+    RecordUpdateInPattern,
     /// `rewrite-outside-local-rule`.
     RewriteOutsideLocalRule,
     /// `rule-term-in-initializer`.
@@ -506,7 +508,7 @@ pub enum Class {
 
 impl Class {
     /// Every class.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::AliasInLetPattern,
         Self::AliasOutsidePattern,
         Self::AlternativesInLetPattern,
@@ -521,6 +523,7 @@ impl Class {
         Self::MlPredicateAsTerm,
         Self::RecordRemainderInCellsTerm,
         Self::RecordRemainderInInitializer,
+        Self::RecordUpdateInPattern,
         Self::RewriteOutsideLocalRule,
         Self::RuleTermInInitializer,
         Self::SortTestInPattern,
@@ -546,6 +549,7 @@ impl Class {
             Self::MlPredicateAsTerm => "ml-predicate-as-term",
             Self::RecordRemainderInCellsTerm => "record-remainder-in-cells-term",
             Self::RecordRemainderInInitializer => "record-remainder-in-initializer",
+            Self::RecordUpdateInPattern => "record-update-in-pattern",
             Self::RewriteOutsideLocalRule => "rewrite-outside-local-rule",
             Self::RuleTermInInitializer => "rule-term-in-initializer",
             Self::SortTestInPattern => "sort-test-in-pattern",
@@ -571,6 +575,7 @@ impl Class {
             Self::MlPredicateAsTerm => codes::analysis::INVALID_ML_PREDICATE,
             Self::RecordRemainderInCellsTerm => codes::analysis::INVALID_RECORD_UPDATE,
             Self::RecordRemainderInInitializer => codes::expand::INITIALIZER_RECORD_UPDATE,
+            Self::RecordUpdateInPattern => codes::syntax::INVALID_RECORD_UPDATE,
             Self::RewriteOutsideLocalRule => codes::syntax::INVALID_LOCAL_REWRITE,
             Self::SortTestInPattern => codes::analysis::INVALID_SORT_TEST,
             Self::TurbofishInInitializer => codes::expand::TURBOFISH_PLACEMENT,
@@ -624,6 +629,9 @@ impl Class {
             }
             Self::RecordRemainderInInitializer => {
                 "an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing"
+            }
+            Self::RecordUpdateInPattern => {
+                "`..base` builds a record whose unlisted fields are those of the record the alias `base` matched, which only a term a sentence builds can say; a pattern denotes no record by it, and leaves out the fields it does not constrain with `..`"
             }
             Self::RewriteOutsideLocalRule => {
                 "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body rule or the hole of a context, once and outside any local pattern"
@@ -820,7 +828,18 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 Refuse(Class::ClaimOnlyTerm)
             }
         }
-        Construct::RecordUpdate | Construct::OpenRecord => {
+        // `..base` takes the fields an update leaves out from a matched record, which a built
+        // term can do and a pattern cannot: it matches records and leaves fields out with `..`.
+        Construct::RecordUpdate => {
+            if cells_value(position) {
+                Refuse(Class::RecordRemainderInCellsTerm)
+            } else if pattern {
+                Refuse(Class::RecordUpdateInPattern)
+            } else {
+                Admit
+            }
+        }
+        Construct::OpenRecord => {
             if cells_value(position) {
                 Refuse(Class::RecordRemainderInCellsTerm)
             } else {

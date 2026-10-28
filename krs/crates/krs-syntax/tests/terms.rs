@@ -151,13 +151,22 @@ fn a_record_update_has_one_binder_as_its_base_and_lists_each_field_once() {
             "{source}: {error}"
         );
     }
-    // A Rust pattern has no base: `..` only leaves fields out.
-    assert!(
-        krs_syntax::TermExpression::parse_pattern_tokens(
-            "Ctor { field: value, ..base }".parse().unwrap(),
-        )
-        .is_err()
-    );
+    // In a pattern the update builds its node: where `..base` may stand is the position
+    // table's to say (`record-update-in-pattern`).
+    let pattern = krs_syntax::TermExpression::parse_pattern_tokens(
+        "Ctor { field: value, ..base }".parse().unwrap(),
+    )
+    .unwrap();
+    let krs_syntax::TermTree::Application(application) = pattern.tree() else {
+        panic!("a record is an application");
+    };
+    assert!(application.update().is_some());
+    // Below a pattern's root too, in a clause's subject, where syn reports a
+    // record pattern's leftover tokens only when the whole block is read.
+    <krs_syntax::RuleBlock as krs_syntax::KrsSyntax>::parse_source(
+        "for Exp; open: Swap(Pair { a: x, ..p }) => x;",
+    )
+    .unwrap();
 }
 
 /// The call a notation tree denotes, spelled with the operation paths that

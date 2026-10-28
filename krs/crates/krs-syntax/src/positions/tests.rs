@@ -234,6 +234,50 @@ fn a_let_pattern_is_one_shape_without_an_alias() {
 }
 
 #[test]
+fn a_record_update_is_built_and_an_open_record_matched() {
+    let subject = Position::root(Form::RuleFn, Slot::Subject);
+    let in_let = Position {
+        nesting: Nesting {
+            in_let_pattern: true,
+            ..Nesting::default()
+        },
+        ..Position::root(Form::RuleFn, Slot::Result)
+    };
+    let local_left = Position::root(Form::LocalRule, Slot::Subject).rewrite_left();
+    for pattern in [subject, in_let, local_left] {
+        assert_eq!(
+            admits(pattern, Construct::RecordUpdate),
+            Admission::Refuse(Class::RecordUpdateInPattern),
+            "{pattern}"
+        );
+        assert_eq!(
+            admits(pattern, Construct::OpenRecord),
+            Admission::Admit,
+            "{pattern}"
+        );
+    }
+    for built in [
+        Position::root(Form::RuleFn, Slot::Result),
+        Position::root(Form::ReadableRule, Slot::Requires),
+        Position::root(Form::LocalRule, Slot::Subject).rewrite_right(),
+    ] {
+        assert_eq!(
+            admits(built, Construct::RecordUpdate),
+            Admission::Admit,
+            "{built}"
+        );
+    }
+    // A `cells!` value names every field, whether it matches or builds.
+    assert_eq!(
+        admits(
+            Position::root(Form::CellsRule, Slot::Subject),
+            Construct::RecordUpdate
+        ),
+        Admission::Refuse(Class::RecordRemainderInCellsTerm)
+    );
+}
+
+#[test]
 fn a_single_body_rule_rewrites_only_inside_its_subject_and_once() {
     let subject = Position::root(Form::LocalRule, Slot::Subject);
     assert_eq!(admits(subject, Construct::Rewrite), Admission::Admit);

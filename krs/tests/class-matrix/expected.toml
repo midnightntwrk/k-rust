@@ -172,8 +172,6 @@ doc = "an optional (`?`) cell written without `Some(..)`/`None`: a binder, `_`, 
 code = "krs::analysis::optional-presence"
 doc = "`Some(..)`/`None` on a cell that is not `multiplicity = \"?\"`"
 
-# The position table's classes no generated case makes (`krs_syntax::positions`): the term
-# families write no record remainder in a `cells!` value or an initializer, and no turbofish.
 [class.record-remainder-in-cells-term]
 code = "krs::analysis::invalid-record-update"
 doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field"
@@ -181,6 +179,14 @@ doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .
 [class.record-remainder-in-initializer]
 code = "krs::expand::initializer-record-update"
 doc = "a record update or an open record in an initializer, which matches no record to take fields from or leave open"
+
+[class.record-update-base]
+code = "krs::analysis::invalid-record-update"
+doc = "a record update (`Ctor { f: e, ..t }`) whose base is no alias `t @ Ctor { .. }` of one record of its constructor matched by the sentence"
+
+[class.record-update-in-pattern]
+code = "krs::syntax::invalid-record-update"
+doc = "a record update (`Ctor { f: e, ..t }`) in a pattern, which denotes no record by it: `..base` is defined only in a built term, from a matched record"
 
 [class.rest-mismatch]
 code = "krs::syntax::invalid-list-notation"
@@ -518,7 +524,7 @@ at = "spelling"
 
 # constant-not-ground
 [[refuse]]
-match = 'terms/constant/value/{Cmd::Go() | Cmd::Hold(_),_,k::anonymous!(Int\, "_V"),k::fragment![crate::Frame \{ ret: 1 \}],k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),y @ Cmd::Hold(_),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}'
+match = 'terms/constant/value/{Cmd::Go() | Cmd::Hold(_),_,k::anonymous!(Int\, "_V"),k::fragment![crate::Frame \{ ret: 1 \}],k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),y @ Cmd::Hold(_),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \},Cmd::Pair \{ a: x\, ..x \}}'
 class = "constant-not-ground"
 at = "spelling"
 
@@ -836,6 +842,50 @@ at = "entry"
 match = '{claim,readable}/{result,subject}/{env,frame,job,k,pc,stack}/{None,Some(x)}'
 class = "presence-on-plain-cell"
 at = "entry"
+
+# record-remainder-in-cells-term
+[[refuse]]
+match = 'terms/cells/{result,subject}/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-remainder-in-cells-term"
+at = "spelling"
+
+# record-remainder-in-initializer
+[[refuse]]
+match = 'terms/init/{item,item-depth-2}/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-remainder-in-initializer"
+at = "spelling"
+
+# record-update-base
+[[refuse]]
+match = 'terms/{equation,rule}/{guard,result}/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-update-base"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{result,result-list-element}/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-update-base"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{claim,shorthand,simplification,sort-rule,table}/result/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-update-base"
+at = "spelling"
+
+# record-update-in-pattern
+[[refuse]]
+match = 'terms/{equation,rule,sort-rule,table}/{subject,subject-depth-2}/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-update-in-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{claim,local-rule,simplification}/subject/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-update-in-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/readable/{list-element,map-key,subject,subject-depth-2}/Cmd::Pair \{ a: x\, ..x \}'
+class = "record-update-in-pattern"
+at = "spelling"
 
 # rest-mismatch
 [[refuse]]

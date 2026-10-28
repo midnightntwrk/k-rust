@@ -121,7 +121,7 @@ pub(super) fn base(imported: bool) -> BaseText {
 
 /// The constructs: one or more spellings of each `TermTree` shape, and the literal kinds.
 /// Every spelling that reads a binder reads `x`, which each template binds.
-const CONSTRUCTS: [&str; 28] = [
+const CONSTRUCTS: [&str; 29] = [
     // Reference: a binder, and a zero-argument variant named by its path alone.
     "x",
     "Cmd::Go",
@@ -158,6 +158,8 @@ const CONSTRUCTS: [&str; 28] = [
     // A `let` pattern's alias and alternatives.
     "{ let y @ Cmd::Hold(_) = x; y }",
     "{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }",
+    // A record update, whose base `x` is no alias of a matched record.
+    "Cmd::Pair { a: x, ..x }",
 ];
 
 /// The constructs of the import axis: bare variants, which only a module-level import names.
@@ -473,7 +475,7 @@ const SLOTS: [Slot; 31] = [
     .parsed_by_rustc(),
 ];
 
-/// The term family: 31 slots × 28 constructs, and the import axis: 31 slots × 2 bare
+/// The term family: 31 slots × 29 constructs, and the import axis: 31 slots × 2 bare
 /// variants.
 pub(super) fn cases(cases: &mut Vec<Case>) {
     for slot in SLOTS {

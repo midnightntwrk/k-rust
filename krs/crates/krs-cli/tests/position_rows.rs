@@ -173,3 +173,57 @@ fn a_let_pattern_takes_no_alias_and_no_alternatives() {
     "#]]
     .assert_debug_eq(&outcomes);
 }
+
+/// `..base` builds a record from a matched one, so a pattern refuses it at the base: a `k::term!`
+/// subject, a `for Sort` clause's subject, and a readable record's computation item.
+#[test]
+fn a_record_update_in_a_pattern_is_refused_at_its_base() {
+    let outcomes = outcomes([
+        (
+            "term-subject",
+            "#[k::rule(label = \"open\")]\nfn open(k::term![ExpSyntax::Swap { e: ExpSyntax::Pair { a: x, ..p } }]: Term<Exp>) -> Term<Exp> {\n    x\n}\n",
+        ),
+        (
+            "clause-subject",
+            "k::rules! {\n    for Exp;\n    use ExpSyntax::*;\n    open: Swap { e: Pair { a: x, ..p } } => x;\n}\n",
+        ),
+        (
+            "readable-item",
+            "k::rules! {\n    for Machine;\n    use ExpSyntax::*;\n    open: { k: [Swap { e: Pair { a: x, ..p } }, ..] } => { k: [x, ..] };\n}\n",
+        ),
+    ]);
+    expect_test::expect![[r#"
+        [
+            (
+                "term-subject",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-record-update]: `..base` builds a record whose unlisted fields are those of the record the alias `base` matched, which only a term a sentence builds can say; a pattern denotes no record by it, and leaves out the fields it does not constrain with `..`; here it stands in the subject of a `#[k::rule]` fn",
+                        "--> src/lib.rs:42:65",
+                    ],
+                ),
+            ),
+            (
+                "clause-subject",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-record-update]: `..base` builds a record whose unlisted fields are those of the record the alias `base` matched, which only a term a sentence builds can say; a pattern denotes no record by it, and leaves out the fields it does not constrain with `..`; here it stands in the subject of a `k::rules!` sort rule",
+                        "--> src/lib.rs:44:36",
+                    ],
+                ),
+            ),
+            (
+                "readable-item",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-record-update]: `..base` builds a record whose unlisted fields are those of the record the alias `base` matched, which only a term a sentence builds can say; a pattern denotes no record by it, and leaves out the fields it does not constrain with `..`; here it stands in the subject of a readable rule",
+                        "--> src/lib.rs:44:42",
+                    ],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}

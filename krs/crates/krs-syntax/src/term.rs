@@ -1744,11 +1744,18 @@ pub(crate) fn parse_term_expression(input: syn::parse::ParseStream<'_>) -> syn::
 pub(crate) fn parse_term_pattern(input: syn::parse::ParseStream<'_>) -> syn::Result<Pat> {
     use syn::parse::discouraged::Speculative as _;
     let pattern = input.fork();
+    let start = pattern.cursor();
     let error = match pattern.call(Pat::parse_multi) {
-        Ok(parsed) => {
-            input.advance_to(&pattern);
-            return Ok(parsed);
-        }
+        // syn reports the tokens a pattern leaves inside a group (`..base` in
+        // a record) only when the whole parse ends: the pattern's own tokens,
+        // read alone, report them here, where the term reading is still open.
+        Ok(parsed) => match Pat::parse_multi.parse2(tokens_between(start, pattern.cursor())) {
+            Ok(_) => {
+                input.advance_to(&pattern);
+                return Ok(parsed);
+            }
+            Err(error) => error,
+        },
         Err(error) => error,
     };
     let expression = input.fork();
@@ -3477,7 +3484,7 @@ fn validate_cell_term(
             record.path.span(),
         ));
     }
-    let base = record_update_base(&record, context)?;
+    let base = record_update_base(&record)?;
     if base.is_some() {
         reject_repeated_fields(record.fields.iter().map(|field| &field.member))?;
     }
@@ -3770,7 +3777,7 @@ fn validate_record(
         ));
     }
     let (head, instance) = application_head(&record.path)?;
-    let base = record_update_base(record, context)?;
+    let base = record_update_base(record)?;
     if base.is_some() {
         reject_repeated_fields(record.fields.iter().map(|field| &field.member))?;
     }
@@ -3816,12 +3823,9 @@ fn validate_record(
     }))
 }
 
-/// The base `t` of a record update `Ctor { f: e, ..t }` (F5): one binder,
-/// in a term. A pattern's `..` is written as a pattern, never with a base.
-fn record_update_base(
-    record: &ExprStruct,
-    context: TermExpressionContext,
-) -> Result<Option<&ExprPath>, SyntaxError> {
+/// The base `t` of a record update `Ctor { f: e, ..t }` (F5): one binder.
+/// Where an update may stand is the position table's to say.
+fn record_update_base(record: &ExprStruct) -> Result<Option<&ExprPath>, SyntaxError> {
     let Some(rest) = &record.rest else {
         return Ok(None);
     };
@@ -3833,12 +3837,6 @@ fn record_update_base(
             span,
         )
     };
-    if context == TermExpressionContext::Pattern {
-        return Err(invalid(
-            "`..base` builds a record from a matched one, so it occurs in a result or condition, not in a pattern; a pattern leaves fields out with `..`",
-            rest.span(),
-        ));
-    }
     match rest.as_ref() {
         Expr::Path(path)
             if path.attrs.is_empty() && path.qself.is_none() && path.path.get_ident().is_some() =>

@@ -15,8 +15,14 @@ use krs_test_support::class_matrix::{self, Family};
 
 /// The classes of the term families' rules that no position decides: a term's sort, which the
 /// compiler judges for every admitted term (a guard that is no Bool term, a `let` whose result
-/// is none), and a name nothing binds.
-const NOT_POSITION_CLASSES: [&str; 3] = ["condition-sort", "let-sort", "unbound-name"];
+/// is none), a name nothing binds, and a record update's base, which only the sentence's
+/// matched records tell.
+const NOT_POSITION_CLASSES: [&str; 4] = [
+    "condition-sort",
+    "let-sort",
+    "record-update-base",
+    "unbound-name",
+];
 
 fn spec() -> Table {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/class-matrix/expected.toml");
@@ -145,6 +151,7 @@ fn nodes(construct: &str) -> Vec<(Construct, Inner)> {
         "Cmd::Go() | Cmd::Hold(_)" => vec![(C::Or, Hole), (C::Wildcard, Hole)],
         "k::matches!(x, Cmd::Hold(_))" => vec![(C::Matches, Hole), (C::Wildcard, MatchesPattern)],
         "{ let y = x; y }" => vec![(C::Let, Hole)],
+        "Cmd::Pair { a: x, ..x }" => vec![(C::RecordUpdate, Hole)],
         "{ let y @ Cmd::Hold(_) = x; y }" => vec![
             (C::Let, Hole),
             (C::As, LetPattern),
