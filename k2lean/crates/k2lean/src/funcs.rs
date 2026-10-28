@@ -168,12 +168,15 @@ pub fn equations_modulo_overloads(def: &Def, m: &Model) -> BTreeMap<String, Vec<
                 ex.expand_args(&e.args)
             };
             let mut k = 0;
+            let first = next.len();
             for (args, sb) in variants.into_iter().skip(1) {
                 let args: Vec<P> = args
                     .iter()
                     .map(|a| crate::overload::subst(a, &sb))
                     .collect();
-                if args == e.args || next.iter().any(|x| x.args == args) {
+                // a repeat of this equation's own pattern adds nothing; another equation's equal
+                // pattern does not make a variant redundant, as its requires can differ
+                if args == e.args || next[first..].iter().any(|x| x.args == args) {
                     continue;
                 }
                 k += 1;
