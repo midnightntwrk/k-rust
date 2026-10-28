@@ -1,1 +1,1 @@
-error[krs::syntax::invalid-expression-notation] 3:32-3:34: a method call is not a pattern: a left-hand side matches `int::gt` only as the call `int::gt(..)`
+error[krs::syntax::invalid-expression-notation] 3:32-3:34: a method call is not a pattern: a pattern writes `int::gt` as the call `int::gt(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element

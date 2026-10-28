@@ -127,7 +127,7 @@ K writes the nonlinear pattern with one variable twice, `same ( N:Nat , N:Nat )`
 
 The `k::rules!` row of the [first lesson](/tour/definitions-compile-into-tools), `red_to_green: Red() => Green();`, also has a pattern on the left and a term on the right.
 A `k::rules!` table reads every row as a rule, so a row needs no `k::term!`, and the table's `use LightSyntax::*;` line lets rows name variants without the enum path; it is an ordinary Rust import, so names the enum does not define, such as a function of the crate, resolve in the module as usual.
-Equations are separate Rust items, so they keep both.
+Equations are separate Rust items, so they keep `k::term!`, and the table's `use` does not reach them; a `use LightSyntax::*;` at the top of the module does, as it reaches every term of every item in the module.
 
 ## Traps for Rust readers
 

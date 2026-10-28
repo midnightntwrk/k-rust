@@ -189,7 +189,7 @@ A function used only by rules, never by programs, may leave out `syntax` when it
 - A `k::equations!` table looks like a `match`, but its rows are unordered too: a last row `_ => ..` does not mean "otherwise", so KRS rejects it beside other rows unless it is marked `#[k::equation(owise)]`.
 - `fn Double(n: Term<Nat>) -> Term<Nat> { .. }` is named in UpperCamelCase because applications write `Double(n)`; like the struct form, it is never called.
 - `partial` suggests `Option` or a panic. An application without a value is not a value that signals an error; there is nothing to inspect or catch, and `krs` keeps its definedness as a condition.
-- The `k::rules!` row of the first lesson named `Red()` without an enum path and without `k::term!`, because its table carries a `use LightSyntax::*;` line. Equations keep the enum path, `NatSyntax::Succ(m)`.
+- The `k::rules!` row of the first lesson named `Red()` without an enum path and without `k::term!`, because its table carries a `use LightSyntax::*;` line. That import reaches only the table's rows; this lesson's `#[k::equation]` fns are items of their own, so they keep the enum path, `NatSyntax::Succ(m)`, unless the module imports the variants with a `use NatSyntax::*;` at its top, which reaches every term of every item in it.
 
 ## Exercises
 

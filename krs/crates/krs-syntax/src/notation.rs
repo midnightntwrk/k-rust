@@ -445,6 +445,11 @@ pub(crate) fn notation_at(input: ParseStream<'_>) -> Option<SyntaxError> {
         .and_then(|expression| notation_in_pattern(&expression))
 }
 
+/// Where a pattern holds an application of an operation at all: elsewhere it is evaluated in
+/// every term the sentence is applied to, so no pattern matches it
+/// (`krs::analysis::function-in-pattern`).
+const PATTERN_APPLICATIONS: &str = "where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element";
+
 fn pattern_error(expression: &Expr) -> SyntaxError {
     let call = match denoted_call(expression) {
         Ok(Some(call)) => call,
@@ -469,7 +474,7 @@ fn pattern_error(expression: &Expr) -> SyntaxError {
             let operation = crate::path::path_text(&head.path);
             return notation_error(
                 format!(
-                    "a method call is not a pattern: a left-hand side matches `{operation}` only as the call `{operation}(..)`"
+                    "a method call is not a pattern: a pattern writes `{operation}` as the call `{operation}(..)`, {PATTERN_APPLICATIONS}"
                 ),
                 method.method.span(),
             );
@@ -478,13 +483,13 @@ fn pattern_error(expression: &Expr) -> SyntaxError {
     };
     let reason = if let Some(operator) = operator {
         format!(
-            "`{form}` is not a pattern: a left-hand side matches a builtin operation only as its call, {}",
+            "`{form}` is not a pattern: a pattern writes a builtin operation as its call, {}, {PATTERN_APPLICATIONS}",
             operator_calls(operator)
         )
     } else {
         let operation = crate::path::path_text(&head.path);
         format!(
-            "`{form}` is not a pattern: a left-hand side matches `{operation}` only as the call `{operation}(..)`"
+            "`{form}` is not a pattern: a pattern writes `{operation}` as the call `{operation}(..)`, {PATTERN_APPLICATIONS}"
         )
     };
     notation_error(reason, span)

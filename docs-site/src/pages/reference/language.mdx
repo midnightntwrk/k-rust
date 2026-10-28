@@ -36,7 +36,8 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::symbol("public::Name")]` | pinned public identity and K symbol for a sort, a standalone constructor, or a family variant; on a struct or trait place it immediately before that KRS declaration attribute, on a variant anywhere among its helpers | [Composition](/advanced/composition) |
 | `k::raw_k!("...")` | one unchecked K rule, claim, or context, allowed only with `allow-raw-k = true` | [Raw K escapes](#raw-k-escapes) |
 
-The `use` items at the top of a `k::rules!` or `k::claims!` block (`use Instruction::*;`, `use Value::{Integer, Undefined};`, as many as it needs) are Rust imports in the block's scope: rustc resolves every path of the block through them and the enclosing module, so each import supplies the names it imports and nothing else.
+The `use` items at the top of a `k::rules!` or `k::claims!` block (`use Instruction::*;`, `use Value::{Integer, Undefined};`, as many as it needs) are Rust imports in the block's scope, and each import supplies the names it imports and nothing else.
+Every path of a KRS term resolves as rustc resolves it at that place: through the block's `use` items, if any, and the enclosing module's, so a `use Instruction::*;` at the top of the module reaches every term position of every item in it, its tables, rule and equation fns, `cells!` rules, claims, and initializers alike.
 A crate function, a constructor the module imports, or a builtin operation the module renames (`use k::builtin::map::update as set;`) is written bare, without `crate::`, and an imported variant wins over a crate item of the same name, as an inner glob import shadows an outer item in Rust.
 The imports combine as Rust's do: an explicit `use Boxed::Load;` shadows the `Load` a glob brings in, and a name two globs both supply is ambiguous only where the block uses it, where rustc's error (`E0659`) names both imports.
 
@@ -85,7 +86,7 @@ rustc resolves every name in them; KRS checks the terms' sorts, a configuration 
 An initializer's `k::k![..]` and `k::map![..]` list their items and take no remainder (`..pgm`, `krs::syntax::unsupported-initializer-body` at the remainder): a configuration variable of an item sort is written as an item, `k: k::k![Cmd::Go(), pgm]`, and joining a `map!`'s items with another map is undefined when the two share a key, which only a run would find.
 Readable rule clauses can carry `#[k::rule(owise, label = "...")]` when they are an explicit fallback.
 
-`#[k::requires]` guards rules, equations, and claims with an object-language Bool as allowed by the containing sentence.
+`#[k::requires]` guards rules, equations, and claims with a term of sort Bool, written as any term is: an operation or function application, a `k::matches!` test, a variable, or the literal `true`, the condition that always holds, or `false`, the one that never does; a term of another sort is a sort error at the term (`krs::analysis::invalid-term`), and the containing sentence decides whether a matching-logic predicate may stand there.
 
 ### Rule priority
 
@@ -1160,7 +1161,7 @@ The configuration may then name only what `<NS>-CONFIGURATION` imports: an initi
 | `k::is!(Sort, t)` | K's generated sort predicate `isSort(T)`: a total Bool in results, guards, and claims, never in a pattern |
 | `k::project!(Sort, t)` | K's generated projection `{T}:>Sort` (`project:Sort`): a partial function with no value when `t` is not a `Sort`, never in a pattern |
 | `k::or_bool!(lhs, rhs, ...)` | claim-only Boolean disjunction of at least two symbolic operands, never in an initializer |
-| `k::fragment![...]` | nominal nested-cell term, anywhere a pattern or a term stands; a record of the `#[k::cell]` struct means the same ([whole nested-cell variables](#whole-nested-cell-variables)) |
+| `k::fragment![...]` | nominal nested-cell term, anywhere a pattern or a term stands, in every rule, equation, and claim form; a record of the `#[k::cell]` struct means the same ([whole nested-cell variables](#whole-nested-cell-variables)); an initializer writes the record (`krs::expand::initializer-fragment`), and a constant's value holds no cell term |
 | `k::k![...]` | K sequence, including tails/splice/erase notation |
 | `k::map![...]` | builtin Map pattern or value in a `cells!` entry or an initializer: `map![]` or `map![.Map]` is the empty map, `map![k -> v, ..]` a framed one; a term writes `map::empty()` |
 | `k::cells![...]` | explicit multi-cell rule body |
@@ -1371,7 +1372,9 @@ No form needs an import: the call each denotes names the facade's `builtin` modu
 
 All three forms are valid exactly where the call they denote is, and nowhere else: in results, `#[k::requires]` and `#[k::ensures]` conditions, initializers, claims, and the checked islands, which hand rustc the call.
 The reference projection of a rule prints the call, as in `k::builtin::bool::and_then(..)` or `k::builtin::int::sub(0, x)` for `-x`.
-No form is a Rust pattern, so a pattern rejects each, naming the form and the calls it denotes (`` `&&` is not a pattern: a left-hand side matches `bool::and_then` only as the call `bool::and_then(..)` ``, `` `+` is not a pattern: a left-hand side matches a builtin operation only as its call, `int::add(..)`, `string::concat(..)`, or `float::add(..)` ``); an operand of a compiler-owned macro such as `k::or_bool!` is a term even on a left-hand side, and takes the forms exactly as it takes the call.
+No form is a Rust pattern, so a pattern rejects each, naming the form and the calls it denotes (`` `&&` is not a pattern: a pattern writes `bool::and_then` as the call `bool::and_then(..)` ``, `` `+` is not a pattern: a pattern writes a builtin operation as its call, `int::add(..)`, `string::concat(..)`, or `float::add(..)` ``).
+The call itself stands in a pattern only where an application may: in a simplification's or a claim's subject, and in a collection's key, value, or element; below the root of a rule's or an equation's pattern it is evaluated in every term the sentence is applied to, so it is refused there ([functions in patterns](#functions-in-patterns)).
+An operand of a compiler-owned macro such as `k::or_bool!` is a term even on a left-hand side, and takes the forms exactly as it takes the call.
 A method call without a domain turbofish (``write `lt::<Int>`, `lt::<String>`, or `lt::<Float>` ``), with a turbofish that holds anything but one domain name, with a domain outside the table, with an operation its module does not define, or with an operation that takes no operand (``write the call `bytes::empty()` ``) is an error (`krs::syntax::invalid-expression-notation`).
 
 Function hooks bind a production to backend code, and are a separate typed catalog selected in `#[k::function(total, ..., hook = krypto::sha256_raw)]`: a checked Rust path whose signature KRS checks against the hook.

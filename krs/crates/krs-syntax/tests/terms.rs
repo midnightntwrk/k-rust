@@ -333,15 +333,15 @@ fn a_left_hand_side_rejects_notation_by_name() {
     for (source, expected) in [
         (
             "fn r(k::term![Check(a && b)]: Term<Bool>) -> Term<Bool> { a }",
-            "`&&` is not a pattern: a left-hand side matches `bool::and_then` only as the call `bool::and_then(..)`",
+            "`&&` is not a pattern: a pattern writes `bool::and_then` as the call `bool::and_then(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
         ),
         (
             "fn r(k::term![Check(a || b)]: Term<Bool>) -> Term<Bool> { a }",
-            "`||` is not a pattern: a left-hand side matches `bool::or_else` only as the call `bool::or_else(..)`",
+            "`||` is not a pattern: a pattern writes `bool::or_else` as the call `bool::or_else(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
         ),
         (
             "fn r(k::term![Check(a.lt::<Int>(b))]: Term<Bool>) -> Term<Bool> { a }",
-            "a method call is not a pattern: a left-hand side matches `int::lt` only as the call `int::lt(..)`",
+            "a method call is not a pattern: a pattern writes `int::lt` as the call `int::lt(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
         ),
         (
             "fn r(k::term![Check(a.lt(b))]: Term<Bool>) -> Term<Bool> { a }",
@@ -441,12 +441,12 @@ fn readable_patterns_name_notation_where_a_pattern_parser_stops() {
         ),
         (
             "for Exp; check: Check(n.lt::<Int>(m)) => n;",
-            "a method call is not a pattern: a left-hand side matches `int::lt`",
+            "a method call is not a pattern: a pattern writes `int::lt`",
         ),
         ("for Exp; check: n || m => n;", "`||` is not a pattern"),
         (
             "for Machine; burn: { fuel: f.add::<Int>(1), acc: a } => { acc: a };",
-            "a method call is not a pattern: a left-hand side matches `int::add`",
+            "a method call is not a pattern: a pattern writes `int::add`",
         ),
     ] {
         let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
@@ -545,7 +545,7 @@ fn a_left_hand_side_rejects_operators_naming_their_calls() {
     for (source, expected) in [
         (
             "fn r(k::term![Check(n + 1)]: Term<Bool>) -> Term<Bool> { n }",
-            "`+` is not a pattern: a left-hand side matches a builtin operation only as its call, `int::add(..)`, `string::concat(..)`, or `float::add(..)`",
+            "`+` is not a pattern: a pattern writes a builtin operation as its call, `int::add(..)`, `string::concat(..)`, or `float::add(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
         ),
         (
             "fn r(k::term![Check(a == b)]: Term<Bool>) -> Term<Bool> { a }",
@@ -553,7 +553,7 @@ fn a_left_hand_side_rejects_operators_naming_their_calls() {
         ),
         (
             "fn r(k::term![Check(-n)]: Term<Bool>) -> Term<Bool> { n }",
-            "`-` is not a pattern: a left-hand side matches a builtin operation only as its call, `int::sub(0, ..)` or `float::neg(..)`",
+            "`-` is not a pattern: a pattern writes a builtin operation as its call, `int::sub(0, ..)` or `float::neg(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a collection's key, value or element",
         ),
         (
             "fn r(k::term![Check(!b)]: Term<Bool>) -> Term<Bool> { b }",
