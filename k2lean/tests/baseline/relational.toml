@@ -40,7 +40,7 @@ preserve = []
 
 [demo.ImpUnroll]
 tier = "light"
-guarded = 327
+guarded = 320
 preserve = []
 
 [sources]
@@ -52,10 +52,10 @@ preserve = []
 "demos/ImpMut/correspondence.toml" = { tier = "light", sha256 = "9dc529cbcde609dab9109f23f750bfed4acae18f51628905b4fdf5c6ee60acec" }
 "demos/ImpRel/ImpRel/Bisim.lean" = { tier = "light", sha256 = "427388f497b4699fe6eeb9d5b65c776b31a853a580762fdc0258179d6ebde7ad" }
 "demos/ImpRel/correspondence.toml" = { tier = "light", sha256 = "3dc0d320c634fe05568a639cf181b83f224a8c2fe0f3d819f85bd34f193e6397" }
-"demos/ImpUnroll/ImpUnroll/Refine.lean" = { tier = "light", sha256 = "65db16b3a7f4fe5bd8a6f844bd3015d62d27d12fd037ec524096d0bd6f3b8575" }
+"demos/ImpUnroll/ImpUnroll/Refine.lean" = { tier = "light", sha256 = "8b24c8a51c5bd7a692cb37c7a40f114dde8824fb961d9cf6a302fa6f778cc368" }
 "demos/ImpUnroll/ImpUnroll/Tr.lean" = { tier = "light", sha256 = "b87eb23074f76caf78b69453068644dd4c10629a23fb61f16507232d3ab8ef1c" }
 "demos/ImpUnroll/correspondence.toml" = { tier = "light", sha256 = "d7ad4a218b46827ec050dcf32d699b82beec603d33a09e64d53a0402e2ad9c2a" }
-"demos/ImpUnroll/refine.toml" = { tier = "light", sha256 = "105780b13186c7e6662680806ad1d65bd10c79658950b0b69670ae4cfe426474" }
+"demos/ImpUnroll/refine.toml" = { tier = "light", sha256 = "f948355663a86ad44e55a51b42b75d6ec9bb4418a98196b2d4cda7f6f944d6b1" }
 "demos/PeanoRel/PeanoRel/Bisim.lean" = { tier = "light", sha256 = "d043e99d82c476b5311e61b09153980b8bdf86a664ac251dc8d843b059f6d8a9" }
 "demos/PeanoRel/correspondence.toml" = { tier = "light", sha256 = "ec93744c1bb8c5205b1bc62647c8da15c829ace831a2906c49f4c7f6e9254cf8" }
 "demos/PickRel/PickRel/Bisim.lean" = { tier = "light", sha256 = "fbe6ba7d9239364b24e1b3a5c5413a161f6fa879ee9ab0239dfdfef686883cf2" }
