@@ -480,6 +480,30 @@ elab "#k2l_assert_axioms " ids:ident* : command => do
       throwError m!"{n} depends on disallowed axioms {bad}"
     logInfo m!"{n} depends on axioms: {axs}"
 
+/-- `#k2l_refuted X`: fail unless `X.refuted` proves the negation of the obligation `X.statement`,
+and depends only on `propext`, `Quot.sound` and `Classical.choice`. The obligation a library
+states is the statement's closure over its own binders (its `[Hooks]` instance, when it reads the
+library's parameters: the statement for every implementation), so the refutation's type must be
+`¬ X.statement`, or `¬ ∀ [Hooks], X.statement` (written `omit [Hooks] in`; inside the section
+`¬ X.statement` would be quantified over every instance, the negation of a weaker claim).
+Compared structurally, not up to definitional unfolding: a refutation names the generated
+statement instead of restating it. -/
+elab "#k2l_refuted " id:ident : command => do
+  let sn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo (mkIdent (id.getId ++ `statement))
+  let rn := sn.getPrefix ++ `refuted
+  let s ← getConstInfo sn
+  let some r := (← getEnv).find? rn | throwError m!"{rn}: no such theorem"
+  let expected ← liftTermElabM <| Meta.forallTelescope s.type fun xs _ =>
+    Meta.mkForallFVars xs (mkAppN (mkConst s.name (s.levelParams.map mkLevelParam)) xs)
+  unless r.type == mkNot expected do
+    throwError m!"{rn} : {r.type}, but the refutation of {sn} is {mkNot expected}"
+  let axs ← liftCoreM <| Lean.collectAxioms rn
+  let allowed := [``propext, ``Quot.sound, ``Classical.choice]
+  let bad := axs.filter (fun a => !allowed.contains a)
+  unless bad.isEmpty do
+    throwError m!"{rn} depends on disallowed axioms {bad}"
+  logInfo m!"{rn} refutes {sn}; depends on axioms: {axs}"
+
 end KPrelude
 
 namespace KPrelude
