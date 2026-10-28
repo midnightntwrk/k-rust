@@ -577,39 +577,112 @@ namespace KPrelude
 
 /-! ## The key of a thread (`confluence --threads`)
 
-What a rule's left-hand side fixes of the first item of a thread's `<k>`: nothing, its emptiness,
-or the injection of the item into `KItem` and the constructor of the injected value, each when
-known. Two rules whose keys are disjoint never step one thread from one configuration. -/
+What a rule's left-hand side fixes of the first items of a thread's `<k>`: nothing, its emptiness,
+the injection of the first item into `KItem` and the constructor of the injected value, or the
+same of the first two items (a cooling rule's first item is the value, a variable, and its second
+the freezer), each when known. Two rules whose keys are disjoint never step one thread from one
+configuration. -/
 
+/-- What a key reads of a thread's `<k>`: its number of items up to 2, and `(injection,
+constructor)` of the item at a position below it. `item` is a function so that a key that does not
+read an item (a variable on a rule's left-hand side) never computes it, and the generated `len` is
+`n + 1` past the first item, so that it is not `0` whatever the rest of `<k>` is. -/
+structure KeyView where
+  len : Nat
+  item : Nat → String × String
+  /-- Whether the first item is a `KResult` (a value: what a cooling rule's first item is). -/
+  kres : Bool
+
+/-- `item i o r`: the first item has the injection `i`, the constructor `o` and is a `KResult`
+exactly when `r`, each when given; `item2` the same of the first item, and the injection and the
+constructor of the second. -/
 inductive KeyPat where
   | any
   | dotk
-  | item (inj own : Option String)
+  | item (inj own : Option String) (kres : Option Bool)
+  | item2 (inj own : Option String) (kres : Option Bool) (inj₂ own₂ : Option String)
   deriving DecidableEq
 
-/-- `(injection, constructor)` of a thread's first item, `("dotk", "")` when `<k>` is empty. -/
-def KeyPat.matches : KeyPat → String × String → Bool
+/-- Whether an item `x` has the injection `i` and the constructor `o`, each when given. -/
+def KeyPat.itemOK (i o : Option String) (x : String × String) : Bool :=
+  i.all (· == x.1) && o.all (· == x.2)
+
+/-- `itemOK` of the first item, and its `KResult` flag. -/
+def KeyPat.firstOK (i o : Option String) (r : Option Bool) (v : KeyView) : Bool :=
+  KeyPat.itemOK i o (v.item 0) && r.all (· == v.kres)
+
+def KeyPat.matches : KeyPat → KeyView → Bool
   | .any, _ => true
-  | .dotk, x => x.1 == "dotk"
-  | .item i o, x => x.1 != "dotk" && (i.all (· == x.1)) && (o.all (· == x.2))
+  | .dotk, v => v.len == 0
+  | .item i o r, v => v.len != 0 && KeyPat.firstOK i o r v
+  | .item2 i o r i₂ o₂, v => v.len == 2 && KeyPat.firstOK i o r v && KeyPat.itemOK i₂ o₂ (v.item 1)
+
+/-- Two descriptions of one item that no item satisfies: different injections, or one injection
+and different constructors. -/
+def KeyPat.conf : Option String → Option String → Option String → Option String → Bool
+  | some i₁, o₁, some i₂, o₂ =>
+      i₁ != i₂ || (match o₁, o₂ with | some a, some b => a != b | _, _ => false)
+  | _, _, _, _ => false
+
+theorem KeyPat.conf_sound {i₁ o₁ i₂ o₂ : Option String} {x : String × String}
+    (h : KeyPat.conf i₁ o₁ i₂ o₂ = true) (h₁ : KeyPat.itemOK i₁ o₁ x = true)
+    (h₂ : KeyPat.itemOK i₂ o₂ x = true) : False := by
+  match i₁, i₂, h with
+  | some a, some b, h =>
+    simp only [KeyPat.itemOK, Bool.and_eq_true, Option.all_some, beq_iff_eq] at h₁ h₂
+    simp only [KeyPat.conf, Bool.or_eq_true, bne_iff_ne, ne_eq] at h
+    rcases h with h | h
+    · exact h (h₁.1.trans h₂.1.symm)
+    · cases o₁ <;> cases o₂ <;> simp_all [Option.all]
+
+/-- Two descriptions of the first item that no item satisfies: `conf`, or opposite `KResult`
+flags. -/
+def KeyPat.conf1 (i₁ o₁ : Option String) (r₁ : Option Bool) (i₂ o₂ : Option String)
+    (r₂ : Option Bool) : Bool :=
+  KeyPat.conf i₁ o₁ i₂ o₂ || (match r₁, r₂ with | some a, some b => a != b | _, _ => false)
+
+theorem KeyPat.conf1_sound {i₁ o₁ i₂ o₂ : Option String} {r₁ r₂ : Option Bool} {v : KeyView}
+    (h : KeyPat.conf1 i₁ o₁ r₁ i₂ o₂ r₂ = true) (h₁ : KeyPat.firstOK i₁ o₁ r₁ v = true)
+    (h₂ : KeyPat.firstOK i₂ o₂ r₂ v = true) : False := by
+  simp only [KeyPat.firstOK, Bool.and_eq_true] at h₁ h₂
+  simp only [KeyPat.conf1, Bool.or_eq_true] at h
+  rcases h with h | h
+  · exact KeyPat.conf_sound h h₁.1 h₂.1
+  · cases r₁ <;> cases r₂ <;> simp_all [Option.all]
 
 def KeyPat.disj : KeyPat → KeyPat → Bool
-  | .dotk, .item _ _ => true
-  | .item _ _, .dotk => true
-  | .item (some i₁) o₁, .item (some i₂) o₂ =>
-      i₁ != i₂ || (match o₁, o₂ with | some a, some b => a != b | _, _ => false)
+  | .dotk, .item _ _ _ => true
+  | .item _ _ _, .dotk => true
+  | .dotk, .item2 _ _ _ _ _ => true
+  | .item2 _ _ _ _ _, .dotk => true
+  | .item i₁ o₁ r₁, .item i₂ o₂ r₂ => KeyPat.conf1 i₁ o₁ r₁ i₂ o₂ r₂
+  | .item i₁ o₁ r₁, .item2 i₂ o₂ r₂ _ _ => KeyPat.conf1 i₁ o₁ r₁ i₂ o₂ r₂
+  | .item2 i₁ o₁ r₁ _ _, .item i₂ o₂ r₂ => KeyPat.conf1 i₁ o₁ r₁ i₂ o₂ r₂
+  | .item2 i₁ o₁ r₁ j₁ p₁, .item2 i₂ o₂ r₂ j₂ p₂ =>
+      KeyPat.conf1 i₁ o₁ r₁ i₂ o₂ r₂ || KeyPat.conf j₁ p₁ j₂ p₂
   | _, _ => false
 
-theorem KeyPat.disj_sound {p q : KeyPat} {x : String × String} (h : p.disj q = true)
-    (hp : p.matches x = true) (hq : q.matches x = true) : False := by
+theorem KeyPat.disj_sound {p q : KeyPat} {v : KeyView} (h : p.disj q = true)
+    (hp : p.matches v = true) (hq : q.matches v = true) : False := by
   match p, q, h, hp, hq with
-  | .dotk, .item _ _, _, hp, hq => simp_all [KeyPat.matches]
-  | .item _ _, .dotk, _, hp, hq => simp_all [KeyPat.matches]
-  | .item (some i₁) o₁, .item (some i₂) o₂, h, hp, hq =>
-    simp only [KeyPat.matches, Bool.and_eq_true, bne_iff_ne, ne_eq, Option.all_some, beq_iff_eq] at hp hq
-    simp only [KeyPat.disj, Bool.or_eq_true, bne_iff_ne, ne_eq] at h
+  | .dotk, .item _ _ _, _, hp, hq => simp_all [KeyPat.matches]
+  | .item _ _ _, .dotk, _, hp, hq => simp_all [KeyPat.matches]
+  | .dotk, .item2 _ _ _ _ _, _, hp, hq => simp_all [KeyPat.matches]
+  | .item2 _ _ _ _ _, .dotk, _, hp, hq => simp_all [KeyPat.matches]
+  | .item _ _ _, .item _ _ _, h, hp, hq =>
+    simp only [KeyPat.matches, Bool.and_eq_true] at hp hq
+    exact KeyPat.conf1_sound h hp.2 hq.2
+  | .item _ _ _, .item2 _ _ _ _ _, h, hp, hq =>
+    simp only [KeyPat.matches, Bool.and_eq_true] at hp hq
+    exact KeyPat.conf1_sound h hp.2 hq.1.2
+  | .item2 _ _ _ _ _, .item _ _ _, h, hp, hq =>
+    simp only [KeyPat.matches, Bool.and_eq_true] at hp hq
+    exact KeyPat.conf1_sound h hp.1.2 hq.2
+  | .item2 _ _ _ _ _, .item2 _ _ _ _ _, h, hp, hq =>
+    simp only [KeyPat.matches, Bool.and_eq_true] at hp hq
+    simp only [KeyPat.disj, Bool.or_eq_true] at h
     rcases h with h | h
-    · exact h (hp.1.2.trans hq.1.2.symm)
-    · cases o₁ <;> cases o₂ <;> simp_all [Option.all]
+    · exact KeyPat.conf1_sound h hp.1.2 hq.1.2
+    · exact KeyPat.conf_sound h hp.2 hq.2
 
 end KPrelude

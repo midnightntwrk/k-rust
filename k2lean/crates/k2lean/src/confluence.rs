@@ -884,7 +884,7 @@ mod views {
     use crate::model::Model;
     use crate::names;
     use crate::rules::{self, Rule};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::fmt::Write as _;
 
     /// A leaf cell of the configuration: its label, its sort, and its field name.
@@ -963,7 +963,47 @@ mod views {
     pub(super) enum KeyP {
         Any,
         Dotk,
-        Item(Option<String>, Option<String>),
+        /// The first item: injection, constructor, whether it is a `KResult`.
+        Item(Option<String>, Option<String>, Option<bool>),
+        /// The first two items (a cooling rule: the value, then its freezer).
+        Item2(
+            Option<String>,
+            Option<String>,
+            Option<bool>,
+            Option<String>,
+            Option<String>,
+        ),
+    }
+
+    fn optb_lean(x: &Option<bool>) -> String {
+        x.map(|b| format!("(some {b})")).unwrap_or("none".into())
+    }
+
+    /// `KeyPat.conf1`: `conf`, or opposite `KResult` flags.
+    fn conf1(
+        (i1, o1, r1): (&Option<String>, &Option<String>, &Option<bool>),
+        (i2, o2, r2): (&Option<String>, &Option<String>, &Option<bool>),
+    ) -> bool {
+        conf(i1, o1, i2, o2) || matches!((r1, r2), (Some(a), Some(b)) if a != b)
+    }
+
+    fn opt_lean(x: &Option<String>) -> String {
+        x.as_ref()
+            .map(|x| format!("(some {x:?})"))
+            .unwrap_or("none".into())
+    }
+
+    /// `KeyPat.conf`: no item has both descriptions.
+    fn conf(
+        i1: &Option<String>,
+        o1: &Option<String>,
+        i2: &Option<String>,
+        o2: &Option<String>,
+    ) -> bool {
+        match (i1, i2) {
+            (Some(a), Some(b)) => a != b || matches!((o1, o2), (Some(x), Some(y)) if x != y),
+            _ => false,
+        }
     }
 
     impl KeyP {
@@ -971,23 +1011,34 @@ mod views {
             match self {
                 KeyP::Any => "KeyPat.any".into(),
                 KeyP::Dotk => "KeyPat.dotk".into(),
-                KeyP::Item(i, o) => format!(
-                    "KeyPat.item {} {}",
-                    i.as_ref()
-                        .map(|x| format!("(some {x:?})"))
-                        .unwrap_or("none".into()),
-                    o.as_ref()
-                        .map(|x| format!("(some {x:?})"))
-                        .unwrap_or("none".into())
+                KeyP::Item(i, o, r) => format!(
+                    "KeyPat.item {} {} {}",
+                    opt_lean(i),
+                    opt_lean(o),
+                    optb_lean(r)
+                ),
+                KeyP::Item2(i, o, r, j, p) => format!(
+                    "KeyPat.item2 {} {} {} {} {}",
+                    opt_lean(i),
+                    opt_lean(o),
+                    optb_lean(r),
+                    opt_lean(j),
+                    opt_lean(p)
                 ),
             }
         }
         /// `KeyPat.disj`.
         fn disj(&self, other: &KeyP) -> bool {
             match (self, other) {
-                (KeyP::Dotk, KeyP::Item(..)) | (KeyP::Item(..), KeyP::Dotk) => true,
-                (KeyP::Item(Some(i1), o1), KeyP::Item(Some(i2), o2)) => {
-                    i1 != i2 || matches!((o1, o2), (Some(a), Some(b)) if a != b)
+                (KeyP::Dotk, KeyP::Item(..) | KeyP::Item2(..))
+                | (KeyP::Item(..) | KeyP::Item2(..), KeyP::Dotk) => true,
+                (KeyP::Item(i1, o1, r1), KeyP::Item(i2, o2, r2))
+                | (KeyP::Item(i1, o1, r1), KeyP::Item2(i2, o2, r2, _, _))
+                | (KeyP::Item2(i1, o1, r1, _, _), KeyP::Item(i2, o2, r2)) => {
+                    conf1((i1, o1, r1), (i2, o2, r2))
+                }
+                (KeyP::Item2(i1, o1, r1, j1, p1), KeyP::Item2(i2, o2, r2, j2, p2)) => {
+                    conf1((i1, o1, r1), (i2, o2, r2)) || conf(j1, p1, j2, p2)
                 }
                 _ => false,
             }
@@ -995,8 +1046,10 @@ mod views {
     }
 
     /// The key of a thread rule, read off its map hypothesis: the first item of the thread's `<k>`
-    /// (its injection, and the constructor under it when that is an application).
-    fn key_pat(hyp: &str) -> KeyP {
+    /// (its injection, and the constructor under it when known, and then whether it is a `KResult`:
+    /// `kres_of` the injected sort), or, when the first item is a variable (a cooling rule's value),
+    /// the first two, with the first a `KResult` when the rule requires it (`kres_req`).
+    fn key_pat(hyp: &str, kres_of: &dyn Fn(&str) -> Option<bool>, kres_req: bool) -> KeyP {
         let Some(i) = hyp.find("«<k>» ") else {
             return KeyP::Any;
         };
@@ -1007,23 +1060,123 @@ mod views {
         let Some(rest) = rest.strip_prefix("(SortK.kseq ") else {
             return KeyP::Any;
         };
-        let Some(rest) = rest.strip_prefix('(') else {
+        let n1 = term_end(rest);
+        let (i1, o1) = item_pat(&rest[..n1]);
+        if let Some(inj) = &i1 {
+            let r = o1.as_ref().and_then(|_| kres_of(inj));
+            return KeyP::Item(i1, o1, r);
+        }
+        let Some(rest) = rest[n1..].strip_prefix(" (SortK.kseq ") else {
             return KeyP::Any;
+        };
+        let (i2, o2) = item_pat(&rest[..term_end(rest)]);
+        if i2.is_none() {
+            return KeyP::Any;
+        }
+        KeyP::Item2(None, None, kres_req.then_some(true), i2, o2)
+    }
+
+    #[cfg(test)]
+    mod key_tests {
+        use super::*;
+
+        #[test]
+        fn keys_read_the_first_item_or_the_freezer_after_a_value() {
+            let kres = |inj: &str| Some(inj == "inj_Val");
+            // heating: the operator, not a value
+            let h = "MapHook.concat (MapHook.element k (SortThreadCell.«<thread>» k (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Exp (SortExp.Own.«_(_)» E Es)) DotVar4)) G)) D = some m";
+            assert!(
+                key_pat(h, &kres, false)
+                    == KeyP::Item(Some("inj_Exp".into()), Some("«_(_)»".into()), Some(false))
+            );
+            // cooling: a value, then its freezer (a constant one too)
+            let c = |f: &str| {
+                format!(
+                    "(SortThreadCell.«<thread>» k (SortKCell.«<k>» (SortK.kseq y_2 (SortK.kseq (SortKItem.inj_KItem {f}) DotVar4)) G)"
+                )
+            };
+            let k1 = key_pat(
+                &c("(SortKItem.Own.«#freezer_+_0_» (SortK.kseq y_3 SortK.dotk))"),
+                &kres,
+                true,
+            );
+            let k2 = key_pat(&c("SortKItem.Own.«#freezerreturn_;_»"), &kres, true);
+            assert!(
+                k1 == KeyP::Item2(
+                    None,
+                    None,
+                    Some(true),
+                    Some("inj_KItem".into()),
+                    Some("«#freezer_+_0_»".into())
+                )
+            );
+            assert!(
+                k2 == KeyP::Item2(
+                    None,
+                    None,
+                    Some(true),
+                    Some("inj_KItem".into()),
+                    Some("«#freezerreturn_;_»".into())
+                )
+            );
+            // two freezers are disjoint, and a value from an operator
+            let heat = key_pat(h, &kres, false);
+            assert!(k1.disj(&k2) && k1.disj(&heat) && !k1.disj(&k1));
+            // `<k>` empty
+            assert!(key_pat("(SortKCell.«<k>» SortK.dotk)", &kres, false) == KeyP::Dotk);
+        }
+    }
+
+    /// The length of the first term of `s`: a parenthesized application, or a name (`«…»` quoted
+    /// names may hold parentheses and spaces).
+    fn term_end(s: &str) -> usize {
+        let (mut depth, mut quoted) = (0i32, false);
+        for (k, ch) in s.char_indices() {
+            match ch {
+                '«' => quoted = true,
+                '»' => quoted = false,
+                _ if quoted => {}
+                '(' => depth += 1,
+                ')' if depth == 0 => return k,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return k + 1;
+                    }
+                }
+                ' ' if depth == 0 => return k,
+                _ => {}
+            }
+        }
+        s.len()
+    }
+
+    /// The injection into `KItem` of an item of `<k>` and the constructor of the injected value,
+    /// each when the item's text fixes it (`(SortKItem.inj_Exp (SortExp.Own.«_+_» …))`, `(SortKItem.inj_KItem
+    /// SortKItem.Own.«#freezer…»)`); nothing for a variable.
+    fn item_pat(item: &str) -> (Option<String>, Option<String>) {
+        let Some(rest) = item.strip_prefix('(') else {
+            return (None, None);
         };
         let head: String = rest
             .chars()
             .take_while(|c| *c != ' ' && *c != ')')
             .collect();
         let Some(inj) = head.strip_prefix("SortKItem.") else {
-            return KeyP::Any;
+            return (None, None);
         };
         let after = &rest[head.len()..];
-        let own = after.strip_prefix(" (").and_then(|r| {
+        let own = if let Some(r) = after.strip_prefix(" (") {
             let o = own_name(r);
             (!o.is_empty() && !o.chars().next().unwrap().is_lowercase() || r.starts_with("Sort"))
                 .then_some(o)
-        });
-        KeyP::Item(Some(inj.to_string()), own)
+        } else if let Some(r) = after.strip_prefix(' ') {
+            // a constant: a constructor without arguments
+            r.starts_with("Sort").then(|| own_name(r))
+        } else {
+            None
+        };
+        (Some(inj.to_string()), own)
     }
 
     /// The constructor name heading `r`: `SortExp.Own.«_+_» …` → `«_+_»`, `SortExp.Own.f x` → `f`.
@@ -1254,7 +1407,8 @@ mod views {
                 }
             })
             .collect();
-        writeln!(o, "\n/-- The first item of a thread's `<k>`: its injection into `KItem` and the constructor of the\ninjected value (`(\"dotk\", \"\")` when `<k>` is empty). -/\ndef tkey (t : {vt}) : String × String :=\n  match t with\n  | {name}.{} {} =>\n    match kc with\n    | {name}.{} k =>\n      match k with\n      | .dotk => (\"dotk\", \"\")\n      | .kseq it _ =>\n        match it with\n{own_arms}",
+        writeln!(o, "\n/-- An item of a thread's `<k>`: its injection into `KItem` and the constructor of the injected\nvalue. -/\ndef kitem (it : {name}.SortKItem) : String × String :=\n        match it with\n{own_arms}").unwrap();
+        writeln!(o, "/-- What a key reads of a thread's `<k>` (`KeyView`): its number of items up to 2, and each\nitem (`(\"dotk\", \"\")` past the end). -/\ndef tkey (t : {vt}) : KeyView :=\n  match t with\n  | {name}.{} {} =>\n    match kc with\n    | {name}.{} k =>\n      ⟨match k with | .dotk => 0 | .kseq _ r => (match r with | .dotk => 0 | .kseq _ _ => 1) + 1,\n       fun i => match k with\n         | .dotk => (\"dotk\", \"\")\n         | .kseq it r =>\n           match i with\n           | 0 => kitem it\n           | _ => match r with\n             | .dotk => (\"dotk\", \"\")\n             | .kseq it₂ _ => kitem it₂,\n       match k with | .dotk => false | .kseq it _ => {name}.K.isKResult (.kseq it .dotk)⟩\n",
             lib.m.ctor_path(&vc), vargs.join(" "), lib.m.ctor_path(&kctor)).unwrap();
         // the rules: their kind, rank, class and key
         let field_of = |key: &str| -> Option<usize> {
@@ -1272,6 +1426,17 @@ mod views {
         let mut touches: Vec<Vec<Touch>> = vec![];
         let mut keys: Vec<String> = vec![];
         let mut keyps: Vec<KeyP> = vec![];
+        // whether an item injected by `inj_S` with a constructor of `S` is a `KResult`: `S` is
+        // one of `KResult`'s leaves (`None` without a sort `KResult`)
+        let kres_leaves: Option<BTreeSet<String>> = lib
+            .m
+            .sorts
+            .contains_key("SortKResult")
+            .then(|| lib.m.sort("SortKResult").leaves.iter().cloned().collect());
+        let kres_of = |inj: &str| -> Option<bool> {
+            let sort = format!("Sort{}", inj.strip_prefix("inj_")?);
+            kres_leaves.as_ref().map(|ls| ls.contains(&sort))
+        };
         for (ri, r) in lib.rules.iter().enumerate() {
             let mut touch = vec![Touch::None; n];
             let mut unknown = false;
@@ -1304,7 +1469,12 @@ mod views {
             let kp = match &roles[ri] {
                 MapRole::Update { hm, .. } if kind == Kind::Thread => {
                     let p = &r.step.hyps.iter().find(|(h, _)| h == hm).unwrap().1;
-                    key_pat(p)
+                    // a cooling rule requires its first item to be a `KResult` (`isKResult`, not
+                    // under a negation, as a heating rule's)
+                    let kres_req = r.step.hyps.iter().any(|(_, h)| {
+                        h.contains("K.isKResult") && !h.contains("BoolHook.not (K.isKResult")
+                    });
+                    key_pat(p, &kres_of, kres_req)
                 }
                 _ => KeyP::Any,
             };
@@ -1757,8 +1927,31 @@ mod views {
                             write!(named, " ({h} := {h})").unwrap();
                         }
                     }
+                    // the projections the rule's hypotheses take, as equations
+                    // (`proj_eq_some_S_T`), so that a cooling rule's `KResult` hypothesis, stated
+                    // on the projected value, reads as one on its first item
+                    let mut projs = BTreeSet::new();
+                    for (_, h) in &r.step.hyps {
+                        for (k, _) in h.match_indices("proj_") {
+                            let n: String = h[k + "proj_".len()..]
+                                .chars()
+                                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                                .collect();
+                            if !n.is_empty() && !n.starts_with("eq") {
+                                projs.insert(format!("{name}.proj_eq_some_{n}"));
+                            }
+                        }
+                    }
+                    let proj_simp = if projs.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            "(try simp only [{}] at *); (try subst_vars); ",
+                            projs.into_iter().collect::<Vec<_>>().join(", ")
+                        )
+                    };
                     format!(
-                        "  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, Rule.key, InClass]\n  refine ⟨_, _, _, {chlit}, ⟨_, _, _, ⟨{unders}⟩, rfl, {hm}, {hr}, ⟨{}⟩, rfl⟩, ?_, {inclass}, rfl⟩\n  rintro d d' ⟨_, _, _, ⟨{}⟩, rfl, hm', hr', hpre, rfl⟩ hpri'\n{}  exact {name}.Step.{l} {named} ..",
+                        "  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, Rule.key, InClass]\n  refine ⟨_, _, _, {chlit}, ⟨_, _, _, ⟨{unders}⟩, rfl, {hm}, {hr}, ⟨{}⟩, rfl⟩, ?_, {inclass}, (by first | rfl | ({proj_simp}simp only [KeyPat.matches, KeyPat.firstOK, KeyPat.itemOK, tkey, kitem, Option.all, KPrelude.BoolHook.and, Bool.true_and, Bool.and_eq_true, beq_iff_eq] at *; simp_all))⟩\n  rintro d d' ⟨_, _, _, ⟨{}⟩, rfl, hm', hr', hpre, rfl⟩ hpri'\n{}  exact {name}.Step.{l} {named} ..",
                         pres.join(", "),
                         vars.join(", "),
                         cases_pre.replace("    cases", "  cases")
