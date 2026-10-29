@@ -316,7 +316,7 @@ fn record_initializer(k: &str, env: &str, stack: &str) -> String {
 /// `Tag { b: v }` is the term `Tag(v)` is: a record constructor is an
 /// initializer term below a cell root, in a `k::map!` value, and as a
 /// `k::k!` item, where a rule result may now write one too. Every field is
-/// named; a record update or an open record is rejected.
+/// named, or taken from a base with `..base`; an open record is rejected.
 #[test]
 fn initializer_terms_take_record_syntax() {
     let target = shared_fixture_target();
@@ -367,9 +367,9 @@ fn initializer_terms_take_record_syntax() {
             "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-INIT-TERMS::Machine (configuration): named application lacks field \"v\"",
         ),
         (
-            "update",
-            "k::map![n -> ValueSyntax::Boxed { v: 1, ..x }]",
-            "error[krs::expand::initializer-record-update]: an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing; here it stands in the value of an initializer",
+            "open",
+            "k::map![n -> ValueSyntax::Boxed { .. }]",
+            "error[krs::expand::initializer-record-update]: `..` leaves a record's other fields open, which only a pattern can: an initializer builds its record, which has no value for them, so name every field, or write `..base` to take them from the record `base`; here it stands in the value of an initializer",
         ),
     ];
     for (name, env, headline) in cases {
@@ -613,5 +613,185 @@ fn initializer_literals_are_terms_of_their_own() {
         let start = carets.find('^').unwrap();
         let width = carets[start..].chars().take_while(|c| *c == '^').count();
         assert_eq!(&source[start..start + width], "true", "{name}: {stderr}");
+    }
+}
+
+/// A configuration whose computation cell holds the initializer's local terms, with an `Int` and a
+/// `Bool` cell for a whole value.
+const LOCAL_TERMS: &str = r#"
+use k::builtin::{Bool, Int, KSequence};
+use k::{KResult, Term};
+
+k::sorts! {
+    Exp;
+    Val: Exp + KResult;
+    impl Val for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("pair({a}, {b})")]
+    Pair { a: Int, b: Int },
+    #[k::syntax("done")]
+    Done(),
+}
+
+/// A parametric constructor, whose turbofish names its instance.
+#[k::constructor(sort = S, syntax = "wrap({inner})")]
+pub struct Wrap<S: ?Sized> {
+    pub inner: Term<S>,
+}
+
+#[k::constant]
+pub const BASE: Exp = ExpSyntax::Pair { a: 1, b: 2 };
+
+#[k::constant]
+pub const DONE: Exp = ExpSyntax::Done();
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub proj: Int,
+    #[k::cell]
+    pub flag: Bool,
+}
+"#;
+
+/// An initializer for `LOCAL_TERMS` whose computation cell holds `pgm` and `items`, with `proj`
+/// and `flag` as those cells' values.
+fn local_initializer(items: &str, proj: &str, flag: &str) -> String {
+    format!(
+        "{LOCAL_TERMS}impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Exp, p: Exp, v: Val) -> Self {{\n        Self {{\n            k: k::k![pgm, {items}],\n            proj: {proj},\n            flag: {flag},\n        }}\n    }}\n}}\n"
+    )
+}
+
+/// Each local term below a cell's root, in the order the run shows its value.
+const LOCAL_ITEMS: &str = "Wrap::<dyn ExpSort>(p), { let ExpSyntax::Pair(a, b) = p; ExpSyntax::Pair(b, a) }, k::matches!(p, ExpSyntax::Pair(_, _)), k::matches!(pgm, ExpSyntax::Pair(_, _)), k::is!(Int, v), ExpSyntax::Pair { a: 5, ..p }, ExpSyntax::Pair { b: 7, ..BASE }";
+
+/// An initializer builds a term from its configuration variables and constants as a result builds
+/// one from a rule's binders, so it holds what a result holds: a turbofish names a parametric
+/// constructor's instance, a `let` block is the term it computes (K's `#let`), `k::matches!` the
+/// Bool its test computes (`:=K`), `k::is!` and `k::project!` the sort's predicate and projection,
+/// and `Ctor { f: e, ..base }` the record `base` with `f` replaced, which no pattern matched, so its
+/// other fields are read by the `let` that destructures it. Each is evaluated when the
+/// configuration is built, as any function is.
+#[test]
+fn an_initializer_holds_what_a_result_holds() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "local-terms",
+        &local_initializer(LOCAL_ITEMS, "k::project!(Int, v)", "true"),
+    );
+    let definition = emit(target.path(), &manifest);
+    expect_test::expect![[r"
+        <k> $PGM:Exp ~> wrap ( $P:Exp ) ~> ( #let pair ( A:Int , B:Int ) = $P:Exp #in pair ( B:Int , A:Int ) ) ~> ( pair ( _ , _ ) :=K $P:Exp ) ~> ( pair ( _ , _ ) :=K $PGM:Exp ) ~> isInt($V:Val) ~> ( #let pair ( _ , B_2:Int ) = $P:Exp #in pair ( 5 , B_2:Int ) ) ~> ( #let pair ( A_2:Int , _ ) = pair ( 1 , 2 ) #in pair ( A_2:Int , 7 ) ) </k>
+        <proj> {$V:Val}:>Int </proj>
+        <flag> true </flag>"]]
+    .assert_eq(&configuration(&definition));
+
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "done").unwrap();
+    let (_, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[
+            "--depth",
+            "0",
+            "-c",
+            "P=pair(1, 2)",
+            "-c",
+            "V=7",
+            program.to_str().unwrap(),
+        ],
+    );
+    let state = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    for cell in [
+        "<k> done ~> wrap ( pair(1, 2) ) ~> pair(2, 1) ~> true ~> false ~> true ~> pair(5, 2) ~> pair(1, 7) ~> .K </k>",
+        "<proj> 7 </proj>",
+    ] {
+        assert!(state.contains(cell), "{cell}\n{stdout}\n{stderr}");
+    }
+
+    // The expanded initializer reads back to the same configuration.
+    let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let reference = package(temporary.path(), "local-terms-expanded", &expanded);
+    assert_eq!(
+        configuration(&emit(target.path(), &reference)),
+        configuration(&definition)
+    );
+}
+
+/// What an initializer's local terms cannot be, and why: a pattern's `@`, which K's right side
+/// does not hold; an open record, which leaves fields no initializer builds; a base of another
+/// constructor, which has none of the update's fields; and, as a leaf cell's whole value, a
+/// `let` block, `k::matches!` and `k::is!`, from which K's frontends read no cell sort (finding
+/// NT-7-2), while `k::project!` there is the cast K reads one from.
+#[test]
+fn an_initializer_refuses_what_has_no_meaning_or_no_tool_there() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = [
+        (
+            "alias",
+            "p, k::matches!(p, q @ ExpSyntax::Pair(_, _))",
+            "k::project!(Int, v)",
+            "true",
+            "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in a `k::matches!` pattern in the value of an initializer",
+        ),
+        (
+            "open",
+            "p, ExpSyntax::Pair { a: 1, .. }",
+            "k::project!(Int, v)",
+            "true",
+            "error[krs::expand::initializer-record-update]: `..` leaves a record's other fields open, which only a pattern can: an initializer builds its record, which has no value for them, so name every field, or write `..base` to take them from the record `base`; here it stands in the value of an initializer",
+        ),
+        (
+            "other-constructor",
+            "p, ExpSyntax::Pair { a: 5, ..DONE }",
+            "k::project!(Int, v)",
+            "true",
+            "error[krs::analysis::invalid-record-update]: the base is a record of another constructor, which has none of the update's fields to take: write the record whole",
+        ),
+        (
+            "whole-let",
+            "p",
+            "{ let w = v; k::project!(Int, w) }",
+            "true",
+            "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: a `let` block is an initializer term, but no K frontend reads a cell's sort from it: K takes a cell's sort from its initial content, and neither Java K's kompile (`#let` gets no sort there) nor the native frontend (no production heads `#let` as it reads the configuration) finds one; write the block below a constructor or as an item of a `k::k![..]` cell",
+        ),
+        (
+            "whole-matches",
+            "p",
+            "k::project!(Int, v)",
+            "k::matches!(p, ExpSyntax::Pair(_, _))",
+            "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `k::matches!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and no production heads K's `:=K` as the native frontend reads the configuration; write the test below a constructor or as an item of a `k::k![..]` cell",
+        ),
+        (
+            "whole-is",
+            "p",
+            "k::project!(Int, v)",
+            "k::is!(Int, v)",
+            "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `k::is!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and the sort predicate it applies is generated after the native frontend reads the configuration; write the test below a constructor or as an item of a `k::k![..]` cell",
+        ),
+    ];
+    for (name, items, proj, flag, headline) in cases {
+        let manifest = package(
+            temporary.path(),
+            &format!("local-{name}"),
+            &local_initializer(items, proj, flag),
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(!success, "{name}: {stderr}");
+        let first = stderr
+            .lines()
+            .find(|line| line.starts_with("error"))
+            .unwrap_or_else(|| panic!("{name}: {stderr}"));
+        assert_eq!(first, headline, "{name}: {stderr}");
     }
 }

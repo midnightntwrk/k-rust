@@ -1088,3 +1088,72 @@ fn a_readable_claim_reads_islands_inside_list_elements() {
     "#]]
     .assert_debug_eq(&proved(target.path(), &native, &[]));
 }
+
+/// A claim's states are terms over its variables and its conditions Bools, as a rule's are, so a
+/// `let` block (the term it computes) and `k::matches!` (a Bool) would mean there what they mean
+/// in a rule; but neither prover lowers K's `#let` and `:=K` in a claim (the native prover and Java
+/// K's kprove lower them to generated functions only in a definition's sentences), so a claim
+/// refuses both, at its start and end states and in its conditions, with that reason (finding
+/// NT-7-1).
+#[test]
+fn a_claim_refuses_let_and_matches_for_want_of_a_prover() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let clauses = [
+        (
+            "start",
+            "loads: { k: [Load()], program: p, pc: bytes::length({ let q = p; q }) } => { k: [], program: p, pc: bytes::length(p) };",
+        ),
+        (
+            "end",
+            "loads: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: { let m = bytes::length(p); m } };",
+        ),
+        (
+            "requires",
+            "#[k::requires(k::matches!(n, 0))]\n    loads: { k: [Load()], program: p, pc: n } => { k: [], program: p, pc: bytes::length(p) };",
+        ),
+        (
+            "ensures",
+            "#[k::ensures({ let m = 0; m == 0 })]\n    loads: { k: [Load()], program: p, pc: 0 } => { k: [], program: p, pc: bytes::length(p) };",
+        ),
+    ]
+    .map(|(name, clause)| {
+        let manifest = package(
+            temporary.path(),
+            &format!("local-{name}"),
+            "ORG-KRS-CLAIM-LOCALS",
+            &format!(
+                "{BYTES_MACHINE}k::claims! {{\n    for Machine;\n    use Op::*;\n\n    #[k::claim(all_paths)]\n    {clause}\n}}\n"
+            ),
+        );
+        (name, check_errors(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "start",
+                [
+                    "error[krs::expand::let-outside-term]: a `let` block (K's #let) denotes the term it computes, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower #let to the function it applies only in a definition's sentences, so a claim's #let reaches them unlowered and is refused; write the term the block computes, or define a function and apply it; here it stands in the subject of a readable claim",
+                ],
+            ),
+            (
+                "end",
+                [
+                    "error[krs::expand::let-outside-term]: a `let` block (K's #let) denotes the term it computes, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower #let to the function it applies only in a definition's sentences, so a claim's #let reaches them unlowered and is refused; write the term the block computes, or define a function and apply it; here it stands in the result of a readable claim",
+                ],
+            ),
+            (
+                "requires",
+                [
+                    "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) denotes a Bool, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower :=K to the function it applies only in a definition's sentences, so a claim's :=K reaches them unlowered and is refused; define a function whose equations match the pattern, and apply it; here it stands in the `requires` condition of a readable claim",
+                ],
+            ),
+            (
+                "ensures",
+                [
+                    "error[krs::expand::let-outside-term]: a `let` block (K's #let) denotes the term it computes, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower #let to the function it applies only in a definition's sentences, so a claim's #let reaches them unlowered and is refused; write the term the block computes, or define a function and apply it; here it stands in the `ensures` condition of a readable claim",
+                ],
+            ),
+        ]
+    "#]].assert_debug_eq(&clauses);
+}
