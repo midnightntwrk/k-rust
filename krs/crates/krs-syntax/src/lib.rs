@@ -6,6 +6,7 @@
 //! resolution and semantic IR construction deliberately live elsewhere.
 
 mod attribute;
+mod collection_literal;
 mod configuration;
 mod constant;
 mod descriptor;
@@ -49,6 +50,7 @@ pub use attribute::{
     UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable, UnboundVariables,
     VariantSyntaxAttribute, default_function_syntax, validate_spec_module_name,
 };
+pub use collection_literal::is_collection_literal;
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
     SortArgument, option_content,

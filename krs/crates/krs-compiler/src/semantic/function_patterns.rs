@@ -220,6 +220,25 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
                 _ => None,
             };
             let instead = match (method, root) {
+                // A map written with an entry (`map![k -> v]`, `map::update`)
+                // or a union of sets builds a collection; a pattern reads a
+                // collection's entries and elements instead.
+                (None, _)
+                    if matches!(
+                        found.reference.application,
+                        DescriptorApplicationRef::Map(TermMapOperation::Update)
+                    ) =>
+                {
+                    "a pattern reads a map's entries (`{ k -> v, .. }` in a readable record, `map![k -> v, ..]` in a `cells!` entry), or match a variable here and relate it to the map in a guard (`requires`)"
+                }
+                (None, _)
+                    if matches!(
+                        found.reference.application,
+                        DescriptorApplicationRef::Set(SetOperation::Union)
+                    ) =>
+                {
+                    "match the elements with `set::concat(set::item(x), rest)`, whose operands are disjoint, or match a variable here and relate it to the set in a guard (`requires`)"
+                }
                 // A pattern reads an entry with braces, and a list's first
                 // elements with brackets.
                 (Some(krs_ir::CollectionMethodSpelling::Index), _) => {

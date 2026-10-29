@@ -298,6 +298,14 @@ fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
                 .iter()
                 .try_for_each(|argument| check_ground(argument, name))
         }
+        // A collection literal denotes the calls that build its collection, and its value is
+        // checked as theirs: `map![]` and `set![x]` are values, and `map::update` computes.
+        Expr::Macro(_) if crate::collection_literal::is_collection_literal(expression) => {
+            match crate::notation::denoted_call(expression)? {
+                Some(call) => check_ground(&Expr::Call(call), name),
+                None => not_ground("this expression", expression.span()),
+            }
+        }
         Expr::MethodCall(_) | Expr::Binary(_) | Expr::Unary(_) => {
             not_ground("a builtin operation", expression.span())
         }

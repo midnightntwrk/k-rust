@@ -1019,9 +1019,9 @@ impl<'a> TermBuilder<'a> {
                 let instance = self.application_instance_wire(application, node, side, slots)?;
                 // Notation applies a builtin operation, and a record update
                 // builds a record from a matched one: in a key, both compute
-                // the value looked up. List notation denotes constructors.
-                let computes = (application.is_notation() && !application.is_list_notation())
-                    || application.update().is_some();
+                // the value looked up. List notation, and a collection
+                // literal's empty collection and singleton, denote values.
+                let computes = application.applies_operation() || application.update().is_some();
                 let enclosing = self.in_computed_key;
                 self.in_computed_key |= computes && self.in_map_key;
                 let parts = (|| {

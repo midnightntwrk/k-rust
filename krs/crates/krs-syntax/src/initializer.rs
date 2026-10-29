@@ -998,7 +998,12 @@ fn parse_initializer_cell(
     // so a constant can be a cell's whole value and any other island reports its own error.
     let readable_term = match &field.expr {
         Expr::Lit(_) | Expr::Unary(_) => true,
-        Expr::Macro(ExprMacro { mac, .. }) => crate::term::is_island_macro(&mac.path),
+        // A set literal is the term its calls build; `map![..]` is the cell's own map, below.
+        Expr::Macro(ExprMacro { mac, .. }) => {
+            crate::term::is_island_macro(&mac.path)
+                || crate::collection_literal::literal_collection(&mac.path)
+                    == Some(crate::collection_literal::Collection::Set)
+        }
         expression if crate::notation::is_expression_notation(expression) => true,
         Expr::Call(ExprCall { func, .. }) => {
             !is_cell_constructor(func)
@@ -1209,8 +1214,13 @@ fn parse_initializer_state_term(
     expression: &Expr,
     computation: bool,
 ) -> Result<StateTerm, SyntaxError> {
+    // An island, and a set literal, are terms; `k!` and `map!` are the cell's own content.
     if let Expr::Macro(ExprMacro { attrs, mac }) = expression
-        && !(attrs.is_empty() && !computation && crate::term::is_island_macro(&mac.path))
+        && !(attrs.is_empty()
+            && !computation
+            && (crate::term::is_island_macro(&mac.path)
+                || crate::collection_literal::literal_collection(&mac.path)
+                    == Some(crate::collection_literal::Collection::Set)))
     {
         let (true, Some(last)) = (attrs.is_empty(), plain_path_last(&mac.path)) else {
             return Err(unsupported_body(

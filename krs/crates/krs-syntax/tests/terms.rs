@@ -739,3 +739,128 @@ fn a_left_hand_side_holds_collection_notation_as_the_call() {
         "Check(__collection::index(m, k), __collection::contains(x, s))"
     );
 }
+
+#[test]
+fn collection_literals_denote_the_calls_that_build_them() {
+    for (source, expected) in [
+        ("map![]", "map::empty()"),
+        ("k::map![a -> 1]", "map::update(map::empty(), a, 1)"),
+        (
+            "map![a -> 1, b -> 2]",
+            "map::update(map::update(map::empty(), a, 1), b, 2)",
+        ),
+        // The rest is the base the entries are written over.
+        ("map![a -> 1, ..m]", "map::update(m, a, 1)"),
+        (
+            "map![a -> 1, b -> 2, ..m,]",
+            "map::update(map::update(m, a, 1), b, 2)",
+        ),
+        ("set![]", "set::empty()"),
+        ("set![x]", "set::item(x)"),
+        (
+            "k::set![x, y, z]",
+            "set::union(set::union(set::item(x), set::item(y)), set::item(z))",
+        ),
+        ("set![x, ..s]", "set::union(s, set::item(x))"),
+        (
+            "set![x, y, ..s]",
+            "set::union(s, set::union(set::item(x), set::item(y)))",
+        ),
+        // Terms inside a literal are read as terms, notation and literals
+        // included.
+        (
+            "map![a + 1 -> set![a], m[a] -> map![]]",
+            "map::update(map::update(map::empty(), __operator::add(a, 1), set::item(a)), __collection::index(m, a), map::empty())",
+        ),
+        ("set![x].len()", "__collection::len(set::item(x))"),
+    ] {
+        assert_eq!(denoted_source(source), expected, "{source}");
+    }
+    let term = krs_syntax::TermExpression::parse_source("map![a -> set![b]]").unwrap();
+    let TermTree::Application(update) = term.tree() else {
+        panic!("a call");
+    };
+    assert!(update.is_notation() && update.applies_operation());
+    let TermArguments::Positional(arguments) = update.arguments() else {
+        panic!("positional arguments");
+    };
+    let values = arguments
+        .iter()
+        .filter_map(|argument| match argument {
+            TermTree::Application(application) => {
+                Some(application.is_notation() && !application.applies_operation())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    // `map![]` and `set![b]` denote values.
+    assert_eq!(values, [true, true]);
+}
+
+#[test]
+fn collection_literal_heads_start_at_their_own_tokens() {
+    let source = "set![x, y, ..s]";
+    let term = krs_syntax::TermExpression::parse_source(source).unwrap();
+    let heads = term
+        .full_provenance()
+        .unwrap()
+        .iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::TermApplicationHead)
+        .map(|anchor| anchor.range().start().column)
+        .collect::<Vec<_>>();
+    // The rest's union at `..`, the elements' union at the comma before `y`,
+    // and each singleton at its element.
+    assert_eq!(heads, [11, 6, 5, 8]);
+}
+
+#[test]
+fn denoted_tokens_call_the_builtin_collection_operations() {
+    let term =
+        krs_syntax::TermExpression::parse_source("Wrap(map![a -> set![b + 1], ..m])").unwrap();
+    let builtin: syn::Path = syn::parse_str("::renamed::builtin").unwrap();
+    assert_eq!(
+        term.denoted_tokens(&builtin).to_string(),
+        "Wrap (:: renamed :: builtin :: map :: update (m , a , :: renamed :: builtin :: set :: item (:: renamed :: builtin :: __operator :: add (b , 1))))"
+    );
+}
+
+#[test]
+fn malformed_collection_literals_are_notation_errors_at_their_token() {
+    for (source, expected, at) in [
+        ("map![a -> 1, a -> 2]", "the key `a` is written twice", 13),
+        ("set![x, 1, x]", "the element `x` is written twice", 11),
+        (
+            "map![a -> 1, ..]",
+            "an anonymous `..` keeps the entries",
+            13,
+        ),
+        ("set![x, ..]", "a built set has none to keep", 8),
+        ("map![..m, a -> 1]", "comes last", 10),
+        ("map![..m]", "it is the map `m` itself", 5),
+        ("map![a => 1]", "`=>` is a rewrite", 7),
+        ("map![a, 1]", "a map's entry is written `key -> value`", 5),
+        ("map![.Map]", "`.Map` is K's empty map", 5),
+        ("set![.Set]", "`.Set` is K's empty set", 5),
+    ] {
+        let error = krs_syntax::TermExpression::parse_source(source).unwrap_err();
+        let SyntaxErrorKind::InvalidExpressionNotation { reason } = error.kind() else {
+            panic!("{source}: expected an expression-notation error, found {error}");
+        };
+        assert!(reason.contains(expected), "{source}: {reason}");
+        assert_eq!(error.span().start().column, at, "{source}: {reason}");
+    }
+}
+
+/// A literal in a pattern is the calls it denotes, which semantic analysis
+/// judges where they stand, as it judges the calls.
+#[test]
+fn a_left_hand_side_holds_a_collection_literal_as_its_calls() {
+    let rule = krs_syntax::RuleItem::parse_source(
+        "fn r(k::term![Check(map![], set![x], map![k -> v])]: Term<Bool>) -> Term<Bool> { x }",
+    )
+    .unwrap();
+    assert_eq!(
+        denoted(rule.subject_tree()),
+        "Check(map::empty(), set::item(x), map::update(map::empty(), k, v))"
+    );
+}

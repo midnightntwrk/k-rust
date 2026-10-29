@@ -2078,7 +2078,7 @@ fn parse_group_entry(
 /// Parses a leaf cell's content. `k!` and `map!` are read by their last
 /// path segment, so `k::map![..]` is the same map as `map![..]`, as in
 /// instance children and initializers; another qualified macro, such as
-/// `k::fragment![..]`, is an ordinary term.
+/// `k::fragment![..]` or a set literal `set![..]`, is an ordinary term.
 fn parse_state_term(
     tokens: TokenStream,
     context: StateMacroContext,
@@ -2094,6 +2094,9 @@ fn parse_state_term(
                 )?));
             }
             "map" => return Ok(StateTerm::Map(parse_map(payload, context, invocation()?)?)),
+            // A set literal has no reading of a cell's own: it is the term
+            // its calls build, or a pattern holds them.
+            "set" => {}
             _ if macro_payload(&tokens).is_some() => {
                 return Err(state_error(
                     "cells",

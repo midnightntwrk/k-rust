@@ -830,18 +830,10 @@ impl fmt::Display for SyntaxError {
             SyntaxErrorKind::UnsupportedRuleBody { reason } => {
                 write!(formatter, "unsupported rule body: {reason}")
             }
-            SyntaxErrorKind::UnexpectedMacro { path } => {
-                write!(
-                    formatter,
-                    "expected the reserved `term!` macro, found `{path}!`"
-                )?;
-                if path.rsplit("::").next() == Some("map") {
-                    formatter.write_str(
-                        "; `map![..]` is the spelling of a `cells!` entry or an initializer: in a term the empty map is `map::empty()`, and a readable record reads entries with `cell: { key -> value, .. }`",
-                    )?;
-                }
-                Ok(())
-            }
+            SyntaxErrorKind::UnexpectedMacro { path } => write!(
+                formatter,
+                "expected the reserved `term!` macro, found `{path}!`"
+            ),
             SyntaxErrorKind::UnsupportedTermExpression { reason } => {
                 write!(formatter, "unsupported term expression: {reason}")
             }

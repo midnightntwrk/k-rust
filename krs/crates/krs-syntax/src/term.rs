@@ -500,6 +500,17 @@ impl TermApplication {
         self.notation && crate::list_notation::is_level_head(&self.head)
     }
 
+    /// Whether the application is notation that applies an operation, not
+    /// notation for a collection's value: a level of list notation, and the
+    /// empty collection and a set's singleton that a collection literal
+    /// (`map![]`, `set![x]`) denotes, build values.
+    #[must_use]
+    pub fn applies_operation(&self) -> bool {
+        self.notation
+            && !crate::list_notation::is_level_head(&self.head)
+            && !crate::collection_literal::is_value_head(&self.head)
+    }
+
     /// Returns the base `t` of a record update `Ctor { f: e, ..t }`: the
     /// record is the matched record `t` with the listed fields replaced.
     #[must_use]
@@ -1336,6 +1347,12 @@ impl TermExpression {
                 op: UnOp::Neg(_), ..
             }) => TermRootKind::Literal,
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
+            // A collection literal denotes the calls that build it.
+            Expr::Macro(value)
+                if crate::collection_literal::literal_collection(&value.mac.path).is_some() =>
+            {
+                TermRootKind::Call
+            }
             Expr::Macro(value) => special_macro_kind(&value.mac.path)
                 .ok_or_else(|| unsupported_root_macro(&value.mac.path, value.span()))?
                 .root_kind(),
@@ -1948,6 +1965,11 @@ fn pattern_root_kind(pattern: &Pat) -> Result<TermRootKind, SyntaxError> {
             Some(first) => return pattern_root_kind(first),
             None => return Err(unsupported_pattern_form(pattern)),
         },
+        Pat::Macro(value)
+            if crate::collection_literal::literal_collection(&value.mac.path).is_some() =>
+        {
+            TermRootKind::Call
+        }
         Pat::Macro(value) => special_macro_kind(&value.mac.path)
             .ok_or_else(|| unsupported_root_macro(&value.mac.path, value.span()))?
             .root_kind(),
@@ -2300,6 +2322,19 @@ pub(crate) fn read_pattern(
             reject_attributes(&wildcard.attrs, wildcard.span())?;
             Ok(TermTree::Wildcard(TokenRange::for_tokens(wildcard)?))
         }
+        // A collection literal is the calls it denotes, a pattern holds it
+        // as it holds them, and the root reads it as it reads them.
+        Pat::Macro(value)
+            if crate::collection_literal::literal_collection(&value.mac.path).is_some() =>
+        {
+            signs.skip(crate::rule::NegativeLiteralSpans::scan(value.mac.tokens.clone()).len());
+            validate_expression(
+                &Expr::Macro(value.clone()),
+                TermExpressionContext::Pattern,
+                symbols,
+                nodes,
+            )
+        }
         Pat::Macro(value) if !root.admits(RootConstruct::Island) => {
             Err(subject_root_macro(&value.mac.path))
         }
@@ -2576,16 +2611,12 @@ fn unsupported_root_macro(path: &Path, span: Span) -> SyntaxError {
     if crate::rule::is_bits_macro(path) {
         return crate::rule::misplaced_bit_template(path.span());
     }
-    let reason = if path
-        .segments
-        .last()
-        .is_some_and(|segment| segment.ident == "map")
-    {
-        "`map![..]` is the spelling of a `cells!` entry or an initializer: in a term the empty map is `map::empty()`, and `map::update(..)` adds an entry"
-    } else {
-        "the root must be a named path/call/record or an Int/Bool literal"
-    };
-    SyntaxError::new(SyntaxErrorKind::UnsupportedTermExpression { reason }, span)
+    SyntaxError::new(
+        SyntaxErrorKind::UnsupportedTermExpression {
+            reason: "the root must be a named path/call/record or an Int/Bool literal",
+        },
+        span,
+    )
 }
 
 /// Whether `path` names a compiler-owned term island.

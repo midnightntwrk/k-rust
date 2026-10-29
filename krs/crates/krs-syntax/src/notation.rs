@@ -1,8 +1,9 @@
 //! Expression notation for builtin applications: the short-circuit Boolean
 //! connectives `a && b` and `a || b`, Rust's operators (`a + b`, `a < b`,
 //! `!a`, `-a`), domain method calls `recv.op::<D>(args..)`, and the
-//! collection notation: index reads `m[k]` and collection methods without a
-//! turbofish (`m.contains_key(k)`, `s.union(t)`).
+//! collection notation: index reads `m[k]`, collection methods without a
+//! turbofish (`m.contains_key(k)`, `s.union(t)`), and collection literals
+//! (`map![k -> v]`, `set![x]`, [`crate::collection_literal`]).
 //!
 //! Each form is notation for one builtin call and has no meaning of its own.
 //! Term validation lowers a form to the application it denotes, marked
@@ -144,6 +145,13 @@ impl VisitMut for Denote<'_> {
                     }
                 }
             }
+            // A collection literal's tokens are read only now: its terms,
+            // and the literal that remains after one level, are denoted here.
+            if matches!(expression, Expr::Macro(_)) {
+                for operand in &mut call.args {
+                    self.visit_expr_mut(operand);
+                }
+            }
             *expression = Expr::Call(call);
         }
     }
@@ -168,6 +176,13 @@ pub(crate) fn denoted_call(expression: &Expr) -> Result<Option<ExprCall>, Syntax
         Expr::Index(index) => index_call(index).map(Some),
         // `[a, ..rest]` is one level of list notation.
         Expr::Array(array) => crate::list_notation::result_level(array).map(Some),
+        // `map![k -> v, ..]` and `set![x, ..]` are one level of a collection
+        // literal.
+        Expr::Macro(literal)
+            if crate::collection_literal::literal_collection(&literal.mac.path).is_some() =>
+        {
+            crate::collection_literal::literal_level(literal).map(Some)
+        }
         _ => Ok(None),
     }
 }
