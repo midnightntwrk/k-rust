@@ -1,7 +1,7 @@
 //! Import checks for state islands nested in expansion inputs.
 
-use krs_syntax::{FixedCellInitializer, InitializerCellContent};
-use proc_macro2::{Delimiter, TokenStream, TokenTree};
+use krs_syntax::{CellsExpression, FixedCellInitializer, InitializerCellContent, StateTerm};
+use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::{FnArg, ItemFn, Pat, Path};
 
@@ -21,30 +21,24 @@ pub(super) fn initializer_state_island_import_checks(
     island_import_checks(paths)
 }
 
+/// Appends the bare `k!` and `map!` that write a cell's own content: the
+/// cell's whole value, or the argument of its `Cell::new`/`KCell::new`, under
+/// `Some(..)` too. A macro below a term's call (`list::item(map![..])`) is a
+/// term, a collection literal, which rustc receives as calls.
 fn append_initializer_state_islands(cells: &[FixedCellInitializer], output: &mut Vec<Path>) {
     for cell in cells {
         match cell.content() {
-            InitializerCellContent::Leaf { .. } => {
-                let expression = &cell.field().expr;
-                let macro_expression = match expression {
-                    syn::Expr::Macro(expression) => Some(expression),
-                    syn::Expr::Call(call) => {
-                        call.args.first().and_then(|argument| match argument {
-                            syn::Expr::Macro(expression) => Some(expression),
-                            _ => None,
-                        })
-                    }
+            InitializerCellContent::Leaf { value, .. } => {
+                let island = match value.unwrap_present() {
+                    StateTerm::KSequence(_) => cell_macro(&cell.field().expr),
+                    StateTerm::Map(map) => map.island_path(),
                     _ => None,
                 };
-                if let Some(expression) = macro_expression
-                    && expression.mac.path.leading_colon.is_none()
-                    && expression.mac.path.segments.len() == 1
-                    && matches!(
-                        expression.mac.path.segments[0].ident.to_string().as_str(),
-                        "k" | "map"
-                    )
+                if let Some(path) = island
+                    && path.leading_colon.is_none()
+                    && path.segments.len() == 1
                 {
-                    output.push(expression.mac.path.clone());
+                    output.push(path.clone());
                 }
             }
             InitializerCellContent::Nested { children, .. } => {
@@ -54,7 +48,23 @@ fn append_initializer_state_islands(cells: &[FixedCellInitializer], output: &mut
     }
 }
 
-pub(super) fn consumed_state_island_import_checks(item: &ItemFn) -> Vec<TokenStream> {
+/// The path of the macro that is an initializer cell's own content: the whole
+/// value or its constructor's one argument, inside `Some(..)`.
+fn cell_macro(expression: &syn::Expr) -> Option<&Path> {
+    match expression {
+        syn::Expr::Macro(expression) => Some(&expression.mac.path),
+        syn::Expr::Call(call) => cell_macro(call.args.first()?),
+        _ => None,
+    }
+}
+
+/// The checks of the islands of a `#[k::rule]`, claim or context fn whose
+/// `cells!` parameter and body statements its expansion consumes; `cells` are
+/// the parsed `cells!` terms, which tell a cell's own `map!` from a literal.
+pub(super) fn consumed_state_island_import_checks(
+    item: &ItemFn,
+    cells: &[&CellsExpression],
+) -> Vec<TokenStream> {
     let mut paths = Vec::new();
     if let Some(FnArg::Typed(argument)) = item.sig.inputs.last()
         && let Pat::Macro(pattern) = &*argument.pat
@@ -78,12 +88,20 @@ pub(super) fn consumed_state_island_import_checks(item: &ItemFn) -> Vec<TokenStr
             _ => {}
         }
     }
+    paths.extend(cells.iter().flat_map(|cells| cells.map_islands()).cloned());
     island_import_checks(paths)
 }
 
-pub(super) fn nested_state_island_import_checks(tokens: &TokenStream) -> Vec<TokenStream> {
+/// The checks of the islands of a `cells!` expression: its `k!` islands, found
+/// in its tokens, and the `map!` islands that write its cells' maps, which the
+/// parsed `cells` tell from a collection literal in a term.
+pub(super) fn nested_state_island_import_checks(
+    tokens: &TokenStream,
+    cells: &CellsExpression,
+) -> Vec<TokenStream> {
     let mut paths = Vec::new();
     append_nested_state_islands(tokens, &mut paths);
+    paths.extend(cells.map_islands().into_iter().cloned());
     island_import_checks(paths)
 }
 
@@ -115,30 +133,20 @@ fn append_consumed_state_island(path: &Path, tokens: &TokenStream, output: &mut 
     }
 }
 
-/// Appends the paths of the `k!` and `map!` islands a `cells!` payload's cells hold: a wrapper's
-/// content (`Cell(map![..])`, under `Some(..)` too) and an instance's child (`Owner { c: map![..] }`).
-/// A term's arguments (`Cmd::Hold(map![..])`), a computation cell's items (`KCell(map![..], ..)`)
-/// and an island's own payload hold terms, where a `map![..]` is a collection literal, the calls
-/// it denotes, which rustc receives as calls and which no import names.
+/// Appends the paths of the `k!` islands in `tokens`. A `map![..]` is a cell's
+/// own map or a collection literal, which only the parsed `cells!` tell apart
+/// ([`krs_syntax::CellsExpression::map_islands`]).
 fn append_nested_state_islands(tokens: &TokenStream, output: &mut Vec<Path>) {
-    append_state_islands(tokens, true, output);
-}
-
-/// [`append_nested_state_islands`] over `tokens`, which hold a cell's `map!` island where
-/// `maps`: a computation cell's items (`KCell(..)`) are terms, and a `map![..]` there a literal.
-fn append_state_islands(tokens: &TokenStream, maps: bool, output: &mut Vec<Path>) {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     let is_colon =
         |tree: &TokenTree| matches!(tree, TokenTree::Punct(colon) if colon.as_char() == ':');
-    let mut payload = None;
     for (index, tree) in trees.iter().enumerate() {
         if let TokenTree::Ident(ident) = tree
-            && (ident == "k" || (maps && ident == "map"))
+            && ident == "k"
             && matches!(trees.get(index + 1), Some(TokenTree::Punct(bang)) if bang.as_char() == '!')
             && matches!(trees.get(index + 2), Some(TokenTree::Group(_)))
         {
-            payload = Some(index + 2);
-            // A qualified island such as `k::map![..]` is checked through its
+            // A qualified island such as `k::k![..]` is checked through its
             // whole path; a bare one through the binding that imports it.
             let mut start = index;
             while start >= 3
@@ -155,43 +163,35 @@ fn append_state_islands(tokens: &TokenStream, maps: bool, output: &mut Vec<Path>
             output.push(syn::parse2(path).expect("an authored macro path is a Rust path"));
         }
         if let TokenTree::Group(group) = tree {
-            let wrapper = index
-                .checked_sub(1)
-                .and_then(|previous| trees.get(previous))
-                .and_then(|previous| match previous {
-                    TokenTree::Ident(ident) => Some(ident.to_string()),
-                    _ => None,
-                });
-            let holds = match (group.delimiter(), wrapper.as_deref()) {
-                (Delimiter::Parenthesis, Some("Cell" | "Some")) => Some(maps),
-                (Delimiter::Parenthesis, Some("KCell")) => Some(false),
-                (Delimiter::Parenthesis, _) => None,
-                _ => (payload != Some(index)).then_some(maps),
-            };
-            if let Some(maps) = holds {
-                append_state_islands(&group.stream(), maps, output);
-            }
+            append_nested_state_islands(&group.stream(), output);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use proc_macro2::TokenStream;
     use quote::quote;
 
     use super::nested_state_island_import_checks;
 
+    fn checks(tokens: &TokenStream) -> Vec<String> {
+        let cells = krs_syntax::parse_cells_expression(tokens.clone()).expect("the cells parse");
+        nested_state_island_import_checks(tokens, &cells)
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
     #[test]
     fn qualified_state_islands_are_checked_through_their_whole_path() {
-        let checks = nested_state_island_import_checks(&quote! {
-            k: k::configuration::KCell(x, ..),
-            env: k::configuration::Cell(k::map![a -> v, ..]),
-            regs: k::configuration::Cell(map![b -> w, ..]),
-            ..state
-        });
-        let checks = checks.iter().map(ToString::to_string).collect::<Vec<_>>();
         assert_eq!(
-            checks,
+            checks(&quote! {
+                k: k::configuration::KCell(x, ..tail),
+                env: k::configuration::Cell(k::map![a -> v]),
+                regs: k::configuration::Cell(map![b -> w]),
+                ..state
+            }),
             [
                 quote!(
                     #[allow(unused_imports)]
@@ -207,19 +207,25 @@ mod tests {
         );
     }
 
-    /// A `map![..]` in a term, a constructor's argument or an island's entry, is a collection
-    /// literal, which no import names; a wrapper's and an instance child's are islands.
+    /// A `map![..]` in a term (a computation item, a constructor's argument or
+    /// field, an island's entry) is a collection literal, which no import
+    /// names; only a cell's own map is an island.
     #[test]
     fn a_collection_literal_in_a_term_is_no_state_island() {
-        let checks = nested_state_island_import_checks(&quote! {
-            k: k::configuration::KCell(Cmd::Hold(map![x -> 1]), map![], ..tail),
-            env: Some(k::configuration::Cell(map![a -> map![b -> 1], ..])),
-            pool: [Member { item: map![c -> 2] }, ..],
-            ..state
-        });
-        let checks = checks.iter().map(ToString::to_string).collect::<Vec<_>>();
         assert_eq!(
-            checks,
+            checks(&quote! {
+                k: k::configuration::KCell(Cmd::Hold(map![x -> 1]), map![], ..tail),
+                boxed: k::configuration::Cell(Cmd::Wrap { m: map![c -> 2] }),
+                held: k::configuration::Cell(Cmd::Hold(map![d -> 3])),
+                ..state
+            }),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            checks(&quote! {
+                env: Some(k::configuration::Cell(map![a -> map![b -> 1]])),
+                ..state
+            }),
             [quote!(
                 #[allow(unused_imports)]
                 use map as _;

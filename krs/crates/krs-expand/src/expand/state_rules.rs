@@ -144,7 +144,7 @@ pub(crate) fn context_alias(
         }
     }
     let original = alias.item();
-    let island_import_checks = consumed_state_island_import_checks(original);
+    let island_import_checks = consumed_state_island_import_checks(original, &[alias.pattern()]);
     let attrs = &original.attrs;
     let visibility = &original.vis;
     let fn_token = original.sig.fn_token;
@@ -494,7 +494,10 @@ pub(super) fn configuration_rule(
             wrapper_checks.push(wrapper_type_check(path));
         }
     }
-    let island_import_checks = consumed_state_island_import_checks(original);
+    let cells = std::iter::once(rule.subject())
+        .chain(rule.result())
+        .collect::<Vec<_>>();
+    let island_import_checks = consumed_state_island_import_checks(original, &cells);
 
     let nondet = attribute
         .nondet()

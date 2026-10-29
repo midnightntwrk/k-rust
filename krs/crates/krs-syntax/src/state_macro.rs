@@ -385,6 +385,9 @@ pub struct MapExpression {
     /// The delimited text that holds the payload (`k::map![..]`), when the
     /// parser of an enclosing form read it.
     invocation: Option<TokenRange>,
+    /// The macro's path as written (`map`, `k::map`), when the map is a
+    /// cell's own content, an island the enclosing macro consumes.
+    island: Option<Path>,
     payload_key: Option<ProvenanceKey>,
     remainder_key: Option<ProvenanceKey>,
     /// The anchors of the map's standalone keying.
@@ -416,6 +419,7 @@ impl MapExpression {
             body,
             pattern_bindings,
             invocation: None,
+            island: None,
             payload_key: None,
             remainder_key: None,
             anchors: Vec::new(),
@@ -427,6 +431,20 @@ impl MapExpression {
     const fn invoked_at(mut self, invocation: Option<TokenRange>) -> Self {
         self.invocation = invocation;
         self
+    }
+
+    /// Records the path of the macro that writes a cell's own map.
+    pub(crate) fn island_of(mut self, path: Option<Path>) -> Self {
+        self.island = path;
+        self
+    }
+
+    /// The path of the macro (`map`, `k::map`) that writes the map as a
+    /// cell's own content, which the enclosing macro consumes before rustc
+    /// sees it; `None` for a map no cell's macro wrote.
+    #[must_use]
+    pub const fn island_path(&self) -> Option<&Path> {
+        self.island.as_ref()
     }
 
     fn items(
@@ -632,6 +650,21 @@ impl StateTerm {
             Self::Present(inner) => inner.clear_keys(),
             Self::Absent(_) => {}
             Self::Instances(list) => list.clear_keys(),
+        }
+    }
+
+    /// The paths of the `map!` islands that write this state's maps, its
+    /// nested states' included, in source order ([`MapExpression::island_path`]).
+    #[must_use]
+    pub fn map_islands(&self) -> Vec<&Path> {
+        match self {
+            Self::Map(map) => map.island_path().into_iter().collect(),
+            Self::Present(_) | Self::Instances(_) => self
+                .nested_states()
+                .into_iter()
+                .flat_map(Self::map_islands)
+                .collect(),
+            Self::Term(_) | Self::KSequence(_) | Self::Group(_) | Self::Absent(_) => Vec::new(),
         }
     }
 
@@ -1020,6 +1053,16 @@ impl CellsExpression {
     #[must_use]
     pub fn entries(&self) -> &[CellsEntry] {
         &self.entries
+    }
+
+    /// The paths of the `map!` islands that write the cells' maps, in source
+    /// order ([`StateTerm::map_islands`]).
+    #[must_use]
+    pub fn map_islands(&self) -> Vec<&Path> {
+        self.entries
+            .iter()
+            .flat_map(|entry| entry.value().map_islands())
+            .collect()
     }
 
     /// Exact, anonymous, bound, or reused configuration frame.
@@ -2005,11 +2048,22 @@ fn parse_instance_child(
                     invocation()?,
                 )?));
             }
-            "map" => return Ok(StateTerm::Map(parse_map(payload, context, invocation()?)?)),
+            "map" => {
+                return Ok(StateTerm::Map(
+                    parse_map(payload, context, invocation()?)?.island_of(macro_path(&tokens)),
+                ));
+            }
             _ => {}
         }
     }
     Ok(StateTerm::Term(state_term_tokens(tokens, context)?))
+}
+
+/// The path of the macro invocation `path::name!(..)` that `tokens` hold.
+fn macro_path(tokens: &TokenStream) -> Option<Path> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let path = trees.get(..trees.len().checked_sub(2)?)?;
+    syn::parse2(path.iter().cloned().collect()).ok()
 }
 
 /// The last path segment and payload of `path::name!(..)`.
@@ -2093,7 +2147,11 @@ fn parse_state_term(
                     invocation()?,
                 )?));
             }
-            "map" => return Ok(StateTerm::Map(parse_map(payload, context, invocation()?)?)),
+            "map" => {
+                return Ok(StateTerm::Map(
+                    parse_map(payload, context, invocation()?)?.island_of(macro_path(&tokens)),
+                ));
+            }
             // A set literal has no reading of a cell's own: it is the term
             // its calls build, or a pattern holds them.
             "set" => {}

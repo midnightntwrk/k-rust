@@ -70,8 +70,9 @@ pub(crate) fn map(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Resu
 }
 
 pub(crate) fn cells(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
-    let island_import_checks = nested_state_island_import_checks(&input);
+    let tokens = input.clone();
     let cells = parse_cells_expression(input)?;
+    let island_import_checks = nested_state_island_import_checks(&tokens, &cells);
     let mut expressions = Vec::new();
     let wrappers = cells
         .entries()

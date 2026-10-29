@@ -262,7 +262,10 @@ fn configuration_claim(
             wrapper_checks.push(wrapper_type_check(path));
         }
     }
-    let island_import_checks = consumed_state_island_import_checks(original);
+    let cells = std::iter::once(rule.subject())
+        .chain(rule.result())
+        .collect::<Vec<_>>();
+    let island_import_checks = consumed_state_island_import_checks(original, &cells);
     let wire = WirePayload::ConfigurationRule(Box::new(WireConfigurationRule {
         sentence_kind: krs_ir::ConfigurationSentenceKind::Claim,
         label: Some(DescriptorRuleLabel {

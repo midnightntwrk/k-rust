@@ -1238,11 +1238,14 @@ fn parse_initializer_state_term(
                 StateMacroContext::Expression,
                 invocation()?,
             )?)),
-            "map" if !computation => Ok(StateTerm::Map(parse_map(
-                mac.tokens.clone(),
-                StateMacroContext::Expression,
-                invocation()?,
-            )?)),
+            "map" if !computation => Ok(StateTerm::Map(
+                parse_map(
+                    mac.tokens.clone(),
+                    StateMacroContext::Expression,
+                    invocation()?,
+                )?
+                .island_of(Some(mac.path.clone())),
+            )),
             _ => Err(unsupported_body(
                 "`KCell` requires `k!`; `Cell` accepts ordinary terms or `map!`",
                 expression.span(),

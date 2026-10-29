@@ -1128,7 +1128,10 @@ fn function_context(
         .into_iter()
         .map(wrapper_type_check)
         .collect::<Vec<_>>();
-    checks.extend(consumed_state_island_import_checks(rule.item()));
+    checks.extend(consumed_state_island_import_checks(
+        rule.item(),
+        &[context.pattern()],
+    ));
     let wire = krs_ir::wire::WireFunctionContext {
         key: term_builder.ledger.define(context.key())?,
         configuration: krs_ir::wire::WireConfigurationReference {
