@@ -248,6 +248,10 @@ fn present_content(state: &DescriptorState) -> Option<&DescriptorState> {
 
 /// Lowers an optional (`?`) cell's entry (KF-023, R7): read, update, create
 /// (`None => Some(..)`), or delete (`Some(..) => None`).
+#[expect(
+    clippy::too_many_lines,
+    reason = "The presence checks, both states and the frame are paired in one ordered pass."
+)]
 pub(super) fn lower_optional_clause(
     lowering: &mut impl StateLowering,
     declarations: &DescriptorIndex<'_>,
@@ -335,6 +339,13 @@ pub(super) fn lower_optional_clause(
     let after_presence = after_inner
         .map(|state| lower_presence(&mut lower, state, false))
         .transpose()?;
+    let after_presence = built_presence(
+        &descriptor,
+        before_inner,
+        &before_presence,
+        after_inner.flatten(),
+        after_presence,
+    )?;
     let frame = match before_inner {
         Some(state) => state_frame(&descriptor, state, after_inner.flatten())?,
         None => CellContentFrame::Exact,
@@ -356,6 +367,33 @@ pub(super) fn lower_optional_clause(
         after_presence,
         frame,
     )))
+}
+
+/// A present result's whole `map![..]`, built over what the subject leaves of
+/// the map (`configuration_rules::built_result_map`).
+fn built_presence(
+    descriptor: &Descriptor,
+    before: Option<&DescriptorState>,
+    before_presence: &Presence<SemanticTerm>,
+    after: Option<&DescriptorState>,
+    after_presence: Option<Presence<SemanticTerm>>,
+) -> Result<Option<Presence<SemanticTerm>>, DescriptorLoweringError> {
+    let (Some(Presence::Present { term }), Some(state)) = (&after_presence, after) else {
+        return Ok(after_presence);
+    };
+    let before_term = match before_presence {
+        Presence::Present { term } => Some(term),
+        Presence::Absent => None,
+    };
+    Ok(Some(Presence::Present {
+        term: super::configuration_rules::built_result_map(
+            descriptor,
+            before,
+            before_term,
+            state,
+            term.clone(),
+        )?,
+    }))
 }
 
 /// One collection instance's resolved children: the declaration's fields by
@@ -788,6 +826,13 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                         &result_field.key,
                         false,
                     )?;
+                    let after = super::configuration_rules::built_result_map(
+                        descriptor,
+                        Some(&field.value),
+                        Some(&before),
+                        &result_field.value,
+                        after,
+                    )?;
                     if self.lowering.same(&before, &after) {
                         CellPost::Preserve
                     } else {
@@ -840,6 +885,18 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
             let term = self
                 .lowering
                 .lower_state(&field.value, &sort, &field.key, subject)?;
+            // A new instance's whole `map![..]` is built over the empty map.
+            let term = if subject {
+                term
+            } else {
+                super::configuration_rules::built_result_map(
+                    descriptor,
+                    None,
+                    None,
+                    &field.value,
+                    term,
+                )?
+            };
             let frame = if subject {
                 state_frame(descriptor, &field.value, None)?
             } else {

@@ -901,6 +901,13 @@ fn lower_configuration_rule_clause(
             result_sorts,
             false,
         )?;
+        let after = built_result_map(
+            descriptor,
+            Some(&subject.value),
+            Some(&before),
+            &result.value,
+            after,
+        )?;
         let result_frame = rule_state_frame(&result.value);
         if let Some(moved) = pair_cell_frames(
             terms,
@@ -1608,6 +1615,100 @@ fn moved_map_remainder<'a>(
     }
 }
 
+/// A result's whole `map![k1 -> v1, .., kn -> vn]` is built as a collection
+/// literal is: each entry is written over the map before it, `map::update`, so
+/// the map is total and of two keys that evaluate equal the later one wins.
+///
+/// Where the subject reads the cell's whole map, or the result writes a new
+/// instance's, the map before the first entry is the empty map, and the result
+/// is the calls `.Map [ k1 <- v1 ] .. [ kn <- vn ]`. Where the subject leaves a
+/// remainder (`..`, `rest @ ..`), the map before is that remainder, which K's
+/// cell frame keeps by joining it with the result's entries. The join is the
+/// remainder with the entries written over it exactly when no written key is in
+/// the remainder and no two are equal, and that holds for keys the subject
+/// matched: its entries are distinct entries of the map and the remainder is
+/// what they leave, so the result keeps its entries there. A key the subject
+/// did not match may already be in the remainder, where the join has no value
+/// and the calls have one, and the frame writes nothing over the remainder, so
+/// such a key is refused.
+pub(super) fn built_result_map(
+    descriptor: &Descriptor,
+    subject: Option<&ProtocolRuleStateTerm<DescriptorTerm>>,
+    before: Option<&SemanticTerm>,
+    result: &ProtocolRuleStateTerm<DescriptorTerm>,
+    after: SemanticTerm,
+) -> Result<SemanticTerm, DescriptorLoweringError> {
+    let ProtocolRuleStateTerm::Map(map) = result else {
+        return Ok(after);
+    };
+    let ProtocolRuleMapBody::Items { items, remainder } = &map.body else {
+        return Ok(after);
+    };
+    let IrTermKind::Map(operands) = after.kind() else {
+        return Ok(after);
+    };
+    let MapOperands::Items(entries) = &**operands else {
+        return Ok(after);
+    };
+    let subject_frame = match subject {
+        Some(ProtocolRuleStateTerm::Map(subject)) => match &subject.body {
+            ProtocolRuleMapBody::Items { remainder, .. } => remainder,
+            _ => &ProtocolRuleFrame::Exact,
+        },
+        _ => &ProtocolRuleFrame::Exact,
+    };
+    match (subject_frame, remainder) {
+        (ProtocolRuleFrame::Exact, ProtocolRuleFrame::Exact) => {
+            let mut built = SemanticTerm::map(
+                semantic_origin(descriptor, map.payload_key.clone(), "rule-map-empty")?,
+                MapOperands::Empty,
+            );
+            let last = entries.len() - 1;
+            for (index, (entry, item)) in entries.iter().zip(items).enumerate() {
+                let origin = if index == last {
+                    after.origin().clone()
+                } else {
+                    semantic_origin(descriptor, item.key_key.clone(), "rule-map-update")?
+                };
+                built = SemanticTerm::map(
+                    origin,
+                    MapOperands::Update {
+                        map: built,
+                        key: entry.key.clone(),
+                        value: entry.value.clone(),
+                    },
+                );
+            }
+            Ok(built)
+        }
+        (ProtocolRuleFrame::Anonymous { .. }, ProtocolRuleFrame::Exact)
+        | (ProtocolRuleFrame::Bind { .. }, ProtocolRuleFrame::Reuse { .. }) => {
+            let matched = match before.map(SemanticTerm::kind) {
+                Some(IrTermKind::Map(operands)) => match &**operands {
+                    MapOperands::Items(matched) => matched.iter().map(|entry| &entry.key).collect(),
+                    _ => Vec::new(),
+                },
+                _ => Vec::new(),
+            };
+            for (entry, item) in entries.iter().zip(items) {
+                if !matched
+                    .iter()
+                    .any(|key| semantic_terms_equivalent(key, &entry.key))
+                {
+                    return Err(DescriptorLoweringError::invalid_term(
+                        descriptor.id(),
+                        "the result writes an entry over the map the subject leaves unread (`..` or `rest @ ..`) at a key the subject does not match, and that map may already hold the key: a result's whole `map![..]` writes each entry over the map before it, here that remainder, but K's cell frame only joins the remainder with the result's entries, which has no value where the two share a key, so KRS cannot write it yet; match the key in the subject, or read the whole map (`env: Cell(m)`) and write `map![k -> v, ..m]`",
+                    )
+                    .within(descriptor.id(), key_range(descriptor, &item.key_key).as_ref()));
+                }
+            }
+            Ok(after)
+        }
+        // A result frame the subject's does not pair with is that pairing's error.
+        _ => Ok(after),
+    }
+}
+
 /// The computation pattern `items` followed by `item`.
 fn with_trailing_item(
     descriptor: &Descriptor,
@@ -1765,7 +1866,7 @@ fn validate_frame_pair(
     }
 }
 
-fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool {
+pub(super) fn semantic_terms_equivalent(left: &SemanticTerm, right: &SemanticTerm) -> bool {
     if left.sort() != right.sort() {
         return false;
     }

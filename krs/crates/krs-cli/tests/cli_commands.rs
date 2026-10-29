@@ -711,7 +711,7 @@ module ORG-KRS-CLI-FOO-BAR-SPEC
 
   claim [assign-x]:
     <k> #token("$x","Id") = 1 ; ~> Tail:K => .K ~> Tail:K </k>
-    <env> .Map => #token("$x","Id") |-> 1 </env>
+    <env> .Map => .Map [ #token("$x","Id") <- 1 ] </env>
 endmodule
 "#
     );

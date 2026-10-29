@@ -1532,13 +1532,20 @@ fn parse_unkeyed_map(
                 let key = parse_map_item_key(input)?;
                 // A pattern's items are distinct entries of the map, so two
                 // keys that are the same term can never both match; two `_`
-                // keys match two distinct entries.
+                // keys match two distinct entries. A built map writes each
+                // entry over the map before it, so of two keys that are the
+                // same term the earlier value could never be read.
                 let text = key.to_string();
-                if context == StateMacroContext::Pattern && text != "_" && keys.contains(&text) {
+                if text != "_" && keys.contains(&text) {
                     return Err(state_error(
                         "map",
-                        "a map pattern names one key twice; \
-                         its items are distinct entries of the map, so no map matches it",
+                        if context == StateMacroContext::Pattern {
+                            "a map pattern names one key twice; \
+                             its items are distinct entries of the map, so no map matches it"
+                        } else {
+                            "a map writes one key twice; \
+                             each entry is written over the map before it, so the earlier value could never be read: write the key once"
+                        },
                         key.span(),
                     ));
                 }
