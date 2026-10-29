@@ -720,7 +720,7 @@ fn main() {
             let _ = std::fs::remove_dir_all(out.join(ns).join("Equations"));
             write(
                 &out.join(ns).join("EqBase.lean"),
-                &eqns::emit_eq_base(ns, &eq_base),
+                &eqns::emit_eq_base(ns, &stated, &eq_base, &fgen.unfold, &fgen.recursive),
             );
             let eq_weight: usize = stated.iter().map(|s| eqns::weight(s, &fgen.unfold)).sum();
             let mut eq_modules = 0;
@@ -728,7 +728,6 @@ fn main() {
                 ns,
                 &stated,
                 &open,
-                &eq_base,
                 &fgen.unfold,
                 &fgen.recursive,
                 &fgen.list_recursive,
@@ -985,7 +984,6 @@ fn main() {
                         eqns::emit_retry(
                             ns,
                             &retry,
-                            &eq_base,
                             &fgen.unfold,
                             &fgen.recursive,
                             &fgen.list_recursive,

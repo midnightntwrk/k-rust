@@ -19,26 +19,6 @@ variable [Hooks]
 
 open KPrelude
 
-/-- The generic proof attempts without case splits. -/
-local macro "k2l_eqn_a" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| first
-  | rfl
-  | k2l_hook_law
-  | (simp [k2l_eq, $xs,*]; done)
-  | (simp_all [k2l_eq, $xs,*]; done)
-  | (simp_all [k2l_eq, $xs,*]; omega)
-  | (simp only [k2l_eq, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; done)
-  | (simp only [k2l_eq, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; omega))
-
-/-- The generic proof by case splits (equations `x = t` from a split substituted first: `simp_all`
-uses an equation `t = x` only from left to right); a case `simp_all` leaves is closed by `omega`
-(a `requires` that excludes an earlier equation's by linear arithmetic). -/
-local macro "k2l_eqn_b" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> first | (simp_all [k2l_eq, $xs,*]; done) | ((try simp_all [k2l_eq, $xs,*]) <;> omega)))
-
-/-- The generic proof by cases on the partial calls that the cascade matches (`k2l_case_call`),
-which the statement binds with `Option.bind`: after each case both sides reduce, and the cases
-are closed as `k2l_eqn_a` does. Fails unless there is such a call. -/
-local macro "k2l_eqn_c" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((try simp only []); (k2l_case_call <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))
-
 /-- _andBool_ equation 1 -/
 theorem Eqn._andBool__1 (B : SortBool) :
     KPrelude.BoolHook.and true B = B := by

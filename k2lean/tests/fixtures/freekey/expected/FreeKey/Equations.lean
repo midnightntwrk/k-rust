@@ -17,58 +17,6 @@ namespace FreeKey
 
 open KPrelude
 
-/-- The generic proof attempts without case splits. -/
-local macro "k2l_eqn_a" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| first
-  | rfl
-  | k2l_hook_law
-  | (simp [k2l_eq, $xs,*]; done)
-  | (simp_all [k2l_eq, $xs,*]; done)
-  | (simp_all [k2l_eq, $xs,*]; omega)
-  | (simp only [k2l_eq, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; done)
-  | (simp only [k2l_eq, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; omega))
-
-/-- The generic proof by case splits (equations `x = t` from a split substituted first: `simp_all`
-uses an equation `t = x` only from left to right); a case `simp_all` leaves is closed by `omega`
-(a `requires` that excludes an earlier equation's by linear arithmetic). -/
-local macro "k2l_eqn_b" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> first | (simp_all [k2l_eq, $xs,*]; done) | ((try simp_all [k2l_eq, $xs,*]) <;> omega)))
-
-/-- The generic proof by cases on the partial calls that the cascade matches (`k2l_case_call`),
-which the statement binds with `Option.bind`: after each case both sides reduce, and the cases
-are closed as `k2l_eqn_a` does. Fails unless there is such a call. -/
-local macro "k2l_eqn_c" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((try simp only []); (k2l_case_call <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))
-
-/-- The generic proof of an equation of a recursive function `f`, which `simp` does not
-unfold: unfold `f` once on the left-hand side (`f.eq_def`), reduce the cascade of its equations,
-decide its matches on a list pattern of the left-hand side (`k2l_case_list`), case on the variables
-that the cascade matches, on the recursive calls, on the projections and on the other partial
-calls that its matches inspect (`k2l_case_call`: hooks and functions that are not recursive,
-after which a recursive call whose argument is such a call's value is cased too), then close each
-case as the generic tactics do. -/
-local macro "k2l_eqn_r " f:ident " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
-  let e := Lean.mkIdent (f.getId.str "eq_def")
-  `(tactic| (
-    (conv => lhs; rw [$e:ident])
-    try simp only []
-    try (repeat' (first | k2l_case_list | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [K.«allNat(_)_FREEKEY_Bool_Map», K.«jobsOk(_)_FREEKEY_Bool_JobsCell», K.«takeSum(_,_)_FREEKEY_Int_Int_Map», K.«total(_)_FREEKEY_Int_WorkerCellMap», proj_KItem_Bool, proj_CntCellOpt_CntCell, proj_KItem_CntCell, proj_KItem_CntCellOpt, proj_CtlCellOpt_CtlCell, proj_KItem_CtlCell, proj_KItem_CtlCellFragment, proj_KItem_CtlCellOpt, proj_DoneCellOpt_DoneCell, proj_KItem_DoneCell, proj_KItem_DoneCellOpt, proj_GeneratedCounterCellOpt_GeneratedCounterCell, proj_KItem_GeneratedCounterCell, proj_KItem_GeneratedCounterCellOpt, proj_KItem_GeneratedTopCell, proj_KItem_GeneratedTopCellFragment, proj_HiCellOpt_HiCell, proj_KItem_HiCell, proj_KItem_HiCellOpt, proj_KItem_Int, proj_JidCellOpt_JidCell, proj_KItem_JidCell, proj_KItem_JidCellOpt, proj_KItem_JobCell, proj_KItem_JobCellFragment, proj_KItem_JobCellMap, proj_JobsCellOpt_JobsCell, proj_KItem_JobsCell, proj_KItem_JobsCellFragment, proj_KItem_JobsCellOpt, proj_KCellOpt_KCell, proj_KItem_KCell, proj_KItem_KCellOpt, proj_KItem_KConfigVar, proj_KItem_List, proj_KItem_LoCell, proj_LoCellOpt_LoCell, proj_KItem_LoCellOpt, proj_KItem_MCell, proj_MCellOpt_MCell, proj_KItem_MCellOpt, proj_KItem_Map, proj_KItem_OwnerCell, proj_OwnerCellOpt_OwnerCell, proj_KItem_OwnerCellOpt, proj_KItem_Pgm, proj_KItem_PrioCell, proj_PrioCellOpt_PrioCell, proj_KItem_PrioCellOpt, proj_KItem_Set, proj_KItem_TCell, proj_TCellOpt_TCell, proj_KItem_TCellFragment, proj_KItem_TCellOpt, proj_KItem_WidCell, proj_WidCellOpt_WidCell, proj_KItem_WidCellOpt, proj_KItem_WorkerCell, proj_KItem_WorkerCellFragment, proj_KItem_WorkerCellMap, proj_KItem_WorkersCell, proj_WorkersCellOpt_WorkersCell, proj_KItem_WorkersCellFragment, proj_KItem_WorkersCellOpt] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind])))
-    all_goals first
-      | (simp_all [k2l_eq, $xs,*]; done)
-      | ((repeat' (first | split | k2l_split_hyps)) <;> (try simp_all [k2l_eq, $xs,*]) <;> omega)))
-
-/-- The proof of an equation with no-match premises (an `owise` rule's, whose left-hand side
-is usually a variable), after the function is unfolded: reduce the cascade as `k2l_eqn_r` does,
-also splitting a list variable that it takes apart (`k2l_case_lvar`), then close each case by
-reduction, by the no-match premise of the rule whose arm the case is (`k2l_owise_arm`; applied,
-with its `requires` computed from the case's facts, `k2l_owise_apply`), or as the generic tactics
-do, after splitting the remaining `if`s and `match`es (a rule's `requires`). -/
-local macro "k2l_eqn_o" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
-    (try simp only [])
-    (try (repeat' (first | k2l_case_list | k2l_case_lvar | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [K.«allNat(_)_FREEKEY_Bool_Map», K.«jobsOk(_)_FREEKEY_Bool_JobsCell», K.«takeSum(_,_)_FREEKEY_Int_Int_Map», K.«total(_)_FREEKEY_Int_WorkerCellMap», proj_KItem_Bool, proj_CntCellOpt_CntCell, proj_KItem_CntCell, proj_KItem_CntCellOpt, proj_CtlCellOpt_CtlCell, proj_KItem_CtlCell, proj_KItem_CtlCellFragment, proj_KItem_CtlCellOpt, proj_DoneCellOpt_DoneCell, proj_KItem_DoneCell, proj_KItem_DoneCellOpt, proj_GeneratedCounterCellOpt_GeneratedCounterCell, proj_KItem_GeneratedCounterCell, proj_KItem_GeneratedCounterCellOpt, proj_KItem_GeneratedTopCell, proj_KItem_GeneratedTopCellFragment, proj_HiCellOpt_HiCell, proj_KItem_HiCell, proj_KItem_HiCellOpt, proj_KItem_Int, proj_JidCellOpt_JidCell, proj_KItem_JidCell, proj_KItem_JidCellOpt, proj_KItem_JobCell, proj_KItem_JobCellFragment, proj_KItem_JobCellMap, proj_JobsCellOpt_JobsCell, proj_KItem_JobsCell, proj_KItem_JobsCellFragment, proj_KItem_JobsCellOpt, proj_KCellOpt_KCell, proj_KItem_KCell, proj_KItem_KCellOpt, proj_KItem_KConfigVar, proj_KItem_List, proj_KItem_LoCell, proj_LoCellOpt_LoCell, proj_KItem_LoCellOpt, proj_KItem_MCell, proj_MCellOpt_MCell, proj_KItem_MCellOpt, proj_KItem_Map, proj_KItem_OwnerCell, proj_OwnerCellOpt_OwnerCell, proj_KItem_OwnerCellOpt, proj_KItem_Pgm, proj_KItem_PrioCell, proj_PrioCellOpt_PrioCell, proj_KItem_PrioCellOpt, proj_KItem_Set, proj_KItem_TCell, proj_TCellOpt_TCell, proj_KItem_TCellFragment, proj_KItem_TCellOpt, proj_KItem_WidCell, proj_WidCellOpt_WidCell, proj_KItem_WidCellOpt, proj_KItem_WorkerCell, proj_KItem_WorkerCellFragment, proj_KItem_WorkerCellMap, proj_KItem_WorkersCell, proj_WorkersCellOpt_WorkersCell, proj_KItem_WorkersCellFragment, proj_KItem_WorkersCellOpt] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind]))))
-    all_goals first
-      | rfl
-      | k2l_owise_arm
-      | (simp_all [k2l_eq, $xs,*]; done)
-      | ((repeat' (first | split | k2l_split_hyps | k2l_case_choose)) <;> first | rfl | k2l_owise_arm | (simp_all [k2l_eq, $xs,*]; done) | k2l_owise_apply | ((try simp_all [k2l_eq, $xs,*]) <;> omega))))
-
 /-- _andBool_ equation 1 -/
 theorem Eqn._andBool__1 (B : SortBool) :
     KPrelude.BoolHook.and true B = B := by

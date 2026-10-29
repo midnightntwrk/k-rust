@@ -110,7 +110,7 @@ elab "k2l_split_var" : tactic => liftMetaTactic fun g => g.withContext do
 /-! ## Equations of recursive functions
 
 The generated proof of a K equation of a well-founded recursive function (`k2l_eqn_r` in a
-generated `Equations.lean`) unfolds the function once on the left-hand side and then cases with
+generated `NS/EqBase.lean`) unfolds the function once on the left-hand side and then cases with
 these tactics until the cascade of the function's equations reduces (`k2l_case_call` also serves
 the equations of functions that are not recursive, whose right-hand side binds partial calls). -/
 
@@ -536,6 +536,33 @@ elab "k2l_case_inj" : tactic => do
         break
     let some x := found | throwError "k2l_case_inj: no injected variable"
     return (← familyCases g x (splitEnum := false)).toList.map (·.1)
+
+/-! ## The generic proofs of K's equations
+
+The proofs `Equations.lean` gives every library's equations, defined once here (CT-4c). A theorem's
+script passes the definitions it may unfold (`xs`); the shared simp lemmas are the simp set `k2l_eq`
+(`KPrelude.EqBase` and the library's `NS/EqBase.lean`). The two that name a library's own functions,
+`k2l_eqn_r` and `k2l_eqn_o`, are in its `NS/EqBase.lean`. -/
+
+/-- The generic proof attempts without case splits. -/
+macro "k2l_eqn_a" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| first
+  | rfl
+  | k2l_hook_law
+  | (simp [k2l_eq, $xs,*]; done)
+  | (simp_all [k2l_eq, $xs,*]; done)
+  | (simp_all [k2l_eq, $xs,*]; omega)
+  | (simp only [k2l_eq, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; done)
+  | (simp only [k2l_eq, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; omega))
+
+/-- The generic proof by case splits (equations `x = t` from a split substituted first: `simp_all`
+uses an equation `t = x` only from left to right); a case `simp_all` leaves is closed by `omega`
+(a `requires` that excludes an earlier equation's by linear arithmetic). -/
+macro "k2l_eqn_b" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> first | (simp_all [k2l_eq, $xs,*]; done) | ((try simp_all [k2l_eq, $xs,*]) <;> omega)))
+
+/-- The generic proof by cases on the partial calls that the cascade matches (`k2l_case_call`),
+which the statement binds with `Option.bind`: after each case both sides reduce, and the cases
+are closed as `k2l_eqn_a` does. Fails unless there is such a call. -/
+macro "k2l_eqn_c" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((try simp only []); (k2l_case_call <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))
 
 end KPrelude
 
