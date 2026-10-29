@@ -17,12 +17,12 @@ preserve = []
 
 [demo.UtxoConf]
 tier = "light"
-guarded = 32
+guarded = 28
 preserve = []
 
 [demo.HandoffConf]
 tier = "light"
-guarded = 41
+guarded = 37
 preserve = []
 
 [outputs]
@@ -31,15 +31,15 @@ preserve = []
 [sources]
 
 [sources.sha256]
-"demos/HandoffConf/HandoffConf/Slots.lean" = { tier = "light", sha256 = "2087d9cd29fadca69a8c6ec3e830b0a9615ec4477c1628225d24ddf76551f098" }
-"demos/HandoffConf/HandoffConf/Views.lean" = { tier = "light", sha256 = "212f2574d6ad44c8d2a2d99fc91637c5474775d6ffb55f23d4b110e77e34b2e9" }
-"demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "b744607d69f8068bf67a4ecc82ee8d8d70ded96a0b6c750c459f1a1742a6b242" }
+"demos/HandoffConf/HandoffConf/Slots.lean" = { tier = "light", sha256 = "fe4e7e38a2dd57d14e27027fffcc85c40049be46680a290a92861299117b0526" }
+"demos/HandoffConf/HandoffConf/Views.lean" = { tier = "light", sha256 = "3b536ff11941c4540cbdfeb4ba624cec9cc131741cda884af21397d18483d437" }
+"demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "1e81b3dc725a15c180a08b333d35894ade5a8e272618b85ed4647661b70fffc1" }
 "demos/RaceConf/RaceConf/Confluence.lean" = { tier = "light", sha256 = "6babb033eefe8fed5b5a84e7b11510d957a8eb287bfcebcf7bf2a1cf24d66554" }
 "demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "c55fc58f8df1362826bcf25086e7e667cf25d10c8657a3ce7eb5e4f0f9a58f38" }
 "demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "6f4cb5078f2e811c270cd18c68fc91f3fad2fe84dd21e7b7ae62d2a6118b7261" }
-"demos/UtxoConf/UtxoConf/Slots.lean" = { tier = "light", sha256 = "216446db13e9b1ab27c2c566b73d723f0b0783860ef6f1786c5dc65e3c3ec0d0" }
-"demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "ea20d1fd91ee4f6d6cd999375192a6a9089432c030d9c5c09e13f3dd67f52ea0" }
-"demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "d3c3f8e866d6f6e269a26be65126466e1a5ac34e6a6a59c03d0d69d13b0b01d9" }
+"demos/UtxoConf/UtxoConf/Slots.lean" = { tier = "light", sha256 = "ba46efecb0f36d783e3226c14c121afa760b1d8466e62b865f072c0ce83fe16c" }
+"demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "20f7bb57a07adfecbbe05e37cfa8b187fc6e1a5856f2e08ceffcd0a53c234ca8" }
+"demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "eb522463e42b25424350706adba356df8e0f87e353faebe0cac14344b0ee8f4c" }
 "generated/handoff/Handoff.lean" = { tier = "light", sha256 = "fc225125e6cd2a9ee167f14c2741d445f5a4dada20a7982ee1ad71353afd7672" }
 "generated/handoff/Handoff/Adequacy.lean" = { tier = "light", sha256 = "79a20ad47aa3c60a8f7cb24bea685f2e2b7650ab6bc76027fb3449f0036ffd5a" }
 "generated/handoff/Handoff/Determinism.lean" = { tier = "light", sha256 = "a55bfe9e7b163055e26ac490fed2d9d5b5642544eff3aa7448156c3500553d87" }
