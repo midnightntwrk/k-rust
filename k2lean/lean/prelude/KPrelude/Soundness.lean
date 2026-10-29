@@ -13,21 +13,13 @@ generated library. A loop that finds nothing to case on leaves the goal as it is
   `f` (an `Option`, or a `Bool`), with an equation, and on the enumeration-typed value inside
   `some`; used by the inversion lemmas of a type checker's functions, whose two sides compute
   once the recursive calls have values.
-- `k2l_cases_args [C, …] [T, …] within [U, …] fuel n`: case on the variables of the types `T`
-  that are arguments of the argument of an application of one of the constructors `C` (the
-  operands of the head item of `<k>`: whether an operand is a value decides between heating and
-  the operator's own rule); with `within`, also on the variables of the types `T` or `U` inside an
-  argument of a type `U` (a hole inside a list argument, IMP++'s `print(E, AEs)`), nearest first.
 - `k2l_cases_bools fuel n`: case on the Boolean variables of the goal (a literal decides between
-  `if-true` and `if-false`).
-- `k2l_cases_frz [C] [T] fuel n => tac`: run `tac`, then case on a variable of type `T` that is an
-  argument of an application of `C`, or the last argument of such an argument (the `SortK`
-  arguments of freezers, until they have the shape `kseq y .dotk` the cooling rules match).
-- `k2l_cases_typing [f, …] fuel n => tac`: run `tac`, then case on the first application of one
-  of the functions `f` (a sort projection of a variable, or a typing function), with an equation,
-  and on the enumeration-typed value inside `some`.
+  the two arms of a checker's conditional).
 - `k2l_has_ctor [C, …]`: fails unless the goal has an application of one of the constructors
-  `C`; it guards a case of a proof that chooses among cases by `first`.
+  `C`; it guards a case of a proof that chooses among cases by `first` (`KPrelude.Progress`).
+
+Progress, the third part of type soundness, is no stuck states under the runtime typing
+(`KPrelude.Progress`, `gen --progress`); `casesVar` and `findCtorArg` serve it too.
 - `k2l_norm_idx`: compute the sort indices of the goal and its hypotheses.
 
 On the arity-indexed term family (design.md §2.1) the loops split a family term by
@@ -57,22 +49,6 @@ def isEnum (t : Expr) : MetaM Bool := do
 values are not the family's constructors: `familyCases` enumerates them. -/
 def isFamily (t : Expr) : MetaM Bool := do
   return (← whnfR t).getAppFn.constName?.any (KPrelude.isFamilyName (← getEnv))
-
-/-- The constant naming the type `t`, as written or once reducible definitions are unfolded:
-on the arity-indexed family a sort `NS.SortX` is a reducible name of `NS.Term .SortX`. -/
-def typeNames (t : Expr) : MetaM (Array Name) := do
-  let mut out := #[]
-  if let .const n _ := t.getAppFn then out := out.push n
-  if let .const n _ := (← whnfR t).getAppFn then out := out.push n
-  return out
-
-/-- Is `t` one of the types named `ts`? On the arity-indexed family a variable's type may be the
-family at an index still to compute (`Term (A2_0 s c)` after a case split), so there it is
-compared with each named sort up to definitional unfolding. -/
-def isOneOf (t : Expr) (ts : Array Name) : MetaM Bool := do
-  if (← typeNames t).any ts.contains then return true
-  unless ← isFamily t do return false
-  ts.anyM fun n => withNewMCtxDepth do isDefEq t (mkConst n)
 
 /-- `cases` on the variable `x` of the main goal; on the arity-indexed family, the cases of its
 sort's values only (`familyCases`). -/
@@ -215,29 +191,6 @@ partial def appsLoop (fs : Array Name) (fuel : Nat) : TacticM Unit := do
   caseValue e
   eachGoal (appsLoop fs (fuel - 1))
 
-partial def argsLoop (cs ts : Array Name) (fuel : Nat) (us : Array Name := #[]) : TacticM Unit := do
-  if (← getGoals).isEmpty || fuel = 0 then return
-  let g ← getMainGoal
-  let t ← instantiateMVars (← g.getType)
-  let x? ← g.withContext do
-    if let some arg ← findCtorArg cs t then
-      -- the operands, nearest first: a direct argument, then one inside an argument of a sort
-      -- of `us` (IMP++'s `print(E, AEs)` evaluates `E`, the head of its list argument)
-      let mut level := arg.getAppArgs
-      for _ in [0:3] do
-        let mut next := #[]
-        for x in level do
-          let tx ← inferType x
-          if x.isFVar then
-            if ← isOneOf tx ts <||> isOneOf tx us then return some x
-          else if x.isApp && (← isOneOf tx us) then
-            next := next ++ x.getAppArgs
-        level := next
-    return none
-  let some x := x? | return
-  casesVar x
-  eachGoal (argsLoop cs ts (fuel - 1) us)
-
 partial def boolsLoop (fuel : Nat) : TacticM Unit := do
   if (← getGoals).isEmpty || fuel = 0 then return
   let g ← getMainGoal
@@ -253,48 +206,10 @@ partial def boolsLoop (fuel : Nat) : TacticM Unit := do
   evalTactic (← `(tactic| cases $hx:term))
   eachGoal (boolsLoop (fuel - 1))
 
-partial def frzLoop (cs ts : Array Name) (tac : TSyntax ``Lean.Parser.Tactic.tacticSeq) (fuel : Nat) :
-    TacticM Unit := do
-  if (← getGoals).isEmpty || fuel = 0 then return
-  evalTactic (← `(tactic| try ($tac)))
-  if (← getGoals).isEmpty then return
-  let g ← getMainGoal
-  let t ← instantiateMVars (← g.getType)
-  let cand ← g.withContext do
-    if let some arg ← findCtorArg cs t then
-      for x in arg.getAppArgs do
-        let x' := if x.isApp then x.appArg! else x
-        if x'.isFVar then
-          if ← isOneOf (← inferType x') ts then return some x'
-    return none
-  let some x := cand | return
-  casesVar x
-  eachGoal (frzLoop cs ts tac (fuel - 1))
-
-/-- Is `e` an application of one of `fs` whose last argument is a variable, or of a function
-of `gs`? -/
-def typingHead (fs gs : Array Name) (e : Expr) : Bool :=
-  match e.getAppFn with
-  | .const n _ => (fs.contains n && e.getAppNumArgs > 0 && e.appArg!.isFVar) ||
-      (gs.contains n && e.getAppNumArgs > 0)
-  | _ => false
-
-partial def typingLoop (fs gs : Array Name) (tac : TSyntax ``Lean.Parser.Tactic.tacticSeq) (fuel : Nat) :
-    TacticM Unit := do
-  if (← getGoals).isEmpty then return
-  evalTactic (← `(tactic| try ($tac)))
-  if (← getGoals).isEmpty || fuel = 0 then return
-  let g ← getMainGoal
-  let t ← instantiateMVars (← g.getType)
-  let some e := t.find? (fun e => !e.hasLooseBVars && typingHead fs gs e) | return
-  caseValue e
-  eachGoal (typingLoop fs gs tac (fuel - 1))
-
 def names (xs : Array Ident) : TacticM (Array Name) :=
   xs.mapM fun i => realizeGlobalConstNoOverloadWithInfo i
 
 syntax fuelOpt := &" fuel " num
-syntax withinOpt := &" within " "[" ident,* "]"
 
 /-- See the module documentation. -/
 elab "k2l_cases_apps " "[" fs:ident,* "]" f:(fuelOpt)? : tactic => do
@@ -302,22 +217,9 @@ elab "k2l_cases_apps " "[" fs:ident,* "]" f:(fuelOpt)? : tactic => do
   appsLoop (← names fs.getElems) fuel
 
 /-- See the module documentation. -/
-elab "k2l_cases_args " "[" cs:ident,* "]" " [" ts:ident,* "]" w:(withinOpt)? f:(fuelOpt)? : tactic => do
-  let fuel := match f with | some s => s.raw[1].isNatLit?.getD 2 | none => 2
-  let us ← match w with
-    | some s => names (s.raw[2].getSepArgs.map (⟨·⟩))
-    | none => pure #[]
-  argsLoop (← names cs.getElems) (← names ts.getElems) fuel us
-
-/-- See the module documentation. -/
 elab "k2l_cases_bools" f:(fuelOpt)? : tactic => do
   let fuel := match f with | some s => s.raw[1].isNatLit?.getD 3 | none => 3
   boolsLoop fuel
-
-/-- See the module documentation. -/
-elab "k2l_cases_frz " "[" cs:ident,* "]" " [" ts:ident,* "]" f:(fuelOpt)? " => " tac:tacticSeq : tactic => do
-  let fuel := match f with | some s => s.raw[1].isNatLit?.getD 6 | none => 6
-  frzLoop (← names cs.getElems) (← names ts.getElems) tac fuel
 
 /-- See the module documentation. -/
 elab "k2l_has_ctor " "[" cs:ident,* "]" : tactic => do
@@ -325,11 +227,5 @@ elab "k2l_has_ctor " "[" cs:ident,* "]" : tactic => do
   let cs ← names cs.getElems
   let found ← g.withContext do findCtorArg cs (← instantiateMVars (← g.getType))
   if found.isNone then throwError "k2l_has_ctor: no application of {cs} in the goal"
-
-/-- See the module documentation: `fs` are the sort projections (cased on when applied to a
-variable), `gs` the typing functions (cased on at any argument). -/
-elab "k2l_cases_typing " "[" fs:ident,* "]" " [" gs:ident,* "]" f:(fuelOpt)? " => " tac:tacticSeq : tactic => do
-  let fuel := match f with | some s => s.raw[1].isNatLit?.getD 4 | none => 4
-  typingLoop (← names fs.getElems) (← names gs.getElems) tac fuel
 
 end KPrelude.Soundness

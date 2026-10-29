@@ -65,7 +65,7 @@ A project of your own uses the generated library through Lake alone (`demos/PkgD
 | `demos/ImpRel` | the KRS IMP port (`demos/k/krs-imp`) and kimp are bisimilar: `k2lean relate` pairs their rules and generates the proof |
 | `demos/SimpleRel` | SIMPLE and a variant of it (`tests/simple-variant.py`: constructors with other symbols, rules in another order) are bisimilar (priorities, free-key matches on the thread cell map, typed cell maps): `k2lean relate --split true` generates the proof, one module per simulation; a targeted check, not a gate tier (`pipelines/simple-rel.sh`, run when `relate`'s emitters or the family's case and split tactics change), about 17 minutes with `Base` at 771 s and 10.7 GB on top of the two libraries (`docs/design.md`, §9) |
 | `demos/PeanoRel`, `demos/CellMapRel`, `demos/PickRel` | the fixtures `tests/fixtures/peano` (an `owise` priority, recursive and mutual functions), `tests/fixtures/cellmap` (a free-key rule over the typed cell map of `<worker>`s) and `tests/fixtures/pick` (functions with free-key map patterns) are each bisimilar to themselves under two namespaces: the light gate's cheap pins of `relate` |
-| `demos/ImpTypes` | kimp is type-sound for a K type checker (`demos/k/imp-typing.k`): `k2lean soundness` generates the runtime typing, preservation, progress and `soundness`; `Store.lean` holds the store typing and the cases of the three rules that read or write the store |
+| `demos/ImpTypes` | kimp is type-sound for a K type checker (`demos/k/imp-typing.k`): `k2lean soundness` generates the runtime typing, preservation and `soundness`, from kimp's progress under the typing (`gen --progress`, `var`'s case by hand in `ProgressHand.lean`); `Store.lean` holds the store typing and the preservation cases of the three rules that read or write the store |
 | `demos/ImpPlusTypes` | IMP++ of K's tutorial (threads in a cell map, `spawn`/`join`, blocks, K's I/O streams) is type-sound for a K type checker of its programs without variables (`demos/k/impplus-typing.k`): all generated, no hand module (`docs/design.md`, §3.3, "A semantics with threads") |
 | `demos/ImpMut` | a mutant of kimp (`demos/k/kimp-mutant`) diverges from kimp, proved on a concrete configuration |
 | `demos/ImpUnroll` | kimp and a variant whose `while` unrolls in one step less (`tests/kimp-unroll.py`) are stuttering bisimilar: `k2lean refine` generates all 316 case parts and the non-local part of the relation, from the split of `while` (`--hand-module none`) |
@@ -112,16 +112,21 @@ A claim proved on one definition holds on another that `k2lean relate` proves bi
 
 ## Type soundness
 
-`k2lean soundness` generates the type soundness of a semantics for a type checker written as a second K definition over its syntax, except, for a language with a store, what is specific to it: a hand module types the store and proves the cases of the rules that read or write it (`demos/ImpTypes`; `demos/ExprTypes` and `demos/ImpPlusTypes` need none; `tests/areas/soundness.sh`, `libs_soundness`):
+`k2lean soundness` generates the type soundness of a semantics for a type checker written as a second K definition over its syntax, except, for a language with a store, what is specific to it: a hand module types the store and proves the cases of the rules that read or write it (`demos/ImpTypes`; `demos/ExprTypes` and `demos/ImpPlusTypes` need none; `tests/areas/soundness.sh`, `libs_soundness` and `gen_typed_prog`). Its progress is no stuck states under the typing (`gen --progress`, `docs/design.md` §3.9):
 
 ```sh
 target/release/k2lean soundness --kore-a out/my/definition.kore --name-a My \
   --kore-b out/my-typing/definition.kore --name-b MyTypes --ns MySound \
   --typing typeOf,wt --store-cell env --store-typing envTy \
-  --out-typing MySound/Typing.lean --out-soundness MySound/Soundness.lean
+  --out-typing MySound/Typing.lean --out-typed MySound/Typed.lean \
+  --out-soundness MySound/Soundness.lean --out-unfold typed-unfold.txt
+target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime.json --out gen/my --name My \
+  --progress --assume-invariant MySound.Typed --invariant-module MySound.Typed \
+  --invariant-preserved MySound.Typed.preserved --invariant-unfold typed-unfold.txt \
+  --ending-lean MySound.kDone@k --progress-out . --progress-prefix MySound
 ```
 
-It needs the two libraries and the translation of programs that `k2lean relate --roots` writes (`MySound/Tr.lean`; `--tr-module`), and writes `Typing.lean`, which the hand module `MySound/Store.lean` (`--hand-module`) imports, and `Soundness.lean`, which imports it; `docs/design.md`, §3.3, says what each part states and what is supported.
+It needs the two libraries and the translation of programs that `k2lean relate --roots` writes (`MySound/Tr.lean`; `--tr-module`), and writes `Typing.lean`, which the hand module `MySound/Store.lean` (`--hand-module`) imports; `Typed.lean`, preservation and the typing as an invariant, which `gen --progress` assumes; and `Soundness.lean`, `soundness` from the progress modules' `no_stuck`, with a case `gen --progress` leaves open proved in `MySound/ProgressHand.lean`; `docs/design.md`, §3.3, says what each part states and what is supported.
 
 ## Scaffolds
 

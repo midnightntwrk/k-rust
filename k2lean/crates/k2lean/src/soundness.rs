@@ -7,24 +7,28 @@
 //! one a `Bool` that accepts a program), and the cells of `A`'s configuration whose typing is
 //! written by hand (`--store-cell env`).
 //!
-//! It writes two modules around a hand-written one:
+//! It writes three modules around a hand-written one and the progress modules of `gen --progress`:
 //! 1. `Typing.lean` (before the hand module): the typing functions at `A`'s terms; one inversion
 //!    lemma per checker equation whose first argument is a constructor (the equation's
 //!    `requires` and right-hand side, with the calls of typing functions bound by `match`);
 //!    `plug`, the item that cooling makes of a value and a freezer, read off the cooling rules;
 //!    the stack typing `kty` of `<k>`, where a freezer is typed by plugging a value of the hole's
 //!    type (`dflt`, read off the checker's equations at value sorts); `WTc St G`, the typing of a
-//!    configuration for a typing `St` of each hand-typed cell; `Final`, `init`; and
-//!    `Progress.Case.r St`, the progress obligation at the left-hand side of each rule `r` that
-//!    reads a hand-typed cell.
-//! 2. `Soundness.lean` (after it): `preserved` by `k2l_preserve … hand NS.hand` (the hand module's
-//!    `hand.r` for the rules that read or write a hand-typed cell), the progress skeleton (cases on
-//!    the head of `<k>` read off the term universe and the rules, then a search among the `App`
-//!    constructors; at the head of a store-reading rule `r`, the hand module's
-//!    `hand.progress.r`), and `soundness`.
+//!    configuration for a typing `St` of each hand-typed cell; `kDone`, a finished `<k>`, and
+//!    `Final`, `init`.
+//! 2. `Typed.lean` (after it, `--out-typed`): `preserved` by `k2l_preserve … hand NS.hand` (the
+//!    hand module's `hand.r` for the rules that read or write a hand-typed cell); `Typed`, a
+//!    configuration typed under some typing environment, and its preservation, the invariant of
+//!    `gen --progress --assume-invariant NS.Typed --ending-lean NS.kDone@k`; `wt_init`, `wt_stepsN`.
+//! 3. `Soundness.lean` (after the progress modules): `soundness`, from their `no_stuck` under
+//!    `Typed`, `wt_init`, and an ending being `Final`.
+//!
+//! `--out-unfold FILE` lists what the progress modules' stuck closer unfolds (`--invariant-unfold`):
+//! `Typed`, `WTc`, the `@[k2l_pres]` lemmas, `kDone`.
 //!
 //! The hand module (`--hand-module`, default `NS.Store`) defines the store typings
-//! (`--store-typing envTy`) and proves those cases.
+//! (`--store-typing envTy`) and proves those cases; a progress case that reads such a cell is a
+//! hand case of the progress modules (`ProgressHand.lean`).
 //!
 //! With `<k>` in each element of a cell map of threads (IMP++), `WTc` types every thread,
 //! `Final` holds when every thread is done or waits at a head that needs another thread, the
@@ -1540,45 +1544,6 @@ fn thr_of(a: &Lib, top: &str, pitem: &str) -> Option<Thr> {
     })
 }
 
-/// The sorts of the arguments that hold a cooling rule's hole deeper down (IMP++'s `print(HOLE,
-/// AEs)`: the hole is the head of `print`'s `AExps` argument), read off the item's constructors.
-fn hole_containers(a: &Lib, cools: &BTreeMap<String, Cool>) -> BTreeSet<String> {
-    let by_path: BTreeMap<String, &String> =
-        a.m.ctors.keys().map(|c| (a.m.ctor_path(c), c)).collect();
-    fn has(l: &L, v: &str) -> bool {
-        match l {
-            L::Var(x) => x == v,
-            L::App(_, xs) => xs.iter().any(|x| has(x, v)),
-            _ => false,
-        }
-    }
-    fn walk(
-        a: &Lib,
-        by_path: &BTreeMap<String, &String>,
-        l: &L,
-        v: &str,
-        out: &mut BTreeSet<String>,
-    ) {
-        let L::App(h, xs) = l else { return };
-        for (i, x) in xs.iter().enumerate() {
-            if !has(x, v) || matches!(x, L::Var(y) if y == v) {
-                continue;
-            }
-            if let Some(c) = by_path.get(h)
-                && let Some(s) = a.m.ctors[*c].args.get(i)
-            {
-                out.insert(s.clone());
-            }
-            walk(a, by_path, x, v, out);
-        }
-    }
-    let mut out = BTreeSet::new();
-    for c in cools.values() {
-        walk(a, &by_path, &c.item_l, &c.hole, &mut out);
-    }
-    out
-}
-
 /// One cooling rule: `HOLE ~> f(args) => item` (in `A`'s names, unqualified).
 pub(crate) struct Cool {
     frz: String,
@@ -1589,7 +1554,7 @@ pub(crate) struct Cool {
     hole: String,
     hole_sort: String,
     item: String,
-    /// The item, as a term (for the sorts of the arguments the hole sits inside).
+    /// The item, as a term (for the functions it calls).
     item_l: L,
 }
 
@@ -1792,9 +1757,19 @@ pub fn main(args: &[String]) {
     if o.store_cells.len() != o.store_typing.len() {
         fail("--store-typing names one typing per --store-cell");
     }
-    let (typing, sound) = generate(&a, &b, &syms, &ns, &o);
-    write_file(&get("out-typing"), &typing);
-    write_file(&get("out-soundness"), &sound);
+    let g = generate(&a, &b, &syms, &ns, &o);
+    write_file(&get("out-typing"), &g.typing);
+    write_file(&get("out-typed"), &g.typed);
+    write_file(&get("out-soundness"), &g.soundness);
+    write_file(&get("out-unfold"), &g.unfold);
+}
+
+/// What `generate` writes: the three modules, and the unfolding list of the progress modules.
+struct Gen {
+    typing: String,
+    typed: String,
+    soundness: String,
+    unfold: String,
 }
 
 /// `xs` joined by spaces, after a space; nothing when empty.
@@ -1802,8 +1777,8 @@ fn spaced(xs: &[String]) -> String {
     xs.iter().map(|x| format!(" {x}")).collect()
 }
 
-/// The two modules, `Typing.lean` and `Soundness.lean`.
-fn generate(a: &Lib, b: &Lib, syms: &[String], ns: &str, o: &Opts) -> (String, String) {
+/// The modules `Typing.lean`, `Typed.lean` and `Soundness.lean`, and the unfolding list.
+fn generate(a: &Lib, b: &Lib, syms: &[String], ns: &str, o: &Opts) -> Gen {
     let (na, nb) = (&a.ns, &b.ns);
     // the typing functions
     let mut tfs = Vec::new();
@@ -1913,6 +1888,15 @@ fn generate(a: &Lib, b: &Lib, syms: &[String], ns: &str, o: &Opts) -> (String, S
         o.tr_module
     )
     .unwrap();
+    let kitem = a.m.sort("SortKItem");
+    let pitem = if kitem.leaves.contains(&prog.sort) && a.m.sort(&prog.sort).is_simple() {
+        format!("{na}.{} P", a.m.leaf_ctor("SortKItem", &prog.sort))
+    } else {
+        format!("{na}.inj_{}_KItem P", names::short_sort(&prog.sort))
+    };
+    // `<k>` in the top cell, or in each thread of a cell map
+    let top_sort = rules::top_sort(&a.def).unwrap_or_else(|e| fail(&e));
+    let thr = thr_of(a, &top_sort, &pitem);
     let cells_doc: Vec<String> = o.store_cells.iter().map(|c| format!("`<{c}>`")).collect();
     writeln!(
         t,
@@ -1926,8 +1910,8 @@ inversion lemma per checker equation whose first argument is a constructor;\n\
 (`some t` for a value of type `t`, `none` for an accepted statement), and a freezer is typed\n  \
 by plugging a value of the hole's type (`dflt`);\n\
 - `WTc`, the typing of a configuration, for a typing of each cell written by hand ({});\n\
-- `Progress.Case.r`, the progress obligation at the left-hand side of each rule `r` that\n  \
-reads a cell typed by hand.\n\
+- `kDone`, a finished `<k>` (nothing left{}), and `Final`, a configuration whose `<k>` is\n  \
+finished{}.\n\
 Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds with it. -/\n",
         fnames
             .iter()
@@ -1939,7 +1923,19 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
             "none".to_string()
         } else {
             cells_doc.join(", ")
-        }
+        },
+        if thr.is_some() {
+            ", or waiting at a head that needs another thread"
+        } else if value_result {
+            ", or one value"
+        } else {
+            ""
+        },
+        if thr.is_some() {
+            " in every thread"
+        } else {
+            ""
+        },
     )
     .unwrap();
     t.push_str("set_option maxHeartbeats 0\nset_option maxRecDepth 100000\nset_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\n\n");
@@ -2103,15 +2099,6 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         eprintln!("soundness: no inversion lemma for {s}");
     }
     // ---- runtime typing
-    let kitem = a.m.sort("SortKItem");
-    let pitem = if kitem.leaves.contains(&prog.sort) && a.m.sort(&prog.sort).is_simple() {
-        format!("{na}.{} P", a.m.leaf_ctor("SortKItem", &prog.sort))
-    } else {
-        format!("{na}.inj_{}_KItem P", names::short_sort(&prog.sort))
-    };
-    // `<k>` in the top cell, or in each thread of a cell map
-    let top_sort = rules::top_sort(&a.def).unwrap_or_else(|e| fail(&e));
-    let thr = thr_of(a, &top_sort, &pitem);
     let waits = thr
         .as_ref()
         .map(|th| wait_heads(a, &th.ksym))
@@ -2272,7 +2259,6 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
             "some none".to_string(),
         ));
     }
-    let is_typed = |l: &str| typed_leaf(l).is_some() || o.env_items.iter().any(|e| e == l);
     writeln!(
         t,
         "\n/-- An item with no pending value: what it leaves for the next item (`some (some t)` for a\nterm of type `t`, `some none` for an accepted statement); `none` when it is ill-typed. -/\ndef item0 (G : TEnv) : {} → Option (Option Ty)",
@@ -2537,7 +2523,6 @@ open {na} in\n/-- The heads at which a thread may wait: the head of a rule that 
         conj.push(format!("{l}CellTy {st} G ({l}Of c)"));
     }
     writeln!(t, "\nattribute [k2l_pres] {}\n", heads_pres.join(" ")).unwrap();
-    let st_args: Vec<String> = (0..store.len()).map(st_name).collect();
     let st_bs = if st_binders.is_empty() {
         String::new()
     } else {
@@ -2569,13 +2554,9 @@ open {na} in\n/-- The heads at which a thread may wait: the head of a rule that 
                     .iter()
                     .filter(|l| kr.leaves.contains(l))
                     .map(|l| {
-                        pat_at(
-                            kpos,
-                            &format!(
-                                "({} (.kseq ({na}.{} _) .dotk))",
-                                cells[kpos].ctor,
-                                a.m.leaf_ctor("SortKItem", l)
-                            ),
+                        format!(
+                            " ∨\n    (∃ x, k = .kseq ({na}.{} x) .dotk)",
+                            a.m.leaf_ctor("SortKItem", l)
                         )
                     })
                     .collect()
@@ -2584,18 +2565,17 @@ open {na} in\n/-- The heads at which a thread may wait: the head of a rule that 
     } else {
         vec![]
     };
+    // a finished `<k>` (with threads, `kDone` is above, where it also waits), and `Final` of it,
+    // the ending of the progress modules (`--ending-lean NS.kDone@k`)
     if thr.is_none() {
         writeln!(
-        t,
-        "/-- A terminated configuration: nothing left in `<k>`{}. -/\ndef Final : {top_t} → Prop\n  | {} => True\n{}  | _ => False\n",
-        if value_result { ", or one value" } else { "" },
-        pat_at(kpos, &format!("({} .dotk)", cells[kpos].ctor)),
-        final_values
-            .iter()
-            .map(|p| format!("  | {p} => True\n"))
-            .collect::<String>()
-    )
-    .unwrap();
+            t,
+            "/-- A finished `<k>`: nothing left{}. -/\ndef kDone (k : {na}.SortK) : Prop :=\n  k = .dotk{}\n\n\
+/-- A terminated configuration: its `<k>` is finished (`kDone`). -/\ndef Final (c : {top_t}) : Prop := kDone (kOf c)\n",
+            if value_result { ", or one value" } else { "" },
+            final_values.concat()
+        )
+        .unwrap();
     }
     // init
     let mut init_bs = vec![format!("(P : {})", ty(na, &prog.sort))];
@@ -2648,143 +2628,6 @@ open {na} in\n/-- The heads at which a thread may wait: the head of a rule that 
     )
     .unwrap();
     }
-    // store rules, and the progress cases at the ones that read the store
-    let store_var = |r: &Rule, l: &L, i: usize| -> Option<String> {
-        let _ = r;
-        match &args(l).get(i).and_then(|c| args(c).first()) {
-            Some(L::Var(v)) => Some(v.clone()),
-            _ => None,
-        }
-    };
-    let mut store_rules = Vec::new();
-    let mut prog_hand: BTreeMap<String, (String, Vec<String>)> = BTreeMap::new(); // KItem leaf → (rule, head args)
-    t.push_str("/-! ## 4. Progress at the rules that read a cell typed by hand -/\n\n");
-    for r in &a.rules {
-        let lhs = &r.step.index;
-        let rhs = r.rhs.subst(&r.step.subst);
-        let mut touches = false;
-        let mut reads = false;
-        for &ci in &store {
-            let (lc, rc) = (args(lhs).get(ci), args(&rhs).get(ci));
-            if lc != rc {
-                touches = true;
-            }
-            // a pattern on the cell (or a variable of its content constrained by a side condition)
-            let Some(lcell) = lc else { continue };
-            if matches!(lcell, L::Var(_)) {
-                continue;
-            }
-            match store_var(r, lhs, ci) {
-                Some(v) => {
-                    let mentions = r.step.hyps.iter().any(|(_, p)| {
-                        p.split(|ch: char| !(ch.is_alphanumeric() || ch == '_'))
-                            .any(|w| w == v)
-                    });
-                    if mentions {
-                        reads = true;
-                    }
-                }
-                None => reads = true,
-            }
-        }
-        if reads {
-            touches = true;
-        }
-        if touches {
-            store_rules.push(r.lean.clone());
-        }
-        if !reads {
-            continue;
-        }
-        // the head of `<k>`: a constructor of `KItem` applied to variables
-        let kc = &args(lhs)[kpos];
-        let content = args(kc)
-            .first()
-            .unwrap_or_else(|| fail("a `<k>` without content"));
-        let bad = || -> ! {
-            fail(&format!(
-                "the rule {} reads a cell typed by hand, and its `<k>` is not `C(x…) ~> REST` for a constructor `C` of `KItem`",
-                r.name
-            ))
-        };
-        if !head(content).ends_with("kseq") {
-            bad()
-        }
-        let (h, rest) = (&args(content)[0], &args(content)[1]);
-        let L::Var(rest) = rest else { bad() };
-        let hc = head(h);
-        let Some(leaf) = hc.strip_prefix("SortKItem.inj_") else {
-            bad()
-        };
-        let mut hargs = Vec::new();
-        for x in args(h) {
-            let L::Var(x) = x else { bad() };
-            hargs.push(x.clone());
-        }
-        let leaf_sort = kitem
-            .leaves
-            .iter()
-            .find(|l| names::short_sort(l) == leaf)
-            .cloned()
-            .unwrap_or_else(|| bad());
-        if prog_hand.contains_key(&leaf_sort) {
-            fail(&format!(
-                "two rules that read a cell typed by hand have the head {}",
-                hc
-            ));
-        }
-        let bty = |v: &str| -> String {
-            r.step
-                .binders
-                .iter()
-                .find(|(b, _)| b == v)
-                .map(|(_, ty)| format!("{na}.{ty}"))
-                .unwrap_or_else(|| bad())
-        };
-        let mut bs = vec!["(G : TEnv)".to_string()];
-        for x in &hargs {
-            bs.push(format!("({x} : {})", bty(x)));
-        }
-        bs.push(format!("({rest} : {na}.SortK)"));
-        let mut cfg_args = Vec::new();
-        let mut call_args = vec!["G".to_string(), "x".to_string()];
-        let mut k_used = false;
-        for (i, c) in cells.iter().enumerate() {
-            if i == kpos {
-                cfg_args.push(format!(
-                    "({} (.kseq ({na}.{hc} {}) {rest}))",
-                    c.ctor,
-                    hargs.join(" ")
-                ));
-                if !k_used {
-                    call_args.push("K".into());
-                    k_used = true;
-                }
-            } else if let Some(j) = store.iter().position(|&s| s == i) {
-                let (v, vt) = &store_vars[j];
-                bs.push(format!("({v} : {vt})"));
-                cfg_args.push(format!("({} {v})", c.ctor));
-                call_args.push(v.clone());
-            } else {
-                let L::Var(v) = &args(lhs)[i] else { bad() };
-                bs.push(format!("({v} : {})", bty(v)));
-                cfg_args.push(v.clone());
-                let n = other_vars.iter().position(|(_, s)| *s == ty(na, &c.sort));
-                call_args.push(n.map(|n| other_vars[n].0.clone()).unwrap_or("_".into()));
-            }
-        }
-        let cfg = format!("({top_path} {})", cfg_args.join(" "));
-        let st_ps = st_args.join(" ");
-        writeln!(
-            t,
-            "/-- Progress at the left-hand side of rule {}, which reads a cell typed by\nhand: a well-typed configuration of that shape has a rule that applies. -/\ndef Progress.Case.{} {st_bs}: Prop :=\n  ∀ {},\n    WTc {st_ps} G {cfg} →\n    {app} {cfg}\n",
-            rules::doc(r),
-            r.lean,
-            bs.join(" ")
-        )
-        .unwrap();
-        prog_hand.insert(leaf_sort, (r.lean.clone(), call_args));
-    }
     let mut guard = inv_names.clone();
     guard.push(if multi {
         "item0_dflt".to_string()
@@ -2793,7 +2636,7 @@ open {na} in\n/-- The heads at which a thread may wait: the head of a rule that 
     });
     writeln!(t, "#k2l_assert_axioms {}\n\nend {ns}", guard.join(" ")).unwrap();
 
-    // ---- Soundness.lean
+    // ---- Typed.lean
     let mut s = String::new();
     let st_inst = o.store_typing.join(" ");
     let wtc = if st_inst.is_empty() {
@@ -2803,27 +2646,31 @@ open {na} in\n/-- The heads at which a thread may wait: the head of a rule that 
     };
     writeln!(
         s,
-        "import {}\nimport KPrelude.InvTactic\nimport KPrelude.InvColl\nimport KPrelude.Relate\n",
+        "import {}\nimport KPrelude.InvTactic\nimport KPrelude.InvColl\nimport KPrelude.InvSteps\n",
         o.hand_module
     )
     .unwrap();
     writeln!(
         s,
         "/-! Generated by `k2lean soundness`; do not edit.\n\n\
-Type soundness of `{na}` for the type checker `{nb}`, from the runtime typing of `Typing.lean`\n\
-and the hand module `{}` (the typings {} of the cells {}, and the cases of the rules that\n\
-read or write them):\n\
+The typed configurations of `{na}` for the type checker `{nb}`, from the runtime typing of\n\
+`Typing.lean` and the hand module `{}` (the typings {} of the cells {}, and the cases of the rules\n\
+that read or write them):\n\
 - `preserved`: every rule keeps `{wtc} G`; the case of rule `r` is `hand.r` when the hand module\n  \
 has it, and `k2l_preserve`'s otherwise;\n\
-- `progress`: a well-typed configuration has terminated or has a rule that applies, by cases on\n  \
-the head of `<k>` (its operands, the freezer that waits for a value) and a search among the\n  \
-constructors of `{na}.App`; at the head of a rule `r` that reads a cell typed by hand, by\n  \
-`hand.progress.r`;\n\
-- `soundness`: a program that the checker accepts, started with cells typed by their typings,\n  \
-never gets stuck. -/\n",
+- `Typed`: a configuration typed under some typing environment, which every rule keeps\n  \
+(`Typed.preserved`); it is the invariant of `{na}`'s progress modules\n  \
+(`gen --progress --assume-invariant {ns}.Typed --ending-lean {ns}.kDone@k`){thread_doc};\n\
+- `wt_init`, `wt_stepsN`: the initial configuration of an accepted program is typed, and so is\n  \
+every configuration it reaches. -/\n",
         o.hand_module,
         if o.store_typing.is_empty() { "(none)".into() } else { o.store_typing.iter().map(|x| format!("`{x}`")).collect::<Vec<_>>().join(", ") },
         if cells_doc.is_empty() { "(none)".into() } else { cells_doc.join(", ") },
+        thread_doc = if thr.is_some() {
+            ", and `Typed.thread`\n  what it says of each thread (`--element-fact`)"
+        } else {
+            ""
+        },
     )
     .unwrap();
     s.push_str("set_option maxHeartbeats 0\nset_option maxRecDepth 100000\nset_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\n\n");
@@ -2841,143 +2688,6 @@ never gets stuck. -/\n",
                 fns = fnames.join(", ")
             ),
             None => format!("  k2l_preserve split [{}] hand {}", fnames.join(", "), o.hand_ns),
-        },
-    )
-    .unwrap();
-    // progress tactics
-    let projs_all: BTreeSet<String> = projs
-        .iter()
-        .cloned()
-        .chain(hole_shorts.iter().cloned())
-        .collect();
-    let proj_fns: Vec<String> = projs_all
-        .iter()
-        .map(|p| format!("{na}.proj_KItem_{p}"))
-        .collect();
-    let proj_eqs: Vec<String> = projs_all
-        .iter()
-        .map(|p| format!("{na}.proj_eq_some_KItem_{p}"))
-        .collect();
-    // the functions the rules' side conditions use
-    let mut close_unfold: BTreeSet<String> = BTreeSet::new();
-    for r in &a.rules {
-        for (_, p) in &r.step.hyps {
-            for w in p.split(|ch: char| !(ch.is_alphanumeric() || ch == '_' || ch == '.')) {
-                if w.starts_with("proj_") || w == "K.isKResult" {
-                    close_unfold.insert(format!("{na}.{w}"));
-                }
-            }
-        }
-    }
-    if close_unfold.contains(&format!("{na}.K.isKResult")) {
-        if a.fn_text.contains("def K.isKResult.rule1") {
-            close_unfold.insert(format!("{na}.K.isKResult.rule1"));
-        }
-        if a.m.sorts.contains_key("SortKResult") {
-            close_unfold.insert(format!("{na}.proj_KItem_KResult"));
-        }
-    }
-    for h in &hole_shorts {
-        close_unfold.insert(format!("{na}.inj_{h}_KItem"));
-    }
-    // a projection of a hole or of a freezer argument a cooling rule binds
-    let proj_closes: String = projs_all
-        .iter()
-        .map(|h| format!(" | exact {na}.proj_inj_KItem_{h} _"))
-        .collect();
-    // the sorts that hold a hole deeper down, split through by `k2l_cases_args … within`
-    let containers: Vec<String> = hole_containers(a, &cools)
-        .into_iter()
-        .flat_map(|s| {
-            // and the sorts injected into it (IMP++'s `Ids` inside `AExps`)
-            let mut v: Vec<String> =
-                a.m.sort(&s)
-                    .leaves
-                    .iter()
-                    .filter(|l| !a.m.sort(l).own.is_empty())
-                    .cloned()
-                    .collect();
-            v.push(s);
-            v
-        })
-        .collect::<BTreeSet<String>>()
-        .into_iter()
-        .filter(|s| !hole_sorts.contains(s))
-        .flat_map(|s| {
-            // a sort's own constructors build its `Own` type
-            let own = a.m.own_ty(&s);
-            let mut v = vec![ty(na, &s)];
-            if own != s && !a.m.sort(&s).own.is_empty() {
-                v.push(ty(na, &own));
-            }
-            v
-        })
-        .collect();
-    let within = if containers.is_empty() {
-        String::new()
-    } else {
-        // the split goes through the container, its constructor, then the hole's operand
-        format!(" within [{}] fuel 4", containers.join(", "))
-    };
-    let hole_tys: String = hole_sorts
-        .iter()
-        .map(|h| ty(na, h))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mut close_list: Vec<String> = close_unfold.into_iter().collect();
-    close_list.extend(["BoolHook.and".to_string(), "BoolHook.not".to_string()]);
-    writeln!(
-        s,
-        "/-! ## Progress -/\n\n\
-/-- Compute the typing of `<k>` (with the hypotheses, which record the cases taken); a typing that\n\
-computes to `false` is `false = true`, `False`, and closes the goal `typing → App c`. -/\n\
-local macro \"ty_simp\" : tactic => `(tactic| simp only [k2l_pres, WTc, Option.map_some, Option.map_none, Option.bind_some, Option.bind_none, Option.isNone_some, Option.isNone_none, Bool.and_true, Bool.true_and, Bool.and_false, Bool.false_and, ite_true, ite_false, ↓reduceIte, and_self, and_true, true_and, Bool.false_eq_true, false_implies, reduceCtorEq, Option.some.injEq, *])\n\n\
-/-- An ill-typed shape: the typing of `<k>` computes to `false`. -/\n\
-local macro \"prog_absurd\" : tactic => `(tactic| (ty_simp; done))\n\n\
-/-- A side condition of a rule: by unification, an assumption, or by computing it. -/\n\
-local macro \"prog_close\" : tactic => `(tactic| first | rfl | assumption{proj_closes} | (simp_all [{}]; done))\n\n\
-/-- The variables of sorted projections, substituted. -/\n\
-local macro \"prog_proj\" : tactic => `(tactic| (simp only [{}] at *; subst_vars))\n\n\
-/-- What the typing of the head depends on: the sort projections of variables, the typing functions. -/\n\
-local macro \"prog_cases\" : tactic => `(tactic| k2l_cases_typing [{}] [{}] => (try ty_simp))\n\n\
-{waits_m}{nohyg}/-- One shape of the head of `<k>`: case on what its typing depends on, then find the rule. -/\n\
-local macro \"prog_leaf\" : tactic => `(tactic| {leaf})\n",
-        close_list.join(", "),
-        proj_eqs.join(", "),
-        proj_fns.join(", "),
-        fnames.join(", "),
-        // the thread's macros name the proof's hypotheses `hnd` and `hcat`
-        nohyg = if thr.is_some() { "set_option hygiene false in\n" } else { "" },
-        // with threads, a thread at a head where it may wait is done (`hnd` says it is not)
-        leaf = if thr.is_some() {
-            let (r0, r1) = if a.ranked { ("(apply Exists.intro; ", ")") } else { ("", "") };
-            // the head of `<k>` is in `hcat` only, where the Boolean splits look for it
-            format!("(first | prog_waits | (prog_cases; all_goals (intro _hk; (try prog_proj); revert hcat; k2l_cases_bools; all_goals (intro hcat; {r0}k2l_ctor_search {na}.App => prog_close{r1}))))")
-        } else {
-            let (r0, r1) = if a.ranked { ("(apply Exists.intro; ", ")") } else { ("", "") };
-            format!("(prog_cases; all_goals (intro _hk; (try prog_proj); k2l_cases_bools; all_goals {r0}k2l_ctor_search {na}.App => prog_close{r1}))")
-        },
-        waits_m = if thr.is_some() {
-            let n = waits.len();
-            let pfs: Vec<String> = waits
-                .iter()
-                .enumerate()
-                .map(|(i, (bs, _))| {
-                    let w = if bs.is_empty() {
-                        "rfl".to_string()
-                    } else {
-                        format!("⟨{}rfl⟩", "_, ".repeat(bs.len()))
-                    };
-                    let path = format!("{}{}", "right; ".repeat(i), if i + 1 < n { "left; " } else { "" });
-                    format!(" | (exfalso; apply hnd; unfold kDone Waits; right; {path}exact {w})")
-                })
-                .collect();
-            format!(
-                "set_option hygiene false in\n/-- A thread at a head where it may wait is done, against `hnd`. -/\nlocal macro \"prog_waits\" : tactic => `(tactic| first | fail \"not a waiting head\"{})\n\n",
-                pfs.concat()
-            )
-        } else {
-            String::new()
         },
     )
     .unwrap();
@@ -3003,134 +2713,6 @@ local macro \"prog_leaf\" : tactic => `(tactic| {leaf})\n",
                 format!("he_{}", j + 1)
             });
         }
-    }
-    let mut unf = vec!["kOf".to_string()];
-    for &ci in &store {
-        let l = names::ident(&cells[ci].label);
-        unf.push(format!("{l}Of"));
-        unf.push(format!("{l}CellTy"));
-    }
-    let hw_pat = std::iter::once("hk".to_string())
-        .chain(he_names.iter().cloned())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let he_at = if he_names.is_empty() {
-        String::new()
-    } else {
-        format!(" {}", he_names.join(" "))
-    };
-    // with a value result, a value alone is terminated, so each case chooses `App` itself
-    // (`progress_app`), and the value case before it, where nothing follows, `Final`
-    if value_result {
-        writeln!(
-            s,
-            "/-- A case that ends in a rule that applies. -/\ntheorem progress_app {{p q r : Prop}} (h : p → r) : p → q ∨ r := fun hp => Or.inr (h hp)\n"
-        )
-        .unwrap();
-    }
-    // the typing: a conjunction with the cells typed by hand, or the typing of `<k>` alone
-    let hw_get = if he_names.is_empty() {
-        unf.insert(0, wtc.to_string());
-        "have hk := hw".to_string()
-    } else {
-        format!("obtain ⟨{hw_pat}⟩ := hw")
-    };
-    // value leaves: the next item is a freezer waiting for the value
-    let values: Vec<String> = match a.m.sorts.get("SortKResult") {
-        Some(kr) => kitem
-            .leaves
-            .iter()
-            .filter(|l| kr.leaves.contains(l))
-            .cloned()
-            .collect(),
-        None => vec![],
-    };
-    // typed leaves with constructors: case on the constructor and the operands
-    let own_typed: Vec<String> = kitem
-        .leaves
-        .iter()
-        .filter(|l| typed_leaf(l).is_some() && !a.m.sort(l).own.is_empty())
-        .map(|l| format!("{na}.{}", a.m.leaf_ctor("SortKItem", l)))
-        .collect();
-    // (a freezer is not computed before its split, nor before its `SortK` arguments are split
-    // as far as the cooling patterns go: with the freezer or an argument a variable, every equation
-    // of `plug` but its fallback fails, and the fallback's side conditions, `Term.c…` against
-    // `Term.c…`, are costly)
-    // the splits are `k2l_cases` (the goals of the sort's value forms, which carry no
-    // constructor names to choose a case by), so each shape of the head of `<k>` is a case of
-    // `first`, guarded by its constructor (`k2l_has_ctor`); a guard or a case that fails leaves
-    // the goal to the next, and `prog_absurd`, last, closes the ill-typed shapes. After the split of
-    // the continuation the `kseq` case comes first: its first step names `it₂`, which the
-    // `dotk` case does not bind, so it fails there at once
-    let mut cases: Vec<String> = Vec::new();
-    if !values.is_empty() {
-        let vcs: Vec<String> = values
-            .iter()
-            .map(|l| format!("{na}.{}", a.m.leaf_ctor("SortKItem", l)))
-            .collect();
-        cases.push(format!(
-            "-- a value: the next item is a freezer waiting for it (a cooling rule applies)\n          | (k2l_has_ctor [{}]\n             k2l_cases K with ⟨it₂, K₂⟩ <;> first\n               | ({}k2l_cases it₂ with ⟨f⟩ <;> k2l_norm_idx <;>\n                    (first | k2l_has_ctor [{na}.SortKItem.inj_KItem] | (try prog_absurd))\n                  all_goals (k2l_cases f <;> k2l_norm_idx <;>\n                    (k2l_cases_frz [{na}.SortKItem.inj_KItem] [{na}.SortK] => skip) <;> k2l_norm_idx <;>\n                    (try prog_absurd) <;> prog_leaf)\n                  done)\n               | {})",
-            vcs.join(", "),
-            if value_result { "apply progress_app\n                  " } else { "" },
-            if value_result { "exact fun _ => Or.inl trivial" } else { "prog_absurd" }
-        ));
-    }
-    // the heads of rules that read a cell typed by hand
-    for (leaf, (rule, call_args)) in &prog_hand {
-        let hw_args = std::iter::once("hk".to_string())
-            .chain(he_names.iter().cloned())
-            .collect::<Vec<_>>()
-            .join(", ");
-        cases.push(format!(
-            "-- the head of rule {rule}, which reads a cell typed by hand\n          | (k2l_has_ctor [{na}.{}]\n             exact fun hk => {}hand.progress.{rule} {} ⟨{hw_args}⟩{})",
-            a.m.leaf_ctor("SortKItem", leaf),
-            if value_result { "Or.inr (" } else { "" },
-            call_args.join(" "),
-            if value_result { ")" } else { "" }
-        ));
-    }
-    for l in &kitem.leaves {
-        if !is_typed(l) || values.contains(l) || prog_hand.contains_key(l) {
-            continue;
-        }
-        let guard = format!("{na}.{}", a.m.leaf_ctor("SortKItem", l));
-        let to_app_f = if value_result {
-            "apply progress_app\n             "
-        } else {
-            ""
-        };
-        if a.m.sort(l).own.is_empty() {
-            cases.push(format!(
-                "| (k2l_has_ctor [{guard}]\n             {to_app_f}prog_leaf\n             done)"
-            ));
-        } else {
-            cases.push(format!(
-                "| (k2l_has_ctor [{guard}]\n             {to_app_f}k2l_cases x <;> k2l_norm_idx <;> k2l_cases_args [{}] [{}]{within} <;> prog_leaf\n             done)",
-                own_typed.join(", "),
-                hole_tys
-            ));
-        }
-    }
-    let right_f = if value_result { "" } else { "right\n       " };
-    if let Some(th) = &thr {
-        writeln!(
-            s,
-            "theorem progress {{G : TEnv}} (c : {top_t}) (hw : {wtc} G c) : Final c ∨ {app} c := by\n  by_cases hd : Final c\n  · exact Or.inl hd\n  right\n  k2l_cases c with {}\n  simp only [WTc, Final, threadsOf, {projs}] at hw hd\n  obtain ⟨hwf, hall⟩ := hw\n  -- a thread that is not done\n  obtain ⟨key, th, rest, hcat, hnd⟩ := KPrelude.MapHook.exists_not_of_not_entriesOn hwf hd\n  have hth := KPrelude.MapHook.entry_of_concat_element hcat hall\n  k2l_cases th with {}\n  simp only [threadTy, keyOf, kOf, {projs}] at hth hnd\n  obtain ⟨rfl, hk⟩ := hth\n  revert hk\n  k2l_cases k with ⟨it, K⟩\n  all_goals first\n    | exact absurd (Or.inl rfl) hnd\n    | (k2l_cases it with ⟨x⟩\n       all_goals k2l_norm_idx\n       all_goals first\n          {}\n          | prog_absurd\n       done)\n",
-            th.top_destr,
-            th.elem_destr,
-            cases.join("\n          "),
-            projs = th.proj_names.join(", "),
-        )
-        .unwrap();
-    } else {
-        writeln!(
-        s,
-        "theorem progress {{G : TEnv}} (c : {top_t}) (hw : {wtc} G c) : Final c ∨ {app} c := by\n  k2l_cases c with ⟨{}⟩\n  k2l_cases k with ⟨it, K⟩\n  all_goals first\n    | exact Or.inl trivial\n    | ({right_f}{hw_get}\n       simp only [{}] at hk{he_at}\n       revert hk\n       k2l_cases it with ⟨x⟩\n       all_goals k2l_norm_idx\n       all_goals first\n          {}\n          | prog_absurd\n       done)\n",
-        obt.join(", "),
-        unf.join(", "),
-        cases.join("\n          ")
-    )
-    .unwrap();
     }
     // soundness
     let he_bs: Vec<String> = store_vars
@@ -3208,36 +2790,116 @@ local macro \"prog_leaf\" : tactic => `(tactic| {leaf})\n",
     } else {
         format!("⟨{wt_init_he}⟩")
     };
+    // the invariant of the progress modules
     writeln!(
         s,
-        "/-! ## Soundness -/\n\n\
+        "/-! ## The invariant of progress -/\n\n\
+/-- A configuration typed under some typing environment. -/\ndef Typed (c : {top_t}) : Prop := ∃ G, {wtc} G c\n\n\
+/-- Every rule keeps `Typed`: it keeps `{wtc} G` for each `G` (`preserved`). -/\ntheorem Typed.preserved : Preserved {na}.Step Typed :=\n  fun c c' ⟨G, h⟩ hs => ⟨G, {ns}.preserved G c c' h hs⟩\n"
+    )
+    .unwrap();
+    if let Some(th) = &thr {
+        writeln!(
+            s,
+            "/-- A thread whose `<k>` is a well-typed continuation that leaves nothing. -/\ndef ThreadTyped (e : {}) : Prop := ∃ G, kty G none (kOf e) = true\n\n\
+/-- What `Typed` says of a thread of the configuration: its `<k>` is well typed. -/\n\
+theorem Typed.thread {{c : {top_t}}} {{k : {}}} {{e : {}}} {{r : {}}}\n    (h : Typed c) (hm : MapHook.concat (MapHook.element k e) r = some (threadsOf c)) : ThreadTyped e :=\n  let ⟨G, _, hall⟩ := h\n  ⟨G, (MapHook.entry_of_concat_element hm hall).2⟩\n",
+            th.elem_t, th.key_t, th.elem_t, th.coll_t
+        )
+        .unwrap();
+    }
+    writeln!(
+        s,
+        "/-! ## The initial configuration -/\n\n\
 theorem wt_init {{G : TEnv}} {} (hP : {} G P = {accepted}){} :\n    {wtc} G (init {init_call}) :=\n  {wt_init_pf}\n\n\
 theorem wt_stepsN {{G : TEnv}} : ∀ {{n : Nat}} {{c c' : {top_t}}},\n    StepsN {na}.Step n c c' → {wtc} G c → {wtc} G c'\n  | _, _, _, .refl _, h => h\n  | _, _, _, .step hs rest, h => wt_stepsN rest (preservation hs h)\n\n\
-/-- **Type soundness.** A program that the type checker accepts, started with cells typed by\nhand by their typings, never gets stuck: every reachable configuration has terminated{} or has a\nrule that applies (a step, or an undefined result). -/\n\
-theorem soundness {{G : TEnv}} {}\n    (hP : {} (tr_{} P) G = {accepted}){}\n    {{n : Nat}} {{c : {top_t}}} (h : StepsN {na}.Step n (init {init_call}) c) :\n    Final c ∨ {app} c :=\n  progress c (wt_stepsN h (wt_init hP{}))\n\n\
-#k2l_assert_axioms preserved preservation progress wt_init wt_stepsN soundness\n\nend {ns}",
+#k2l_assert_axioms preserved preservation Typed.preserved{} wt_init wt_stepsN\n\nend {ns}",
         implicit.join(" "),
         prog.name,
         spaced(&he_bs),
+        if thr.is_some() { " Typed.thread" } else { "" },
+    )
+    .unwrap();
+
+    // ---- Soundness.lean
+    let mut u = String::new();
+    writeln!(
+        u,
+        "import {ns}.Progress\nimport KPrelude.InvSteps\n\n\
+/-! Generated by `k2lean soundness`; do not edit.\n\n\
+Type soundness of `{na}` for the type checker `{nb}`: a program that the checker accepts, started\n\
+with cells typed by their typings, never gets stuck. It is no stuck states under `Typed`\n\
+(`{na}.no_stuck`, of the progress modules that `gen --progress --assume-invariant {ns}.Typed\n\
+--ending-lean {ns}.kDone@k --progress-prefix {ns}` writes): the initial configuration is typed\n\
+(`wt_init`){}, and an ending is `Final` (`final_of_ending`). -/\n\n\
+set_option linter.unusedVariables false\n\n\
+namespace {ns}\n\nopen KPrelude\n",
+        if thr.is_some() {
+            " and has its one thread at its key cell (`keys_init`)"
+        } else {
+            ""
+        }
+    )
+    .unwrap();
+    let soundness_pf = if let Some(th) = &thr {
+        writeln!(
+            u,
+            "/-- An ending is `Final`: both say every thread is `kDone`, one of each match of the thread map,\nthe other of each binding, which are the same bindings in a well-formed map. -/\n\
+theorem final_of_ending {{c : {top_t}}} (hw : MapHook.WF (threadsOf c))\n    (h : {na}.Ending c) : Final c := by\n  have hm : {na}.Progress.map c = threadsOf c := by\n    k2l_cases c with {}\n    rfl\n  refine Classical.byContradiction fun hn => ?_\n  obtain ⟨k, e, r, he, hq⟩ := MapHook.exists_not_of_not_entriesOn hw hn\n  have hd := h k e r (by rw [hm]; exact he)\n  -- `Ending.elem` and `kDone ∘ kOf` read the same cell, the same way, once `e` is a thread\n  apply hq\n  k2l_cases e with {}\n  all_goals exact hd\n\n\
+/-- The initial configuration's one thread is at its key cell. -/\n\
+theorem keys_init {} : {na}.Progress.Keys (init {init_call}) :=\n  MapHook.entriesOn_element rfl\n",
+            th.top_destr,
+            th.elem_destr,
+            init_bs.join(" "),
+        )
+        .unwrap();
+        format!(
+            "({na}.no_stuck ⟨G, wt_init hP⟩ (keys_init {init_call}) (Star.of_stepsN h)).imp\n    (final_of_ending (wt_stepsN h (wt_init hP)).1) id"
+        )
+    } else {
+        writeln!(
+            u,
+            "/-- An ending is `Final`: both say that `<k>` is finished (`kDone`). -/\n\
+theorem final_of_ending {{c : {top_t}}} (h : {na}.Ending c) : Final c := by\n  k2l_cases c with ⟨{}⟩\n  exact h\n",
+            obt.join(", ")
+        )
+        .unwrap();
+        format!(
+            "({na}.no_stuck ⟨G, wt_init hP{}⟩ (Star.of_stepsN h)).imp_left final_of_ending",
+            spaced(&he_args)
+        )
+    };
+    writeln!(
+        u,
+        "/-- **Type soundness.** A program that the type checker accepts, started with cells typed by\nhand by their typings, never gets stuck: every reachable configuration has terminated{} or has a\nrule that applies (a step, or an undefined result). -/\n\
+theorem soundness {{G : TEnv}} {}\n    (hP : {} (tr_{} P) G = {accepted}){}\n    {{n : Nat}} {{c : {top_t}}} (h : StepsN {na}.Step n (init {init_call}) c) :\n    Final c ∨ {app} c :=\n  {soundness_pf}\n\n\
+#k2l_assert_axioms final_of_ending{} soundness\n\nend {ns}",
         if value_result { " (nothing left, or one value)" } else { "" },
         implicit.join(" "),
         prog.lean_b,
         terms::fsuffix(&prog.sort),
         spaced(&he_bs),
-        spaced(&he_args)
+        if thr.is_some() { " keys_init" } else { "" },
     )
     .unwrap();
+    // what the progress modules' stuck closer unfolds: the invariant down to the typing's lemmas
+    // (with threads, also the element fact's predicate and the heads at which a thread waits)
+    let unfold = format!(
+        "# Generated by `k2lean soundness`: what the stuck closer of `{na}`'s progress modules unfolds\n# under `{ns}.Typed` (`gen --progress --invariant-unfold`).\n{ns}.Typed\n{ns}.WTc\n{}k2l_pres\n{ns}.kDone\n{}",
+        if thr.is_some() { format!("{ns}.ThreadTyped\n") } else { String::new() },
+        if thr.is_some() { format!("{ns}.Waits\n") } else { String::new() },
+    );
     eprintln!(
-        "soundness: {} inversion lemmas, {} cooling rules, rules reading or writing a cell typed by hand: {:?}, progress cases by hand: {:?}",
+        "soundness: {} inversion lemmas, {} cooling rules",
         inv_names.len(),
         cools.len(),
-        store_rules,
-        prog_hand
-            .values()
-            .map(|(r, _)| r.clone())
-            .collect::<Vec<_>>()
     );
-    (t, s)
+    Gen {
+        typing: t,
+        typed: s,
+        soundness: u,
+        unfold,
+    }
 }
 
 #[cfg(test)]

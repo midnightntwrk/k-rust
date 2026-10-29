@@ -1,0 +1,5 @@
+# Cases of `progress` that `k2l_progress` does not close (`k2lean gen --progress`).
+# `k2lean open-from-log NS/Progress.lean BUILD.log open-progress-cases.txt` adds the cases whose proof failed.
+# Each entry: `Progress.case.h`; prove it in NS/ProgressHand.lean as `theorem Progress.hand.h : Progress.case.h.statement`,
+# or mark it `| refuted hand` with `theorem Progress.case.h.refuted : ¬ Progress.case.h.statement` there (a stuck
+# configuration the invariant allows; `progress` then has that head as a third outcome, `Progress.Refuted`).

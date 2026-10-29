@@ -30,21 +30,29 @@ lake-manifest.json
 # What `k2lean claims --transfer` writes into the demo ImpRelClaims.
 /demos/ImpRelClaims/ImpRelClaims/Transfers.lean
 /demos/ImpUnrollClaims/ImpUnrollClaims/Transfers.lean
-# What `k2lean soundness` writes into the demo ImpTypes, around its hand module Store.lean.
+# What `k2lean soundness` writes into the type-soundness demos, around their hand module Store.lean,
+# and what `k2lean gen --progress` writes into them, each language's progress under `NS.Typed`
+# (SND-16 to SND-18).
 /demos/ImpTypes/ImpTypes/Typing.lean
+/demos/ImpTypes/ImpTypes/Typed.lean
 /demos/ImpTypes/ImpTypes/Soundness.lean
-# What `k2lean gen --progress` writes into it, kimp's progress under ImpTypes.Typed (SND-16).
 /demos/ImpTypes/ImpTypes/ProgressDefs.lean
 /demos/ImpTypes/ImpTypes/Progress.lean
+/demos/ImpTypes/typed-unfold.txt
 /demos/ExprTypes/ExprTypes/Tr.lean
 /demos/ExprTypes/ExprTypes/Typing.lean
+/demos/ExprTypes/ExprTypes/Typed.lean
 /demos/ExprTypes/ExprTypes/Soundness.lean
+/demos/ExprTypes/ExprTypes/ProgressDefs.lean
+/demos/ExprTypes/ExprTypes/Progress.lean
+/demos/ExprTypes/typed-unfold.txt
 /demos/ImpPlusTypes/ImpPlusTypes/Tr.lean
 /demos/ImpPlusTypes/ImpPlusTypes/Typing.lean
+/demos/ImpPlusTypes/ImpPlusTypes/Typed.lean
 /demos/ImpPlusTypes/ImpPlusTypes/Soundness.lean
-# and IMP++'s progress under ImpPlusTypes.Typed (SND-17)
 /demos/ImpPlusTypes/ImpPlusTypes/ProgressDefs.lean
 /demos/ImpPlusTypes/ImpPlusTypes/Progress.lean
+/demos/ImpPlusTypes/typed-unfold.txt
 /demos/ImpMut/ImpMut/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Refine.lean

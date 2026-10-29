@@ -4,7 +4,7 @@ import KImp.Init
 import KPrelude.InvTactic
 import KPrelude.InvColl
 
-/-! Hand-written. `preservation` of `Soundness.lean` through the generated per-rule principle
+/-! Hand-written. `preservation` of `Typed.lean` through the generated per-rule principle
 `KImp.Step.preserves_of` (`KImp/Preserves.lean`), and the generated initial configuration
 `KImp.init` (`KImp/Init.lean`) against the generated `ImpTypes.init` of `Typing.lean`.
 

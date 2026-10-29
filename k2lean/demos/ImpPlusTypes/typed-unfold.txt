@@ -1,9 +1,0 @@
-# What the stuck closer of IMP++'s progress unfolds under `ImpPlusTypes.Typed` (`gen --progress
-# --invariant-unfold`): the invariant, `WTc`, a thread's typing, the runtime typing's computation
-# lemmas, and the ending `kDone` with the heads at which a thread waits.
-ImpPlusTypes.Typed
-ImpPlusTypes.WTc
-ImpPlusTypes.ThreadTyped
-k2l_pres
-ImpPlusTypes.kDone
-ImpPlusTypes.Waits

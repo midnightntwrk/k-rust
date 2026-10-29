@@ -1,5 +1,0 @@
-# What the stuck closer of kimp's progress unfolds under `ImpTypes.Typed` (`gen --progress
-# --invariant-unfold`): the invariant, `WTc`, and the runtime typing's computation lemmas.
-ImpTypes.Typed
-ImpTypes.WTc
-k2l_pres

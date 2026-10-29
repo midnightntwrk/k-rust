@@ -8,9 +8,9 @@
 # with priorities, tests/fixtures/vmpri, library vmpri; coroutines in a
 # cell map, tests/fixtures/coro, library coro, and its variant with a join that can deadlock,
 # tests/fixtures/corojoin, library corojoin, whose deadlock is refuted by hand; a coordination
-# script's tasks, tests/fixtures/handoff, under the kind 2 invariant of demos/HandoffConf; kimp under
-# its runtime typing, demos/ImpTypes, from which ImpTypes/Instance.lean derives type soundness; and
-# IMP++ under its runtime typing, demos/ImpPlusTypes, likewise).
+# script's tasks, tests/fixtures/handoff, under the kind 2 invariant of demos/HandoffConf; and each
+# typed language under its runtime typing, kimp in demos/ImpTypes, EXPR in demos/ExprTypes and IMP++
+# in demos/ImpPlusTypes, whose generated Soundness.lean derives type soundness from it).
 # Registry: soundness.py.
 
 # IMP++ (K's tutorial, beside SIMPLE's sources)
@@ -109,34 +109,30 @@ gen_handoff_prog() {
     --rank HandoffConf.taskRank --progress-out "$c" --progress-prefix HandoffConf
 }
 prog_handoff() { lib_open handoff; prog_demo handoff "$D/HandoffConf" HandoffConf gen_handoff_prog HandoffConf.Progress; }
-# type soundness as an instance (SND-16): `progress` of kimp under its runtime typing `ImpTypes.Typed`
-# (the typing `soundness` generates, demos/ImpTypes); kimp's library is the core area's, so `gen`
-# writes its library to a scratch directory and only the progress modules count; `var` is proved by
-# hand, and ImpTypes/Instance.lean derives `soundness`'s theorem from `no_stuck`
-gen_imptypes_prog() {
-  local c=$D/ImpTypes o=$GEN/.imptypes-prog
-  "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
-    --out "$o" --name KImp --prelude ../../lean --open-obligations "$o/open-obligations.txt" \
-    --progress --assume-invariant ImpTypes.Typed --invariant-module ImpTypes.Typed \
-    --invariant-preserved ImpTypes.Typed.preserved --invariant-unfold "$c/typed-unfold.txt" \
-    --progress-out "$c" --progress-prefix ImpTypes
+# type soundness as an instance (SND-16 to SND-18): `progress` of each typed language under its
+# runtime typing `NS.Typed` (the typing `soundness` generates, NS/Typed.lean), with the ending `kDone`
+# and the unfolding list that `soundness` writes too; the semantics' library is another entry's, so
+# `gen` writes its library to a scratch directory and only the progress modules count; the demo's
+# generated Soundness.lean derives `soundness`'s theorem from `no_stuck`
+gen_typed_prog() { # NS KORE NAME [ARG…]: the progress modules of KORE's library NAME, into demos/NS
+  local ns=$1 k=$2 n=$3 c=$D/$1 o=$GEN/.${1,,}-prog
+  shift 3
+  "$G" gen --kore "$(kore_dir "$k")/definition.kore" --runtime "$(kore_dir "$k")/runtime.json" \
+    --out "$o" --name "$n" --prelude ../../lean --open-obligations "$o/open-obligations.txt" \
+    --progress --assume-invariant "$ns.Typed" --invariant-module "$ns.Typed" \
+    --invariant-preserved "$ns.Typed.preserved" --invariant-unfold "$c/typed-unfold.txt" \
+    --ending-lean "$ns.kDone@k" --progress-out "$c" --progress-prefix "$ns" "$@"
 }
-prog_imptypes() { prog_demo imptypes "$D/ImpTypes" ImpTypes gen_imptypes_prog ImpTypes.Instance; }
-# IMP++'s type soundness as an instance (SND-17): `progress` of IMP++ under its runtime typing
-# `ImpPlusTypes.Typed`, with `<k>` in the cell map `<threads>`, each thread's typing as the element
-# fact, and the ending `kDone` (a thread may wait at `join(T);` forever, which no typing excludes);
-# impplus's library is `lib impplus`'s, so `gen` writes its library to a scratch directory, and
-# ImpPlusTypes/Instance.lean derives `soundness`'s theorem from `no_stuck`
-gen_impplustypes_prog() {
-  local c=$D/ImpPlusTypes o=$GEN/.impplustypes-prog
-  "$G" gen --kore "$(kore_dir impplus)/definition.kore" --runtime "$(kore_dir impplus)/runtime.json" \
-    --out "$o" --name KImpPlus --prelude ../../lean --open-obligations "$o/open-obligations.txt" \
-    --progress --assume-invariant ImpPlusTypes.Typed --invariant-module ImpPlusTypes.Typed \
-    --invariant-preserved ImpPlusTypes.Typed.preserved --invariant-unfold "$c/typed-unfold.txt" \
-    --element-fact ImpPlusTypes.Typed.thread --ending-lean ImpPlusTypes.kDone@k \
-    --progress-out "$c" --progress-prefix ImpPlusTypes
-}
-prog_impplustypes() { prog_demo impplustypes "$D/ImpPlusTypes" ImpPlusTypes gen_impplustypes_prog ImpPlusTypes.Instance; }
+# kimp: `var` reads the store, which `envTy` (ImpTypes/Store.lean) types, so it is proved by hand
+gen_imptypes_prog() { gen_typed_prog ImpTypes kimp KImp; }
+prog_imptypes() { prog_demo imptypes "$D/ImpTypes" ImpTypes gen_imptypes_prog ImpTypes.Soundness; }
+# EXPR, whose programs end with a value: `kDone` accepts one value left on `<k>`
+gen_exprtypes_prog() { gen_typed_prog ExprTypes expr KExpr; }
+prog_exprtypes() { prog_demo exprtypes "$D/ExprTypes" ExprTypes gen_exprtypes_prog ExprTypes.Soundness; }
+# IMP++: `<k>` in the cell map `<threads>`, each thread's typing as the element fact, and `kDone` a
+# thread finished or waiting at `join(T);` (which no typing excludes: `join(0);` waits on itself)
+gen_impplustypes_prog() { gen_typed_prog ImpPlusTypes impplus KImpPlus --element-fact ImpPlusTypes.Typed.thread; }
+prog_impplustypes() { prog_demo impplustypes "$D/ImpPlusTypes" ImpPlusTypes gen_impplustypes_prog ImpPlusTypes.Soundness; }
 prog_demo() { # NAME DIR PFX GEN TARGET: `progress` written into the demo DIR (`--progress-out DIR
   # --progress-prefix PFX`) by the function GEN and built as far as TARGET, as progcases does for a
   # library: up to three builds, each failed case added to the open list in between
@@ -183,26 +179,30 @@ relate_soundness() {
 }
 
 # libs_soundness NS: the generated modules of the type-soundness demo NS around its hand module
-# `NS/Store.lean` (ImpTypes: `Typing.lean` before it, `Soundness.lean` after it; kimp against the
-# type checker demos/k/imp-typing.k, whose store cell <env> the hand module types by `envTy`).
+# `NS/Store.lean` (`Typing.lean` before it, `Typed.lean` after it, and `Soundness.lean` after the
+# progress modules, with the list `typed-unfold.txt` they unfold; ImpTypes: kimp against the type
+# checker demos/k/imp-typing.k, whose store cell <env> the hand module types by `envTy`).
 libs_soundness() {
+  local d=$DEMOS/$1
+  local outs=(--out-typing "$d/$1/Typing.lean" --out-typed "$d/$1/Typed.lean"
+              --out-soundness "$d/$1/Soundness.lean" --out-unfold "$d/typed-unfold.txt")
   case $1 in
     ImpTypes) "$G" soundness --kore-a "$(kore_dir kimp)/definition.kore" --name-a KImp \
         --kore-b "$(kore_dir imp-typing)/definition.kore" --name-b KImpTypes --ns ImpTypes \
         --typing typeOf,wt --store-cell env --store-typing envTy \
-        --out-typing "$DEMOS/ImpTypes/ImpTypes/Typing.lean" --out-soundness "$DEMOS/ImpTypes/ImpTypes/Soundness.lean" ;;
+        "${outs[@]}" ;;
     # programs end with a value and no cell is typed by hand: `typeOf` accepts them (design.md, §3.3)
     ExprTypes) "$G" soundness --kore-a "$(kore_dir expr)/definition.kore" --name-a KExpr \
         --kore-b "$(kore_dir expr-typing)/definition.kore" --name-b KExprTypes --ns ExprTypes \
         --typing typeOf \
-        --out-typing "$DEMOS/ExprTypes/ExprTypes/Typing.lean" --out-soundness "$DEMOS/ExprTypes/ExprTypes/Soundness.lean" ;;
+        "${outs[@]}" ;;
     # threads in a cell map, holes of two sorts, rules of three ranks (K's I/O streams); the
     # checker types statements without variables (`wt`, `wts`, accepting programs) and calls
     # `printable` on `print`'s arguments; a block's saved environment is an item of `<k>`
     ImpPlusTypes) "$G" soundness --kore-a "$(kore_dir impplus)/definition.kore" --name-a KImpPlus \
         --kore-b "$(kore_dir impplus-typing)/definition.kore" --name-b KImpPlusTypes --ns ImpPlusTypes \
         --typing typeOf,typeOfB,wt,wts --aux printable --program wts --env-item Map \
-        --out-typing "$DEMOS/ImpPlusTypes/ImpPlusTypes/Typing.lean" --out-soundness "$DEMOS/ImpPlusTypes/ImpPlusTypes/Soundness.lean" ;;
+        "${outs[@]}" ;;
     *) echo "libs_soundness: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -212,19 +212,22 @@ libs_soundness() {
 gate_soundness() {
   kc kimp
   runs lib imptypes && kc imp-typing && lib imptypes KImpTypes
+  # a typed demo: its typing and preservation, its language's progress under the typing, and
+  # `soundness` from both (the demo's build needs the progress modules)
   if runs demo ImpTypes; then
     phase "demo ImpTypes"
     kc imp-typing && rel ImpTypes
     scaffold soundness-ImpTypes libs_soundness ImpTypes
+    runs prog imptypes && prog_imptypes
     dbuild ImpTypes
   fi
-  runs prog imptypes && prog_imptypes
   runs lib kexpr && kc expr && lib kexpr KExpr
   runs lib exprtypes && kc expr-typing && lib exprtypes KExprTypes
   if runs demo ExprTypes; then
     phase "demo ExprTypes"
     kc expr && kc expr-typing && rel ExprTypes
     scaffold soundness-ExprTypes libs_soundness ExprTypes
+    runs prog exprtypes && prog_exprtypes
     dbuild ExprTypes
   fi
   runs lib impplus && kc impplus && lib impplus KImpPlus
@@ -239,9 +242,9 @@ gate_soundness() {
     phase "demo ImpPlusTypes"
     kc impplus && kc impplus-typing && rel ImpPlusTypes
     scaffold soundness-ImpPlusTypes libs_soundness ImpPlusTypes
+    runs prog impplustypes && prog_impplustypes
     dbuild ImpPlusTypes
   fi
-  runs prog impplustypes && prog_impplustypes
   # no stuck states (design.md §3.9): the stack machine, every case automatic; its variant without
   # `pop`'s underflow rule, whose one case is refuted by hand; with priorities (SND-15), every case
   # automatic, some by rules of different ranks on different branches

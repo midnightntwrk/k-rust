@@ -1,8 +1,8 @@
-import ImpTypes.Soundness
+import ImpTypes.Typed
 import KPrelude.InvTactic
 import KPrelude.InvColl
 
-/-! Hand-written. `preservation` of `Soundness.lean` (the runtime typing `WTc envTy G` of kimp
+/-! Hand-written. `preservation` of `Typed.lean` (the runtime typing `WTc envTy G` of kimp
 configurations, for the K type checker `imp-typing.k`), re-proved with the invariant core
 (`KPrelude.Invariant`) and `k2l_preserve` in its `Preserved` mode, without `hand`.
 
