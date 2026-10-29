@@ -228,6 +228,76 @@ fn a_record_update_in_a_pattern_is_refused_at_its_base() {
     "#]].assert_debug_eq(&outcomes);
 }
 
+/// A single-body rule whose subject marks no change is a mistake of the whole sentence, told at
+/// the fn's name; a construct its subject's root may not hold is a mistake told by its spelling
+/// and position alone, so it is told first, as it is with a rewrite: alternatives, which the one
+/// term rewritten in place cannot be, a record update and a `let` block.
+#[test]
+fn a_single_body_rule_tells_a_misplaced_root_before_its_missing_rewrite() {
+    let outcomes = outcomes([
+        (
+            "no-rewrite",
+            "#[k::rule(label = \"idle\")]\nfn idle(k::term![ExpSyntax::Done()]: Term<Exp>) {}\n",
+        ),
+        (
+            "alternatives",
+            "#[k::rule(label = \"idle\")]\nfn idle(k::term![ExpSyntax::Done() | ExpSyntax::Wrap { .. }]: Term<Exp>) {}\n",
+        ),
+        (
+            "record-update",
+            "#[k::rule(label = \"idle\")]\nfn idle(k::term![ExpSyntax::Pair { a: x, ..x }]: Term<Exp>) {}\n",
+        ),
+        (
+            "let",
+            "#[k::rule(label = \"idle\")]\nfn idle(k::term![{ let y = x; y }]: Term<Exp>) {}\n",
+        ),
+    ]);
+    expect_test::expect![[r#"
+        [
+            (
+                "no-rewrite",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-local-rewrite]: a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result",
+                        "--> src/lib.rs:42:4",
+                    ],
+                ),
+            ),
+            (
+                "alternatives",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::invalid-pattern-or]: `A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative; here it stands in the subject of a single-body `#[k::rule]` fn",
+                        "--> src/lib.rs:42:18",
+                    ],
+                ),
+            ),
+            (
+                "record-update",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-record-update]: `..base` builds a record whose unlisted fields are those of the record the alias `base` matched, which only a term a sentence builds can say; a pattern denotes no record by it, and leaves out the fields it does not constrain with `..`; here it stands in the subject of a single-body `#[k::rule]` fn",
+                        "--> src/lib.rs:42:44",
+                    ],
+                ),
+            ),
+            (
+                "let",
+                (
+                    false,
+                    [
+                        "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `#let` binds its pattern's names (it is `#fun(P => B)(E)`), and in a rule's left side those names would read as the rule's pattern variables; here it stands in the subject of a single-body `#[k::rule]` fn",
+                        "--> src/lib.rs:42:20",
+                    ],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
 /// A single-body rule's map changes values: a rewrite in a key is refused at the rewrite, and the
 /// same rewrite in the value is accepted.
 #[test]

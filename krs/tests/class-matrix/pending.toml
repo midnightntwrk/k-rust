@@ -3899,12 +3899,23 @@ deviation = "krs::syntax::invalid-pattern-or @ spelling"
 finding = "NT-2-26"
 deviation = "krs::rust-expansion::uncoded-error @ spelling"
 
+# NT-2-27: a context alias's binder that an operand sorts more narrowly is the IR validator's internal error
+# In a context alias, `x: KItem` read as `k::builtin::int::add(x, 1)`'s `Int` operand is a sort
+# mistake, which a `cells!` rule reports as `incompatible-binder`; the context alias's lowering
+# gives its binders their declared sorts and checks no occurrence against them, so the IR validator
+# meets it ("variable x is referenced with the wrong sort", internal). Before NT-3 that internal
+# error was what these cases reported. NT-3 refuses the function there, and NT-4 tells a function in
+# a pattern after the sentence's author name and sort mistakes (NT-2-29's order); with no author
+# sort mistake to tell, the function is told, so the cases deviate by the resolution refusal until
+# the context alias's lowering reports the sort mistake. Probe:
+# `terms/context-alias/subject/k::builtin::int::add(x, 1)`. Plan: new.
+
 ["terms/context-alias/item-root/k::builtin::int::add(x, 1)"]
-finding = "NT-2-29"
+finding = "NT-2-27"
 deviation = "krs::analysis::function-in-pattern @ spelling"
 
 ["terms/context-alias/subject/k::builtin::int::add(x, 1)"]
-finding = "NT-2-29"
+finding = "NT-2-27"
 deviation = "krs::analysis::function-in-pattern @ spelling"
 
 # NT-2-28: alternatives in a context's subject reach the IR validator's `#Or` restriction
@@ -3916,128 +3927,6 @@ deviation = "krs::analysis::function-in-pattern @ spelling"
 ["terms/context/subject/Cmd::Go() | Cmd::Hold(_)"]
 finding = "NT-2-28"
 deviation = "krs::analysis::invalid-semantic-theory @ spelling"
-
-# NT-2-29: a sort mistake is reported after a resolution mistake at some positions and before it at their siblings
-# `k::builtin::int::add(x, 1)` with `x` a `cells!` binder declared `KItem` makes two mistakes in a
-# subject: a function in a pattern, and a `KItem` binder read as an `Int` operand. A `cells!` map
-# value and a `cells!` claim's subject report `incompatible-binder`; a `cells!` rule's subject and
-# computation item and a local rule's subject report `function-in-pattern`. `[x, ..]` at a subject's root reports
-# `invalid-list-notation` in every form but an equation, which reports `subject-root-not-function`.
-# Which mistake is told first is the product's to choose, but one order for both: the table meets the
-# sort mistake first wherever it decides one. Probe: `terms/cells/subject/k::builtin::int::add(x, 1)`.
-# Plan: new (diagnostics).
-# NT-3: D1 makes a `cells!` map value matched, so its `add(x, 1)` reports `function-in-pattern` as
-# its `cells!` subject siblings do, and a context alias's subject (a context matches evaluated
-# terms) does too, which NT-2-27 recorded as an internal sort error. A context's root `add(1, 2)`
-# reports `function-in-pattern` before the name mistake `context-hole-unbound` (`hole = x` names no
-# binder of the root): the compiler checks functions in patterns before it lowers a sentence, where
-# it meets a declared binder's sort and a context's hole; the table meets names and sorts first.
-# NT-3 review: a `cells!` key beside a name bound nowhere else (`Cmd::Pair { a: x + 1, b: z }`) is a
-# selection, where the operator never matches; the compiler tells that before `x`'s declared sort.
-
-["terms/cells/item-root/k::builtin::int::add(x, 1)"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells-local/subject/k::builtin::int::add(x, 1)"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/subject/k::builtin::int::add(x, 1)"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/equation/subject-root/[x, ..]"]
-finding = "NT-2-29"
-deviation = "krs::analysis::subject-root-not-function @ spelling"
-
-["terms/cells/map-value/k::builtin::int::add(x, 1)"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/context/subject-root/k::builtin::int::add(1, 2)"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/!(x < 1)"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/-(x + 1)"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/k::builtin::int::add(x, 1)"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/x & 1"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/x && true"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/x + 1"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/x < 1"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/x << 1"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/x == 1"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/x || true"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/cells/map-key/beside-fresh/x.add::<Int>(1)"]
-finding = "NT-2-29"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-# NT-2-30: a single-body rule without a rewrite is reported before some placement mistakes at its subject's root
-# A single-body rule's subject that holds no `k::rewrite!` changes nothing, a mistake of the whole
-# sentence; a construct refused where it stands is a mistake told by its spelling and position alone.
-# At the subject's root the product reports the placement first for a notation form, `_`, an alias,
-# an island and a map literal, and the missing rewrite first for alternatives, a record update with
-# a base, a predicate and a `let` block. Probe: `terms/local-rule/subject-root/Cmd::Go() | Cmd::Hold(_)`.
-# Plan: new (diagnostics).
-
-["terms/local-rule/subject-root/Cmd::Go() | Cmd::Hold(_)"]
-finding = "NT-2-30"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject-root/Cmd::Pair { a: x, ..x }"]
-finding = "NT-2-30"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject-root/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
-finding = "NT-2-30"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject-root/x | 1"]
-finding = "NT-2-30"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject-root/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-2-30"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject-root/{ let y = x; y }"]
-finding = "NT-2-30"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject-root/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-2-30"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
 
 # NT-3-1: a set's element in a pattern refuses what a key admits: computed constructs and notation (P5)
 # A set is looked up by its elements as a map by its keys, so an element that computes (a sort

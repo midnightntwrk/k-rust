@@ -122,6 +122,9 @@ pub struct RuleItem {
     anchors: Vec<ProvenanceAnchor>,
     /// The anchors of the full view ([`Self::full_provenance`]).
     full_anchors: Vec<ProvenanceAnchor>,
+    /// The refusal of a single-body rule whose subject marks no change, a
+    /// mistake of the whole sentence ([`Self::check_changes`]).
+    unchanged: Option<SyntaxError>,
 }
 
 /// Which sentence keys a rule item.
@@ -266,6 +269,18 @@ impl RuleItem {
 
     /// [`Self::from_item`] with the negative-literal spans of the item's source tokens.
     fn from_item_with_signs(
+        item: ItemFn,
+        signs: NegativeLiteralSpans,
+        form: ClauseForm,
+    ) -> Result<Self, SyntaxError> {
+        let rule = Self::from_item_judging_changes_later(item, signs, form)?;
+        rule.check_changes()?;
+        Ok(rule)
+    }
+
+    /// [`Self::from_item_with_signs`], except that a single-body rule whose
+    /// subject marks no change is refused only by [`Self::check_changes`].
+    fn from_item_judging_changes_later(
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
         form: ClauseForm,
@@ -278,6 +293,36 @@ impl RuleItem {
             false,
             form,
         )
+    }
+
+    /// Parses a `#[k::rule]` fn's tokens as [`KrsSyntax::parse_tokens`] does,
+    /// except that a single-body rule whose subject marks no change is
+    /// refused only by [`Self::check_changes`]: that is a mistake of the
+    /// whole sentence, told by its spelling alone, which the expansion tells
+    /// after a construct the subject may not hold where it stands (told at
+    /// the construct, which must go whatever the rule changes) and before a
+    /// name the subject reads but nothing binds.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`KrsSyntax::parse_tokens`] but that one.
+    pub fn parse_rule_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
+        Self::from_item_judging_changes_later(
+            crate::term::parse_fn_item(tokens)?,
+            signs,
+            ClauseForm::Transition,
+        )
+    }
+
+    /// Refuses a single-body rule whose subject marks no change.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SyntaxErrorKind::InvalidLocalRewrite`] at the fn's name for
+    /// a single-body rule whose subject holds no `k::rewrite!`.
+    pub fn check_changes(&self) -> Result<(), SyntaxError> {
+        self.unchanged.clone().map_or(Ok(()), Err)
     }
 
     /// Validates a desugar clause fn with its `#[k::desugar(..)]` payload
@@ -449,6 +494,7 @@ impl RuleItem {
             && returns_unit
             && (item.block.stmts.is_empty() || rewrite.is_some());
         let single_body = single_body || form == ClauseForm::Context;
+        let mut unchanged = None;
         match (single_body, rewrite) {
             (false, Some(rewrite)) => {
                 return Err(crate::term::local_rewrite_error(
@@ -458,7 +504,7 @@ impl RuleItem {
             }
             (true, None) if form == ClauseForm::Context => {}
             (true, None) => {
-                return Err(crate::term::local_rewrite_error(
+                unchanged = Some(crate::term::local_rewrite_error(
                     crate::state_rule::SINGLE_BODY_WITHOUT_REWRITE.to_owned(),
                     item.sig.ident.span(),
                 ));
@@ -547,6 +593,7 @@ impl RuleItem {
             result_type_key: None,
             anchors: Vec::new(),
             full_anchors: Vec::new(),
+            unchanged,
         }
         .keyed()
     }

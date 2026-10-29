@@ -76,6 +76,33 @@ fn ordered_descriptors(
     Ok(inlined)
 }
 
+/// The modules `lowered` holds, unless a judgment of what a head resolves to (`resolution`: a
+/// subject's root, a function in a pattern) refused a sentence. That judgment is about a term
+/// whose names and sorts resolve, which the sentence's lowering and the evaluation steps' check
+/// of its hole decide: a name that resolves to nothing, or a sort mistake, leaves no resolved
+/// term to judge, so the reader fixes it first, and their author error about the same item is
+/// told instead. Any other error, of another item or internal (a check that assumes the
+/// judgment held), is told after it.
+fn resolved_first(
+    resolution: Result<(), DescriptorLoweringError>,
+    lowered: Result<Vec<SemanticModule>, DescriptorLoweringError>,
+) -> Result<Vec<SemanticModule>, DescriptorLoweringError> {
+    match (resolution, lowered) {
+        (Ok(()), lowered) => lowered,
+        (Err(resolution), Err(lowering))
+            if lowering.subject_item().is_some()
+                && lowering.subject_item() == resolution.subject_item()
+                && krs_diagnostic::ToDiagnostic::to_diagnostic(&lowering)
+                    .code
+                    .kind()
+                    == krs_diagnostic::codes::CodeKind::Author =>
+        {
+            Err(lowering)
+        }
+        (Err(resolution), _) => Err(resolution),
+    }
+}
+
 /// The inference catalog's subsort judge over the bundle's descriptors, as lowering builds it.
 ///
 /// # Errors
@@ -170,8 +197,17 @@ pub fn lower_descriptor_bundle(
         &production_catalog,
         &semantic_sort_parents,
     )?;
-    subject_roots::check_subject_roots(&descriptors, &production_catalog)?;
-    function_patterns::check_function_patterns(&descriptors, &production_catalog, &declarations)?;
+    // What a head resolves to decides these, about terms whose names and sorts the sentence's
+    // lowering resolves: a sentence's name or sort mistake is told before them
+    // ([`resolved_first`]).
+    let resolution = subject_roots::check_subject_roots(&descriptors, &production_catalog)
+        .and_then(|()| {
+            function_patterns::check_function_patterns(
+                &descriptors,
+                &production_catalog,
+                &declarations,
+            )
+        });
     let mut declaration_metadata = bundle
         .declarations()
         .iter()
@@ -207,66 +243,80 @@ pub fn lower_descriptor_bundle(
         descriptors: &declarations,
         metadata: &declaration_metadata,
     };
-    let mut modules = Vec::with_capacity(packages.len());
-    let mut package_specs = Vec::new();
-    for (package, package_descriptors) in packages {
-        let split = spec_modules::split_package(&package, &package_descriptors)?;
-        modules.push(
-            lower_package_module(
+    let lowered = (|| {
+        let mut modules = Vec::with_capacity(packages.len());
+        let mut package_specs = Vec::new();
+        for (package, package_descriptors) in packages {
+            let split = spec_modules::split_package(&package, &package_descriptors)?;
+            modules.push(
+                lower_package_module(
+                    &package,
+                    &split.definition,
+                    &package_descriptors,
+                    &module_ids,
+                    &declaration_catalog,
+                    &semantic_sort_parents,
+                    &production_catalog,
+                )?
+                .with_int_literals(bundle.int_literals(&package)),
+            );
+            if !split.specs.is_empty() {
+                package_specs.push((package, split.specs));
+            }
+        }
+        // Only the main package's spec modules belong to this build (KF-041).
+        if let Some(main) =
+            crate::lowering::main_semantic_module(&modules).map(|module| module.id().clone())
+            && let Some((package, specs)) = package_specs
+                .into_iter()
+                .find(|(package, _)| module_ids.get(package) == Some(&main))
+        {
+            let mut reserved = BTreeSet::new();
+            for module in &modules {
+                reserved.insert(module.id().as_str().to_owned());
+                reserved.insert(format!("{}-SYNTAX", module.id().as_str()));
+            }
+            reserved.insert(format!("{}-SPEC", main.as_str()));
+            let (declarations, members): (Vec<_>, Vec<_>) = specs.into_iter().unzip();
+            let imports = spec_modules::resolve_imports(
                 &package,
-                &split.definition,
-                &package_descriptors,
+                &declarations,
                 &module_ids,
-                &declaration_catalog,
-                &semantic_sort_parents,
-                &production_catalog,
-            )?
-            .with_int_literals(bundle.int_literals(&package)),
-        );
-        if !split.specs.is_empty() {
-            package_specs.push((package, split.specs));
+                &main,
+                &reserved,
+            )?;
+            for ((spec, descriptors), imports) in declarations.iter().zip(&members).zip(imports) {
+                modules.push(lower_spec_module(
+                    spec,
+                    imports,
+                    descriptors,
+                    &declaration_catalog,
+                    &semantic_sort_parents,
+                    &production_catalog,
+                )?);
+            }
         }
-    }
-    // Only the main package's spec modules belong to this build (KF-041).
-    if let Some(main) =
-        crate::lowering::main_semantic_module(&modules).map(|module| module.id().clone())
-        && let Some((package, specs)) = package_specs
-            .into_iter()
-            .find(|(package, _)| module_ids.get(package) == Some(&main))
-    {
-        let mut reserved = BTreeSet::new();
-        for module in &modules {
-            reserved.insert(module.id().as_str().to_owned());
-            reserved.insert(format!("{}-SYNTAX", module.id().as_str()));
+        Ok(modules)
+    })();
+    // A context's or a heat or cool rule's hole is a name its pattern binds, which the
+    // whole-theory check of evaluation steps judges: a name mistake as well.
+    let lowered = lowered.and_then(|mut modules| {
+        if !uses_framework(&modules) {
+            modules.retain(|module| !crate::partition::is_framework_module(module.id()));
         }
-        reserved.insert(format!("{}-SPEC", main.as_str()));
-        let (declarations, members): (Vec<_>, Vec<_>) = specs.into_iter().unzip();
-        let imports =
-            spec_modules::resolve_imports(&package, &declarations, &module_ids, &main, &reserved)?;
-        for ((spec, descriptors), imports) in declarations.iter().zip(&members).zip(imports) {
-            modules.push(lower_spec_module(
-                spec,
-                imports,
-                descriptors,
-                &declaration_catalog,
-                &semantic_sort_parents,
-                &production_catalog,
-            )?);
-        }
-    }
-    if !uses_framework(&modules) {
-        modules.retain(|module| !crate::partition::is_framework_module(module.id()));
-    }
-    modules.sort_by(|left, right| left.id().cmp(right.id()));
-    overload::check_overloads(&modules, &semantic_sort_parents)?;
-    family_precedence::check_chainless_families(&modules, &semantic_sort_parents)?;
-    tokens::check_token_sorts(&modules)?;
-    tokens::check_program_token_fields(&modules)?;
-    token_collisions::check_token_collisions(&modules)?;
-    lexicals::check_lexicals(&modules)?;
-    lists::check_syntax_lists(&modules, &semantic_sort_parents)?;
-    fresh::check_fresh_generators(&modules)?;
-    evaluation::check_evaluation_steps(&modules)?;
+        modules.sort_by(|left, right| left.id().cmp(right.id()));
+        overload::check_overloads(&modules, &semantic_sort_parents)?;
+        family_precedence::check_chainless_families(&modules, &semantic_sort_parents)?;
+        tokens::check_token_sorts(&modules)?;
+        tokens::check_program_token_fields(&modules)?;
+        token_collisions::check_token_collisions(&modules)?;
+        lexicals::check_lexicals(&modules)?;
+        lists::check_syntax_lists(&modules, &semantic_sort_parents)?;
+        fresh::check_fresh_generators(&modules)?;
+        evaluation::check_evaluation_steps(&modules)?;
+        Ok(modules)
+    });
+    let modules = resolved_first(resolution, lowered)?;
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
     or_positions::check_or_pattern_positions(&modules)?;

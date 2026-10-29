@@ -315,8 +315,11 @@ fn ordinary_rule(
 ) -> crate::Result<TokenStream> {
     let rule = match sentence {
         krs_syntax::RuleSentence::Equation(_) => krs_syntax::RuleItem::parse_equation_tokens(item)?,
+        // A single-body rule whose subject marks no change is told after the
+        // subject's constructs are judged where they stand
+        // (`expand_ordinary_rule`).
         krs_syntax::RuleSentence::Transition(_) => {
-            krs_syntax::RuleItem::parse_tokens(item.clone()).map_err(|error| {
+            krs_syntax::RuleItem::parse_rule_tokens(item.clone()).map_err(|error| {
                 if error.refuses_whole_subject() {
                     error.with_help(for_sort_clause_help(&item))
                 } else {
@@ -604,11 +607,24 @@ fn expand_ordinary_rule(
         .transpose()?;
     let (typed_bindings, binder_key_functions) =
         typed_binders(rule, (&facade, &ledger), nonce, &cfg, &mut slots)?;
-    let subject = term_builder.expand_wire(
-        KeyedTerm::pattern(&rule.parameter().pattern, rule.subject_tree()),
-        TermSide::Left,
-        &mut slots,
-    )?;
+    // A single-body rule whose subject marks no change is a mistake of the
+    // whole sentence, told by its spelling alone: after a construct its
+    // subject may not hold where it stands, which the position table tells
+    // by spelling and position, and before the subject's names.
+    let subject = term_builder
+        .expand_wire(
+            KeyedTerm::pattern(&rule.parameter().pattern, rule.subject_tree()),
+            TermSide::Left,
+            &mut slots,
+        )
+        .map_err(|error| {
+            if term_builder.refused_by_position() {
+                error
+            } else {
+                rule.check_changes().map_or_else(Into::into, |()| error)
+            }
+        })?;
+    rule.check_changes()?;
     let context_bindings = rule.condition_bindings();
     let function_context = rule
         .function_context()

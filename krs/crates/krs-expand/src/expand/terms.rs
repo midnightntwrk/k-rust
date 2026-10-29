@@ -557,6 +557,9 @@ pub(super) struct TermBuilder<'a> {
     pub(super) tooling_binding_references: Vec<Path>,
     /// The side of the `k::rewrite!` being expanded, or `None` outside one.
     rewrite: Option<RewriteSide>,
+    /// Whether the position table refused a construct where it stands, a
+    /// mistake told by its spelling and position alone ([`Self::admit`]).
+    refused_by_position: std::cell::Cell<bool>,
 }
 
 /// A side of a `k::rewrite!` (K's local `=>`).
@@ -598,6 +601,7 @@ impl<'a> TermBuilder<'a> {
             subject_head: None,
             tooling_binding_references: Vec::new(),
             rewrite: None,
+            refused_by_position: std::cell::Cell::new(false),
         }
     }
 
@@ -633,13 +637,21 @@ impl<'a> TermBuilder<'a> {
     ) -> crate::Result<()> {
         let position = self.position(side);
         match krs_syntax::positions::admits(position, construct) {
-            Admission::Refuse(class) => Err(ExpandError::at_range(
-                class.code(),
-                range,
-                class.message(position),
-            )),
+            Admission::Refuse(class) => {
+                self.refused_by_position.set(true);
+                Err(ExpandError::at_range(
+                    class.code(),
+                    range,
+                    class.message(position),
+                ))
+            }
             Admission::Admit | Admission::After(_) => Ok(()),
         }
+    }
+
+    /// Whether the position table refused a construct where it stands.
+    pub(super) const fn refused_by_position(&self) -> bool {
+        self.refused_by_position.get()
     }
 
     /// Judges a record's remainder: the base of a record update

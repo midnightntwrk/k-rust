@@ -215,6 +215,44 @@ fn a_function_at_the_root_of_any_slot_a_rule_matches_is_refused() {
     "#]].assert_debug_eq(&outcomes);
 }
 
+/// That a head is a function is a fact of what it resolves to, judged of a term whose names and
+/// sorts resolve: a binder declared `KItem` as `int::add`'s operand is a sort mistake, told first,
+/// and with the binder declared `Int` the function in the pattern is told.
+#[test]
+fn a_sort_mistake_is_told_before_a_function_in_a_pattern() {
+    let rule = |sort: &str| {
+        format!(
+            "#[k::rule(label = \"clear\")]\npub fn clear(\n    x: {sort},\n    k::cells! {{ k: k::configuration::KCell(ExpSyntax::Load {{ n: k::builtin::int::add(x, 1) }}, tail @ ..), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+        )
+    };
+    let (kitem, int) = (rule("KItem"), rule("Int"));
+    let outcomes = outcomes([("kitem-operand", &kitem), ("int-operand", &int)]);
+    expect_test::expect![[r#"
+        [
+            (
+                "kitem-operand",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::incompatible-binder]: binder `x` is declared `KItem`, but an occurrence needs `Int`",
+                        "--> src/lib.rs:51:8",
+                    ],
+                ),
+            ),
+            (
+                "int-operand",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::int::add` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`",
+                        "--> src/lib.rs:52:65",
+                    ],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
 #[test]
 fn a_function_below_the_root_of_any_pattern_a_rule_matches_is_refused() {
     let outcomes = outcomes([
