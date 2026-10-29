@@ -29,7 +29,7 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 18] = [
+const KNOWN: [(&str, &str); 17] = [
     (
         r"terms/readable/set-instance-child/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::project!(Int\, x)}",
         "NT-3-3",
@@ -49,10 +49,6 @@ const KNOWN: [(&str, &str); 18] = [
     (
         r"terms/{alias/result,alias/result-root,cells-claim/guard,cells-claim/guard/closure-body,claim/result,claim/result-item-root,context/guard,desugar/result,desugar/result-root,equation/guard,equation/result,local-rule/subject/rewrite-right,readable/guard,readable/result,readable/result-item-root,readable/result-list-element,rule/guard,rule/guard/closure-body,rule/guard/let-body,rule/result,rule/result-root,shorthand/result,shorthand/result-root,simplification/guard,simplification/result,simplification/result-root,sort-rule/result,sort-rule/result-root,sort-rule/result/function-argument,sort-rule/result/let-body,sort-rule/result/update-field,table/result}/Cmd::Pair \{ a: x\, .. \}",
         "NT-2-4",
-    ),
-    (
-        r"terms/{sort-rule/subject-root,sort-rule/subject-root-term}/_",
-        "NT-2-9",
     ),
     (
         r"terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
@@ -390,8 +386,8 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
 
 /// The pattern reader's rule for a construct standing for a subject's whole root: an alias, `_`
 /// and a compiler-owned island stand below the root of a fn's, a table row's, a context's or a
-/// static clause's subject, and a `for Sort` clause's root reads a bare name, an alias or an
-/// island as a readable record's value does.
+/// static clause's subject, and a `for Sort` clause's root reads a bare name, `_`, an alias or
+/// an island as a readable record's value does.
 fn root_rule(construct: model::Construct, position: model::Position) -> Option<&'static str> {
     use model::Construct as M;
     let root = match position.root? {
@@ -405,8 +401,7 @@ fn root_rule(construct: model::Construct, position: model::Position) -> Option<&
         construct if construct.is_island() => (RootConstruct::Island, "island-at-subject-root"),
         _ => return None,
     };
-    let holds_name_or_island = !matches!(root_construct, RootConstruct::Wildcard);
-    (!root.at(holds_name_or_island).admits(root_construct)).then_some(class)
+    (!root.at(true).admits(root_construct)).then_some(class)
 }
 
 /// A table's answer for one case: the first refusal in preorder, and the classes it leaves to

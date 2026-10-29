@@ -2,7 +2,9 @@
 
 use std::fmt;
 
-use krs_diagnostic::{Code, Diagnostic, Location, ToDiagnostic, codes, tag_rustc_message};
+use krs_diagnostic::{
+    Code, Diagnostic, Location, ToDiagnostic, codes, tag_rustc_message, with_rustc_help,
+};
 use krs_syntax::{SyntaxError, TokenRange};
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::ToTokens;
@@ -126,8 +128,9 @@ impl ExpandError {
 
     /// Renders one rustc sub-error per diagnostic, retaining available span endpoints.
     /// Diagnostics without a macro span use the invocation's `call_site`.
-    /// Each message carries its code ([`krs_diagnostic::tag_rustc_message`]),
-    /// which the collector recovers from rustc's report.
+    /// Each message carries its code ([`krs_diagnostic::tag_rustc_message`])
+    /// and its help lines ([`krs_diagnostic::with_rustc_help`]), which the
+    /// collector recovers from rustc's report.
     ///
     /// # Panics
     ///
@@ -135,7 +138,10 @@ impl ExpandError {
     #[must_use]
     pub fn into_syn_error(self, call_site: Span) -> syn::Error {
         let mut errors = self.failures.into_iter().map(|failure| {
-            let message = tag_rustc_message(&failure.diagnostic.code, &failure.diagnostic.message);
+            let message = with_rustc_help(
+                tag_rustc_message(&failure.diagnostic.code, &failure.diagnostic.message),
+                &failure.diagnostic.help,
+            );
             if let Some((start, end)) = failure.rustc_spans {
                 let tokens = TokenStream::from_iter([
                     TokenTree::Ident(Ident::new("start", start)),

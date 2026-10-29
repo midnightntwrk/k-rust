@@ -365,17 +365,16 @@ pub(super) fn parse_rule_pattern(
             let tokens = crate::parse::strip_trailing_comma(macro_pattern.mac.tokens.clone());
             // The wrapper is optional around a pattern, so its payload reads
             // at the pattern's root as a native pattern does: `_` and an
-            // island stand below a subject's root, and a readable value
-            // stands below the rule's subject, so `|` and an alias at its
-            // root read as they do below a constructor.
+            // island stand below a subject's root, a clause's root binds a
+            // bare name and holds `_`, an alias or an island, and a readable
+            // value stands below the rule's subject, so `|` and an alias at
+            // its root read as they do below a constructor.
             let term = TermExpression::parse_pattern_tokens_at(tokens, root)?;
-            // A wrapped clause root names a unit constructor with a bare
-            // name, as a subject's does, so an alias there would stand for
-            // the whole subject.
-            if root == PatternRoot::Clause {
-                reject_subject_root_alias(term.tree())?;
-            }
-            let bindings = term_pattern_bindings(&term, root != PatternRoot::Value)?;
+            let root = root.at(term
+                .expression()
+                .as_pattern()
+                .is_some_and(crate::term::holds_whole_term));
+            let bindings = term_pattern_bindings(&term, root.names_constructor())?;
             let tree = term.tree().clone();
             Ok((
                 RulePattern::TermMacro {
@@ -397,7 +396,7 @@ pub(super) fn parse_rule_pattern(
                 .collect();
             // A subject's root names the matched constructor, but where a
             // clause's root is a bare name, which binds the whole subject.
-            let root = root.at(matches!(pattern, Pat::Ident(_) | Pat::Macro(_)));
+            let root = root.at(crate::term::holds_whole_term(&pattern));
             let mut bindings = Vec::new();
             for binding in crate::term::pattern_tree_binders(&tree, root.names_constructor()) {
                 crate::parse::validate_authored_binder(&binding.to_string(), binding.span())?;
@@ -484,26 +483,6 @@ pub(crate) fn validate_pattern_literal(
     };
     nodes.push(TermNode::Literal(literal.clone()));
     Ok(literal)
-}
-
-/// Refuses an alias that stands for a whole wrapped clause subject, which
-/// reads its root as a subject's: the root is the matched constructor or
-/// function, and each alternative of a root `A | B` is a whole subject.
-fn reject_subject_root_alias(tree: &TermTree) -> Result<(), SyntaxError> {
-    match tree {
-        TermTree::As { binding, .. } => Err(SyntaxError::new(
-            crate::SyntaxErrorKind::InvalidPatternAs {
-                reason: format!(
-                    "`{binding} @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
-                ),
-            },
-            binding.span(),
-        )),
-        TermTree::Or { alternatives, .. } => {
-            alternatives.iter().try_for_each(reject_subject_root_alias)
-        }
-        _ => Ok(()),
-    }
 }
 
 fn term_pattern_bindings(

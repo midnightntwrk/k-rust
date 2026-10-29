@@ -374,8 +374,9 @@ pub enum PatternRoot {
     /// alternative of a root `A | B` is a whole subject.
     Subject,
     /// The subject of a `for Sort` clause: its root is the constructor the clause matches, as a
-    /// [`Self::Subject`]'s, but a bare name binds the whole subject, and an alias or an island
-    /// stands at the root as it does below a constructor.
+    /// [`Self::Subject`]'s, or else any term of the clause's sort, which the clause's root states
+    /// without the fn subject's parameter: a bare name binds the whole subject, `_` is that term
+    /// unnamed, and an alias or an island stands at the root as it does below a constructor.
     Clause,
     /// A readable record's value, which is no sentence's root: the whole pattern, `|` and
     /// parentheses at its root included, reads as below a constructor.
@@ -385,11 +386,11 @@ pub enum PatternRoot {
 impl PatternRoot {
     /// The policy the reader applies to `pattern` at this root, by what the root holds:
     /// [`Self::Subject`] or [`Self::Value`], since a [`Self::Clause`]'s root reads a bare name,
-    /// an alias or an island as a value and anything else as a subject.
+    /// `_`, an alias or an island as a value and anything else as a subject.
     #[must_use]
-    pub const fn at(self, holds_name_or_island: bool) -> Self {
+    pub const fn at(self, holds_whole_term: bool) -> Self {
         match self {
-            Self::Clause if holds_name_or_island => Self::Value,
+            Self::Clause if holds_whole_term => Self::Value,
             Self::Clause | Self::Subject => Self::Subject,
             Self::Value => Self::Value,
         }

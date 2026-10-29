@@ -99,6 +99,25 @@ fn a_foreign_code_has_the_kind_its_forwarder_states() {
 }
 
 #[test]
+fn rustc_message_help_lines_round_trip() {
+    let tagged = with_rustc_help(
+        tag_rustc_message(&codes::syntax::INVALID_COLOR, "bad colour"),
+        &["write `red`".to_owned(), "or `blue`".to_owned()],
+    );
+    assert_eq!(
+        tagged,
+        "[krs::syntax::invalid-color] bad colour\n= help: write `red`\n= help: or `blue`"
+    );
+    let (code, message) = untag_rustc_message(&tagged).unwrap();
+    assert_eq!(code, codes::syntax::INVALID_COLOR);
+    assert_eq!(
+        split_rustc_help(message),
+        ("bad colour", vec!["write `red`", "or `blue`"])
+    );
+    assert_eq!(split_rustc_help("no help"), ("no help", vec![]));
+}
+
+#[test]
 fn rustc_message_tags_round_trip_only_registered_codes() {
     let tagged = tag_rustc_message(&codes::syntax::INVALID_COLOR, "bad [colours] here");
     assert_eq!(tagged, "[krs::syntax::invalid-color] bad [colours] here");

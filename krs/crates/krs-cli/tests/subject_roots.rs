@@ -186,14 +186,18 @@ fn a_function_at_the_root_is_accepted() {
     );
 }
 
-/// `krs check` of the package: its `error[..]` headlines with the locations they point at.
+/// `krs check` of the package: its `error[..]` headlines with the locations they point at and
+/// their help lines.
 fn check(target: &Path, manifest: &Path) -> Vec<String> {
     let (success, _, stderr) = krs(target, manifest, "check", &[]);
     assert!(!success, "{stderr}");
     let directory = format!("{}/", manifest.parent().unwrap().display());
     stderr
         .lines()
-        .filter(|line| line.starts_with("error") || line.trim_start().starts_with("--> "))
+        .filter(|line| {
+            let line = line.trim_start();
+            line.starts_with("error") || line.starts_with("--> ") || line.starts_with("= help: ")
+        })
         .map(|line| line.trim().replace(&directory, ""))
         .collect()
 }
@@ -289,34 +293,36 @@ fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
 }
 
 /// `_`, an alias and a compiler-owned island stand below a subject's root, refused there with
-/// and without `k::term!`, in a rule's and an equation's subject, in each alternative of a root
-/// `A | B`, and at a `for Sort` clause's root. The class tests cover `_` and an island in a rule's
-/// and an equation's `k::term!` (`terms/{rule,equation}/subject-root/{_,k::bytes!(b"ab")}`), whose
-/// messages the native cases here share.
+/// and without `k::term!`, in a rule's and an equation's subject and in each alternative of a
+/// root `A | B`. A rule fn's refusal shows the `for Sort` clause, whose root is any term of the
+/// sort (decision D3). The class tests cover `_` and an island in a rule's and an equation's
+/// `k::term!` (`terms/{rule,equation}/subject-root/{_,k::bytes!(b"ab")}`), whose messages the
+/// native cases here share.
 #[test]
 fn a_wildcard_alias_or_island_at_a_subject_root_is_refused_with_or_without_the_wrapper() {
     expect_test::expect![[r#"
         rule-wildcard:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
         --> src/lib.rs:62:9
+        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; warm: _ => ..; }`
         equation-wildcard:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
         --> src/lib.rs:62:8
         alternative-wildcard-term:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
         --> src/lib.rs:62:18
+        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; warm: _ => ..; }`
         alias-term:
         error[krs::syntax::invalid-pattern-as]: `x @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead
         --> src/lib.rs:62:18
+        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; warm: _ => ..; }`
         island:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b".."))`
         --> src/lib.rs:62:9
+        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; warm: _ => ..; }`
         rewrite-term:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root
-        --> src/lib.rs:62:18
-        clause-wildcard-term:
-        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
-        --> src/lib.rs:64:20"#]].assert_eq(&refusals([
+        --> src/lib.rs:62:18"#]].assert_eq(&refusals([
         (
             "rule-wildcard",
             "#[k::rule(label = \"warm\", owise)]\nfn warm(_: Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
@@ -341,9 +347,54 @@ fn a_wildcard_alias_or_island_at_a_subject_root_is_refused_with_or_without_the_w
             "rewrite-term",
             "#[k::rule(label = \"warm\")]\nfn warm(k::term![k::rewrite!(Cmd::Red() => Cmd::Green())]: Term<Stmt>) {}\n",
         ),
-        (
-            "clause-wildcard-term",
-            "k::rules! {\n    for Stmt;\n    #[k::rule(owise)]\n    warm: k::term![_] => 1;\n}\n",
-        ),
     ]));
+}
+
+/// A `for Sort` clause's root is any term of the clause's sort: a bare name binds it, `_` is it
+/// unnamed, and an alias or an island stands there as below a constructor. `k::term![..]` is
+/// optional around the root, so it reads its payload alike: each wrapped root emits the rule its
+/// bare spelling does. The class tests cover `x`, `_` and an alias at a `KItem` clause's root,
+/// bare and wrapped (`terms/sort-rule/subject-root{,-term}/..`); here the clause's sort is a
+/// declared one, which `_` matches as a variable of that sort.
+#[test]
+fn a_clause_root_reads_alike_bare_and_in_the_wrapper() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = [
+        ("name", "s", "Cmd::Show { c: s }"),
+        ("wildcard", "_", "Cmd::Blue()"),
+        ("alias", "s @ Cmd::Red()", "Cmd::Show { c: s }"),
+    ]
+    .map(|(name, root, result)| {
+        let [bare, wrapped] = [root.to_owned(), format!("k::term![{root}]")].map(|root| {
+            let source = format!(
+                "k::rules! {{\n    for Stmt;\n    #[k::rule(owise)]\n    any: {root} => {result};\n}}\n"
+            );
+            let manifest = package(&temporary.path().join(format!("{name}-{}", root.len())), &source);
+            let output = manifest.with_file_name("emitted");
+            let (success, _, stderr) = krs(
+                target.path(),
+                &manifest,
+                "emit-k",
+                &["--output", output.to_str().unwrap()],
+            );
+            assert!(success, "{name}: {root}: {stderr}");
+            let k = fs::read_to_string(output.join("definition.k")).unwrap();
+            let mut lines = k.lines().map(str::trim).skip_while(|line| *line != "rule [any]:");
+            let head = lines
+                .next()
+                .unwrap_or_else(|| panic!("{name}: {root}: no rule `any` in\n{k}"));
+            std::iter::once(head)
+                .chain(lines.take_while(|line| !line.starts_with("rule ") && *line != "endmodule"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
+        assert_eq!(bare, wrapped, "{name}: the wrapper reads its root as the bare root");
+        format!("{name}: {bare}")
+    });
+    expect_test::expect![[r"
+        name: rule [any]: <k> S:Stmt => show ( S:Stmt ) ... </k> [priority(200)]
+        wildcard: rule [any]: <k> _:Stmt => blue ... </k> [priority(200)]
+        alias: rule [any]: <k> ( red #as S:Stmt ) => show ( S:Stmt ) ... </k> [priority(200)]"]]
+    .assert_eq(&emitted.join("\n"));
 }

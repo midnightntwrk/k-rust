@@ -3401,12 +3401,24 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 # expand` prints for the readable `{ k: [_, ..] }`) report `krs::analysis::invalid-term` "wildcard has
 # no expected production-field sort": `_` matches any term, which the readable item and a constructor's
 # field accept. Probe: `terms/cells/item-root/_`. Plan: new.
+# NT-4: `_` at a `for Sort` clause's root is admitted, and `krs expand` prints the clause as a `cells!`
+# rule whose computation item is that `_`, so its K3 fails the same way. The fix must also keep the
+# clause's sort there: the clause emits `_:Stmt` for `for Stmt` (a bare name, `S:Stmt`), while a
+# `cells!` item `_` reads as any `KItem`.
 
 ["k3/terms/claim/item-root/_"]
 finding = "NT-2-7"
 deviation = "printed surface refused: krs::analysis::invalid-term @ item"
 
 ["k3/terms/readable/item-root/_"]
+finding = "NT-2-7"
+deviation = "printed surface refused: krs::analysis::invalid-term @ item"
+
+["k3/terms/sort-rule/subject-root-term/_"]
+finding = "NT-2-7"
+deviation = "printed surface refused: krs::analysis::invalid-term @ item"
+
+["k3/terms/sort-rule/subject-root/_"]
 finding = "NT-2-7"
 deviation = "printed surface refused: krs::analysis::invalid-term @ item"
 
@@ -3429,33 +3441,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["terms/sort-rule/result/matches-pattern/_"]
 finding = "NT-2-7"
 deviation = "krs::analysis::invalid-term @ spelling"
-
-# NT-2-8: the `for Sort` clause's `k::term![..]` wrapper reads its root unlike the bare root (NT-F3)
-# The wrapper is optional, so `k::term![x]` must bind the whole subject as the bare `x` does; it is
-# `unbound-name`, and `k::term![y @ P]` is refused as an alias of the whole subject though the bare
-# root admits it. Probe: `terms/sort-rule/subject-root-term/x`. Plan: NT-4 (NT-F3, D4).
-
-["terms/sort-rule/subject-root-term/x"]
-finding = "NT-2-8"
-deviation = "krs::expand::unbound-name @ spelling"
-
-["terms/sort-rule/subject-root-term/y @ Cmd::Hold(_)"]
-finding = "NT-2-8"
-deviation = "krs::syntax::invalid-pattern-as @ spelling"
-
-# NT-2-9: `_` at a `for Sort` clause's root is refused, though a bare name there binds the whole subject
-# At a clause's root a bare name stands for any term of the clause's sort, so `_`, a name nothing
-# reads, means the same. The fn subject's refusal (D3) rests on the clause form saying "any term";
-# the clause itself refuses it, bare and in `k::term!`. Probe: `terms/sort-rule/subject-root/_`. Plan:
-# NT-4 (D3's counterpart).
-
-["terms/sort-rule/subject-root-term/_"]
-finding = "NT-2-9"
-deviation = "krs::syntax::unsupported-rule-pattern @ spelling"
-
-["terms/sort-rule/subject-root/_"]
-finding = "NT-2-9"
-deviation = "krs::syntax::unsupported-rule-pattern @ spelling"
 
 # NT-2-10: a static clause rooted at no marked production is refused at the clause's name, not at the root
 # A desugar or alias clause's root is the production it expands; a root that is none is the root's

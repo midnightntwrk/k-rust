@@ -11,7 +11,7 @@ use krs_ir::{
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::positions::Form;
-use krs_syntax::surface::{AttributeMacro, helper_entry};
+use krs_syntax::surface::{AttributeMacro, helper_entry, path_text};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use std::iter::repeat;
@@ -313,12 +313,61 @@ fn ordinary_rule(
     item: TokenStream,
     sentence: krs_syntax::RuleSentence<'_>,
 ) -> crate::Result<TokenStream> {
-    let rule = if matches!(sentence, krs_syntax::RuleSentence::Equation(_)) {
-        krs_syntax::RuleItem::parse_equation_tokens(item)?
-    } else {
-        krs_syntax::RuleItem::parse_tokens(item)?
+    let rule = match sentence {
+        krs_syntax::RuleSentence::Equation(_) => krs_syntax::RuleItem::parse_equation_tokens(item)?,
+        krs_syntax::RuleSentence::Transition(_) => {
+            krs_syntax::RuleItem::parse_tokens(item.clone()).map_err(|error| {
+                if error.refuses_whole_subject() {
+                    error.with_help(for_sort_clause_help(&item))
+                } else {
+                    error
+                }
+            })?
+        }
+        _ => krs_syntax::RuleItem::parse_tokens(item)?,
     };
     expand_ordinary_rule(env, &rule, sentence, None, &[])
+}
+
+/// What a rule fn that refuses `_`, an alias or an island for its whole subject should be
+/// written as (decision D3): a fn's subject is its parameter, whose root names the constructor
+/// the rule matches, and a rule for any term of a sort is a `for Sort` clause, whose root binds
+/// the whole subject with a bare name and holds `_`, an alias or an island.
+fn for_sort_clause_help(item: &TokenStream) -> String {
+    let parsed = syn::parse2::<ItemFn>(item.clone()).ok();
+    let name = parsed.as_ref().map_or_else(
+        || "name".to_owned(),
+        |item| item.sig.ident.unraw().to_string(),
+    );
+    let sort = parsed
+        .as_ref()
+        .and_then(|item| match item.sig.inputs.last()? {
+            FnArg::Typed(argument) => term_sort_spelling(&argument.ty),
+            FnArg::Receiver(_) => None,
+        })
+        .unwrap_or_else(|| "Sort".to_owned());
+    format!(
+        "a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! {{ for {sort}; {name}: _ => ..; }}`"
+    )
+}
+
+/// The sort `Term<S>` names, when `S` is a plain path.
+fn term_sort_spelling(ty: &syn::Type) -> Option<String> {
+    let syn::Type::Path(path) = ty else {
+        return None;
+    };
+    let segment = path.path.segments.last()?;
+    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return None;
+    };
+    let Some(syn::GenericArgument::Type(syn::Type::Path(sort))) = arguments.args.first() else {
+        return None;
+    };
+    sort.path
+        .segments
+        .iter()
+        .all(|segment| segment.arguments.is_none())
+        .then(|| path_text(&sort.path))
 }
 
 /// Expands a rule fn whose sides are terms, as the sentence its attribute

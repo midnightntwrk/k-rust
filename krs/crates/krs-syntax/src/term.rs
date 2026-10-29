@@ -1726,6 +1726,15 @@ impl TermSource {
             Self::Pattern { .. } => None,
         }
     }
+
+    /// Returns the parsed pattern, or `None` for an expression.
+    #[must_use]
+    pub const fn as_pattern(&self) -> Option<&Pat> {
+        match self {
+            Self::Pattern { pattern, .. } => Some(pattern),
+            Self::Expression(_) => None,
+        }
+    }
 }
 
 impl ToTokens for TermSource {
@@ -2166,6 +2175,13 @@ fn validate_pattern(
     read_pattern(pattern, PatternRoot::Value, signs, symbols, nodes)
 }
 
+/// Whether `pattern` at a `for Sort` clause's root stands for the whole term
+/// rather than naming the constructor the clause matches: a bare name, `_`,
+/// an alias or an island ([`PatternRoot::at`]).
+pub(crate) const fn holds_whole_term(pattern: &Pat) -> bool {
+    matches!(pattern, Pat::Ident(_) | Pat::Macro(_) | Pat::Wild(_))
+}
+
 /// Reads a pattern of the term grammar: the one pattern reader, for a
 /// `k::term!` payload, a native rule subject, a readable value, and a
 /// `k::matches!`, `let` or rewrite pattern. `root` is what the pattern's root
@@ -2183,7 +2199,7 @@ pub(crate) fn read_pattern(
     symbols: &mut Vec<TermSymbol>,
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
-    let root = root.at(matches!(pattern, Pat::Ident(_) | Pat::Macro(_)));
+    let root = root.at(holds_whole_term(pattern));
     match pattern {
         Pat::Ident(identifier) => {
             if let Some((_, subpattern)) = &identifier.subpat {
@@ -2194,7 +2210,8 @@ pub(crate) fn read_pattern(
                             "`{name} @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead"
                         ),
                         name.span(),
-                    ));
+                    )
+                    .for_whole_subject());
                 }
                 return validate_pattern_as(identifier, subpattern, nodes, |subpattern, nodes| {
                     validate_pattern(subpattern, signs, symbols, nodes)
@@ -2308,7 +2325,8 @@ pub(crate) fn read_pattern(
                 reason: "a rule subject's root is the constructor or function the rule matches, so `_` stands only below it",
             },
             pattern.span(),
-        )),
+        )
+        .for_whole_subject()),
         other => Err(unsupported_pattern_form(other)),
     }
 }
@@ -2317,17 +2335,24 @@ pub(crate) fn read_pattern(
 /// island stands below the root, which is the constructor or function the
 /// rule matches; any other macro is not a pattern.
 fn subject_root_macro(path: &Path) -> SyntaxError {
-    let reason = if is_rewrite_macro(path) {
-        "a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root"
+    if is_rewrite_macro(path) {
+        SyntaxError::new(
+            SyntaxErrorKind::UnsupportedRulePattern {
+                reason: "a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root",
+            },
+            path.span(),
+        )
     } else if is_island_macro(path) {
-        "a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b\"..\"))`"
+        SyntaxError::new(
+            SyntaxErrorKind::UnsupportedRulePattern {
+                reason: "a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b\"..\"))`",
+            },
+            path.span(),
+        )
+        .for_whole_subject()
     } else {
-        return unexpected_macro(path);
-    };
-    SyntaxError::new(
-        SyntaxErrorKind::UnsupportedRulePattern { reason },
-        path.span(),
-    )
+        unexpected_macro(path)
+    }
 }
 
 fn validate_tuple_struct_pattern(

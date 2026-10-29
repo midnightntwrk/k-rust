@@ -17501,6 +17501,13 @@ same_k_as = ["terms/readable/map-key/update-field/k::builtin::int::add(x, 1)"]
 [accept."terms/sort-rule/result/matches-pattern/_"]
 
 [accept."terms/sort-rule/subject-root-term/_"]
+k = """
+rule [case-TAG]:
+<k> _ => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/sort-rule/subject-root/_"]
 
 [accept."terms/sort-rule/subject-root-term/k::builtin::set::item(x)"]
 k = """
@@ -17512,12 +17519,32 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 same_k_as = ["terms/sort-rule/subject-root/k::builtin::set::item(x)"]
 
 [accept."terms/sort-rule/subject-root-term/x"]
+k = """
+rule [case-TAG]:
+<k> V0:KItem => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/sort-rule/subject-root/x"]
 
 [accept."terms/sort-rule/subject-root-term/y @ Cmd::Hold(_)"]
+k = """
+rule [case-TAG]:
+<k> ( hold ( _ ) #as V0:Stmt ) => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+same_k_as = ["terms/sort-rule/subject-root/y @ Cmd::Hold(_)"]
 
 [accept."terms/sort-rule/subject-root/-1"]
 
 [accept."terms/sort-rule/subject-root/_"]
+k = """
+rule [case-TAG]:
+<k> _ => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."terms/sort-rule/subject-root/k::builtin::set::item(x)"]
 k = """

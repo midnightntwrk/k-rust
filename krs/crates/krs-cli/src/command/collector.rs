@@ -4,7 +4,7 @@ use crate::{
     CargoMetadata, CollectorPlan, CollectorRuntime, DiagnosticEnvelope, DiagnosticStage,
     GeneratedCollector, diagnostic_envelope, metadata::cargo_metadata,
 };
-use krs_diagnostic::{Code, Diagnostic, Location, codes, untag_rustc_message};
+use krs_diagnostic::{Code, Diagnostic, Location, codes, split_rustc_help, untag_rustc_message};
 use krs_ir::measure::{
     COLLECTOR_DIAGNOSTIC_ENV, COLLECTOR_MEASURE_ENV, COLLECTOR_READ_SET_ENV,
     CollectorMeasureDocument, CollectorReadSet, Measurement, unix_seconds,
@@ -371,7 +371,15 @@ fn rust_diagnostics(
                 diagnostic.message.as_str(),
             ),
         };
-        let (notes, help) = rust_children(plan, manifest, &diagnostic.children, tagged, |_| true)?;
+        // A tagged message carries its help lines after its text.
+        let (text, tagged_help) = if tagged {
+            split_rustc_help(text)
+        } else {
+            (text, Vec::new())
+        };
+        let (notes, mut help) =
+            rust_children(plan, manifest, &diagnostic.children, tagged, |_| true)?;
+        help.splice(0..0, tagged_help.into_iter().map(str::to_owned));
         for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
             if let Some(range) = rust_source_range(plan, manifest, span)? {
                 let mut relayed =

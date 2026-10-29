@@ -661,8 +661,8 @@ fn a_subject_root_is_the_matched_head_and_a_value_root_a_term() {
     }
     assert!(PatternRoot::Subject.names_constructor());
     assert!(!PatternRoot::Value.names_constructor());
-    // A clause's root binds a bare name and holds an alias or an island as a value does, and is
-    // otherwise a subject's.
+    // A clause's root binds a bare name and holds `_`, an alias or an island as a value does, and
+    // is otherwise a subject's.
     assert_eq!(PatternRoot::Clause.at(true), PatternRoot::Value);
     assert_eq!(PatternRoot::Clause.at(false), PatternRoot::Subject);
     assert_eq!(PatternRoot::Subject.at(true), PatternRoot::Subject);

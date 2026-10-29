@@ -84,6 +84,30 @@ pub fn tag_rustc_message(code: &Code, message: &str) -> String {
     format!("[{code}] {message}")
 }
 
+/// The line in front of each help line a tagged rustc message carries.
+const RUSTC_HELP: &str = "\n= help: ";
+
+/// Spells a tagged message ([`tag_rustc_message`]) with the help lines of its diagnostic, one
+/// line each after the message, as rustc shows a help line: a `compile_error!` message has no
+/// help of its own. [`split_rustc_help`] recovers them.
+#[must_use]
+pub fn with_rustc_help(mut tagged: String, help: &[String]) -> String {
+    for line in help {
+        tagged.push_str(RUSTC_HELP);
+        tagged.push_str(line);
+    }
+    tagged
+}
+
+/// Splits an untagged message ([`untag_rustc_message`]) into its text and the help lines
+/// [`with_rustc_help`] wrote after it.
+#[must_use]
+pub fn split_rustc_help(message: &str) -> (&str, Vec<&str>) {
+    let mut parts = message.split(RUSTC_HELP);
+    let text = parts.next().unwrap_or_default();
+    (text, parts.collect())
+}
+
 /// Splits a rustc message spelled by [`tag_rustc_message`] into its code and
 /// message. Only a KRS-registered code is recognised, so any other message,
 /// bracketed or not, returns `None`.

@@ -566,6 +566,8 @@ pub struct SyntaxError {
     kind: SyntaxErrorKind,
     span: Span,
     source_range: Option<SourceRange>,
+    whole_subject: bool,
+    help: Vec<String>,
 }
 
 impl SyntaxError {
@@ -576,7 +578,32 @@ impl SyntaxError {
             kind,
             span,
             source_range: None,
+            whole_subject: false,
+            help: Vec::new(),
         }
+    }
+
+    /// Marks the error as the refusal of `_`, an alias or an island for a whole subject whose
+    /// root names the constructor or function the sentence matches (decision D3).
+    #[must_use]
+    pub(crate) const fn for_whole_subject(mut self) -> Self {
+        self.whole_subject = true;
+        self
+    }
+
+    /// Whether the error refuses `_`, an alias or an island for a whole subject whose root names
+    /// the constructor or function the sentence matches: the sentence's form decides what to
+    /// write instead.
+    #[must_use]
+    pub const fn refuses_whole_subject(&self) -> bool {
+        self.whole_subject
+    }
+
+    /// Adds a help line, which the diagnostic shows after its message.
+    #[must_use]
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help.push(help.into());
+        self
     }
 
     /// Adds a byte-exact range in the source string passed to a `_source` API.
@@ -612,7 +639,10 @@ impl ToDiagnostic for SyntaxError {
         let location = self
             .source_range
             .map_or_else(|| Location::Span(self.span), Location::Range);
-        Diagnostic::error(self.kind.code(), self.to_string(), location)
+        self.help.iter().fold(
+            Diagnostic::error(self.kind.code(), self.to_string(), location),
+            |diagnostic, help| diagnostic.with_help(help.clone()),
+        )
     }
 }
 

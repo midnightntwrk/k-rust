@@ -239,6 +239,16 @@ fn render_term_with_binders(
                         output.push(" ~> ");
                     }
                     output.append(render_term_with_binders(item, context, false, names)?);
+                    // A sequence's item is any `KItem`, so `_` there is any item unless it
+                    // names a narrower sort it stands for: at a `for Stmt` clause's root,
+                    // `_:Stmt`, as a bare name there is `S:Stmt`.
+                    if is_wildcard(item) {
+                        let sort = context.sort_name_ref(item.sort())?;
+                        if !matches!(sort.as_ref(), "K" | "KItem") {
+                            output.push(":");
+                            output.push(&sort);
+                        }
+                    }
                 }
             }
         }
