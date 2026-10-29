@@ -1229,7 +1229,20 @@ pub fn parse_map_expression_source_with_trivia(
 ///
 /// Rejects duplicate cells, malformed wrappers, and expression-only frames.
 pub fn parse_cells_pattern(tokens: TokenStream) -> Result<CellsExpression, SyntaxError> {
-    parse_cells(tokens, StateMacroContext::Pattern)
+    parse_cells(tokens, StateMacroContext::Pattern, true)
+}
+
+/// Parses a `cells!` claim's start state, which holds its collection
+/// instances as written: their cells are read as any pattern is, not as keys
+/// a rule's pattern looks a Set collection up by ([`parse_instance_list`]).
+///
+/// # Errors
+///
+/// As [`parse_cells_pattern`].
+pub(crate) fn parse_cells_claim_pattern(
+    tokens: TokenStream,
+) -> Result<CellsExpression, SyntaxError> {
+    parse_cells(tokens, StateMacroContext::Pattern, false)
 }
 
 /// Parses a `cells!` expression payload.
@@ -1238,7 +1251,7 @@ pub fn parse_cells_pattern(tokens: TokenStream) -> Result<CellsExpression, Synta
 ///
 /// Rejects duplicate cells, malformed wrappers, and pattern-only frames.
 pub fn parse_cells_expression(tokens: TokenStream) -> Result<CellsExpression, SyntaxError> {
-    parse_cells(tokens, StateMacroContext::Expression)
+    parse_cells(tokens, StateMacroContext::Expression, false)
 }
 
 /// Parses a `cells!` pattern payload together with lossless source trivia.
@@ -1606,16 +1619,20 @@ fn parse_map_item_key(input: ParseStream<'_>) -> Result<TokenStream, SyntaxError
 }
 
 /// Parses a `cells!` payload and keys it as a sentence of its own.
+/// A rule's pattern reads a braced instance's cells as keys when
+/// `looks_up` ([`parse_instance_list`]).
 fn parse_cells(
     tokens: TokenStream,
     context: StateMacroContext,
+    looks_up: bool,
 ) -> Result<CellsExpression, SyntaxError> {
-    parse_unkeyed_cells(tokens, context).and_then(CellsExpression::keyed_standalone)
+    parse_unkeyed_cells(tokens, context, looks_up).and_then(CellsExpression::keyed_standalone)
 }
 
 fn parse_unkeyed_cells(
     tokens: TokenStream,
     context: StateMacroContext,
+    looks_up: bool,
 ) -> Result<CellsExpression, SyntaxError> {
     // A trailing comma ends the list; it is no element.
     let tokens = crate::parse::strip_trailing_comma(tokens);
@@ -1666,7 +1683,7 @@ fn parse_unkeyed_cells(
                     ));
                 }
                 input.parse::<Token![:]>().map_err(SyntaxError::from)?;
-                let (wrapper, value) = parse_entry_value(input, context)?;
+                let (wrapper, value) = parse_entry_value(input, context, looks_up)?;
                 entries.push(CellsEntry {
                     name,
                     owner,
@@ -1712,6 +1729,7 @@ fn parse_unkeyed_cells(
 fn parse_entry_value(
     input: ParseStream<'_>,
     context: StateMacroContext,
+    looks_up: bool,
 ) -> Result<(Option<Path>, StateTerm), SyntaxError> {
     if let Some(range) = parse_option_none(input)? {
         return Ok((None, StateTerm::Absent(range)));
@@ -1723,7 +1741,7 @@ fn parse_entry_value(
         let (wrapper, value) = structured_with(
             inner,
             move |inner| {
-                let parsed = parse_entry_value(inner, context)?;
+                let parsed = parse_entry_value(inner, context, looks_up)?;
                 if !inner.is_empty() {
                     return Err(state_error(
                         "cells",
@@ -1751,7 +1769,7 @@ fn parse_entry_value(
         let group: proc_macro2::Group = input.parse().map_err(SyntaxError::from)?;
         return Ok((
             None,
-            StateTerm::Instances(parse_instance_list(&group, context)?),
+            StateTerm::Instances(parse_instance_list(&group, context, looks_up)?),
         ));
     }
     if !starts_wrapped_entry(input) {
@@ -1812,6 +1830,7 @@ fn starts_option_some(input: ParseStream<'_>) -> bool {
 fn parse_instance_list(
     group: &proc_macro2::Group,
     context: StateMacroContext,
+    looks_up: bool,
 ) -> Result<InstanceList, SyntaxError> {
     let delimiter = match group.delimiter() {
         Delimiter::Brace => InstanceListDelimiter::Brace,
@@ -1824,6 +1843,14 @@ fn parse_instance_list(
             ));
         }
     };
+    // A braced list writes a Set collection, which a rule's pattern looks up
+    // by an instance as by an element, or a Map collection, whose instances
+    // are matched: only the cell's declared type tells them apart, after
+    // resolution, so a rule's braced instance reads its cells as a map's key
+    // is read. A claim's start state holds its instances as written.
+    let keys = looks_up
+        && delimiter == InstanceListDelimiter::Brace
+        && context == StateMacroContext::Pattern;
     structured_with(
         group.stream(),
         move |input| {
@@ -1848,9 +1875,9 @@ fn parse_instance_list(
                             input.span(),
                         ));
                     }
-                    back.push(parse_instance_item(input, context)?);
+                    back.push(parse_instance_item(input, context, keys)?);
                 } else {
-                    front.push(parse_instance_item(input, context)?);
+                    front.push(parse_instance_item(input, context, keys)?);
                 }
                 if input.is_empty() {
                     break;
@@ -1892,10 +1919,12 @@ fn parse_instance_list_rest(
 }
 
 /// Parses one instance record: `[label @] Decl { .. }` or
-/// `[label @] k::fragment![Decl { .. }]`.
+/// `[label @] k::fragment![Decl { .. }]`; its cells are read as keys when
+/// `keys` ([`parse_instance_list`]).
 fn parse_instance_item(
     input: ParseStream<'_>,
     context: StateMacroContext,
+    keys: bool,
 ) -> Result<InstanceItem, SyntaxError> {
     let start = input.cursor();
     let label = if input.peek(Ident) && input.peek2(Token![@]) {
@@ -1959,7 +1988,7 @@ fn parse_instance_item(
             owner.span(),
         ));
     }
-    let (fields, rest) = parse_instance_record(&body, context)?;
+    let (fields, rest) = parse_instance_record(&body, context, keys)?;
     let mut tokens = TokenStream::new();
     let mut cursor = start;
     while cursor != input.cursor() {
@@ -1985,6 +2014,7 @@ fn parse_instance_item(
 fn parse_instance_record(
     body: &proc_macro2::Group,
     context: StateMacroContext,
+    keys: bool,
 ) -> Result<(Vec<InstanceField>, InstanceRest), SyntaxError> {
     structured_with(
         body.stream(),
@@ -2041,7 +2071,7 @@ fn parse_instance_record(
                 }
                 fields.push(InstanceField::new(
                     name,
-                    parse_instance_child(tokens, context)?,
+                    parse_instance_child(tokens, context, keys)?,
                 ));
                 if input.is_empty() {
                     break;
@@ -2056,10 +2086,11 @@ fn parse_instance_record(
 
 /// Parses one instance child value: `k::k![..]`, `map![..]`, or a term (a
 /// leaf's content or a whole nested cell, which semantic analysis tells
-/// apart by the declaration).
+/// apart by the declaration), read as a key when `keys`.
 fn parse_instance_child(
     tokens: TokenStream,
     context: StateMacroContext,
+    keys: bool,
 ) -> Result<StateTerm, SyntaxError> {
     if let Some((name, payload)) = qualified_macro_payload(&tokens) {
         let invocation = || TokenRange::for_tokens(&tokens).map(Some);
@@ -2079,7 +2110,11 @@ fn parse_instance_child(
             _ => {}
         }
     }
-    Ok(StateTerm::Term(state_term_tokens(tokens, context)?))
+    Ok(StateTerm::Term(if keys {
+        state_key_tokens(tokens, context)?
+    } else {
+        state_term_tokens(tokens, context)?
+    }))
 }
 
 /// The path of the macro invocation `path::name!(..)` that `tokens` hold.

@@ -686,7 +686,11 @@ impl StateRuleItem {
         };
         let subject_macro = subject_macro.clone();
         validate_cells_path(&subject_macro.mac.path, subject_macro.span())?;
-        let subject = parse_cells_pattern(subject_macro.mac.tokens.clone())?;
+        let subject = if form == StateRuleForm::Claim {
+            crate::state_macro::parse_cells_claim_pattern(subject_macro.mac.tokens.clone())?
+        } else {
+            parse_cells_pattern(subject_macro.mac.tokens.clone())?
+        };
         let subject_type = parse_configuration_type(&argument.ty)?;
         if form == StateRuleForm::Context {
             check_context_shape(

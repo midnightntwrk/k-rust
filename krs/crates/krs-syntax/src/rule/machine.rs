@@ -112,8 +112,12 @@ fn readable_error(span: proc_macro2::Span, reason: &'static str) -> ParseError {
 }
 
 /// Parses a subject-record value that is `None`, `Some(p)`, or an instance
-/// list (KF-023), or returns `None` for every other value.
-fn parse_readable_pattern_state(input: ParseStream<'_>) -> Result<Option<StateTerm>, ParseError> {
+/// list (KF-023), or returns `None` for every other value; a rule's braced
+/// list reads its cells as keys when `looks_up` ([`parse_readable_instances`]).
+fn parse_readable_pattern_state(
+    input: ParseStream<'_>,
+    looks_up: bool,
+) -> Result<Option<StateTerm>, ParseError> {
     let fork = input.fork();
     if let Ok(ident) = fork.parse::<Ident>() {
         if ident == "None" && (fork.is_empty() || fork.peek(Token![,])) {
@@ -136,10 +140,9 @@ fn parse_readable_pattern_state(input: ParseStream<'_>) -> Result<Option<StateTe
         let group: proc_macro2::Group = input.fork().parse()?;
         if !contains_top_level_arrow(&group) {
             let group: proc_macro2::Group = input.parse()?;
-            return Ok(Some(StateTerm::Instances(parse_readable_instances(
-                &group,
-                StateMacroContext::Pattern,
-            )?)));
+            return Ok(Some(StateTerm::Instances(
+                parse_readable_instances_reading(&group, StateMacroContext::Pattern, looks_up)?,
+            )));
         }
     }
     Ok(None)
@@ -248,16 +251,27 @@ fn contains_top_level_arrow(group: &proc_macro2::Group) -> bool {
 /// Parses a readable instance list `{ .. }` or `[ .. ]` (KF-023): records
 /// `[label @] Decl { child: value, .., }` and one `..` rest.
 ///
-/// In a pattern, a braced list's children are read as a map's key is: a
-/// pattern where one parses, and otherwise the term expression, notation
-/// read as the call it denotes. Braces write a Set collection, which a
-/// pattern looks up by an instance as by an element, and a Map collection,
-/// whose instances are matched, and only the cell's declared type tells them
-/// apart, after resolution: the compiler then judges what the child holds.
-/// A List collection's brackets are matched, read as any pattern is.
+/// A List collection's brackets are matched, read as any pattern is
+/// ([`parse_readable_instances_reading`] for a rule's braces).
 fn parse_readable_instances(
     group: &proc_macro2::Group,
     context: StateMacroContext,
+) -> Result<InstanceList, ParseError> {
+    parse_readable_instances_reading(group, context, false)
+}
+
+/// [`parse_readable_instances`]; with `looks_up`, a rule's subject, a braced
+/// list's children are read as a map's key is: a pattern where one parses,
+/// and otherwise the term expression, notation read as the call it denotes.
+/// Braces write a Set collection, which a rule's pattern looks up by an
+/// instance as by an element, and a Map collection, whose instances are
+/// matched, and only the cell's declared type tells them apart, after
+/// resolution: the compiler then judges what the child holds. A claim's
+/// state holds its instances as written, read as any pattern is.
+fn parse_readable_instances_reading(
+    group: &proc_macro2::Group,
+    context: StateMacroContext,
+    looks_up: bool,
 ) -> Result<InstanceList, ParseError> {
     let delimiter = if group.delimiter() == proc_macro2::Delimiter::Bracket {
         InstanceListDelimiter::Bracket
@@ -280,8 +294,11 @@ fn parse_readable_instances(
             )?));
             continue;
         }
-        let parsed =
-            parse_readable_instance(item, context, delimiter == InstanceListDelimiter::Brace)?;
+        let parsed = parse_readable_instance(
+            item,
+            context,
+            looks_up && delimiter == InstanceListDelimiter::Brace,
+        )?;
         if rest.is_some() {
             if delimiter == InstanceListDelimiter::Brace {
                 return Err(readable_error(
@@ -489,6 +506,7 @@ fn shorthand_pattern(cell: &Ident) -> Result<Pat, ParseError> {
 
 fn parse_machine_pattern_record(
     input: ParseStream<'_>,
+    sentence: ReadableSentence,
 ) -> Result<Vec<(Ident, MachinePatternCell)>, ParseError> {
     let content = input.call(|input| {
         let content;
@@ -527,7 +545,8 @@ fn parse_machine_pattern_record(
         }
         content.parse::<Token![:]>()?;
         let value_start = content.fork();
-        let value = if let Some(state) = parse_readable_pattern_state(&content)? {
+        let looks_up = sentence == ReadableSentence::Rule;
+        let value = if let Some(state) = parse_readable_pattern_state(&content, looks_up)? {
             MachinePatternCell::State(Box::new(state))
         } else if content.peek(syn::token::Bracket) {
             MachinePatternCell::Bracket(content.parse()?)
@@ -728,7 +747,7 @@ pub(super) fn parse_machine_clause(
     sentence: ReadableSentence,
 ) -> Result<RuleClause, ParseError> {
     let pattern_record: TokenTree = input.fork().parse()?;
-    let subject_cells = parse_machine_pattern_record(input)?;
+    let subject_cells = parse_machine_pattern_record(input, sentence)?;
     if subject_cells.is_empty() {
         return Err(syn::Error::new(
             pattern_record.span(),
