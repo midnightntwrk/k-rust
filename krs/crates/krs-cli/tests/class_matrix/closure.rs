@@ -136,16 +136,24 @@ pub fn compare(original: &[String], printed: &[String]) -> Closure {
 
 /// A case's K as `expected.toml` records it: the sentences it adds to its base, each
 /// normalized, with the case's tag (which names its command, its label, and its other items)
-/// written `TAG`, in sorted order, one sentence per paragraph.
+/// written `TAG`, in sorted order, one sentence per paragraph. The tag is spelled as written, in
+/// upper case, and capitalized, as a label derived from a fn `case_<tag>` writes it
+/// (`caseD3ff6113` for the tag `d3ff6113`).
 #[must_use]
 pub fn case_k(additions: &[String], tag: &str) -> String {
     let upper = tag.to_uppercase();
+    let mut characters = tag.chars();
+    let capitalized = characters
+        .next()
+        .map(|first| first.to_uppercase().chain(characters).collect::<String>())
+        .unwrap_or_default();
     let mut sentences = additions
         .iter()
         .map(|sentence| {
             normalize(sentence)
                 .replace(tag, "TAG")
                 .replace(&upper, "TAG")
+                .replace(&capitalized, "TAG")
         })
         .collect::<Vec<_>>();
     sentences.sort();
