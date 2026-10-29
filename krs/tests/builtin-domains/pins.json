@@ -33,7 +33,7 @@
       "definition.k": "1b68da78eb93fb66827a288b42e608ff3dceadfd28d02a5ea06e7be4d2a762d1"
     },
     "krs-builtin-map-ops": {
-      "definition.k": "3d88b3600c8d20c807479d52e16705144c841a3c4ab09ee89133691c29d9499b"
+      "definition.k": "0192b581b05a8d1c0a524a36208b7a80f8921ce94dfc723a2b8dffa75ff600e1"
     },
     "krs-builtin-int-sign": {
       "definition.k": "efe49d73577d7d747ed8f3fc576d9d0fd575f0af6b980f0cf665f9808ecb69da"
@@ -77,7 +77,7 @@
     "krs-builtin-bool-ops": "cc859734215c55f5b93bb49e459e6ac25daa22ea67dc3e90dfe55b28528ac976",
     "krs-builtin-bytes-ops": "3305bf128f6d52349f475b2607265e49918542ba97e440c55359e12c8bb3e164",
     "krs-builtin-set-ops": "547e8bfbb49db07d6bde2380c1f63239e906bf72f213e38fd55f90edc1899e2b",
-    "krs-builtin-map-ops": "71799e9396c429a58e76ceb1ce62f41eec93933255ba07666cb6c94c9ac25d0c",
+    "krs-builtin-map-ops": "26a1aed305909ee7b6763a740e37432bc1c9a57117808c71683e9d16d4b0bdb1",
     "krs-builtin-int-sign": "2c96f36640ed934253f8837f1c929b53649e6581c9044363a387b20d3fb9daab",
     "krs-builtin-int-sign-unsigned": "bc174a335b2a197d4e30737115c79b18fa87b5328d6838c624f5f1f96e069dac",
     "krs-builtin-strings": "8fe3b65c03a33c2bd6763b200ebf341f5cf79c6db98ee3746e163d56257d9f98",
