@@ -194,8 +194,8 @@ guarded = 41
 "demos/ExprTypes/ExprTypes/Tr.lean" = { tier = "light", sha256 = "dc09b4178ea59ae4676ef82b902ec2a9553b28245491f7ba9af509b484dac5b7" }
 "demos/ExprTypes/ExprTypes/Typing.lean" = { tier = "light", sha256 = "fa938d15341a6e0afcb9e04269387c656f1f5bc320de764734ee2c8b86364c12" }
 "demos/ExprTypes/correspondence.toml" = { tier = "light", sha256 = "8ed5d7a2993eab53ac52755a55e3027c0df6dc2ab6e5c0bea84bd4a0e64092c6" }
-"demos/HandoffConf/HandoffConf/Progress.lean" = { tier = "light", sha256 = "e2b62c410afacb5e68045b0873d08fc3a3a0b4cb485b81c9508723349c340cbe" }
-"demos/HandoffConf/HandoffConf/ProgressDefs.lean" = { tier = "light", sha256 = "70614a6c8ca214b6c917b77b62a6127c87cac363e7c5feea4c8ba5b587f82dd0" }
+"demos/HandoffConf/HandoffConf/Progress.lean" = { tier = "light", sha256 = "d8927eec4e2d55b04384997497060afdd20733c02517085692dc6e7c065e813d" }
+"demos/HandoffConf/HandoffConf/ProgressDefs.lean" = { tier = "light", sha256 = "9c10fa3b7e3d7e31719645de51b0fc27c6520434ffbe79c2c70aa186773a1363" }
 "demos/ImpPlusTypes/ImpPlusTypes/Soundness.lean" = { tier = "light", sha256 = "0133e868d585720f161e1df1c62446613d2beb3e7f000c6fd5b51f04921efa82" }
 "demos/ImpPlusTypes/ImpPlusTypes/Tr.lean" = { tier = "light", sha256 = "9ede93254af11530504c5e70fd1619fdb610ff560406afbcf617b665a75ac8a3" }
 "demos/ImpPlusTypes/ImpPlusTypes/Typing.lean" = { tier = "light", sha256 = "0ca4e8c9c50a674b78b51c866e8080e68e692617a0f2d9749548c448d16bbaef" }
@@ -217,8 +217,8 @@ guarded = 41
 "generated/coro/Coro/InvariantDefs.lean" = { tier = "light", sha256 = "b80c89325c4f955f12291e3391d9456fd97b6f91fea798c15acead9d7d8ab621" }
 "generated/coro/Coro/Invariants.lean" = { tier = "light", sha256 = "ada45cea5e0353ed816a836dffbb09463b446d782c75c02c4d64cbe198ebe702" }
 "generated/coro/Coro/Preserves.lean" = { tier = "light", sha256 = "ff25104f81413356c64b3658a0b700dc116db849905895a51a949f692a13fa1c" }
-"generated/coro/Coro/Progress.lean" = { tier = "light", sha256 = "bf225fd07b1f6155bf14608e24d898a7f70dcd5b5ce5810ee23dc7e507bd2af6" }
-"generated/coro/Coro/ProgressDefs.lean" = { tier = "light", sha256 = "0c9a95c9c3a4db20cf59b540bf4fd6206f0f2708469258a3d8d097da4fff1b9c" }
+"generated/coro/Coro/Progress.lean" = { tier = "light", sha256 = "f9750aa154ad62e3d4986d258ac8fcf2a409972c7bf58f55bcfe6007344e8d89" }
+"generated/coro/Coro/ProgressDefs.lean" = { tier = "light", sha256 = "856a123f48bfe57594f7897b2c428cd9d0e41a9d4f428e180d1f233bcd983d57" }
 "generated/coro/Coro/Rules.lean" = { tier = "light", sha256 = "adfd6aa636842a4cd35667225968879f37cab0871129ce1c5fe462f6a1d37e0a" }
 "generated/coro/Coro/Terms.lean" = { tier = "light", sha256 = "56afa7853d90bee3ab9e59f016b829e93db035e61ece14db3754aee1c569140e" }
 "generated/coro/CoroBench/Main.lean" = { tier = "light", sha256 = "57f05704cf43515e4e9f335a1064232583f6249cc6e60834ad1da7881b68cef3" }
@@ -239,8 +239,8 @@ guarded = 41
 "generated/corojoin/CoroJoin/InvariantDefs.lean" = { tier = "light", sha256 = "10b434c76f61f1d43584e486095724b5b7e879c2abc589097f0b174a7a11fec7" }
 "generated/corojoin/CoroJoin/Invariants.lean" = { tier = "light", sha256 = "e75a62dc1346024eca1a26615deb0d8296ca7bb1b308803401956013b47fff08" }
 "generated/corojoin/CoroJoin/Preserves.lean" = { tier = "light", sha256 = "9aba532cc7b6f6b4d9ea41ddc07668eb70611e81beeaf61052b1ee94f5ad617e" }
-"generated/corojoin/CoroJoin/Progress.lean" = { tier = "light", sha256 = "342560eb7df1b817d3c6db8d5b560bdb30f71053c0d467fcd6daf66dcdc880f4" }
-"generated/corojoin/CoroJoin/ProgressDefs.lean" = { tier = "light", sha256 = "9f1d237e8d2a0c64838415030cad19483a66ef6e2722388e7593a7e89e5a3457" }
+"generated/corojoin/CoroJoin/Progress.lean" = { tier = "light", sha256 = "73baf3dbf2d21fe2db22d5b0fd24881913e8458c2be38e884bb4aaff31e93448" }
+"generated/corojoin/CoroJoin/ProgressDefs.lean" = { tier = "light", sha256 = "7cfccfee0f7727075560f11d83fbafcae25ea002f3960ed0307def6547f36389" }
 "generated/corojoin/CoroJoin/Rules.lean" = { tier = "light", sha256 = "add67f0970ba726d6dd36b63cb7a61aedf303eb3a02a46a0163d0a18f9615f85" }
 "generated/corojoin/CoroJoin/Terms.lean" = { tier = "light", sha256 = "e426d74ae6975a48168f3db27f656187968457cb641ccf01b32178dd53bdf1ae" }
 "generated/corojoin/CoroJoinBench/Main.lean" = { tier = "light", sha256 = "a4d0260c6ad3011c86381a0d6348eb4e78b55e9f9b9710e22048a01e613ea3d3" }
