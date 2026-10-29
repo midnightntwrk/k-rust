@@ -2270,6 +2270,8 @@ fn parse_parenthesized_group(input: ParseStream<'_>) -> syn::Result<(TokenStream
     Ok((content.parse()?, range))
 }
 
+/// The base and the brackets of `base[key <- value]`. Brackets that end the
+/// last entry's value of `k -> v` items (an index, `m[k]`) are no update.
 fn split_bracket_update(tokens: &TokenStream) -> Option<(TokenStream, proc_macro2::Group)> {
     let mut trees = tokens.clone().into_iter().collect::<Vec<_>>();
     let TokenTree::Group(group) = trees.pop()? else {
@@ -2278,7 +2280,20 @@ fn split_bracket_update(tokens: &TokenStream) -> Option<(TokenStream, proc_macro
     if group.delimiter() != Delimiter::Bracket || trees.is_empty() {
         return None;
     }
+    let inner = group.stream().into_iter().collect::<Vec<_>>();
+    if has_arrow(&trees, '-', '>') && !has_arrow(&inner, '<', '-') {
+        return None;
+    }
     Some((trees.into_iter().collect(), group))
+}
+
+/// Whether `trees` hold the punctuation `first` directly followed by `second`
+/// (`->`, `<-`).
+fn has_arrow(trees: &[TokenTree], first: char, second: char) -> bool {
+    trees.windows(2).any(|window| {
+        matches!(&window[0], TokenTree::Punct(value) if value.as_char() == first)
+            && matches!(&window[1], TokenTree::Punct(value) if value.as_char() == second)
+    })
 }
 
 fn parse_update_inner(

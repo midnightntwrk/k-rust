@@ -1811,6 +1811,15 @@ pub(crate) fn parse_term_pattern(input: syn::parse::ParseStream<'_>) -> syn::Res
     let pattern = input.fork();
     let start = pattern.cursor();
     let error = match pattern.call(Pat::parse_multi) {
+        // A pattern followed by `[` or `.` (but `..`) is the receiver of an
+        // index or a method call, a term no pattern spells: the tokens are
+        // read as the expression they continue into.
+        Ok(_)
+            if pattern.peek(syn::token::Bracket)
+                || (pattern.peek(syn::Token![.]) && !pattern.peek(syn::Token![..])) =>
+        {
+            pattern.error("a pattern continues into an index or a method call")
+        }
         // syn reports the tokens a pattern leaves inside a group (`..base` in
         // a record) only when the whole parse ends: the pattern's own tokens,
         // read alone, report them here, where the term reading is still open.
