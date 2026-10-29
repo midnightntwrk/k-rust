@@ -35,6 +35,11 @@ PROGS = {
     "handoff": {"ns": "HandoffConf", "tier": "light", "dir": "demos/HandoffConf",
                 "sources": ["demos/HandoffConf/HandoffConf/ProgressDefs.lean",
                             "demos/HandoffConf/HandoffConf/Progress.lean"]},
+    # type soundness as an instance (SND-16): kimp under its runtime typing ImpTypes.Typed
+    # (demos/ImpTypes/ImpTypes/Typed.lean), the progress modules written into demos/ImpTypes
+    "imptypes": {"ns": "ImpTypes", "tier": "light", "dir": "demos/ImpTypes",
+                 "sources": ["demos/ImpTypes/ImpTypes/ProgressDefs.lean",
+                             "demos/ImpTypes/ImpTypes/Progress.lean"]},
 }
 
 DEMOS = {

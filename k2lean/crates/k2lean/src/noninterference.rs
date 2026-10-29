@@ -471,7 +471,7 @@ stack), `SQ` (a step from a low stack), `SameQ` (two runs at one low stack). -/\
         ty(&na, &hole)
     )
     .unwrap();
-    let projs = snd::plug_def(&a, &cools, &hole, &mut s);
+    let projs = snd::plug_def(&a, &cools, &hole, false, &mut s);
     // realized here, under this file's `maxHeartbeats 0`: a module that imports `plug` and
     // unfolds it realizes its equation lemmas under Lean's default limit whatever it sets
     // (design.md §9), and the fallback's equation has a side condition

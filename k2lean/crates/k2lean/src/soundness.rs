@@ -1069,16 +1069,61 @@ pub(crate) fn coolings(a: &Lib, kpos: usize) -> (BTreeMap<String, Cool>, String)
     (cools, hole_sort)
 }
 
+/// `body` under the reads of the freezer arguments that are one item (`oneItem k_y`, bound to `y`).
+fn one_items(c: &Cool, mut body: String) -> String {
+    for y in c.ones.iter().rev() {
+        body = format!("(oneItem k_{y}).bind fun {y} => {body}");
+    }
+    body
+}
+
+/// `oneItem`, which reads a freezer's argument that is one item. `plug` matches the freezer
+/// constructor only and reads its arguments with it: matching the arguments' shape in `plug`'s
+/// patterns too (`#freezer (kseq y dotk)`) gives a match whose equations, with their catch-all's
+/// overlap conditions, cannot be realized within Lean's default heartbeat budget (realized
+/// declarations are elaborated with the default options, whatever the file sets), and `simp`
+/// needs them where the match does not reduce.
+fn one_item_def(na: &str, t: &mut String) {
+    writeln!(
+        t,
+        "\nopen {na} in\n/-- The item of a one-item `K`: a freezer's argument that is not the hole. -/\ndef oneItem : {} → Option {}\n  | .kseq y .dotk => some y\n  | _ => none",
+        ty(na, "SortK"),
+        ty(na, "SortKItem")
+    )
+    .unwrap();
+}
+
+/// `c`'s argument patterns: flat (`k_y`, read by `oneItem`), or with each one-item argument
+/// matched in the pattern (`kseq y dotk`).
+fn arg_pats(c: &Cool, flat: bool) -> Vec<String> {
+    c.pats
+        .iter()
+        .map(|p| match p.strip_prefix("k_") {
+            Some(y) if !flat && c.ones.iter().any(|o| o == y) => {
+                format!("(SortK.kseq {y} SortK.dotk)")
+            }
+            _ => p.clone(),
+        })
+        .collect()
+}
+
 /// `plug`, the item that cooling makes of a value and a freezer (one case per cooling rule),
-/// written into `t`; the sorts its cases project to.
+/// written into `t`; the sorts its cases project to. `flat`: the patterns match the freezer
+/// constructor only, and the arguments are read by `oneItem` (`one_item_def`); otherwise they
+/// match each one-item argument's shape (noninterference's `Stack.lean`, which realizes `plug`'s
+/// equation lemmas itself).
 pub(crate) fn plug_def(
     a: &Lib,
     cools: &BTreeMap<String, Cool>,
     hole_sort: &str,
+    flat: bool,
     t: &mut String,
 ) -> BTreeSet<String> {
     let na = &a.ns;
     let kitem_own = ty(na, &a.m.own_ty("SortKItem"));
+    if flat {
+        one_item_def(na, t);
+    }
     writeln!(
         t,
         "\nopen {na} in\n/-- The item that cooling makes of `e ~> f`: each case is the right-hand side of `f`'s cooling\nrule, with the hole `e`. -/\ndef plug : {kitem_own} → {} → Option {}",
@@ -1093,10 +1138,14 @@ pub(crate) fn plug_def(
             projs.insert(s.clone());
             body = format!("(proj_KItem_{s} {y}).bind fun {x} => {body}");
         }
-        let pats = if c.pats.is_empty() {
+        if flat {
+            body = one_items(c, body);
+        }
+        let ps = arg_pats(c, flat);
+        let pats = if ps.is_empty() {
             String::new()
         } else {
-            format!(" {}", c.pats.join(" "))
+            format!(" {}", ps.join(" "))
         };
         writeln!(t, "  | {}{pats}, {} => {body}", c.frz, c.hole).unwrap();
     }
@@ -1110,6 +1159,7 @@ fn plug_def_kitem(a: &Lib, cools: &BTreeMap<String, Cool>, t: &mut String) -> BT
     let na = &a.ns;
     let kitem_own = ty(na, &a.m.own_ty("SortKItem"));
     let kitem_t = ty(na, "SortKItem");
+    one_item_def(na, t);
     writeln!(
         t,
         "\nopen {na} in\n/-- The item that cooling makes of `v ~> f`: each case is the right-hand side of `f`'s cooling\nrule, with the hole the value `v` projected to the hole's sort. -/\ndef plug : {kitem_own} → {kitem_t} → Option {kitem_t}"
@@ -1125,10 +1175,12 @@ fn plug_def_kitem(a: &Lib, cools: &BTreeMap<String, Cool>, t: &mut String) -> BT
         let hs = c.hole_sort.trim_start_matches("Sort");
         projs.insert(hs.to_string());
         body = format!("(proj_KItem_{hs} v).bind fun {} => {body}", c.hole);
-        let pats = if c.pats.is_empty() {
+        body = one_items(c, body);
+        let ps = arg_pats(c, true);
+        let pats = if ps.is_empty() {
             String::new()
         } else {
-            format!(" {}", c.pats.join(" "))
+            format!(" {}", ps.join(" "))
         };
         writeln!(t, "  | {}{pats}, v => {body}", c.frz).unwrap();
     }
@@ -1531,6 +1583,8 @@ fn hole_containers(a: &Lib, cools: &BTreeMap<String, Cool>) -> BTreeSet<String> 
 pub(crate) struct Cool {
     frz: String,
     pats: Vec<String>,
+    /// The arguments matched as one item, `k_y` read by `oneItem` as `y` (outermost first).
+    ones: Vec<String>,
     binds: Vec<(String, String, String)>,
     hole: String,
     hole_sort: String,
@@ -1604,10 +1658,12 @@ fn cooling_k(
     }
     let (hole, hole_sort) = hole?;
     // a freezer argument whose item the rule's substitution destructed (`kseq (inj_L x) dotk`) is
-    // matched as `kseq y dotk` and projected, as the arguments the rule projects already are
+    // read as one item `y` (`oneItem`) and projected, as the arguments the rule projects already
+    // are; the pattern itself is a variable, so that `plug` matches the freezer constructor only
     let taken: BTreeSet<String> = binders.iter().map(|(b, _)| b.clone()).collect();
     let mut fresh = 0;
     let mut pats = Vec::new();
+    let mut ones = Vec::new();
     for a in args(f) {
         if head(a).ends_with("kseq")
             && let [it, rest] = args(a)
@@ -1624,7 +1680,15 @@ fn cooling_k(
                 }
             };
             binds.push((l.to_string(), y.clone(), x.clone()));
-            pats.push(format!("(SortK.kseq {y} SortK.dotk)"));
+            pats.push(format!("k_{y}"));
+            ones.push(y);
+        } else if head(a).ends_with("kseq")
+            && let [L::Var(y), rest] = args(a)
+            && head(rest).ends_with("dotk")
+        {
+            // an argument the rule already matches as one item `y`
+            pats.push(format!("k_{y}"));
+            ones.push(y.clone());
         } else {
             pats.push(a.render_arg());
         }
@@ -1632,6 +1696,7 @@ fn cooling_k(
     Some(Cool {
         frz: head(f).to_string(),
         pats,
+        ones,
         binds,
         hole,
         hole_sort: format!("Sort{hole_sort}"),
@@ -2145,7 +2210,7 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
     let projs = if multi {
         plug_def_kitem(a, &cools, &mut t)
     } else {
-        plug_def(a, &cools, &hole_sort, &mut t)
+        plug_def(a, &cools, &hole_sort, true, &mut t)
     };
     // item0
     let mut item_arms: Vec<(String, String, String, String)> = Vec::new(); // (leaf, ctor, arg type, rhs)
@@ -2221,7 +2286,7 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
     writeln!(
         t,
         "\n/-- An item that receives a pending value of type `t`: a freezer, typed as the item that\ncooling makes of it and a value of type `t`. -/\ndef item (G : TEnv) : Option Ty → {kitem_t} → Option (Option Ty)\n  | none, it => item0 G it\n  | some t, {na}.SortKItem.inj_KItem f => (plug f (dflt t)).bind (item0 G)\n  | some _, _ => none\n\n\
-/-- A well-typed continuation: each item consumes what the previous one leaves, and {kend_doc}\nleft at the end. -/\ndef kty (G : TEnv) : Option Ty → {na}.SortK → Bool\n  {kend}\n  | i, .kseq it k => match item G i it with\n    | some o => kty G o k\n    | none => false\n\nattribute [k2l_pres] dflt plug\n",
+/-- A well-typed continuation: each item consumes what the previous one leaves, and {kend_doc}\nleft at the end. -/\ndef kty (G : TEnv) : Option Ty → {na}.SortK → Bool\n  {kend}\n  | i, .kseq it k => match item G i it with\n    | some o => kty G o k\n    | none => false\n\nattribute [k2l_pres] dflt plug oneItem\n",
         kitem_t = ty(na, "SortKItem"),
         kend_doc = if value_result { "at most one value is" } else { "nothing is" },
         kend = if value_result { "| _, .dotk => true" } else { "| i, .dotk => i.isNone" },

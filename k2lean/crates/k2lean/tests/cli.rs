@@ -1457,8 +1457,16 @@ fn progress_states_one_case_per_head_and_a_refuted_head_is_a_third_outcome() {
     assert!(defs.contains("K.«halted(_)_VM_Bool_K» (Ending.content c) = true"));
     let thms = std::fs::read_to_string(d.join("KVm/Progress.lean")).unwrap();
     assert!(thms.contains(
-        "k2l_progress [App.add, App.«add-underflow0», App.«add-underflow1»] => prog_close else prog_stuck"
+        "k2l_progress [App.add, App.«add-underflow0», App.«add-underflow1»] => prog_close else prog_stuck\n  all_goals first | prog_stuck_deep | fail"
     ));
+    // the goals the search leaves: the invariant unfolded and taken apart, then `simp` and the
+    // closer's split in turn
+    assert!(thms.contains("local macro \"prog_stuck_deep\" : tactic => `(tactic| (exfalso; (try simp only [Invariant, "));
+    assert!(thms.contains("(try k2l_destruct); (repeat' (first | (simp_all ["));
+    assert!(thms.contains("k2l_case_stuck))); done))"));
+    assert!(
+        thms.contains("set_option maxHeartbeats 2000000 in\ntheorem Progress.case.«Instr.add» :")
+    );
     assert!(thms.contains("(hI : Invariant c) : Ending c ∨ App c := by"));
     assert!(!thms.contains("Progress.Refuted"));
 
@@ -1510,8 +1518,9 @@ fn progress_at_a_cell_map_states_a_case_per_element_head_above_which_every_eleme
     assert!(defs.contains("Progress.Keys (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortProcsCell.«<procs>» m)) x0_1) → Progress.Above m kc"));
     let thms = std::fs::read_to_string(d.join("Coro/Progress.lean")).unwrap();
     assert!(thms.contains(
-        "k2l_progress [App.resume, App.«resume-finished», App.«resume-failed», App.«resume-none»] => prog_close else prog_stuck partner (Progress.partner hm hK hA) rank prog_rank"
+        "k2l_progress [App.resume, App.«resume-finished», App.«resume-failed», App.«resume-none»] => prog_close else prog_stuck partner (Progress.partner hm hK hA) rank prog_rank\n  all_goals first | prog_stuck_deep | fail"
     ));
+    assert!(thms.contains("local macro \"prog_stuck_deep\" : tactic => `(tactic| (exfalso; clear hA hK; (try simp only [Invariant, "));
     assert!(thms.contains(
         "theorem Progress.Keys.case.spawn : Step.Case.spawn Progress.Keys := by k2l_keys"
     ));
@@ -1596,7 +1605,10 @@ fn progress_under_a_kind_2_invariant_is_written_where_the_invariant_is() {
     assert!(String::from_utf8_lossy(&o.stderr).contains("progress: 37 cases, 0 open"));
     assert!(!d.join("lib/Handoff/Progress.lean").exists());
     let defs = std::fs::read_to_string(pkg.join("Pkg/ProgressDefs.lean")).unwrap();
-    assert!(defs.contains("import Handoff.Preserves\nimport KPrelude.InvTactic\nimport KPrelude.PendingTactic\nimport Pkg.Live\n"));
+    assert!(
+        defs.contains("import Handoff.Preserves\nimport KPrelude.InvTactic\nimport Pkg.Live\n")
+    );
+    assert!(defs.contains("import KPrelude.Progress\nimport KPrelude.PendingTactic\n"));
     assert!(defs.contains("def Invariant (c : SortGeneratedTopCell) : Prop := Pkg.Live c"));
     assert!(
         defs.contains(

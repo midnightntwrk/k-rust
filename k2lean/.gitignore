@@ -33,6 +33,9 @@ lake-manifest.json
 # What `k2lean soundness` writes into the demo ImpTypes, around its hand module Store.lean.
 /demos/ImpTypes/ImpTypes/Typing.lean
 /demos/ImpTypes/ImpTypes/Soundness.lean
+# What `k2lean gen --progress` writes into it, kimp's progress under ImpTypes.Typed (SND-16).
+/demos/ImpTypes/ImpTypes/ProgressDefs.lean
+/demos/ImpTypes/ImpTypes/Progress.lean
 /demos/ExprTypes/ExprTypes/Tr.lean
 /demos/ExprTypes/ExprTypes/Typing.lean
 /demos/ExprTypes/ExprTypes/Soundness.lean

@@ -7,8 +7,9 @@
 # tests/fixtures/vmstuck, library vmstuck, whose one stuck case is refuted by hand; coroutines in a
 # cell map, tests/fixtures/coro, library coro, and its variant with a join that can deadlock,
 # tests/fixtures/corojoin, library corojoin, whose deadlock is refuted by hand; a coordination
-# script's tasks, tests/fixtures/handoff, under the kind 2 invariant of demos/HandoffConf). Registry:
-# soundness.py.
+# script's tasks, tests/fixtures/handoff, under the kind 2 invariant of demos/HandoffConf; kimp under
+# its runtime typing, demos/ImpTypes, from which ImpTypes/Instance.lean derives type soundness).
+# Registry: soundness.py.
 
 # IMP++ (K's tutorial, beside SIMPLE's sources)
 IMPPP=${IMPPP:-$SD/../../../1_k/4_imp++/lesson_7}
@@ -103,25 +104,40 @@ gen_handoff_prog() {
     --invariant-unfold "$c/live-unfold.txt" --element-fact HandoffConf.Live.taskOk \
     --rank HandoffConf.taskRank --progress-out "$c" --progress-prefix HandoffConf
 }
-prog_handoff() { # `progress` of handoff in demos/HandoffConf, as progcases does for a library
-  local c=$D/HandoffConf k
-  phase "progress handoff"
-  lib_open handoff
+prog_handoff() { lib_open handoff; prog_demo handoff "$D/HandoffConf" HandoffConf gen_handoff_prog HandoffConf.Progress; }
+# type soundness as an instance (SND-16): `progress` of kimp under its runtime typing `ImpTypes.Typed`
+# (the typing `soundness` generates, demos/ImpTypes); kimp's library is the core area's, so `gen`
+# writes its library to a scratch directory and only the progress modules count; `var` is proved by
+# hand, and ImpTypes/Instance.lean derives `soundness`'s theorem from `no_stuck`
+gen_imptypes_prog() {
+  local c=$D/ImpTypes o=$GEN/.imptypes-prog
+  "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
+    --out "$o" --name KImp --prelude ../../lean --open-obligations "$o/open-obligations.txt" \
+    --progress --assume-invariant ImpTypes.Typed --invariant-module ImpTypes.Typed \
+    --invariant-preserved ImpTypes.Typed.preserved --invariant-unfold "$c/typed-unfold.txt" \
+    --progress-out "$c" --progress-prefix ImpTypes
+}
+prog_imptypes() { prog_demo imptypes "$D/ImpTypes" ImpTypes gen_imptypes_prog ImpTypes.Instance; }
+prog_demo() { # NAME DIR PFX GEN TARGET: `progress` written into the demo DIR (`--progress-out DIR
+  # --progress-prefix PFX`) by the function GEN and built as far as TARGET, as progcases does for a
+  # library: up to three builds, each failed case added to the open list in between
+  local n=$1 c=$2 p=$3 gf=$4 t=$5 k
+  phase "progress $n"
   if [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$c/open-progress-cases.txt" ]; then
     grep -E '^#| \| refuted( hand)?( *#.*)?$' "$c/open-progress-cases.txt" > "$c/open-progress-cases.txt.keep" || true
     mv -f "$c/open-progress-cases.txt.keep" "$c/open-progress-cases.txt"
   fi
-  gen_handoff_prog > "$L/gen-handoff-prog.log" 2>&1 || { bad "gen handoff" "$L/gen-handoff-prog.log"; return 1; }
+  "$gf" > "$L/gen-$n-prog.log" 2>&1 || { bad "gen $n" "$L/gen-$n-prog.log"; return 1; }
   for k in 1 2 3; do
-    if lbuild "$c" "build-handoff-prog-$k" HandoffConf.Progress; then
-      cp "$L/build-handoff-prog-$k.log" "$L/build-handoff-prog.log"; ok "progress handoff" "$L/build-handoff-prog.log"; return 0
+    if lbuild "$c" "build-$n-prog-$k" "$t"; then
+      cp "$L/build-$n-prog-$k.log" "$L/build-$n-prog.log"; ok "progress $n" "$L/build-$n-prog.log"; return 0
     fi
-    cp "$L/build-handoff-prog-$k.log" "$L/build-handoff-prog.log"
+    cp "$L/build-$n-prog-$k.log" "$L/build-$n-prog.log"
     [ "$k" = 3 ] && break
-    "$G" open-from-log "$c/HandoffConf/Progress.lean" "$L/build-handoff-prog-$k.log" "$c/open-progress-cases.txt" >> "$L/gen-handoff-prog.log" 2>&1
-    gen_handoff_prog >> "$L/gen-handoff-prog.log" 2>&1 || { bad "gen handoff" "$L/gen-handoff-prog.log"; return 1; }
+    "$G" open-from-log "$c/$p/Progress.lean" "$L/build-$n-prog-$k.log" "$c/open-progress-cases.txt" >> "$L/gen-$n-prog.log" 2>&1
+    "$gf" >> "$L/gen-$n-prog.log" 2>&1 || { bad "gen $n" "$L/gen-$n-prog.log"; return 1; }
   done
-  bad "progress handoff" "$L/build-handoff-prog.log"; unbuilt "$c" "$L/build-handoff-prog.log" "HandoffConf.Progress"; return 1
+  bad "progress $n" "$L/build-$n-prog.log"; unbuilt "$c" "$L/build-$n-prog.log" "$t"; return 1
 }
 
 prog_lib() { # DIR NAME: a library built as far as `progress` needs: Equations, Invariants, Progress
@@ -183,6 +199,7 @@ gate_soundness() {
     scaffold soundness-ImpTypes libs_soundness ImpTypes
     dbuild ImpTypes
   fi
+  runs prog imptypes && prog_imptypes
   runs lib kexpr && kc expr && lib kexpr KExpr
   runs lib exprtypes && kc expr-typing && lib exprtypes KExprTypes
   if runs demo ExprTypes; then
