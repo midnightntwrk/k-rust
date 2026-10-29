@@ -9,7 +9,8 @@
 # cell map, tests/fixtures/coro, library coro, and its variant with a join that can deadlock,
 # tests/fixtures/corojoin, library corojoin, whose deadlock is refuted by hand; a coordination
 # script's tasks, tests/fixtures/handoff, under the kind 2 invariant of demos/HandoffConf; kimp under
-# its runtime typing, demos/ImpTypes, from which ImpTypes/Instance.lean derives type soundness).
+# its runtime typing, demos/ImpTypes, from which ImpTypes/Instance.lean derives type soundness; and
+# IMP++ under its runtime typing, demos/ImpPlusTypes, likewise).
 # Registry: soundness.py.
 
 # IMP++ (K's tutorial, beside SIMPLE's sources)
@@ -121,6 +122,21 @@ gen_imptypes_prog() {
     --progress-out "$c" --progress-prefix ImpTypes
 }
 prog_imptypes() { prog_demo imptypes "$D/ImpTypes" ImpTypes gen_imptypes_prog ImpTypes.Instance; }
+# IMP++'s type soundness as an instance (SND-17): `progress` of IMP++ under its runtime typing
+# `ImpPlusTypes.Typed`, with `<k>` in the cell map `<threads>`, each thread's typing as the element
+# fact, and the ending `kDone` (a thread may wait at `join(T);` forever, which no typing excludes);
+# impplus's library is `lib impplus`'s, so `gen` writes its library to a scratch directory, and
+# ImpPlusTypes/Instance.lean derives `soundness`'s theorem from `no_stuck`
+gen_impplustypes_prog() {
+  local c=$D/ImpPlusTypes o=$GEN/.impplustypes-prog
+  "$G" gen --kore "$(kore_dir impplus)/definition.kore" --runtime "$(kore_dir impplus)/runtime.json" \
+    --out "$o" --name KImpPlus --prelude ../../lean --open-obligations "$o/open-obligations.txt" \
+    --progress --assume-invariant ImpPlusTypes.Typed --invariant-module ImpPlusTypes.Typed \
+    --invariant-preserved ImpPlusTypes.Typed.preserved --invariant-unfold "$c/typed-unfold.txt" \
+    --element-fact ImpPlusTypes.Typed.thread --ending-lean ImpPlusTypes.kDone@k \
+    --progress-out "$c" --progress-prefix ImpPlusTypes
+}
+prog_impplustypes() { prog_demo impplustypes "$D/ImpPlusTypes" ImpPlusTypes gen_impplustypes_prog ImpPlusTypes.Instance; }
 prog_demo() { # NAME DIR PFX GEN TARGET: `progress` written into the demo DIR (`--progress-out DIR
   # --progress-prefix PFX`) by the function GEN and built as far as TARGET, as progcases does for a
   # library: up to three builds, each failed case added to the open list in between
@@ -225,6 +241,7 @@ gate_soundness() {
     scaffold soundness-ImpPlusTypes libs_soundness ImpPlusTypes
     dbuild ImpPlusTypes
   fi
+  runs prog impplustypes && prog_impplustypes
   # no stuck states (design.md §3.9): the stack machine, every case automatic; its variant without
   # `pop`'s underflow rule, whose one case is refuted by hand; with priorities (SND-15), every case
   # automatic, some by rules of different ranks on different branches

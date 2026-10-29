@@ -29,7 +29,9 @@ constructor, so one case can close by rules of different ranks on different bran
    the hole's sort, at a head of another sort). Each such split goes one position further into a
    finite pattern, so these splits end by themselves; `fuel` bounds the others: where a projection
    was assumed `none` and the goal stays open, the projected variable's constructors, and the
-   partner steps below.
+   partner steps below. A rule whose pattern has a different constructor than the configuration at
+   some position (`clashes`) cannot match there, so it asks for no split; a proof argument (an
+   injection's `leafOK`) is never split, since any two proofs of a proposition are equal.
 A goal where neither step makes progress is left as it is: there, no rule of the head applies, so
 the generated proof closes it from the invariant or the ending, or the case is open.
 Every step is `apply`, `by_cases` or `cases`, so the tactic cannot prove a false goal.
@@ -38,7 +40,8 @@ Every step is `apply`, `by_cases` or `cases`, so the tactic cannot prove a false
 blocked on a call of an opaque function (`typeOf G e`) or on a variable that a `match` reads below
 a constructor (a freezer's `K` argument). `k2l_case_stuck` splits the innermost such variable (by
 `reduceMatcher?`, then the stuck term's major premise, as `getStuckMVar?` finds a metavariable) or
-the call (`cases h : call`); the generated stuck closer alternates it with `simp`.
+the call (`cases h : call`); the generated stuck closer alternates it with `simp`, after
+`k2l_refute_computed` (a `Bool` side condition that computes to the other literal).
 
 With `<k>` in a cell map (SND-14), a case is about one element `e`, matched as
 `concat (element k e) rest = some m`, the same shape as a rule's premise, so the rule's own match
@@ -46,7 +49,10 @@ closes by assumption. Two more steps then apply to a rule's remaining premise
 `concat (element K' E') D = some rest` that matches a second element (a partner):
 3. *split on a hypothesis*: when a hypothesis matches the same key in the same map,
    `concat (element K' w) r = some rest`, a variable of `w` where `E'` has a constructor is split, as
-   step 2 does for the goal's configuration;
+   step 2 does for the goal's configuration, and as it does, without `fuel`. A rule's match closes
+   only by assumption, so a rule whose element clashes with that of every match hypothesis is not
+   attempted (`elementClash`): its `apply` would unify the match with each hypothesis at default
+   transparency, unfolding `concat`, only to fail;
 4. *partner*: when none does and `K'` is known, `by_cases` on `inKeys K' rest`; where it is bound, the
    case's partner lemma (`partner p`, generated with the library) gives the partner's match in
    `rest`, at its own key cell, and, where `rank` proves that it ranks above the case's element,
@@ -185,9 +191,28 @@ partial def mismatch (p e : Expr) : MetaM (Option Expr) := do
   | .const n _, .const n' _ =>
     if n != n' || p.getAppNumArgs != e.getAppNumArgs then return none
     for (a, b) in p.getAppArgs.zip e.getAppArgs do
+      -- a proof argument (an injection's `hasLeaves`, `leafOK`) unifies with any other proof
+      if ← isProof b then continue
       if let some x ← mismatch a b then return some x
     return none
   | _, _ => return none
+
+/-- Whether the pattern `p` cannot match `e`: at some position both are constructors, and
+different ones. No split of `e` makes `p` match then. -/
+partial def clashes (p e : Expr) : MetaM Bool := do
+  let p ← whnfR (← instantiateMVars p)
+  if p.isMVar then return false
+  let e ← whnfR e
+  match p.getAppFn, e.getAppFn with
+  | .const n _, .const n' _ =>
+    let env ← getEnv
+    if n != n' then return env.isConstructor n && env.isConstructor n'
+    if p.getAppNumArgs != e.getAppNumArgs then return false
+    for (a, b) in p.getAppArgs.zip e.getAppArgs do
+      if ← isProof b then continue
+      if ← clashes a b then return true
+    return false
+  | _, _ => return false
 
 /-- `concat (element k v) d = some x`: `(k, v, x)`. -/
 def matchOf? (t : Expr) : MetaM (Option (Expr × Expr × Expr)) := do
@@ -232,6 +257,7 @@ def candOf (g : MVarId) : MetaM Cand := g.withContext do
     s.restore
     if same then
       found := true
+      if ← clashes e' w then return {}
       if let some v ← mismatch e' w then
         if v.isFVar then return { split := some v }
   if !found && !k'.hasMVar && !x'.hasMVar && x'.isFVar then
@@ -248,6 +274,8 @@ def ctorOf? (e : Expr) : MetaM (Option Name) := do
 def premiseDead (t : Expr) : MetaM Bool := do
   let t := (← instantiateMVars t).consumeMData
   unless t.isAppOfArity ``Eq 3 do return false
+  -- a match of an element is decided by the hypotheses (`candOf`), not by computing the map
+  if (← matchOf? t).isSome then return false
   let a := t.getArg! 1
   let some cb ← ctorOf? (← whnfD (t.getArg! 2)) | return false
   if let some ca ← ctorOf? (← whnfD a) then return ca != cb
@@ -277,6 +305,27 @@ def projAtom? (t : Expr) : MetaM (Option Expr) := do
   if ← decided a then return none
   return some a
 
+/-- Whether rule constructor `c` cannot apply at goal `g` because its first match of an element,
+`concat (element K E) D = some M`, can only close by assumption, and `E` clashes with the element
+of every such hypothesis. -/
+def elementClash (c : Name) (g : MVarId) : MetaM Bool := g.withContext do
+  let s ← saveState
+  let r ← (do
+    let (hs, _, _) ← forallMetaTelescope (← inferType (← mkConstWithFreshMVarLevels c))
+    let mut pat := none
+    for h in hs do
+      if let some (_, e', _) ← matchOf? (← inferType h) then pat := some e'; break
+    let some e' := pat | return false
+    let mut any := false
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let some (_, w, _) ← matchOf? d.type | continue
+      any := true
+      unless ← clashes e' w do return false
+    return any)
+  s.restore
+  return r
+
 /-- Search among the constructors `cs` (see the module documentation), at most `fuel` atoms deep;
 returns the goals where no rule applies. -/
 partial def search (cs : Array Name) (close : TSyntax ``Lean.Parser.Tactic.tacticSeq) (fuel : Nat) :
@@ -284,6 +333,8 @@ partial def search (cs : Array Name) (close : TSyntax ``Lean.Parser.Tactic.tacti
   let mut atom : Option Expr := none
   let mut cand : Cand := {}
   for c in cs do
+    if ← elementClash c (← getMainGoal) then
+      trace[k2l.progress] "{c}: its element clashes"; continue
     let s ← saveState
     let r ← tryCatchRuntimeEx (do
       -- with priorities the goal is `∃ i, App i c`, and the constructor fixes the rank
@@ -359,6 +410,7 @@ def splitVar (cs : Array Name) (g : MVarId) : MetaM (Option Expr) := g.withConte
     let k ← mkConstWithFreshMVarLevels c
     let (hs, _, concl) ← forallMetaTelescope (← inferType k)
     unless concl.isApp do continue
+    if ← clashes concl.appArg! t.appArg! then continue
     if let some x ← mismatch concl.appArg! t.appArg! then
       if x.isFVar then
         -- the rule with `x` left open: when one of its premises already cannot hold, splitting
@@ -483,7 +535,7 @@ partial def loop (cs : Array Name) (close : TSyntax ``Lean.Parser.Tactic.tacticS
       if ← closes stuck r then continue
       -- a variable where a rule's pattern has a constructor: each such split goes one position
       -- further into a finite pattern, so these splits end by themselves (`depth` is a guard)
-      if let (some x, depth + 1) := (← splitVar cs r, depth) then
+      if let (some x, depth + 1) := ((← splitVar cs r) <|> cand.split, depth) then
         setGoals [r]
         Soundness.casesVar x
         evalTactic (← `(tactic| all_goals k2l_norm_idx))
@@ -491,7 +543,7 @@ partial def loop (cs : Array Name) (close : TSyntax ``Lean.Parser.Tactic.tacticS
         out := out ++ (← getGoals)
         continue
       -- the other splits use `fuel`
-      let x? := cand.split <|> (← projNoneVar? r)
+      let x? ← projNoneVar? r
       match x?, fuel with
       | some x, fuel + 1 =>
         setGoals [r]
@@ -659,9 +711,88 @@ elab "k2l_case_stuck" : tactic => withMainContext do
       let tx ← Term.exprToSyntax x
       let h := mkIdent (← mkFreshUserName `hs)
       evalTactic (← `(tactic| cases $h:ident : $tx:term))
-      -- the call's value everywhere, so that it is no longer blocked
-      evalTactic (← `(tactic| all_goals (try simp only [$h:ident] at *)))
+      -- the call's value everywhere, so that it is no longer blocked, but not in `h` itself,
+      -- which `simp only [h] at *` makes `True`: the value is needed again once the call's
+      -- arguments are split
+      let mut out := []
+      for g in ← getGoals do
+        let g' ← g.withContext do
+          let some hd := (← getLCtx).findFromUserName? h.getId | return some g
+          let thms ← ({} : SimpTheorems).add (.fvar hd.fvarId) #[] hd.toExpr
+          let ctx ← Simp.mkContext (simpTheorems := #[thms]) (congrTheorems := ← getSimpCongrTheorems)
+          let mut fs := #[]
+          for d in ← getLCtx do
+            if d.isImplementationDetail || d.fvarId == hd.fvarId then continue
+            if ← isProp d.type then fs := fs.push d.fvarId
+          let (r, _) ← simpGoal g ctx (fvarIdsToSimp := fs)
+          pure (r.map (·.2))
+        if let some g' := g' then out := out ++ [g']
+      setGoals out
       return
   throwError "k2l_case_stuck: no blocked discriminant"
+
+/-- `k2l_dispatch hm [c₁, …]`: close the main goal by the case `cᵢ` (a lemma whose statement is
+`∀ …, concat (element k e) r = some m → … → goal`) whose match premise is `hm`'s type up to
+reducible unfolding, its other premises by assumption. Each goal of `progress`'s split is one head,
+so the case is determined; a K constructor is a reducible definition over the arity-indexed family,
+so a wrong case fails at the first different constructor of the element, without unfolding `concat`
+(which `exact` at default transparency does, at every wrong case). -/
+elab "k2l_dispatch " h:ident " [" cs:ident,* "]" : tactic => withMainContext do
+  let g ← getMainGoal
+  let hd ← getLocalDeclFromUserName h.getId
+  let ht ← instantiateMVars hd.type
+  let tgt ← instantiateMVars (← g.getType)
+  for c in cs.getElems do
+    let n ← realizeGlobalConstNoOverloadWithInfo c
+    let s ← saveState
+    let k ← mkConstWithFreshMVarLevels n
+    -- reducing at each binder: a case is `∀ [Hooks], X.statement` in a library with hooks
+    let (xs, _, concl) ← forallMetaTelescopeReducing (← inferType k)
+    let mut idx := none
+    for i in [0:xs.size] do
+      let xt ← instantiateMVars (← inferType xs[i]!)
+      if xt.isAppOfArity ``Eq 3 && (xt.getArg! 1).getAppFn.isConstOf ``KPrelude.MapHook.concat then
+        idx := some i; break
+    let some i := idx | continue
+    if !(← withReducible (isDefEq (← inferType xs[i]!) ht)) then s.restore; continue
+    xs[i]!.mvarId!.assign hd.toExpr
+    let mut ok := true
+    for j in [0:xs.size] do
+      let mv := xs[j]!.mvarId!
+      if j < i && !(← isProp (← mv.getType)) && !(← isClass? (← mv.getType)).isSome then continue
+      if ← mv.isAssigned then continue
+      try mv.assumption catch _ => ok := false; break
+    if ok && (← isDefEq concl tgt) && (← xs.allM fun x => x.mvarId!.isAssigned) then
+      g.assign (mkAppN k xs)
+      replaceMainGoal []
+      return
+    s.restore
+  throwError "k2l_dispatch: no case of {cs.getElems.size} has the match {ht}"
+
+/-- `k2l_refute_computed`: close the goal by a hypothesis `a = b` at a sort whose carrier is `Bool`,
+`b` a literal and `a` definitionally the other one, as `isKResult(I ~> .) = true` is with `I` an
+identifier: the computation is definitional, and `simp` does not do it where it would need an
+`owise` equation, whose side condition is not syntactic. -/
+elab "k2l_refute_computed" : tactic => withMainContext do
+  let g ← getMainGoal
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let t := (← instantiateMVars d.type).consumeMData
+    -- a `Bool` side condition (a function of K whose value computes)
+    unless t.isAppOfArity ``Eq 3 do continue
+    -- (a sort whose carrier is `Bool`, as `SortBool`, unfolds to it reducibly)
+    unless (← whnfR (t.getArg! 0)).isConstOf ``Bool do continue
+    -- `a = true` where `a` is definitionally `false` (or the converse): `isDefEq` unfolds both
+    -- sides lazily, where `whnf` alone can stop short
+    let b ← whnfD (t.getArg! 2)
+    let other ← if b.isConstOf ``Bool.true then pure (mkConst ``Bool.false)
+      else if b.isConstOf ``Bool.false then pure (mkConst ``Bool.true) else continue
+    let s ← saveState
+    unless ← withDefault (isDefEq (t.getArg! 1) other) do s.restore; continue
+    let h ← mkExpectedTypeHint d.toExpr (← mkEq other b)
+    g.assign (← mkNoConfusion (← g.getType) h)
+    replaceMainGoal []
+    return
+  throwError "k2l_refute_computed: no hypothesis computes to a contradiction"
 
 end KPrelude.Progress

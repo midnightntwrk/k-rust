@@ -1563,7 +1563,9 @@ fn progress_states_one_case_per_head_and_a_refuted_head_is_a_third_outcome() {
     // the goals the search leaves: the invariant unfolded and taken apart, then `simp` and the
     // closer's split in turn
     assert!(thms.contains("local macro \"prog_stuck_deep\" : tactic => `(tactic| (exfalso; (try simp only [Invariant, "));
-    assert!(thms.contains("(try k2l_destruct); (repeat' (first | (simp_all ["));
+    assert!(
+        thms.contains("(try k2l_destruct); (repeat' (first | k2l_refute_computed | (simp_all [")
+    );
     assert!(thms.contains("k2l_case_stuck))); done))"));
     assert!(
         thms.contains("set_option maxHeartbeats 2000000 in\ntheorem Progress.case.«Instr.add» :")
@@ -1706,6 +1708,16 @@ fn progress_at_a_cell_map_cools_values_reads_cells_in_layers_and_takes_a_lean_en
     assert!(int_case.contains(
         "k2l_progress [App.«THREADEXP-SYNTAX._+__THREADEXP-SYNTAX_Exp_Exp_Exp1-cool», App.«THREADEXP-SYNTAX._+__THREADEXP-SYNTAX_Exp_Exp_Exp2-cool»]"
     ));
+    // a cooling rule requires its hole to be a `KResult`, so it is not a candidate at `+`, a
+    // constructor of the hole's sort that no value is
+    let plus_case = &thms[thms.find("theorem Progress.case.«Exp._+_» ").unwrap()..];
+    let plus_case = &plus_case[..plus_case.find("\n\n").unwrap()];
+    assert!(!plus_case.contains("-cool"), "{plus_case}");
+    // the composition finds each head's case by the element's match
+    assert!(
+        thms.contains("all_goals k2l_dispatch hm [Progress.case.«Exp._+_»]"),
+        "{thms}"
+    );
     let defs = std::fs::read_to_string(d.join("KThreadExp/ProgressDefs.lean")).unwrap();
     assert!(defs.contains(
         "def Progress.cell_T : SortGeneratedTopCell → SortTCell\n  | SortGeneratedTopCell.«<generatedTop>» x _ => x"

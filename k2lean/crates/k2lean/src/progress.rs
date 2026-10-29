@@ -843,14 +843,15 @@ fn inv_names(cx: &Ctx) -> Vec<String> {
 
 /// `prog_stuck_deep`: the stuck closer on the goals the search leaves, splitting what blocks the
 /// invariant's computation (`k2l_case_stuck`, a call or a variable that a `match` waits on) between
-/// rounds of `simp`. `clear` names the case's hypotheses that `simp_all` must not read.
+/// rounds of `simp`, and first a `Bool` side condition that computes to the other literal
+/// (`k2l_refute_computed`). `clear` names the case's hypotheses that `simp_all` must not read.
 fn deep_macro(inv: &[String], stuck: &[String], clear: &str) -> String {
     let s = stuck.join(", ");
     format!(
         "/-- The same, on the goals the search leaves: the invariant unfolded and taken apart, then `simp` and a split of\n\
 what blocks its computation (`k2l_case_stuck`) in turn. -/\n\
 local macro \"prog_stuck_deep\" : tactic => `(tactic| (exfalso; {clear}(try simp only [{}] at *); (try k2l_destruct); \
-(repeat' (first | (simp_all [{s}]; done) | ((try simp only [{s}] at *); k2l_case_stuck))); done))\n\n",
+(repeat' (first | k2l_refute_computed | (simp_all [{s}]; done) | ((try simp only [{s}] at *); k2l_case_stuck))); done))\n\n",
         inv.join(", ")
     )
 }
@@ -866,8 +867,10 @@ enum HeadPat {
     /// a constructor, by its K symbol
     Sym(String),
     /// a value of a sort injected into `KItem` (a builtin value, or a variable of the sort): the
-    /// sort's leaves, since a variable of the sort is any of them (a cooling rule's hole of sort
-    /// `BExp` is at a `Bool` value, or at a constructor of `BExp`)
+    /// sort's leaves, since a variable of the sort is any of them (a hole of sort `BExp` is at a
+    /// `Bool` value, or at a constructor of `BExp`); of those, only the leaves of `KResult` when
+    /// the rule requires the variable to be one (a cooling rule's `isKResult(HOLE)`), since no
+    /// other value of the sort satisfies it
     Leaves(Vec<String>),
 }
 
@@ -879,21 +882,57 @@ fn first_k<'a>(p: &'a P, ksym: &str) -> Option<&'a P> {
     }
 }
 
-fn kore_head(p: &P, ksym: &str, m: &Model) -> HeadPat {
+/// The variables `V` that the conditions `p` require to be a `KResult`: a conjunct
+/// `isKResult(V ~> .)`, through `\and`, `andBool` and `\equals(_, true)` only (not under a
+/// negation, as a heating rule's `notBool isKResult(HOLE)` is).
+fn kresult_vars(p: &P, out: &mut Vec<String>) {
+    match p {
+        P::And(_, args) => args.iter().for_each(|a| kresult_vars(a, out)),
+        P::Equals(_, _, l, r) if matches!(&**r, P::Dv(_, t) if t == "true") => kresult_vars(l, out),
+        P::App(s, _, args) if s == "Lbl'Unds'andBool'Unds'" => {
+            args.iter().for_each(|a| kresult_vars(a, out))
+        }
+        P::App(s, _, args) if s == "LblisKResult" && args.len() == 1 => {
+            if let P::App(kseq, _, ka) = &args[0]
+                && kseq == "kseq"
+                && let [P::App(inj, _, x), P::App(dotk, _, d)] = ka.as_slice()
+                && inj == "inj"
+                && dotk == "dotk"
+                && d.is_empty()
+                && let [P::Var(v, _)] = x.as_slice()
+            {
+                out.push(v.clone());
+            }
+        }
+        _ => {}
+    }
+}
+
+fn kore_head(p: &P, cond: &P, ksym: &str, m: &Model) -> HeadPat {
     let Some(c) = first_k(p, ksym) else {
         return HeadPat::Any;
+    };
+    let mut values = Vec::new();
+    kresult_vars(cond, &mut values);
+    let leaves = |s: &str| {
+        m.sorts
+            .get(s)
+            .map_or_else(|| vec![s.to_string()], |si| si.leaves.clone())
     };
     match c {
         P::App(s, _, a) if s == "dotk" && a.is_empty() => HeadPat::Dotk,
         P::App(s, _, a) if s == "kseq" && a.len() == 2 => match &a[0] {
             P::App(i, sorts, x) if i == "inj" && x.len() == 1 => match &x[0] {
                 P::App(cs, _, _) if m.ctors.contains_key(cs) => HeadPat::Sym(cs.clone()),
-                _ => match sorts.first().and_then(|s| s.name()) {
-                    Some(sub) => HeadPat::Leaves(
-                        m.sorts
-                            .get(sub)
-                            .map_or_else(|| vec![sub.to_string()], |si| si.leaves.clone()),
-                    ),
+                v => match sorts.first().and_then(|s| s.name()) {
+                    Some(sub) => {
+                        let mut ls = leaves(sub);
+                        if matches!(v, P::Var(x, _) if values.contains(x)) {
+                            let kr = leaves("SortKResult");
+                            ls.retain(|l| kr.contains(l));
+                        }
+                        HeadPat::Leaves(ls)
+                    }
                     None => HeadPat::Any,
                 },
             },
@@ -1094,7 +1133,7 @@ fn emit_coll(
     // the heads, and the rules whose first element has each
     let mut heads = heads_of(m, ns);
     for r in cx.rules {
-        let h = kore_head(&r.kore.0, &kpath.cell_sym, m);
+        let h = kore_head(&r.kore.0, &r.kore.1, &kpath.cell_sym, m);
         for hd in heads.iter_mut() {
             if h.fits(hd) {
                 hd.rules.push(format!("App.{}", r.lean));
@@ -1463,13 +1502,40 @@ exact ⟨{}, r1, h1, fun h => hA _ _ _ h2 h⟩\n\n",
     }
     for (inj, hs) in &by_inj {
         if hs[0].dispatch.as_ref().unwrap().1 {
-            let arms: Vec<String> = hs
+            // each goal of the split is one head, so its case is determined: `k2l_dispatch` finds
+            // it by the element's match, where `first | exact …` would unify each wrong case at
+            // default transparency (a sort with many constructors exceeds any budget); a refuted
+            // head's witness is not a case lemma, and is tried after
+            let refd = |h: &Head| refuted_heads.iter().any(|r| r.name == h.name);
+            let names: Vec<String> = hs
                 .iter()
-                .map(|h| format!("| exact {}", case_term(h)))
+                .filter(|h| !refd(h))
+                .map(|h| format!("Progress.case.{}", h.name))
                 .collect();
+            let mut alts: Vec<String> = Vec::new();
+            if !names.is_empty() {
+                let d = format!("k2l_dispatch hm [{}]", names.join(", "));
+                alts.push(if refuted_heads.is_empty() {
+                    d
+                } else {
+                    format!("(apply Or.inl; {d})")
+                });
+            }
+            alts.extend(
+                hs.iter()
+                    .filter(|h| refd(h))
+                    .map(|h| format!("exact {}", case_term(h))),
+            );
+            let body = if alts.len() == 1 {
+                format!("all_goals {}", alts[0])
+            } else {
+                format!(
+                    "all_goals first\n               | {}",
+                    alts.join("\n               | ")
+                )
+            };
             leaf_arms.push(format!(
-                "| (k2l_has_ctor_at hm [{inj}]\n             k2l_cases x <;> k2l_norm_idx\n             all_goals first\n               {}\n             done)",
-                arms.join("\n               ")
+                "| (k2l_has_ctor_at hm [{inj}]\n             k2l_cases x <;> k2l_norm_idx\n             {body}\n             done)"
             ));
         } else {
             leaf_arms.push(format!(

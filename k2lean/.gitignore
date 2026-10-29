@@ -42,6 +42,9 @@ lake-manifest.json
 /demos/ImpPlusTypes/ImpPlusTypes/Tr.lean
 /demos/ImpPlusTypes/ImpPlusTypes/Typing.lean
 /demos/ImpPlusTypes/ImpPlusTypes/Soundness.lean
+# and IMP++'s progress under ImpPlusTypes.Typed (SND-17)
+/demos/ImpPlusTypes/ImpPlusTypes/ProgressDefs.lean
+/demos/ImpPlusTypes/ImpPlusTypes/Progress.lean
 /demos/ImpMut/ImpMut/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Refine.lean

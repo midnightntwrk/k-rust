@@ -44,6 +44,11 @@ PROGS = {
     "imptypes": {"ns": "ImpTypes", "tier": "light", "dir": "demos/ImpTypes",
                  "sources": ["demos/ImpTypes/ImpTypes/ProgressDefs.lean",
                              "demos/ImpTypes/ImpTypes/Progress.lean"]},
+    # IMP++ under its runtime typing ImpPlusTypes.Typed (SND-17): `<k>` in the cell map `<threads>`,
+    # four priority ranks, and the ending `kDone` (a thread may wait at `join` forever)
+    "impplustypes": {"ns": "ImpPlusTypes", "tier": "light", "dir": "demos/ImpPlusTypes",
+                     "sources": ["demos/ImpPlusTypes/ImpPlusTypes/ProgressDefs.lean",
+                                 "demos/ImpPlusTypes/ImpPlusTypes/Progress.lean"]},
 }
 
 DEMOS = {
