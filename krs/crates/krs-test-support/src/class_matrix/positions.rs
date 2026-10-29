@@ -285,7 +285,9 @@ pub enum Entry {
     MapValue,
     /// A set's element.
     SetElement,
-    /// A cell collection's instance, matched against the instances the collection holds.
+    /// A cell collection's instance written in braces: a Map collection's, matched against the
+    /// instances the collection holds, or a Set collection's, which is also the set's element
+    /// ([`Self::SetElement`]).
     Instance,
 }
 
@@ -445,8 +447,9 @@ pub enum Opening {
     SetElement,
     /// An element of a list read or written.
     ListElement,
-    /// A Map or List collection's instance in a pattern, which the collection holds as a value or
-    /// an element: matched. A Set collection's instance is its element ([`Self::SetElement`]).
+    /// A Set or Map collection's instance in a pattern, written in braces. A Map collection holds
+    /// it as the value its key cell maps to: matched. A Set collection's instance is also its
+    /// element ([`Self::SetElement`] follows). Only the cell's declared type tells the two apart.
     Instance,
 }
 

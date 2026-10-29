@@ -307,7 +307,7 @@ fn reads_x_and_applies(case: &Case) -> bool {
     reads_x && !value
 }
 
-const OVERRIDDEN: [(&str, &str); 61] = [
+const OVERRIDDEN: [(&str, &str); 63] = [
     (
         "import/alias/subject-root-binding/Go()",
         "static-clause-root-not-marked",
@@ -488,6 +488,14 @@ const OVERRIDDEN: [(&str, &str); 61] = [
     (
         "terms/local-rule/subject-root/map![x -> 1]",
         "function-in-pattern",
+    ),
+    (
+        "terms/readable/map-key-child/Cmd::Pair { a: x, ..x }",
+        "record-update-in-pattern",
+    ),
+    (
+        "terms/readable/map-value-child/Cmd::Pair { a: x, ..x }",
+        "record-update-in-pattern",
     ),
     (
         "terms/rule/guard/closure-body/Cmd::Pair { a: x, ..x }",

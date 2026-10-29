@@ -29,7 +29,7 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 22] = [
+const KNOWN: [(&str, &str); 21] = [
     // A claim's states and conditions hold `let` blocks and `k::matches!` as a rule's do, but no
     // prover lowers them in a claim, so the product refuses them there (NT-7-1); a `cells!`
     // claim's cell values are S0-17's.
@@ -55,10 +55,6 @@ const KNOWN: [(&str, &str); 22] = [
     (
         r"notation/readable/map-key/{let-pattern,matches-pattern}/{map![*,set![*,k::builtin::map::empty(),k::builtin::set::empty(),k::builtin::set::item(x),k::builtin::set::union(*}",
         "NT-3-2",
-    ),
-    (
-        r"terms/readable/set-instance-child/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::project!(Int\, x)}",
-        "NT-3-3",
     ),
     (
         r"terms/readable/set-instance-child/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
@@ -269,6 +265,8 @@ fn product_position(position: model::Position, reading: KeyReading) -> Position 
             in_map_key,
             in_computed_key: in_map_key && reading.computed,
             in_selected_key: in_map_key && reading.selected && nesting.local.is_none(),
+            // The walker knows an instance's braces, but not whose collection they write.
+            in_braced_instance: nesting.entries.contains(Entry::Instance) && slot == Slot::Subject,
         },
     };
     if nesting.rewrite == Some(RewriteSide::Right) {
@@ -380,7 +378,8 @@ enum Read {
 /// - `krs_syntax::notation::notation_in_pattern`: where a pattern is parsed, a subject or a local
 ///   pattern, a notation form is no pattern; elsewhere it is the application it denotes, which
 ///   the table's application row decides, in a key too (a readable map read parses its key as an
-///   expression, and a `cells!` map's as a pattern or else an expression); an index or a
+///   expression, and a `cells!` map's as a pattern or else an expression, as a braced collection
+///   instance's cells are, a Set's or a Map's, which only resolution tells apart); an index or a
 ///   collection method is the application it denotes in a pattern too;
 /// - a constant's value reader refuses an operator as no ground term, and reads an index, a
 ///   collection method or a collection literal as the calls it denotes;
@@ -395,10 +394,12 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
     }
     let pattern = matches!(position.kind, Kind::Matched | Kind::Evaluated);
     // A readable map read's key is read as an expression, a `cells!` map's as a pattern, or as
-    // an expression where no pattern parses: `x | 1` is alternatives there, `x + 1` the call.
-    let parsed_as_pattern = position.kind == Kind::Matched;
-    let or_is_alternatives =
-        parsed_as_pattern || (position.kind == Kind::Evaluated && position.form.writes_cells());
+    // an expression where no pattern parses: `x | 1` is alternatives there, `x + 1` the call. So
+    // is a braced collection instance's cell, a Set's or a Map's.
+    let braced = position.nesting.entries.contains(Entry::Instance);
+    let parsed_as_pattern = position.kind == Kind::Matched && !braced;
+    let or_is_alternatives = position.kind == Kind::Matched
+        || (position.kind == Kind::Evaluated && (position.form.writes_cells() || braced));
     let readable_value = matches!(
         position.form,
         model::Form::ReadableRule | model::Form::ReadableClaim
@@ -464,8 +465,9 @@ fn product(hole: model::Position, path: &[Opening], nodes: &[model::Node]) -> An
             Read::Table => {}
         }
         // Where a pattern is parsed, `x | 1` is alternatives, the table's `|` row.
+        let braced = position.nesting.entries.contains(Entry::Instance);
         let or_is_alternatives = position.kind == Kind::Matched
-            || (position.kind == Kind::Evaluated && position.form.writes_cells());
+            || (position.kind == Kind::Evaluated && (position.form.writes_cells() || braced));
         let read = match node.construct {
             model::Construct::Notation(Notation::BitwiseOr) if or_is_alternatives => {
                 model::Construct::Or

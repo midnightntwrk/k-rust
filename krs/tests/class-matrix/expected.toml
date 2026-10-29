@@ -1148,9 +1148,9 @@ match = 'terms/cells-claim/guard/closure-body/x | 1'
 class = "object-term-as-predicate"
 at = "spelling"
 
-# record-update-base (NT-2 review): a record update whose base `x` is no alias of a matched record, at a sibling whose product refuses it for another reason first, and at the review's new positions
+# record-update-base (NT-2 review): a record update whose base `x` is no alias of a matched record, at a sibling whose product refuses it for another reason first, and at the review's new positions; in a Map collection's instance (NT-10) the update is refused at resolution, which this sort mistake is told before
 [[refuse]]
-match = 'terms/{readable/map-key/beside-fresh,readable/set-instance-child,rule/subject/set-element-beside-fresh,rule/subject/set-element,simplification/guard}/Cmd::Pair \{ a: x\, ..x \}'
+match = 'terms/{readable/map-key/beside-fresh,readable/map-key-child,readable/map-value-child,readable/set-instance-child,rule/subject/set-element-beside-fresh,rule/subject/set-element,simplification/guard}/Cmd::Pair \{ a: x\, ..x \}'
 class = "record-update-base"
 at = "spelling"
 

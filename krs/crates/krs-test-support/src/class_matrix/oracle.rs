@@ -161,6 +161,21 @@ fn in_key_reading(position: Position) -> bool {
         && position.nesting.local.is_none()
 }
 
+/// Whether `position` lies in a Map collection's instance in a pattern over evaluated terms,
+/// outside a key and a local pattern: matched, but written in the braces a Set collection's
+/// instance is written in, which a pattern looks up instead. Only the cell's declared type tells
+/// the two apart, so the instance's cells are read as a key is, the notation there the call it
+/// denotes, and what a matched cell cannot hold is told by resolution.
+const fn in_map_instance(position: Position) -> bool {
+    position.nesting.entries.contains(Entry::Instance)
+        && !position.nesting.entries.contains(Entry::SetElement)
+        && !position.nesting.entries.contains(Entry::MapKey)
+        && matches!(position.kind, Kind::Matched)
+        && matches!(position.slot, Slot::Subject)
+        && position.nesting.local.is_none()
+        && position.form.matches_evaluated_terms()
+}
+
 /// Whether `construct` selects an entry by matching where a key reads it: a name nothing else
 /// binds, `_`, an alias, alternatives (`x | 1` reads as alternatives there), an open record, a
 /// list's rest.
@@ -395,6 +410,9 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
             if matches!(position.kind, Kind::Matched | Kind::Evaluated) =>
         {
             alternatives(position)
+        }
+        Construct::Notation(_) if in_map_instance(position) => {
+            application(Construct::BuiltinApplication, position)
         }
         Construct::Notation(_) => {
             if matches!(position.kind, Kind::Matched) {
@@ -636,6 +654,8 @@ const fn rewrite(position: Position) -> Option<Refusal> {
 const fn sort_test(position: Position) -> Option<Refusal> {
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
+    } else if in_map_instance(position) {
+        Some(resolution(Class::SortTestInPattern))
     } else if matches!(position.kind, Kind::Matched) && meets_evaluated_terms(position) {
         Some(placement(Class::SortTestInPattern))
     } else {
@@ -700,7 +720,9 @@ const fn record(construct: Construct, position: Position) -> Option<Refusal> {
     {
         Some(placement(Class::RecordRemainderInInitializer))
     } else if update {
-        if matches!(position.kind, Kind::Matched) {
+        if in_map_instance(position) {
+            Some(resolution(Class::RecordUpdateInPattern))
+        } else if matches!(position.kind, Kind::Matched) {
             Some(placement(Class::RecordUpdateInPattern))
         } else {
             None

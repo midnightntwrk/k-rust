@@ -1699,12 +1699,16 @@ fn slots() -> Vec<Slot> {
         ),
         // A Set collection's instance is its element, which the set is looked up by; a Map
         // collection pairs an instance's key cell with the whole instance as the value, so both
-        // its cells are matched.
+        // its cells are matched. Both are written in braces.
         slot(
             "readable",
             "set-instance-child",
             Side::Subject,
-            (ReadableRule, Part::Subject, &[SetElement, Argument, Argument]),
+            (
+                ReadableRule,
+                Part::Subject,
+                &[Instance, SetElement, Argument, Argument],
+            ),
             "k::rules! {\n    for Machine;\nUSES\n    case_TAG: { k: [Cmd::NAME(x, _), ..], token: { Token { mark: Cmd::Hold(HOLE) }, .. } } => { k: [..] };\n}\n",
         ),
         slot(
