@@ -264,8 +264,10 @@ fn check_error(target: &Path, replaced: &[(&str, &str)]) -> (String, String) {
 /// Over a remainder the subject leaves, a result writes only at keys the
 /// subject matched: the remainder may hold any other key, where K's frame,
 /// which joins the remainder with the entries, has no value; so such a key is
-/// an error at the key, bound or anonymous. A key written twice is an error at
-/// its second spelling.
+/// an error at the key, bound or anonymous. Writing it would need a term that
+/// moves the remainder, `items Rest => Rest [ k <- v ]`, which the IR has no
+/// shape for (finding NT-9-1). A key written twice is an error at its second
+/// spelling.
 #[test]
 fn a_key_the_remainder_can_hold_and_a_key_written_twice_are_errors() {
     let target = shared_fixture_target();
