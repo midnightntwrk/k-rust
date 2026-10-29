@@ -22,7 +22,7 @@ preserve = []
 
 [demo.HandoffConf]
 tier = "light"
-guarded = 9
+guarded = 14
 preserve = []
 
 [outputs]
@@ -31,7 +31,7 @@ preserve = []
 [sources]
 
 [sources.sha256]
-"demos/HandoffConf/HandoffConf/Views.lean" = { tier = "light", sha256 = "53fb5bb5e15ce2282081cb6e64769afb5d313923fa5981aff9a0684e392ba973" }
+"demos/HandoffConf/HandoffConf/Views.lean" = { tier = "light", sha256 = "0a5f119025308cf635d9c39f56f3bd418fb0d05563281a1d883f205bba8c07a8" }
 "demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "75e1535257e3cad04f08fff4abce354f6d7400df3154a2e6163af2af8e4ebeb0" }
 "demos/RaceConf/RaceConf/Confluence.lean" = { tier = "light", sha256 = "6babb033eefe8fed5b5a84e7b11510d957a8eb287bfcebcf7bf2a1cf24d66554" }
 "demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "c55fc58f8df1362826bcf25086e7e667cf25d10c8657a3ce7eb5e4f0f9a58f38" }
