@@ -6,15 +6,15 @@
   "syntax_module": "DRF-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "db636da966e0770b7e937ff776957af215f847115fd6e3a7540dd2dd977640cd"
+    "sha256": "f1d6534ecb5122a0622123ab83e007e6449ccabef138fe9aa9994f7f0f5d8e6c"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "14ff84655c5a4129bd7237c4a1e8d370c2f5b139d52dde030b8bd8c01e40cd76"
+    "sha256": "929c1fda80dba3663c719a4ad108c8794e36e0b6490fa562839279af396d2e06"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "d71614a5a1e281b391ca3547e4de1af076284d4a8e6f3dfdc13fe38628b5981a"
+    "sha256": "3c3d7fb9c03114413a59755be0ebba896ebc4611234b373ab5198f25ee900d70"
   },
   "configuration_variables": {
     "PGM": "Pgm"
@@ -151,6 +151,8 @@
     "5570c0b476990e1dceb5c91b728cd323357e1ca26968c758f9f9e10bcd2ca9a6",
     "2bdaa519de9ab2fe175e7b976fb05f1a1da2ab86ff2280d9317bba095b8c96b2",
     "07cd6bb741ca022d1b301dfe734fc766717f2dcf342348e0107723cbc25d8071",
+    "55e0e7218fd85acc0746c1d9040b816b81318f0bc367169302943153ef9f7469",
+    "fb639ed7126c91cdb37b9668849344553d079d0e55bf6151e745d28dc7ff9e25",
     "b068294081ac6972bc4f6f41810e35372b266d3869002b2dda3f388a8ff1293a",
     "48a3b38a4b8294615688afbd9c97b94c5ba4b4a7b4add88c4b024959cbf0214b",
     "3292d22ccafd705dea80539c5a59ccffa2c2c4a9931522f79ccf227f769e1ba7",

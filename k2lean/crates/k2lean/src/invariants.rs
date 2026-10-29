@@ -1472,7 +1472,9 @@ fn claims_fold_of(
 
 /// K's `noDup` of a list, recognized by its equations: `D(.List) => true` and
 /// `D(ListItem(X) L) => notBool (X in L) andBool D(L)`, both proved; its value is whether the
-/// list repeats no element (`KPrelude.ListHook.nodup_fn`).
+/// list repeats no element (`KPrelude.ListHook.nodup_fn`). The recognition is syntactic: a function
+/// with the same meaning written otherwise (the recursive call first, `L in` another test) is not
+/// recognized, and its fold of claims then gets the note that it is read by something else.
 struct NoDupFn {
     lean: String,
     base: String,
@@ -1619,8 +1621,29 @@ fn claims_uses_ok(
             q => claims_uses_ok(m, q, f, ds, uses),
         },
         P::App(s, _, _) if s == f => false,
-        P::App(_, _, a) => a.iter().all(|q| claims_uses_ok(m, q, f, ds, uses)),
-        _ => true,
+        P::App(_, _, a) | P::And(_, a) | P::Or(_, a) => {
+            a.iter().all(|q| claims_uses_ok(m, q, f, ds, uses))
+        }
+        // a side condition is a matching-logic connective (`\equals` of `==K`): look inside
+        P::Not(_, a)
+        | P::Exists(_, _, _, a)
+        | P::Forall(_, _, _, a)
+        | P::Ceil(_, _, a)
+        | P::Floor(_, _, a) => claims_uses_ok(m, a, f, ds, uses),
+        P::Implies(_, a, b)
+        | P::Iff(_, a, b)
+        | P::Rewrites(_, a, b)
+        | P::Equals(_, _, a, b)
+        | P::In(_, _, a, b) => {
+            claims_uses_ok(m, a, f, ds, uses) && claims_uses_ok(m, b, f, ds, uses)
+        }
+        P::Str(_)
+        | P::Var(..)
+        | P::SetVar(..)
+        | P::Dv(..)
+        | P::Top(_)
+        | P::Bottom(_)
+        | P::Other(_) => true,
     }
 }
 
@@ -3188,8 +3211,15 @@ pub fn emit(
         let ok = !dsyms.is_empty()
             && closure_fns.iter().all(|g| {
                 cx.eqs.get(g).is_none_or(|es| {
-                    es.iter()
-                        .all(|e| g == f || claims_uses_ok(m, &e.rhs, f, &dsyms, uses))
+                    // the right-hand side and the side conditions: a `requires` that reads `F`
+                    // outside `noDup` depends on the walk's order as much as a right-hand side
+                    es.iter().all(|e| {
+                        g == f
+                            || (claims_uses_ok(m, &e.rhs, f, &dsyms, uses)
+                                && e.requires
+                                    .iter()
+                                    .all(|r| claims_uses_ok(m, r, f, &dsyms, uses)))
+                    })
                 })
             });
         if !ok {

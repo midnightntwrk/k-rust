@@ -15,6 +15,7 @@ module DRF
   imports MAP
   imports BOOL
   imports LIST
+  imports K-EQUAL
   configuration <T>
       <k> $PGM:Pgm </k>
       <workers> <worker multiplicity="*" type="Map"> <wid> 0 </wid> <todo> 0 </todo> </worker> </workers>
@@ -54,4 +55,11 @@ module DRF
   rule noDup(ListItem(X) L) => notBool (X in L) andBool noDup(L)
   rule drfOk(<T> <k> K </k> WS:WorkersCell <acc> _ </acc> <next> _ </next> </T>)
     => noDup(wclaims(WS) kclaims(K))
+  // Not an invariant of the fixture: `k2lean/crates/k2lean/tests/cli.rs` checks that a fold of claims
+  // read outside `noDup` (here by `==K` in a side condition, which depends on the order K's map
+  // pattern takes the workers in) is not taken as a fold of claims.
+  syntax Bool ::= drfOrdered(TCell) [function, total]
+  rule drfOrdered(<T> <k> _ </k> WS:WorkersCell <acc> _ </acc> <next> _ </next> </T>) => noDup(wclaims(WS))
+    requires wclaims(WS) ==K ListItem(0) ListItem(1)
+  rule drfOrdered(_) => false [owise]
 endmodule

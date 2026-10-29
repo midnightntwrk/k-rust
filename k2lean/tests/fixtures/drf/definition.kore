@@ -1241,7 +1241,7 @@ module DRF
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,19,38,52)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,19,39,52)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     ),
@@ -1251,7 +1251,7 @@ module DRF
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,19,39,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,19,40,49)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     ),
@@ -1261,7 +1261,7 @@ module DRF
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,19,40,47)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,19,41,47)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     ),
@@ -1271,7 +1271,7 @@ module DRF
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,19,41,57)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,19,42,57)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     ),
@@ -1281,7 +1281,7 @@ module DRF
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,19,42,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,19,43,49)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     ),
@@ -1291,7 +1291,17 @@ module DRF
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,19,43,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,19,44,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/drf/drf.k)"
+    ),
+    total{}()
+  ]
+  symbol LbldrfOrdered'LParUndsRParUnds'DRF'Unds'Bool'Unds'TCell{}(SortTCell{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,19,61,54)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     ),
@@ -1303,7 +1313,7 @@ module DRF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,24,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     )
@@ -1315,7 +1325,7 @@ module DRF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,24,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     )
@@ -1327,7 +1337,7 @@ module DRF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,24,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     )
@@ -1339,7 +1349,7 @@ module DRF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,24,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     )
@@ -1369,7 +1379,7 @@ module DRF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,24,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     )
@@ -1383,7 +1393,7 @@ module DRF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,24,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     )
@@ -1395,7 +1405,7 @@ module DRF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,24,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     )
@@ -1407,7 +1417,7 @@ module DRF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,23,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,24,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/drf/drf.k)"
     )
@@ -2124,6 +2134,15 @@ module DRF
       \equals{SortBool{}, R}(
         Val:SortBool{},
         LblnoDup'LParUndsRParUnds'DRF'Unds'Bool'Unds'List{}(K0:SortList{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LbldrfOrdered'LParUndsRParUnds'DRF'Unds'Bool'Unds'TCell{}(K0:SortTCell{})
       )
     )
     [functional{}()]
@@ -6149,7 +6168,7 @@ module DRF
     [
       UNIQUE'Unds'ID{}("3bebe882833e44966bc6b513e81f70f63d6df7312850eb3a7773600d843c1b13"),
       label{}("put"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,27,35)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,3,28,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6207,7 +6226,7 @@ module DRF
     [
       UNIQUE'Unds'ID{}("a9abc051b5dc042d0cee323f904befcf2f3c0745a7387142047aaa0713a59bc9"),
       label{}("spawn"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,30,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,31,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6247,7 +6266,7 @@ module DRF
     [
       UNIQUE'Unds'ID{}("bea85c13ad06f1c5ad86c329395b5b4dc2b0d620348ebb6d7fa3bc5f37893817"),
       label{}("stop"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,3,31,45)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,32,45)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6262,7 +6281,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("4796c8404292cbb0c004189445be926f70c3b4a67c686533432153fa612877c0"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,30)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,3,45,30)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6294,7 +6313,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("fa89648eb03462cb83ad21717ae8db141282b3abf938e738274d7c986054f936"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,3,45,44)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,44)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       ),
@@ -6328,7 +6347,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("4dadc1d62c70908cc9cda42d543dcd236dcb79a26514d67dda64e587fd26f971"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,56)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,47,56)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6346,7 +6365,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("3472027449c60feab82ef924d40af582c7db8b629f715fa1715d13f15826ff9d"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,47,30)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,30)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6361,7 +6380,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("686b44cfebacdd0eb0116ae19cdb6faea76e0d621302f7d9f0083a830d23d905"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,28)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,28)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6391,7 +6410,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("91ee098b1985d7f96b2f3ea4e8c163c935eff0131d8a9dfe4c081c2e53df65e7"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,52)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,3,50,52)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6415,7 +6434,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("f65cee6e6ae766469aa2e8940b003887ca15cda6273b011b71fdc509bd27954c"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,3,50,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,3,51,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6458,7 +6477,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("447681019a5d2f2f4a0e2edf5f0a72398acc0e6562dfb3fdb5d65afc4e5a435c"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,3,52,54)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,53,54)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6473,7 +6492,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("5570c0b476990e1dceb5c91b728cd323357e1ca26968c758f9f9e10bcd2ca9a6"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(53,3,53,28)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,28)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6503,7 +6522,7 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("2bdaa519de9ab2fe175e7b976fb05f1a1da2ab86ff2280d9317bba095b8c96b2"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,65)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,55,65)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
@@ -6540,10 +6559,139 @@ module DRF
     )
     [
       UNIQUE'Unds'ID{}("07cd6bb741ca022d1b301dfe734fc766717f2dcf342348e0107723cbc25d8071"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,56,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,57,37)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/drf/drf.k)"
       )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbl'UndsEqlsEqls'K'Unds'{}(
+            kseq{}(
+              inj{SortList{}, SortKItem{}}(
+                Lblwclaims'LParUndsRParUnds'DRF'Unds'List'Unds'WorkersCell{}(
+                  VarWS:SortWorkersCell{}
+                )
+              ),
+              dotk{}()
+            ),
+            kseq{}(
+              inj{SortList{}, SortKItem{}}(
+                Lbl'Unds'List'Unds'{}(
+                  LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))),
+                  LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")))
+                )
+              ),
+              dotk{}()
+            )
+          ),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortTCell{}, R}(
+            X0:SortTCell{},
+            Lbl'-LT-'T'-GT-'{}(
+              Lbl'-LT-'k'-GT-'{}(Var'Unds'Gen0:SortK{}),
+              VarWS:SortWorkersCell{},
+              Lbl'-LT-'acc'-GT-'{}(Var'Unds'Gen1:SortInt{}),
+              Lbl'-LT-'next'-GT-'{}(Var'Unds'Gen2:SortInt{})
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LbldrfOrdered'LParUndsRParUnds'DRF'Unds'Bool'Unds'TCell{}(X0:SortTCell{}),
+        \and{SortBool{}}(
+          LblnoDup'LParUndsRParUnds'DRF'Unds'Bool'Unds'List{}(
+            Lblwclaims'LParUndsRParUnds'DRF'Unds'List'Unds'WorkersCell{}(VarWS:SortWorkersCell{})
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("55e0e7218fd85acc0746c1d9040b816b81318f0bc367169302943153ef9f7469"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(62,3,63,53)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/drf/drf.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen3:SortInt{},
+              \exists{R}(
+                Var'Unds'Gen4:SortInt{},
+                \exists{R}(
+                  Var'Unds'Gen1:SortK{},
+                  \exists{R}(
+                    Var'Unds'Gen2:SortWorkersCell{},
+                    \and{R}(
+                      \equals{SortBool{}, R}(
+                        Lbl'UndsEqlsEqls'K'Unds'{}(
+                          kseq{}(
+                            inj{SortList{}, SortKItem{}}(
+                              Lblwclaims'LParUndsRParUnds'DRF'Unds'List'Unds'WorkersCell{}(
+                                Var'Unds'Gen2:SortWorkersCell{}
+                              )
+                            ),
+                            dotk{}()
+                          ),
+                          kseq{}(
+                            inj{SortList{}, SortKItem{}}(
+                              Lbl'Unds'List'Unds'{}(
+                                LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))),
+                                LblListItem{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")))
+                              )
+                            ),
+                            dotk{}()
+                          )
+                        ),
+                        \dv{SortBool{}}("true")
+                      ),
+                      \and{R}(
+                        \in{SortTCell{}, R}(
+                          X0:SortTCell{},
+                          Lbl'-LT-'T'-GT-'{}(
+                            Lbl'-LT-'k'-GT-'{}(Var'Unds'Gen1:SortK{}),
+                            Var'Unds'Gen2:SortWorkersCell{},
+                            Lbl'-LT-'acc'-GT-'{}(Var'Unds'Gen3:SortInt{}),
+                            Lbl'-LT-'next'-GT-'{}(Var'Unds'Gen4:SortInt{})
+                          )
+                        ),
+                        \top{R}()
+                      )
+                    )
+                  )
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(\in{SortTCell{}, R}(X0:SortTCell{}, Var'Unds'Gen0:SortTCell{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LbldrfOrdered'LParUndsRParUnds'DRF'Unds'Bool'Unds'TCell{}(X0:SortTCell{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("fb639ed7126c91cdb37b9668849344553d079d0e55bf6151e745d28dc7ff9e25"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(64,3,64,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/drf/drf.k)"
+      ),
+      owise{}()
     ]
   axiom{R}
     \implies{R}(
@@ -9346,7 +9494,7 @@ module DRF
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,1,57,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,1,65,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/drf/drf.k)"
   )

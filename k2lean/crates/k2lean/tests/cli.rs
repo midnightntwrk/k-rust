@@ -445,6 +445,38 @@ fn folds_of_claims_read_by_nodup_get_their_order_free_form() {
     assert!(defs.contains("  KPrelude.MapHook.claimsOK_iff_of_unit Invariant.noDup_eq Invariant.mclaims_fold Invariant.mclaims_wfOf Invariant.mclaims_isSome m"), "{defs}");
     assert!(!defs.contains("mclaims_noDup_r"), "{defs}");
     assert!(thms.contains("Invariant.mclaims_noDup, Invariant.mclaims_noDup_cell, Invariant.mclaims_test, Invariant.mclaims_g, Invariant.mclaims_map"), "{thms}");
+
+    // `drfOrdered` reads `wclaims` by `==K` in a side condition, where its value depends on the
+    // order K's map pattern takes the workers in: not a fold of claims, and noted so
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/drf");
+    let out = d.join("drf-ordered");
+    std::fs::create_dir_all(&out).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("gen")
+        .arg("--kore")
+        .arg(dir.join("definition.kore"))
+        .arg("--runtime")
+        .arg(dir.join("runtime.json"))
+        .arg("--out")
+        .arg(&out)
+        .args([
+            "--name",
+            "Drf",
+            "--prelude",
+            "../../prelude",
+            "--invariant",
+            "drfOrdered@T",
+        ])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("the fold wclaims(_)_DRF_List_WorkersCell concatenates claims but is read by something other than noDup"),
+        "{err}"
+    );
+    let defs = std::fs::read_to_string(out.join("Drf/InvariantDefs.lean")).unwrap();
+    assert!(!defs.contains("Invariant.wclaims_fold"), "{defs}");
 }
 
 /// `gen --invariant ok` on the `kfold` fixture, whose invariant folds `<k>` with `kOk` and a
