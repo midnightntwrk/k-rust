@@ -470,7 +470,9 @@ the import did not reach, absent from it, is `unbuilt` (a library built only as 
 status. `--freeze-check` writes `OUTDIR/k2lean-result.json` too, of the recorded names.
 
 Each entry has its `name`, `kind`, `status`, `module` (where its theorem, else its statement, is:
-the module a loop evaluates with the first form) and `axioms`. The kind is read from the frozen name,
+the module a loop evaluates with the first form), `axioms`, and two fingerprints: `stmt`, of its
+statement, and `spec`, of the definitions the statement reaches (`withFingerprints`), so that a
+comparison of two results can tell an unchanged claim about unchanged definitions from a moved one. The kind is read from the frozen name,
 the generator's naming: `equation` (`NS.Eqn.*`, `NS.Simp.*`, `NS.Lemma.*`), `divergence`
 (`*.diverges`), `total` (`*.total`), `other` (any other guarded theorem or obligation). The status
 is `proved` (a theorem, of the statement's closure or its unfolding when there is a statement, on
@@ -508,6 +510,8 @@ structure Entry where
   status : String
   module : String
   axioms : Array Name := #[]
+  stmt : String := "-"
+  spec : String := "-"
 
 def moduleName (env : Environment) (n : Name) : Option String :=
   (env.getModuleIdxFor? n).map fun i => env.header.moduleNames[i.toNat]!.toString
@@ -553,6 +557,78 @@ def resultEntries (env : Environment) (ns : Name) (thms obls : Array Name) (refs
                       axioms := axs, module := (moduleName env n).getD "-" }
   return out.qsort (·.name.toString < ·.name.toString)
 
+def mix128 (a b : UInt64 × UInt64) : UInt64 × UInt64 :=
+  (mixHash a.1 b.1, mixHash (a.2 * 0x9E3779B97F4A7C15) (b.2 ^^^ 0xC2B2AE3D27D4EB4F))
+
+/-- Whether a module is the toolchain's (`Init`, `Std`, `Lean`, `Lake`), which `lean-toolchain` pins. -/
+def toolchainModule (m : Name) : Bool := [`Init, `Std, `Lean, `Lake].contains m.getRoot
+
+/-- The entries with their fingerprints: `stmt`, of the statement (an obligation's `X.statement`
+value, a definition's value, a theorem's type: what `k2lean.freeze`'s `stmt` lines hash), and
+`spec`, of the statement's closure through every definition outside the toolchain (as `closure`,
+stopping at theorems: each constant reached, with its type and value fingerprints, hashed in name
+order), so that an equal pair means the same claim about the same definitions; `-` for a name
+with neither. The closure goes on into the prelude and into the libraries the project imports (a
+demo's generated library, whose `Step` its statements name), where the frozen part stops at the
+library's own modules, since the comparison of two results is over everything a regeneration
+or an upgrade can change. What each constant contributes is computed once for all the entries. -/
+def withFingerprints (env : Environment) (es : Array Entry) : Array Entry := Id.run do
+  let mut cache : Std.HashMap Expr (UInt64 × UInt64) := {}
+  -- per constant: whether the closure takes it, its type and value fingerprint, what it mentions
+  let mut info : Std.HashMap Name (Bool × (UInt64 × UInt64) × Array Name) := {}
+  let mut out := #[]
+  for e in es do
+    let st? := match env.find? (e.name ++ `statement), env.find? e.name with
+      | some (.defnInfo d), _ => some d.value
+      | _, some (.defnInfo d) => some d.value
+      | _, some c => some c.type
+      | _, none => none
+    if st?.isNone then
+      out := out.push e
+      continue
+    let st := st?.get!
+    let (hs, c0) := (fpExpr st).run cache
+    cache := c0
+    let mut seen : Std.HashSet Name := {}
+    let mut work := st.getUsedConstants
+    let mut reached : Array (Name × (UInt64 × UInt64)) := #[]
+    while h : work.size > 0 do
+      let k := work.back
+      work := work.pop
+      if seen.contains k then continue
+      seen := seen.insert k
+      unless info.contains k do
+        let keep := match env.getModuleIdxFor? k with
+          | some i => !toolchainModule env.header.moduleNames[i.toNat]!
+          | none => false
+        let mut fp : UInt64 × UInt64 := (0, 0)
+        let mut deps : Array Name := #[]
+        if keep then
+          if let some c := env.find? k then
+            let (ht, c1) := (fpExpr c.type).run cache
+            cache := c1
+            fp := ht
+            deps := c.type.getUsedConstants
+            match c with
+            | .thmInfo _ => pure ()
+            | .inductInfo ii => deps := deps ++ ii.ctors.toArray
+            | _ =>
+              if let some v := c.value? then
+                let (hv, c2) := (fpExpr v).run cache
+                cache := c2
+                fp := mix128 fp hv
+                deps := deps ++ v.getUsedConstants
+        info := info.insert k (keep, fp, deps)
+      let (keep, fp, deps) := info[k]!
+      if keep then
+        reached := reached.push (k, fp)
+        work := work ++ deps
+    let sorted := reached.qsort (fun a b => a.1.toString < b.1.toString)
+    let hc := sorted.foldl (fun a (k, fp) => mix128 a (mix128 (k.hash, hash k.toString) fp))
+      (0x6A09E667F3BCC908, 0xBB67AE8584CAA73B)
+    out := out.push { e with stmt := hex128 hs, spec := hex128 hc }
+  return out
+
 /-- The result: the entries, and their number per kind and status. -/
 def resultJson (ns : Name) (es : Array Entry) : Json := Id.run do
   let mut totals : Std.HashMap String (Std.HashMap String Nat) := {}
@@ -563,7 +639,7 @@ def resultJson (ns : Name) (es : Array Entry) : Json := Id.run do
   return Json.mkObj [("ns", toJson ns.toString), ("totals", tj),
     ("entries", Json.arr (es.map fun e => Json.mkObj [("name", toJson e.name.toString),
       ("kind", toJson e.kind), ("status", toJson e.status), ("module", toJson e.module),
-      ("axioms", toJson (e.axioms.map toString))]))]
+      ("axioms", toJson (e.axioms.map toString)), ("stmt", toJson e.stmt), ("spec", toJson e.spec)]))]
 
 unsafe def result (ns : Name) (out : System.FilePath) (mods : Array Name) : IO UInt32 := do
   let guards ← guardFiles "."
@@ -573,6 +649,7 @@ unsafe def result (ns : Name) (out : System.FilePath) (mods : Array Name) : IO U
   let unreached : Std.HashSet Name := guards.foldl (init := {}) fun a (m, g) =>
     if (env.getModuleIdx? m).isSome then a else g.foldl (fun a (n, sp, _) => a.insert (resolve env n sp)) a
   let es ← resultEntries env ns thms (obligations env (ownModule ns #[])) (refutations env guards) {} unreached
+  let es := withFingerprints env es
   let j := resultJson ns es
   IO.FS.writeFile out (j.pretty ++ "\n")
   IO.println (Json.mkObj [("ns", toJson ns.toString), ("entries", toJson es.size),
@@ -625,7 +702,7 @@ unsafe def freezeCheck (ns : Name) (out : System.FilePath) : IO UInt32 := do
   for (k, n) in rep do IO.println (Json.mkObj [("kind", toJson k), ("name", toJson n)]).compress
   -- the result (CT-4b) of the recorded names: what a loop's run is judged by
   let thms := was.stmts.foldl (fun a (_, r) => a ++ r.map (·.1)) #[]
-  let es ← resultEntries env ns thms was.obls was.refutes movedNames {}
+  let es := withFingerprints env (← resultEntries env ns thms was.obls was.refutes movedNames {})
   IO.FS.writeFile (out / "k2lean-result.json") ((resultJson ns es).pretty ++ "\n")
   let moved := rep.filter (·.1 != "open")
   IO.println (Json.mkObj [("ns", toJson ns.toString), ("open", toJson (rep.size - moved.size)),
