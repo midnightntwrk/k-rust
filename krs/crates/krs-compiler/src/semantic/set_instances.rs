@@ -15,7 +15,8 @@
 //! (a function's application, an operator, a sort test) as a fresh variable,
 //! which a guard of the rule equates with the value the construct computes:
 //! `Obj { oid: n + 1, hits: 0 }` is `<obj> <oid> V </oid> <hits> 0 </hits>
-//! </obj>` with `requires V ==K N +Int 1`. The two denote the same rule:
+//! </obj>` with `requires V ==K N +Int 1`, ahead of the author's condition,
+//! which reads the lookup's result. The two denote the same rule:
 //!
 //! - matching binds `V` to the cell's value in an instance of the
 //!   collection, and the guard holds exactly when that value is the computed
@@ -51,7 +52,9 @@ pub(super) struct InstanceGuards {
     /// numbers this builder's fresh variables after theirs.
     offset: usize,
     guards: Vec<Guard>,
-    /// Whether a looked-up instance's cell is being lowered.
+    /// Whether a looked-up instance's cell is being lowered: a readable
+    /// rule's one builder keeps the rule's guards from its first instance to
+    /// its condition, and guards only while it lowers such a cell.
     active: bool,
 }
 
@@ -81,8 +84,8 @@ impl InstanceGuards {
         self.active
     }
 
-    /// Lowers a looked-up instance's cell with `lower`, guarding what it
-    /// computes.
+    /// Sets whether a looked-up instance's cell is being lowered, where what
+    /// it computes is guarded.
     pub(super) fn activate(&mut self, active: bool) {
         self.active = active;
     }
@@ -173,7 +176,9 @@ impl StructuredTermBuilder<'_> {
 }
 
 /// `requires` with the guards of the sentence's looked-up instances before
-/// it: the guards, then the author's condition, joined by `andBool`.
+/// it: the guards, then the author's condition, joined by `andThenBool`. The
+/// guards are the lookup, which the author's condition reads the result of,
+/// so it is evaluated only once they hold, as after a lookup's match.
 ///
 /// # Errors
 ///
@@ -213,7 +218,7 @@ pub(super) fn guarded_requires(
         term = SemanticTerm::application(
             semantic_origin(descriptor, key, "instance-guard-and")?,
             bool_sort.clone(),
-            ApplicationRef::Builtin(BuiltinOperation::BoolAnd),
+            ApplicationRef::Builtin(BuiltinOperation::BoolAndThen),
             vec![conjunct, term],
         );
     }

@@ -19,9 +19,10 @@
 //! map's value and a list's element (a List cell's, a cons list's). So is a
 //! cell collection's instance: a List collection's instance is its element,
 //! and a Map collection pairs an instance's key cell with the whole instance,
-//! key cell included, as the value it maps to. A sort test and a record
-//! update there are refused too: the walker cannot tell a Map collection's
-//! braces from a Set collection's, so it leaves them here. A `let` or
+//! key cell included, as the value it maps to. A record update there is
+//! refused too: the walker cannot tell a Map collection's braces from a Set
+//! collection's, so it leaves it here (and a sort test, which lowering
+//! refuses in a pattern over evaluated terms). A `let` or
 //! `k::matches!` pattern matches the value its term computed, evaluated as
 //! well, wherever it stands ([`check_local_pattern`]).
 //!
@@ -201,19 +202,10 @@ fn sentence_patterns<'t>(
 fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringError {
     let item = Box::new(descriptor.id().clone());
     let range = key_range(descriptor, found.key).map(Box::new);
-    let instance = "stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to";
     let function = match &found.what {
         What::Function(function) => function,
-        What::SortTest => {
-            return DescriptorLoweringError::InvalidSortTest {
-                item,
-                reason: format!(
-                    "a sort test {instance}; `k::is!` and `k::project!` compute from a term, and those cells hold their values as they are, so this pattern describes a term that never occurs and the sentence never applies: restrict a binder's sort with a typed parameter or `where x: Sort` instead"
-                ),
-                range,
-            };
-        }
         What::RecordUpdate => {
+            let instance = instance_place(found.place);
             return DescriptorLoweringError::RecordUpdateInPattern {
                 item,
                 reason: format!(
@@ -230,8 +222,9 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
         (Place::Entry, _) => format!(
             "{function} stands in a collection's value or element (a map's value, a list's element), which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); a map's key or a set's element whose every part is computed from names bound elsewhere is looked up by its value instead"
         ),
-        (Place::Instance, _) => format!(
-            "{function} stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)"
+        (Place::Instance(_), _) => format!(
+            "{function} {}; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
+            instance_place(found.place)
         ),
         (Place::Pattern, root) => {
             let method = match found.application {
@@ -317,8 +310,9 @@ enum Place {
     Pattern,
     /// A collection's value or element in the subject.
     Entry,
-    /// A child of a List or a Map collection's instance in the subject.
-    Instance,
+    /// A child of a List or a Map collection's instance in the subject, of the
+    /// collection's type when the declarations tell it.
+    Instance(Option<CellCollectionType>),
     /// A `let` or `k::matches!` pattern.
     Local,
 }
@@ -327,10 +321,24 @@ enum Place {
 enum What {
     /// A function's application, named for a diagnostic.
     Function(String),
-    /// A sort test, in a collection's instance.
-    SortTest,
     /// A record update, in a collection's instance.
     RecordUpdate,
+}
+
+/// Where a construct in a collection's instance stands, and why the instance
+/// is matched, for a diagnostic.
+fn instance_place(place: Place) -> &'static str {
+    match place {
+        Place::Instance(Some(CellCollectionType::Map)) => {
+            "stands in a Map collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, so its cells are values a match compares (decision D1), where a Set collection's computed instance is looked up as the set's element"
+        }
+        Place::Instance(Some(CellCollectionType::List)) => {
+            "stands in a List collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, matched as a list's element is (decision D1)"
+        }
+        _ => {
+            "stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to"
+        }
+    }
 }
 
 /// The root of a matched slot.
@@ -411,16 +419,14 @@ impl Patterns<'_> {
         cell: Option<&DescriptorCellIdentity>,
         instances: &'t ProtocolRuleInstances<DescriptorTerm>,
     ) -> Result<(), Found<'t>> {
-        let set = cell
+        let collection = cell
             .zip(self.declarations)
-            .is_some_and(|(cell, declarations)| {
-                collection_type(declarations, cell) == Some(CellCollectionType::Set)
-            });
-        if set {
+            .and_then(|(cell, declarations)| collection_type(declarations, cell));
+        if collection == Some(CellCollectionType::Set) {
             return Ok(());
         }
         let children = Self {
-            place: Place::Instance,
+            place: Place::Instance(collection),
             ..*self
         };
         instances
@@ -470,7 +476,7 @@ impl Patterns<'_> {
             } => {
                 // The walker cannot tell a Map collection's braces from a Set
                 // collection's, whose instance a record update may compute.
-                if self.place == Place::Instance && update.is_some() {
+                if matches!(self.place, Place::Instance(_)) && update.is_some() {
                     return Err(Found {
                         key: &reference.key,
                         application: None,
@@ -525,15 +531,6 @@ impl Patterns<'_> {
             DescriptorTerm::Cell { fields, .. } => fields
                 .iter()
                 .try_for_each(|field| self.term(&field.value, None)),
-            // The walker leaves a sort test in a collection's instance here,
-            // where the collection's type tells a Map's from a Set's.
-            DescriptorTerm::SortTest { key, .. } if self.place == Place::Instance => Err(Found {
-                key,
-                application: None,
-                what: What::SortTest,
-                root,
-                place: self.place,
-            }),
             // The term walker refuses a test, a `let`, a predicate and a
             // claim's values in a pattern; the rest are leaves.
             DescriptorTerm::Variable { .. }

@@ -732,8 +732,8 @@ impl<'t> Key<'_, 't> {
             EntryKey::Term(term) => return self.term(term, None),
             EntryKey::Instance(instance) => instance,
         };
-        if matches!(instance.rest, ProtocolInstanceRest::Open) && self.selection.is_none() {
-            self.selection = Some("`..`, which leaves the instance's other cells open".to_owned());
+        if matches!(instance.rest, ProtocolInstanceRest::Open) {
+            self.select("`..`, which leaves the instance's other cells open");
         }
         for field in &instance.fields {
             self.cell_state(&field.value);
@@ -748,29 +748,49 @@ impl<'t> Key<'_, 't> {
                 self.term(term, None);
             }
             ProtocolRuleStateTerm::KSequence(sequence) => {
-                if !matches!(sequence.tail, ProtocolRuleFrame::Exact) && self.selection.is_none() {
-                    self.selection = Some(
-                        "`..` in a cell's sequence, which leaves its other items open".to_owned(),
-                    );
+                if !matches!(sequence.tail, ProtocolRuleFrame::Exact) {
+                    self.select("`..` in a cell's sequence, which leaves its other items open");
                 }
                 for item in &sequence.items {
                     self.term(&item.value, None);
                 }
             }
             ProtocolRuleStateTerm::Present { value } => self.cell_state(value),
-            // A map's, an optional cell's and a collection's entries match among
-            // what the cell holds.
-            ProtocolRuleStateTerm::Map(_)
-            | ProtocolRuleStateTerm::Absent
-            | ProtocolRuleStateTerm::Instances(_) => {
-                if self.selection.is_none() {
-                    self.selection =
-                        Some("a cell whose entries match among those it holds".to_owned());
+            // An exact map is the value its entries write; `..` leaves its
+            // other entries open.
+            ProtocolRuleStateTerm::Map(map) => match &map.body {
+                ProtocolRuleMapBody::Empty { .. } => {}
+                ProtocolRuleMapBody::Items { items, remainder } => {
+                    if !matches!(remainder, ProtocolRuleFrame::Exact) {
+                        self.select("`..` in a cell's map, which leaves its other entries open");
+                    }
+                    for item in items {
+                        self.term(&item.key, None);
+                        self.term(&item.value, None);
+                    }
                 }
+                ProtocolRuleMapBody::Update { .. } => {
+                    self.select("a map update, which a result writes and no pattern matches");
+                    for term in state.terms() {
+                        self.term(term, None);
+                    }
+                }
+            },
+            // An instance record names no optional or collection child, which
+            // lowering refuses; such a cell matches among what it holds.
+            ProtocolRuleStateTerm::Absent | ProtocolRuleStateTerm::Instances(_) => {
+                self.select("an optional or collection cell, which an instance record cannot name");
                 for term in state.terms() {
                     self.term(term, None);
                 }
             }
+        }
+    }
+
+    /// Makes the key a selection by `selector`, unless something else did first.
+    fn select(&mut self, selector: &str) {
+        if self.selection.is_none() {
+            self.selection = Some(selector.to_owned());
         }
     }
 
