@@ -272,6 +272,19 @@ macro_rules! operator_registry {
 
 krs_ir::__krs_builtin_operator_catalog!(operator_registry);
 
+macro_rules! collection_method_registry {
+    ($(
+        $(#[$meta:meta])*
+        $variant:ident { rust_name: $name:ident, $($fact:tt)* }
+    )*) => {
+        fn collection_method_registry() -> [HostTypeKey; krs_ir::CollectionMethod::ALL.len()] {
+            [$(HostTypeKey(TypeId::of::<builtin::__collection::$name>)),*]
+        }
+    };
+}
+
+krs_ir::__krs_collection_method_catalog!(collection_method_registry);
+
 fn list_notation_registry() -> [HostTypeKey; krs_ir::ListNotation::ALL.len()] {
     [
         HostTypeKey(TypeId::of::<builtin::__list::Cons>),
@@ -290,7 +303,8 @@ fn list_notation_registry() -> [HostTypeKey; krs_ir::ListNotation::ALL.len()] {
 /// The returned registry has one entry for every [`BuiltinSort::ALL`],
 /// [`BuiltinOperation::ALL`], [`TermMapOperation::ALL`], [`ListOperation::ALL`],
 /// [`SetOperation::ALL`], [`krs_ir::MlConnective::ALL`],
-/// [`krs_ir::BuiltinOperator::ALL`], and [`krs_ir::ListNotation::ALL`] member and passes
+/// [`krs_ir::BuiltinOperator::ALL`], [`krs_ir::ListNotation::ALL`], and
+/// [`krs_ir::CollectionMethod::ALL`] member and passes
 /// [`HostBuiltinRegistry::validate`].
 #[must_use]
 pub fn builtin_registry() -> HostBuiltinRegistry {
@@ -303,6 +317,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         ml_connectives: ml_connective_registry(),
         operators: operator_registry(),
         list_notation: list_notation_registry(),
+        collection_methods: collection_method_registry(),
     }
 }
 

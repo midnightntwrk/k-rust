@@ -1290,6 +1290,15 @@ impl StructuredTermBuilder<'_> {
                     partial,
                 );
             }
+            DescriptorApplicationRef::CollectionMethod(method) => {
+                return self.infer_collection_method(
+                    reference,
+                    *method,
+                    arguments,
+                    expected_sort,
+                    subject,
+                );
+            }
         };
         self.admit(
             &reference.key,
@@ -2146,6 +2155,14 @@ impl StructuredTermBuilder<'_> {
             | DescriptorApplicationRef::Ml(_)
             | DescriptorApplicationRef::Operator(_)
             | DescriptorApplicationRef::ListNotation(_) => false,
+            // A method is the call of its domain's operation once its
+            // receiver chooses the domain.
+            DescriptorApplicationRef::CollectionMethod(method) => self
+                .operators
+                .methods
+                .get(&reference.key)
+                .and_then(|domain| method.reading(*domain))
+                .is_some_and(|reading| reading.spec().is_projected()),
         };
         projected.then(|| self.k_item_sort.clone()).or(matched)
     }
@@ -2281,6 +2298,16 @@ impl StructuredTermBuilder<'_> {
                     instance,
                     expected_sort,
                     record,
+                    head,
+                );
+            }
+            DescriptorApplicationRef::CollectionMethod(method) => {
+                return self.lower_collection_method(
+                    reference,
+                    *method,
+                    arguments,
+                    expected_sort,
+                    subject,
                     head,
                 );
             }

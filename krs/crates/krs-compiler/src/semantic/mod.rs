@@ -3,6 +3,7 @@
 mod catalog;
 mod cell_alternatives;
 mod cell_states;
+mod collection_methods;
 mod collection_types;
 mod configuration;
 mod configuration_rules;
@@ -519,6 +520,19 @@ pub(crate) fn application_source_key(
     key: &krs_ir::ProvenanceKey,
 ) -> Option<krs_ir::SourceMapKey> {
     origin::semantic_origin(descriptor, key.clone(), "term-application")
+        .ok()
+        .map(|origin| origin.key().clone())
+}
+
+/// The source-map key of the term semantic lowering labels `label` at the
+/// node with provenance `key`, as [`application_source_key`] gives an
+/// application's.
+pub(crate) fn semantic_source_key(
+    descriptor: &Descriptor,
+    key: &krs_ir::ProvenanceKey,
+    label: &str,
+) -> Option<krs_ir::SourceMapKey> {
+    origin::semantic_origin(descriptor, key.clone(), label)
         .ok()
         .map(|origin| origin.key().clone())
 }

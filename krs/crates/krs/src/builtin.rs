@@ -1100,3 +1100,68 @@ pub mod __list {
     pub use Empty as empty;
     pub use Snoc as snoc;
 }
+
+/// Markers for index reads and collection methods in a term (`m[k]`,
+/// `s.contains(x)`), before KRS chooses the collection domain they read in.
+///
+/// Expansion writes `m[k]` as `__collection::index(m, k)` and a method as a
+/// call of its marker with the arguments of the call it denotes, in that
+/// call's order (`s.contains(x)` is `__collection::contains(x, s)`), so rustc
+/// checks the operands without resolving a Rust method. Each marker accepts
+/// operands of any type: semantic analysis chooses `map::get` or `list::get`
+/// from the receiver's inferred sort.
+#[doc(hidden)]
+pub mod __collection {
+    /// Marker for `m[k]` and `l[i]`.
+    pub struct Index<A = (), B = ()>(pub A, pub B);
+    /// Marker for `m.get_or(k, d)`.
+    pub struct GetOr<A = (), B = (), C = ()>(pub A, pub B, pub C);
+    /// Marker for `m.contains_key(k)`, written `contains_key(k, m)`.
+    pub struct ContainsKey<A = (), B = ()>(pub A, pub B);
+    /// Marker for `m.update(k, v)` and `l.update(i, x)`.
+    pub struct Update<A = (), B = (), C = ()>(pub A, pub B, pub C);
+    /// Marker for `m.without(k)`.
+    pub struct Without<A = (), B = ()>(pub A, pub B);
+    /// Marker for `m.without_all(s)`.
+    pub struct WithoutAll<A = (), B = ()>(pub A, pub B);
+    /// Marker for `m.extend(n)`.
+    pub struct Extend<A = (), B = ()>(pub A, pub B);
+    /// Marker for `m.keys()`.
+    pub struct Keys<A = ()>(pub A);
+    /// Marker for `m.keys_list()`.
+    pub struct KeysList<A = ()>(pub A);
+    /// Marker for `m.values()`.
+    pub struct Values<A = ()>(pub A);
+    /// Marker for `c.len()`.
+    pub struct Len<A = ()>(pub A);
+    /// Marker for `c.contains(x)`, written `contains(x, c)`.
+    pub struct Contains<A = (), B = ()>(pub A, pub B);
+    /// Marker for `s.union(t)`.
+    pub struct Union<A = (), B = ()>(pub A, pub B);
+    /// Marker for `s.difference(t)`.
+    pub struct Difference<A = (), B = ()>(pub A, pub B);
+    /// Marker for `s.intersection(t)`.
+    pub struct Intersection<A = (), B = ()>(pub A, pub B);
+    /// Marker for `s.is_subset(t)`.
+    pub struct IsSubset<A = (), B = ()>(pub A, pub B);
+    /// Marker for `s.to_list()`.
+    pub struct ToList<A = ()>(pub A);
+
+    pub use Contains as contains;
+    pub use ContainsKey as contains_key;
+    pub use Difference as difference;
+    pub use Extend as extend;
+    pub use GetOr as get_or;
+    pub use Index as index;
+    pub use Intersection as intersection;
+    pub use IsSubset as is_subset;
+    pub use Keys as keys;
+    pub use KeysList as keys_list;
+    pub use Len as len;
+    pub use ToList as to_list;
+    pub use Union as union;
+    pub use Update as update;
+    pub use Values as values;
+    pub use Without as without;
+    pub use WithoutAll as without_all;
+}

@@ -3262,6 +3262,408 @@ impl CollectionApplication for SetOperation {
     }
 }
 
+/// A collection sort whose operations a collection method can denote: K's
+/// `Map`, `List` and `Set`.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CollectionDomain {
+    /// K's `Map`.
+    Map,
+    /// K's `List`.
+    List,
+    /// K's `Set`.
+    Set,
+}
+
+impl CollectionDomain {
+    /// Every domain, in the order diagnostics list them.
+    pub const ALL: [Self; 3] = [Self::Map, Self::List, Self::Set];
+
+    /// The domain's builtin sort.
+    #[must_use]
+    pub const fn sort(self) -> BuiltinSort {
+        match self {
+            Self::Map => BuiltinSort::Map,
+            Self::List => BuiltinSort::List,
+            Self::Set => BuiltinSort::Set,
+        }
+    }
+
+    /// The domain of a builtin sort, if collection methods read in it.
+    #[must_use]
+    pub const fn of_sort(sort: BuiltinSort) -> Option<Self> {
+        match sort {
+            BuiltinSort::Map => Some(Self::Map),
+            BuiltinSort::List => Some(Self::List),
+            BuiltinSort::Set => Some(Self::Set),
+            _ => None,
+        }
+    }
+
+    /// The domain's sort as written (`Map`).
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Map => "Map",
+            Self::List => "List",
+            Self::Set => "Set",
+        }
+    }
+}
+
+/// The collection operation a [`CollectionMethod`] denotes in one domain.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CollectionReading {
+    /// A Map operation.
+    Map(TermMapOperation),
+    /// A List operation.
+    List(ListOperation),
+    /// A Set operation.
+    Set(SetOperation),
+}
+
+impl CollectionReading {
+    /// The operation's pinned specification.
+    #[must_use]
+    pub const fn spec(self) -> &'static CollectionOperationSpec {
+        match self {
+            Self::Map(operation) => operation.spec(),
+            Self::List(operation) => operation.spec(),
+            Self::Set(operation) => operation.spec(),
+        }
+    }
+
+    /// The facade marker of the call the method denotes (`map::get`).
+    #[must_use]
+    pub const fn facade_marker(self) -> FacadeMarker {
+        match self {
+            Self::Map(operation) => operation.facade_marker(),
+            Self::List(operation) => operation.facade_marker(),
+            Self::Set(operation) => operation.facade_marker(),
+        }
+    }
+}
+
+/// How a collection method is written: `receiver[index]`, or
+/// `receiver.name(arguments..)`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollectionMethodSpelling {
+    /// `m[k]`.
+    Index,
+    /// `m.name(..)`, named by the row's `rust_name`.
+    Method,
+}
+
+/// The closed table of collection methods: index reads and methods without a
+/// turbofish, in stable semantic order, passed to `$callback`.
+///
+/// Each row names its facade marker (`rust_name`, the method's name for a
+/// method), how it is written, the argument of the denoted call its receiver
+/// fills (`receiver`), and the operation it denotes in each domain, or
+/// `None` where the domain has no such method. The receiver's sort chooses
+/// the domain. A method exists where the collection is the natural receiver
+/// and the Rust name does not mislead: a constructor (`empty`, `item`,
+/// `list::make`, `set::from_list`) has no receiver; `set::concat` is defined
+/// only on disjoint operands and `list::concat` joins two lists as no one
+/// receiver's method; `list::range(l, i, j)` trims `i` elements from the
+/// front and `j` from the back, which is no slice `i..j`, and
+/// `list::update_all` replaces a region; each keeps its call as its only form.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __krs_collection_method_catalog {
+    ($callback:path) => {
+        $callback! {
+            /// `m[k]` is `map::get(m, k)` and `l[i]` is `list::get(l, i)`,
+            /// partial as the calls are; a negative `i` counts from the end.
+            Index {
+                rust_name: index,
+                written: Index,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::Get),
+                list: Some($crate::ListOperation::Get),
+                set: None,
+            }
+            /// `m.get_or(k, d)` is `map::get_or_default(m, k, d)`.
+            GetOr {
+                rust_name: get_or,
+                written: Method,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::GetOrDefault),
+                list: None,
+                set: None,
+            }
+            /// `m.contains_key(k)` is `map::in_keys(k, m)`.
+            ContainsKey {
+                rust_name: contains_key,
+                written: Method,
+                receiver: 1,
+                map: Some($crate::TermMapOperation::InKeys),
+                list: None,
+                set: None,
+            }
+            /// `m.update(k, v)` is `map::update(m, k, v)` and `l.update(i, x)`
+            /// is `list::update(l, i, x)`.
+            Update {
+                rust_name: update,
+                written: Method,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::Update),
+                list: Some($crate::ListOperation::Update),
+                set: None,
+            }
+            /// `m.without(k)` is `map::remove(m, k)`.
+            Without {
+                rust_name: without,
+                written: Method,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::Remove),
+                list: None,
+                set: None,
+            }
+            /// `m.without_all(s)` is `map::remove_all(m, s)`.
+            WithoutAll {
+                rust_name: without_all,
+                written: Method,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::RemoveAll),
+                list: None,
+                set: None,
+            }
+            /// `m.extend(n)` is `map::update_all(m, n)`.
+            Extend {
+                rust_name: extend,
+                written: Method,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::UpdateAll),
+                list: None,
+                set: None,
+            }
+            /// `m.keys()` is `map::keys(m)`.
+            Keys {
+                rust_name: keys,
+                written: Method,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::Keys),
+                list: None,
+                set: None,
+            }
+            /// `m.keys_list()` is `map::keys_list(m)`.
+            KeysList {
+                rust_name: keys_list,
+                written: Method,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::KeysList),
+                list: None,
+                set: None,
+            }
+            /// `m.values()` is `map::values(m)`.
+            Values {
+                rust_name: values,
+                written: Method,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::Values),
+                list: None,
+                set: None,
+            }
+            /// `c.len()` is `map::size(c)`, `list::size(c)` or `set::size(c)`.
+            Len {
+                rust_name: len,
+                written: Method,
+                receiver: 0,
+                map: Some($crate::TermMapOperation::Size),
+                list: Some($crate::ListOperation::Size),
+                set: Some($crate::SetOperation::Size),
+            }
+            /// `l.contains(x)` is `list::contains(x, l)` and `s.contains(x)` is
+            /// `set::contains(x, s)`.
+            Contains {
+                rust_name: contains,
+                written: Method,
+                receiver: 1,
+                map: None,
+                list: Some($crate::ListOperation::Contains),
+                set: Some($crate::SetOperation::Contains),
+            }
+            /// `s.union(t)` is `set::union(s, t)`.
+            Union {
+                rust_name: union,
+                written: Method,
+                receiver: 0,
+                map: None,
+                list: None,
+                set: Some($crate::SetOperation::Union),
+            }
+            /// `s.difference(t)` is `set::difference(s, t)`.
+            Difference {
+                rust_name: difference,
+                written: Method,
+                receiver: 0,
+                map: None,
+                list: None,
+                set: Some($crate::SetOperation::Difference),
+            }
+            /// `s.intersection(t)` is `set::intersect(s, t)`.
+            Intersection {
+                rust_name: intersection,
+                written: Method,
+                receiver: 0,
+                map: None,
+                list: None,
+                set: Some($crate::SetOperation::Intersect),
+            }
+            /// `s.is_subset(t)` is `set::is_subset(s, t)`.
+            IsSubset {
+                rust_name: is_subset,
+                written: Method,
+                receiver: 0,
+                map: None,
+                list: None,
+                set: Some($crate::SetOperation::IsSubset),
+            }
+            /// `s.to_list()` is `set::to_list(s)`.
+            ToList {
+                rust_name: to_list,
+                written: Method,
+                receiver: 0,
+                map: None,
+                list: None,
+                set: Some($crate::SetOperation::ToList),
+            }
+        }
+    };
+}
+
+macro_rules! define_collection_methods {
+    ($(
+        $(#[$meta:meta])*
+        $variant:ident {
+            rust_name: $name:ident,
+            written: $written:ident,
+            receiver: $receiver:literal,
+            map: $map:expr,
+            list: $list:expr,
+            set: $set:expr $(,)?
+        }
+    )*) => {
+        /// An index read or a collection method without a turbofish, which
+        /// denotes the collection operation of the domain its receiver's
+        /// inferred sort chooses.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum CollectionMethod {
+            $($(#[$meta])* $variant,)*
+        }
+
+        impl CollectionMethod {
+            /// Every method, in stable semantic order.
+            pub const ALL: [Self; [$(stringify!($variant)),*].len()] = [$(Self::$variant),*];
+
+            /// The facade marker's name; a method's name as written.
+            #[must_use]
+            pub const fn rust_name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => stringify!($name),)*
+                }
+            }
+
+            /// How the method is written.
+            #[must_use]
+            pub const fn spelling(self) -> CollectionMethodSpelling {
+                match self {
+                    $(Self::$variant => CollectionMethodSpelling::$written,)*
+                }
+            }
+
+            /// The argument of the denoted call that the receiver fills: the
+            /// collection is second in `map::in_keys(k, m)`, `list::contains(x, l)`
+            /// and `set::contains(x, s)`, K's `K in_keys(M)`, `K in L` and `K in S`.
+            #[must_use]
+            pub const fn receiver(self) -> usize {
+                match self {
+                    $(Self::$variant => $receiver,)*
+                }
+            }
+
+            /// What the method denotes in `domain`, or `None` when the domain
+            /// has no such method.
+            #[must_use]
+            pub const fn reading(self, domain: CollectionDomain) -> Option<CollectionReading> {
+                match (self, domain) {
+                    $(
+                        (Self::$variant, CollectionDomain::Map) => match $map {
+                            Some(operation) => Some(CollectionReading::Map(operation)),
+                            None => None,
+                        },
+                        (Self::$variant, CollectionDomain::List) => match $list {
+                            Some(operation) => Some(CollectionReading::List(operation)),
+                            None => None,
+                        },
+                        (Self::$variant, CollectionDomain::Set) => match $set {
+                            Some(operation) => Some(CollectionReading::Set(operation)),
+                            None => None,
+                        },
+                    )*
+                }
+            }
+        }
+    };
+}
+
+__krs_collection_method_catalog!(define_collection_methods);
+
+impl CollectionMethod {
+    /// The facade marker an index or a method names before its receiver's
+    /// sort chooses the domain (`builtin::__collection::get_or`).
+    #[must_use]
+    pub const fn facade_marker(self) -> FacadeMarker {
+        FacadeMarker {
+            module: "__collection",
+            name: self.rust_name(),
+        }
+    }
+
+    /// The method written `receiver.name(..)` without a turbofish, if a row
+    /// has that name; an index has none.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|method| {
+            matches!(method.spelling(), CollectionMethodSpelling::Method)
+                && method.rust_name() == name
+        })
+    }
+
+    /// The domains that define the method, in [`CollectionDomain::ALL`] order.
+    #[must_use]
+    pub fn domains(self) -> Vec<CollectionDomain> {
+        CollectionDomain::ALL
+            .into_iter()
+            .filter(|domain| self.reading(*domain).is_some())
+            .collect()
+    }
+
+    /// The number of the denoted call's arguments, the receiver included;
+    /// every reading has it.
+    #[must_use]
+    pub fn arity(self) -> usize {
+        self.domains()
+            .first()
+            .and_then(|domain| self.reading(*domain))
+            .map_or(0, |reading| reading.spec().arity())
+    }
+
+    /// The method as written, with `..` for its arguments: `m[..]`,
+    /// `.get_or(..)`, `.len()`.
+    #[must_use]
+    pub fn written(self) -> String {
+        match self.spelling() {
+            CollectionMethodSpelling::Index => "[..]".to_owned(),
+            CollectionMethodSpelling::Method if self.arity() == 1 => {
+                format!(".{}()", self.rust_name())
+            }
+            CollectionMethodSpelling::Method => format!(".{}(..)", self.rust_name()),
+        }
+    }
+}
+
 // Every Mixfix notation has one more piece than its operation's arity.
 const _: () = {
     let mut index = 0;

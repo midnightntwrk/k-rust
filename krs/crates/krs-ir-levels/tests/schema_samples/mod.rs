@@ -115,6 +115,11 @@ impl Sample for krs_ir::ListNotation {
         vec![Self::Cons]
     }
 }
+impl Sample for krs_ir::CollectionMethod {
+    fn samples() -> Vec<Self> {
+        vec![Self::Index]
+    }
+}
 impl Sample for BuiltinSort {
     fn samples() -> Vec<Self> {
         vec![Self::KSequence]
@@ -1283,8 +1288,9 @@ impl Sample for DescriptorApplicationRef {
                 Self::Ml(sample::<MlConnective>()),
                 Self::Operator(sample::<BuiltinOperator>()),
                 Self::ListNotation(sample::<krs_ir::ListNotation>()),
+                Self::CollectionMethod(sample::<krs_ir::CollectionMethod>()),
             ],
-            8,
+            9,
             "DescriptorApplicationRef",
             |value| match value {
                 Self::Declared(..) => 0,
@@ -1295,6 +1301,7 @@ impl Sample for DescriptorApplicationRef {
                 Self::Ml(..) => 5,
                 Self::Operator(..) => 6,
                 Self::ListNotation(..) => 7,
+                Self::CollectionMethod(..) => 8,
             },
         )
     }

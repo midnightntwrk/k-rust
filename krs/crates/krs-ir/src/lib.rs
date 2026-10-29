@@ -62,8 +62,9 @@ pub use bundle::{
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
-    CollectionApplication, CollectionConcatenation, CollectionNotation, CollectionOperandSort,
-    CollectionOperationSpec, CollectionResultSort, FacadeMarker, GuardMeaning, HookOperationSpec,
+    CollectionApplication, CollectionConcatenation, CollectionDomain, CollectionMethod,
+    CollectionMethodSpelling, CollectionNotation, CollectionOperandSort, CollectionOperationSpec,
+    CollectionReading, CollectionResultSort, FacadeMarker, GuardMeaning, HookOperationSpec,
     HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint, IntLiterals,
     MlConnective, MlOperand, OperationSort, RawKProfile, RelationLiteral,
 };
@@ -209,7 +210,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(69);
+    pub const CURRENT: Self = Self(70);
 }
 
 impl Default for SchemaVersion {

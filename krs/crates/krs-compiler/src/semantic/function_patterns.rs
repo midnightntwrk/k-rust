@@ -215,11 +215,23 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
             "{function} stands in a Set collection's instance, which KRS writes as the cells it holds, matched as they stand; the set is looked up by its instances as by its elements, but reading a computed instance as the element looked up needs a different lowering, which KRS does not have yet (finding NT-3-3): match a variable here and relate it to the application in a guard (`requires`)"
         ),
         (Place::Pattern, root) => {
-            let instead = match root {
-                Some(Root::RuleSubject) => {
+            let method = match found.reference.application {
+                DescriptorApplicationRef::CollectionMethod(method) => Some(method.spelling()),
+                _ => None,
+            };
+            let instead = match (method, root) {
+                // A pattern reads an entry with braces, and a list's first
+                // elements with brackets.
+                (Some(krs_ir::CollectionMethodSpelling::Index), _) => {
+                    "write `{ k -> v, .. }` to read an entry (`[x, ..]` reads a list's first element), or match a variable here and compare it with the index in a guard (`requires`)"
+                }
+                (Some(krs_ir::CollectionMethodSpelling::Method), _) => {
+                    "read the value into a name and compare it in a guard (`requires`)"
+                }
+                (None, Some(Root::RuleSubject)) => {
                     "match a variable and relate it to the application in a guard (`requires`), or, to define the function, write an equation (`#[k::equation]`, or a `k::equations!` row)"
                 }
-                _ => {
+                (None, _) => {
                     "match a variable here and relate it to the application in a guard (`requires`), or state a fact about the unevaluated application as a `#[k::simplification]`"
                 }
             };
@@ -537,6 +549,19 @@ pub(super) fn applied_function(
             other => collection_function(other.facade_marker()),
         },
         DescriptorApplicationRef::ListNotation(_) => Applied::Elements,
+        // Every reading of an index or a collection method is a collection's
+        // function: a lookup, a size, an update.
+        DescriptorApplicationRef::CollectionMethod(method) => {
+            Applied::Function(match method.spelling() {
+                krs_ir::CollectionMethodSpelling::Index => {
+                    "the index `[..]`, a builtin lookup,".to_owned()
+                }
+                krs_ir::CollectionMethodSpelling::Method => format!(
+                    "the collection method `{}`, a builtin function,",
+                    method.written()
+                ),
+            })
+        }
         // A predicate is no term; the term walker refuses it in a pattern.
         DescriptorApplicationRef::Ml(_) => Applied::Constructor,
     }

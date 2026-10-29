@@ -21,9 +21,10 @@
 use std::collections::BTreeMap;
 
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinOperator, BuiltinSort, CollectionResultSort,
-    DescriptorApplicationRef, DescriptorApplicationReference, DescriptorPayload, DescriptorTerm,
-    OperationSort, OperatorDomain, OperatorReading, ProvenanceKey, SortTestKind,
+    ApplicationRef, BuiltinOperation, BuiltinOperator, BuiltinSort, CollectionDomain,
+    CollectionResultSort, DescriptorApplicationRef, DescriptorApplicationReference,
+    DescriptorPayload, DescriptorTerm, OperationSort, OperatorDomain, OperatorReading,
+    ProvenanceKey, SortTestKind,
 };
 use krs_ir_levels::{SemanticSortRef, SemanticTerm};
 
@@ -32,14 +33,26 @@ use super::error::{DescriptorLoweringError, OperatorProblem};
 use super::infer::{StructuredTermBuilder, most_specific_common_descendants};
 use super::origin::semantic_origin;
 
-/// The operator domains of one sentence, decided across inference passes.
+/// The operator domains of one sentence, and the collection domains of its
+/// indexes and collection methods, decided across inference passes.
 #[derive(Default)]
 pub(super) struct OperatorInference {
     /// The domain chosen for each operator, by its head's provenance key.
     domains: BTreeMap<ProvenanceKey, OperatorDomain>,
-    /// The error for the first operator of the current pass whose operands
-    /// chose no domain, reported if a further pass decides nothing more.
-    pending: Option<DescriptorLoweringError>,
+    /// The collection chosen for each index and collection method, by its
+    /// head's provenance key ([`super::collection_methods`]).
+    pub(super) methods: BTreeMap<ProvenanceKey, CollectionDomain>,
+    /// The error for the first operator or method of the current pass whose
+    /// operands chose no domain, reported if a further pass decides nothing
+    /// more.
+    pub(super) pending: Option<DescriptorLoweringError>,
+}
+
+impl OperatorInference {
+    /// How many operators and methods have a domain.
+    fn decided(&self) -> usize {
+        self.domains.len() + self.methods.len()
+    }
 }
 
 /// What the operands of one operator choose.
@@ -70,7 +83,7 @@ impl StructuredTermBuilder<'_> {
     ) -> Result<(), DescriptorLoweringError> {
         let mut first = true;
         loop {
-            let decided = self.operators.domains.len();
+            let decided = self.operators.decided();
             self.operators.pending = None;
             pass(self)?;
             let Some(pending) = self.operators.pending.take() else {
@@ -79,7 +92,7 @@ impl StructuredTermBuilder<'_> {
             // A pass that decides nothing adds no constraint the next pass
             // would not repeat, except that the first pass also collects the
             // constraints of everything after an undecided operator.
-            if !first && self.operators.domains.len() == decided {
+            if !first && self.operators.decided() == decided {
                 return Err(pending);
             }
             first = false;
@@ -317,7 +330,7 @@ impl StructuredTermBuilder<'_> {
     /// The sort a term is known to have before it is inferred at a position:
     /// a literal's, a binder's from its constraints so far, an application's
     /// result, or a comparison's `Bool`. `None` when it is not yet known.
-    fn operand_sort(&self, term: &DescriptorTerm) -> Option<SemanticSortRef> {
+    pub(super) fn operand_sort(&self, term: &DescriptorTerm) -> Option<SemanticSortRef> {
         match term {
             DescriptorTerm::Variable { name, .. } => self.binder_sort(name),
             DescriptorTerm::Literal { literal, .. } => {
@@ -411,6 +424,9 @@ impl StructuredTermBuilder<'_> {
             }
             // A list's sort is the position's, which an operand does not have.
             DescriptorApplicationRef::Ml(_) | DescriptorApplicationRef::ListNotation(_) => None,
+            DescriptorApplicationRef::CollectionMethod(method) => {
+                self.method_result_sort(reference, *method)
+            }
             DescriptorApplicationRef::Operator(operator) => {
                 if let Some(result) = operator.uniform_result() {
                     return Some(SemanticSortRef::Builtin(result));

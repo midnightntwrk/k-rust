@@ -23,10 +23,10 @@ use super::rule::ValidationSide;
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 use crate::{
-    BuiltinOperation, BuiltinOperator, BuiltinSort, FormatFragment, GroupAssociativity,
-    HookOperation, ItemKind, ListNotation, ListOperation, MlConnective, ProductionFieldId,
-    ProductionGroupId, ProvenanceKey, ProvenanceRole, RawSentenceKind, SentenceKind, SetOperation,
-    SmtFragment, StableItemId, StrictnessKind, TermMapOperation,
+    BuiltinOperation, BuiltinOperator, BuiltinSort, CollectionMethod, FormatFragment,
+    GroupAssociativity, HookOperation, ItemKind, ListNotation, ListOperation, MlConnective,
+    ProductionFieldId, ProductionGroupId, ProvenanceKey, ProvenanceRole, RawSentenceKind,
+    SentenceKind, SetOperation, SmtFragment, StableItemId, StrictnessKind, TermMapOperation,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -120,6 +120,11 @@ pub enum DescriptorApplicationRef {
     /// which denotes the constructor of the cons list semantic analysis
     /// finds at the position's expected sort.
     ListNotation(ListNotation),
+    /// An index read or a collection method (`m[k]`, `s.contains(x)`),
+    /// which denotes the Map, List or Set operation of the domain semantic
+    /// analysis chooses from its receiver's inferred sort. Its arguments are
+    /// the denoted call's, in the call's order.
+    CollectionMethod(CollectionMethod),
 }
 
 /// One stable application reference and its exact authored head location.
@@ -383,6 +388,8 @@ pub struct HostBuiltinRegistry {
     pub operators: [HostTypeKey; BuiltinOperator::ALL.len()],
     /// Registered list-notation markers in [`ListNotation::ALL`] order (F6).
     pub list_notation: [HostTypeKey; ListNotation::ALL.len()],
+    /// Registered collection-method markers in [`CollectionMethod::ALL`] order.
+    pub collection_methods: [HostTypeKey; CollectionMethod::ALL.len()],
 }
 
 impl HostBuiltinRegistry {
@@ -404,6 +411,7 @@ impl HostBuiltinRegistry {
             .chain(&self.ml_connectives)
             .chain(&self.operators)
             .chain(&self.list_notation)
+            .chain(&self.collection_methods)
         {
             if !rust_ids.insert(target.resolve()) {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
@@ -490,6 +498,16 @@ impl HostBuiltinRegistry {
             .zip(&self.list_notation)
             .find(|(_, key)| key.resolve() == target)
             .map(|(notation, _)| notation)
+    }
+
+    /// Resolves one build-local type as a collection-method marker.
+    #[must_use]
+    pub fn resolve_collection_method(&self, target: TypeId) -> Option<CollectionMethod> {
+        CollectionMethod::ALL
+            .into_iter()
+            .zip(&self.collection_methods)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(method, _)| method)
     }
 }
 
@@ -2407,7 +2425,8 @@ fn validate_collection_application_shape(
         | DescriptorApplicationRef::Builtin(_)
         | DescriptorApplicationRef::Ml(_)
         | DescriptorApplicationRef::Operator(_)
-        | DescriptorApplicationRef::ListNotation(_) => {
+        | DescriptorApplicationRef::ListNotation(_)
+        | DescriptorApplicationRef::CollectionMethod(_) => {
             return Ok(());
         }
     };

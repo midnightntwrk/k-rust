@@ -10,12 +10,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinOperator, BuiltinSort, Descriptor,
+    ApplicationRef, BuiltinOperation, BuiltinOperator, BuiltinSort, CollectionMethod, Descriptor,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle, DescriptorHeadRule,
     DescriptorIndex, DescriptorPayload, DescriptorStage, DescriptorTerm,
     ENUM_VARIANT_DISAMBIGUATOR_PREFIX, FacadeMarker, ListNotation, OriginFrame, PackageId,
     ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, RefMap,
-    Sha256Digest, SourceFileId, SourceMapKey, StableItemId, Stage,
+    Sha256Digest, SourceFileId, SourceMapKey, StableItemId, Stage, TermMapOperation,
 };
 use krs_ir_levels::{
     IrTermKind, RuleBodyRef, SemanticRule, SemanticSortRef, SemanticTerm, SemanticTheory,
@@ -2693,6 +2693,11 @@ fn render_term(
                         operator.symbol(),
                     ));
                 }
+                // [`OperatorCalls`] replaces every index and collection method
+                // by the call it denotes.
+                DescriptorApplicationRef::CollectionMethod(method) => {
+                    return Err(ReferenceExpansionError::UnresolvedCollectionMethod(*method));
+                }
                 // [`OperatorCalls`] leaves a level a notation only where it
                 // builds the builtin `List`.
                 DescriptorApplicationRef::ListNotation(notation) => {
@@ -3051,16 +3056,22 @@ fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
     quote!(k::builtin::#name)
 }
 
-/// The calls the operators and the list notation of one descriptor denote,
-/// read from the semantic rule lowered from it: each operator head becomes
-/// the operation semantic lowering applied at that head, and each bracket
-/// level the constructor, found by the source-map key lowering gives the
-/// application there. `-x` on `Int` applies `int::sub` to an operand the
-/// descriptor does not hold, so it stays the operator `-`, which
-/// [`render_term`] spells `int::sub(0, x)`.
+/// The calls the operators, the list notation, and the indexes and
+/// collection methods of one descriptor denote, read from the semantic rule
+/// lowered from it: each operator head becomes the operation semantic
+/// lowering applied at that head, each bracket level the constructor, and
+/// each index or method the collection operation, found by the source-map
+/// key lowering gives the application there. `-x` on `Int` applies
+/// `int::sub` to an operand the descriptor does not hold, so it stays the
+/// operator `-`, which [`render_term`] spells `int::sub(0, x)`. An index or a
+/// method holds the denoted call's arguments in its order, so its call is
+/// printed as the reader would write it, with the collection inference
+/// chose: `krs expand` shows what the notation hides.
 struct OperatorCalls<'a> {
     descriptor: &'a Descriptor,
     operations: BTreeMap<SourceMapKey, BuiltinOperation>,
+    /// The Map, List and Set operations, by their terms' keys.
+    collection_operations: BTreeMap<SourceMapKey, DescriptorApplicationRef>,
     constructors: BTreeMap<SourceMapKey, StableItemId>,
     /// The keys of `.List` terms: `[]` at a builtin `List` position.
     list_units: BTreeSet<SourceMapKey>,
@@ -3072,6 +3083,7 @@ struct OperatorCalls<'a> {
 impl<'a> OperatorCalls<'a> {
     fn new(descriptor: &'a Descriptor, rule: &SemanticRule) -> Self {
         let mut operations = BTreeMap::new();
+        let mut collection_operations = BTreeMap::new();
         let mut constructors = BTreeMap::new();
         let mut list_units = BTreeSet::new();
         let mut list_terms = BTreeSet::new();
@@ -3095,6 +3107,24 @@ impl<'a> OperatorCalls<'a> {
                         list_units.insert(term.origin().key().clone());
                     }
                     list_terms.insert(term.origin().key().clone());
+                    collection_operations.insert(
+                        term.origin().key().clone(),
+                        DescriptorApplicationRef::List(operands.operation()),
+                    );
+                }
+                IrTermKind::Map(operands) => {
+                    if let Ok(operation) = TermMapOperation::try_from(operands.operation()) {
+                        collection_operations.insert(
+                            term.origin().key().clone(),
+                            DescriptorApplicationRef::Map(operation),
+                        );
+                    }
+                }
+                IrTermKind::Set(operands) => {
+                    collection_operations.insert(
+                        term.origin().key().clone(),
+                        DescriptorApplicationRef::Set(operands.operation()),
+                    );
                 }
                 _ => {}
             }
@@ -3103,6 +3133,7 @@ impl<'a> OperatorCalls<'a> {
         Self {
             descriptor,
             operations,
+            collection_operations,
             constructors,
             list_units,
             list_terms,
@@ -3172,6 +3203,24 @@ impl RefMap<DescriptorStage, DescriptorStage> for OperatorCalls<'_> {
             } else {
                 return Err(ReferenceExpansionError::UnresolvedListNotation);
             };
+            return Ok(DescriptorApplicationReference {
+                key: reference.key,
+                application,
+            });
+        }
+        if let DescriptorApplicationRef::CollectionMethod(method) = reference.application {
+            let application = [
+                "term-map-operation",
+                "term-list-operation",
+                "term-set-operation",
+            ]
+            .into_iter()
+            .find_map(|label| {
+                let key =
+                    crate::semantic::semantic_source_key(self.descriptor, &reference.key, label)?;
+                self.collection_operations.get(&key).cloned()
+            })
+            .ok_or(ReferenceExpansionError::UnresolvedCollectionMethod(method))?;
             return Ok(DescriptorApplicationReference {
                 key: reference.key,
                 application,
@@ -3606,6 +3655,9 @@ pub enum ReferenceExpansionError {
     UnresolvedOperator(&'static str),
     /// Semantic lowering recorded no constructor for bracket list notation.
     UnresolvedListNotation,
+    /// Semantic lowering chose no collection operation for an index or a
+    /// collection method.
+    UnresolvedCollectionMethod(CollectionMethod),
 }
 
 impl ToDiagnostic for ReferenceExpansionError {
@@ -3639,7 +3691,9 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::InvalidLiteral(_) => codes::reference::INVALID_LITERAL,
             Self::UnsupportedBuiltinToken(_) => codes::reference::UNSUPPORTED_BUILTIN_TOKEN,
             Self::UnsupportedState => codes::reference::UNSUPPORTED_STATE,
-            Self::UnresolvedOperator(_) => codes::reference::UNRESOLVED_OPERATOR,
+            Self::UnresolvedOperator(_) | Self::UnresolvedCollectionMethod(_) => {
+                codes::reference::UNRESOLVED_OPERATOR
+            }
             Self::UnresolvedListNotation => codes::reference::UNRESOLVED_LIST_NOTATION,
         };
         Diagnostic::error(code, self.to_string(), Location::None)
@@ -3734,6 +3788,11 @@ impl fmt::Display for ReferenceExpansionError {
             ),
             Self::UnresolvedListNotation => formatter
                 .write_str("semantic lowering chose no constructor for bracket list notation"),
+            Self::UnresolvedCollectionMethod(method) => write!(
+                formatter,
+                "semantic lowering chose no collection operation for `{}`",
+                method.written()
+            ),
         }
     }
 }
@@ -3765,7 +3824,8 @@ impl Error for ReferenceExpansionError {
             | Self::UnsupportedBuiltinToken(_)
             | Self::UnsupportedState
             | Self::UnresolvedOperator(_)
-            | Self::UnresolvedListNotation => None,
+            | Self::UnresolvedListNotation
+            | Self::UnresolvedCollectionMethod(_) => None,
         }
     }
 }

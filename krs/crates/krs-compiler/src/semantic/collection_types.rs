@@ -44,8 +44,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 
 use krs_ir::{
-    BuiltinSort, CellSortArgument, CollectionApplication, Descriptor, DescriptorApplicationRef,
-    DescriptorCellField, DescriptorClaimBinder, DescriptorConfigurationVariable, DescriptorIndex,
+    BuiltinSort, CellSortArgument, CollectionApplication, CollectionDomain, CollectionMethod,
+    CollectionReading, Descriptor, DescriptorApplicationRef, DescriptorCellField,
+    DescriptorClaimBinder, DescriptorConfigurationVariable, DescriptorIndex,
     DescriptorSortArgument, DescriptorSortRef, DescriptorTerm, ListNotation, ListOperation,
     OperationSort, ProtocolCellContent, ProtocolRuleFrame, ProtocolRuleMapBody,
     ProtocolRuleStateTerm, ProvenanceKey, SetOperation, StableItemId, TermMapOperation,
@@ -1211,7 +1212,95 @@ impl<'a> Walker<'a> {
                 }
                 Ok(())
             }
+            DescriptorApplicationRef::CollectionMethod(method) => {
+                self.collection_method(term, *method, &values, at, subject)
+            }
         }
+    }
+
+    /// An index or a collection method: the call of the operation its
+    /// receiver's collection reads, when what this walk knows chooses it
+    /// ([`Self::method_domain`]). Otherwise nothing this walk knows types the
+    /// receiver, the position carries no collection a reading builds, and
+    /// the receiver is no collection the sentence builds, so the call of
+    /// every reading would walk its operands untyped and, reading from an
+    /// untyped collection, flow that read into a typed position: so does the
+    /// method.
+    fn collection_method(
+        &mut self,
+        term: &DescriptorTerm,
+        method: CollectionMethod,
+        operands: &[&DescriptorTerm],
+        at: Option<&(SortType, Position)>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        if operands.len() != method.arity() {
+            // Inference reports the arity.
+            return Ok(());
+        }
+        if let Some(reading) = self.method_reading(method, operands, at) {
+            return match reading {
+                CollectionReading::Map(operation) => {
+                    self.collection(term, operation, operands, at, subject)
+                }
+                CollectionReading::List(operation) => {
+                    self.collection(term, operation, operands, at, subject)
+                }
+                CollectionReading::Set(operation) => {
+                    self.collection(term, operation, operands, at, subject)
+                }
+            };
+        }
+        for operand in operands {
+            self.walk(operand, None, subject)?;
+        }
+        let carries = method
+            .domains()
+            .into_iter()
+            .filter_map(|domain| method.reading(domain))
+            .any(reading_carries);
+        if !carries
+            && !subject
+            && !self.binding
+            && let Some(at) = at
+        {
+            let source = Source::Untyped(format!(
+                "`{}` reads a collection whose element types are not declared",
+                spelling(term)
+            ));
+            self.flow(source, at, term_key(term))?;
+        }
+        Ok(())
+    }
+
+    /// The operation an index or a collection method denotes, as far as this
+    /// walk, which runs before inference, knows its receiver: the reading of
+    /// the collection a typed receiver is; else of the one collection that
+    /// has the method; else of the collection the position carries, when
+    /// that reading builds it; else of the collection a receiver the
+    /// sentence builds is. Inference chooses the same domain from the
+    /// receiver's sort, or refuses the method.
+    fn method_reading(
+        &self,
+        method: CollectionMethod,
+        operands: &[&DescriptorTerm],
+        at: Option<&(SortType, Position)>,
+    ) -> Option<CollectionReading> {
+        let receiver = operands.get(method.receiver())?;
+        if let Some((ty, _)) = self.typed_source(receiver) {
+            return method.reading(CollectionDomain::of_sort(ty.kind()?)?);
+        }
+        if let [domain] = method.domains()[..] {
+            return method.reading(domain);
+        }
+        if let Some((ty, _)) = at
+            && let Some(domain) = ty.kind().and_then(CollectionDomain::of_sort)
+            && let Some(reading) = method.reading(domain)
+            && reading_carries(reading)
+        {
+            return Some(reading);
+        }
+        method.reading(built_domain(receiver)?)
     }
 
     /// A production's application: its result checked at the position when
@@ -1445,6 +1534,21 @@ impl<'a> Walker<'a> {
                     }
                     DescriptorApplicationRef::Set(operation) => {
                         self.operation_type(*operation, &operands)
+                    }
+                    DescriptorApplicationRef::CollectionMethod(method)
+                        if operands.len() == method.arity() =>
+                    {
+                        match self.method_reading(*method, &operands, None)? {
+                            CollectionReading::Map(operation) => {
+                                self.operation_type(operation, &operands)
+                            }
+                            CollectionReading::List(operation) => {
+                                self.operation_type(operation, &operands)
+                            }
+                            CollectionReading::Set(operation) => {
+                                self.operation_type(operation, &operands)
+                            }
+                        }
                     }
                     DescriptorApplicationRef::Declared(id) => self
                         .production_types(id)?
@@ -2013,11 +2117,53 @@ pub(super) fn application_spelling(application: &DescriptorApplicationRef) -> St
         DescriptorApplicationRef::Set(operation) => marker(operation.facade_marker()),
         DescriptorApplicationRef::Builtin(operation) => operation.to_string(),
         DescriptorApplicationRef::Operator(operator) => return operator_spelling(*operator),
+        DescriptorApplicationRef::CollectionMethod(method) => {
+            return format!("..{}", method.written());
+        }
         DescriptorApplicationRef::Ml(_) | DescriptorApplicationRef::ListNotation(_) => {
             return "this term".to_owned();
         }
     };
     format!("{head}(..)")
+}
+
+/// Whether a reading's result is the collection it operates on.
+fn reading_carries(reading: CollectionReading) -> bool {
+    match reading {
+        CollectionReading::Map(operation) => operation.carries(),
+        CollectionReading::List(operation) => operation.carries(),
+        CollectionReading::Set(operation) => operation.carries(),
+    }
+}
+
+/// The collection a term the sentence builds is, from its head alone: an
+/// operation whose result is a collection, list notation (a `List` where a
+/// collection is read), or an index or a method whose every reading's
+/// result is one collection.
+fn built_domain(term: &DescriptorTerm) -> Option<CollectionDomain> {
+    let DescriptorTerm::Application { reference, .. } = term else {
+        return None;
+    };
+    let result = |spec: &krs_ir::CollectionOperationSpec| match spec.result_sort {
+        krs_ir::CollectionResultSort::Builtin(sort) => CollectionDomain::of_sort(sort),
+        krs_ir::CollectionResultSort::Projected => None,
+    };
+    match &reference.application {
+        DescriptorApplicationRef::Map(operation) => result(operation.spec()),
+        DescriptorApplicationRef::List(operation) => result(operation.spec()),
+        DescriptorApplicationRef::Set(operation) => result(operation.spec()),
+        DescriptorApplicationRef::ListNotation(_) => Some(CollectionDomain::List),
+        DescriptorApplicationRef::CollectionMethod(method) => {
+            let mut results = method
+                .domains()
+                .into_iter()
+                .filter_map(|domain| method.reading(domain))
+                .map(|reading| result(reading.spec()));
+            let first = results.next()??;
+            results.all(|other| other == Some(first)).then_some(first)
+        }
+        _ => None,
+    }
 }
 
 /// An operator as written, its operands elided: `.. + ..`, `!..`.

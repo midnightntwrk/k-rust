@@ -160,3 +160,85 @@ fn application_heads_expose_their_rows_through_the_shared_trait() {
     assert_eq!(MapOperation::CONCATENATION.k_label, "_Map_");
     assert_eq!(MapOperation::CONCATENATION.separator, " ");
 }
+
+#[test]
+fn every_collection_method_reading_takes_its_receiver_where_its_row_says() {
+    use krs_ir::{CollectionDomain, CollectionMethod, CollectionOperandSort};
+    for method in CollectionMethod::ALL {
+        let domains = method.domains();
+        assert!(!domains.is_empty(), "{method:?} denotes nothing");
+        for domain in domains {
+            let reading = method.reading(domain).expect("a listed domain reads");
+            let spec = reading.spec();
+            assert_eq!(spec.arity(), method.arity(), "{method:?} in {domain:?}");
+            assert_eq!(
+                spec.operand_sorts.get(method.receiver()),
+                Some(&CollectionOperandSort::Builtin(domain.sort())),
+                "{method:?} in {domain:?}: the receiver is the collection"
+            );
+            assert_eq!(
+                reading.facade_marker().module,
+                match domain {
+                    CollectionDomain::Map => "map",
+                    CollectionDomain::List => "list",
+                    CollectionDomain::Set => "set",
+                },
+                "{method:?} in {domain:?}"
+            );
+        }
+        assert_eq!(
+            method.facade_marker(),
+            marker("__collection", method.rust_name())
+        );
+    }
+}
+
+#[test]
+fn collection_methods_are_the_table_of_index_reads_and_methods() {
+    use krs_ir::{CollectionDomain, CollectionMethod, CollectionReading};
+    let table = CollectionMethod::ALL
+        .into_iter()
+        .map(|method| {
+            let readings = CollectionDomain::ALL
+                .into_iter()
+                .filter_map(|domain| method.reading(domain))
+                .map(|reading| {
+                    let marker = reading.facade_marker();
+                    format!("{}::{}", marker.module, marker.name)
+                })
+                .collect::<Vec<_>>();
+            format!("{} {}", method.written(), readings.join(" "))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        table,
+        [
+            "[..] map::get list::get",
+            ".get_or(..) map::get_or_default",
+            ".contains_key(..) map::in_keys",
+            ".update(..) map::update list::update",
+            ".without(..) map::remove",
+            ".without_all(..) map::remove_all",
+            ".extend(..) map::update_all",
+            ".keys() map::keys",
+            ".keys_list() map::keys_list",
+            ".values() map::values",
+            ".len() map::size list::size set::size",
+            ".contains(..) list::contains set::contains",
+            ".union(..) set::union",
+            ".difference(..) set::difference",
+            ".intersection(..) set::intersect",
+            ".is_subset(..) set::is_subset",
+            ".to_list() set::to_list",
+        ]
+    );
+    assert_eq!(CollectionMethod::named("index"), None);
+    assert_eq!(
+        CollectionMethod::named("contains_key"),
+        Some(CollectionMethod::ContainsKey)
+    );
+    assert_eq!(
+        CollectionMethod::Index.reading(CollectionDomain::Map),
+        Some(CollectionReading::Map(TermMapOperation::Get))
+    );
+}

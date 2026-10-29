@@ -678,6 +678,7 @@ fn registry() -> Registry {
     trace!(BuiltinOperation: BuiltinOperation);
     trace!(BuiltinOperator: BuiltinOperator);
     trace!(ListNotation: ListNotation);
+    trace!(CollectionMethod: CollectionMethod);
     trace!(BuiltinSort: BuiltinSort);
     trace!(SortedByKey: krs_ir::sorted::SortedByKey<ModuleId>);
     trace!(CellCollectionType: CellCollectionType);
