@@ -113,6 +113,7 @@ fn refused_at(term: &DescriptorTerm, root: Root) -> Option<(u32, Option<Root>)> 
     let catalog = catalog();
     Patterns {
         catalog: &catalog,
+        declarations: None,
         place: Place::Pattern,
     }
     .term(term, Some(root))

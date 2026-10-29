@@ -171,7 +171,7 @@ pub fn lower_descriptor_bundle(
         &semantic_sort_parents,
     )?;
     subject_roots::check_subject_roots(&descriptors, &production_catalog)?;
-    function_patterns::check_function_patterns(&descriptors, &production_catalog)?;
+    function_patterns::check_function_patterns(&descriptors, &production_catalog, &declarations)?;
     let mut declaration_metadata = bundle
         .declarations()
         .iter()

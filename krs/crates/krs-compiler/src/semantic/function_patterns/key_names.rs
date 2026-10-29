@@ -45,9 +45,10 @@ use super::{
 use crate::semantic::error::KeyPattern;
 
 /// Refuses, in the descriptor's pattern, the first pattern-only construct
-/// below a construct a key computes, then the first name a key reads that the
-/// pattern binds nowhere else, then the first construct that computes in a
-/// key that is a selection.
+/// below a construct a computed key computes, then the first name a computed
+/// key reads that the pattern binds nowhere, then the first construct that
+/// computes in a key that is a selection, then the first computed keys whose
+/// names no order of lookups gives.
 ///
 /// # Errors
 ///
@@ -65,30 +66,35 @@ pub(super) fn check(
     }
     let mut pattern = Pattern {
         outside: BTreeSet::new(),
-        keys: Vec::new(),
+        entries: Vec::new(),
+        remainders: Vec::new(),
     };
     pattern.sentence(payload);
     let keys = pattern
-        .keys
+        .entries
         .iter()
-        .map(|(term, lookup)| {
+        .map(|entry| {
             let mut key = Key {
                 catalog,
-                outside: &pattern.outside,
-                lookup: *lookup,
-                matched: BTreeSet::new(),
+                lookup: entry.lookup,
+                matched: Vec::new(),
                 selection: None,
                 computes: None,
                 built: None,
                 read: Vec::new(),
             };
-            key.term(term, None);
+            key.term(entry.key, None);
             key
         })
         .collect::<Vec<_>>();
+    let order = Order::of(&pattern, &keys);
     let item = || Box::new(descriptor.id().clone());
-    if let Some(key) = keys.iter().find(|key| key.built.is_some()) {
-        let (construct, at, function) = key.built.as_ref().expect("found");
+    // A computed key's built positions: below a construct it computes.
+    let built = order
+        .computed
+        .iter()
+        .find_map(|&index| Some((&keys[index], keys[index].built.as_ref()?)));
+    if let Some((key, (construct, at, function))) = built {
         return Err(DescriptorLoweringError::PatternInComputedKey {
             item: item(),
             construct: *construct,
@@ -101,13 +107,7 @@ pub(super) fn check(
             range: key_range(descriptor, at).map(Box::new),
         });
     }
-    let unbound = keys.iter().find_map(|key| {
-        key.read
-            .iter()
-            .find(|read| !key.outside.contains(read.name) && !key.matched.contains(read.name))
-            .map(|read| (key, read))
-    });
-    if let Some((key, read)) = unbound {
+    if let Some((key, read)) = order.unbound(&keys) {
         let why = match key.lookup {
             Lookup::MapKey => "a key is evaluated to look its entry up, so the key",
             Lookup::SetElement => {
@@ -125,31 +125,199 @@ pub(super) fn check(
             range: key_range(descriptor, read.key).map(Box::new),
         });
     }
-    let selection = keys
-        .iter()
-        .find_map(|key| Some((key, key.selection.as_ref()?, key.computes.as_ref()?)));
-    let Some((key, selector, computes)) = selection else {
-        return Ok(());
-    };
-    let reason = format!(
-        "{what} stands in {place} that also holds {selector}, so the key selects an entry by matching the evaluated keys the collection holds rather than computing the key looked up; {what} denotes the value evaluation produces, which no evaluated key is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
-        what = computes.what,
-        place = key.lookup.place(),
-    );
+    if let Some((key, selector, computes)) =
+        order.selections.iter().find_map(|(index, selector)| {
+            Some((&keys[*index], selector, keys[*index].computes.as_ref()?))
+        })
+    {
+        let reason = format!(
+            "{what} stands in {place} that also holds {selector}, so the key selects an entry by matching {held} rather than computing the {looked} looked up; {what} denotes the value evaluation produces, which no evaluated {one} is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+            what = computes.what,
+            place = key.lookup.place(),
+            held = key.lookup.held(),
+            looked = key.lookup.looked_up(),
+            one = key.lookup.looked_up(),
+        );
+        return Err(computes_refusal(descriptor, computes, reason));
+    }
+    if let Some(&index) = order.cycle.first() {
+        let key = &keys[index];
+        let computes = key.computes.as_ref().expect("a computed key computes");
+        let names = order.cycle_names(&keys);
+        let reason = format!(
+            "{what} stands in {place} that reads {names}, which only the values of the collection's entries this key or another computed key looks up bind: no order of lookups gives a computed key the names it reads, so matching would choose an entry and evaluate {what} on each, a selection holding a function, which never matches an evaluated {one}; bind those names elsewhere in the pattern, or match a variable here and relate it to the application in a guard (`requires`)",
+            what = computes.what,
+            place = key.lookup.place(),
+            one = key.lookup.looked_up(),
+        );
+        return Err(computes_refusal(descriptor, computes, reason));
+    }
+    Ok(())
+}
+
+/// The refusal of the construct that computes, `computes`: its class's.
+fn computes_refusal(
+    descriptor: &Descriptor,
+    computes: &Computes<'_>,
+    reason: String,
+) -> DescriptorLoweringError {
+    let item = Box::new(descriptor.id().clone());
     let range = key_range(descriptor, computes.at).map(Box::new);
-    Err(if computes.sort_test {
+    if computes.sort_test {
         DescriptorLoweringError::InvalidSortTest {
-            item: item(),
+            item,
             reason,
             range,
         }
     } else {
         DescriptorLoweringError::FunctionInPattern {
-            item: item(),
+            item,
             reason,
             range,
         }
-    })
+    }
+}
+
+/// The reading of a pattern's keys and set elements, by the order matching
+/// can bind their names in.
+///
+/// A key with no construct that computes binds its names as it matches. A
+/// key with one is computed and looked up when every name in it is bound
+/// first: by a position outside every key, by a key that matches, by the
+/// value of an entry already found, or by a collection's remainder once
+/// every computed key of the collection is found. Under rewriting the rule
+/// applies when some substitution makes its left side equal the term with
+/// its functions evaluated; when the keys' names follow such an order,
+/// matching is the selections, then the lookups in that order, each of a
+/// value already determined. A computed key whose own pattern part holds a
+/// name nothing else binds, or `_`, an alias, alternatives or an open
+/// record, is a selection instead.
+struct Order {
+    /// The keys read as selections that compute, with what selects.
+    selections: Vec<(usize, String)>,
+    /// The keys read as computed and looked up.
+    computed: Vec<usize>,
+    /// The computed keys no order of lookups resolves.
+    cycle: Vec<usize>,
+    /// The names bound by the order.
+    bound: BTreeSet<String>,
+    /// The names some part of the pattern binds, in any order.
+    anywhere: BTreeSet<String>,
+}
+
+impl Order {
+    fn of(pattern: &Pattern<'_>, keys: &[Key<'_, '_>]) -> Self {
+        let mut bound: BTreeSet<String> = pattern
+            .outside
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect();
+        // The names some part of the pattern other than key `except` binds,
+        // in any order.
+        let elsewhere = |except: usize| {
+            let mut names: BTreeSet<&str> = pattern.outside.iter().copied().collect();
+            for (index, (entry, key)) in pattern.entries.iter().zip(keys).enumerate() {
+                names.extend(entry.values.iter().copied());
+                if index != except {
+                    names.extend(key.matched.iter().map(|(name, _)| *name));
+                }
+            }
+            names.extend(pattern.remainders.iter().flatten().copied());
+            names
+        };
+        let mut selections = Vec::new();
+        let mut computed = Vec::new();
+        for (index, (entry, key)) in pattern.entries.iter().zip(keys).enumerate() {
+            let fresh = key
+                .matched
+                .iter()
+                .find(|(name, _)| !elsewhere(index).contains(name));
+            let selector = key.selection.clone().or_else(|| {
+                fresh.map(|(name, _)| format!("the name `{name}`, which nothing else binds"))
+            });
+            if key.computes.is_some() && selector.is_none() {
+                computed.push(index);
+            } else {
+                // A key that matches binds its names, and its entry's value.
+                if let (Some(_), Some(selector)) = (&key.computes, selector) {
+                    selections.push((index, selector));
+                }
+                bound.extend(key.matched.iter().map(|(name, _)| (*name).to_owned()));
+                bound.extend(entry.values.iter().map(|name| (*name).to_owned()));
+            }
+        }
+        // A remainder binds once every computed key of its collection is
+        // found.
+        let remainder_ready = |found: &BTreeSet<usize>, collection: usize| {
+            computed.iter().all(|index| {
+                pattern.entries[*index].collection != collection || found.contains(index)
+            })
+        };
+        let mut found = BTreeSet::new();
+        loop {
+            for (collection, remainder) in pattern.remainders.iter().enumerate() {
+                if let Some(remainder) = remainder
+                    && remainder_ready(&found, collection)
+                {
+                    bound.insert((*remainder).to_owned());
+                }
+            }
+            let next = computed.iter().copied().find(|index| {
+                !found.contains(index) && keys[*index].names().all(|name| bound.contains(name))
+            });
+            let Some(index) = next else { break };
+            found.insert(index);
+            bound.extend(
+                pattern.entries[index]
+                    .values
+                    .iter()
+                    .map(|name| (*name).to_owned()),
+            );
+        }
+        let cycle = computed
+            .iter()
+            .copied()
+            .filter(|index| !found.contains(index))
+            .collect();
+        let anywhere = elsewhere(usize::MAX)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        Self {
+            selections,
+            computed,
+            cycle,
+            bound,
+            anywhere,
+        }
+    }
+
+    /// The first name an unresolved computed key reads that the pattern
+    /// binds nowhere at all: the key reads a value nothing gave.
+    fn unbound<'k, 't>(&self, keys: &'k [Key<'_, 't>]) -> Option<(&'k Key<'k, 't>, &'k Read<'t>)> {
+        self.cycle.iter().find_map(|index| {
+            let key = &keys[*index];
+            key.read
+                .iter()
+                .find(|read| !self.anywhere.contains(read.name))
+                .map(|read| (key, read))
+        })
+    }
+
+    /// The names the unresolved computed keys read, described.
+    fn cycle_names(&self, keys: &[Key<'_, '_>]) -> String {
+        let names = self
+            .cycle
+            .iter()
+            .flat_map(|index| keys[*index].names())
+            .filter(|name| !self.bound.contains(*name))
+            .collect::<BTreeSet<_>>();
+        names
+            .iter()
+            .map(|name| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 /// What a collection is looked up by.
@@ -169,15 +337,44 @@ impl Lookup {
             Self::SetElement => "a set element",
         }
     }
+
+    /// What the collection holds that a selection matches, for a diagnostic.
+    const fn held(self) -> &'static str {
+        match self {
+            Self::MapKey => "the evaluated keys the map holds",
+            Self::SetElement => "the evaluated elements the set holds",
+        }
+    }
+
+    /// What the collection is looked up by, for a diagnostic.
+    const fn looked_up(self) -> &'static str {
+        match self {
+            Self::MapKey => "key",
+            Self::SetElement => "element",
+        }
+    }
 }
 
 /// The pattern of one sentence: the names it binds outside its keys and set
-/// elements, and those keys and elements.
+/// elements, and those keys and elements with what their entries bind.
 struct Pattern<'t> {
-    /// The names the pattern binds outside every key and set element.
+    /// The names the pattern binds outside every key, entry value and
+    /// remainder.
     outside: BTreeSet<&'t str>,
     /// The keys and set elements, in pattern order.
-    keys: Vec<(&'t DescriptorTerm, Lookup)>,
+    entries: Vec<Entry<'t>>,
+    /// Each collection's remainder binding, by collection.
+    remainders: Vec<Option<&'t str>>,
+}
+
+/// One key or set element and its entry.
+struct Entry<'t> {
+    key: &'t DescriptorTerm,
+    lookup: Lookup,
+    /// The names its entry's value binds once the entry is found.
+    values: Vec<&'t str>,
+    /// Its collection.
+    collection: usize,
 }
 
 impl<'t> Pattern<'t> {
@@ -211,20 +408,39 @@ impl<'t> Pattern<'t> {
     }
 
     fn frame(&mut self, frame: &'t ProtocolRuleFrame) {
-        if let ProtocolRuleFrame::Bind { binding, .. } = frame {
+        if let Some(binding) = binding(frame) {
             self.outside.insert(binding);
         }
+    }
+
+    /// A new collection, whose remainder is `remainder`.
+    fn collection(&mut self, remainder: Option<&'t str>) -> usize {
+        self.remainders.push(remainder);
+        self.remainders.len() - 1
+    }
+
+    /// The names `term` binds, apart from the pattern's other names.
+    fn names_of(&mut self, term: &'t DescriptorTerm) -> Vec<&'t str> {
+        let outside = std::mem::take(&mut self.outside);
+        self.term(term);
+        let names = std::mem::replace(&mut self.outside, outside);
+        names.into_iter().collect()
     }
 
     fn state(&mut self, state: &'t ProtocolRuleStateTerm<DescriptorTerm>) {
         match state {
             ProtocolRuleStateTerm::Map(map) => match &map.body {
                 ProtocolRuleMapBody::Items { items, remainder } => {
+                    let collection = self.collection(binding(remainder));
                     for item in items {
-                        self.keys.push((&item.key, Lookup::MapKey));
-                        self.term(&item.value);
+                        let values = self.names_of(&item.value);
+                        self.entries.push(Entry {
+                            key: &item.key,
+                            lookup: Lookup::MapKey,
+                            values,
+                            collection,
+                        });
                     }
-                    self.frame(remainder);
                 }
                 ProtocolRuleMapBody::Update { base, .. } => self.term(base),
                 ProtocolRuleMapBody::Empty { .. } => {}
@@ -254,9 +470,14 @@ impl<'t> Pattern<'t> {
     fn extra(&mut self, extra: &'t DescriptorHeadRuleExtra) {
         match extra {
             ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
+                let collection = self.collection(None);
                 for entry in entries {
-                    self.keys.push((&entry.key, Lookup::MapKey));
-                    self.outside.insert(&entry.value_binding);
+                    self.entries.push(Entry {
+                        key: &entry.key,
+                        lookup: Lookup::MapKey,
+                        values: vec![&entry.value_binding],
+                        collection,
+                    });
                 }
             }
             ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } => {
@@ -278,8 +499,29 @@ impl<'t> Pattern<'t> {
         }
     }
 
-    /// `term`, outside every key: its names are bound, and a set's element is
-    /// a key of its own.
+    /// A set pattern `term`, one collection: its elements are keys, and a
+    /// name beside them is its remainder.
+    fn set(&mut self, term: &'t DescriptorTerm) {
+        let mut elements = Vec::new();
+        let mut remainder = None;
+        let mut others = Vec::new();
+        set_parts(term, &mut elements, &mut remainder, &mut others);
+        let collection = self.collection(remainder);
+        for element in elements {
+            self.entries.push(Entry {
+                key: element,
+                lookup: Lookup::SetElement,
+                values: Vec::new(),
+                collection,
+            });
+        }
+        for other in others {
+            self.term(other);
+        }
+    }
+
+    /// `term`, outside every key: its names are bound, and a set's elements
+    /// are keys of their own.
     fn term(&mut self, term: &'t DescriptorTerm) {
         match term {
             DescriptorTerm::Variable { name, .. } => {
@@ -294,14 +536,15 @@ impl<'t> Pattern<'t> {
                 arguments,
                 ..
             } => {
-                let element =
-                    reference.application == DescriptorApplicationRef::Set(SetOperation::Item);
+                if matches!(
+                    reference.application,
+                    DescriptorApplicationRef::Set(SetOperation::Item | SetOperation::Concat)
+                ) {
+                    self.set(term);
+                    return;
+                }
                 for value in argument_values(arguments) {
-                    if element {
-                        self.keys.push((value, Lookup::SetElement));
-                    } else {
-                        self.term(value);
-                    }
+                    self.term(value);
                 }
             }
             DescriptorTerm::Or { alternatives, .. } => {
@@ -329,6 +572,44 @@ impl<'t> Pattern<'t> {
     }
 }
 
+/// A frame's binding, when it names one.
+fn binding(frame: &ProtocolRuleFrame) -> Option<&str> {
+    match frame {
+        ProtocolRuleFrame::Bind { binding, .. } => Some(binding),
+        _ => None,
+    }
+}
+
+/// The parts of a set pattern: its elements, the name beside them (its
+/// remainder), and its other operands.
+fn set_parts<'t>(
+    term: &'t DescriptorTerm,
+    elements: &mut Vec<&'t DescriptorTerm>,
+    remainder: &mut Option<&'t str>,
+    others: &mut Vec<&'t DescriptorTerm>,
+) {
+    match term {
+        DescriptorTerm::Application {
+            reference,
+            arguments,
+            ..
+        } if reference.application == DescriptorApplicationRef::Set(SetOperation::Item) => {
+            elements.extend(argument_values(arguments));
+        }
+        DescriptorTerm::Application {
+            reference,
+            arguments,
+            ..
+        } if reference.application == DescriptorApplicationRef::Set(SetOperation::Concat) => {
+            for operand in argument_values(arguments) {
+                set_parts(operand, elements, remainder, others);
+            }
+        }
+        DescriptorTerm::Variable { name, .. } if remainder.is_none() => *remainder = Some(name),
+        other => others.push(other),
+    }
+}
+
 /// The values of an application's arguments.
 fn argument_values(
     arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
@@ -343,13 +624,13 @@ fn argument_values(
 /// One key or set element, as its walk finds it.
 struct Key<'a, 't> {
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
-    outside: &'a BTreeSet<&'t str>,
     lookup: Lookup,
-    /// The names its matched part binds.
-    matched: BTreeSet<&'t str>,
-    /// What makes it a selection: the first name nothing else binds, `_`,
-    /// alias, alternatives or open record outside every construct that
-    /// computes, described.
+    /// The names its matched part holds, outside every construct that
+    /// computes, with their keys.
+    matched: Vec<(&'t str, &'t ProvenanceKey)>,
+    /// What makes it a selection by its own shape: the first `_`, alias,
+    /// alternatives or open record outside every construct that computes,
+    /// described. A name nothing else binds does too ([`Order`]).
     selection: Option<String>,
     /// The first construct that computes in it.
     computes: Option<Computes<'t>>,
@@ -376,6 +657,14 @@ struct Read<'t> {
 }
 
 impl<'t> Key<'_, 't> {
+    /// Every name the key holds: its matched part's and those it reads.
+    fn names(&self) -> impl Iterator<Item = &'t str> + '_ {
+        self.matched
+            .iter()
+            .map(|(name, _)| *name)
+            .chain(self.read.iter().map(|read| read.name))
+    }
+
     /// A pattern-only `construct` at `at`: built below `computing`, a
     /// selection otherwise.
     fn pattern_only(
@@ -422,11 +711,7 @@ impl<'t> Key<'_, 't> {
                         function: function.to_owned(),
                     });
                 } else {
-                    self.matched.insert(name);
-                    if !self.outside.contains(name.as_str()) && self.selection.is_none() {
-                        self.selection =
-                            Some(format!("the name `{name}`, which nothing else binds"));
-                    }
+                    self.matched.push((name, key));
                 }
             }
             DescriptorTerm::Wildcard { key } => {
@@ -442,7 +727,7 @@ impl<'t> Key<'_, 't> {
                     format!("the alias `{name} @ ..`")
                 });
                 if computing.is_none() {
-                    self.matched.insert(name);
+                    self.matched.push((name, binding_key));
                 }
                 self.term(pattern, computing);
             }

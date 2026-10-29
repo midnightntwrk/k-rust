@@ -53,8 +53,9 @@
 use std::collections::BTreeMap;
 
 use krs_ir::{
-    BuiltinOperation, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
-    DescriptorHeadRuleExtra, DescriptorPayload, DescriptorTerm, ListOperation,
+    BuiltinOperation, CellCollectionType, Descriptor, DescriptorApplicationRef,
+    DescriptorApplicationReference, DescriptorCellIdentity, DescriptorHeadRuleExtra,
+    DescriptorIndex, DescriptorPayload, DescriptorTerm, ListOperation, ProtocolCellContent,
     ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolRuleInstances, ProtocolRuleMapBody,
     ProtocolRuleStateTerm, SentenceKind, SetOperation, StableItemId, TermArgumentRef,
     TermMapOperation,
@@ -79,10 +80,12 @@ mod key_names;
 pub(super) fn check_function_patterns(
     descriptors: &[&Descriptor],
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     for descriptor in descriptors {
         let patterns = Patterns {
             catalog,
+            declarations: Some(declarations),
             place: Place::Pattern,
         };
         sentence_patterns(descriptor.payload(), &patterns)
@@ -108,6 +111,7 @@ pub(super) fn check_local_pattern(
 ) -> Result<(), DescriptorLoweringError> {
     let patterns = Patterns {
         catalog,
+        declarations: None,
         place: Place::Local,
     };
     patterns
@@ -163,7 +167,7 @@ fn sentence_patterns<'t>(
             rule.function_context
                 .iter()
                 .flat_map(|context| &context.cells.cells)
-                .try_for_each(|cell| patterns.state(&cell.value))
+                .try_for_each(|cell| patterns.state(Some(&cell.field.cell), &cell.value))
         }
         DescriptorPayload::HeadRule(rule) => {
             // A `for Sort` clause's subject is its one computation item.
@@ -184,12 +188,12 @@ fn sentence_patterns<'t>(
             .subject
             .cells
             .iter()
-            .try_for_each(|cell| patterns.state(&cell.value)),
+            .try_for_each(|cell| patterns.state(Some(&cell.field.cell), &cell.value)),
         DescriptorPayload::ContextAlias(alias) => alias
             .pattern
             .cells
             .iter()
-            .try_for_each(|cell| patterns.state(&cell.value)),
+            .try_for_each(|cell| patterns.state(Some(&cell.field.cell), &cell.value)),
         _ => Ok(()),
     }
 }
@@ -205,7 +209,10 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
             "{function} stands in a collection's value or element (a map's value, a list's element), which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); a map's key or a set's element whose every part is computed from names bound elsewhere is looked up by its value instead"
         ),
         (Place::Instance, _) => format!(
-            "{function} stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)"
+            "{function} stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)"
+        ),
+        (Place::SetInstance, _) => format!(
+            "{function} stands in a Set collection's instance, which KRS writes as the cells it holds, matched as they stand; the set is looked up by its instances as by its elements, but reading a computed instance as the element looked up needs a different lowering, which KRS does not have yet (finding NT-3-3): match a variable here and relate it to the application in a guard (`requires`)"
         ),
         (Place::Pattern, root) => {
             let instead = match root {
@@ -246,6 +253,9 @@ const fn matches_evaluated_terms(kind: SentenceKind, claim: bool) -> bool {
 #[derive(Clone, Copy)]
 struct Patterns<'a> {
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+    /// The cells' declarations, which tell a collection's type; `None` for a
+    /// local pattern, which holds no cell.
+    declarations: Option<&'a DescriptorIndex<'a>>,
     /// What the terms walked are matched as.
     place: Place,
 }
@@ -257,8 +267,10 @@ enum Place {
     Pattern,
     /// A collection's value or element in the subject.
     Entry,
-    /// A child of a cell collection's instance in the subject.
+    /// A child of a List or a Map collection's instance in the subject.
     Instance,
+    /// A child of a Set collection's instance in the subject.
+    SetInstance,
     /// A `let` or `k::matches!` pattern.
     Local,
 }
@@ -291,14 +303,6 @@ struct Found<'t> {
 
 impl Patterns<'_> {
     /// These patterns, matching a collection's values and elements.
-    /// These patterns, matching a cell collection's instances.
-    const fn instance(self) -> Self {
-        Self {
-            place: Place::Instance,
-            ..self
-        }
-    }
-
     const fn entries(self) -> Self {
         Self {
             place: Place::Entry,
@@ -309,7 +313,11 @@ impl Patterns<'_> {
     /// One state of a cell a pattern names: its term, its computation items,
     /// its map's base and values, and a collection cell's instances, all
     /// matched. A map's keys are judged with their reading ([`key_names`]).
-    fn state<'t>(&self, state: &'t ProtocolRuleStateTerm<DescriptorTerm>) -> Result<(), Found<'t>> {
+    fn state<'t>(
+        &self,
+        cell: Option<&DescriptorCellIdentity>,
+        state: &'t ProtocolRuleStateTerm<DescriptorTerm>,
+    ) -> Result<(), Found<'t>> {
         let root = Some(Root::Slot);
         match state {
             ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
@@ -326,8 +334,8 @@ impl Patterns<'_> {
                     .try_for_each(|item| self.entries().term(&item.value, None)),
                 ProtocolRuleMapBody::Empty { .. } => Ok(()),
             },
-            ProtocolRuleStateTerm::Present { value } => self.state(value),
-            ProtocolRuleStateTerm::Instances(instances) => self.instances(instances),
+            ProtocolRuleStateTerm::Present { value } => self.state(cell, value),
+            ProtocolRuleStateTerm::Instances(instances) => self.instances(cell, instances),
             ProtocolRuleStateTerm::Absent => Ok(()),
         }
     }
@@ -338,14 +346,26 @@ impl Patterns<'_> {
     /// collection's is written as the cells it holds (NT-3-3).
     fn instances<'t>(
         &self,
+        cell: Option<&DescriptorCellIdentity>,
         instances: &'t ProtocolRuleInstances<DescriptorTerm>,
     ) -> Result<(), Found<'t>> {
+        let set = cell
+            .zip(self.declarations)
+            .is_some_and(|(cell, declarations)| {
+                collection_type(declarations, cell) == Some(CellCollectionType::Set)
+            });
+        let place = if set {
+            Place::SetInstance
+        } else {
+            Place::Instance
+        };
+        let children = Self { place, ..*self };
         instances
             .front
             .iter()
             .chain(&instances.back)
             .flat_map(|instance| &instance.fields)
-            .try_for_each(|child| self.instance().state(&child.value))
+            .try_for_each(|child| children.state(None, &child.value))
     }
 
     /// The matched side of a readable rule's cell: a cell's content, an
@@ -356,7 +376,9 @@ impl Patterns<'_> {
         let root = Some(Root::Slot);
         match extra {
             ProtocolHeadRuleExtra::RewriteCell { before, .. } => self.term(before, root),
-            ProtocolHeadRuleExtra::RewriteState { before, .. } => self.state(before),
+            ProtocolHeadRuleExtra::RewriteState { cell, before, .. } => {
+                self.state(Some(&cell.cell), before)
+            }
             ProtocolHeadRuleExtra::RewriteList { before, .. } => {
                 before
                     .items
@@ -383,6 +405,19 @@ impl Patterns<'_> {
                 ..
             } => {
                 let below = match applied_function(&reference.application, self.catalog) {
+                    // A set's elements are its keys ([`key_names`]); the
+                    // other operands of its concatenation are the sets it
+                    // holds besides them, matched as any term is.
+                    Applied::Collection
+                        if reference.application
+                            == DescriptorApplicationRef::Set(SetOperation::Concat) =>
+                    {
+                        return arguments.iter().try_for_each(|argument| {
+                            let (TermArgumentRef::Positional { value }
+                            | TermArgumentRef::Named { value, .. }) = argument;
+                            self.term(value, None)
+                        });
+                    }
                     Applied::Collection => return Ok(()),
                     Applied::Function(_) if root == Some(Root::Defined) => *self,
                     Applied::Function(function) => {
@@ -444,6 +479,19 @@ enum Applied {
     /// A set's or a map's unit, element or concatenation, whose operands are
     /// what the collection is looked up by.
     Collection,
+}
+
+/// The type of the collection cell `cell` names; `None` when it names no
+/// collection.
+fn collection_type(
+    declarations: &DescriptorIndex<'_>,
+    cell: &DescriptorCellIdentity,
+) -> Option<CellCollectionType> {
+    let declared = super::references::require_cell_field(cell, declarations).ok()?;
+    let ProtocolCellContent::Nested { .. } = &declared.content else {
+        return None;
+    };
+    Some(CellCollectionType::from(declared.cell_type.as_ref()?.value))
 }
 
 /// What `application` applies: a declared function, a builtin operation that

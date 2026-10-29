@@ -610,7 +610,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:52",
                     ],
                 ),
@@ -620,7 +620,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:48",
                     ],
                 ),
@@ -630,7 +630,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:58",
                     ],
                 ),
@@ -640,7 +640,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a Set collection's instance, which KRS writes as the cells it holds, matched as they stand; the set is looked up by its instances as by its elements, but reading a computed instance as the element looked up needs a different lowering, which KRS does not have yet (finding NT-3-3): match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:56",
                     ],
                 ),
@@ -654,4 +654,386 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
             ),
         ]
     "#]].assert_debug_eq(&outcomes);
+}
+
+/// A configuration of two Map cells and a cell holding a set, for the reading of keys.
+const KEYS: &str = r#"
+use k::builtin::{Int, KSequence, Map, Set};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("pair({a}, {b})")]
+    Pair { a: KItem, b: KItem },
+    #[k::syntax("wrap({e})")]
+    Wrap { e: KItem },
+    #[k::syntax("done")]
+    Done(),
+    #[k::syntax("bag({s})")]
+    Bag { s: Set },
+}
+
+#[k::function(partial, sort = Int, syntax = "size({a})")]
+pub struct Size {
+    pub a: Term<KItem>,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map,
+    #[k::cell]
+    pub env2: Map,
+    #[k::cell]
+    pub acc: Exp,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            env: k::map![],
+            env2: k::map![],
+            acc: ExpSyntax::Done(),
+        }
+    }
+}
+"#;
+
+/// A readable rule `r` of `KEYS` from `subject` to `result`.
+fn keys_rule(subject: &str, result: &str) -> String {
+    format!(
+        "k::rules! {{\n    for Machine;\n    use ExpSyntax::*;\n    r: {subject} => {result};\n}}\n"
+    )
+}
+
+/// A `cells!` rule `r` of `KEYS` over `env`, whose map is `map`, binding `binders`.
+fn keys_cells_rule(binders: &str, map: &str) -> String {
+    format!(
+        "#[k::rule(label = \"r\")]\npub fn r(\n{binders}    k::cells! {{ k: k::configuration::KCell(ExpSyntax::Done(), tail @ ..), env: k::configuration::Cell(k::map![{map}]), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+    )
+}
+
+/// The rule `r` that `krs emit-k` writes for the package, one line each.
+fn emitted_rule(target: &Path, manifest: &Path) -> Vec<String> {
+    let output_dir = manifest.parent().unwrap().join("emitted");
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target);
+    let output = process
+        .args(["emit-k", "--manifest-path"])
+        .arg(manifest)
+        .args(["--package", "patterns", "--definition", "main", "--output"])
+        .arg(&output_dir)
+        .env("NO_COLOR", "1")
+        .env("KRS_STAGE_CACHE_DIR", target.join("stages"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let definition = fs::read_to_string(output_dir.join("definition.k")).unwrap();
+    definition
+        .lines()
+        .skip_while(|line| line.trim() != "rule [r]:")
+        .take_while(|line| !line.trim().is_empty() && line.trim() != "endmodule")
+        .map(|line| line.trim().to_owned())
+        .collect()
+}
+
+/// A map key or a set element is computed and looked up when every name it reads is bound first,
+/// in an order of matching: outside the keys, by a key that matches, by the value of an entry
+/// already found. Otherwise it is a selection, where a function never matches, or its names follow
+/// no order (a cycle), or a name it reads is bound nowhere; below what it computes, a
+/// pattern-only construct is built.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One case per reading of a key, and the expected diagnostic of each."
+)]
+fn a_key_is_computed_in_an_order_of_lookups_or_a_selection() {
+    let outcomes = outcomes_after(
+        KEYS,
+        [
+            (
+                "selection-function",
+                &keys_rule(
+                    "{ k: [Wrap(n), ..], env: { Pair { a: Size(n), b: y } -> v, .. } }",
+                    "{ k: [..] }",
+                ),
+            ),
+            (
+                "selection-operator",
+                &keys_rule(
+                    "{ k: [Wrap(n), ..], env: { Pair { a: n + 1, b: y } -> v, .. } }",
+                    "{ k: [..] }",
+                ),
+            ),
+            (
+                "selection-sort-test",
+                &keys_rule(
+                    "{ k: [Wrap(n), ..], env: { Pair { a: k::is!(Int, n), b: y } -> v, .. } }",
+                    "{ k: [..] }",
+                ),
+            ),
+            (
+                "selection-only-name",
+                &keys_rule(
+                    "{ k: [Done(), ..], env: { Pair { a: n, b: Size(n) } -> v, .. } }",
+                    "{ k: [..] }",
+                ),
+            ),
+            (
+                "selection-wildcard-below-function",
+                &keys_cells_rule(
+                    "    y: KItem,\n    v: KItem,\n",
+                    "ExpSyntax::Pair { a: Size(_), b: y } -> v, ..",
+                ),
+            ),
+            (
+                "built-wildcard",
+                &keys_cells_rule("    v: KItem,\n", "Size(_) -> v, .."),
+            ),
+            (
+                "built-alias",
+                &keys_cells_rule(
+                    "    y: KItem,\n    v: KItem,\n",
+                    "Size(y @ ExpSyntax::Done()) -> v, ..",
+                ),
+            ),
+            (
+                "built-open-record",
+                &keys_rule(
+                    "{ k: [Wrap(n), ..], env: { Size(Pair { a: n, .. }) -> v, .. } }",
+                    "{ k: [..] }",
+                ),
+            ),
+            (
+                "self-cycle",
+                &keys_rule(
+                    "{ k: [Done(), ..], env: { Size(v) -> v, .. } }",
+                    "{ k: [..] }",
+                ),
+            ),
+            (
+                "two-key-cycle",
+                &keys_rule(
+                    "{ k: [Done(), ..], env: { Size(y) -> x, Size(x) -> y, .. } }",
+                    "{ k: [..] }",
+                ),
+            ),
+            (
+                "bound-only-in-the-result",
+                &keys_rule(
+                    "{ k: [Done(), ..], env: { Size(n) -> v, .. } }",
+                    "{ k: [Wrap(n), ..] }",
+                ),
+            ),
+        ],
+    );
+    expect_test::expect![[r#"
+        [
+            (
+                "selection-function",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a map key that also holds the name `y`, which nothing else binds, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; the function `Size` denotes the value evaluation produces, which no evaluated key is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+                        "--> src/lib.rs:54:45",
+                    ],
+                ),
+            ),
+            (
+                "selection-operator",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the operator `+`, a builtin function, stands in a map key that also holds the name `y`, which nothing else binds, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; the operator `+`, a builtin function, denotes the value evaluation produces, which no evaluated key is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+                        "--> src/lib.rs:54:47",
+                    ],
+                ),
+            ),
+            (
+                "selection-sort-test",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::invalid-sort-test]: a sort test stands in a map key that also holds the name `y`, which nothing else binds, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; a sort test denotes the value evaluation produces, which no evaluated key is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+                        "--> src/lib.rs:54:45",
+                    ],
+                ),
+            ),
+            (
+                "selection-only-name",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a map key that also holds the name `n`, which nothing else binds, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; the function `Size` denotes the value evaluation produces, which no evaluated key is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+                        "--> src/lib.rs:54:50",
+                    ],
+                ),
+            ),
+            (
+                "selection-wildcard-below-function",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a map key that also holds the name `y`, which nothing else binds, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; the function `Size` denotes the value evaluation produces, which no evaluated key is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+                        "--> src/lib.rs:55:132",
+                    ],
+                ),
+            ),
+            (
+                "built-wildcard",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::unsupported-term-expression]: `_` stands below the function `Size` in a map key, which computes the value looked up, so the position is built: `_` matches any term, and names none to build",
+                        "--> src/lib.rs:54:116",
+                    ],
+                ),
+            ),
+            (
+                "built-alias",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-pattern-as]: an alias `name @ pattern` stands below the function `Size` in a map key, which computes the value looked up, so the position is built: an alias names the term a pattern matched, and nothing is matched there",
+                        "--> src/lib.rs:55:116",
+                    ],
+                ),
+            ),
+            (
+                "built-open-record",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-record-update]: an open record `Ctor { f: e, .. }` stands below the function `Size` in a map key, which computes the value looked up, so the position is built: `..` leaves the record's other fields open, which only a pattern can; name every field",
+                        "--> src/lib.rs:54:40",
+                    ],
+                ),
+            ),
+            (
+                "self-cycle",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a map key that reads `v`, which only the values of the collection's entries this key or another computed key looks up bind: no order of lookups gives a computed key the names it reads, so matching would choose an entry and evaluate the function `Size` on each, a selection holding a function, which never matches an evaluated key; bind those names elsewhere in the pattern, or match a variable here and relate it to the application in a guard (`requires`)",
+                        "--> src/lib.rs:54:34",
+                    ],
+                ),
+            ),
+            (
+                "two-key-cycle",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a map key that reads `x`, `y`, which only the values of the collection's entries this key or another computed key looks up bind: no order of lookups gives a computed key the names it reads, so matching would choose an entry and evaluate the function `Size` on each, a selection holding a function, which never matches an evaluated key; bind those names elsewhere in the pattern, or match a variable here and relate it to the application in a guard (`requires`)",
+                        "--> src/lib.rs:54:34",
+                    ],
+                ),
+            ),
+            (
+                "bound-only-in-the-result",
+                (
+                    false,
+                    [
+                        "error[krs::expand::unbound-name]: `n` is not bound in this sentence: it stands only below the function `Size` in a map key, and a key is evaluated to look its entry up, so the key reads `n` and binds nothing; bind `n` elsewhere in the pattern",
+                        "--> src/lib.rs:54:39",
+                    ],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// Keys whose names follow an order of lookups are accepted, and emitted as the map patterns that
+/// order denotes: a key read by the value of an entry found before it, by a key that matches, in
+/// another map cell, and a set's element after the element that binds its name.
+#[test]
+fn keys_in_an_order_of_lookups_are_accepted() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = [
+        (
+            "value",
+            keys_rule(
+                "{ k: [Done(), ..], env: { x -> v, Size(v) -> w, .. } }",
+                "{ k: [Wrap(w), ..] }",
+            ),
+        ),
+        (
+            "key",
+            keys_rule(
+                "{ k: [Done(), ..], env: { x -> v, Size(x) -> w, .. } }",
+                "{ k: [Wrap(w), ..] }",
+            ),
+        ),
+        (
+            "other-cell",
+            keys_rule(
+                "{ k: [Done(), ..], env: { x -> v, .. }, env2: { Size(v) -> w, .. } }",
+                "{ k: [Wrap(w), ..] }",
+            ),
+        ),
+        (
+            "set",
+            keys_rule(
+                "{ k: [Done(), ..], acc: Bag { s: k::builtin::set::concat(k::builtin::set::item(x), k::builtin::set::concat(k::builtin::set::item(Size(x)), rest)) } }",
+                "{ k: [Wrap(x), ..] }",
+            ),
+        ),
+    ];
+    let emitted = cases.map(|(name, source)| {
+        let manifest = package(&temporary.path().join(name), KEYS, &source);
+        (name, emitted_rule(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "value",
+                [
+                    "rule [r]:",
+                    "<k> done => wrap ( W:KItem ) ... </k>",
+                    "<env> X:KItem |-> V:KItem size ( V:KItem ) |-> W:KItem ... </env>",
+                ],
+            ),
+            (
+                "key",
+                [
+                    "rule [r]:",
+                    "<k> done => wrap ( W:KItem ) ... </k>",
+                    "<env> X:KItem |-> V:KItem size ( X:KItem ) |-> W:KItem ... </env>",
+                ],
+            ),
+            (
+                "other-cell",
+                [
+                    "rule [r]:",
+                    "<k> done => wrap ( W:KItem ) ... </k>",
+                    "<env> X:KItem |-> V:KItem ... </env>",
+                    "<env2> size ( V:KItem ) |-> W:KItem ... </env2>",
+                ],
+            ),
+            (
+                "set",
+                [
+                    "rule [r]:",
+                    "<k> done => wrap ( X:KItem ) ... </k>",
+                    "<acc> bag ( SetItem(X:KItem) SetItem(size ( X:KItem )) Rest:Set ) </acc>",
+                ],
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&emitted);
 }
