@@ -123,8 +123,11 @@ pub struct RuleItem {
     /// The anchors of the full view ([`Self::full_provenance`]).
     full_anchors: Vec<ProvenanceAnchor>,
     /// The refusal of a single-body rule whose subject marks no change, a
-    /// mistake of the whole sentence ([`Self::check_changes`]).
+    /// mistake of the whole sentence ([`Self::check_sentence`]).
     unchanged: Option<SyntaxError>,
+    /// The refusal of a binder list that does not declare exactly the
+    /// subject's names, in order, a names mistake ([`Self::check_sentence`]).
+    binder_list: Option<SyntaxError>,
 }
 
 /// Which sentence keys a rule item.
@@ -269,18 +272,6 @@ impl RuleItem {
 
     /// [`Self::from_item`] with the negative-literal spans of the item's source tokens.
     fn from_item_with_signs(
-        item: ItemFn,
-        signs: NegativeLiteralSpans,
-        form: ClauseForm,
-    ) -> Result<Self, SyntaxError> {
-        let rule = Self::from_item_judging_changes_later(item, signs, form)?;
-        rule.check_changes()?;
-        Ok(rule)
-    }
-
-    /// [`Self::from_item_with_signs`], except that a single-body rule whose
-    /// subject marks no change is refused only by [`Self::check_changes`].
-    fn from_item_judging_changes_later(
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
         form: ClauseForm,
@@ -295,34 +286,58 @@ impl RuleItem {
         )
     }
 
+    /// [`Self::from_item_with_signs`], except that a single-body rule whose
+    /// subject marks no change and a binder list that does not match the
+    /// subject's names are refused only by [`Self::check_sentence`].
+    fn from_item_judging_sentence_later(
+        mut item: ItemFn,
+        signs: NegativeLiteralSpans,
+        form: ClauseForm,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_item_with_sort_parser_judging_sentence_later(
+            &mut item,
+            parse_rule_term_sort,
+            PatternRoot::Subject,
+            signs,
+            false,
+            form,
+        )
+    }
+
     /// Parses a `#[k::rule]` fn's tokens as [`KrsSyntax::parse_tokens`] does,
-    /// except that a single-body rule whose subject marks no change is
-    /// refused only by [`Self::check_changes`]: that is a mistake of the
-    /// whole sentence, told by its spelling alone, which the expansion tells
-    /// after a construct the subject may not hold where it stands (told at
-    /// the construct, which must go whatever the rule changes) and before a
-    /// name the subject reads but nothing binds.
+    /// except that the sentence's own mistakes are refused only by
+    /// [`Self::check_sentence`], which the expansion calls once it has judged
+    /// each construct of the subject and the conditions where it stands (a
+    /// construct refused there must go whatever the rule changes or binds).
     ///
     /// # Errors
     ///
-    /// The errors of [`KrsSyntax::parse_tokens`] but that one.
+    /// The errors of [`KrsSyntax::parse_tokens`] but those.
     pub fn parse_rule_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let signs = NegativeLiteralSpans::of_fn_parameters(tokens.clone());
-        Self::from_item_judging_changes_later(
+        Self::from_item_judging_sentence_later(
             crate::term::parse_fn_item(tokens)?,
             signs,
             ClauseForm::Transition,
         )
     }
 
-    /// Refuses a single-body rule whose subject marks no change.
+    /// Refuses the sentence's own mistakes, in the order they are told: a
+    /// single-body rule whose subject marks no change, a mistake of the whole
+    /// rule told by its spelling alone, then a binder list that does not
+    /// declare exactly the subject's names in order, a names mistake (the
+    /// list declares the sentence's names, and the subject binds others).
     ///
     /// # Errors
     ///
     /// Returns [`SyntaxErrorKind::InvalidLocalRewrite`] at the fn's name for
-    /// a single-body rule whose subject holds no `k::rewrite!`.
-    pub fn check_changes(&self) -> Result<(), SyntaxError> {
-        self.unchanged.clone().map_or(Ok(()), Err)
+    /// a single-body rule whose subject holds no `k::rewrite!`, and the
+    /// binder list's error at the binder.
+    pub fn check_sentence(&self) -> Result<(), SyntaxError> {
+        self.unchanged
+            .clone()
+            .or_else(|| self.binder_list.clone())
+            .map_or(Ok(()), Err)
     }
 
     /// Validates a desugar clause fn with its `#[k::desugar(..)]` payload
@@ -424,11 +439,33 @@ impl RuleItem {
         )
     }
 
+    /// [`Self::from_item_with_sort_parser_judging_sentence_later`], with the
+    /// sentence's own mistakes refused at once ([`Self::check_sentence`]).
+    fn from_item_with_sort_parser(
+        item: &mut ItemFn,
+        sort_parser: fn(Type) -> Result<TermSort, SyntaxError>,
+        root: PatternRoot,
+        signs: NegativeLiteralSpans,
+        result_wildcards: bool,
+        form: ClauseForm,
+    ) -> Result<Self, SyntaxError> {
+        let rule = Self::from_item_with_sort_parser_judging_sentence_later(
+            item,
+            sort_parser,
+            root,
+            signs,
+            result_wildcards,
+            form,
+        )?;
+        rule.check_sentence()?;
+        Ok(rule)
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "The signature, subject, result or single body, and helpers are validated in one ordered pass."
     )]
-    fn from_item_with_sort_parser(
+    fn from_item_with_sort_parser_judging_sentence_later(
         item: &mut ItemFn,
         sort_parser: fn(Type) -> Result<TermSort, SyntaxError>,
         root: PatternRoot,
@@ -515,6 +552,7 @@ impl RuleItem {
             (false, None) => {}
         }
         let parameter_sort = sort_parser((*argument.ty).clone())?;
+        let binder_list;
         let mut function_context = function_context;
         if let Some(context) = &mut function_context {
             validate_context_binder_list(item, &binders, pattern.bindings(), context)?;
@@ -523,8 +561,9 @@ impl RuleItem {
                 .map(|binder| (binder.name.clone(), binder.term_sort.clone()))
                 .collect::<Vec<_>>();
             context.attach_sorts(pattern.bindings(), &declared)?;
+            binder_list = None;
         } else {
-            validate_binder_list(&binders, pattern.bindings())?;
+            binder_list = validate_binder_list(&binders, pattern.bindings()).err();
         }
 
         let (result_sort, result) = if single_body {
@@ -594,6 +633,7 @@ impl RuleItem {
             anchors: Vec::new(),
             full_anchors: Vec::new(),
             unchanged,
+            binder_list,
         }
         .keyed()
     }

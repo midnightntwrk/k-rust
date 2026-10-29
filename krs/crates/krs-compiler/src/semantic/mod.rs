@@ -81,25 +81,39 @@ fn ordered_descriptors(
 /// whose names and sorts resolve, which the sentence's lowering and the evaluation steps' check
 /// of its hole decide: a name that resolves to nothing, or a sort mistake, leaves no resolved
 /// term to judge, so the reader fixes it first, and their author error about the same item is
-/// told instead. Any other error, of another item or internal (a check that assumes the
-/// judgment held), is told after it.
+/// told instead. Lowering stops at the first item that fails, so when another item failed
+/// first, the refused item is judged on its own (`judge_alone`), which no other item's mistake
+/// decides. Any other error of the refused item, internal (a check that assumes the judgment
+/// held), is told after the judgment.
 fn resolved_first(
     resolution: Result<(), DescriptorLoweringError>,
     lowered: Result<Vec<SemanticModule>, DescriptorLoweringError>,
+    judge_alone: impl FnOnce(&StableItemId) -> Result<(), DescriptorLoweringError>,
 ) -> Result<Vec<SemanticModule>, DescriptorLoweringError> {
-    match (resolution, lowered) {
-        (Ok(()), lowered) => lowered,
+    let is_author = |error: &DescriptorLoweringError| {
+        krs_diagnostic::ToDiagnostic::to_diagnostic(error)
+            .code
+            .kind()
+            == krs_diagnostic::codes::CodeKind::Author
+    };
+    let resolution = match (resolution, lowered) {
+        (Ok(()), lowered) => return lowered,
         (Err(resolution), Err(lowering))
             if lowering.subject_item().is_some()
-                && lowering.subject_item() == resolution.subject_item()
-                && krs_diagnostic::ToDiagnostic::to_diagnostic(&lowering)
-                    .code
-                    .kind()
-                    == krs_diagnostic::codes::CodeKind::Author =>
+                && lowering.subject_item() == resolution.subject_item() =>
         {
-            Err(lowering)
+            return Err(if is_author(&lowering) {
+                lowering
+            } else {
+                resolution
+            });
         }
-        (Err(resolution), _) => Err(resolution),
+        (Err(resolution), Err(_)) => resolution,
+        (Err(resolution), Ok(_)) => return Err(resolution),
+    };
+    match resolution.subject_item().map(judge_alone) {
+        Some(Err(own)) if is_author(&own) => Err(own),
+        _ => Err(resolution),
     }
 }
 
@@ -316,7 +330,16 @@ pub fn lower_descriptor_bundle(
         evaluation::check_evaluation_steps(&modules)?;
         Ok(modules)
     });
-    let modules = resolved_first(resolution, lowered)?;
+    let modules = resolved_first(resolution, lowered, |item| {
+        declarations.get(item).map_or(Ok(()), |descriptor| {
+            package::judge_alone(
+                descriptor,
+                &declaration_catalog,
+                &semantic_sort_parents,
+                &production_catalog,
+            )
+        })
+    })?;
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
     or_positions::check_or_pattern_positions(&modules)?;

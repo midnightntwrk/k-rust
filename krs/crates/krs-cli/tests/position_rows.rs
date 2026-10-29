@@ -229,9 +229,11 @@ fn a_record_update_in_a_pattern_is_refused_at_its_base() {
 }
 
 /// A single-body rule whose subject marks no change is a mistake of the whole sentence, told at
-/// the fn's name; a construct its subject's root may not hold is a mistake told by its spelling
-/// and position alone, so it is told first, as it is with a rewrite: alternatives, which the one
-/// term rewritten in place cannot be, a record update and a `let` block.
+/// the fn's name; a construct its subject's root or its guard may not hold is a mistake told by
+/// its spelling and position alone, so it is told first, as it is with a rewrite: alternatives,
+/// which the one term rewritten in place cannot be, a record update, a `let` block, and a rewrite
+/// in a guard. A binder list that declares a name the subject does not bind is a names mistake,
+/// told after it.
 #[test]
 fn a_single_body_rule_tells_a_misplaced_root_before_its_missing_rewrite() {
     let outcomes = outcomes([
@@ -250,6 +252,14 @@ fn a_single_body_rule_tells_a_misplaced_root_before_its_missing_rewrite() {
         (
             "let",
             "#[k::rule(label = \"idle\")]\nfn idle(k::term![{ let y = x; y }]: Term<Exp>) {}\n",
+        ),
+        (
+            "rewrite-in-guard",
+            "#[k::rule(label = \"idle\")]\n#[k::requires(k::rewrite!(true => false))]\nfn idle(k::term![ExpSyntax::Done()]: Term<Exp>) {}\n",
+        ),
+        (
+            "binder-list",
+            "#[k::rule(label = \"idle\")]\nfn idle(y: Term<Int>, k::term![ExpSyntax::Done()]: Term<Exp>) {}\n",
         ),
     ]);
     expect_test::expect![[r#"
@@ -291,6 +301,26 @@ fn a_single_body_rule_tells_a_misplaced_root_before_its_missing_rewrite() {
                     [
                         "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `#let` binds its pattern's names (it is `#fun(P => B)(E)`), and in a rule's left side those names would read as the rule's pattern variables; here it stands in the subject of a single-body `#[k::rule]` fn",
                         "--> src/lib.rs:42:20",
+                    ],
+                ),
+            ),
+            (
+                "rewrite-in-guard",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body rule or the hole of a context, once and outside any local pattern; here it stands in the `requires` condition of a single-body `#[k::rule]` fn",
+                        "--> src/lib.rs:42:15",
+                    ],
+                ),
+            ),
+            (
+                "binder-list",
+                (
+                    false,
+                    [
+                        "error[krs::syntax::invalid-local-rewrite]: a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result",
+                        "--> src/lib.rs:42:4",
                     ],
                 ),
             ),

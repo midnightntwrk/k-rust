@@ -21,56 +21,62 @@ use super::overload::sort_name;
 pub(super) fn check_evaluation_steps(
     modules: &[SemanticModule],
 ) -> Result<(), DescriptorLoweringError> {
-    for rule in modules.iter().flat_map(SemanticModule::rules) {
-        let Some(step) = rule.evaluation() else {
-            continue;
+    modules
+        .iter()
+        .flat_map(SemanticModule::rules)
+        .try_for_each(check_evaluation_step)
+}
+
+/// Checks one rule's evaluation step, if it has one: a heat or cool rule's
+/// hole, bound once on its left side, and a context's ([`check_context`]).
+pub(super) fn check_evaluation_step(rule: &SemanticRule) -> Result<(), DescriptorLoweringError> {
+    let Some(step) = rule.evaluation() else {
+        return Ok(());
+    };
+    if step.kind() == krs_ir::EvaluationKind::Context {
+        return check_context(rule, step);
+    }
+    let hole = step.hole();
+    let occurrences = left_occurrences(rule, hole);
+    let attribute = step.kind().as_str();
+    let range = step.hole_origin().origin().exact_authored_range();
+    if occurrences == 0 {
+        let result = step
+            .result()
+            .map_or_else(|| "KResult".to_owned(), |result| sort_name(result.sort()));
+        let condition = match step.kind() {
+            krs_ir::EvaluationKind::Heat => format!("requires notBool is{result}(HOLE)"),
+            krs_ir::EvaluationKind::Cool | krs_ir::EvaluationKind::Context => {
+                format!("requires is{result}(HOLE)")
+            }
         };
-        if step.kind() == krs_ir::EvaluationKind::Context {
-            check_context(rule, step)?;
-            continue;
-        }
-        let hole = step.hole();
-        let occurrences = left_occurrences(rule, hole);
-        let attribute = step.kind().as_str();
-        let range = step.hole_origin().origin().exact_authored_range();
-        if occurrences == 0 {
-            let result = step
-                .result()
-                .map_or_else(|| "KResult".to_owned(), |result| sort_name(result.sort()));
-            let condition = match step.kind() {
-                krs_ir::EvaluationKind::Heat => format!("requires notBool is{result}(HOLE)"),
-                krs_ir::EvaluationKind::Cool | krs_ir::EvaluationKind::Context => {
-                    format!("requires is{result}(HOLE)")
-                }
-            };
-            return Err(fail(
-                rule.id(),
-                format!(
-                    "a {attribute} rule must match its hole on the left side; K adds '{condition}', a condition on that subterm, and `{}` does not occur there",
-                    hole.as_str(),
-                ),
-                range,
-            ));
-        }
-        if occurrences > 1 {
-            return Err(fail(
-                rule.id(),
-                format!(
-                    "the hole `{}` of a {attribute} rule names one subterm, but the left side binds it {occurrences} times; bind the other occurrences with another name",
-                    hole.as_str(),
-                ),
-                range,
-            ));
-        }
-        if matches_whole_computation(rule) {
-            return Err(fail(
-                rule.id(),
-                format!(
-                    "a {attribute} rule holds for any continuation, but this one matches the whole computation cell; end its k pattern with `..`",
-                ),
-                range,
-            ));
-        }
+        return Err(fail(
+            rule.id(),
+            format!(
+                "a {attribute} rule must match its hole on the left side; K adds '{condition}', a condition on that subterm, and `{}` does not occur there",
+                hole.as_str(),
+            ),
+            range,
+        ));
+    }
+    if occurrences > 1 {
+        return Err(fail(
+            rule.id(),
+            format!(
+                "the hole `{}` of a {attribute} rule names one subterm, but the left side binds it {occurrences} times; bind the other occurrences with another name",
+                hole.as_str(),
+            ),
+            range,
+        ));
+    }
+    if matches_whole_computation(rule) {
+        return Err(fail(
+            rule.id(),
+            format!(
+                "a {attribute} rule holds for any continuation, but this one matches the whole computation cell; end its k pattern with `..`",
+            ),
+            range,
+        ));
     }
     Ok(())
 }

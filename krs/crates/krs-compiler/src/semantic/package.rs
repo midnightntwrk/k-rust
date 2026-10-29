@@ -186,6 +186,30 @@ fn build_module(
     .with_raw_sentences(raw_sentences))
 }
 
+/// Lowers `descriptor` on its own, against the whole bundle's declarations,
+/// and checks its rules' evaluation steps: the name and sort mistakes of
+/// that one item, whatever any other item holds (`resolved_first`).
+pub(super) fn judge_alone(
+    descriptor: &Descriptor,
+    declarations: &DeclarationCatalog<'_>,
+    semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> Result<(), DescriptorLoweringError> {
+    let mut sentences = ModuleSentences::default();
+    lower_module_descriptor(
+        descriptor,
+        declarations,
+        semantic_sort_parents,
+        production_catalog,
+        &mut sentences,
+    )
+    .map_err(|error| error.within(descriptor.id(), item_range(descriptor).as_ref()))?;
+    sentences
+        .rules
+        .iter()
+        .try_for_each(super::evaluation::check_evaluation_step)
+}
+
 /// Lowers one descriptor into the sentences of its package module.
 fn lower_module_descriptor(
     descriptor: &Descriptor,

@@ -2177,9 +2177,13 @@ fn validate_pattern(
 
 /// Whether `pattern` at a `for Sort` clause's root stands for the whole term
 /// rather than naming the constructor the clause matches: a bare name, `_`,
-/// an alias or an island ([`PatternRoot::at`]).
-pub(crate) const fn holds_whole_term(pattern: &Pat) -> bool {
-    matches!(pattern, Pat::Ident(_) | Pat::Macro(_) | Pat::Wild(_))
+/// an alias or an island ([`PatternRoot::at`]), parenthesized or not, since
+/// parentheses denote nothing.
+pub(crate) fn holds_whole_term(pattern: &Pat) -> bool {
+    match pattern {
+        Pat::Paren(paren) => holds_whole_term(&paren.pat),
+        _ => matches!(pattern, Pat::Ident(_) | Pat::Macro(_) | Pat::Wild(_)),
+    }
 }
 
 /// Reads a pattern of the term grammar: the one pattern reader, for a

@@ -34,7 +34,7 @@ pub(crate) fn rule(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let attribute = krs_syntax::RuleAttribute::parse_tokens(attributes)?;
+    let attribute = krs_syntax::RuleAttribute::parse_tokens(attributes.clone())?;
     // The body may hold a term no Rust block holds (`name @ pattern`), which the rule's own parse
     // reads and the position table judges.
     let parsed = krs_syntax::parse_fn_item(item.clone())?;
@@ -64,8 +64,40 @@ pub(crate) fn rule(
         }
         return configuration_rule(env, item, krs_syntax::RuleSentence::Transition(&attribute));
     }
-    ordinary_rule(env, item, krs_syntax::RuleSentence::Transition(&attribute))
+    transition_rule(env, item, &attribute, attributes)
 }
+
+/// Expands a `#[k::rule]` fn whose sides are terms. A single-body rule whose
+/// subject marks no change is told after the subject's constructs are judged
+/// where they stand (`expand_ordinary_rule`). A whole subject `_`, alias or
+/// island is refused with the clause to write instead (decision D3), unless
+/// the rule is an `anywhere` rule, which has no such form.
+fn transition_rule(
+    env: &dyn MacroEnvironment,
+    item: TokenStream,
+    attribute: &krs_syntax::RuleAttribute,
+    attribute_tokens: TokenStream,
+) -> crate::Result<TokenStream> {
+    let rule = krs_syntax::RuleItem::parse_rule_tokens(item.clone()).map_err(move |error| {
+        if !error.refuses_whole_subject() {
+            error
+        } else if attribute.anywhere().is_some() {
+            error.with_help(ANYWHERE_WHOLE_SUBJECT)
+        } else {
+            error.with_help(for_sort_clause_help(&item, &attribute_tokens))
+        }
+    })?;
+    expand_ordinary_rule(
+        env,
+        &rule,
+        krs_syntax::RuleSentence::Transition(attribute),
+        None,
+        &[],
+    )
+}
+
+/// Why an `anywhere` rule's whole subject is no `_`, alias or island.
+const ANYWHERE_WHOLE_SUBJECT: &str = "an `anywhere` rule rewrites the application its subject's root names wherever that application occurs, so no form writes one for any term of a sort";
 
 /// `#[k::context(hole = h, result = S, label = "l")]` (KF-021): a context
 /// is expanded as a rule without a result, whose evaluation step names the
@@ -313,45 +345,149 @@ fn ordinary_rule(
     item: TokenStream,
     sentence: krs_syntax::RuleSentence<'_>,
 ) -> crate::Result<TokenStream> {
-    let rule = match sentence {
-        krs_syntax::RuleSentence::Equation(_) => krs_syntax::RuleItem::parse_equation_tokens(item)?,
-        // A single-body rule whose subject marks no change is told after the
-        // subject's constructs are judged where they stand
-        // (`expand_ordinary_rule`).
-        krs_syntax::RuleSentence::Transition(_) => {
-            krs_syntax::RuleItem::parse_rule_tokens(item.clone()).map_err(|error| {
-                if error.refuses_whole_subject() {
-                    error.with_help(for_sort_clause_help(&item))
-                } else {
-                    error
-                }
-            })?
-        }
-        _ => krs_syntax::RuleItem::parse_tokens(item)?,
+    let rule = if matches!(sentence, krs_syntax::RuleSentence::Equation(_)) {
+        krs_syntax::RuleItem::parse_equation_tokens(item)?
+    } else {
+        krs_syntax::RuleItem::parse_tokens(item)?
     };
     expand_ordinary_rule(env, &rule, sentence, None, &[])
+}
+
+/// The error a rule's walk met, unless the rule's own sentence mistakes come
+/// first ([`krs_syntax::RuleItem::check_sentence`]): a construct the position
+/// table refused where it stands (`refused_by_position`) is told before them,
+/// and any other error, a name or a sort the walk meets, after them.
+fn sentence_first(
+    rule: &krs_syntax::RuleItem,
+    refused_by_position: bool,
+    error: ExpandError,
+) -> ExpandError {
+    if refused_by_position {
+        error
+    } else {
+        rule.check_sentence().map_or_else(Into::into, |()| error)
+    }
 }
 
 /// What a rule fn that refuses `_`, an alias or an island for its whole subject should be
 /// written as (decision D3): a fn's subject is its parameter, whose root names the constructor
 /// the rule matches, and a rule for any term of a sort is a `for Sort` clause, whose root binds
-/// the whole subject with a bare name and holds `_`, an alias or an island.
-fn for_sort_clause_help(item: &TokenStream) -> String {
+/// the whole subject with a bare name and holds `_`, an alias or an island. The clause keeps
+/// the fn's rule attribute (an `owise` rule for any term must stay `owise`, or it applies
+/// everywhere first), its other KRS helpers, its subject and its result; a clause takes every
+/// rule attribute but `anywhere` (`transition_rule`).
+fn for_sort_clause_help(item: &TokenStream, attribute_tokens: &TokenStream) -> String {
     let parsed = syn::parse2::<ItemFn>(item.clone()).ok();
     let name = parsed.as_ref().map_or_else(
         || "name".to_owned(),
         |item| item.sig.ident.unraw().to_string(),
     );
-    let sort = parsed
+    let subject = parsed
         .as_ref()
         .and_then(|item| match item.sig.inputs.last()? {
-            FnArg::Typed(argument) => term_sort_spelling(&argument.ty),
+            FnArg::Typed(argument) => Some(argument),
             FnArg::Receiver(_) => None,
-        })
+        });
+    let sort = subject
+        .and_then(|argument| term_sort_spelling(&argument.ty))
         .unwrap_or_else(|| "Sort".to_owned());
+    let root = subject.map_or_else(|| "_".to_owned(), |argument| clause_root(&argument.pat));
+    let result = parsed
+        .as_ref()
+        .and_then(|item| match item.block.stmts.as_slice() {
+            [syn::Stmt::Expr(expression, None)] => Some(compact(expression)),
+            _ => None,
+        })
+        .unwrap_or_else(|| "<result>".to_owned());
+    let mut attributes = Vec::new();
+    if !attribute_tokens.is_empty() {
+        attributes.push(format!("#[k::rule({})] ", compact(attribute_tokens)));
+    }
+    for attribute in parsed.iter().flat_map(|item| &item.attrs) {
+        if attribute
+            .path()
+            .segments
+            .first()
+            .is_some_and(|segment| segment.ident == "k")
+        {
+            attributes.push(format!("{} ", compact(attribute)));
+        }
+    }
     format!(
-        "a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! {{ for {sort}; {name}: _ => ..; }}`"
+        "a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! {{ for {sort}; {}{name}: {root} => {result}; }}`",
+        attributes.concat(),
     )
+}
+
+/// The root of the clause [`for_sort_clause_help`] suggests: the fn's subject as written, with
+/// or without `k::term![..]`, except for root alternatives one of which is `_`, which match any
+/// term, as `_` alone does at a clause's root (each alternative of a root is a whole subject,
+/// where `_` stands only below the root).
+fn clause_root(subject: &Pat) -> String {
+    fn wildcard_alternative(pattern: &Pat) -> bool {
+        match pattern {
+            Pat::Paren(paren) => wildcard_alternative(&paren.pat),
+            Pat::Or(or) => or
+                .cases
+                .iter()
+                .any(|case| matches!(case, Pat::Wild(_)) || wildcard_alternative(case)),
+            _ => false,
+        }
+    }
+    let payload = match subject {
+        Pat::Macro(wrapper)
+            if wrapper
+                .mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|last| last.ident == "term") =>
+        {
+            syn::parse::Parser::parse2(Pat::parse_multi, wrapper.mac.tokens.clone()).ok()
+        }
+        _ => None,
+    };
+    if wildcard_alternative(payload.as_ref().unwrap_or(subject)) {
+        "_".to_owned()
+    } else {
+        compact(subject)
+    }
+}
+
+/// `tokens` as an author writes them: no space around `::`, `.` or inside
+/// brackets, none before `,` or `:`, and none before `(` after a name or
+/// around a macro's `!`.
+fn compact(tokens: &impl ToTokens) -> String {
+    let spaced = tokens.to_token_stream().to_string();
+    let text = spaced
+        .replace(" :: ", "::")
+        .replace(":: ", "::")
+        .replace("# [", "#[")
+        .replace(" ! [", "![")
+        .replace(" ! (", "!(")
+        .replace("! [", "![")
+        .replace("! (", "!(")
+        .replace(" : ", ": ")
+        .replace(" ,", ",")
+        .replace("( ", "(")
+        .replace(" )", ")")
+        .replace("[ ", "[")
+        .replace(" ]", "]")
+        .replace(" . ", ".");
+    // A call's or a constructor's parentheses follow its name.
+    let mut compacted = String::with_capacity(text.len());
+    let mut characters = text.chars().peekable();
+    while let Some(character) = characters.next() {
+        let follows_name = compacted
+            .chars()
+            .last()
+            .is_some_and(|last| last.is_alphanumeric() || last == '_' || last == '>');
+        if character == ' ' && characters.peek() == Some(&'(') && follows_name {
+            continue;
+        }
+        compacted.push(character);
+    }
+    compacted
 }
 
 /// The sort `Term<S>` names, when `S` is a plain path.
@@ -605,26 +741,22 @@ fn expand_ordinary_rule(
             })
         })
         .transpose()?;
+    // The sentence's own mistakes (a single-body rule that marks no change,
+    // a binder list that names other names than the subject binds) are told
+    // after each construct of the subject, the result and the conditions is
+    // judged where it stands, which the position table tells by spelling and position
+    // alone, and instead of any other error the walk meets
+    // (`sentence_first`), then once the conditions are walked.
     let (typed_bindings, binder_key_functions) =
-        typed_binders(rule, (&facade, &ledger), nonce, &cfg, &mut slots)?;
-    // A single-body rule whose subject marks no change is a mistake of the
-    // whole sentence, told by its spelling alone: after a construct its
-    // subject may not hold where it stands, which the position table tells
-    // by spelling and position, and before the subject's names.
+        typed_binders(rule, (&facade, &ledger), nonce, &cfg, &mut slots)
+            .map_err(|error| sentence_first(rule, false, error))?;
     let subject = term_builder
         .expand_wire(
             KeyedTerm::pattern(&rule.parameter().pattern, rule.subject_tree()),
             TermSide::Left,
             &mut slots,
         )
-        .map_err(|error| {
-            if term_builder.refused_by_position() {
-                error
-            } else {
-                rule.check_changes().map_or_else(Into::into, |()| error)
-            }
-        })?;
-    rule.check_changes()?;
+        .map_err(|error| sentence_first(rule, term_builder.refused_by_position(), error))?;
     let context_bindings = rule.condition_bindings();
     let function_context = rule
         .function_context()
@@ -647,13 +779,16 @@ fn expand_ordinary_rule(
     let result = rule
         .result()
         .map(|result| term_builder.expand_wire(KeyedTerm::of(result), TermSide::Right, &mut slots))
-        .transpose()?;
+        .transpose()
+        .map_err(|error| sentence_first(rule, term_builder.refused_by_position(), error))?;
     let requires = if let Some(condition) = rule.requires() {
-        let term = term_builder.expand_wire(
-            KeyedTerm::of(condition.term()),
-            TermSide::Requires,
-            &mut slots,
-        )?;
+        let term = term_builder
+            .expand_wire(
+                KeyedTerm::of(condition.term()),
+                TermSide::Requires,
+                &mut slots,
+            )
+            .map_err(|error| sentence_first(rule, term_builder.refused_by_position(), error))?;
         Some(WireRuleCondition {
             key: ledger.define(condition.term().keys().payload())?,
             term,
@@ -661,7 +796,9 @@ fn expand_ordinary_rule(
     } else {
         None
     };
-    let ensures = ensures_condition(rule.existentials(), &mut term_builder, &mut slots)?;
+    let ensures = ensures_condition(rule.existentials(), &mut term_builder, &mut slots)
+        .map_err(|error| sentence_first(rule, term_builder.refused_by_position(), error))?;
+    rule.check_sentence()?;
     let mut term_key_functions = term_builder.key_functions;
     term_key_functions.extend(existential_key_functions);
     term_key_functions.extend(fresh_key_functions);

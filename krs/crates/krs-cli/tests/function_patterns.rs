@@ -253,6 +253,51 @@ fn a_sort_mistake_is_told_before_a_function_in_a_pattern() {
     "#]].assert_debug_eq(&outcomes);
 }
 
+/// Which mistake a sentence's refusal tells depends on that sentence alone: a function in a
+/// pattern whose operand is a binder of the wrong sort is told as the sort mistake whether
+/// another item that fails sorts before or after it (lowering stops at the first item that
+/// fails, so the refused item is judged on its own).
+#[test]
+fn a_sentence_tells_its_own_sort_mistake_whatever_another_item_holds() {
+    let other = |name: &str| {
+        format!(
+            "#[k::rule(label = \"{name}\")]\npub fn {name}(\n    x: k::builtin::Bool,\n    k::cells! {{ k: k::configuration::KCell(ExpSyntax::Load {{ n: x }}, tail @ ..), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+        )
+    };
+    let held = |name: &str| {
+        format!(
+            "#[k::rule(label = \"{name}\")]\npub fn {name}(\n    y: KItem,\n    k::cells! {{ k: k::configuration::KCell(ExpSyntax::Load {{ n: k::builtin::int::add(y, 1) }}, tail @ ..), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+        )
+    };
+    let other_first = format!("{}{}", other("a_r"), held("z_r"));
+    let held_first = format!("{}{}", held("a_r"), other("z_r"));
+    let outcomes = outcomes([("other-first", &other_first), ("held-first", &held_first)]);
+    expect_test::expect![[r#"
+        [
+            (
+                "other-first",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::incompatible-binder]: binder `y` is declared `KItem`, but an occurrence needs `Int`",
+                        "--> src/lib.rs:58:8",
+                    ],
+                ),
+            ),
+            (
+                "held-first",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::incompatible-binder]: binder `y` is declared `KItem`, but an occurrence needs `Int`",
+                        "--> src/lib.rs:51:8",
+                    ],
+                ),
+            ),
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
 #[test]
 fn a_function_below_the_root_of_any_pattern_a_rule_matches_is_refused() {
     let outcomes = outcomes([

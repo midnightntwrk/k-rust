@@ -217,7 +217,11 @@ fn refusals<const N: usize>(cases: [(&'static str, &str); N]) -> String {
 /// An equation whose subject's root is a constructor, a literal or a builtin operation defines
 /// no function, refused at the root's head in each spelling: a `#[k::equation]` fn with and
 /// without `k::term!`, root alternatives that apply one constructor, and at the first of root
-/// alternatives that applies no function, each alternative being a whole subject. A `k::equations!`
+/// alternatives that applies no function, each alternative being a whole subject. An
+/// alternative at another sort than the subject's is first of all at the wrong sort, told before
+/// what its head is; its message reads as the descriptor validator's, as every term at a sort its
+/// position does not admit does (finding NT-4-1). A
+/// collection's element and list notation build a value as a constructor does. A `k::equations!`
 /// table names its function in its header, so a constructor there is refused at the header. The
 /// class tests cover a constructor in `k::term!` (`terms/equation/subject-root/Cmd::Go()`), whose
 /// message the native constructor's case here shares.
@@ -242,6 +246,15 @@ fn an_equation_rooted_at_no_function_is_refused_at_the_root() {
         builtin:
         error[krs::analysis::subject-root-not-function]: an equation defines one function the definition declares, so its subject is that function's application, but `k::builtin::int::add(..)` is a builtin operation, which its builtin domain defines; to state a fact about its applications, write a `#[k::simplification]`
         --> src/lib.rs:62:20
+        mixed-alternatives:
+        error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-SUBJECT-ROOTS::not_fn (equation): application result sort ORG-KRS-SUBJECT-ROOTS::Stmt (sort) is not admissible at sort Int
+        --> src/lib.rs:62:37
+        set-element:
+        error[krs::analysis::subject-root-not-function]: an equation defines one function, so its subject is that function's application, but `set::item(..)` builds a value of its builtin domain: its application is a value, which evaluation leaves as written, so the equation defines no function; to define a function, write its application here, and to rewrite this term in a step of the computation, write a `#[k::rule]`
+        --> src/lib.rs:62:20
+        list-notation:
+        error[krs::analysis::subject-root-not-function]: an equation defines one function, so its subject is that function's application, but `[head, ..tail]` builds a value of its builtin domain: its application is a value, which evaluation leaves as written, so the equation defines no function; to define a function, write its application here, and to rewrite this term in a step of the computation, write a `#[k::rule]`
+        --> src/lib.rs:62:21
         table:
         error[krs::syntax::invalid-equation-table]: `Lit` is not a non-parametric `#[k::function]`
         --> src/lib.rs:62:9"]].assert_eq(&refusals([
@@ -268,6 +281,18 @@ fn an_equation_rooted_at_no_function_is_refused_at_the_root() {
         (
             "builtin",
             "#[k::equation]\nfn not_fn(k::term![int::add(x, 1)]: Term<Int>) -> Term<Int> {\n    x\n}\n",
+        ),
+        (
+            "mixed-alternatives",
+            "#[k::equation]\nfn not_fn((Code { c: Cmd::Red() } | Cmd::Red()): Term<Int>) -> Term<Int> {\n    1\n}\n",
+        ),
+        (
+            "set-element",
+            "#[k::equation]\nfn not_fn(k::term![k::builtin::set::item(x)]: Term<k::builtin::Set>) -> Term<k::builtin::Set> {\n    k::builtin::set::empty()\n}\n",
+        ),
+        (
+            "list-notation",
+            "#[k::equation]\nfn not_fn(k::term![[x, ..rest]]: Term<k::builtin::List>) -> Term<k::builtin::List> {\n    rest\n}\n",
         ),
         (
             "table",
@@ -314,6 +339,9 @@ fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
         literal:
         error[krs::analysis::subject-root-not-function]: a simplification rewrites a function's unevaluated application to an equal, simpler term, but `1` applies no function and is a value, which evaluation leaves as written, so the simplification simplifies nothing; to rewrite this term in a step of the computation, write a `#[k::rule]`
         --> src/lib.rs:62:9
+        list-notation:
+        error[krs::analysis::subject-root-not-function]: a simplification rewrites a function's unevaluated application to an equal, simpler term, but `[head, ..tail]` builds a value of its builtin domain, and its application is a value, which evaluation leaves as written, so the simplification simplifies nothing; to rewrite this term in a step of the computation, write a `#[k::rule]`
+        --> src/lib.rs:62:19
         set-element:
         error[krs::analysis::subject-root-not-function]: a simplification rewrites a function's unevaluated application to an equal, simpler term, but `set::item(..)` builds a value of its builtin domain, and its application is a value, which evaluation leaves as written, so the simplification simplifies nothing; to rewrite this term in a step of the computation, write a `#[k::rule]`
         --> src/lib.rs:62:18"]].assert_eq(&refusals([
@@ -326,6 +354,10 @@ fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
             "#[k::simplification]\nfn simp(1: Term<Int>) -> Term<Int> {\n    2\n}\n",
         ),
         (
+            "list-notation",
+            "#[k::simplification]\nfn simp(k::term![[x, ..rest]]: Term<k::builtin::List>) -> Term<k::builtin::List> {\n    rest\n}\n",
+        ),
+        (
             "set-element",
             "#[k::simplification]\nfn simp(k::term![k::builtin::set::item(x)]: Term<k::builtin::Set>) -> Term<k::builtin::Set> {\n    k::builtin::set::item(x)\n}\n",
         ),
@@ -335,7 +367,8 @@ fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
 /// `_`, an alias and a compiler-owned island stand below a subject's root, refused there with
 /// and without `k::term!`, in a rule's and an equation's subject and in each alternative of a
 /// root `A | B`. A rule fn's refusal shows the `for Sort` clause, whose root is any term of the
-/// sort (decision D3). The class tests cover `_` and an island in a rule's and an equation's
+/// sort (decision D3), with the fn's rule attribute (an `owise` rule stays `owise`), its other
+/// helpers, its subject and its result; an `anywhere` rule has no such clause, and says so. The class tests cover `_` and an island in a rule's and an equation's
 /// `k::term!` (`terms/{rule,equation}/subject-root/{_,k::bytes!(b"ab")}`), whose messages the
 /// native cases here share.
 #[test]
@@ -344,25 +377,33 @@ fn a_wildcard_alias_or_island_at_a_subject_root_is_refused_with_or_without_the_w
         rule-wildcard:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
         --> src/lib.rs:62:9
-        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; warm: _ => ..; }`
+        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; #[k::rule(label = "warm", owise)] warm: _ => 1; }`
         equation-wildcard:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
         --> src/lib.rs:62:8
         alternative-wildcard-term:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
         --> src/lib.rs:62:18
-        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; warm: _ => ..; }`
+        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; #[k::rule(label = "warm", owise)] warm: _ => 1; }`
         alias-term:
         error[krs::syntax::invalid-pattern-as]: `x @ pattern` cannot alias a whole rule subject: its root is the matched constructor or function; alias a subterm instead
         --> src/lib.rs:62:18
-        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; warm: _ => ..; }`
+        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; #[k::rule(label = "warm", owise)] warm: k::term![x @ Cmd::Red()] => x; }`
         island:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so a compiler-owned island stands below it, as in `F(k::fragment![Group { .. }])` or `F(k::bytes!(b".."))`
         --> src/lib.rs:62:9
-        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; warm: _ => ..; }`
+        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; #[k::rule(label = "warm", owise)] warm: k::bytes!(b"ab") => 1; }`
         rewrite-term:
         error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root
-        --> src/lib.rs:62:18"#]].assert_eq(&refusals([
+        --> src/lib.rs:62:18
+        plain-wildcard:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
+        --> src/lib.rs:63:9
+        = help: a rule for any term of a sort is a `for Sort` clause, whose root may be a bare name for the whole subject, `_`, an alias or an island: `k::rules! { for Stmt; #[k::requires(true)] warm: _ => Cmd::Show { c: Cmd::Red() }; }`
+        anywhere-wildcard:
+        error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a rule subject's root is the constructor or function the rule matches, so `_` stands only below it
+        --> src/lib.rs:62:9
+        = help: an `anywhere` rule rewrites the application its subject's root names wherever that application occurs, so no form writes one for any term of a sort"#]].assert_eq(&refusals([
         (
             "rule-wildcard",
             "#[k::rule(label = \"warm\", owise)]\nfn warm(_: Term<Stmt>) -> Term<Stmt> {\n    1\n}\n",
@@ -387,13 +428,21 @@ fn a_wildcard_alias_or_island_at_a_subject_root_is_refused_with_or_without_the_w
             "rewrite-term",
             "#[k::rule(label = \"warm\")]\nfn warm(k::term![k::rewrite!(Cmd::Red() => Cmd::Green())]: Term<Stmt>) {}\n",
         ),
+        (
+            "plain-wildcard",
+            "#[k::rule]\n#[k::requires(true)]\nfn warm(_: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Show { c: Cmd::Red() }\n}\n",
+        ),
+        (
+            "anywhere-wildcard",
+            "#[k::rule(anywhere, label = \"warm\")]\nfn warm(_: Term<Int>) -> Term<Int> {\n    1\n}\n",
+        ),
     ]));
 }
 
 /// A `for Sort` clause's root is any term of the clause's sort: a bare name binds it, `_` is it
 /// unnamed, and an alias or an island stands there as below a constructor. `k::term![..]` is
-/// optional around the root, so it reads its payload alike: each wrapped root emits the rule its
-/// bare spelling does. The class tests cover `x`, `_` and an alias at a `KItem` clause's root,
+/// optional around the root, so it reads its payload alike, and parentheses denote nothing: each
+/// wrapped or parenthesized root emits the rule its bare spelling does. The class tests cover `x`, `_` and an alias at a `KItem` clause's root,
 /// bare and wrapped (`terms/sort-rule/subject-root{,-term}/..`); here the clause's sort is a
 /// declared one, which `_` matches as a variable of that sort.
 #[test]
@@ -406,11 +455,19 @@ fn a_clause_root_reads_alike_bare_and_in_the_wrapper() {
         ("alias", "s @ Cmd::Red()", "Cmd::Show { c: s }"),
     ]
     .map(|(name, root, result)| {
-        let [bare, wrapped] = [root.to_owned(), format!("k::term![{root}]")].map(|root| {
+        let spellings = [
+            root.to_owned(),
+            format!("k::term![{root}]"),
+            format!("({root})"),
+        ];
+        let [bare, wrapped, parenthesized] = spellings.map(|root| {
             let source = format!(
                 "k::rules! {{\n    for Stmt;\n    #[k::rule(owise)]\n    any: {root} => {result};\n}}\n"
             );
-            let manifest = package(&temporary.path().join(format!("{name}-{}", root.len())), &source);
+            let manifest = package(
+                &temporary.path().join(format!("{name}-{}", root.len() + usize::from(root.starts_with('(')))),
+                &source,
+            );
             let output = manifest.with_file_name("emitted");
             let (success, _, stderr) = krs(
                 target.path(),
@@ -430,6 +487,7 @@ fn a_clause_root_reads_alike_bare_and_in_the_wrapper() {
                 .join(" ")
         });
         assert_eq!(bare, wrapped, "{name}: the wrapper reads its root as the bare root");
+        assert_eq!(bare, parenthesized, "{name}: parentheses denote nothing");
         format!("{name}: {bare}")
     });
     expect_test::expect![[r"

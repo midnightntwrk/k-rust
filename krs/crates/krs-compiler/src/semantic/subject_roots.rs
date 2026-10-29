@@ -116,6 +116,13 @@ fn equation_root(
             "an equation defines one function, so its subject is that function's application, but `{}` is a constructor: its application is a value, which evaluation leaves as written, so the equation defines no function; {INSTEAD}",
             id.item_name()
         )),
+        // A collection's unit, element and concatenation build the collection, a value, as a
+        // constructor's application is: no equation defines it, and no simplification
+        // rewrites it.
+        application if builds_collection(application, catalog) => Some(format!(
+            "an equation defines one function, so its subject is that function's application, but `{}` builds a value of its builtin domain: its application is a value, which evaluation leaves as written, so the equation defines no function; {INSTEAD}",
+            builtin_spelling(application)
+        )),
         other => Some(format!(
             "an equation defines one function the definition declares, so its subject is that function's application, but `{}` is a builtin operation, which its builtin domain defines; to state a fact about its applications, write a `#[k::simplification]`",
             builtin_spelling(other)
@@ -143,12 +150,7 @@ fn simplification_root(
             }
             // A collection's unit, element and concatenation build the collection: the
             // singleton set `set::item(x)` is a value as a constructor's application is.
-            application
-                if matches!(
-                    applied_function(application, catalog),
-                    Applied::Collection | Applied::Elements
-                ) =>
-            {
+            application if builds_collection(application, catalog) => {
                 format!(
                     "`{}` builds a value of its builtin domain, and its application",
                     builtin_spelling(application)
@@ -163,10 +165,28 @@ fn simplification_root(
     ))
 }
 
+/// Whether `application` is a collection's unit, element or concatenation, or a level of list
+/// notation, which build the collection.
+fn builds_collection(
+    application: &DescriptorApplicationRef,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> bool {
+    matches!(
+        applied_function(application, catalog),
+        Applied::Collection | Applied::Elements
+    )
+}
+
 /// A builtin operation as its facade path spells it, its arguments elided:
-/// `k::builtin::int::add(..)`.
+/// `k::builtin::int::add(..)`, and a level of list notation as it is written: `[head, ..tail]`.
 fn builtin_spelling(application: &DescriptorApplicationRef) -> String {
     match application {
+        DescriptorApplicationRef::ListNotation(notation) => match notation {
+            krs_ir::ListNotation::Cons => "[head, ..tail]",
+            krs_ir::ListNotation::Empty => "[]",
+            krs_ir::ListNotation::Snoc => "[..init, last]",
+        }
+        .to_owned(),
         DescriptorApplicationRef::Builtin(operation) => {
             let spec = operation.spec();
             format!("k::builtin::{}::{}(..)", spec.rust_module, spec.rust_name)
