@@ -1103,11 +1103,10 @@ all_goals first\n      \
         } else {
             format!(" | (k2l_case_rec [{r}] <;> try simp only [Option.bind])")
         };
-        // with statements that have `Term.nf` premises (EQ-18), a second form: a match on a term
-        // with a variable inside (`inj_Exps a` against a nested pattern) cases that variable, and
-        // a case the no-match premises refute only once its value is read as K's term (the
-        // normalizer's application) is closed after deciding `Term.nf` and folding the value
-        let mut forms = vec![("k2l_eqn_o", String::new(), String::new())];
+        // with statements that have `Term.nf` premises (EQ-18), a second form: a case the
+        // no-match premises refute only once its value is read as K's term (the normalizer's
+        // application) is closed after deciding `Term.nf` and folding the value
+        let mut forms = vec![("k2l_eqn_o", String::new())];
         if let Some(nf) = stated
             .iter()
             .find(|s| !s.nf.is_empty())
@@ -1115,31 +1114,31 @@ all_goals first\n      \
         {
             forms.push((
                 "k2l_eqn_on",
-                " | (k2l_case_sub <;> try simp only [])".to_string(),
                 format!(
                     " | ((simp_all only [{nf}]); first | rfl | k2l_no_arm | k2l_owise_apply | (simp_all [{u}]; done))"
                 ),
             ));
         }
-        for (name, case_sub, nf_arm) in forms {
+        for (name, nf_arm) in forms {
             let (doc_nf, nf_arm_top) = if nf_arm.is_empty() {
                 ("", String::new())
             } else {
                 (
-                    " With the arms of\n`Term.nf` premises: a variable inside a discriminant cased (`k2l_case_sub`), and the premises\ndecided and the value folded (`simp_all only` with their lemmas).",
+                    " With the arm of\n`Term.nf` premises: the premises decided and the value folded (`simp_all only` with their\nlemmas).",
                     format!("{}\n      ", nf_arm.trim_start()),
                 )
             };
             o.push_str(&format!(
                 "/-- The proof of an equation with no-match premises (an `owise` rule's, whose left-hand side\n\
 is usually a variable), after the function is unfolded: reduce the cascade as `k2l_eqn_r` does,\n\
-also splitting a list variable that it takes apart (`k2l_case_lvar`), then close each case by\n\
+also splitting a list variable that it takes apart (`k2l_case_lvar`) and a variable inside a\n\
+discriminant matched against a nested pattern (`k2l_case_sub`), then close each case by\n\
 reduction, by the no-match premise of the rule whose arm the case is (`k2l_owise_arm`; applied,\n\
 with its `requires` computed from the case's facts, `k2l_owise_apply`), or as the generic tactics\n\
 do, after splitting the remaining `if`s and `match`es (a rule's `requires`).{doc_nf} -/\n\
 scoped macro \"{name}\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| (\n    \
 (try simp only [])\n    \
-(try (repeat' (first | k2l_case_list | k2l_case_lvar | (k2l_case_discr <;> try simp only []){case_sub}{case_rec} | (k2l_case_call <;> try simp only [Option.bind]))))\n    \
+(try (repeat' (first | k2l_case_list | k2l_case_lvar | (k2l_case_discr <;> try simp only []) | (k2l_case_sub <;> try simp only []){case_rec} | (k2l_case_call <;> try simp only [Option.bind]))))\n    \
 all_goals first\n      \
 | rfl\n      \
 | k2l_owise_arm\n      \
@@ -1182,14 +1181,15 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
         hb = budget.default
     );
     // the generic proofs are `KPrelude.Tactic`'s and the library's `NS/EqBase.lean`'s
-    // (`library_macros`); a module with a statement that has `Term.nf` premises takes the form of
-    // `k2l_eqn_o` with their arms, for each of its statements
-    let eqn_o = if stated.iter().any(|s| !s.nf.is_empty()) {
-        "k2l_eqn_on"
-    } else {
-        "k2l_eqn_o"
-    };
+    // (`library_macros`)
     for s in stated {
+        // a statement with `Term.nf` premises takes the form of `k2l_eqn_o` with their arms; the
+        // choice is the statement's own, so that its proof is the same whichever module it is in
+        let eqn_o = if s.nf.is_empty() {
+            "k2l_eqn_o"
+        } else {
+            "k2l_eqn_on"
+        };
         let uf: Vec<&String> = s.unfold_first.iter().filter(|n| defs.contains(n)).collect();
         let first = if uf.is_empty() {
             String::new()
@@ -1576,11 +1576,10 @@ mod tests {
         assert!(b.contains("scoped macro \"k2l_eqn_o\""), "{b}");
         assert!(b.contains("| k2l_case_list | k2l_case_lvar |"), "{b}");
         assert!(b.contains("k2l_split_hyps | k2l_case_choose"), "{b}");
-        // without `Term.nf` premises, one form
-        assert!(
-            !b.contains("k2l_eqn_on") && !b.contains("k2l_case_sub"),
-            "{b}"
-        );
+        // a variable inside a discriminant cased, with or without `Term.nf` premises; without
+        // them, one form
+        assert!(b.contains("| (k2l_case_sub <;> try simp only []) |"), "{b}");
+        assert!(!b.contains("k2l_eqn_on") && !b.contains("Term.nf"), "{b}");
         // a recursive function's: unfolded by its equation lemma, after the recursive proof
         assert!(o.contains(
             "K.f Gen0 = none := by\n  intros\n  first\n  | ((conv => lhs; rw [K.f.eq_def]); k2l_eqn_o [K.f])\n  | k2l_eqn_r K.f [K.f]\n"
@@ -1599,9 +1598,9 @@ mod tests {
         assert!(!b.contains("k2l_eqn_o"), "{b}");
     }
 
-    /// With statements that have `Term.nf` premises, `EqBase` defines `k2l_eqn_o` in two forms, and a
-    /// module calls the one with their arms when one of its statements has such premises, as its
-    /// own macro had them (CT-4c); the other modules keep the plain form.
+    /// With statements that have `Term.nf` premises, `EqBase` defines `k2l_eqn_o` in two forms, and
+    /// each statement calls the one with their arms when it has such premises, whatever the other
+    /// statements of its module.
     #[test]
     fn owise_with_nf_premises_takes_the_form_with_their_arms() {
         let unfold = vec!["K.g".to_string(), "K.g.rule1".to_string()];
@@ -1624,20 +1623,24 @@ mod tests {
             "{b}"
         );
         let on = &b[b.find("scoped macro \"k2l_eqn_on\"").unwrap()..];
-        assert!(on.contains("| (k2l_case_sub <;> try simp only [])"), "{on}");
         assert!(on.contains("simp_all only [Term.nf, Term.nfNode0]"), "{on}");
         let plain = b
             .split("\n\n")
             .find(|x| x.contains("scoped macro \"k2l_eqn_o\""))
             .unwrap();
         assert!(
-            !plain.contains("k2l_case_sub") && !plain.contains("Term.nf"),
+            plain.contains("k2l_case_sub") && !plain.contains("Term.nf"),
             "{plain}"
         );
-        // the module of both calls the form with the arms for both; a module of the other alone,
-        // the plain form
+        // in one module, the statement with the premises calls the form with the arms, the other
+        // the plain form, as it does in a module alone
         let o = emit("N", &ss, &BTreeSet::new(), &unfold, &BTreeSet::new());
-        assert_eq!(o.matches("k2l_eqn_on [K.g, K.g.rule1]").count(), 2, "{o}");
+        assert_eq!(o.matches("k2l_eqn_on [K.g, K.g.rule1]").count(), 1, "{o}");
+        assert_eq!(o.matches("k2l_eqn_o [K.g, K.g.rule1]").count(), 1, "{o}");
+        assert!(
+            o.find("k2l_eqn_on [").unwrap() < o.find("Eqn.g_3").unwrap(),
+            "{o}"
+        );
         let o = emit("N", &ss[1..], &BTreeSet::new(), &unfold, &BTreeSet::new());
         assert!(
             o.contains("k2l_eqn_o [K.g, K.g.rule1]") && !o.contains("k2l_eqn_on"),

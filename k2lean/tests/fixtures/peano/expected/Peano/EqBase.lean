@@ -47,13 +47,14 @@ scoped macro "k2l_eqn_r " f:ident " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : t
 
 /-- The proof of an equation with no-match premises (an `owise` rule's, whose left-hand side
 is usually a variable), after the function is unfolded: reduce the cascade as `k2l_eqn_r` does,
-also splitting a list variable that it takes apart (`k2l_case_lvar`), then close each case by
+also splitting a list variable that it takes apart (`k2l_case_lvar`) and a variable inside a
+discriminant matched against a nested pattern (`k2l_case_sub`), then close each case by
 reduction, by the no-match premise of the rule whose arm the case is (`k2l_owise_arm`; applied,
 with its `requires` computed from the case's facts, `k2l_owise_apply`), or as the generic tactics
 do, after splitting the remaining `if`s and `match`es (a rule's `requires`). -/
 scoped macro "k2l_eqn_o" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
     (try simp only [])
-    (try (repeat' (first | k2l_case_list | k2l_case_lvar | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [K.«even(_)_PEANO_B_Nat», K.«odd(_)_PEANO_B_Nat», K.«plus(_,_)_PEANO_Nat_Nat_Nat», proj_KItem_B, proj_KItem_Bool, proj_GeneratedCounterCellOpt_GeneratedCounterCell, proj_KItem_GeneratedCounterCell, proj_KItem_GeneratedCounterCellOpt, proj_KItem_GeneratedTopCell, proj_KItem_GeneratedTopCellFragment, proj_KItem_Int, proj_KCellOpt_KCell, proj_KItem_KCell, proj_KItem_KCellOpt, proj_KItem_KConfigVar, proj_KItem_List, proj_KItem_Map, proj_KItem_Nat, proj_KItem_Pgm, proj_KItem_Set] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind]))))
+    (try (repeat' (first | k2l_case_list | k2l_case_lvar | (k2l_case_discr <;> try simp only []) | (k2l_case_sub <;> try simp only []) | (k2l_case_rec [K.«even(_)_PEANO_B_Nat», K.«odd(_)_PEANO_B_Nat», K.«plus(_,_)_PEANO_Nat_Nat_Nat», proj_KItem_B, proj_KItem_Bool, proj_GeneratedCounterCellOpt_GeneratedCounterCell, proj_KItem_GeneratedCounterCell, proj_KItem_GeneratedCounterCellOpt, proj_KItem_GeneratedTopCell, proj_KItem_GeneratedTopCellFragment, proj_KItem_Int, proj_KCellOpt_KCell, proj_KItem_KCell, proj_KItem_KCellOpt, proj_KItem_KConfigVar, proj_KItem_List, proj_KItem_Map, proj_KItem_Nat, proj_KItem_Pgm, proj_KItem_Set] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind]))))
     all_goals first
       | rfl
       | k2l_owise_arm
