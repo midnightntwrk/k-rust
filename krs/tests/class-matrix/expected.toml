@@ -184,10 +184,6 @@ doc = "a `let` block whose names or result have no sort its position admits"
 code = "krs::analysis::invalid-list-notation"
 doc = "list brackets at a position whose sort is no list (a `KItem` hole), so they name no list"
 
-[class.map-literal-in-term]
-code = "krs::syntax::unsupported-term-expression"
-doc = "a map literal (`k::map![..]`, `map![..]`) at a term position: today it is notation of a `cells!` cell's and an initializer's map only, a product boundary kept until NT-6 makes it a built term"
-
 [class.map-notation-at-non-map]
 code = "krs::analysis::invalid-term"
 doc = "map notation (`{ k -> v, .. }`, `k::map![..]`) on a cell that is no Map"
@@ -726,7 +722,7 @@ at = "spelling"
 
 # alternatives-bind-unequally (NT-2): alternatives in a subject that bind other names
 [[refuse]]
-match = 'terms/rule/subject/or-branch/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<dyn k::KItemSort>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),x,y @ Cmd::Hold(_)}'
+match = 'terms/rule/subject/or-branch/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<dyn k::KItemSort>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x,y @ Cmd::Hold(_)}'
 class = "alternatives-bind-unequally"
 at = "entry"
 
@@ -774,6 +770,12 @@ match = '{import/context/subject-root/Go(),terms/context/subject-root/{"s",-1,1,
 class = "context-hole-unbound"
 at = "item"
 
+# context-hole-unbound (NT-6): the empty map or set at a context's root, which binds no hole
+[[refuse]]
+match = 'notation/context/subject-root/{map![],set![],k::builtin::map::empty(),k::builtin::set::empty()}'
+class = "context-hole-unbound"
+at = "item"
+
 # context-rewrite-not-hole (NT-2): a context's rewrite of something other than its hole
 [[refuse]]
 match = 'terms/context/subject/k::rewrite!(_ => 1)'
@@ -806,12 +808,12 @@ at = "spelling"
 
 # matches-pattern-binder (NT-2): a `k::matches!` pattern that rebinds the sentence's `x` or binds a name nothing reads
 [[refuse]]
-match = 'terms/rule/guard/matches-pattern/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<dyn k::KItemSort>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),x,y @ Cmd::Hold(_)}'
+match = 'terms/rule/guard/matches-pattern/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<dyn k::KItemSort>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x,y @ Cmd::Hold(_)}'
 class = "matches-pattern-binder"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/sort-rule/result/matches-pattern/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),x}'
+match = 'terms/sort-rule/result/matches-pattern/{Cmd::Hold(x),Cmd::Pair \{ a: x\, .. \},Size(x),Wrap::<KItem>(x),[x\, ..],k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x}'
 class = "matches-pattern-binder"
 at = "spelling"
 
@@ -845,37 +847,39 @@ class = "unbound-name"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/constant/value/{k::builtin::int::add(x\, 1),k::builtin::set::item(x)}'
+match = 'terms/constant/value/{k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1]}'
 class = "unbound-name"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/constant/value-root/{Cmd::Hold(x),Size(x),k::builtin::int::add(x\, 1),k::builtin::set::item(x),x}'
+match = 'terms/constant/value-root/{Cmd::Hold(x),Size(x),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x}'
 class = "unbound-name"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/{init/item,init/item-depth-2}/{!(x < 1),-(x + 1),k::builtin::int::add(x\, 1),k::builtin::set::item(x),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}'
+match = 'terms/{init/item,init/item-depth-2}/{!(x < 1),-(x + 1),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}'
 class = "unbound-name"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/init/item-root/{!(x < 1),-(x + 1),Cmd::Hold(x),Size(x),k::builtin::int::add(x\, 1),k::builtin::set::item(x),x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}'
+match = 'terms/init/item-root/{!(x < 1),-(x + 1),Cmd::Hold(x),Size(x),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1],x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}'
 class = "unbound-name"
 at = "spelling"
 
 
-# unbound-name (NT-5): the collection notation and the calls it denotes read `x`, which no
-# constant's or initializer's value binds
+# unbound-name (NT-5, NT-6): the collection notation and the calls it denotes read `x`, which no
+# constant's or initializer's value binds; the empty map and set, which read nothing, are the
+# spellings without an `x`
 [[refuse]]
-match = 'notation/{constant/value,constant/value-root,init/item,init/item-depth-2,init/item-root}/*'
+match = 'notation/{constant/value,constant/value-root,init/item,init/item-depth-2,init/item-root}/*x*'
 class = "unbound-name"
 at = "spelling"
 
-# alternatives-bind-unequally (NT-5): an alternative that reads `x` beside `Cmd::Go()`, which binds
-# no name, in a subject; the collection notation is the call it denotes there
+# alternatives-bind-unequally (NT-5, NT-6): an alternative that reads `x` beside `Cmd::Go()`, which
+# binds no name, in a subject; the collection notation is the call it denotes there (the empty map
+# and set, the spellings without an `x`, read none)
 [[refuse]]
-match = 'notation/rule/subject/or-branch/*'
+match = 'notation/rule/subject/or-branch/*x*'
 class = "alternatives-bind-unequally"
 at = "entry"
 
@@ -886,10 +890,29 @@ match = 'notation/{cells-claim/guard,context/guard,equation/guard,readable/guard
 class = "condition-sort"
 at = "spelling"
 
-# matches-pattern-binder (NT-5): a `k::matches!` pattern that rebinds the sentence's `x`, here in
-# the collection notation or the call it denotes
+# condition-sort (NT-6): a collection literal, a `Map` or a `Set`, in a condition, as the calls it
+# denotes
 [[refuse]]
-match = 'notation/{rule/guard,sort-rule/result}/matches-pattern/*'
+match = 'notation/{cells-claim/guard,context/guard,equation/guard,readable/guard,rule/guard,rule/guard/let-body,simplification/guard}/{map![x -> 1\, 2 -> 3],map![x -> 1\, ..k::builtin::map::empty()],map![],set![x\, 1],set![x\, ..k::builtin::set::empty()],set![],k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, 2\, 3),k::builtin::set::empty(),k::builtin::set::union(k::builtin::set::empty()\, k::builtin::set::item(x)),k::builtin::set::union(k::builtin::set::item(x)\, k::builtin::set::item(1))}'
+class = "condition-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'terms/{cells-claim/guard,context/guard,equation/guard,readable/guard,rule/guard,rule/guard/let-body,simplification/guard}/{k::map![x -> 1],map![x -> 1]}'
+class = "condition-sort"
+at = "spelling"
+
+# object-term-as-predicate (NT-6): a map literal, an object term, as a quantifier's body
+[[refuse]]
+match = 'terms/cells-claim/guard/closure-body/{k::map![x -> 1],map![x -> 1]}'
+class = "object-term-as-predicate"
+at = "spelling"
+
+# matches-pattern-binder (NT-5, NT-6): a `k::matches!` pattern that rebinds the sentence's `x`,
+# here in the collection notation or the call it denotes (the empty map and set, the spellings
+# without an `x`, bind none)
+[[refuse]]
+match = 'notation/{rule/guard,sort-rule/result}/matches-pattern/*x*'
 class = "matches-pattern-binder"
 at = "spelling"
 

@@ -502,14 +502,16 @@ fn spellings() -> Vec<Spelling> {
             ],
         ),
     ];
-    // A map literal, in the facade's path and bare, and list brackets with a rest.
+    // A map literal, in the facade's path and bare: `map::update(map::empty(), x, 1)`, its nodes
+    // in the walker's order, the denoted call's. And list brackets with a rest.
     for text in ["k::map![x -> 1]", "map![x -> 1]"] {
         spellings.push(spelling(
             text,
             &[
-                node(C::MapLiteral, &[]),
-                node(C::Reference, &[MapKey]),
-                node(C::Literal, &[MapValue]),
+                node(C::Notation(Notation::MapLiteral), &[]),
+                node(C::Notation(Notation::CollectionValue), &[FunctionArgument]),
+                node(C::Reference, &[FunctionArgument]),
+                node(C::Literal, &[FunctionArgument]),
             ],
         ));
     }
@@ -605,6 +607,127 @@ fn notation_spellings() -> Vec<Spelling> {
             readable: None,
             nodes: with(call(), &operands),
         });
+    }
+    spellings.extend(literal_spellings());
+    spellings
+}
+
+/// The collection literals (`krs_syntax::is_collection_literal`), each beside the calls it
+/// denotes, which its accept entry names in `same_k_as`: a map of two entries, each written over
+/// the map before it; a set of two elements, joined; a map and a set written over a rest; and the
+/// empty map and set, values. Each literal's nodes are in the walker's order, the denoted calls'.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of the literals and the calls they denote, node by node."
+)]
+fn literal_spellings() -> Vec<Spelling> {
+    let at = |construct: C, depth: usize| node(construct, &vec![FunctionArgument; depth]);
+    let element = |construct: C, depth: usize| {
+        let mut path = vec![FunctionArgument; depth];
+        path.push(SetElement);
+        node(construct, &path)
+    };
+    let mut spellings = Vec::new();
+    for (written, denoted, literal, call) in [
+        (
+            "map![x -> 1, 2 -> 3]",
+            "k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)",
+            vec![
+                at(C::Notation(Notation::MapLiteral), 0),
+                at(C::Notation(Notation::MapLiteral), 1),
+                at(C::Notation(Notation::CollectionValue), 2),
+                at(C::Reference, 2),
+                at(C::Literal, 2),
+                at(C::Literal, 1),
+                at(C::Literal, 1),
+            ],
+            vec![
+                at(C::BuiltinApplication, 0),
+                at(C::BuiltinApplication, 1),
+                at(C::Constructor, 2),
+                at(C::Reference, 2),
+                at(C::Literal, 2),
+                at(C::Literal, 1),
+                at(C::Literal, 1),
+            ],
+        ),
+        (
+            "map![x -> 1, ..k::builtin::map::empty()]",
+            "k::builtin::map::update(k::builtin::map::empty(), x, 1)",
+            vec![
+                at(C::Notation(Notation::MapLiteral), 0),
+                at(C::Constructor, 1),
+                at(C::Reference, 1),
+                at(C::Literal, 1),
+            ],
+            vec![
+                at(C::BuiltinApplication, 0),
+                at(C::Constructor, 1),
+                at(C::Reference, 1),
+                at(C::Literal, 1),
+            ],
+        ),
+        (
+            "map![]",
+            "k::builtin::map::empty()",
+            vec![at(C::Notation(Notation::CollectionValue), 0)],
+            vec![at(C::Constructor, 0)],
+        ),
+        (
+            "set![x, 1]",
+            "k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))",
+            vec![
+                at(C::Notation(Notation::SetLiteral), 0),
+                at(C::Notation(Notation::CollectionValue), 1),
+                element(C::Reference, 1),
+                at(C::Notation(Notation::CollectionValue), 1),
+                element(C::Literal, 1),
+            ],
+            vec![
+                at(C::BuiltinApplication, 0),
+                at(C::Constructor, 1),
+                element(C::Reference, 1),
+                at(C::Constructor, 1),
+                element(C::Literal, 1),
+            ],
+        ),
+        (
+            "set![x, ..k::builtin::set::empty()]",
+            "k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))",
+            vec![
+                at(C::Notation(Notation::SetLiteral), 0),
+                at(C::Constructor, 1),
+                at(C::Notation(Notation::CollectionValue), 1),
+                element(C::Reference, 1),
+            ],
+            vec![
+                at(C::BuiltinApplication, 0),
+                at(C::Constructor, 1),
+                at(C::Constructor, 1),
+                element(C::Reference, 1),
+            ],
+        ),
+        (
+            "set![]",
+            "k::builtin::set::empty()",
+            vec![at(C::Notation(Notation::CollectionValue), 0)],
+            vec![at(C::Constructor, 0)],
+        ),
+    ] {
+        spellings.push(Spelling {
+            text: written,
+            readable: None,
+            nodes: literal,
+        });
+        // The map written over a rest denotes the call `m.update(x, 1)` denotes, which the
+        // collection methods' spellings hold already.
+        if !written.contains("..") || !written.starts_with("map!") {
+            spellings.push(Spelling {
+                text: denoted,
+                readable: None,
+                nodes: call,
+            });
+        }
     }
     spellings
 }

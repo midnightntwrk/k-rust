@@ -25,12 +25,11 @@
 //! - a construct with a home (`k::rewrite!` in a single-body rule's subject, a matching-logic
 //!   predicate in a condition, `k::anonymous!` in a claim's start state, ..) is stated with it.
 //!
-//! **Product boundaries.** Five entries keep a refusal that no meaning of the construct
+//! **Product boundaries.** Four entries keep a refusal that no meaning of the construct
 //! supports, as boundaries of the product kept pending a decision, each marked with its id:
 //! `let` and `k::matches!` in a claim (NT-Q1) and in an initializer (NT-Q2), a sort test in an
-//! initializer (NT-Q3), a turbofish in an initializer (NT-Q4), and a map literal at a term
-//! position, which NT-6 (plan item M2) makes a built term. The `cells!` cell value's boundary for
-//! `let` and `k::matches!` is finding S0-17's, owned by S6.
+//! initializer (NT-Q3), and a turbofish in an initializer (NT-Q4). The `cells!` cell value's
+//! boundary for `let` and `k::matches!` is finding S0-17's, owned by S6.
 //!
 //! **Stages.** A refusal's [`Stage`] says what the mistake is told by. A [`Stage::Placement`]
 //! refusal is told by the spelling and its position alone, before any name is resolved. A
@@ -92,7 +91,6 @@ classes! {
     FunctionInPattern => "function-in-pattern",
     IslandAtSubjectRoot => "island-at-subject-root",
     LetOutsideTerm => "let-outside-term",
-    MapLiteralInTerm => "map-literal-in-term",
     MapReadValueBinder => "map-read-value-binder",
     MatchesOutsideCondition => "matches-outside-condition",
     MlInCondition => "ml-in-condition",
@@ -191,7 +189,9 @@ const fn in_selection(construct: Construct) -> Option<Refusal> {
             | Notation::Negation
             | Notation::Method
             | Notation::Index
-            | Notation::CollectionMethod,
+            | Notation::CollectionMethod
+            | Notation::MapLiteral
+            | Notation::SetLiteral,
         ) => Some(resolution(Class::FunctionInPattern)),
         Construct::SortTest => Some(resolution(Class::SortTestInPattern)),
         Construct::Let => Some(placement(Class::LetOutsideTerm)),
@@ -343,14 +343,17 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
     }
     match construct {
         // A value denotes itself wherever a term stands, but at a root that is a function's
-        // application or a static clause's production ([`value_at_root`]).
+        // application or a static clause's production ([`value_at_root`]); a collection literal
+        // that denotes a value, the empty collection or a set's singleton, is one, as its call
+        // `map::empty()` or `set::item(x)` is.
         Construct::Reference
         | Construct::Fresh
         | Construct::Constructor
         | Construct::Literal
         | Construct::IdToken
         | Construct::BytesToken
-        | Construct::Lexeme => value_at_root(position),
+        | Construct::Lexeme
+        | Construct::Notation(Notation::CollectionValue) => value_at_root(position),
         // A turbofish names the instance of a parametric constructor's application, a value as
         // any constructor's. An initializer refuses it as a product boundary kept pending a
         // decision (NT-Q4): no meaning of an instance's name excludes it from a value built once.
@@ -364,9 +367,10 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         Construct::FunctionApplication | Construct::BuiltinApplication => {
             application(construct, position)
         }
-        // An index or a collection method is the application of a collection's function it
-        // denotes, decided as that application is wherever it stands: a pattern holds it as it
-        // holds the call (`m[k]` is `map::get(m, k)`), and a function there never matches.
+        // An index, a collection method or a collection literal is the application of a
+        // collection's function it denotes, decided as that application is wherever it stands: a
+        // pattern holds it as it holds the call (`m[k]` is `map::get(m, k)`, `map![k -> v]` is
+        // `map::update(map::empty(), k, v)`), and a function there never matches.
         Construct::Notation(notation) if notation.is_collection() => {
             application(Construct::BuiltinApplication, position)
         }
@@ -400,9 +404,7 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
             island(construct, position)
         }
         Construct::RecordUpdate | Construct::OpenRecord => record(construct, position),
-        Construct::MapLiteral | Construct::ListBrackets | Construct::Rest => {
-            collection(construct, position)
-        }
+        Construct::ListBrackets | Construct::Rest => collection(construct, position),
     }
 }
 
@@ -666,15 +668,11 @@ const fn record(construct: Construct, position: Position) -> Option<Refusal> {
     }
 }
 
-/// A map literal builds a map, notation of a `cells!` cell's and an initializer's map today: at a
-/// term position it is refused as a product boundary kept pending NT-6, which makes it a built
-/// term; a constant's value is ground, which a built map is not. List brackets denote a list wherever the position's sort is one, which the compiler
-/// judges. A list's anonymous rest `..` stands for the elements a pattern leaves unnamed: a built
-/// term or a condition has nothing it keeps, and a constant's value is ground.
+/// List brackets denote a list wherever the position's sort is one, which the compiler judges. A
+/// list's anonymous rest `..` stands for the elements a pattern leaves unnamed: a built term or a
+/// condition has nothing it keeps, and a constant's value is ground.
 const fn collection(construct: Construct, position: Position) -> Option<Refusal> {
     match construct {
-        Construct::MapLiteral if in_constant(position) => Some(placement(Class::ConstantNotGround)),
-        Construct::MapLiteral => Some(placement(Class::MapLiteralInTerm)),
         Construct::ListBrackets => value_at_root(position),
         _ => {
             if in_constant(position) {

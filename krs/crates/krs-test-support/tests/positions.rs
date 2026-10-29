@@ -29,7 +29,7 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 20] = [
+const KNOWN: [(&str, &str); 21] = [
     // A pattern's key holds no `let` block or `k::matches!` (NT-3-2's boundary), so a construct in
     // one's body, pattern or matched pattern there is refused with it; the collection notation and
     // its calls are such constructs. Where a `let` or `k::matches!` pattern holds the notation, no
@@ -42,6 +42,12 @@ const KNOWN: [(&str, &str); 20] = [
     (
         r"notation/readable/map-key/{let-pattern,matches-pattern}/k::builtin::{list::item(x)[0],list::item(x).len(),map::empty()[x],map::empty().contains_key(x),map::empty().update(x\, 1),set::item(x).to_list()}",
         "NT-2-6",
+    ),
+    // The collection literals and the calls they denote are such constructs too; a literal is a
+    // macro, which a Rust pattern reads, so the boundary is met first.
+    (
+        r"notation/readable/map-key/{let-pattern,matches-pattern}/{map![*,set![*,k::builtin::map::empty(),k::builtin::set::empty(),k::builtin::set::union(*}",
+        "NT-3-2",
     ),
     (
         r"terms/readable/set-instance-child/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::project!(Int\, x)}",
@@ -123,15 +129,15 @@ const NOT_RED: [(&str, &str); 1] = [(
 
 /// The disagreements the product decides before or outside the table's row, which are not red:
 /// the table refuses a `let` block and `k::matches!` in a readable key (NT-3-2), and the term
-/// reader refuses the construct inside first, with the class the oracle gives it (`_`, a map
-/// literal, a rest outside a pattern), or a name rule of the class table does (`x | 1`'s
+/// reader refuses the construct inside first, with the class the oracle gives it (`_`, a rest
+/// outside a pattern), or a name rule of the class table does (`x | 1`'s
 /// alternatives binding other names in a `k::matches!` pattern); the readable key's reader, which
 /// reads an expression, refuses `_`, alternatives and a closure below a function's application;
 /// and the compiler refuses an open record there (`key_names`), which the table cannot tell from a
 /// constructor's argument before resolution; a sort test in a set's element beside a name bound
 /// nowhere else is refused with its class at placement, as in a constructor's field (NT-3-1), where
 /// the oracle tells it once the element's names are known.
-const DECIDED_BEFORE_THE_TABLE: [&str; 16] = [
+const DECIDED_BEFORE_THE_TABLE: [&str; 10] = [
     "terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)",
     "terms/readable/map-key/function-argument/Cmd::Pair { a: x, .. }",
     "terms/readable/map-key/function-argument/_",
@@ -139,12 +145,6 @@ const DECIDED_BEFORE_THE_TABLE: [&str; 16] = [
     "terms/readable/map-key/let-body/Cmd::Go() | Cmd::Hold(_)",
     "terms/readable/map-key/let-body/[x, ..]",
     "terms/readable/map-key/let-body/_",
-    "terms/readable/map-key/let-body/k::map![x -> 1]",
-    "terms/readable/map-key/let-body/map![x -> 1]",
-    "terms/readable/map-key/let-pattern/k::map![x -> 1]",
-    "terms/readable/map-key/let-pattern/map![x -> 1]",
-    "terms/readable/map-key/matches-pattern/k::map![x -> 1]",
-    "terms/readable/map-key/matches-pattern/map![x -> 1]",
     "terms/readable/map-key/matches-pattern/x | 1",
     "terms/rule/subject/set-element-beside-fresh/k::is!(Int, x)",
     "terms/rule/subject/set-element-beside-fresh/k::project!(Int, x)",
@@ -276,7 +276,8 @@ fn key_reading(path: &[Opening], node: &model::Node, nodes: &[model::Node]) -> K
     let operand_of_notation = |depth: usize| {
         nodes.iter().any(|parent| {
             parent.path == node.path[..depth]
-                && matches!(parent.construct, model::Construct::Notation(notation) if notation != Notation::BitwiseOr)
+                && matches!(parent.construct, model::Construct::Notation(notation)
+                    if notation != Notation::BitwiseOr && notation.applies_operation())
         })
     };
     for (index, opening) in path.iter().chain(&node.path).enumerate() {
@@ -311,18 +312,21 @@ fn key_reading(path: &[Opening], node: &model::Node, nodes: &[model::Node]) -> K
 
 /// The product's construct of a model construct; `None` for a construct the table has no row
 /// for: a binder and a constructor application, which stand wherever a term does below a
-/// pattern's root, and list brackets, whose sort the compiler judges.
+/// pattern's root, a collection literal that denotes a value (`map![]`, `set![x]`), as its call
+/// does, and list brackets, whose sort the compiler judges.
 const fn product_construct(construct: model::Construct) -> Option<Construct> {
     use model::Construct as M;
     Some(match construct {
-        M::Reference | M::Fresh | M::Constructor | M::ListBrackets => return None,
+        M::Reference
+        | M::Fresh
+        | M::Constructor
+        | M::ListBrackets
+        | M::Notation(Notation::CollectionValue) => return None,
         M::Turbofish => Construct::Turbofish,
         M::Literal => Construct::Literal,
-        M::FunctionApplication
-        | M::BuiltinApplication
-        | M::Notation(_)
-        | M::MapLiteral
-        | M::Rest => Construct::FunctionApplication,
+        M::FunctionApplication | M::BuiltinApplication | M::Notation(_) | M::Rest => {
+            Construct::FunctionApplication
+        }
         M::Wildcard => Construct::Wildcard,
         M::As => Construct::As,
         M::Or => Construct::Or,
@@ -360,9 +364,9 @@ enum Read {
 ///   the table's application row decides, in a key too (a readable map read parses its key as an
 ///   expression, and a `cells!` map's as a pattern or else an expression); an index or a
 ///   collection method is the application it denotes in a pattern too;
-/// - a constant's value reader refuses an operator and a map literal as no ground term, and
-///   reads an index or a collection method as the call it denotes;
-/// - the term reader takes no macro but the compiler-owned islands, so a map literal is refused
+/// - a constant's value reader refuses an operator as no ground term, and reads an index, a
+///   collection method or a collection literal as the calls it denotes;
+/// - the term reader reads a collection literal (`map![..]`, `set![..]`) as the calls it denotes,
 ///   at every term position;
 /// - list notation: an anonymous `..` keeps a rest only in a pattern;
 /// - a readable map read's value is a binder or `_`.
@@ -388,13 +392,11 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
     let constant = position.form == model::Form::Constant;
     match construct {
         M::Notation(Notation::BitwiseOr) if or_is_alternatives => Read::Table,
-        // An index or a collection method is read as the call it denotes everywhere.
+        // An index, a collection method or a collection literal is read as the calls it denotes
+        // everywhere.
         M::Notation(notation) if notation.is_collection() => Read::Table,
         M::Notation(_) if parsed_as_pattern => Read::Refuses("notation-in-pattern"),
-        M::Notation(_) | M::MapLiteral | M::Rest if constant => {
-            Read::Refuses("constant-not-ground")
-        }
-        M::MapLiteral => Read::Refuses("map-literal-in-term"),
+        M::Notation(_) | M::Rest if constant => Read::Refuses("constant-not-ground"),
         M::Rest if pattern => Read::Admits,
         M::Rest => Read::Refuses("rest-outside-pattern"),
         _ => Read::Table,
@@ -558,7 +560,7 @@ fn the_table_decides_every_term_case_as_the_oracle_does() {
     // the table's row: by a name or sort rule of the table, met before the oracle's resolution
     // refusal, or by a reader of the product that refuses an inner construct the oracle refuses
     // too (the table reads a readable key's `let` block as a pattern, the term reader refuses
-    // the `_` or the map literal in it first); the full tier checks the latter end to end, and
+    // the `_` in it first); the full tier checks the latter end to end, and
     // the list of such cases is pinned here.
     let table = spec();
     let overridden = table.resolve_cases(&cases, registry_kind).overridden;
@@ -771,7 +773,13 @@ fn every_construct_and_notation_has_a_spelling() {
         .iter()
         .map(|case| case.construct.as_str())
         .collect::<BTreeSet<_>>();
-    for collection in ["k::map![", "map![", "[x, ..]", "k::builtin::set::item("] {
+    for collection in [
+        "k::map![",
+        "map![",
+        "set![",
+        "[x, ..]",
+        "k::builtin::set::item(",
+    ] {
         if !constructs.iter().any(|text| text.starts_with(collection)) {
             missing.push(format!("the collection form `{collection}`"));
         }
@@ -819,8 +827,63 @@ fn every_construct_and_notation_has_a_spelling() {
             (false, _) => {}
         }
     }
+    missing.extend(literal_forms_without_a_spelling(&spelled));
     assert!(missing.is_empty(), "without a spelling: {missing:#?}");
 }
+
+/// The collection literal shapes ([`LITERAL_SHAPES`]) without a spelling among `spelled`: the
+/// product's own predicate (`krs_syntax::is_collection_literal`) is asked of each, and its model
+/// form read from the call the product denotes it by: the empty collection and a set's singleton
+/// are values, the other literals applications of `map::update` and `set::union`.
+fn literal_forms_without_a_spelling(spelled: &BTreeSet<model::Construct>) -> Vec<String> {
+    let mut missing = Vec::new();
+    for shape in LITERAL_SHAPES {
+        let mut expression =
+            syn::parse_str::<syn::Expr>(shape).unwrap_or_else(|error| panic!("{shape}: {error}"));
+        if !krs_syntax::is_collection_literal(&expression) {
+            missing.push(format!(
+                "the collection literal `{shape}`, which the product does not read"
+            ));
+            continue;
+        }
+        krs_syntax::denote_notation(&mut expression, &syn::parse_quote!(b));
+        let syn::Expr::Call(call) = &expression else {
+            panic!("{shape} denotes no call");
+        };
+        let syn::Expr::Path(head) = &*call.func else {
+            panic!("{shape} denotes a call of no path");
+        };
+        let head = head
+            .path
+            .segments
+            .iter()
+            .map(|segment| segment.ident.to_string())
+            .collect::<Vec<_>>()
+            .join("::");
+        let notation = match head.as_str() {
+            "b::map::update" => Notation::MapLiteral,
+            "b::set::union" => Notation::SetLiteral,
+            "b::map::empty" | "b::set::empty" | "b::set::item" => Notation::CollectionValue,
+            other => panic!("{shape} denotes `{other}`, of no model form"),
+        };
+        if !spelled.contains(&model::Construct::Notation(notation)) {
+            missing.push(format!("the collection literal `{shape}` ({notation:?})"));
+        }
+    }
+    missing
+}
+
+/// The shapes of a collection literal: entries, a rest, the empty collection, a set's singleton.
+const LITERAL_SHAPES: [&str; 8] = [
+    "map![a -> b]",
+    "k::map![a -> b, c -> d]",
+    "map![a -> b, ..c]",
+    "map![]",
+    "set![a, b]",
+    "k::set![a, ..c]",
+    "set![a]",
+    "set![]",
+];
 
 /// Expression shapes, and the model's notation form of each the product reads as notation.
 const EXPRESSION_SHAPES: [(&str, Option<Notation>); 37] = [

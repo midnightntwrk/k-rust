@@ -624,11 +624,19 @@ pub enum Notation {
     /// A collection method without a turbofish, `m.update(k, v)`, `s.contains(x)`: the Map, List
     /// or Set operation of the receiver's collection.
     CollectionMethod,
+    /// A map literal with entries, `map![k -> v, ..]` or `k::map![k -> v, ..m]`: each entry written
+    /// over the map before it, `map::update(.., k, v)`, the first over `map::empty()` or the rest.
+    MapLiteral,
+    /// A set literal that joins sets, `set![x, y]` or `set![x, ..s]`: `set::union(..)`.
+    SetLiteral,
+    /// A collection literal that denotes a value: `map![]` and `set![]`, the empty collection, and
+    /// `set![x]`, the set's singleton `set::item(x)`.
+    CollectionValue,
 }
 
 impl Notation {
     /// Every notation form.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 16] = [
         Self::Arithmetic,
         Self::Bitwise,
         Self::BitwiseOr,
@@ -642,13 +650,31 @@ impl Notation {
         Self::Method,
         Self::Index,
         Self::CollectionMethod,
+        Self::MapLiteral,
+        Self::SetLiteral,
+        Self::CollectionValue,
     ];
 
-    /// Whether the form is collection notation: an index or a collection method, the
-    /// application of a collection's function, which a pattern holds as it holds the call.
+    /// Whether the form is collection notation: an index, a collection method or a collection
+    /// literal, the calls of a collection's functions, which a pattern holds as it holds the
+    /// calls.
     #[must_use]
     pub const fn is_collection(self) -> bool {
-        matches!(self, Self::Index | Self::CollectionMethod)
+        matches!(
+            self,
+            Self::Index
+                | Self::CollectionMethod
+                | Self::MapLiteral
+                | Self::SetLiteral
+                | Self::CollectionValue
+        )
+    }
+
+    /// Whether the form applies an operation, which a key computes: every form but the
+    /// collection literals that denote a value.
+    #[must_use]
+    pub const fn applies_operation(self) -> bool {
+        !matches!(self, Self::CollectionValue)
     }
 }
 
@@ -700,8 +726,6 @@ pub enum Construct {
     RecordUpdate,
     /// An open record, `Ctor { f: e, .. }`.
     OpenRecord,
-    /// A map literal, `k::map![k -> v]` or `map![k -> v]`.
-    MapLiteral,
     /// List brackets, `[x, ..]`.
     ListBrackets,
     /// An anonymous rest, the `..` of `[x, ..]`.
@@ -716,7 +740,7 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 39] = [
+    pub const ALL: [Self; 41] = [
         Self::Reference,
         Self::Fresh,
         Self::Constructor,
@@ -737,6 +761,9 @@ impl Construct {
         Self::Notation(Notation::Method),
         Self::Notation(Notation::Index),
         Self::Notation(Notation::CollectionMethod),
+        Self::Notation(Notation::MapLiteral),
+        Self::Notation(Notation::SetLiteral),
+        Self::Notation(Notation::CollectionValue),
         Self::Wildcard,
         Self::As,
         Self::Or,
@@ -750,7 +777,6 @@ impl Construct {
         Self::Fragment,
         Self::RecordUpdate,
         Self::OpenRecord,
-        Self::MapLiteral,
         Self::ListBrackets,
         Self::Rest,
         Self::IdToken,

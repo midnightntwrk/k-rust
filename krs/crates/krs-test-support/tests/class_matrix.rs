@@ -99,8 +99,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::Terms, 105 * 47),
             // 80 positions of depth 1 × 2 bare variants.
             (Family::Import, 80 * 2),
-            // The term family's 105 positions × 6 collection notation forms and their calls.
-            (Family::Notation, 105 * 12),
+            // The term family's 105 positions × (6 collection notation forms and their calls, and
+            // 6 collection literals and the 5 calls they denote apart from the method's).
+            (Family::Notation, 105 * (12 + 11)),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
@@ -266,8 +267,9 @@ fn a_computation_subject_case_is_never_batched() {
 /// class ([`the_shipped_table_and_red_list_parse`]).
 /// The notation family's positions where a table rule decides every case before the oracle's
 /// resolution refusal, with the oracle's class: each of the family's spellings (the collection
-/// notation and the calls it denotes) reads `x` and applies a function, as `k::builtin::int::add(x,
-/// 1)` does at the term family's same positions ([`OVERRIDDEN`]).
+/// notation and the calls it denotes) but the [`VALUE_SPELLINGS`] reads `x` and applies a
+/// function, as `k::builtin::int::add(x, 1)` does at the term family's same positions
+/// ([`OVERRIDDEN`]).
 const OVERRIDDEN_POSITIONS: [(&str, &str); 6] = [
     ("notation/constant/value", "constant-applies-function"),
     ("notation/constant/value-root", "constant-applies-function"),
@@ -280,7 +282,16 @@ const OVERRIDDEN_POSITIONS: [(&str, &str); 6] = [
     ),
 ];
 
-const OVERRIDDEN: [(&str, &str); 45] = [
+/// The notation family's spellings that denote a value, the empty map or set, which no position
+/// of [`OVERRIDDEN_POSITIONS`] refuses by resolution.
+const VALUE_SPELLINGS: [&str; 4] = [
+    "map![]",
+    "set![]",
+    "k::builtin::map::empty()",
+    "k::builtin::set::empty()",
+];
+
+const OVERRIDDEN: [(&str, &str); 57] = [
     (
         "terms/alias/subject-root/[x, ..]",
         "static-clause-root-not-marked",
@@ -399,6 +410,22 @@ const OVERRIDDEN: [(&str, &str); 45] = [
         "static-clause-root-not-marked",
     ),
     (
+        "terms/constant/value/k::map![x -> 1]",
+        "constant-applies-function",
+    ),
+    (
+        "terms/constant/value/map![x -> 1]",
+        "constant-applies-function",
+    ),
+    (
+        "terms/constant/value-root/k::map![x -> 1]",
+        "constant-applies-function",
+    ),
+    (
+        "terms/constant/value-root/map![x -> 1]",
+        "constant-applies-function",
+    ),
+    (
         "terms/equation/subject-root/[x, ..]",
         "equation-root-not-function",
     ),
@@ -412,6 +439,14 @@ const OVERRIDDEN: [(&str, &str); 45] = [
     ),
     (
         "terms/local-rule/subject-root/Size(x)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/local-rule/subject-root/k::map![x -> 1]",
+        "function-in-pattern",
+    ),
+    (
+        "terms/local-rule/subject-root/map![x -> 1]",
         "function-in-pattern",
     ),
     (
@@ -435,11 +470,27 @@ const OVERRIDDEN: [(&str, &str); 45] = [
         "function-in-pattern",
     ),
     (
+        "terms/rule/guard/matches-pattern/k::map![x -> 1]",
+        "function-in-pattern",
+    ),
+    (
+        "terms/rule/guard/matches-pattern/map![x -> 1]",
+        "function-in-pattern",
+    ),
+    (
         "terms/rule/subject/or-branch/Size(x)",
         "function-in-pattern",
     ),
     (
         "terms/rule/subject/or-branch/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/rule/subject/or-branch/k::map![x -> 1]",
+        "function-in-pattern",
+    ),
+    (
+        "terms/rule/subject/or-branch/map![x -> 1]",
         "function-in-pattern",
     ),
     (
@@ -456,6 +507,14 @@ const OVERRIDDEN: [(&str, &str); 45] = [
     ),
     (
         "terms/sort-rule/result/matches-pattern/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/sort-rule/result/matches-pattern/k::map![x -> 1]",
+        "function-in-pattern",
+    ),
+    (
+        "terms/sort-rule/result/matches-pattern/map![x -> 1]",
         "function-in-pattern",
     ),
 ];
@@ -482,12 +541,15 @@ fn the_shipped_table_and_red_list_parse() {
     // name names a unit constructor), a `k::matches!` pattern that rebinds `x`, alternatives that
     // bind other names, a `KItem` binder an operand sorts as `Int`, `_` in a desugar result
     // without `unbound_variables`, a record update's base, brackets at a `KItem` root.
-    let positions = ids.iter().filter_map(|id| {
-        let (position, _) = id.rsplit_once("/k::builtin::")?;
+    let positions = cases.iter().filter_map(|case| {
+        let position = case.id.strip_suffix(&format!("/{}", case.construct))?;
+        if case.family != Family::Notation || VALUE_SPELLINGS.contains(&case.construct.as_str()) {
+            return None;
+        }
         OVERRIDDEN_POSITIONS
             .iter()
             .find(|(overridden, _)| *overridden == position)
-            .map(|(_, class)| ((*id).to_owned(), *class))
+            .map(|(_, class)| (case.id.clone(), *class))
     });
     assert_eq!(
         resolution.overridden,
@@ -1051,7 +1113,7 @@ const SIBLING_EXCEPTION_POSITIONS: [(&str, &str, &str); 2] = [
 
 /// Sibling cases a name or sort rule does not decide though it decides the spelling at another
 /// sibling, and why.
-const SIBLING_EXCEPTIONS: [(&str, &str, &str); 9] = [
+const SIBLING_EXCEPTIONS: [(&str, &str, &str); 13] = [
     (
         "terms/readable/map-key/matches-pattern/Size(x)",
         "matches-pattern-binder",
@@ -1059,6 +1121,16 @@ const SIBLING_EXCEPTIONS: [(&str, &str, &str); 9] = [
     ),
     (
         "terms/readable/map-key/matches-pattern/k::builtin::int::add(x, 1)",
+        "matches-pattern-binder",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/matches-pattern/k::map![x -> 1]",
+        "matches-pattern-binder",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/matches-pattern/map![x -> 1]",
         "matches-pattern-binder",
         KEY_READS_ITS_NAMES,
     ),
@@ -1084,6 +1156,16 @@ const SIBLING_EXCEPTIONS: [(&str, &str, &str); 9] = [
     ),
     (
         "terms/readable/map-key/or-branch/k::builtin::set::item(x)",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/or-branch/k::map![x -> 1]",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "terms/readable/map-key/or-branch/map![x -> 1]",
         "alternatives-bind-unequally",
         KEY_READS_ITS_NAMES,
     ),

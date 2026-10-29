@@ -53,11 +53,12 @@ refused construct is the one a depth-2 case's construct stands in.
 
 **Size.** The term family is about 4,950 cases and the import axis 160, of about 5,900 in all, and
 the notation family (`notation/..`: the term family's positions, templates and oracle for the
-collection notation, `m[k]` and `s.contains(x)`, and the calls it denotes) 1,260. The generator caps
+collection notation, `m[k]`, `s.contains(x)`, `map![k -> v]` and `set![x]`, and the calls it
+denotes) 2,415. The generator caps
 each shard of the fast tier at `FRONT_CASE_CAP` (6,000), whose documentation argues the fast tier's
 budget (7.5 ms a case single-threaded); the notation family is a shard of its own
 (`FRONT_SHARDS`), one test of `class_front` each. The full tier's `terms` shard takes about 5
-minutes with 22 workers, and its `notation` shard about 2. The term families' accept entries are most of the table, so they live in
+minutes with 22 workers, and its `notation` shard about 3. The term families' accept entries are most of the table, so they live in
 `accepted-terms.toml`, in `expected.toml`'s accept schema and written by the same record mode;
 `expected.toml` keeps the classes, the refusal rules and the other families' accept entries, and
 holds no term case's entry (`class_matrix::table`).
