@@ -1118,6 +1118,66 @@ theorem key_of_lookup_pair {k₁ k₂ j : K} {v₁ v₂ : V} {a : M}
   · exact Or.inl e
   · exact Or.inr e
 
+/-- A key bound by what `concat` puts beside the rest is not the rest's. -/
+theorem lookup_right_none {b R m : M} (h : concat b R = some m) {k : K} (hb : lookup b k ≠ none) :
+    lookup R k = none := by
+  cases e : lookup R k with
+  | none => rfl
+  | some w => exact absurd (lookup_left_none_of_concat h (by rw [e]; simp)) hb
+
+/-- What an insertion `(k ↦ v) L = L'` does: it binds `k`, which `L` does not, and keeps every
+other key. -/
+theorem ins_facts {k : K} {v : V} {L L' : M} (h : concat (element k v) L = some L') :
+    lookup L' k = some v ∧ lookup L k = none ∧ ∀ j, j ≠ k → lookup L' j = lookup L j :=
+  ⟨lookup_of_concat_element h, (concat_element_iff.1 h).2.1,
+    fun _ hj => lookup_concat_right h (lookup_element_ne hj)⟩
+
+/-- What a removal `(k ↦ v) L' = L` does: `k` is bound in `L`, not in `L'`, and every other key
+is kept. -/
+theorem rem_facts {k : K} {v : V} {L L' : M} (h : concat (element k v) L' = some L) :
+    lookup L' k = none ∧ lookup L k = some v ∧ ∀ j, j ≠ k → lookup L' j = lookup L j :=
+  ⟨(concat_element_iff.1 h).2.1, lookup_of_concat_element h,
+    fun _ hj => (lookup_concat_right h (lookup_element_ne hj)).symm⟩
+
+/-- What a replacement of the binding at `k` (`(k ↦ v) D = L`, `(k ↦ w) D = L'`) does. -/
+theorem repl_facts {k : K} {v w : V} {D L L' : M} (h : concat (element k v) D = some L)
+    (h' : concat (element k w) D = some L') :
+    lookup L' k = some w ∧ lookup L k = some v ∧ ∀ j, j ≠ k → lookup L' j = lookup L j :=
+  ⟨lookup_of_concat_element h', lookup_of_concat_element h, fun _ hj =>
+    (lookup_concat_right h' (lookup_element_ne hj)).trans
+      (lookup_concat_right h (lookup_element_ne hj)).symm⟩
+
+/-- What a read of `i ↦ v` with an insertion of `o ↦ x` beside it (`(i ↦ v) D = L`,
+`(i ↦ v) (o ↦ x) = r`, `r D = L'`) does: it binds `o`, which `L` does not, and keeps every other
+key. -/
+theorem ext_facts {i o : K} {v x : V} {D L r L' : M} (h : concat (element i v) D = some L)
+    (hp : concat (element i v) (element o x) = some r) (h' : concat r D = some L') :
+    lookup L' o = some x ∧ lookup L o = none ∧ ∀ j, j ≠ o → lookup L' j = lookup L j := by
+  have bp := binds_pair hp
+  have ro : lookup r o = some x := (bp o x).2 (by simp)
+  have ri : lookup r i = some v := (bp i v).2 (by simp)
+  have hio : i ≠ o := fun e => by
+    have := (concat_element_iff.1 hp).2.1
+    rw [e, lookup_element_self] at this; cases this
+  have nDo : lookup D o = none := by
+    rcases concat_disj_lookup h' o with x' | x'
+    · rw [ro] at x'; cases x'
+    · exact x'
+  refine ⟨lookup_of_concat h' ro, ?_, fun j hj => ?_⟩
+  · rw [lookup_concat_right h (lookup_element_ne (Ne.symm hio))]; exact nDo
+  · by_cases ji : j = i
+    · rw [ji, lookup_of_concat h' ri, lookup_of_concat_element h]
+    · have rj : lookup r j = none := by
+        cases e : lookup r j with
+        | none => rfl
+        | some w =>
+          have := (bp j w).1 e
+          simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at this
+          rcases this with ⟨e', -⟩ | ⟨e', -⟩
+          · exact absurd e' ji
+          · exact absurd e' hj
+      rw [lookup_concat_right h' rj, lookup_concat_right h (lookup_element_ne ji)]
+
 end MapHook
 
 end KPrelude
@@ -1409,6 +1469,166 @@ theorem MCh.Compat.symm {c d : MCh M} (h : MCh.Compat c d) : MCh.Compat d c := b
   · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inr (Or.inl ⟨r₂, r₁⟩)⟩)
   · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inr (Or.inr hs.symm)⟩)
 
+/-! ### The key a rule's change is at
+
+A rule changes a cell holding a map at one key, by the kind of its match: an insertion, a
+removal, a replacement, or a read with an insertion beside it. Two changes at two different keys
+commute when neither reads the other's key (`MCh.compat_at`); at one key they are steps of one
+process or clash (`k2l_det`). `k2l_keyed` finds the keys. -/
+
+/-- A step of a cell holding a map, from `L` to `L'`, by the change `c`. -/
+def MCh.Step (c : MCh M) (L L' : M) : Prop := c.pre L ∧ c.apply L = L'
+
+/-- The change is at `k`: at every other key of `L` it matches and puts back nothing, or reads
+the binding (matches it and puts it back). -/
+def MCh.At (c : MCh M) (L : M) (k : K) : Prop :=
+  ∃ a b, c = some (a, b) ∧ ∀ j, j ≠ k →
+    (lookup a j = none ∧ lookup b j = none) ∨ (lookup a j = lookup b j ∧ lookup L j ≠ none)
+
+/-- The change matches and puts back no key other than `k`. -/
+def MCh.Only (c : MCh M) (k : K) : Prop :=
+  ∃ a b, c = some (a, b) ∧ ∀ j, j ≠ k → lookup a j = none ∧ lookup b j = none
+
+theorem MCh.at_of_only {c : MCh M} {L : M} {k : K} (h : c.Only k) : c.At L k :=
+  let ⟨a, b, e, h⟩ := h
+  ⟨a, b, e, fun j hj => Or.inl (h j hj)⟩
+
+/-- A step that changes the binding at `k` alone is at `k`. -/
+theorem MCh.at_of_step {c : MCh M} {L L' : M} {k : K} (st : c.Step L L')
+    (hk : lookup L' k ≠ lookup L k) (ho : ∀ j, j ≠ k → lookup L' j = lookup L j) : c.At L k := by
+  obtain ⟨pre, ap⟩ := st
+  cases c with
+  | none => exact absurd (by rw [← ap]; rfl) hk
+  | some p =>
+    obtain ⟨a, b⟩ := p
+    refine ⟨a, b, rfl, fun j hj => ?_⟩
+    obtain ⟨R, r, h, h'⟩ := pre _ rfl
+    have e := ho j hj
+    rw [← ap, MCh.lookup_apply pre] at e
+    by_cases u : lookup a j = none ∧ lookup b j = none
+    · exact Or.inl u
+    · rw [ite_eq_right u] at e
+      right
+      cases ha : lookup a j with
+      | some v =>
+        have hl := lookup_of_concat h ha
+        exact ⟨(e.trans hl).symm, by rw [hl]; simp⟩
+      | none =>
+        exfalso
+        have hb : lookup b j ≠ none := fun hb => u ⟨ha, hb⟩
+        rcases concat_disj_lookup h' j with x | x
+        · exact hb x
+        · rw [← lookup_concat_right h ha, ← e] at x; exact hb x
+
+/-- A rule's step (`MCh.Small`) that changes the binding at `k` alone, to a binding, matches and
+puts back no other key. -/
+theorem MCh.only_of_step {c : MCh M} {L L' : M} {k : K} (sm : c.Small) (st : c.Step L L')
+    (hk : lookup L' k ≠ lookup L k) (ho : ∀ j, j ≠ k → lookup L' j = lookup L j)
+    (hb : lookup L' k ≠ none) : c.Only k := by
+  obtain ⟨a, b, rfl, hs⟩ := MCh.at_of_step st hk ho
+  obtain ⟨pre, ap⟩ := st
+  refine ⟨a, b, rfl, fun j hj => ?_⟩
+  have hbk : lookup b k ≠ none := by
+    have e := MCh.lookup_apply pre k
+    rw [ap] at e
+    by_cases u : lookup a k = none ∧ lookup b k = none
+    · rw [ite_eq_left u] at e; exact absurd e hk
+    · rw [ite_eq_right u] at e; rw [← e]; exact hb
+  have hbj : lookup b j = none := by
+    rcases (sm _ rfl).2 with ⟨k', w, e⟩ | e
+    · change b = _ at e
+      subst e
+      by_cases e : k = k'
+      · subst e; exact lookup_element_ne hj
+      · exact absurd (lookup_element_ne e) hbk
+    · change b = _ at e
+      subst e; exact lookup_unit
+  rcases hs j hj with u | ⟨e, -⟩
+  · exact u
+  · exact ⟨e.trans hbj, hbj⟩
+
+/-- An insertion `(k ↦ v) L = L'` is at `k`, which `L` does not bind. -/
+theorem MCh.fx_ins {c : MCh M} {L L' : M} {k : K} {v : V} (st : c.Step L L')
+    (h : concat (element k v) L = some L') : c.At L k ∧ lookup L k = none :=
+  have f := ins_facts h
+  ⟨MCh.at_of_step st (by rw [f.1, f.2.1]; simp) f.2.2, f.2.1⟩
+
+/-- A rule's insertion (`MCh.Small`) puts back no other key. -/
+theorem MCh.only_ins {c : MCh M} {L L' : M} {k : K} {v : V} (sm : c.Small) (st : c.Step L L')
+    (h : concat (element k v) L = some L') : c.Only k :=
+  have f := ins_facts h
+  MCh.only_of_step sm st (by rw [f.1, f.2.1]; simp) f.2.2 (by rw [f.1]; simp)
+
+/-- A rule's removal `(k ↦ v) L' = L` (`MCh.Small`) is at `k` alone. -/
+theorem MCh.fx_rem {c : MCh M} {L L' : M} {k : K} {v : V} (sm : c.Small) (st : c.Step L L')
+    (h : concat (element k v) L' = some L) : c.At L k ∧ c.Only k := by
+  have e := MCh.remove_of st.1 st.2 sm h
+  have o : c.Only k := ⟨_, _, e, fun j hj => ⟨lookup_element_ne hj, lookup_unit⟩⟩
+  exact ⟨MCh.at_of_only o, o⟩
+
+/-- A rule's replacement of the binding at `k` by another (`(k ↦ v) D = L`, `(k ↦ w) D = L'`,
+`v ≠ w`; `MCh.Small`) is at `k` alone. -/
+theorem MCh.fx_repl {c : MCh M} {L L' D : M} {k : K} {v w : V} (sm : c.Small) (st : c.Step L L')
+    (h : concat (element k v) D = some L) (h' : concat (element k w) D = some L') (hne : w ≠ v) :
+    c.At L k ∧ c.Only k := by
+  have f := repl_facts h h'
+  have o := MCh.only_of_step sm st (by rw [f.1, f.2.1]; simpa using hne) f.2.2 (by rw [f.1]; simp)
+  exact ⟨MCh.at_of_only o, o⟩
+
+/-- A read of `i ↦ v` with an insertion of `o ↦ x` beside it (`(i ↦ v) D = L`,
+`(i ↦ v) (o ↦ x) = r`, `r D = L'`) is at `o`, which `L` does not bind. -/
+theorem MCh.fx_ext {c : MCh M} {L L' D r : M} {i o : K} {v x : V} (st : c.Step L L')
+    (h' : concat r D = some L') (h : concat (element i v) D = some L)
+    (hp : concat (element i v) (element o x) = some r) : c.At L o ∧ lookup L o = none :=
+  have f := ext_facts h hp h'
+  ⟨MCh.at_of_step st (by rw [f.1, f.2.1]; simp) f.2.2, f.2.1⟩
+
+/-- Two changes at two different keys commute when neither reads the other's key: the key is not
+bound, or the other change is at its own key alone. -/
+theorem MCh.compat_at {c₁ c₂ : MCh M} {L : M} {k₁ k₂ : K} (hne : k₁ ≠ k₂) (a₁ : c₁.At L k₁)
+    (a₂ : c₂.At L k₂) (f₁ : lookup L k₁ = none ∨ c₂.Only k₂)
+    (f₂ : lookup L k₂ = none ∨ c₁.Only k₁) : MCh.Compat c₁ c₂ := by
+  obtain ⟨x₁, y₁, rfl, h₁⟩ := a₁
+  obtain ⟨x₂, y₂, rfl, h₂⟩ := a₂
+  have n₂ : lookup x₂ k₁ = none ∧ lookup y₂ k₁ = none := by
+    rcases f₁ with f | ⟨x, y, e, o⟩
+    · rcases h₂ k₁ hne with u | ⟨-, u⟩
+      · exact u
+      · exact absurd f u
+    · cases e; exact o k₁ hne
+  have n₁ : lookup x₁ k₂ = none ∧ lookup y₁ k₂ = none := by
+    rcases f₂ with f | ⟨x, y, e, o⟩
+    · rcases h₁ k₂ (Ne.symm hne) with u | ⟨-, u⟩
+      · exact u
+      · exact absurd f u
+    · cases e; exact o k₂ (Ne.symm hne)
+  refine Or.inr (Or.inr ⟨_, _, _, _, rfl, rfl, Or.inr (Or.inr fun j => ?_)⟩)
+  by_cases j₁ : j = k₁
+  · subst j₁; exact Or.inr (Or.inl n₂)
+  by_cases j₂ : j = k₂
+  · subst j₂; exact Or.inl n₁
+  rcases h₁ j j₁ with u | ⟨e₁, -⟩
+  · exact Or.inl u
+  rcases h₂ j j₂ with u | ⟨e₂, -⟩
+  · exact Or.inr (Or.inl u)
+  exact Or.inr (Or.inr ⟨e₁, e₂⟩)
+
+theorem MCh.compat_at_ff {c₁ c₂ : MCh M} {L : M} {k₁ k₂ : K} (hne : k₁ ≠ k₂) (a₁ : c₁.At L k₁)
+    (a₂ : c₂.At L k₂) (n₁ : lookup L k₁ = none) (n₂ : lookup L k₂ = none) : MCh.Compat c₁ c₂ :=
+  MCh.compat_at hne a₁ a₂ (Or.inl n₁) (Or.inl n₂)
+
+theorem MCh.compat_at_fo {c₁ c₂ : MCh M} {L : M} {k₁ k₂ : K} (hne : k₁ ≠ k₂) (a₁ : c₁.At L k₁)
+    (a₂ : c₂.At L k₂) (n₁ : lookup L k₁ = none) (o₁ : c₁.Only k₁) : MCh.Compat c₁ c₂ :=
+  MCh.compat_at hne a₁ a₂ (Or.inl n₁) (Or.inr o₁)
+
+theorem MCh.compat_at_of {c₁ c₂ : MCh M} {L : M} {k₁ k₂ : K} (hne : k₁ ≠ k₂) (a₁ : c₁.At L k₁)
+    (a₂ : c₂.At L k₂) (o₂ : c₂.Only k₂) (n₂ : lookup L k₂ = none) : MCh.Compat c₁ c₂ :=
+  MCh.compat_at hne a₁ a₂ (Or.inr o₂) (Or.inl n₂)
+
+theorem MCh.compat_at_oo {c₁ c₂ : MCh M} {L : M} {k₁ k₂ : K} (hne : k₁ ≠ k₂) (a₁ : c₁.At L k₁)
+    (a₂ : c₂.At L k₂) (o₂ : c₂.Only k₂) (o₁ : c₁.Only k₁) : MCh.Compat c₁ c₂ :=
+  MCh.compat_at hne a₁ a₂ (Or.inr o₂) (Or.inr o₁)
+
 end MCh
 
 end KPrelude
@@ -1615,6 +1835,8 @@ def detLookup (g : MVarId) : MetaM (Option MVarId) := g.withContext do
   for (h, a, r) in cs do
     if (detArgs2? ``MapHook.element a).isSome then
       if let some g' ← detAdd g (← mkAppM ``MapHook.lookup_of_concat_element #[h]) then return some g'
+      let f ← mkAppM ``MapHook.ins_facts #[h]
+      if let some g' ← detAdd g (← mkAppM ``And.left #[← mkAppM ``And.right #[f]]) then return some g'
     if (detArgs2? ``MapHook.element r).isSome then
       if let some g' ← detAdd g (← mkAppM ``MapHook.lookup_of_concat_element_right #[h]) then
         return some g'
@@ -1638,13 +1860,21 @@ def detCases (g : MVarId) (p : Expr) : MetaM (Option (Array MVarId)) := do
     return none
 
 /-- One unification: two hypotheses `e = some x` and `e = some y` give `x = y`; two matches
-`concat a R = some m` and `concat a R' = some m` give `R = R'`. -/
+`concat a R = some m` and `concat a R' = some m` give `R = R'`; `e = none` and `e = some x`
+clash. -/
 def detStep (g : MVarId) : MetaM (Option (Array MVarId)) := g.withContext do
   let mut facts : Array (Expr × Expr × Expr) := #[]
+  let mut nones : Array (Expr × Expr) := #[]
   for d in ← getLCtx do
     if d.isImplementationDetail then continue
     if let some (e, x) ← detSome? d.type then
       facts := facts.push (d.toExpr, e, x)
+    else if let some (_, l, r) := (← instantiateMVars d.type).eq? then
+      if r.isAppOf ``Option.none then nones := nones.push (d.toExpr, l)
+  for (h₁, e₁) in nones do
+    for (h₂, e₂, _) in facts do
+      if ← withReducible (isDefEq e₁ e₂) then
+        if let some gs ← detCases g (← mkEqTrans (← mkEqSymm h₁) h₂) then return some gs
   for i in [0:facts.size] do
     for j in [i+1:facts.size] do
       let (h₁, e₁, x₁) := facts[i]!
@@ -1671,5 +1901,243 @@ elab "k2l_det" : tactic => do
       else match ← detStep g with
         | some gs => setGoals (gs.toList ++ rest)
         | none => return
+
+namespace IntHook
+
+/-! A value a step adds a nonzero constant to changes (`k2l_ne`); stated over `Int`, they apply to
+a library's integer sort, which reduces to it. -/
+
+theorem add_eq_self_iff {a b : Int} : add a b = a ↔ b = 0 := by simp only [add]; omega
+theorem self_eq_add_iff {a b : Int} : a = add a b ↔ b = 0 := by simp only [add]; omega
+theorem sub_eq_self_iff {a b : Int} : sub a b = a ↔ b = 0 := by simp only [sub]; omega
+theorem self_eq_sub_iff {a b : Int} : a = sub a b ↔ b = 0 := by simp only [sub]; omega
+
+end IntHook
+
+/-- Two values that differ: by constructors, by hook arithmetic (`N +Int 1 ≠ N`), or by a term
+inside itself (`sizeOf`). Each alternative closes the goal or fails. -/
+syntax "k2l_ne" : tactic
+macro_rules
+  | `(tactic| k2l_ne) => `(tactic| first
+    | (simp; done)
+    | (intro h; cases h; done)
+    | (simp; intro h; cases h; done)
+    | (simp; intro _ h; cases h; done)
+    | (simp [KPrelude.IntHook.add_eq_self_iff, KPrelude.IntHook.self_eq_add_iff,
+        KPrelude.IntHook.sub_eq_self_iff, KPrelude.IntHook.self_eq_sub_iff]; done)
+    | (intro h; have := congrArg sizeOf h; simp at this; omega))
+
+/-! ## `k2l_keyed`: two changes of cells holding a map, at their keys
+
+For `hk : ¬ ch₁.KCompat ch₂`, the changes of two steps from one configuration at the cells holding
+a map: per cell, a change is `none` (a hypothesis `ch.f = none`, of the rule's class), or at the
+key its rule's match fixes (`MCh.fx_ins`, `only_ins`, `fx_rem`, `fx_repl` with `k2l_ne`, `fx_ext`,
+from a hypothesis `MCh.Step ch.f L L'` and the match, found up to reducible unfolding: `L` and `L'`
+as the matches state them). Per cell where both are at a key, it cases
+on the keys: equal, `cases` on the equation, then `k2l_det`, the goals left to the caller; all
+different, `hk` is refuted by `MCh.compat_at`. It fails when a change's key is not found, or two
+keys do not show that neither change reads the other's. -/
+
+/-- The parts of a conjunction, with their proofs from `p`. -/
+partial def keyedParts (p ty : Expr) : MetaM (Array (Expr × Expr)) := do
+  let ty ← instantiateMVars ty
+  if ty.isAppOfArity ``And 2 then
+    return (← keyedParts (← mkAppM ``And.left #[p]) ty.appFn!.appArg!) ++
+      (← keyedParts (← mkAppM ``And.right #[p]) ty.appArg!)
+  return #[(p, ty)]
+
+/-- The hypotheses, conjunctions split. -/
+def keyedHyps : MetaM (Array (Expr × Expr)) := do
+  let mut out := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    out := out ++ (← keyedParts d.toExpr d.type)
+  return out
+
+/-- Whether `k2l_ne` closes the goal `g`. -/
+def keyedNe (g : MVarId) : TacticM Bool := do
+  let s ← saveState
+  try
+    let gs ← Tactic.run g (evalTactic (← `(tactic| k2l_ne)))
+    if gs.isEmpty then return true
+    s.restore
+    return false
+  catch _ =>
+    s.restore
+    return false
+
+/-- Whether the hypothesis type `h` may be an instance of the pattern `t` (`concat a R = some m`):
+their parts the pattern fixes already are the same. -/
+def keyedQuick (h t : Expr) : MetaM Bool := do
+  let t ← instantiateMVars t
+  let (some (_, hl, hr), some (_, tl, tr)) := (h.eq?, t.eq?) | return true
+  let same (x y : Expr) := y.hasMVar || x == y
+  unless same hr tr do return false
+  match detArgs2? ``MapHook.concat hl, detArgs2? ``MapHook.concat tl with
+  | some (ha, hR), some (ta, tR) => return same ha ta && same hR tR
+  | _, _ => return true
+
+/-- Fill the explicit arguments `is` of a lemma: a hypothesis of each one's type, or `k2l_ne` for
+an inequation, in order, backtracking. -/
+partial def keyedFill (ms : Array Expr) (hyps : Array (Expr × Expr)) : List Nat → TacticM Bool
+  | [] => return true
+  | i :: rest => do
+    let m := ms[i]!
+    if (← instantiateMVars m).isMVar then
+      let ty ← instantiateMVars (← inferType m)
+      if ty.isAppOfArity ``Ne 3 then
+        let g ← mkFreshExprMVar ty
+        return (← keyedNe g.mvarId!) && (← isDefEq m g) && (← keyedFill ms hyps rest)
+      for (p, pty) in hyps do
+        unless pty.getAppFn == ty.getAppFn && (← keyedQuick pty ty) do continue
+        let s ← (Meta.saveState : MetaM _)
+        if (← withReducible (isDefEq pty ty)) && (← isDefEq m p) then
+          if ← keyedFill ms hyps rest then return true
+        s.restore
+      return false
+    else keyedFill ms hyps rest
+
+/-- `lem` at the step `st` (its argument `MCh.Step _ _ _`) and hypotheses for its other explicit
+arguments. -/
+def keyedApply (lem : Name) (st : Expr) (hyps : Array (Expr × Expr)) : TacticM (Option Expr) := do
+  let s ← saveState
+  try
+    let c ← mkConstWithFreshMVarLevels lem
+    let (ms, bis, _) ← forallMetaTelescopeReducing (← inferType c)
+    let mut ex : Array Nat := #[]
+    for i in [0:ms.size] do
+      if bis[i]! == .default then
+        if (← instantiateMVars (← inferType ms[i]!)).isAppOf ``MCh.Step then
+          unless ← withReducible (isDefEq ms[i]! st) do
+            s.restore
+            return none
+        else ex := ex.push i
+    unless ← keyedFill ms hyps ex.toList do
+      s.restore
+      return none
+    for i in [0:ms.size] do
+      if bis[i]! == .instImplicit && (← instantiateMVars ms[i]!).isMVar then
+        unless ← isDefEq ms[i]! (← synthInstance (← inferType ms[i]!)) do
+          s.restore
+          return none
+    let e ← instantiateMVars (mkAppN c ms)
+    if e.hasMVar then
+      s.restore
+      return none
+    return some e
+  catch _ =>
+    s.restore
+    return none
+
+/-- What `k2l_keyed` knows of a change at a key: `At` (with the key), and when found, that the key
+is not bound before, and that the change is at it alone. -/
+structure KeyedFx where
+  atP : Expr
+  key : Expr
+  fresh : Option Expr
+  only : Option Expr
+
+/-- A proof of `x = none` among the hypotheses. -/
+def keyedNone (x : Expr) (hyps : Array (Expr × Expr)) : MetaM (Option Expr) := do
+  for (p, ty) in hyps do
+    if let some (_, l, r) := ty.eq? then
+      if r.isAppOf ``Option.none && (← withReducible (isDefEq l x)) then return some p
+  return none
+
+/-- The key the change `x` is at, from its step and the match of its rule. -/
+def keyedFx (x : Expr) (hyps : Array (Expr × Expr)) : TacticM (Option KeyedFx) := do
+  let mut fx : Option KeyedFx := none
+  for (st, ty) in hyps do
+    unless ty.isAppOf ``MCh.Step do continue
+    let as := ty.getAppArgs
+    unless ← withReducible (isDefEq as[as.size - 3]! x) do continue
+    let mut atP : Option (Expr × Expr) := none
+    let mut fresh : Option Expr := none
+    let mut only : Option Expr := none
+    for lem in [``MCh.fx_ins, ``MCh.only_ins, ``MCh.fx_rem, ``MCh.fx_repl, ``MCh.fx_ext] do
+      let some e ← keyedApply lem st hyps | continue
+      for (p, pty) in ← keyedParts e (← inferType e) do
+        if pty.isAppOf ``MCh.At then
+          if atP.isNone then atP := some (p, pty.getAppArgs.back!)
+        else if pty.isAppOf ``MCh.Only then
+          if only.isNone then only := some p
+        else if fresh.isNone then fresh := some p
+    if let some (p, k) := atP then
+      fx := some { atP := p, key := k, fresh, only }
+      break
+  return fx
+
+/-- The commutation of `x` at `f₁`'s key and `y` at `f₂`'s, by `hne` and what each knows. -/
+def keyedCompat (hne : Expr) (f₁ f₂ : KeyedFx) : MetaM Expr := do
+  match f₁.fresh, f₂.only, f₂.fresh, f₁.only with
+  | some n₁, _, some n₂, _ => mkAppM ``MCh.compat_at_ff #[hne, f₁.atP, f₂.atP, n₁, n₂]
+  | some n₁, _, _, some o₁ => mkAppM ``MCh.compat_at_fo #[hne, f₁.atP, f₂.atP, n₁, o₁]
+  | _, some o₂, some n₂, _ => mkAppM ``MCh.compat_at_of #[hne, f₁.atP, f₂.atP, o₂, n₂]
+  | _, some o₂, _, some o₁ => mkAppM ``MCh.compat_at_oo #[hne, f₁.atP, f₂.atP, o₂, o₁]
+  | _, _, _, _ => throwError "k2l_keyed: a change may read the key of the other"
+
+/-- The parts of a conjunction, nested to the right. -/
+partial def keyedConj (t : Expr) : List Expr :=
+  if t.isAppOfArity ``And 2 then t.appFn!.appArg! :: keyedConj t.appArg! else [t]
+
+/-- A conjunction of the proofs `ps`, nested to the right. -/
+def keyedAnd : List Expr → MetaM Expr
+  | [] => return mkConst ``True.intro
+  | [p] => return p
+  | p :: ps => do mkAppM ``And.intro #[p, ← keyedAnd ps]
+
+/-- See above. -/
+elab "k2l_keyed " hk:ident : tactic => withMainContext do
+  let hkE := (← getLocalDeclFromUserName hk.getId).toExpr
+  let hkTy ← instantiateMVars (← inferType hkE)
+  unless hkTy.isAppOfArity ``Not 1 do throwError "k2l_keyed: {hk} is not a negation"
+  let kTy := hkTy.appArg!
+  let some body ← unfoldDefinition? kTy | throwError "k2l_keyed: cannot unfold {kTy}"
+  let body := body.headBeta
+  let hyps ← keyedHyps
+  -- per cell: a proof at once, or the two changes at their keys
+  let mut cells : Array (Option Expr × Option (KeyedFx × KeyedFx)) := #[]
+  for t in keyedConj body do
+    unless t.isAppOf ``MCh.Compat do throwError "k2l_keyed: {t} is not MCh.Compat"
+    let as := t.getAppArgs
+    let x := as[as.size - 2]!
+    let y := as[as.size - 1]!
+    -- `MCh.Compat x y` is `x = none ∨ y = none ∨ …`
+    let u ← whnfD t
+    let (a, b) := (u.appFn!.appArg!, u.appArg!)
+    if let some p ← keyedNone x hyps then
+      cells := cells.push (some (← mkAppOptM ``Or.inl #[a, b, p]), none)
+    else if let some p ← keyedNone y hyps then
+      let (b₁, b₂) := (b.appFn!.appArg!, b.appArg!)
+      cells := cells.push (some (← mkAppOptM ``Or.inr #[a, b, ← mkAppOptM ``Or.inl #[b₁, b₂, p]]), none)
+    else
+      let some f₁ ← keyedFx x hyps | throwError "k2l_keyed: no key for {x}"
+      let some f₂ ← keyedFx y hyps | throwError "k2l_keyed: no key for {y}"
+      cells := cells.push (none, some (f₁, f₂))
+  -- the facts that a key is not bound, as hypotheses for `k2l_det`
+  let mut g ← getMainGoal
+  for (_, f) in cells do
+    if let some (f₁, f₂) := f then
+      for n in [f₁.fresh, f₂.fresh] do
+        if let some p := n then
+          if let some g' ← detAdd g p then g := g'
+  let mut left : List MVarId := []
+  let mut proofs : Array Expr := #[]
+  for (p, f) in cells do
+    match p, f with
+    | some p, _ => proofs := proofs.push p
+    | none, some (f₁, f₂) =>
+      let (pos, neg) ← g.byCases (← mkEq f₁.key f₂.key) `k2l_kk
+      setGoals [pos.mvarId]
+      let kk := mkIdent `k2l_kk
+      evalTactic (← `(tactic| (first | (cases $kk:ident) | (subst $kk:ident) | skip); k2l_det))
+      left := left ++ (← getGoals)
+      g := neg.mvarId
+      proofs := proofs.push (← g.withContext (keyedCompat (mkFVar neg.fvarId) f₁ f₂))
+    | none, none => pure ()
+  g.withContext do
+    let prf ← keyedAnd proofs.toList
+    g.assign (← mkAppOptM ``absurd #[kTy, ← g.getType, prf, hkE])
+  setGoals left
 
 end KPrelude

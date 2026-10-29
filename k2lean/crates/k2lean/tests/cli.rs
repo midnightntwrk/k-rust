@@ -1088,9 +1088,18 @@ fn confluence_threads_slots_split_the_premises() {
         "theorem kcompat_of",
         "def join.same.resume.resume.statement : Prop := SameSlot .resume .resume",
         "def join.open.spawn.spawn.statement : Prop := OpenSlot .spawn .spawn",
+        // each keyed cell's map, and a step's change of it, for the key attempts
+        "def ledgerOf : Utxo.SortGeneratedTopCell → Utxo.SortMap",
+        "MCh.Step ch.ledger (ledgerOf c) (ledgerOf c') ∧ ch.ledger.Small",
     ] {
         assert!(v.contains(x), "{x}\n{v}");
     }
+    // a key slot: the changes at their keys, else the instances alone
+    assert!(
+        m.contains("  have x₁ := ChOf.cells o₁\n")
+            && m.contains("  try simp only [ledgerOf] at x₁ x₂\n  first\n    | (k2l_keyed hk\n"),
+        "{m}"
+    );
     // the two bindings of a rule that matches two processes
     assert!(
         m.contains("obtain e₁ | e₁ := MapHook.key_of_lookup_pair hp₁ l₁"),

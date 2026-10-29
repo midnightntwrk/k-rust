@@ -189,6 +189,11 @@ fn open_from_log(args: &[String]) {
             if !l.trim_start().starts_with("error:") {
                 continue;
             }
+            // a theorem the kernel cannot find was not added (its proof ran out of heartbeats):
+            // the error is its user's, a consequence, and the failed proof has an error of its own
+            if l.contains("(kernel) unknown constant") {
+                continue;
+            }
             // `Equations.lean:` must not match the error of a part (`Equations/Part1.lean:`), nor
             // the reverse: the suffix starts the path or follows a `/`
             if pos > 0 && !l[..pos].ends_with('/') && !l[..pos].ends_with(' ') {
@@ -1321,11 +1326,11 @@ mod tests {
         let d = std::env::temp_dir().join(format!("k2lean-open-from-log-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         let eq = d.join("Equations.lean");
-        std::fs::write(&eq, "namespace N\n\ntheorem Eqn.a_1 (x : Nat) :\n    x = x := by\n  rfl\n\ntheorem Eqn.«b_c_1» :\n    1 = 1 := by\n  intros\n  first\n  | rfl\n\nend N\n").unwrap();
+        std::fs::write(&eq, "namespace N\n\ntheorem Eqn.a_1 (x : Nat) :\n    x = x := by\n  rfl\n\ntheorem Eqn.«b_c_1» :\n    1 = 1 := by\n  intros\n  first\n  | rfl\n\ntheorem uses :\n    1 = 1 := by\n  exact Eqn.a_1 1\n\nend N\n").unwrap();
         let log = d.join("build.log");
         std::fs::write(
             &log,
-            "error: N/Equations.lean:10:2: unsolved goals\n  error: Equations.lean:4:0: indented error lines count too\nwarning: Equations.lean:5:2: ignored\nerror: Other.lean:4:0: another file\n",
+            "error: N/Equations.lean:10:2: unsolved goals\n  error: Equations.lean:4:0: indented error lines count too\nwarning: Equations.lean:5:2: ignored\nerror: Other.lean:4:0: another file\nerror: Equations.lean:15:2: (kernel) unknown constant 'N.Eqn.a_1'\n",
         )
         .unwrap();
         let open = d.join("open.txt");

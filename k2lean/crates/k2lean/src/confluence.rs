@@ -3035,6 +3035,44 @@ def SameThreadJoins : Prop :=
       MapHook.lookup a₂ k ≠ none → DiamondMod {name}.Step Eq c₁ c₂").unwrap();
         if any_keyed {
             writeln!(o, "\n/-- A step by rule `r` that changes the shared cells by `ch`, the rule's change (`Change.Small`, of\nthe rule's class). -/\ndef ChOf (r : Rule) (ch : Change) (c c' : {topt}) : Prop :=\n  ((∃ a b, MStep a b ch c c') ∨ SStep ch c c') ∧ ch.Small ∧ InClass r.cls ch").unwrap();
+            if slots.is_some() {
+                // with slots, each keyed cell's map, and what a step's change does to it, for the
+                // key attempts (`k2l_keyed`)
+                let kf: Vec<usize> = (0..n).filter(|&f| is_keyed(f)).collect();
+                for &f in &kf {
+                    let li = if f < ti { f } else { f + 1 };
+                    let pat = top(&|i| {
+                        if i == li {
+                            format!("({name}.{} x)", cell_of(f).0)
+                        } else {
+                            "_".to_string()
+                        }
+                    });
+                    writeln!(o, "\n/-- The map the cell `<{}>` of a configuration holds. -/\ndef {}Of : {topt} → {}\n  | {pat} => x", shared[f].label, shared[f].field, ty(&cell_of(f).1)).unwrap();
+                }
+                // the part `i` of a conjunction of `len`
+                let part = |i: usize, len: usize| {
+                    if len == 1 {
+                        String::new()
+                    } else {
+                        format!("{}{}", ".2".repeat(i), if i + 1 < len { ".1" } else { "" })
+                    }
+                };
+                let st: Vec<String> = kf
+                    .iter()
+                    .map(|&f| {
+                        let fl = &shared[f].field;
+                        let sm = if wide(f) { "SmallR" } else { "Small" };
+                        format!("MCh.Step ch.{fl} ({fl}Of c) ({fl}Of c') ∧ ch.{fl}.{sm}")
+                    })
+                    .collect();
+                let pf: Vec<String> = kf
+                    .iter()
+                    .enumerate()
+                    .map(|(j, &f)| format!("⟨hp{}, rfl⟩, sm{}", part(f, n), part(j, kf.len())))
+                    .collect();
+                writeln!(o, "\n/-- What a step's change does to each cell holding a map: a step of its map, by a rule's change. -/\ntheorem ChOf.cells {{r : Rule}} {{ch : Change}} {{c c' : {topt}}} (o : ChOf r ch c c') :\n    {} := by\n  obtain ⟨⟨a, b, m, R, r', s, rfl, -, -, hp, rfl⟩ | ⟨tc, s, rfl, hp, rfl⟩, sm, -⟩ := o\n  all_goals exact ⟨{}⟩", st.join(" ∧\n      "), pf.join(", ")).unwrap();
+            }
             writeln!(o, "\n/-- The joins of two steps by rules of one rank whose changes of a cell holding a map overlap: a key\nthat both match, or one matches and the other adds, or both add (`MCh.Compat` fails). They are\nthe races at one binding, such as two steps that remove one binding. -/\ndef KeyJoins : Prop :=\n  ∀ r₁ r₂, r₁.rank = r₂.rank → ∀ {{c c₁ c₂ : {topt}}} {{ch₁ ch₂}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    ChOf r₁ ch₁ c c₁ → ChOf r₂ ch₂ c c₂ → ¬ ch₁.KCompat ch₂ → DiamondMod {name}.Step Eq c₁ c₂").unwrap();
         }
         let mut js = format!("\ntheorem join_static (S : SameThreadJoins) {{r₁ r₂ : Rule}} {{c c₁ c₂ : {topt}}} (hs : staticOK r₁ r₂ = true)
@@ -3262,6 +3300,10 @@ def SameThreadJoins : Prop :=
                 "  ∀ r₁ r₂, staticOK r₁ r₂ = false → OpenSlot r₁ r₂",
             );
         }
+        let cells_of: Vec<String> = (0..n)
+            .filter(|&f| is_keyed(f))
+            .map(|f| format!("{}Of", shared[f].field))
+            .collect();
         let slot_out = slots.map(|so| {
             emit_slots(
                 &mut o,
@@ -3274,6 +3316,7 @@ def SameThreadJoins : Prop :=
                     any_keyed,
                     so,
                     ctors: &ctors,
+                    cells: &cells_of,
                 },
                 &|i, j| {
                     if rank(&rs[i]) != rank(&rs[j]) {
@@ -3316,6 +3359,8 @@ def SameThreadJoins : Prop :=
         any_keyed: bool,
         so: &'a SlotOpts,
         ctors: &'a [crate::preserves::Ctor],
+        /// the keyed cells' projections (`ledgerOf`)
+        cells: &'a [String],
     }
 
     /// The slots (`--slots`): one obligation per ordered pair of rules in a premise of
@@ -3340,6 +3385,7 @@ def SameThreadJoins : Prop :=
             any_keyed,
             so,
             ctors,
+            cells,
         } = cx;
         let rs = &lib.rules;
         let raw = |r: &Rule| {
@@ -3447,16 +3493,20 @@ def SameThreadJoins : Prop :=
                     key(b1, "₁"),
                     key(b2, "₂")
                 )
-            } else {
-                let intro = if k == 1 {
-                    format!("intro c c₁ c₂ {hinv}s₁ s₂")
-                } else {
-                    format!("intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk")
-                };
+            } else if k == 1 {
                 format!(
-                    "  {intro}\n  obtain ⟨{}, rfl, rfl⟩ := Inst.of s₁\n  obtain ⟨{}, e, rfl⟩ := Inst.of s₂\n  cases e\n{close}",
+                    "  intro c c₁ c₂ {hinv}s₁ s₂\n  obtain ⟨{}, rfl, rfl⟩ := Inst.of s₁\n  obtain ⟨{}, e, rfl⟩ := Inst.of s₂\n  cases e\n{close}",
                     us(i),
                     us(j)
+                )
+            } else {
+                // two changes of a cell holding a map at their keys (`k2l_keyed`): at one key the
+                // instances agree or clash, at two the changes commute; else the instances alone
+                format!(
+                    "  intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk\n  have x₁ := ChOf.cells o₁\n  have x₂ := ChOf.cells o₂\n  have i₁ := o₁.2.2\n  have i₂ := o₂.2.2\n  simp only [Rule.cls, InClass] at i₁ i₂\n  obtain ⟨{}, rfl, rfl⟩ := Inst.of s₁\n  obtain ⟨{}, e, rfl⟩ := Inst.of s₂\n  cases e\n  try simp only [{}] at x₁ x₂\n  first\n    | (k2l_keyed hk\n       all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩)\n    | (k2l_det\n       all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩)",
+                    us(i),
+                    us(j),
+                    cells.join(", ")
                 )
             };
             writeln!(
@@ -3535,10 +3585,11 @@ def SameThreadJoins : Prop :=
             .collect();
         writeln!(
             m,
-            "\n/-! Generated by `k2lean confluence --threads --slots`; do not edit.\n\nThe premises of `{ns}.terminal_unique_of`, one slot per ordered pair of rules: {} of `SameThreadJoins`,\n{} of `OpenJoins`{}. A slot is proved by the generic attempts (each rule's instance, the one key of two\nsteps at one thread, `k2l_det`), by the hand module (`hand.join.K.r₁.r₂`, listed `| hand` in the open-joins\nlist), or open: a field of `Open`, the premise of `terminal_unique`. -/\n\nset_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n",
+            "\n/-! Generated by `k2lean confluence --threads --slots`; do not edit.\n\nThe premises of `{ns}.terminal_unique_of`, one slot per ordered pair of rules: {} of `SameThreadJoins`,\n{} of `OpenJoins`{}. A slot is proved by the generic attempts (each rule's instance, the one key of two\nsteps at one thread, {}`k2l_det`), by the hand module (`hand.join.K.r₁.r₂`, listed `| hand` in the open-joins\nlist), or open: a field of `Open`, the premise of `terminal_unique`. -/\n\nset_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n",
             total[0],
             total[1],
-            if *any_keyed { format!(", {} of `KeyJoins`", total[2]) } else { String::new() }
+            if *any_keyed { format!(", {} of `KeyJoins`", total[2]) } else { String::new() },
+            if *any_keyed { "the keys of two changes of a cell holding a map (`k2l_keyed`), " } else { "" }
         )
         .unwrap();
         m.push_str(&body);
