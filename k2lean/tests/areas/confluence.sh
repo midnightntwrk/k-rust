@@ -2,12 +2,14 @@
 # The confluence area: `confluence` (RaceConf: every schedule of the fixture race, library race;
 # SimpleConf: SIMPLE's steps of two threads joined generically, library simple, with SIMPLE's
 # pairs of rules classified; UtxoConf: the same for the fixture utxo, coroutines over a UTXO
-# ledger, library utxo). Registry: confluence.py.
+# ledger, library utxo; HandoffConf: the same for the fixture handoff, tasks of a coordination
+# script run when their inputs are ready, library handoff). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
     race) echo Race ;;
     utxo) echo Utxo ;;
+    handoff) echo Handoff ;;
     *) return 1 ;;
   esac
 }
@@ -18,6 +20,8 @@ gen_confluence() {
     race) libs_fixture_args "$1" ;;
     # coroutines in a cell map over a UTXO ledger (tests/fixtures/utxo)
     utxo) libs_fixture_args "$1" ;;
+    # a coordination script's tasks over processes resumed segment by segment (tests/fixtures/handoff)
+    handoff) libs_fixture_args "$1" ;;
     *) return 1 ;;
   esac
   return 0
@@ -33,6 +37,8 @@ libs_confluence() {
         --out "$DEMOS/RaceConf/RaceConf/Confluence.lean" --report "$DEMOS/RaceConf/confluence.toml" ;;
     UtxoConf) "$G" confluence --kore "$(libs_fixture utxo)/definition.kore" --name Utxo --ns UtxoConf \
         --threads procs --obs ledger --out "$DEMOS/UtxoConf/UtxoConf/Views.lean" --report "$DEMOS/UtxoConf/confluence.toml" ;;
+    HandoffConf) "$G" confluence --kore "$(libs_fixture handoff)/definition.kore" --name Handoff --ns HandoffConf \
+        --threads tasks --obs vals --out "$DEMOS/HandoffConf/HandoffConf/Views.lean" --report "$DEMOS/HandoffConf/confluence.toml" ;;
     SimpleConf) "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --ns SimpleConf \
         --threads threads --obs output --out "$DEMOS/SimpleConf/SimpleConf/Views.lean" --report "$2" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
@@ -63,6 +69,14 @@ gate_confluence() {
     partlib utxo Utxo.Preserves
     scaffold confluence-UtxoConf libs_confluence UtxoConf
     dbuild UtxoConf
+  fi
+  # the views by task of the fixture handoff (`confluence --threads tasks`): readiness in the rules,
+  # a resume's whole segment one step
+  if runs demo HandoffConf; then
+    phase "scaffold HandoffConf"
+    partlib handoff Handoff.Preserves
+    scaffold confluence-HandoffConf libs_confluence HandoffConf
+    dbuild HandoffConf
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with what the views by thread
   # leave open (`k2lean confluence --threads`): a recorded output; the views built against the

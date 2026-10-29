@@ -809,6 +809,45 @@ theorem lookup_concat_right {a R m : M} (h : concat a R = some m) {k : K} (ha : 
       · rw [SAL.lookup_of_mem (SAL.sorted_of_concat_left H) h₁] at ha; cases ha
       · rw [SAL.lookup_of_mem sR h₁] at e; cases e
 
+/-- No key is bound on both sides of a defined `a R`. -/
+theorem concat_disj_lookup {a R m : M} (h : concat a R = some m) (k : K) :
+    lookup a k = none ∨ lookup R k = none := by
+  cases ha : lookup a k with
+  | none => exact Or.inl rfl
+  | some v =>
+    right
+    obtain ⟨-, -, d, -⟩ := SAL.concat_eq_some_iff.1 (concat_toList h)
+    rw [lookup_def] at ha ⊢
+    exact d _ (SAL.lookup_mem ha)
+
+/-- The bindings of `a R` are `a`'s, and `R`'s at the keys `a` does not bind. -/
+theorem lookup_concat {a R m : M} (h : concat a R = some m) (k : K) :
+    lookup m k = (lookup a k).or (lookup R k) := by
+  cases ha : lookup a k with
+  | none => rw [lookup_concat_right h ha]; rfl
+  | some v => rw [lookup_of_concat h ha]; rfl
+
+/-- Two well-formed maps with no key in common have a union. -/
+theorem concat_exists {a R : M} (wa : WF a) (wR : WF R)
+    (d : ∀ k, lookup a k = none ∨ lookup R k = none) : ∃ m, concat a R = some m := by
+  have hd : ∀ p ∈ toList a, SAL.lookup p.1 (toList R) = none := by
+    intro p hp
+    rcases d p.1 with h | h
+    · rw [lookup_def, SAL.lookup_of_mem wa hp] at h; cases h
+    · rw [lookup_def] at h; exact h
+  exact ⟨ofList _, concat_of_toList (by
+    rw [toList_ofList]; exact SAL.concat_eq_some_iff.2 ⟨wa, wR, hd, rfl⟩)⟩
+
+/-- A map whose bindings are all bindings of `y` matches `y`, at some rest. -/
+theorem concat_sub {a y : M} (wa : WF a) (wy : WF y)
+    (sub : ∀ k v, lookup a k = some v → lookup y k = some v) : ∃ R, concat a R = some y := by
+  have hsub : ∀ p ∈ toList a, p ∈ toList y := by
+    rintro ⟨k, v⟩ hp
+    have := sub k v (by rw [lookup_def]; exact SAL.lookup_of_mem wa hp)
+    rw [lookup_def] at this
+    exact SAL.lookup_mem this
+  exact ⟨ofList _, concat_of_toList (by rw [toList_ofList]; exact SAL.concat_filter wa wy hsub)⟩
+
 /-- A key whose binding a step changes (`a R = m` to `b R = m'`) is one it matches or puts back. -/
 theorem changed_key {a b R m m' : M} (h : concat a R = some m) (h' : concat b R = some m') {k : K}
     (hk : lookup m k ≠ lookup m' k) : lookup a k ≠ none ∨ lookup b k ≠ none := by
@@ -1121,10 +1160,19 @@ noncomputable def MCh.apply (c : MCh M) (x : M) : M :=
   | some (a, b) =>
     if h : ∃ r R, concat a R = some x ∧ concat b R = some r then Classical.choose h else x
 
+/-- At every key, one of two changes leaves the map alone, or both read it: they match its binding
+and put the same one back (two steps that read one output and write others). -/
+def MCh.Shared (a₁ b₁ a₂ b₂ : M) : Prop :=
+  ∀ k, (lookup a₁ k = none ∧ lookup b₁ k = none) ∨ (lookup a₂ k = none ∧ lookup b₂ k = none) ∨
+    (lookup a₁ k = lookup b₁ k ∧ lookup a₂ k = lookup b₂ k)
+
+theorem MCh.Shared.symm {a₁ b₁ a₂ b₂ : M} (h : MCh.Shared a₁ b₁ a₂ b₂) : MCh.Shared a₂ b₂ a₁ b₁ :=
+  fun k => (h k).elim (fun e => Or.inr (Or.inl e)) fun e => e.elim Or.inl fun e => Or.inr (Or.inr ⟨e.2, e.1⟩)
+
 def MCh.Compat (c d : MCh M) : Prop :=
   c = none ∨ d = none ∨ ∃ a₁ b₁ a₂ b₂, c = some (a₁, b₁) ∧ d = some (a₂, b₂) ∧
     (((∀ k, lookup a₁ k = none ∨ lookup a₂ k = none) ∧ (∀ k, lookup b₁ k = none ∨ lookup b₂ k = none)) ∨
-      (a₁ = b₁ ∧ a₂ = b₂))
+      (a₁ = b₁ ∧ a₂ = b₂) ∨ MCh.Shared a₁ b₁ a₂ b₂)
 
 theorem MCh.pre_none {x : M} : MCh.pre (none : MCh M) x := fun _ h => by cases h
 
@@ -1149,9 +1197,97 @@ theorem MCh.apply_read {a x : M} (h : MCh.pre (some (a, a)) x) : MCh.apply (some
   rw [MCh.apply_of e₁ e₂]
   exact Option.some.inj (e₂.symm.trans e₁)
 
+theorem MCh.wf_apply {a b x : M} (hc : MCh.pre (some (a, b)) x) : WF (MCh.apply (some (a, b)) x) := by
+  obtain ⟨R, r, h, h'⟩ := hc _ rfl
+  rw [MCh.apply_of h h']
+  exact SAL.sorted_of_concat (concat_toList h')
+
+/-- A change puts back its own bindings and keeps the others. -/
+theorem MCh.lookup_apply {a b x : M} (hc : MCh.pre (some (a, b)) x) (k : K) :
+    lookup (MCh.apply (some (a, b)) x) k =
+      if lookup a k = none ∧ lookup b k = none then lookup x k else lookup b k := by
+  obtain ⟨R, r, h, h'⟩ := hc _ rfl
+  rw [MCh.apply_of h h', lookup_concat h' k]
+  by_cases hb : lookup b k = none
+  · rw [hb]
+    by_cases ha : lookup a k = none
+    · rw [ite_eq_left (show lookup a k = none ∧ (none : Option V) = none from ⟨ha, rfl⟩), lookup_concat h k, ha]
+    · rw [ite_eq_right (fun e : lookup a k = none ∧ (none : Option V) = none => ha e.1)]
+      rcases concat_disj_lookup h k with e | e
+      · exact absurd e ha
+      · rw [e]; rfl
+  · rw [ite_eq_right (fun e : lookup a k = none ∧ lookup b k = none => hb e.2)]
+    obtain ⟨v, hv⟩ := Option.ne_none_iff_exists'.1 hb
+    rw [hv]; rfl
+
+theorem MCh.lookup_apply_alone {a b x : M} (hc : MCh.pre (some (a, b)) x) {k : K}
+    (u : lookup a k = none ∧ lookup b k = none) : lookup (MCh.apply (some (a, b)) x) k = lookup x k := by
+  rw [MCh.lookup_apply hc, ite_eq_left u]
+
+/-- A key a change reads keeps its binding. -/
+theorem MCh.lookup_apply_read {a b x : M} (hc : MCh.pre (some (a, b)) x) {k : K}
+    (e : lookup a k = lookup b k) : lookup (MCh.apply (some (a, b)) x) k = lookup x k := by
+  rw [MCh.lookup_apply hc]
+  split
+  · rfl
+  · next hn =>
+    obtain ⟨R, r, h, -⟩ := hc _ rfl
+    cases ha : lookup a k with
+    | none => rw [ha] at e; exact absurd ⟨ha, e.symm⟩ hn
+    | some w => rw [← e, ha, lookup_of_concat h ha]
+
+theorem MCh.pre_apply_shared {a₁ b₁ a₂ b₂ x : M} (hs : MCh.Shared a₁ b₁ a₂ b₂)
+    (hc : MCh.pre (some (a₁, b₁)) x) (hd : MCh.pre (some (a₂, b₂)) x) :
+    MCh.pre (some (a₂, b₂)) (MCh.apply (some (a₁, b₁)) x) := by
+  obtain ⟨R₂, r₂, h₂, h₂'⟩ := hd _ rfl
+  have sub : ∀ k v, lookup a₂ k = some v → lookup (MCh.apply (some (a₁, b₁)) x) k = some v := by
+    intro k v hv
+    rcases hs k with u | ⟨e, -⟩ | ⟨e, -⟩
+    · rw [MCh.lookup_apply_alone hc u]; exact lookup_of_concat h₂ hv
+    · rw [e] at hv; cases hv
+    · rw [MCh.lookup_apply_read hc e]; exact lookup_of_concat h₂ hv
+  obtain ⟨R, hR⟩ := concat_sub (SAL.sorted_of_concat_left (concat_toList h₂)) (MCh.wf_apply hc) sub
+  obtain ⟨m, hm⟩ := concat_exists (SAL.sorted_of_concat_left (concat_toList h₂'))
+    (wf_right_of_concat hR) fun k => by
+      cases hb : lookup b₂ k with
+      | none => exact Or.inl rfl
+      | some w =>
+        right
+        rcases concat_disj_lookup hR k with e | e
+        · have hy : lookup (MCh.apply (some (a₁, b₁)) x) k = lookup R k := by
+            rw [lookup_concat hR k, e]; rfl
+          have hx : lookup x k = none := by
+            rw [lookup_concat h₂ k, e]
+            rcases concat_disj_lookup h₂' k with e' | e'
+            · rw [hb] at e'; cases e'
+            · exact e'
+          rw [← hy]
+          rcases hs k with u | ⟨-, e₂⟩ | ⟨-, e₂⟩
+          · rw [MCh.lookup_apply_alone hc u]; exact hx
+          · rw [hb] at e₂; cases e₂
+          · rw [e, hb] at e₂; cases e₂
+        · exact e
+  intro p e; cases e
+  exact ⟨R, m, hR, hm⟩
+
+theorem MCh.apply_comm_shared {a₁ b₁ a₂ b₂ x : M} (hs : MCh.Shared a₁ b₁ a₂ b₂)
+    (hc : MCh.pre (some (a₁, b₁)) x) (hd : MCh.pre (some (a₂, b₂)) x) :
+    MCh.apply (some (a₂, b₂)) (MCh.apply (some (a₁, b₁)) x) =
+      MCh.apply (some (a₁, b₁)) (MCh.apply (some (a₂, b₂)) x) := by
+  have p₂ := MCh.pre_apply_shared hs hc hd
+  have p₁ := MCh.pre_apply_shared hs.symm hd hc
+  refine ext (MCh.wf_apply p₂) (MCh.wf_apply p₁) fun k => ?_
+  rcases hs k with u | u | ⟨e₁, e₂⟩
+  · rw [MCh.lookup_apply p₂, MCh.lookup_apply_alone hc u, MCh.lookup_apply_alone p₁ u,
+      MCh.lookup_apply hd]
+  · rw [MCh.lookup_apply_alone p₂ u, MCh.lookup_apply hc, MCh.lookup_apply p₁,
+      MCh.lookup_apply_alone hd u]
+  · rw [MCh.lookup_apply_read p₂ e₂, MCh.lookup_apply_read hc e₁, MCh.lookup_apply_read p₁ e₁,
+      MCh.lookup_apply_read hd e₂]
+
 theorem MCh.pre_apply {c d : MCh M} {x : M} (h : MCh.Compat c d) (hc : c.pre x) (hd : d.pre x) :
     d.pre (c.apply x) := by
-  rcases h with rfl | rfl | ⟨a₁, b₁, a₂, b₂, rfl, rfl, ⟨dA, dB⟩ | ⟨rfl, rfl⟩⟩
+  rcases h with rfl | rfl | ⟨a₁, b₁, a₂, b₂, rfl, rfl, ⟨dA, dB⟩ | ⟨rfl, rfl⟩ | hs⟩
   · exact hd
   · exact MCh.pre_none
   · obtain ⟨R₁, m₁, h₁, r₁⟩ := hc _ rfl
@@ -1160,10 +1296,11 @@ theorem MCh.pre_apply {c d : MCh M} {x : M} (h : MCh.Compat c d) (hc : c.pre x) 
     rw [MCh.apply_of h₁ r₁]
     exact MCh.pre_of e₁ e₂
   · rw [MCh.apply_read hc]; exact hd
+  · exact MCh.pre_apply_shared hs hc hd
 
 theorem MCh.apply_comm {c d : MCh M} {x : M} (h : MCh.Compat c d) (hc : c.pre x) (hd : d.pre x) :
     d.apply (c.apply x) = c.apply (d.apply x) := by
-  rcases h with rfl | rfl | ⟨a₁, b₁, a₂, b₂, rfl, rfl, ⟨dA, dB⟩ | ⟨rfl, rfl⟩⟩
+  rcases h with rfl | rfl | ⟨a₁, b₁, a₂, b₂, rfl, rfl, ⟨dA, dB⟩ | ⟨rfl, rfl⟩ | hs⟩
   · rfl
   · rfl
   · obtain ⟨R₁, m₁, h₁, r₁⟩ := hc _ rfl
@@ -1171,6 +1308,7 @@ theorem MCh.apply_comm {c d : MCh M} {x : M} (h : MCh.Compat c d) (hc : c.pre x)
     obtain ⟨R₁₂, R₂₁, m', e₁, e₂, e₃, e₄⟩ := concat_frame_b h₁ r₁ h₂ r₂ dA dB
     rw [MCh.apply_of h₁ r₁, MCh.apply_of h₂ r₂, MCh.apply_of e₁ e₂, MCh.apply_of e₃ e₄]
   · rw [MCh.apply_read hc, MCh.apply_read hd, MCh.apply_read hc]
+  · exact MCh.apply_comm_shared hs hc hd
 
 /-- The change matches at most one binding and puts at most one in its place: what a rule's
 match and its right-hand side make it, so that two changes that do not commute overlap at a key
@@ -1179,6 +1317,18 @@ def MCh.Small (c : MCh M) : Prop :=
   ∀ p, c = some p → ((∃ k v, p.1 = element k v) ∨ p.1 = unit) ∧ ((∃ k v, p.2 = element k v) ∨ p.2 = unit)
 
 theorem MCh.small_none : MCh.Small (none : MCh M) := fun _ h => by cases h
+
+/-- A rule's change at one binding (`MCh.Small`), or a read of one binding with one binding added
+beside it (a step that reads an input and writes an output). -/
+def MCh.SmallR (c : MCh M) : Prop :=
+  ∀ p, c = some p → (MapHook.Small p.1 ∧ MapHook.Small p.2) ∨
+    ∃ k v k' w, p.1 = element k v ∧ concat p.1 (element k' w) = some p.2
+
+theorem MCh.smallR_of_small {c : MCh M} (h : c.Small) : c.SmallR := fun p e => Or.inl (h p e)
+
+theorem MCh.smallR_extend {k k' : K} {v w : V} {b : M} (hb : concat (element k v) (element k' w) = some b) :
+    MCh.SmallR (some (element k v, b)) :=
+  fun _ e => by cases e; exact Or.inr ⟨k, v, k', w, rfl, hb⟩
 
 theorem MCh.small_of {a b : M} (ha : (∃ k v, a = element k v) ∨ a = unit)
     (hb : (∃ k v, b = element k v) ∨ b = unit) : MCh.Small (some (a, b)) :=
@@ -1222,11 +1372,12 @@ theorem MapHook.lookup_unit {k : K} : lookup (unit : M) k = none := by
   rw [lookup_def]; unfold unit; rw [ListIso.toList_ofList]; rfl
 
 theorem MCh.Compat.symm {c d : MCh M} (h : MCh.Compat c d) : MCh.Compat d c := by
-  rcases h with h | h | ⟨a₁, b₁, a₂, b₂, e₁, e₂, ⟨dA, dB⟩ | ⟨r₁, r₂⟩⟩
+  rcases h with h | h | ⟨a₁, b₁, a₂, b₂, e₁, e₂, ⟨dA, dB⟩ | ⟨r₁, r₂⟩ | hs⟩
   · exact Or.inr (Or.inl h)
   · exact Or.inl h
   · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inl ⟨fun k => (dA k).symm, fun k => (dB k).symm⟩⟩)
-  · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inr ⟨r₂, r₁⟩⟩)
+  · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inr (Or.inl ⟨r₂, r₁⟩)⟩)
+  · exact Or.inr (Or.inr ⟨a₂, b₂, a₁, b₁, e₂, e₁, Or.inr (Or.inr hs.symm)⟩)
 
 end MCh
 

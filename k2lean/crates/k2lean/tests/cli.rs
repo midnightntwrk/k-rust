@@ -904,6 +904,46 @@ fn confluence_threads_views_a_map_cell_by_binding() {
     );
 }
 
+/// `confluence --threads` on the `handoff` fixture: `resume-oid` reads its input's binding of `<vals>`
+/// and adds its output beside it (`(I ↦ V) (o ↦ W)`), so `<vals>` is keyed with that change a read
+/// and an insertion (`MCh.SmallR`); two resumes reading one input commute at their bindings
+/// (`MCh.Shared`), and only the root's two forks are left in `OpenJoins`.
+#[test]
+fn confluence_threads_views_a_read_with_an_insertion_as_keyed() {
+    let d = tmp("cli-confluence-handoff");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/handoff/definition.kore");
+    let (out, report) = (d.join("Views.lean"), d.join("confluence.toml"));
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(&fx)
+        .args([
+            "--name",
+            "Handoff",
+            "--ns",
+            "HV",
+            "--threads",
+            "tasks",
+            "--out",
+        ])
+        .arg(&out)
+        .arg("--report")
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&report).unwrap();
+    assert!(
+        r.contains("open-cells = 0\nopen-priority = 0\nopen-insert = 1\n"),
+        "{r}"
+    );
+    let v = std::fs::read_to_string(&out).unwrap();
+    assert!(v.contains("  vals : MCh Handoff.SortMap := none\n"), "{v}");
+    assert!(v.contains("c.procs.Small ∧ c.vals.SmallR"), "{v}");
+    assert!(v.contains("MCh.smallR_extend hr_18"), "{v}");
+}
+
 /// `confluence --threads` refuses the per-pair options the views do not take yet, rather than
 /// stating a theorem without them.
 #[test]

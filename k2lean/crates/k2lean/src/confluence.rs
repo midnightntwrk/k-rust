@@ -370,13 +370,16 @@ enum KRole {
     Remove { hm: String },
     /// `hr : (K ↦ W) x = some y`: an insertion (`a` empty, the rest the whole content).
     Insert { hr: String },
+    /// `hm : (K ↦ V) R = some x`, `hb : (K ↦ V) (K' ↦ W) = some b`, `hr : b R = some y`: a read of
+    /// one binding with one added beside it (`MCh.SmallR`).
+    Extend { hm: String, hb: String, hr: String },
 }
 
 impl KRole {
     /// The proofs of `a R = x` and `b R = y` from the rule's hypotheses.
     fn proofs(&self) -> (String, String) {
         match self {
-            KRole::Update { hm, hr } => (hm.clone(), hr.clone()),
+            KRole::Update { hm, hr } | KRole::Extend { hm, hr, .. } => (hm.clone(), hr.clone()),
             KRole::Keep { hm } => (hm.clone(), hm.clone()),
             KRole::Remove { hm } => (
                 hm.clone(),
@@ -389,14 +392,21 @@ impl KRole {
         }
     }
 
-    /// The proof that the change matches at most one binding and puts at most one back.
-    fn small(&self) -> &'static str {
-        match self {
+    /// The proof that the change matches at most one binding and puts at most one back
+    /// (`MCh.Small`), or, with `wide` (a cell some rule extends), `MCh.SmallR`.
+    fn small(&self, wide: bool) -> String {
+        let s = match self {
             KRole::Update { .. } | KRole::Keep { .. } => {
                 "MCh.small_of (.inl ⟨_, _, rfl⟩) (.inl ⟨_, _, rfl⟩)"
             }
             KRole::Remove { .. } => "MCh.small_of (.inl ⟨_, _, rfl⟩) (.inr rfl)",
             KRole::Insert { .. } => "MCh.small_of (.inr rfl) (.inl ⟨_, _, rfl⟩)",
+            KRole::Extend { hb, .. } => return format!("MCh.smallR_extend {hb}"),
+        };
+        if wide {
+            format!("MCh.smallR_of_small ({s})")
+        } else {
+            s.to_string()
         }
     }
 
@@ -404,7 +414,7 @@ impl KRole {
     /// eliminate, and the rule's hypotheses restated.
     fn replay(&self, hx: &str, hy: &str) -> (String, Vec<(String, String)>) {
         match self {
-            KRole::Update { hm, hr } => (
+            KRole::Update { hm, hr } | KRole::Extend { hm, hr, .. } => (
                 String::new(),
                 vec![(hm.clone(), hx.into()), (hr.clone(), hy.into())],
             ),
@@ -516,11 +526,41 @@ fn keyed_role(r: &Rule, cell: &str, touched: bool) -> Option<Option<KRole>> {
         [(hm, rest)] if y == rest => {
             (count(x) == 2 && count(rest) == 2).then(|| KRole::Remove { hm: hm.clone() })
         }
-        [(hm, rest)] => {
-            let hr = hyp(false, rest, y)?;
-            (count(x) == 2 && count(rest) == 2 && count(y) == 2)
-                .then(|| KRole::Update { hm: hm.clone(), hr })
-        }
+        [(hm, rest)] => match hyp(false, rest, y) {
+            Some(hr) => (count(x) == 2 && count(rest) == 2 && count(y) == 2)
+                .then(|| KRole::Update { hm: hm.clone(), hr }),
+            // `(K ↦ V) (K' ↦ W) = some b` and `b R = some y`: the matched binding kept, one added
+            None => {
+                let elem = |h: &str| -> Option<String> {
+                    let t = r.step.hyps.iter().find(|(n, _)| n == h)?.1.as_str();
+                    Some(first_arg(t.strip_prefix("KPrelude.MapHook.concat ")?).to_string())
+                };
+                let e = elem(hm)?;
+                let (hr, b) = r.step.hyps.iter().find_map(|(h, p)| {
+                    let (lhs, m) = p.rsplit_once(" = some ")?;
+                    let mut w = lhs.strip_prefix("KPrelude.MapHook.concat ")?.split(' ');
+                    let (b, rr) = (w.next()?, w.next()?);
+                    (w.next().is_none() && !lhs_hyps.contains(h) && rr == rest && m.trim() == y)
+                        .then(|| (h.clone(), b.to_string()))
+                })?;
+                let hb = r.step.hyps.iter().find_map(|(h, p)| {
+                    let (lhs, m) = p.rsplit_once(" = some ")?;
+                    let inner = lhs.strip_prefix("(KPrelude.MapHook.concat ")?;
+                    let second = inner.strip_prefix(&e)?.trim_start();
+                    (!lhs_hyps.contains(h)
+                        && m.trim() == b
+                        && second.starts_with("(KPrelude.MapHook.element "))
+                    .then(|| h.clone())
+                })?;
+                (count(x) == 2 && count(rest) == 2 && count(y) == 2 && count(&b) == 2).then(|| {
+                    KRole::Extend {
+                        hm: hm.clone(),
+                        hb,
+                        hr,
+                    }
+                })
+            }
+        },
         [] if y != x => {
             let hr = hyp(false, x, y)?;
             (count(x) == 2 && count(y) == 2).then_some(KRole::Insert { hr })
@@ -1581,6 +1621,13 @@ mod views {
             })
             .collect();
         let is_keyed = |f: usize| keyed[f].is_some();
+        // a keyed cell some rule extends (reads a binding and adds one): its changes are `SmallR`
+        let wide = |f: usize| {
+            keyed[f].as_ref().is_some_and(|rs| {
+                rs.iter()
+                    .any(|r| matches!(r, Some(super::KRole::Extend { .. })))
+            })
+        };
         let any_keyed = keyed.iter().any(|k| k.is_some());
         // a keyed cell's constructor and the map it holds
         let cell_of = |f: usize| -> (String, String) {
@@ -1697,9 +1744,17 @@ mod views {
             writeln!(o, "/-- The changes of the cells holding a map commute at their bindings (`MCh.Compat`). -/\ndef Change.KCompat (a b : Change) : Prop :=\n  {}", ks.join(" ∧ ")).unwrap();
             let sm: Vec<String> = (0..n)
                 .filter(|&f| is_keyed(f))
-                .map(|f| format!("c.{}.Small", shared[f].field))
+                .map(|f| {
+                    let r = if wide(f) { "SmallR" } else { "Small" };
+                    format!("c.{}.{r}", shared[f].field)
+                })
                 .collect();
-            writeln!(o, "/-- The changes of the cells holding a map are a rule's, at one binding (`MCh.Small`). -/\ndef Change.Small (c : Change) : Prop :=\n  {}", sm.join(" ∧ ")).unwrap();
+            let doc = if (0..n).any(|f| is_keyed(f) && wide(f)) {
+                "at one binding (`MCh.Small`), or a read of\none with one added (`MCh.SmallR`)"
+            } else {
+                "at one binding (`MCh.Small`)"
+            };
+            writeln!(o, "/-- The changes of the cells holding a map are a rule's, {doc}. -/\ndef Change.Small (c : Change) : Prop :=\n  {}", sm.join(" ∧ ")).unwrap();
             let nk = ks.len();
             let sy: Vec<String> = (0..nk)
                 .map(|i| {
@@ -2426,9 +2481,13 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                 .collect();
             // that the keyed changes are the rule's, at one binding
             let small_pf = if any_keyed {
-                let ps: Vec<&str> = (0..n)
+                let ps: Vec<String> = (0..n)
                     .filter(|&f| is_keyed(f))
-                    .map(|f| kr(f).map_or("MCh.small_none", |role| role.small()))
+                    .map(|f| match kr(f) {
+                        Some(role) => role.small(wide(f)),
+                        None if wide(f) => "MCh.smallR_of_small MCh.small_none".into(),
+                        None => "MCh.small_none".into(),
+                    })
                     .collect();
                 if ps.len() == 1 {
                     format!(", {}", ps[0])

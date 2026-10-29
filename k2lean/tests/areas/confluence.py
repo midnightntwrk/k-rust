@@ -9,6 +9,10 @@ DEMOS = {
     # coroutines over a UTXO ledger, the same views (`confluence --threads procs`)
     "UtxoConf": {"tier": "light", "sources": ["generated/utxo",
                                               "demos/UtxoConf/UtxoConf/Views.lean", "demos/UtxoConf/confluence.toml"]},
+    # a coordination script's tasks run when their inputs are ready, a resume's segment one step
+    "HandoffConf": {"tier": "light", "sources": ["generated/handoff",
+                                                 "demos/HandoffConf/HandoffConf/Views.lean",
+                                                 "demos/HandoffConf/confluence.toml"]},
 }
 
 # SIMPLE's pairs of rules classified, and what SimpleConf leaves open (`confluence --threads`)
