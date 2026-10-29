@@ -1189,15 +1189,29 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-<env> V2:Map => .Map [ V0:Int <- V1:Int ] </env>
+<env> V2:Map => V0:Int |-> V1:Int </env>
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
 [accept."cells/result/env/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> V2:Map => .Map [ V0:Int <- 1 ] [ V1:Int <- 2 ] </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."cells/result/env/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
 same_k_as = ["cells/result/env/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> V2:Map => .Map [ V0:Int <- 1 ] [ V1:Int <- 2 ] </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."cells/result/frame/k::fragment![crate::Frame { ret: x }]"]
 k = """
@@ -2198,7 +2212,7 @@ configuration
 <k> $PGM:Stmt </k>
 <pc> 0 </pc>
 <stack> .List </stack>
-<env> .Map [ 0 <- 1 ] </env>
+<env> 0 |-> 1 </env>
 <frame>
 <ret> 0 </ret>
 </frame>
@@ -2211,9 +2225,41 @@ configuration
 """
 
 [accept."init/env/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map [ $PGM:Stmt <- 1 ] [ 0 <- 2 ] </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
 
 [accept."init/env/k::map![pgm -> 1, 0 -> 2]"]
 same_k_as = ["init/env/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map [ $PGM:Stmt <- 1 ] [ 0 <- 2 ] </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
 
 [accept."init/env/k::map![]"]
 k = """
@@ -2522,7 +2568,7 @@ configuration
 <stmt> go </stmt>
 <any> $ANY:KItem </any>
 <list> .List </list>
-<map> .Map [ 0 <- 1 ] </map>
+<map> 0 |-> 1 </map>
 <boxed>
 <inner> unit </inner>
 </boxed>
@@ -2542,7 +2588,7 @@ configuration
 <stmt> go </stmt>
 <any> $ANY:KItem </any>
 <list> .List </list>
-<map> .Map [ 0 <- unit ] </map>
+<map> 0 |-> unit </map>
 <boxed>
 <inner> unit </inner>
 </boxed>

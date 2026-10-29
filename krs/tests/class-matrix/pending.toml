@@ -136,6 +136,11 @@ finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
 step = "S5"
 
+["cells/result/job/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
+step = "S5"
+
 ["cells/result/job/k::configuration::Cell(k::map![x -> y])"]
 finding = "S0-9"
 deviation = "krs::analysis::optional-presence @ entry"
@@ -2298,6 +2303,11 @@ finding = "B2"
 deviation = "E0308 @ spelling"
 step = "S5"
 
+["init/counter/k::map![pgm -> 1, 0 -> 2]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
 ["init/counter/k::map![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
@@ -2388,6 +2398,11 @@ finding = "B2"
 deviation = "E0308 @ spelling"
 step = "S5"
 
+["init/frame/k::map![pgm -> 1, 0 -> 2]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
 ["init/frame/k::map![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
@@ -2448,6 +2463,11 @@ finding = "B2"
 deviation = "E0308 @ spelling"
 step = "S5"
 
+["init/job/k::map![pgm -> 1, 0 -> 2]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
 ["init/job/k::map![]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
@@ -2494,6 +2514,11 @@ deviation = "E0308 @ spelling"
 step = "S5"
 
 ["init/k/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S5"
+
+["init/k/k::map![pgm -> 1, 0 -> 2]"]
 finding = "B2"
 deviation = "E0308 @ spelling"
 step = "S5"
