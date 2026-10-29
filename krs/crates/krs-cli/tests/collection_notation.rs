@@ -605,3 +605,389 @@ fn every_reading_of_the_method_table_has_a_spelling() {
         "readings without a spelling: {missing:?}"
     );
 }
+
+/// A package with one placeholder `{NAME}` per collection literal;
+/// [`LITERALS`] fills each with the literal or with the calls it denotes.
+const LITERAL_SOURCE: &str = r#"
+use k::builtin::{Bool, Int, KSequence, List, Map, Set, list, map, set};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("pair({a},{b})")]
+    Pair { a: Int, b: Int },
+    #[k::syntax("mark({n})")]
+    Mark { n: Int },
+    #[k::syntax("peek")]
+    Peek,
+}
+
+#[k::function(total, internal)]
+pub fn Build(a: Term<Int>, b: Term<Int>, m: Term<Map>, s: Term<Set>) -> Term<Map> {
+    k::term![{BUILD}]
+}
+
+#[k::function(total, internal)]
+pub fn Empties(a: Term<Int>) -> Term<Map> {
+    k::term![{EMPTIES}]
+}
+
+#[k::function(partial, internal)]
+pub fn Lookup(m: Term<Map>, key: Term<Int>) -> Term<Int>;
+
+k::equations! {
+    for Lookup;
+    lookup: (m, key) => {LOOKUP};
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map,
+    #[k::cell]
+    pub seen: Set,
+    #[k::cell]
+    pub stack: List,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            env: map::empty(),
+            seen: {INIT_SEEN},
+            stack: {INIT_STACK},
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use ExpSyntax::*;
+
+    #[k::requires({PAIR_REQUIRES})]
+    pair: { k: [Pair(a, b), ..], env: e, seen: s } => {
+        k: [..],
+        env: {PAIR_ENV},
+        seen: {PAIR_SEEN},
+    };
+    // The key is computed from the set another cell binds.
+    peek: { k: [Peek(), ..], env: { {PEEK_KEY} -> v, .. }, seen: s } => { k: [v, ..] };
+}
+
+#[k::rule(label = "mark", priority = 60)]
+fn mark(
+    n: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Mark(n), tail @ ..),
+        seen: k::configuration::Cell({MARK_SEEN_BEFORE}),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        seen: k::configuration::Cell({MARK_SEEN_AFTER}),
+        ..state
+    }
+}
+
+#[k::claim(all_paths, label = "pair-claim")]
+#[k::requires({CLAIM_REQUIRES})]
+fn pair_claim(
+    a: Term<Int>,
+    b: Term<Int>,
+    e: Term<Map>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Pair(a, b), tail @ ..),
+        env: k::configuration::Cell(e),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell({CLAIM_ENV}),
+        ..state
+    }
+}
+"#;
+
+/// Each placeholder of [`LITERAL_SOURCE`], the calls it is written with, and
+/// the literals that denote them: a map's entries, each written over the map
+/// before it, and a set's elements, joined, over the empty collection or a
+/// rest; the empty map and set; a set's singleton, matched in a pattern.
+const LITERALS: &[(&str, &str, &str)] = &[
+    (
+        "BUILD",
+        "map::update(map::update(m, a, 1), b, set::union(s, set::union(set::item(a), set::item(3))))",
+        "map![a -> 1, b -> set![a, 3, ..s], ..m]",
+    ),
+    (
+        "EMPTIES",
+        "map::update(map::update(map::empty(), a, set::empty()), 1, set::item(a))",
+        "map![a -> set![], 1 -> set![a]]",
+    ),
+    (
+        "LOOKUP",
+        "map::get(map::update(m, key, 2), key)",
+        "map![key -> 2, ..m][key]",
+    ),
+    (
+        "INIT_SEEN",
+        "set::union(set::item(1), set::item(2))",
+        "set![1, 2]",
+    ),
+    (
+        "INIT_STACK",
+        "list::item(map::update(map::empty(), 1, 2))",
+        "list::item(map![1 -> 2])",
+    ),
+    (
+        "PAIR_REQUIRES",
+        "map::in_keys(a, map::update(map::empty(), a, b)) && !set::contains(0, set::item(b))",
+        "map![a -> b].contains_key(a) && !set![b].contains(0)",
+    ),
+    (
+        "PAIR_ENV",
+        "map::update(map::update(e, a, 1), b, 2)",
+        "map![a -> 1, b -> 2, ..e]",
+    ),
+    (
+        "PAIR_SEEN",
+        "set::union(s, set::union(set::item(a), set::item(b)))",
+        "set![a, b, ..s]",
+    ),
+    (
+        "PEEK_KEY",
+        "set::size(set::union(s, set::item(1)))",
+        "set![1, ..s].len()",
+    ),
+    ("MARK_SEEN_BEFORE", "set::item(n)", "set![n]"),
+    (
+        "MARK_SEEN_AFTER",
+        "set::union(set::item(n), set::item(1))",
+        "set![n, 1]",
+    ),
+    (
+        "CLAIM_REQUIRES",
+        "map::in_keys(a, map::update(e, a, b))",
+        "map![a -> b, ..e].contains_key(a)",
+    ),
+    // A `cells!` cell's whole value `map![..]` is the cell's own map, which
+    // that surface reads as K's concatenation; a literal below it is a term.
+    (
+        "CLAIM_ENV",
+        "map::update_all(e, map::update(map::empty(), a, b))",
+        "e.extend(map![a -> b])",
+    ),
+];
+
+/// [`LITERAL_SOURCE`] with each placeholder written with literals or with
+/// calls.
+fn literal_spelled(literals: bool) -> String {
+    LITERALS.iter().fold(
+        LITERAL_SOURCE.to_owned(),
+        |source, (name, call, written)| {
+            let placeholder = format!("{{{name}}}");
+            assert!(source.contains(&placeholder), "{placeholder} is unused");
+            source.replace(&placeholder, if literals { written } else { call })
+        },
+    )
+}
+
+/// A collection literal emits the K of the calls it denotes wherever a term
+/// is built, in a guard, in a computed key, and, as the empty collection or
+/// a set's singleton, in a pattern: a map's later entry is written over the
+/// earlier ones, and a set's elements are joined with `|Set`.
+#[test]
+fn collection_literals_emit_the_k_of_the_calls_they_denote() {
+    let target = shared_fixture_target();
+    let calls = temp_dir();
+    let literals = temp_dir();
+    let call_k = emitted_k(target.path(), calls.path(), &literal_spelled(false));
+    let literal_k = emitted_k(target.path(), literals.path(), &literal_spelled(true));
+    assert_eq!(literal_k, call_k);
+    let sentences = literal_k
+        .iter()
+        .flat_map(|(_, text)| text.lines())
+        .filter(|line| {
+            let line = line.trim_start();
+            line.starts_with("rule ")
+                || line.starts_with("<env>")
+                || line.starts_with("<seen>")
+                || line.starts_with("<stack>")
+                || line.starts_with("requires")
+        })
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        <env> .Map </env>
+        <seen> SetItem(1) |Set SetItem(2) </seen>
+        <stack> ListItem(.Map [ 1 <- 2 ]) </stack>
+        rule build ( A:Int , B:Int , M:Map , S:Set ) => M:Map [ A:Int <- 1 ] [ B:Int <- S:Set |Set (SetItem(A:Int) |Set SetItem(3)) ] [label(krsRule_0432a5ea69e36249ca34707c)]
+        rule empties ( A:Int ) => .Map [ A:Int <- .Set ] [ 1 <- SetItem(A:Int) ] [label(krsRule_24827f3ce5331722585d973c)]
+        rule lookup ( M:Map , Key:Int ) => {M:Map [ Key:Int <- 2 ] [ Key:Int ]}:>Int [label(krsRule_ca9c6cb787329cb196b90848)]
+        rule [mark]:
+        <seen> SetItem(N:Int) => SetItem(N:Int) |Set SetItem(1) </seen>
+        rule [pair]:
+        <env> E:Map => E:Map [ A:Int <- 1 ] [ B:Int <- 2 ] </env>
+        <seen> S:Set => S:Set |Set (SetItem(A:Int) |Set SetItem(B:Int)) </seen>
+        requires A:Int in_keys(.Map [ A:Int <- B:Int ]) andThenBool (notBool 0 in SetItem(B:Int))
+        rule [peek]:
+        <env> size(S:Set |Set SetItem(1)) |-> V:KItem ... </env>
+        <seen> S:Set </seen>
+        requires "definition.k"
+        <env> E:Map => updateMap(E:Map, .Map [ A:Int <- B:Int ]) </env>
+        requires A:Int in_keys(E:Map [ A:Int <- B:Int ])"#]].assert_eq(&sentences);
+}
+
+/// `krs expand` writes the calls a literal denotes in a sentence, and the
+/// expanded crate is collected again.
+#[test]
+fn expand_writes_the_calls_a_collection_literal_denotes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "collections", &literal_spelled(true));
+    let (success, stdout, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let start = stdout
+        .find("pub fn pair(")
+        .expect("the readable rule is written");
+    let start = stdout[..start].rfind("#[k::requires(").unwrap();
+    let end = start + stdout[start..].find("\n}\n").unwrap() + 3;
+    expect_test::expect![[r"
+        #[k::requires(
+            k::builtin::bool::and_then(
+                k::builtin::map::in_keys(
+                    a,
+                    k::builtin::map::update(k::builtin::map::empty(), a, b)
+                ),
+                k::builtin::bool::not(k::builtin::set::contains(0, k::builtin::set::item(b)))
+            )
+        )]
+        pub fn pair(
+            a: k::Term<k::builtin::Int>,
+            b: k::Term<k::builtin::Int>,
+            e: k::Term<k::builtin::Map>,
+            s: k::Term<k::builtin::Set>,
+            k::cells! {
+                k : k::configuration::KCell(crate ::ExpSyntax::Pair(a, b), tail @ ..), env :
+                k::configuration::Cell(e), seen : k::configuration::Cell(s), state @ ..
+            }: crate::Machine,
+        ) -> crate::Machine {
+            k::cells! {
+                k : k::configuration::KCell(..tail), env :
+                k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(e, a, 1),
+                b, 2)), seen : k::configuration::Cell(k::builtin::set::union(s,
+                k::builtin::set::union(k::builtin::set::item(a), k::builtin::set::item(b)))),
+                ..state
+            }
+        }
+    "]]
+    .assert_eq(&stdout[start..end]);
+    let expanded = package(temporary.path(), "expanded", "");
+    fs::write(expanded.with_file_name("src").join("lib.rs"), &stdout).unwrap();
+    let (success, _, stderr) = krs(target.path(), &expanded, "check", &[]);
+    assert!(success, "the expanded crate does not check:\n{stderr}");
+}
+
+/// Two keys that evaluate equal are one entry, whose value the later entry
+/// writes, and two equal elements one element: `krs run` of `pair(3,3)`
+/// leaves `3 |-> 2` and adds one `SetItem(3)` to the initial `set![1, 2]`,
+/// and `pair(3,4)` both entries and both elements.
+#[test]
+fn a_later_key_wins_and_equal_elements_collapse_at_run_time() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "collections", &literal_spelled(true));
+    let cells = ["pair(3,3)", "pair(3,4)"].map(|program| {
+        let file = manifest.with_file_name("program.txt");
+        fs::write(&file, program).unwrap();
+        let (success, stdout, stderr) =
+            krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+        assert!(
+            stdout.contains("<generatedTop>"),
+            "`krs run {program}` failed ({success}):\n{stdout}\n{stderr}"
+        );
+        let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        let cell = |name: &str| {
+            let open = format!("<{name}> ");
+            let start = flat
+                .find(&open)
+                .unwrap_or_else(|| panic!("no <{name}>:\n{stdout}"))
+                + open.len();
+            let end = start + flat[start..].find(&format!(" </{name}>")).unwrap();
+            flat[start..end].to_owned()
+        };
+        format!("{program} => env: {} | seen: {}", cell("env"), cell("seen"))
+    });
+    expect_test::expect![[r#"
+        [
+            "pair(3,3) => env: 3 |-> 2 | seen: SetItem ( 1 ) SetItem ( 2 ) SetItem ( 3 )",
+            "pair(3,4) => env: 3 |-> 1 4 |-> 2 | seen: SetItem ( 1 ) SetItem ( 2 ) SetItem ( 3 ) SetItem ( 4 )",
+        ]
+    "#]].assert_debug_eq(&cells);
+}
+
+/// A malformed literal is an error at its token: a key or an element written
+/// twice, an anonymous or misplaced rest, a rest alone, an entry without
+/// `->`, K's `.Map`; a literal that applies a function where a pattern
+/// matches a term is a function in a pattern, as its call is.
+#[test]
+fn malformed_collection_literals_and_literals_in_a_pattern_are_errors() {
+    let target = shared_fixture_target();
+    let function = |body: &str| {
+        format!(
+            "#[k::function(total, internal)]
+             pub fn Build(a: Term<Int>, m: Term<Map>, s: Term<Set>) -> Term<Map> {{ k::term![{body}] }}"
+        )
+    };
+    let mut errors = [
+        "map![a -> 1, a -> 2]",
+        "map![a -> set![a, 1, a]]",
+        "map![a -> 1, ..]",
+        "map![..m, a -> 1]",
+        "map![..m]",
+        "map![a => 1]",
+        "map![a, 1]",
+        "map![.Map]",
+    ]
+    .map(|body| check_error(target.path(), &function(body)))
+    .to_vec();
+    errors.extend(
+        [
+            "k::rules! {
+                 for Machine;
+                 use ExpSyntax::*;
+                 read: { k: [Visit(n), ..], env: map![n -> 1] } => { k: [..] };
+             }",
+            "k::rules! {
+                 for Machine;
+                 use ExpSyntax::*;
+                 read: { k: [Visit(n), ..], seen: set![n, 1] } => { k: [..] };
+             }",
+        ]
+        .map(|item| check_error(target.path(), item)),
+    );
+    expect_test::expect![[r#"
+        [
+            "error[krs::syntax::invalid-expression-notation]: the key `a` is written twice; two keys written as the same term are one key, so the earlier entry's value would never be read: write the key once, with the value it maps to",
+            "error[krs::syntax::invalid-expression-notation]: the element `a` is written twice; two elements written as the same term are one element: write it once",
+            "error[krs::syntax::invalid-expression-notation]: an anonymous `..` keeps the entries a pattern leaves unnamed, and a built map has none to keep: name the map the entries are written over, `..m`",
+            "error[krs::syntax::invalid-expression-notation]: the base `..rest` of a `map![..]` comes last: the written entries are applied over it, as `Ctor { f: e, ..base }` writes its fields over `base`",
+            "error[krs::syntax::invalid-expression-notation]: `map![..m]` has no entry: it is the map `m` itself, so write `m`",
+            "error[krs::syntax::invalid-expression-notation]: `=>` is a rewrite; a map's entry is written `key -> value`",
+            "error[krs::syntax::invalid-expression-notation]: a map's entry is written `key -> value`",
+            "error[krs::syntax::invalid-expression-notation]: `.Map` is K's empty map; a term writes the empty map `map![]`",
+            "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::map::update` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: a pattern reads a map's entries (`{ k -> v, .. }` in a readable record, `map![k -> v, ..]` in a `cells!` entry), or match a variable here and relate it to the map in a guard (`requires`)",
+            "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::set::union` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match the elements with `set::concat(set::item(x), rest)`, whose operands are disjoint, or match a variable here and relate it to the set in a guard (`requires`)",
+        ]
+    "#]].assert_debug_eq(&errors);
+}

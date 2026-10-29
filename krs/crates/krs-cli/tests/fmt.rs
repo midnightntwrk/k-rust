@@ -201,3 +201,50 @@ fn collection_notation_round_trips() {
     let again = format_file(&source, &FormatOptions::default()).unwrap();
     assert_eq!(again.output, formatted.output);
 }
+
+/// Collection literals are macros a KRS body formats as written, with Rust's
+/// spacing of their tokens, and formatting the output again changes nothing.
+#[test]
+fn collection_literals_round_trip() {
+    let temporary = temp_dir();
+    let root = temporary.path();
+    let source = root.join("lib.rs");
+    fs::write(
+        &source,
+        "k::rules! { for Machine; use Op::*; \
+         #[k::requires(map![n -> 1].contains_key(n) && !set![n].contains(0))] \
+         bump: { k: [Bump(n), ..], env: e, seen: s } => { k: [..], env: map![n->1,0  ->  n, ..e], seen: set![ n, 1, ..s ] }; }\n\
+         k::equations! { for Size; size: (m, s) => map![1 -> set![], ..m].len() + set![1, 2].len(); }\n\
+         #[k::function(total)]\npub fn Keys(a: Term<Int>) -> Term<Map> { k::term![k::map![a -> set![a], 2 -> map![]]] }\n",
+    )
+    .unwrap();
+    let formatted = format_file(&source, &FormatOptions::default()).unwrap();
+    expect_test::expect![[r"
+        k::rules! {
+            for Machine;
+            use Op::*;
+            #[k::requires(map![n -> 1].contains_key(n) && !set![n].contains(0))]
+            bump: {
+                k: [Bump(n), ..],
+                env: e,
+                seen: s,
+            } => {
+                k: [..],
+                env: map![n -> 1, 0 -> n, ..e],
+                seen: set![n, 1, ..s],
+            };
+        }
+        k::equations! {
+            for Size;
+            size: (m, s) => map![1 -> set![], ..m].len() + set![1, 2].len();
+        }
+        #[k::function(total)]
+        pub fn Keys(a: Term<Int>) -> Term<Map> {
+            k::term![k::map![a -> set![a], 2 -> map![]]]
+        }
+    "]]
+    .assert_eq(&formatted.output);
+    fs::write(&source, &formatted.output).unwrap();
+    let again = format_file(&source, &FormatOptions::default()).unwrap();
+    assert_eq!(again.output, formatted.output);
+}

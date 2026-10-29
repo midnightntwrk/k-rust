@@ -304,36 +304,36 @@ fn check_errors(target: &Path, manifest: &Path) -> Vec<String> {
         .collect()
 }
 
-/// `map![..]` is a `cells!` spelling, and braces name collection instances:
-/// each error names the spelling of the empty collection.
+/// `map![]` is the empty map literal in a readable result, as in every term
+/// (`map::empty()`), and braces name collection instances: their error names
+/// the spelling of the empty collection.
 #[test]
 fn other_spellings_name_the_empty_collections() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let errors = [
-        ("map-macro", "functions: _ } => { k: [..], functions: k::map![] };"),
-        ("braces", "functions: {} } => { k: [..] };"),
-    ]
-    .map(|(name, clause)| {
-        let manifest = package(
+    let clause = |name: &str, clause: &str| {
+        package(
             temporary.path(),
             name,
             &format!(
                 "{PREAMBLE}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    step: {{ k: [Reset(), ..], {clause}\n}}\n"
             ),
-        );
-        check_errors(target.path(), &manifest)
-    });
+        )
+    };
+    let literal = clause(
+        "map-macro",
+        "functions: _ } => { k: [..], functions: k::map![] };",
+    );
+    let (success, _, stderr) = krs(target.path(), &literal, "check", &[]);
+    assert!(success, "the empty map literal is refused:\n{stderr}");
+    let errors = check_errors(
+        target.path(),
+        &clause("braces", "functions: {} } => { k: [..] };"),
+    );
     expect_test::expect![[r#"
         [
-            [
-                "error[krs::syntax::unsupported-term-expression]: unsupported term expression: `map![..]` is the spelling of a `cells!` entry or an initializer: in a term the empty map is `map::empty()`, and `map::update(..)` adds an entry",
-                "--> src/lib.rs:63:71",
-            ],
-            [
-                "error[krs::analysis::collection-entry]: `functions` is not a cell collection: an instance list names a cell declared `#[k::cell(multiplicity = \"*\", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`",
-                "--> src/lib.rs:63:31",
-            ],
+            "error[krs::analysis::collection-entry]: `functions` is not a cell collection: an instance list names a cell declared `#[k::cell(multiplicity = \"*\", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`",
+            "--> src/lib.rs:63:31",
         ]
     "#]]
     .assert_debug_eq(&errors);
