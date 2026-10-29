@@ -770,9 +770,10 @@ match = '{import/context/subject-root/Go(),terms/context/subject-root/{"s",-1,1,
 class = "context-hole-unbound"
 at = "item"
 
-# context-hole-unbound (NT-6): the empty map or set at a context's root, which binds no hole
+# context-hole-unbound (NT-6): the empty map or set, or a ground map, at a context's root, which binds
+# no hole
 [[refuse]]
-match = 'notation/context/subject-root/{map![],set![],k::builtin::map::empty(),k::builtin::set::empty()}'
+match = 'notation/context/subject-root/{map![],set![],k::builtin::map::empty(),k::builtin::set::empty(),map![0 -> 1],k::builtin::map::update(k::builtin::map::empty()\, 0\, 1)}'
 class = "context-hole-unbound"
 at = "item"
 
@@ -893,7 +894,7 @@ at = "spelling"
 # condition-sort (NT-6): a collection literal, a `Map` or a `Set`, in a condition, as the calls it
 # denotes
 [[refuse]]
-match = 'notation/{cells-claim/guard,context/guard,equation/guard,readable/guard,rule/guard,rule/guard/let-body,simplification/guard}/{map![x -> 1\, 2 -> 3],map![x -> 1\, ..k::builtin::map::empty()],map![],set![x\, 1],set![x\, ..k::builtin::set::empty()],set![],k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, 2\, 3),k::builtin::set::empty(),k::builtin::set::union(k::builtin::set::empty()\, k::builtin::set::item(x)),k::builtin::set::union(k::builtin::set::item(x)\, k::builtin::set::item(1))}'
+match = 'notation/{cells-claim/guard,context/guard,equation/guard,readable/guard,rule/guard,rule/guard/let-body,simplification/guard}/{map![x -> 1\, 2 -> 3],map![x -> 1\, ..k::builtin::map::empty()],map![],set![x\, 1],set![x\, ..k::builtin::set::empty()],set![],k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, 2\, 3),k::builtin::set::empty(),k::builtin::set::union(k::builtin::set::empty()\, k::builtin::set::item(x)),k::builtin::set::union(k::builtin::set::item(x)\, k::builtin::set::item(1)),map![0 -> 1],k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),set![x],k::builtin::set::item(x)}'
 class = "condition-sort"
 at = "spelling"
 

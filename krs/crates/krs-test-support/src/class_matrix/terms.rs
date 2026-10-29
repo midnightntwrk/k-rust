@@ -614,8 +614,8 @@ fn notation_spellings() -> Vec<Spelling> {
 
 /// The collection literals (`krs_syntax::is_collection_literal`), each beside the calls it
 /// denotes, which its accept entry names in `same_k_as`: a map of two entries, each written over
-/// the map before it; a set of two elements, joined; a map and a set written over a rest; and the
-/// empty map and set, values. Each literal's nodes are in the walker's order, the denoted calls'.
+/// the map before it; a ground map; a set of two elements, joined; a map and a set written over a
+/// rest; and the values: the empty map and set, and a set's singleton. Each literal's nodes are in the walker's order, the denoted calls'.
 #[expect(
     clippy::too_many_lines,
     reason = "One table of the literals and the calls they denote, node by node."
@@ -667,6 +667,23 @@ fn literal_spellings() -> Vec<Spelling> {
                 at(C::Literal, 1),
             ],
         ),
+        // A ground map, which an initializer and a constant can hold whole.
+        (
+            "map![0 -> 1]",
+            "k::builtin::map::update(k::builtin::map::empty(), 0, 1)",
+            vec![
+                at(C::Notation(Notation::MapLiteral), 0),
+                at(C::Notation(Notation::CollectionValue), 1),
+                at(C::Literal, 1),
+                at(C::Literal, 1),
+            ],
+            vec![
+                at(C::BuiltinApplication, 0),
+                at(C::Constructor, 1),
+                at(C::Literal, 1),
+                at(C::Literal, 1),
+            ],
+        ),
         (
             "map![]",
             "k::builtin::map::empty()",
@@ -706,6 +723,16 @@ fn literal_spellings() -> Vec<Spelling> {
                 at(C::Constructor, 1),
                 element(C::Reference, 1),
             ],
+        ),
+        // A set's singleton, a value whose element a key or a pattern reads as `set::item`'s.
+        (
+            "set![x]",
+            "k::builtin::set::item(x)",
+            vec![
+                at(C::Notation(Notation::CollectionValue), 0),
+                element(C::Reference, 0),
+            ],
+            vec![at(C::Constructor, 0), element(C::Reference, 0)],
         ),
         (
             "set![]",

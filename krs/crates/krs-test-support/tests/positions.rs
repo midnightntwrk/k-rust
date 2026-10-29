@@ -46,7 +46,7 @@ const KNOWN: [(&str, &str); 21] = [
     // The collection literals and the calls they denote are such constructs too; a literal is a
     // macro, which a Rust pattern reads, so the boundary is met first.
     (
-        r"notation/readable/map-key/{let-pattern,matches-pattern}/{map![*,set![*,k::builtin::map::empty(),k::builtin::set::empty(),k::builtin::set::union(*}",
+        r"notation/readable/map-key/{let-pattern,matches-pattern}/{map![*,set![*,k::builtin::map::empty(),k::builtin::set::empty(),k::builtin::set::item(x),k::builtin::set::union(*}",
         "NT-3-2",
     ),
     (

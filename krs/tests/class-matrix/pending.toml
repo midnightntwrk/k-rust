@@ -1387,6 +1387,11 @@ finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
 step = "S5"
 
+["notation/readable/map-key/as-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
 ["notation/readable/map-key/as-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
@@ -1397,12 +1402,22 @@ finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
 step = "S5"
 
+["notation/readable/map-key/as-body/k::builtin::set::item(x)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
 ["notation/readable/map-key/as-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
 step = "S5"
 
 ["notation/readable/map-key/as-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["notation/readable/map-key/as-body/map![0 -> 1]"]
 finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
 step = "S5"
@@ -1437,7 +1452,17 @@ finding = "S0-14"
 deviation = "krs::syntax::rust-syntax @ entry"
 step = "S5"
 
+["notation/readable/map-key/as-body/set![x]"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
 ["notation/readable/map-key/or-branch/k::builtin::map::empty()"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["notation/readable/map-key/or-branch/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
 step = "S5"
@@ -1452,12 +1477,22 @@ finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
 step = "S5"
 
+["notation/readable/map-key/or-branch/k::builtin::set::item(x)"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
 ["notation/readable/map-key/or-branch/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
 step = "S5"
 
 ["notation/readable/map-key/or-branch/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
+["notation/readable/map-key/or-branch/map![0 -> 1]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
 step = "S5"
@@ -1492,6 +1527,11 @@ finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
 step = "S5"
 
+["notation/readable/map-key/or-branch/set![x]"]
+finding = "S0-14"
+deviation = "krs::analysis::ambiguous-operator @ entry"
+step = "S5"
+
 ["terms/readable/map-key/or-branch/k::map![x -> 1]"]
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
@@ -1501,7 +1541,6 @@ step = "S5"
 finding = "S0-14"
 deviation = "krs::analysis::ambiguous-operator @ entry"
 step = "S5"
-
 
 # S0-15: `job: []`, a List collection with no instance, is refused in a subject ("names no instance"), though the reference documents it
 
@@ -1967,6 +2006,11 @@ finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
 
+["k3/notation/sort-rule/result/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
 ["k3/notation/sort-rule/result/let-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
@@ -1977,12 +2021,22 @@ finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
 
+["k3/notation/sort-rule/result/let-body/k::builtin::set::item(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
 ["k3/notation/sort-rule/result/let-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
 
 ["k3/notation/sort-rule/result/let-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/notation/sort-rule/result/let-body/map![0 -> 1]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
@@ -2017,6 +2071,11 @@ finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
 
+["k3/notation/sort-rule/result/let-body/set![x]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
 ["k3/notation/sort-rule/result/let-pattern/k::builtin::map::empty()"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
@@ -2027,12 +2086,22 @@ finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
 
+["k3/notation/sort-rule/result/let-pattern/k::builtin::set::item(x)"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
 ["k3/notation/sort-rule/result/let-pattern/map![]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
 
 ["k3/notation/sort-rule/result/let-pattern/set![]"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/notation/sort-rule/result/let-pattern/set![x]"]
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
@@ -2066,7 +2135,6 @@ step = "S6"
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
-
 
 # B1: an initializer refuses bracket notation (`[]`, `[0]`, `[pgm]`) with the generic `unsupported-initializer-body`, also where it denotes a List or the computation
 
@@ -5159,6 +5227,10 @@ deviation = "krs::expand::matches-outside-condition @ entry"
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
+["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ entry"
+
 ["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
@@ -5167,11 +5239,19 @@ deviation = "krs::expand::let-outside-term @ entry"
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
+["notation/readable/map-key/let-body/k::builtin::set::item(x)"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ entry"
+
 ["notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
 ["notation/readable/map-key/let-body/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["notation/readable/map-key/let-body/map![0 -> 1]"]
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
@@ -5199,7 +5279,15 @@ deviation = "krs::expand::let-outside-term @ entry"
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
+["notation/readable/map-key/let-body/set![x]"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ entry"
+
 ["notation/readable/map-key/let-pattern/k::builtin::map::empty()"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["notation/readable/map-key/let-pattern/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
@@ -5211,11 +5299,19 @@ deviation = "krs::expand::let-outside-term @ entry"
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
+["notation/readable/map-key/let-pattern/k::builtin::set::item(x)"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ entry"
+
 ["notation/readable/map-key/let-pattern/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
 ["notation/readable/map-key/let-pattern/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ entry"
+
+["notation/readable/map-key/let-pattern/map![0 -> 1]"]
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
@@ -5243,7 +5339,15 @@ deviation = "krs::expand::let-outside-term @ entry"
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
+["notation/readable/map-key/let-pattern/set![x]"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ entry"
+
 ["notation/readable/map-key/matches-pattern/k::builtin::map::empty()"]
+finding = "NT-3-2"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["notation/readable/map-key/matches-pattern/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 finding = "NT-3-2"
 deviation = "krs::expand::matches-outside-condition @ entry"
 
@@ -5255,11 +5359,19 @@ deviation = "krs::expand::matches-outside-condition @ entry"
 finding = "NT-3-2"
 deviation = "krs::expand::matches-outside-condition @ entry"
 
+["notation/readable/map-key/matches-pattern/k::builtin::set::item(x)"]
+finding = "NT-3-2"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
 ["notation/readable/map-key/matches-pattern/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
 finding = "NT-3-2"
 deviation = "krs::expand::matches-outside-condition @ entry"
 
 ["notation/readable/map-key/matches-pattern/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-3-2"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
+["notation/readable/map-key/matches-pattern/map![0 -> 1]"]
 finding = "NT-3-2"
 deviation = "krs::expand::matches-outside-condition @ entry"
 
@@ -5287,6 +5399,10 @@ deviation = "krs::expand::matches-outside-condition @ entry"
 finding = "NT-3-2"
 deviation = "krs::expand::matches-outside-condition @ entry"
 
+["notation/readable/map-key/matches-pattern/set![x]"]
+finding = "NT-3-2"
+deviation = "krs::expand::matches-outside-condition @ entry"
+
 ["terms/readable/map-key/let-body/k::map![x -> 1]"]
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
@@ -5310,7 +5426,6 @@ deviation = "krs::expand::matches-outside-condition @ entry"
 ["terms/readable/map-key/matches-pattern/map![x -> 1]"]
 finding = "NT-3-2"
 deviation = "krs::expand::matches-outside-condition @ entry"
-
 
 # NT-3-3: a Set collection's instance is read as matched cells, not as the set's element
 # A Set collection is looked up by its instances as a set by its elements, so an instance whose
@@ -5441,6 +5556,10 @@ deviation = "krs::analysis::function-in-pattern @ spelling"
 
 # NT-6: the collection literals that apply a function, and their calls, in a Set instance.
 
+["notation/readable/set-instance-child/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "NT-3-3"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
 ["notation/readable/set-instance-child/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 finding = "NT-3-3"
 deviation = "krs::analysis::function-in-pattern @ spelling"
@@ -5450,6 +5569,10 @@ finding = "NT-3-3"
 deviation = "krs::analysis::function-in-pattern @ spelling"
 
 ["notation/readable/set-instance-child/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-3-3"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["notation/readable/set-instance-child/map![0 -> 1]"]
 finding = "NT-3-3"
 deviation = "krs::analysis::function-in-pattern @ spelling"
 
@@ -5476,7 +5599,6 @@ deviation = "krs::analysis::function-in-pattern @ spelling"
 ["terms/readable/set-instance-child/map![x -> 1]"]
 finding = "NT-3-3"
 deviation = "krs::analysis::function-in-pattern @ spelling"
-
 
 # NT-5-1: alternatives one of which is an index or a collection method are read as the operator `|`
 # `k::builtin::map::empty()[x] | Cmd::Go()` in a subject is no Rust pattern, so the subject's reader
@@ -5573,6 +5695,10 @@ deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
 # NT-6: a simplification rooted at a map literal's or a set literal's `map::update` or
 # `set::union` answers as its call does; the pairs are compared once both are accepted.
 
+["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "NT-5-2"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+
 ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
 finding = "NT-5-2"
 deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
@@ -5582,6 +5708,10 @@ finding = "NT-5-2"
 deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
 
 ["notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-5-2"
+deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+
+["notation/simplification/subject-root/map![0 -> 1]"]
 finding = "NT-5-2"
 deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
 
@@ -5608,7 +5738,6 @@ deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
 ["terms/simplification/subject-root/map![x -> 1]"]
 finding = "NT-5-2"
 deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-
 
 # NT-5-3: a context alias's computation item gives a projected collection read no sort
 # `map::get(..)` and `list::get(..)` read a `KItem` that the position projects to its sort; in a

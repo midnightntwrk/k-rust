@@ -17,7 +17,7 @@ use krs_test_support::class_matrix::pending::{
     Judgement, Observation, Pending, UNASSIGNED, case_of,
 };
 use krs_test_support::class_matrix::positions::{
-    Construct, Entry, Form, Kind, Opening, Position, Slot as Part,
+    Construct, Entry, Form, Kind, Notation, Opening, Position, Slot as Part,
 };
 use krs_test_support::class_matrix::table::{
     At, Expected, Glob, TERM_ACCEPTS_FILE, Table, TableError,
@@ -100,8 +100,8 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 80 positions of depth 1 × 2 bare variants.
             (Family::Import, 80 * 2),
             // The term family's 105 positions × (6 collection notation forms and their calls, and
-            // 6 collection literals and the 5 calls they denote apart from the method's).
-            (Family::Notation, 105 * (12 + 11)),
+            // 8 collection literals and the 7 calls they denote apart from the method's).
+            (Family::Notation, 105 * (12 + 15)),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
@@ -267,9 +267,9 @@ fn a_computation_subject_case_is_never_batched() {
 /// class ([`the_shipped_table_and_red_list_parse`]).
 /// The notation family's positions where a table rule decides every case before the oracle's
 /// resolution refusal, with the oracle's class: each of the family's spellings (the collection
-/// notation and the calls it denotes) but the [`VALUE_SPELLINGS`] reads `x` and applies a
-/// function, as `k::builtin::int::add(x, 1)` does at the term family's same positions
-/// ([`OVERRIDDEN`]).
+/// notation and the calls it denotes) that reads `x` and applies a function
+/// ([`reads_x_and_applies`]), as `k::builtin::int::add(x, 1)` does at the term family's same
+/// positions ([`OVERRIDDEN`]).
 const OVERRIDDEN_POSITIONS: [(&str, &str); 6] = [
     ("notation/constant/value", "constant-applies-function"),
     ("notation/constant/value-root", "constant-applies-function"),
@@ -282,16 +282,30 @@ const OVERRIDDEN_POSITIONS: [(&str, &str); 6] = [
     ),
 ];
 
-/// The notation family's spellings that denote a value, the empty map or set, which no position
-/// of [`OVERRIDDEN_POSITIONS`] refuses by resolution.
-const VALUE_SPELLINGS: [&str; 4] = [
-    "map![]",
-    "set![]",
-    "k::builtin::map::empty()",
-    "k::builtin::set::empty()",
-];
+/// Whether a case's spelling reads the name `x` and applies a function at its root, as every
+/// notation spelling but the values (`map![]`, `set![x]`, their calls) and the ground map
+/// (`map![0 -> 1]`, whose overrides [`OVERRIDDEN`] lists) does ([`OVERRIDDEN_POSITIONS`]).
+fn reads_x_and_applies(case: &Case) -> bool {
+    let Some(term) = case.term.as_ref() else {
+        return false;
+    };
+    // The case's own nodes: a depth-2 case's outer construct opens the position it stands in.
+    let mut own = term.nodes.iter().filter(|node| !node.outer);
+    let root = own.next();
+    let reads_x = root
+        .into_iter()
+        .chain(own)
+        .any(|node| node.construct == Construct::Reference);
+    let value = root.is_some_and(|root| {
+        matches!(
+            root.construct,
+            Construct::Constructor | Construct::Notation(Notation::CollectionValue)
+        )
+    });
+    reads_x && !value
+}
 
-const OVERRIDDEN: [(&str, &str); 57] = [
+const OVERRIDDEN: [(&str, &str); 61] = [
     (
         "terms/alias/subject-root/[x, ..]",
         "static-clause-root-not-marked",
@@ -438,6 +452,22 @@ const OVERRIDDEN: [(&str, &str); 57] = [
         "equation-root-not-function",
     ),
     (
+        "notation/context/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "notation/context/subject-root/map![0 -> 1]",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/map![0 -> 1]",
+        "function-in-pattern",
+    ),
+    (
         "terms/local-rule/subject-root/Size(x)",
         "function-in-pattern",
     ),
@@ -543,7 +573,7 @@ fn the_shipped_table_and_red_list_parse() {
     // without `unbound_variables`, a record update's base, brackets at a `KItem` root.
     let positions = cases.iter().filter_map(|case| {
         let position = case.id.strip_suffix(&format!("/{}", case.construct))?;
-        if case.family != Family::Notation || VALUE_SPELLINGS.contains(&case.construct.as_str()) {
+        if case.family != Family::Notation || !reads_x_and_applies(case) {
             return None;
         }
         OVERRIDDEN_POSITIONS
@@ -1920,4 +1950,44 @@ fn invariant_four_reads_the_kind_an_error_was_reported_with() {
     let mut raw = native;
     raw.diagnostics[0].kind = Some(CodeKind::Author);
     assert_eq!(judge(&raw), vec![Violation::NoRegisteredCode]);
+}
+
+/// The notation family's name rules (`unbound-name`, `alternatives-bind-unequally`,
+/// `matches-pattern-binder` in `expected.toml`) select the spellings that read the name `x` by the
+/// glob `*x*`, its letter; so each case they decide must read a name, and a spelling that holds an
+/// `x` but reads none (a method such as `.extend(..)` over ground operands) fails here rather than
+/// being refused silently.
+#[test]
+fn the_notation_familys_name_rules_decide_only_spellings_that_read_a_name() {
+    let table = Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
+    )
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let cases = class_matrix::cases();
+    let resolution = table.resolve_cases(&cases, registry_kind);
+    let captured = cases
+        .iter()
+        .filter(|case| case.family == Family::Notation)
+        .filter(|case| {
+            matches!(
+                resolution.expected.get(&case.id),
+                Some(Expected::Refuse { name, .. })
+                    if ["unbound-name", "alternatives-bind-unequally", "matches-pattern-binder"]
+                        .contains(name)
+            )
+        })
+        .filter(|case| {
+            !case.term.as_ref().is_some_and(|term| {
+                term.nodes
+                    .iter()
+                    .any(|node| node.construct == Construct::Reference)
+            })
+        })
+        .map(|case| case.id.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        captured.is_empty(),
+        "decided by a name rule, reading no name: {captured:#?}"
+    );
 }

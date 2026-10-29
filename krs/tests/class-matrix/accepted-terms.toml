@@ -28694,3 +28694,2214 @@ rule probe ( cTAG , V0:KItem ) => size ( .Map [ V0:KItem <- 1 ] ) [label(krsRule
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
+
+[accept."notation/alias/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/result-root/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/result-root/map![0 -> 1]"]
+same_k_as = ["notation/alias/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/result-root/set![x]"]
+same_k_as = ["notation/alias/result-root/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/result/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/result/map![0 -> 1]"]
+same_k_as = ["notation/alias/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/result/set![x]"]
+same_k_as = ["notation/alias/result/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , .Map [ 0 <- 1 ] ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/subject/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/subject/map![0 -> 1]"]
+same_k_as = ["notation/alias/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , .Map [ 0 <- 1 ] ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/alias/subject/set![x]"]
+same_k_as = ["notation/alias/subject/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> .Map [ 0 <- 1 ] ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/item-root/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/item-root/map![0 -> 1]"]
+same_k_as = ["notation/cells-claim/item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> .Map [ 0 <- 1 ] ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/item-root/set![x]"]
+same_k_as = ["notation/cells-claim/item-root/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/result-item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/result-item-root/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/result-item-root/map![0 -> 1]"]
+same_k_as = ["notation/cells-claim/result-item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/result-item-root/set![x]"]
+same_k_as = ["notation/cells-claim/result-item-root/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/result/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/result/map![0 -> 1]"]
+same_k_as = ["notation/cells-claim/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/result/set![x]"]
+same_k_as = ["notation/cells-claim/result/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , .Map [ 0 <- 1 ] ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/subject/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/subject/map![0 -> 1]"]
+same_k_as = ["notation/cells-claim/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , .Map [ 0 <- 1 ] ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-claim/subject/set![x]"]
+same_k_as = ["notation/cells-claim/subject/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-local/subject/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( (V0:KItem => go) , SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells-local/subject/set![x]"]
+same_k_as = ["notation/cells-local/subject/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( (V0:KItem => go) , SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/item-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/item-root/set![x]"]
+same_k_as = ["notation/cells/item-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/map-key/beside-fresh/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> pair ( SetItem(V0:KItem) , V1:KItem ) |-> V2:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/map-key/beside-fresh/set![x]"]
+same_k_as = ["notation/cells/map-key/beside-fresh/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> pair ( SetItem(V0:KItem) , V1:KItem ) |-> V2:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/map-key/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> .Map [ 0 <- 1 ] |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/map-key/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> SetItem(V0:KItem) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/map-key/map![0 -> 1]"]
+same_k_as = ["notation/cells/map-key/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> .Map [ 0 <- 1 ] |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/map-key/set![x]"]
+same_k_as = ["notation/cells/map-key/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> SetItem(V0:KItem) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/map-value/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> V0:KItem |-> SetItem(V0:KItem) ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/map-value/set![x]"]
+same_k_as = ["notation/cells/map-value/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> V0:KItem |-> SetItem(V0:KItem) ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-item-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-item-root/map![0 -> 1]"]
+same_k_as = ["notation/cells/result-item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-item-root/set![x]"]
+same_k_as = ["notation/cells/result-item-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-map-key/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> _ => .Map [ 0 <- 1 ] |-> 1 </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-map-key/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> _ => SetItem(V0:KItem) |-> 1 </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-map-key/map![0 -> 1]"]
+same_k_as = ["notation/cells/result-map-key/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> _ => .Map [ 0 <- 1 ] |-> 1 </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-map-key/set![x]"]
+same_k_as = ["notation/cells/result-map-key/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> _ => SetItem(V0:KItem) |-> 1 </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-map-value/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> _ => V0:KItem |-> (.Map [ 0 <- 1 ]) </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-map-value/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> _ => V0:KItem |-> SetItem(V0:KItem) </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-map-value/map![0 -> 1]"]
+same_k_as = ["notation/cells/result-map-value/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> _ => V0:KItem |-> (.Map [ 0 <- 1 ]) </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result-map-value/set![x]"]
+same_k_as = ["notation/cells/result-map-value/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> _ => V0:KItem |-> SetItem(V0:KItem) </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result/map![0 -> 1]"]
+same_k_as = ["notation/cells/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/result/set![x]"]
+same_k_as = ["notation/cells/result/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/subject/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/cells/subject/set![x]"]
+same_k_as = ["notation/cells/subject/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> .Map [ 0 <- 1 ] ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/item-root/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/item-root/map![0 -> 1]"]
+same_k_as = ["notation/claim/item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> .Map [ 0 <- 1 ] ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/item-root/set![x]"]
+same_k_as = ["notation/claim/item-root/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/result-item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/result-item-root/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/result-item-root/map![0 -> 1]"]
+same_k_as = ["notation/claim/result-item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/result-item-root/set![x]"]
+same_k_as = ["notation/claim/result-item-root/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/result/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/result/map![0 -> 1]"]
+same_k_as = ["notation/claim/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/result/set![x]"]
+same_k_as = ["notation/claim/result/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , .Map [ 0 <- 1 ] ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/subject/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/subject/map![0 -> 1]"]
+same_k_as = ["notation/claim/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , .Map [ 0 <- 1 ] ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/claim/subject/set![x]"]
+same_k_as = ["notation/claim/subject/k::builtin::set::item(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/context-alias/item-root/k::builtin::set::item(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/context-alias/item-root/set![x]"]
+same_k_as = ["notation/context-alias/item-root/k::builtin::set::item(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/context-alias/subject/k::builtin::set::item(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/context-alias/subject/set![x]"]
+same_k_as = ["notation/context-alias/subject/k::builtin::set::item(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ~> cTAG ( V0:KItem , SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/context/subject-root/k::builtin::set::item(x)"]
+k = """
+context [case-TAG]: SetItem(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/context/subject-root/set![x]"]
+same_k_as = ["notation/context/subject-root/k::builtin::set::item(x)"]
+k = """
+context [case-TAG]: SetItem(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/context/subject/k::builtin::set::item(x)"]
+k = """
+context [case-TAG]: cTAG ( V0:KItem , V1:KItem , SetItem(V1:KItem) )
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+"""
+
+[accept."notation/context/subject/set![x]"]
+same_k_as = ["notation/context/subject/k::builtin::set::item(x)"]
+k = """
+context [case-TAG]: cTAG ( V0:KItem , V1:KItem , SetItem(V1:KItem) )
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+"""
+
+[accept."notation/desugar/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/result-root/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/result-root/map![0 -> 1]"]
+same_k_as = ["notation/desugar/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/result-root/set![x]"]
+same_k_as = ["notation/desugar/result-root/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/result/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/result/map![0 -> 1]"]
+same_k_as = ["notation/desugar/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/result/set![x]"]
+same_k_as = ["notation/desugar/result/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , .Map [ 0 <- 1 ] ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/subject/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/subject/map![0 -> 1]"]
+same_k_as = ["notation/desugar/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , .Map [ 0 <- 1 ] ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/desugar/subject/set![x]"]
+same_k_as = ["notation/desugar/subject/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/equation/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/equation/result/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/equation/result/map![0 -> 1]"]
+same_k_as = ["notation/equation/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/equation/result/set![x]"]
+same_k_as = ["notation/equation/result/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/equation/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , hold ( SetItem(V0:KItem) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/equation/subject-depth-2/set![x]"]
+same_k_as = ["notation/equation/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , hold ( SetItem(V0:KItem) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/equation/subject/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , SetItem(V0:KItem) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/equation/subject/set![x]"]
+same_k_as = ["notation/equation/subject/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , SetItem(V0:KItem) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/init/item-depth-2/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( .Map [ 0 <- 1 ] ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/item-depth-2/map![0 -> 1]"]
+same_k_as = ["notation/init/item-depth-2/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( .Map [ 0 <- 1 ] ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> .Map [ 0 <- 1 ] </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/item-root/map![0 -> 1]"]
+same_k_as = ["notation/init/item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> .Map [ 0 <- 1 ] </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/item/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( .Map [ 0 <- 1 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/item/map![0 -> 1]"]
+same_k_as = ["notation/init/item/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( .Map [ 0 <- 1 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/local-rule/subject/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( (V0:KItem => go) , SetItem(V0:KItem) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/local-rule/subject/rewrite-left/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( (V0:KItem => go) , (SetItem(V0:KItem) => go) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/local-rule/subject/rewrite-left/set![x]"]
+same_k_as = ["notation/local-rule/subject/rewrite-left/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( (V0:KItem => go) , (SetItem(V0:KItem) => go) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/local-rule/subject/rewrite-right/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( (V0:KItem => go) , (_ => .Map [ 0 <- 1 ]) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/local-rule/subject/rewrite-right/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( (V0:KItem => go) , (_ => SetItem(V0:KItem)) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/local-rule/subject/rewrite-right/map![0 -> 1]"]
+same_k_as = ["notation/local-rule/subject/rewrite-right/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( (V0:KItem => go) , (_ => .Map [ 0 <- 1 ]) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/local-rule/subject/rewrite-right/set![x]"]
+same_k_as = ["notation/local-rule/subject/rewrite-right/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( (V0:KItem => go) , (_ => SetItem(V0:KItem)) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/local-rule/subject/set![x]"]
+same_k_as = ["notation/local-rule/subject/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( (V0:KItem => go) , SetItem(V0:KItem) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/collection-child/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<pool>
+<member>
+<item> hold ( SetItem(V0:KItem) ) </item>
+</member>
+...
+</pool>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/collection-child/set![x]"]
+same_k_as = ["notation/readable/collection-child/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<pool>
+<member>
+<item> hold ( SetItem(V0:KItem) ) </item>
+</member>
+...
+</pool>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/cons-element/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<seq> cons ( SetItem(V0:KItem) , V1:Items ) </seq>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/cons-element/set![x]"]
+same_k_as = ["notation/readable/cons-element/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<seq> cons ( SetItem(V0:KItem) , V1:Items ) </seq>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/item-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/item-root/set![x]"]
+same_k_as = ["notation/readable/item-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) ~> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/list-element/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(SetItem(V0:KItem)) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/list-element/set![x]"]
+same_k_as = ["notation/readable/list-element/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(SetItem(V0:KItem)) ... </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key-child/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<row>
+<id> hold ( SetItem(V0:KItem) ) </id>
+<value> go </value>
+</row>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key-child/set![x]"]
+same_k_as = ["notation/readable/map-key-child/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<row>
+<id> hold ( SetItem(V0:KItem) ) </id>
+<value> go </value>
+</row>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/as-body/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/as-body/set![x]"]
+same_k_as = ["notation/readable/map-key/as-body/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/beside-fresh/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> pair ( SetItem(V0:KItem) , V1:KItem ) |-> V2:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/beside-fresh/set![x]"]
+same_k_as = ["notation/readable/map-key/beside-fresh/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> pair ( SetItem(V0:KItem) , V1:KItem ) |-> V2:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/function-argument/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> size ( .Map [ 0 <- 1 ] ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/function-argument/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> size ( SetItem(V0:KItem) ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/function-argument/map![0 -> 1]"]
+same_k_as = ["notation/readable/map-key/function-argument/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> size ( .Map [ 0 <- 1 ] ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/function-argument/set![x]"]
+same_k_as = ["notation/readable/map-key/function-argument/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> size ( SetItem(V0:KItem) ) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> .Map [ 0 <- 1 ] |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> SetItem(V0:KItem) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+
+[accept."notation/readable/map-key/let-body/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/let-body/map![0 -> 1]"]
+same_k_as = ["notation/readable/map-key/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+
+[accept."notation/readable/map-key/let-body/set![x]"]
+same_k_as = ["notation/readable/map-key/let-body/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/let-pattern/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/let-pattern/set![x]"]
+same_k_as = ["notation/readable/map-key/let-pattern/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/map![0 -> 1]"]
+same_k_as = ["notation/readable/map-key/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> .Map [ 0 <- 1 ] |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/matches-pattern/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/matches-pattern/set![x]"]
+same_k_as = ["notation/readable/map-key/matches-pattern/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/or-branch/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/or-branch/set![x]"]
+same_k_as = ["notation/readable/map-key/or-branch/k::builtin::set::item(x)"]
+
+[accept."notation/readable/map-key/set![x]"]
+same_k_as = ["notation/readable/map-key/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<env> SetItem(V0:KItem) |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/update-field/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => .K ... </k>
+<env> pair ( .Map [ 0 <- 1 ] , V1:KItem ) |-> V2:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/update-field/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => .K ... </k>
+<env> pair ( SetItem(V0:KItem) , V1:KItem ) |-> V2:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/update-field/map![0 -> 1]"]
+same_k_as = ["notation/readable/map-key/update-field/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => .K ... </k>
+<env> pair ( .Map [ 0 <- 1 ] , V1:KItem ) |-> V2:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-key/update-field/set![x]"]
+same_k_as = ["notation/readable/map-key/update-field/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => .K ... </k>
+<env> pair ( SetItem(V0:KItem) , V1:KItem ) |-> V2:KItem ... </env>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-value-child/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<row>
+<id> go </id>
+<value> hold ( SetItem(V0:KItem) ) </value>
+</row>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/map-value-child/set![x]"]
+same_k_as = ["notation/readable/map-value-child/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<row>
+<id> go </id>
+<value> hold ( SetItem(V0:KItem) ) </value>
+</row>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result-item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result-item-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result-item-root/map![0 -> 1]"]
+same_k_as = ["notation/readable/result-item-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result-item-root/set![x]"]
+same_k_as = ["notation/readable/result-item-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result-list-element/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(.Map [ 0 <- 1 ]) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result-list-element/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(SetItem(V0:KItem)) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result-list-element/map![0 -> 1]"]
+same_k_as = ["notation/readable/result-list-element/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(.Map [ 0 <- 1 ]) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result-list-element/set![x]"]
+same_k_as = ["notation/readable/result-list-element/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<stack> ListItem(_) V1:List => ListItem(SetItem(V0:KItem)) V1:List </stack>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result/map![0 -> 1]"]
+same_k_as = ["notation/readable/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/result/set![x]"]
+same_k_as = ["notation/readable/result/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/set-instance-child/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+
+[accept."notation/readable/set-instance-child/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( SetItem(V0:KItem) ) </mark>
+</token>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/set-instance-child/map![0 -> 1]"]
+same_k_as = ["notation/readable/set-instance-child/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+
+[accept."notation/readable/set-instance-child/set![x]"]
+same_k_as = ["notation/readable/set-instance-child/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+<token>
+<mark> hold ( SetItem(V0:KItem) ) </mark>
+</token>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( SetItem(V0:KItem) ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/subject-depth-2/set![x]"]
+same_k_as = ["notation/readable/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( SetItem(V0:KItem) ) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/subject/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/readable/subject/set![x]"]
+same_k_as = ["notation/readable/subject/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/guard/let-pattern/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires ( #let SetItem(V1:KItem) = V0:KItem #in true ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/guard/let-pattern/set![x]"]
+same_k_as = ["notation/rule/guard/let-pattern/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+requires ( #let SetItem(V1:KItem) = V0:KItem #in true ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/result-root/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/result-root/map![0 -> 1]"]
+same_k_as = ["notation/rule/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/result-root/set![x]"]
+same_k_as = ["notation/rule/result-root/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/result/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/result/map![0 -> 1]"]
+same_k_as = ["notation/rule/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/result/set![x]"]
+same_k_as = ["notation/rule/result/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( SetItem(V0:KItem) ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-depth-2/set![x]"]
+same_k_as = ["notation/rule/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , hold ( SetItem(V0:KItem) ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-root/k::builtin::set::item(x)"]
+k = """
+rule SetItem(V0:KItem) => go [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject-root/set![x]"]
+same_k_as = ["notation/rule/subject-root/k::builtin::set::item(x)"]
+k = """
+rule SetItem(V0:KItem) => go [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/as-body/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , ( SetItem(V0:KItem) #as V1:KItem ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/as-body/set![x]"]
+same_k_as = ["notation/rule/subject/as-body/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , ( SetItem(V0:KItem) #as V1:KItem ) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/set![x]"]
+same_k_as = ["notation/rule/subject/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/set-element-beside-fresh/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(pair ( SetItem(V0:KItem) , V1:KItem )) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/set-element-beside-fresh/set![x]"]
+same_k_as = ["notation/rule/subject/set-element-beside-fresh/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(pair ( SetItem(V0:KItem) , V1:KItem )) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/set-element/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(.Map [ 0 <- 1 ]) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/set-element/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(SetItem(V0:KItem)) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/set-element/map![0 -> 1]"]
+same_k_as = ["notation/rule/subject/set-element/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(.Map [ 0 <- 1 ]) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/rule/subject/set-element/set![x]"]
+same_k_as = ["notation/rule/subject/set-element/k::builtin::set::item(x)"]
+k = """
+rule cTAG ( V0:KItem , SetItem(SetItem(V0:KItem)) ) => hold ( V0:KItem ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/shorthand/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule fTAG ( V0:KItem ) => .Map [ 0 <- 1 ] [label(krsRule_DIGEST)]
+
+syntax KItem ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/shorthand/result-root/k::builtin::set::item(x)"]
+k = """
+rule fTAG ( V0:KItem ) => SetItem(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/shorthand/result-root/map![0 -> 1]"]
+same_k_as = ["notation/shorthand/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule fTAG ( V0:KItem ) => .Map [ 0 <- 1 ] [label(krsRule_DIGEST)]
+
+syntax KItem ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/shorthand/result-root/set![x]"]
+same_k_as = ["notation/shorthand/result-root/k::builtin::set::item(x)"]
+k = """
+rule fTAG ( V0:KItem ) => SetItem(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax KItem ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/shorthand/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/shorthand/result/k::builtin::set::item(x)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/shorthand/result/map![0 -> 1]"]
+same_k_as = ["notation/shorthand/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/shorthand/result/set![x]"]
+same_k_as = ["notation/shorthand/result/k::builtin::set::item(x)"]
+k = """
+rule fTAG ( V0:KItem ) => size ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/simplification/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => .Map [ 0 <- 1 ] [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/result-root/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/result-root/map![0 -> 1]"]
+same_k_as = ["notation/simplification/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => .Map [ 0 <- 1 ] [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/result-root/set![x]"]
+same_k_as = ["notation/simplification/result-root/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => SetItem(V0:KItem) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( .Map [ 0 <- 1 ] ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/result/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( SetItem(V0:KItem) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/result/map![0 -> 1]"]
+same_k_as = ["notation/simplification/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( .Map [ 0 <- 1 ] ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/result/set![x]"]
+same_k_as = ["notation/simplification/result/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( SetItem(V0:KItem) ) [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+
+[accept."notation/simplification/subject-root/map![0 -> 1]"]
+same_k_as = ["notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+
+[accept."notation/simplification/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , .Map [ 0 <- 1 ] ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/subject/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , SetItem(V0:KItem) ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/subject/map![0 -> 1]"]
+same_k_as = ["notation/simplification/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , .Map [ 0 <- 1 ] ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/simplification/subject/set![x]"]
+same_k_as = ["notation/simplification/subject/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , SetItem(V0:KItem) ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/sort-rule/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result-root/map![0 -> 1]"]
+same_k_as = ["notation/sort-rule/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .Map [ 0 <- 1 ] ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result-root/set![x]"]
+same_k_as = ["notation/sort-rule/result-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => SetItem(V0:KItem) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/function-argument/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( size ( .Map [ 0 <- 1 ] ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/function-argument/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( size ( SetItem(V0:KItem) ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/function-argument/map![0 -> 1]"]
+same_k_as = ["notation/sort-rule/result/function-argument/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( size ( .Map [ 0 <- 1 ] ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/function-argument/set![x]"]
+same_k_as = ["notation/sort-rule/result/function-argument/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( size ( SetItem(V0:KItem) ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in .Map [ 0 <- 1 ] ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/let-body/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in SetItem(V0:KItem) ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/let-body/map![0 -> 1]"]
+same_k_as = ["notation/sort-rule/result/let-body/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in .Map [ 0 <- 1 ] ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/let-body/set![x]"]
+same_k_as = ["notation/sort-rule/result/let-body/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let V1:KItem = V0:KItem #in SetItem(V0:KItem) ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/let-pattern/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let SetItem(V1:KItem) = V0:KItem #in V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/let-pattern/set![x]"]
+same_k_as = ["notation/sort-rule/result/let-pattern/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( ( #let SetItem(V1:KItem) = V0:KItem #in V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/map![0 -> 1]"]
+same_k_as = ["notation/sort-rule/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( .Map [ 0 <- 1 ] ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/set![x]"]
+same_k_as = ["notation/sort-rule/result/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( SetItem(V0:KItem) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/update-field/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => hold ( pair ( .Map [ 0 <- 1 ] , V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/update-field/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => hold ( pair ( SetItem(V0:KItem) , V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/update-field/map![0 -> 1]"]
+same_k_as = ["notation/sort-rule/result/update-field/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => hold ( pair ( .Map [ 0 <- 1 ] , V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/result/update-field/set![x]"]
+same_k_as = ["notation/sort-rule/result/update-field/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , pair ( _ , V1:KItem ) ) => hold ( pair ( SetItem(V0:KItem) , V1:KItem ) ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( SetItem(V0:KItem) ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/subject-depth-2/set![x]"]
+same_k_as = ["notation/sort-rule/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , hold ( SetItem(V0:KItem) ) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/subject-root-term/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/subject-root-term/set![x]"]
+same_k_as = ["notation/sort-rule/subject-root-term/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/subject-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/subject-root/set![x]"]
+same_k_as = ["notation/sort-rule/subject-root/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> SetItem(V0:KItem) => go ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/subject/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/sort-rule/subject/set![x]"]
+same_k_as = ["notation/sort-rule/subject/k::builtin::set::item(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , SetItem(V0:KItem) ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."notation/table/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/table/result/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/table/result/map![0 -> 1]"]
+same_k_as = ["notation/table/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( .Map [ 0 <- 1 ] ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/table/result/set![x]"]
+same_k_as = ["notation/table/result/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => size ( SetItem(V0:KItem) ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/table/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , hold ( SetItem(V0:KItem) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/table/subject-depth-2/set![x]"]
+same_k_as = ["notation/table/subject-depth-2/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , hold ( SetItem(V0:KItem) ) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/table/subject/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , SetItem(V0:KItem) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."notation/table/subject/set![x]"]
+same_k_as = ["notation/table/subject/k::builtin::set::item(x)"]
+k = """
+rule probe ( cTAG , SetItem(V0:KItem) ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
