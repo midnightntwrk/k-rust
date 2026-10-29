@@ -59,6 +59,13 @@ open = []
 overlaps = 0
 unwitnessed = 0
 
+[lib.vmpri]
+tier = "light"
+stated = 97
+open = []
+overlaps = 0
+unwitnessed = 0
+
 [lib.coro]
 tier = "light"
 stated = 100
@@ -103,6 +110,13 @@ auto = 11
 open = []
 guarded = 5
 
+[inv.vmpri]
+tier = "light"
+cases = 12
+auto = 12
+open = []
+guarded = 5
+
 [inv.coro]
 tier = "light"
 cases = 8
@@ -132,6 +146,14 @@ auto = 30
 open = []
 refuted = ["Progress.case.«Instr.pop»"]
 guarded = 9
+
+[prog.vmpri]
+tier = "light"
+cases = 31
+auto = 31
+open = []
+refuted = []
+guarded = 8
 
 [prog.coro]
 tier = "light"
@@ -354,6 +376,29 @@ guarded = 41
 "generated/vm/invariant-unfold.txt" = { tier = "light", sha256 = "e6e5d5e1bd190a5294f30ca71a44a12f2f037662c7610274cc5c2812ce09a35b" }
 "generated/vm/lakefile.lean" = { tier = "light", sha256 = "c06abcea947746a24ec1d2546c99cb8208cd9d2f2dfccc4bfceb5575cd49770c" }
 "generated/vm/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/vmpri/KVmPri.lean" = { tier = "light", sha256 = "f133add949cfb1526736844fb45963e4608ac6f2f39da986d83eca2c189eeb3d" }
+"generated/vmpri/KVmPri/Adequacy.lean" = { tier = "light", sha256 = "e588f254bd611dcc2620ca06759a214f852e5ae4f8b02038cca276decd0b3e85" }
+"generated/vmpri/KVmPri/Determinism.lean" = { tier = "light", sha256 = "a54bf85615b0105512de4104161ea86163195a9491f574f4ca06c5401b37d6af" }
+"generated/vmpri/KVmPri/Determinism/L1.lean" = { tier = "light", sha256 = "767d132a93633cab4d976bc2fcc63167c25008e37fd85aed85c93d71458cf856" }
+"generated/vmpri/KVmPri/Determinism/Pre.lean" = { tier = "light", sha256 = "99af4a7bae6bb052cc0263fb83f851ea7be5b5c148032fea7d7f27afe039e96c" }
+"generated/vmpri/KVmPri/EqBase.lean" = { tier = "light", sha256 = "f87f408a2ebe101bf228714937ef330d811190b9ec37e7eb166df2eb80af9b95" }
+"generated/vmpri/KVmPri/Equations.lean" = { tier = "light", sha256 = "574a12d4ad2ed88e211a3e3272e289de578d5823d57cc22dec1b96e9ea0faa2d" }
+"generated/vmpri/KVmPri/Functions.lean" = { tier = "light", sha256 = "38ee8b38ae576229b6d0dfa64025e2dbba509d75319497d1176adb4c56a76d08" }
+"generated/vmpri/KVmPri/Init.lean" = { tier = "light", sha256 = "6030b3632ce2de688d97e1ac76df91064cedaf55b6786d037d184d74639775a1" }
+"generated/vmpri/KVmPri/InvariantDefs.lean" = { tier = "light", sha256 = "e959275aac3a7110852e5965e9d8202e7e2c3f0d2bd2550b127eb5793c52ffb6" }
+"generated/vmpri/KVmPri/Invariants.lean" = { tier = "light", sha256 = "03fc9d1b5e5dff99916687d625d9a09298641f679512f72ea3e10ac06bf94f8d" }
+"generated/vmpri/KVmPri/Preserves.lean" = { tier = "light", sha256 = "ef7320815d9984bfb0be0e1fa25d50dbdd8dc1243ce565bf77bccb0f53c3b4a7" }
+"generated/vmpri/KVmPri/Progress.lean" = { tier = "light", sha256 = "98c7ecd3f3557d5cbebf4d39b1719e709560ee17170862b213b3213d6cc7e4aa" }
+"generated/vmpri/KVmPri/ProgressDefs.lean" = { tier = "light", sha256 = "b4827335d51506bfd63f9063830b0b0ecc973f26353b03347515d013f1746a9f" }
+"generated/vmpri/KVmPri/Rules.lean" = { tier = "light", sha256 = "7b4c44dd074c230ffa19dca3d4908bede88300b9e1c565ba60db0d18016c59d5" }
+"generated/vmpri/KVmPri/Terms.lean" = { tier = "light", sha256 = "c54ff4e3af79b9de6f77d667a0930790ad529a59b338de05a59b9bcb012263b5" }
+"generated/vmpri/KVmPriBench/Main.lean" = { tier = "light", sha256 = "1cf41150f86fcbace65e7e268ec4aff29f725cd86b8ec8936560f68eed288693" }
+"generated/vmpri/KVmPriTest/Axioms.lean" = { tier = "light", sha256 = "c87414f9e174b77f213d0cdc71213b7ce98578d68f1ca3766c87212a47b304bb" }
+"generated/vmpri/KVmPriTest/DetAxioms.lean" = { tier = "light", sha256 = "de0655c8604266fcfa4fc0c50206ac248768f4da6c0975b5e50961014e7fdf7b" }
+"generated/vmpri/KVmPriTest/Main.lean" = { tier = "light", sha256 = "172f872c97ca3fec80b835a6cea84d46dcf37e9b99d37f32ef54f6f7a3267426" }
+"generated/vmpri/invariant-unfold.txt" = { tier = "light", sha256 = "82ab7b1c74f7e0a64109c87b1043a7ffd6e5f430ab1fa36d36b952db4847303a" }
+"generated/vmpri/lakefile.lean" = { tier = "light", sha256 = "3d163ef31915acb12589b50ee9765660bd0a6492a42a659200a925b4fdc4b965" }
+"generated/vmpri/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/vmstuck/KVmStuck.lean" = { tier = "light", sha256 = "8bddc36866b7daa23139d38cd8d68261b1d1e51dfbdaad17979fd55cb62c058c" }
 "generated/vmstuck/KVmStuck/Adequacy.lean" = { tier = "light", sha256 = "13d5ffa1391bae5d6804cb10dc7b2dbf958827ef253d4702807b048855e4607b" }
 "generated/vmstuck/KVmStuck/Determinism.lean" = { tier = "light", sha256 = "8470bde659b865572231e08ad6cf94151193c9840d1ed524bbd55cd4e48e6511" }
