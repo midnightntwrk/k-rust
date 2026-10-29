@@ -11,7 +11,7 @@
 #                                           when it exists, kmir-termination.toml) into $OUT/lib, with
 #                                           lean -j $LEAN_J for every module Lake builds
 #   k2lean/pipelines/kmir.sh build [T...]   lake build of each target in turn (default: Terms, Functions,
-#                                           Rules, Adequacy), with the wall and CPU time, peak memory
+#                                           Rules, Adequacy's parts, Adequacy), with the wall and CPU time, peak memory
 #                                           and load of each in $OUT/logs/times.tsv and its log in
 #                                           $OUT/logs/build-T.log
 #   k2lean/pipelines/kmir.sh det            the determinism modules one at a time, as `build` does, then
@@ -100,7 +100,11 @@ case $step in
     [ -f "$lib/lakefile.lean" ] || { echo "kmir.sh: run the gen step first" >&2; exit 2; }
     targets=("$@")
     if [ ${#targets[@]} = 0 ] && [ "$step" = build ]; then
-      targets=(KMir.Terms KMir.Functions KMir.Rules KMir.Adequacy)
+      targets=(KMir.Terms KMir.Functions KMir.Rules)
+      # the parts of Adequacy one at a time (Lake would build them in parallel), then Adequacy
+      n=$(find "$lib/KMir/Adequacy" -name 'Part*.lean' 2> /dev/null | wc -l)
+      for i in $(seq "$n"); do targets+=("KMir.Adequacy.Part$i"); done
+      targets+=(KMir.Adequacy)
     elif [ ${#targets[@]} = 0 ]; then
       n=$(find "$lib/KMir/Equations" -name 'Part*.lean' 2> /dev/null | wc -l)
       for i in $(seq "$n"); do targets+=("KMir.Equations.Part$i"); done

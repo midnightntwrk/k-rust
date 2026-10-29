@@ -52,11 +52,13 @@ gen_core() {
     # kimp with one exclusive pair of rules listed as overlapping (`--det2-overlap`), so that the
     # conditional statements of determinism (`Step.deterministic_of`) are built too;
     # and its Equations in parts of weight at most 30 (kimp's whole is 84), so that the parts, their
-    # aggregating module and `open-from-log` over them are built and checked against kimp's counts
+    # aggregating module and `open-from-log` over them are built and checked against kimp's counts;
+    # and its Adequacy in parts of at most 30 rules (kimp has 79), built under the same guard
     kimp-d2) GEN_ARGS=(--kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json"
             --out "$o" --name KImp --prelude ../../lean
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt"
-            --det2 --det2-overlap "IMP.if-true,IMP.if-false" --equations-part-weight 30) ;;
+            --det2 --det2-overlap "IMP.if-true,IMP.if-false" --equations-part-weight 30
+            --adequacy-part-rules 30) ;;
     krsimp) GEN_ARGS=(--kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json") ;;
     # a definition with two genuine overlaps (witnessed; one reads a map cell), one joinable pair

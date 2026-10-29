@@ -13,10 +13,10 @@
 #                                           termination-subset.py, heartbeats-subset.py); Rules.lean
 #                                           split into $RULE_MODULES matcher
 #                                           modules (split-rules.py); lean -j $LEAN_J for every module
-#                                           Lake builds; Adequacy bounded to $ADQ_HB heartbeats per
+#                                           Lake builds; Adequacy (and its parts) bounded to $ADQ_HB heartbeats per
 #                                           declaration (a runaway lemma fails instead of running on)
 #   k2lean/pipelines/kevm.sh build [T...]   lake build of each target in turn (default: Terms, Functions,
-#                                           RulesRel, the matcher modules, Rules, Adequacy), with the
+#                                           RulesRel, the matcher modules, Rules, Adequacy's parts, Adequacy), with the
 #                                           wall and CPU time, peak memory and load of each in
 #                                           $OUT/logs/times.tsv and its log in $OUT/logs/build-T.log
 #   k2lean/pipelines/kevm.sh equations [P...] lake build of each module of Equations in turn (default:
@@ -112,7 +112,8 @@ case $step in
     python3 -I "$here/split-rules.py" "$lib" KEvm "$RULE_MODULES"
     sed -i 's/^  leanOptions := #\[⟨`autoImplicit, false⟩\]$/&\n  moreLeanArgs := #["-j", "'"$LEAN_J"'"]/' "$lib/lakefile.lean"
     grep -q moreLeanArgs "$lib/lakefile.lean"
-    sed -i "s/^set_option maxHeartbeats 0$/set_option maxHeartbeats $ADQ_HB/" "$lib/KEvm/Adequacy.lean"
+    sed -i "s/^set_option maxHeartbeats 0$/set_option maxHeartbeats $ADQ_HB/" "$lib/KEvm/Adequacy.lean" \
+      $(find "$lib/KEvm/Adequacy" -name 'Part*.lean' 2> /dev/null)
     grep -E '^(generated|determinism:)' "$logs/gen.log" || true
     ;;
   build|equations)
@@ -121,7 +122,11 @@ case $step in
     if [ ${#targets[@]} = 0 ] && [ "$step" = build ]; then
       targets=(KEvm.Terms KEvm.Functions KEvm.RulesRel)
       for i in $(seq "$RULE_MODULES"); do targets+=("KEvm.RulesM$i"); done
-      targets+=(KEvm.Rules KEvm.Adequacy)
+      targets+=(KEvm.Rules)
+      # the parts of Adequacy one at a time (Lake would build them in parallel), then Adequacy
+      n=$(find "$lib/KEvm/Adequacy" -name 'Part*.lean' 2> /dev/null | wc -l)
+      for i in $(seq "$n"); do targets+=("KEvm.Adequacy.Part$i"); done
+      targets+=(KEvm.Adequacy)
     elif [ ${#targets[@]} = 0 ]; then
       n=$(find "$lib/KEvm/Equations" -name 'Part*.lean' 2> /dev/null | wc -l)
       for i in $(seq "$n"); do targets+=("KEvm.Equations.Part$i"); done

@@ -55,6 +55,11 @@ pub const LEAN_TOOLCHAIN: &str = "leanprover/lean4:v4.34.0\n";
 /// `gen --equations-part-weight`).
 pub const EQUATIONS_PART_WEIGHT: usize = 2000;
 
+/// The default bound on the rules whose lemmas one module of `Adequacy` holds
+/// (`rules::Adequacy::modules`, `gen --adequacy-part-rules`): above every gate library's (169 for
+/// SIMPLE), below KEVM's 626 and KMIR's 262 (CT-4c).
+pub const ADEQUACY_PART_RULES: usize = 200;
+
 struct Args {
     cmd: String,
     kore: PathBuf,
@@ -111,6 +116,25 @@ fn write(path: &PathBuf, text: &str) {
         std::fs::create_dir_all(dir).unwrap();
     }
     std::fs::write(path, text).unwrap();
+}
+
+/// `NS/Adequacy.lean`, with its parts when its rules are more than `max_rules`
+/// (`rules::Adequacy::modules`); the parts of an earlier generation go first, so that a part no
+/// longer generated is not left behind.
+fn write_adequacy(
+    out: &std::path::Path,
+    ns: &str,
+    adequacy: rules::Adequacy,
+    max_rules: usize,
+    params: &[(String, Vec<String>, String)],
+) {
+    let _ = std::fs::remove_dir_all(out.join(ns).join("Adequacy"));
+    for (path, text) in adequacy.modules(ns, max_rules) {
+        write(
+            &out.join(ns).join(format!("{path}.lean")),
+            &with_hooks(text, ns, params),
+        );
+    }
 }
 
 /// The Lean files of a generated module: the file itself and, for an `Equations.lean` written in
@@ -446,6 +470,15 @@ fn main() {
                 &out.join(ns).join("Functions.lean"),
                 &functions_module(ns, &fgen, &size_instances),
             );
+            // the lemmas of at most this many rules in one module of `Adequacy`
+            let adequacy_rules = match a.rest.iter().position(|x| x == "--adequacy-part-rules") {
+                Some(i) => a.rest[i + 1]
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|w| *w > 0)
+                    .expect("--adequacy-part-rules: a positive integer"),
+                None => ADEQUACY_PART_RULES,
+            };
             if multi {
                 write(
                     &out.join(ns).join("Rules.lean"),
@@ -455,13 +488,12 @@ fn main() {
                         &fgen.params,
                     ),
                 );
-                write(
-                    &out.join(ns).join("Adequacy.lean"),
-                    &with_hooks(
-                        multi::emit_adequacy(&rs, &prios, &top, ns, &rules::ctor_info(&m)),
-                        ns,
-                        &fgen.params,
-                    ),
+                write_adequacy(
+                    &out,
+                    ns,
+                    multi::emit_adequacy(&rs, &prios, &top, ns, &rules::ctor_info(&m)),
+                    adequacy_rules,
+                    &fgen.params,
                 );
                 let report = format!(
                     "{} of the {} rewrite rules have a map pattern with a free key (a match per binding, e.g. per thread),\nso `Step` is not deterministic in general.",
@@ -509,13 +541,12 @@ fn main() {
                         &fgen.params,
                     ),
                 );
-                write(
-                    &out.join(ns).join("Adequacy.lean"),
-                    &with_hooks(
-                        ranked::emit_adequacy(&rs, &prios, &top, ns, &rules::ctor_info(&m)),
-                        ns,
-                        &fgen.params,
-                    ),
+                write_adequacy(
+                    &out,
+                    ns,
+                    ranked::emit_adequacy(&rs, &prios, &top, ns, &rules::ctor_info(&m)),
+                    adequacy_rules,
+                    &fgen.params,
                 );
             } else {
                 write(
@@ -526,13 +557,12 @@ fn main() {
                         &fgen.params,
                     ),
                 );
-                write(
-                    &out.join(ns).join("Adequacy.lean"),
-                    &with_hooks(
-                        rules::emit_adequacy(&rs, &top, ns, &unfold, &rules::ctor_info(&m)),
-                        ns,
-                        &fgen.params,
-                    ),
+                write_adequacy(
+                    &out,
+                    ns,
+                    rules::emit_adequacy(&rs, &top, ns, &unfold, &rules::ctor_info(&m)),
+                    adequacy_rules,
+                    &fgen.params,
                 );
             }
             // determinism along the rule index, modulo the overlapping pairs (`det2`), for every

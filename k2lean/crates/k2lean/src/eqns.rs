@@ -1368,7 +1368,7 @@ obligation (a `Prop` definition, not an axiom). -/\n"
 /// functions: 173 equations, each failing one taking minutes and about 1 GB) would put all of
 /// those proofs in one module, where Lean elaborates them concurrently. Spreading the statements
 /// over the parts this way gives each part a share of every function's statements.
-fn parts(weights: &[usize], max_weight: usize) -> Vec<Vec<usize>> {
+pub(crate) fn parts(weights: &[usize], max_weight: usize) -> Vec<Vec<usize>> {
     let total: usize = weights.iter().sum();
     let mut n = total.div_ceil(max_weight).max(1);
     loop {
