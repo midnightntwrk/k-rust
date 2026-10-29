@@ -1330,3 +1330,54 @@ fn progress_at_a_cell_map_states_a_case_per_element_head_above_which_every_eleme
             .contains("the ending's cell must be in the same elements")
     );
 }
+
+/// `gen --invariant` at `init` when a cell holds configuration variables under constructors
+/// (`<k> $PGM </k>` is `$PGM ~> .K`; in `coro`, the one `<proc>` of the cell map holds it): the part
+/// is proved by computation for every program, with no hypothesis and no hand obligation; once
+/// `init` is listed (its proof failed, `open-from-log`), the part's predicate at the content, written
+/// as the term, is the hypothesis instead, and the list keeps it.
+#[test]
+fn invariant_init_over_configuration_variables_is_computed_or_its_content_is_the_hypothesis() {
+    for (fx, ns, hyp) in [
+        (
+            "vm",
+            "KVm",
+            "(h_kOk : K.«kOk(_)_VM_Bool_K» (SortK.kseq (SortKItem.inj_Pgm pgm) SortK.dotk : SortK) = some true)",
+        ),
+        (
+            "coro",
+            "Coro",
+            "(h_kOk : KPrelude.MapHook.EntriesOn Invariant.kOk_elem (KPrelude.MapHook.element (SortPidCell.«<pid>» SortPid.root) (SortProcCell.«<proc>» (SortPidCell.«<pid>» SortPid.root) (SortNonceCell.«<nonce>» (0 : Int)) (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm pgm) SortK.dotk))) : SortProcCellMap))",
+        ),
+    ] {
+        let d = tmp(&format!("cli-init-{fx}"));
+        let o = gen_progress(fx, &d, ns, &["--invariant", "kOk@k"]);
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let thms = std::fs::read_to_string(d.join(ns).join("Invariants.lean")).unwrap();
+        assert!(
+            thms.contains("theorem Invariant.init_holds (pgm : SortPgm) :\n    Invariant (init pgm) :=\n  (by simp only [Invariant, Invariant.kOk,"),
+            "{thms}"
+        );
+        assert!(
+            !thms.contains("Invariant.hand.init")
+                && !thms.contains(&format!("import {ns}.InvariantsHand"))
+        );
+        assert!(!d.join(ns).join("InvariantsHand.lean").exists());
+
+        std::fs::write(d.join("open-invariant-cases.txt"), "Invariant.init_holds\n").unwrap();
+        for _ in 0..2 {
+            let o = gen_progress(fx, &d, ns, &["--invariant", "kOk@k"]);
+            assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+            let thms = std::fs::read_to_string(d.join(ns).join("Invariants.lean")).unwrap();
+            assert!(
+                thms.contains(&format!("theorem Invariant.init_holds (pgm : SortPgm) {hyp} :\n    Invariant (init pgm) :=\n  h_kOk\n")),
+                "{thms}"
+            );
+            assert!(thms.contains("Invariant.preserved.star h (Invariant.init_holds pgm h_kOk)"));
+            assert!(!thms.contains("Invariant.hand.init"));
+            assert!(!d.join(ns).join("InvariantsHand.lean").exists());
+            let open = std::fs::read_to_string(d.join("open-invariant-cases.txt")).unwrap();
+            assert!(open.lines().any(|l| l.starts_with("init | ")), "{open}");
+        }
+    }
+}

@@ -99,9 +99,15 @@
 //!
 //! **Initial configurations.** `init` (`{ns}/Init.lean`) has one parameter per configuration
 //! variable. A part whose cell holds a configuration variable in `init` holds there exactly when
-//! the part's predicate holds of that variable, which becomes a hypothesis of `Invariant.init_holds`; a
-//! part whose cell holds a closed term is proved by computation; any other part makes the init
-//! theorem an obligation (`init` in `open-invariant-cases.txt`, `Invariant.hand.init`). The corollaries
+//! the part's predicate holds of that variable, which becomes a hypothesis of `Invariant.init_holds`
+//! (a predicate true of every value of the cell's sort would say nothing); a part whose cell holds a
+//! closed term is proved by computation. A part whose cell holds configuration variables under
+//! constructors (`<k> $PGM </k>` is `$PGM ~> .K`, a literal of cell-collection elements holding one) is
+//! proved by the same computation, for every value of the variables: a predicate may be decided by
+//! their sorts. When that proof fails (`init` in `open-invariant-cases.txt`, by `open-from-log`), the
+//! part's predicate at the content, written as the term, becomes the hypothesis instead: the meaning
+//! of the init case, which the proof strengthens when it succeeds. A cell that cannot be read
+//! (`Invariant.hand.init`, listed as `init`) makes the theorem an obligation. The corollaries
 //! `Invariant.star` and `Invariant.stepsN` say that every configuration reachable from `init` satisfies `Invariant`.
 
 use crate::funcs::Equation;
@@ -3561,12 +3567,15 @@ KPrelude.MapHook.entriesOn_of_range (f := fun a => {}) (key := fun a => {})\n   
     // ---------------------------------------------------------------- the cases
     let rule_names: BTreeSet<String> = cx.ctors.iter().map(|c| c.lean.clone()).collect();
     let mut open: BTreeSet<String> = BTreeSet::new();
+    // `init` listed: the generic proof of the initial case failed, so a part whose cell starts
+    // with a term over configuration variables takes its predicate at that term as a hypothesis
+    let mut init_listed = false;
     for o in open_in {
         let o = o.strip_prefix("Invariant.case.").unwrap_or(o);
         if rule_names.contains(o) {
             open.insert(o.to_string());
         } else if o == "init" || o == "Invariant.init_holds" || o == "init_holds" {
-            open.insert("init".into());
+            init_listed = true;
         } else {
             notes.push(format!(
                 "open-invariant-cases: {o} is not a rule of the definition (ignored)"
@@ -3578,6 +3587,15 @@ KPrelude.MapHook.entriesOn_of_range (f := fun a => {}) (key := fun a => {})\n   
     let mut init_hyps: Vec<(String, String)> = Vec::new(); // (name, type)
     let mut init_terms: Vec<String> = Vec::new();
     let mut init_ok = cx.init.is_some();
+    // the proof by computation of a part at init: with no configuration variable in its cell, or
+    // with some, for every value of them (a `Pgm` item of `<k>` that the predicate accepts by its
+    // sort)
+    let computed = format!(
+        "(by simp only [Invariant, {}, init]; first | rfl | decide | (k2l_coll_close [{}]) | (simp [{}]; done))",
+        simp.join(", "),
+        simp.join(", "),
+        simp.join(", ")
+    );
     if let Some((it, params)) = &cx.init {
         let by_var: BTreeMap<&str, &str> = it
             .vars
@@ -3585,6 +3603,19 @@ KPrelude.MapHook.entriesOn_of_range (f := fun a => {}) (key := fun a => {})\n   
             .zip(params)
             .map(|(v, (n, _, _))| (v.kore_var.as_str(), n.as_str()))
             .collect();
+        // the part's predicate at its cell's content in init, written as the term itself
+        let at_content = |p: &Part, t: &P| -> Option<String> {
+            let (sym, i) = p.kore_path.last()?;
+            let sort = m.ctors.get(sym)?.args.get(*i)?;
+            let mut lw = Lower::new(m, cx.fns, &[]);
+            for (v, n) in &by_var {
+                lw.vars.insert(v.to_string(), n.to_string());
+            }
+            let e = lw.expr(t, sort).ok()?;
+            lw.steps
+                .is_empty()
+                .then(|| (p.pred)(&format!("({} : {sort})", e.render())))
+        };
         for p in &parts {
             let mut t = &it.term;
             let mut found = true;
@@ -3637,15 +3668,27 @@ KPrelude.MapHook.entriesOn_of_range (f := fun a => {}) (key := fun a => {})\n   
                 }
                 let closed_all = closed_in(m, t, ep);
                 match closed_all {
-                    Some(true) => init_terms.push(format!(
-                        "(by simp only [Invariant, {}, init]; first | rfl | decide | (k2l_coll_close [{}]) | (simp [{}]; done))",
-                        simp.join(", "),
-                        simp.join(", "),
-                        simp.join(", ")
-                    )),
-                    _ => {
+                    Some(true) => init_terms.push(computed.clone()),
+                    Some(false) if !init_listed => init_terms.push(computed.clone()),
+                    Some(false) => match at_content(p, t) {
+                        Some(ty) => {
+                            let h =
+                                format!("h_{}", names::ident(&p.name.replace("Invariant.", "")));
+                            notes.push(format!("{}: init is listed, so Invariant.init_holds takes {h}, the part at its cell collection in init", p.name));
+                            init_terms.push(h.clone());
+                            init_hyps.push((h, ty));
+                        }
+                        None => {
+                            notes.push(format!(
+                                "{}: in init, its cell collection cannot be written as a term; the init theorem is an obligation",
+                                p.name
+                            ));
+                            open.insert("init".into());
+                        }
+                    },
+                    None => {
                         notes.push(format!(
-                            "{}: in init, its cell collection is not a literal whose elements hold a closed term in the cell; the init theorem is an obligation",
+                            "{}: in init, its cell collection is not a literal of element cells; the init theorem is an obligation",
                             p.name
                         ));
                         open.insert("init".into());
@@ -3706,12 +3749,7 @@ KPrelude.MapHook.entriesOn_of_range (f := fun a => {}) (key := fun a => {})\n   
                     Some(format!("{shown} = {rhs_true}"))
                 });
                 match hyp.flatten() {
-                    Some(_) if !param && all_closed => init_terms.push(format!(
-                        "(by simp only [Invariant, {}, init]; first | rfl | decide | (k2l_coll_close [{}]) | (simp [{}]; done))",
-                        simp.join(", "),
-                        simp.join(", "),
-                        simp.join(", ")
-                    )),
+                    Some(_) if !param && all_closed => init_terms.push(computed.clone()),
                     Some(ty) => {
                         let h = format!("h_{}", names::ident(&p.name.replace("Invariant.", "")));
                         init_terms.push(format!(
@@ -3732,26 +3770,38 @@ KPrelude.MapHook.entriesOn_of_range (f := fun a => {}) (key := fun a => {})\n   
             }
             match t {
                 _ if !found => {
-                    notes.push(format!("{}: its cell is not where the configuration declaration puts it in init", p.name));
+                    notes.push(format!(
+                        "{}: its cell is not where the configuration declaration puts it in init",
+                        p.name
+                    ));
                     open.insert("init".into());
                 }
                 P::Var(v, _) if by_var.contains_key(v.as_str()) => {
                     let x = by_var[v.as_str()];
                     let h = format!("h_{x}");
-                    let h = if init_hyps.iter().any(|(n, _)| *n == h) { format!("{h}_{}", init_hyps.len()) } else { h };
+                    let h = if init_hyps.iter().any(|(n, _)| *n == h) {
+                        format!("{h}_{}", init_hyps.len())
+                    } else {
+                        h
+                    };
                     init_hyps.push((h.clone(), (p.pred)(x)));
                     init_terms.push(h);
                 }
-                t if closed(t) => init_terms.push(format!(
-                    "(by simp only [Invariant, {}, init]; first | rfl | decide | (k2l_coll_close [{}]) | (simp [{}]; done))",
-                    simp.join(", "),
-                    simp.join(", "),
-                    simp.join(", ")
-                )),
-                _ => {
-                    notes.push(format!("{}: its cell holds a term with configuration variables in init; the init theorem is an obligation", p.name));
-                    open.insert("init".into());
-                }
+                t if closed(t) => init_terms.push(computed.clone()),
+                // configuration variables under constructors (`$PGM ~> .K`)
+                _ if !init_listed => init_terms.push(computed.clone()),
+                t => match at_content(p, t) {
+                    Some(ty) => {
+                        let h = format!("h_{}", names::ident(&p.name.replace("Invariant.", "")));
+                        notes.push(format!("{}: init is listed, so Invariant.init_holds takes {h}, the part at its cell's content in init", p.name));
+                        init_terms.push(h.clone());
+                        init_hyps.push((h, ty));
+                    }
+                    None => {
+                        notes.push(format!("{}: in init, its cell's content cannot be written as a term; the init theorem is an obligation", p.name));
+                        open.insert("init".into());
+                    }
+                },
             }
         }
     } else {
@@ -3895,6 +3945,9 @@ theorem Invariant.stepsN{psi}{hs} {{n : Nat}} {{c : {top}}} (h : StepsN Step n (
         skel.push_str(&format!(
             "-- theorem Invariant.hand.init{ps}{hs} : Invariant (init{args}) := by\n--   …\n\n"
         ));
+    } else if init_listed {
+        // kept, so the next generation keeps the hypotheses
+        ol.push_str("init | Invariant.init_holds with the parts at their cells' contents in init as hypotheses | the configuration declaration\n");
     }
     let hand_skeleton = (any_open && !hand_exists).then(|| {
         format!(

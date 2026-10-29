@@ -242,7 +242,11 @@ theorem Invariant.stepsN {pgm env} (h_env : …) {n c} (h : StepsN Step n (init 
 
 - Each case is `by k2l_inv`, a local macro for `k2l_preserve` with the invariant's unfolding set (the parts, the projections, the K equations, the fold's `_iff`).
 - The case of `CALC.assign`, which updates the store, closes because `ListHook.elemsOn_keysList_iff` (`@[k2l_pres]`) turns the fold over `keys_list(E)` into a predicate on `E`'s bindings, which `MapHook.entriesOn_update` carries to the updated store; the new key `X` is an `Id` by `isId`'s equation.
-- `init_holds` follows the configuration declaration: a cell that holds a configuration variable (`<env> $ENV:Map </env>`) gives a hypothesis on that parameter; a cell with a closed term is proved by computation; anything else makes `init` an open case (`Invariant.hand.init`).
+- `init_holds` follows the configuration declaration: a cell that holds a configuration variable (`<env> $ENV:Map </env>`) gives a hypothesis on that parameter; a cell with a closed term is proved by computation.
+  A cell that holds configuration variables under constructors (`<k> $PGM </k>` is `$PGM ~> .K` in KORE; a literal of cell-collection elements, one of which holds `$PGM`) is proved by the same computation, for every value of the variables, which succeeds when the predicate is decided by their sorts (`vm`, `coro`: `kOk` of one `Pgm` item).
+  When that proof fails, `open-from-log` lists `init`, and the next generation gives the part's predicate at the cell's content, written as the term, as the hypothesis (`h_kOk : kOk (SortK.kseq (SortKItem.inj_Pgm pgm) SortK.dotk : SortK) = some true`).
+  That hypothesis is what the initial case means; the computed proof only strengthens it when it holds for every program.
+  A cell that cannot be read (not where the declaration puts it, a collection that is not a literal) makes `init` an open case (`Invariant.hand.init`), which takes the other parts' hypotheses.
 - `#k2l_assert_axioms` fails the build when a theorem depends on `sorryAx` or on an axiom other than `propext`, `Classical.choice`, `Quot.sound`.
 - `Invariant` is named so, not `Inv`, because core Lean declares a class `Inv`.
 

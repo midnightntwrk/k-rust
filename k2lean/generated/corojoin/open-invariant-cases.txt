@@ -2,4 +2,3 @@
 # `k2lean open-from-log CoroJoin/Invariants.lean BUILD.log open-invariant-cases.txt` adds the cases whose proof failed.
 # Each line: the case, its statement, the rule's source position. Prove each in CoroJoin/InvariantsHand.lean as
 # `theorem Invariant.hand.r : Step.Case.r Invariant` (namespace `CoroJoin`; `Step.Case.r` is stated in CoroJoin/Preserves.lean).
-init | ∀ (pgm : SortPgm), Invariant (init pgm) | the configuration declaration
