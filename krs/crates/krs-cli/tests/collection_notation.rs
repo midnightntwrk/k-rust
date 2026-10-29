@@ -1136,7 +1136,8 @@ fn boxing(
 /// needs no import of `map`, below a cell of an initializer (a call's
 /// argument, a constructor's) or of a `cells!` result (a record's field, a
 /// fragment's); a cell's own `map![..]`, which the enclosing macro consumes,
-/// still credits the import that names it.
+/// still credits the import that names it, also where it writes entries and
+/// is read as a literal.
 #[test]
 fn a_literal_needs_no_import_and_a_cells_own_map_credits_its_import() {
     let target = shared_fixture_target();
@@ -1154,6 +1155,12 @@ fn a_literal_needs_no_import_and_a_cells_own_map_credits_its_import() {
         assert!(success, "{name}:\n{stderr}");
     };
     check("literals", "", "k::builtin::map::empty()");
-    // The import is denied if unused: a cell's own map must credit it.
+    // The import is denied if unused: a cell's own map must credit it, the
+    // empty map and a map that writes entries, which is read as a literal.
     check("own-map", "#[deny(unused_imports)]\nuse k::map;", "map![]");
+    check(
+        "own-literal",
+        "#[deny(unused_imports)]\nuse k::map;",
+        "k::configuration::Cell::new(map![1 -> 2])",
+    );
 }

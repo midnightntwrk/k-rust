@@ -156,11 +156,11 @@ fn initializer_terms_are_krs_terms() {
         &format!("{PREAMBLE}{}", initializer(K)),
     );
     let definition = emit(target.path(), &manifest);
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         <k> $PGM:Stmt ~> tag .Bytes ~> mk ( 1 ) ~> seq $PGM:Stmt ; ~> five ( ) </k>
-        <env> $N:Id |-> five ( ) </env>
+        <env> .Map [ $N:Id <- five ( ) ] </env>
         <stack> ListItem($Y:Stmt) </stack>
-        <acc> $X:Value </acc>"]]
+        <acc> $X:Value </acc>"#]]
     .assert_eq(&configuration(&definition));
 
     // The run starts from the configuration with the functions evaluated.
@@ -340,11 +340,11 @@ fn initializer_terms_take_record_syntax() {
         ),
     );
     let definition = emit(target.path(), &records);
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         <k> $PGM:Stmt ~> tag .Bytes ~> seq $PGM:Stmt ; </k>
-        <env> $N:Id |-> boxed 1 </env>
+        <env> .Map [ $N:Id <- boxed 1 ] </env>
         <stack> ListItem($Y:Stmt) ListItem(tag .Bytes) </stack>
-        <acc> $X:Value </acc>"]]
+        <acc> $X:Value </acc>"#]]
     .assert_eq(&configuration(&definition));
     assert_eq!(
         configuration(&emit(target.path(), &positional)),
@@ -470,15 +470,15 @@ fn sibling_cells_each_start_with_their_own_structure() {
     expect_test::expect![[r#"
         <k> $PGM:Stmt ~> tick </k>
         <slot> 1 ~> 2 </slot>
-        <env> $N:Id |-> 1 </env>
-        <env2> $N:Id |-> 2 </env2>
+        <env> .Map [ $N:Id <- 1 ] </env>
+        <env2> .Map [ $N:Id <- 2 ] </env2>
         <mem> b"\x61" </mem>
         <mem2> b"\x62" </mem2>
         <stack> ListItem(wrap ( 1 )) </stack>
         <stack2> ListItem(wrap ( 2 )) </stack2>
         <frame>
         <fk> 3 </fk>
-        <fenv> $N:Id |-> 4 </fenv>
+        <fenv> .Map [ $N:Id <- 4 ] </fenv>
         </frame>"#]]
     .assert_eq(&configuration(&definition));
 

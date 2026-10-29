@@ -23,8 +23,11 @@ pub(super) fn initializer_state_island_import_checks(
 
 /// Appends the bare `k!` and `map!` that write a cell's own content: the
 /// cell's whole value, or the argument of its `Cell::new`/`KCell::new`, under
-/// `Some(..)` too. A macro below a term's call (`list::item(map![..])`) is a
-/// term, a collection literal, which rustc receives as calls.
+/// `Some(..)` too. A cell's own `map!` that writes entries is read as a
+/// collection literal, but it is still the macro the initializer consumes, so
+/// it credits its import as the empty map does. A macro below a term's call
+/// (`list::item(map![..])`) is a term, a collection literal, which rustc
+/// receives as calls.
 fn append_initializer_state_islands(cells: &[FixedCellInitializer], output: &mut Vec<Path>) {
     for cell in cells {
         match cell.content() {
@@ -32,6 +35,7 @@ fn append_initializer_state_islands(cells: &[FixedCellInitializer], output: &mut
                 let island = match value.unwrap_present() {
                     StateTerm::KSequence(_) => cell_macro(&cell.field().expr),
                     StateTerm::Map(map) => map.island_path(),
+                    StateTerm::Term(_) => own_map_literal(&cell.field().expr),
                     _ => None,
                 };
                 if let Some(path) = island
@@ -45,6 +49,33 @@ fn append_initializer_state_islands(cells: &[FixedCellInitializer], output: &mut
                 append_initializer_state_islands(children, output);
             }
         }
+    }
+}
+
+/// The path of the `map!` literal that is an initializer cell's own content:
+/// the whole value or its `Cell::new` argument, inside `Some(..)`, and not a
+/// literal below another call.
+fn own_map_literal(expression: &syn::Expr) -> Option<&Path> {
+    match expression {
+        syn::Expr::Macro(expression) => Some(&expression.mac.path)
+            .filter(|path| path.segments.last().is_some_and(|last| last.ident == "map")),
+        syn::Expr::Call(call) => {
+            let syn::Expr::Path(function) = &*call.func else {
+                return None;
+            };
+            let mut reversed = function.path.segments.iter().rev();
+            let wraps = match (reversed.next(), reversed.next()) {
+                (Some(last), None) => last.ident == "Some",
+                (Some(last), Some(wrapper)) => last.ident == "new" && wrapper.ident == "Cell",
+                _ => false,
+            };
+            if wraps && call.args.len() == 1 {
+                own_map_literal(call.args.first()?)
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 

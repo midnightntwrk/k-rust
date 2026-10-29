@@ -647,24 +647,18 @@ fn an_initializer_remainder_is_refused_at_its_spelling() {
     );
 }
 
-/// An initializer's `map!` takes no remainder (`..env`, the items joined
-/// with the variable's map, a join undefined when the two share a key):
-/// it is refused with an author code where it is written, not dropped from
-/// the expansion.
+/// An initializer cell's own `map!` is a collection literal: its rest
+/// (`..env`) is the map its entries are written over, and the whole literal is
+/// the calls it denotes, `map::update(env, 0, 1)`, which the descriptor
+/// carries as an initializer term rather than as the cell's map.
 #[test]
-fn an_initializer_map_remainder_is_refused_at_its_spelling() {
+fn an_initializer_map_remainder_is_the_base_its_entries_are_written_over() {
     let source = "impl Machine {\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"ENV\")] env: Map) -> Self {\n        Self { env: k::map![0 -> 1, ..env] }\n    }\n}\n";
-    let diagnostics = expand(source).expect_err("the remainder is refused");
-    let start = source.find("..env").unwrap();
-    assert_eq!(
-        diagnostics,
-        [ExpandDiagnostic {
-            code: krs_diagnostic::codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
-            message: "unsupported declarative initializer body: an initializer's `map!` takes no remainder, since joining its items with another map is undefined when the two share a key, which only a run would find; list the map's items".to_owned(),
-            class: MappingClass::ExactAuthored,
-            // The diagnostic stands at the remainder's first token.
-            authored: Some(br(start, start + 1)),
-            invocation: Some(InvocationId(0)),
-        }]
+    let expansion = expand(source).expect("the rest is the literal's base");
+    let text = &expansion.generated.text;
+    assert!(
+        text.contains(r#"\"value\":{\"state_term_kind\":\"term\""#)
+            && !text.contains("map_payload"),
+        "the cell's value is a term, not the cell's map:\n{text}"
     );
 }

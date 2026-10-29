@@ -1410,6 +1410,17 @@ fn parse_unkeyed_k_sequence(
     )
 }
 
+/// Whether a built cell's own `map![..]` payload is a collection literal: one that writes entries,
+/// a rest, or that the cell's own map does not read at all, whose error the literal reports. The
+/// empty map (`map![]`, `map![.Map]`) and a functional update (`map![m; k <- v]`,
+/// `map![m [ k <- v ]]`) keep the cell's own reading, which is already the value they build.
+pub(crate) fn built_map_is_literal(payload: TokenStream) -> bool {
+    !matches!(
+        parse_unkeyed_map(payload, StateMacroContext::Expression).map(|map| map.body),
+        Ok(MapBody::Empty { .. } | MapBody::Update { .. })
+    )
+}
+
 /// Parses a `map!` payload held by `invocation`, if an enclosing form read
 /// it, and keys it as a sentence of its own.
 pub(crate) fn parse_map(

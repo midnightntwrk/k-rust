@@ -437,8 +437,8 @@ fn structure_anchors_are_numbered_across_the_initializer() {
             Self {
                 k: k::k![pgm, StmtSyntax::Tick()],
                 slot: k::k![1, 2],
-                env: k::map![n -> 1],
-                frame: Frame { fk: k::k![3], fenv: k::map![n -> 3, Id(\"o\") -> 4] },
+                env: k::map![],
+                frame: Frame { fk: k::k![3], fenv: k::map![m[n <- 3]] },
                 env2: k::map![m[n <- 2]],
             }
         }",
@@ -458,9 +458,9 @@ fn structure_anchors_are_numbered_across_the_initializer() {
         (ProvenanceRole::KSequencePayload, 3),
         (ProvenanceRole::KSequenceItem, 5),
         (ProvenanceRole::MapPayload, 3),
-        (ProvenanceRole::MapKey, 4),
-        (ProvenanceRole::MapValue, 4),
-        (ProvenanceRole::MapUpdateBase, 1),
+        (ProvenanceRole::MapKey, 2),
+        (ProvenanceRole::MapValue, 2),
+        (ProvenanceRole::MapUpdateBase, 2),
     ] {
         let numbered = anchors
             .iter()
@@ -487,8 +487,8 @@ fn structure_anchors_are_numbered_across_the_initializer() {
 /// with the payloads of the other shells of its role.
 #[test]
 fn empty_shells_are_keyed_at_their_invocation() {
-    let source =
-        "fn init(n: Id) -> Self { Self { k: k::k![], env: k::map![], store: k::map![n -> 1] } }";
+    let source = "fn init(n: Id, e: Map) -> Self { Self { k: k::k![], env: k::map![], \
+                  store: k::map![e; n <- 1], built: k::map![n -> 1] } }";
     let initializer = krs_syntax::InitializerFunction::parse_source(source).unwrap();
     let anchors = initializer.provenance().unwrap();
     let payloads = |role| {
@@ -503,9 +503,10 @@ fn empty_shells_are_keyed_at_their_invocation() {
             .collect::<Vec<_>>()
     };
     assert_eq!(payloads(ProvenanceRole::KSequencePayload), [(0, "k::k![]")]);
+    // A map that writes entries is a collection literal, a term with no map payload.
     assert_eq!(
         payloads(ProvenanceRole::MapPayload),
-        [(0, "k::map![]"), (1, "n -> 1")]
+        [(0, "k::map![]"), (1, "e; n <- 1")]
     );
 }
 

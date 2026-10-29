@@ -10,7 +10,7 @@ use krs_ir::wire::{
 use krs_ir::{
     CellWrapper, DescriptorKSequenceNotation, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
-    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem,
+    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::positions::Form;
@@ -546,34 +546,10 @@ impl<'a> InitializerBuilder<'a> {
             MapBody::Empty { explicit_dot } => ProtocolMapBody::Empty {
                 explicit_dot: *explicit_dot,
             },
-            MapBody::Items { items, remainder } => {
-                let mut output = Vec::new();
-                for item in items {
-                    let key_key = ledger.define(item.key().keys().payload())?;
-                    let value_key = ledger.define(item.value().keys().payload())?;
-                    let key = self.expand_term(item.key())?;
-                    let value = self.expand_term(item.value())?;
-                    output.push(ProtocolMapItem {
-                        key_key,
-                        key,
-                        value_key,
-                        value,
-                    });
-                }
-                // `..m` after the items would denote the items joined with
-                // the variable's map, a join that is undefined when the two
-                // share a key, which only a run would find. An initializer's
-                // `map!` lists its items and takes no remainder, so the
-                // remainder is refused where it is written rather than
-                // dropped.
-                if let Some(range) = remainder.range() {
-                    return Err(ExpandError::at_range(
-                        codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
-                        range,
-                        "unsupported declarative initializer body: an initializer's `map!` takes no remainder, since joining its items with another map is undefined when the two share a key, which only a run would find; list the map's items",
-                    ));
-                }
-                ProtocolMapBody::Items { items: output }
+            // A cell's own `map![..]` that writes entries or a rest is a collection literal, a
+            // term (`krs_syntax`'s initializer reading).
+            MapBody::Items { .. } => {
+                unreachable!("an initializer's map with entries is read as a collection literal")
             }
             MapBody::Update { base, key, value } => {
                 let base_key = ledger.define(base.keys().payload())?;
