@@ -673,6 +673,18 @@ pub enum DescriptorLoweringError {
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
+    /// An alias clause's subject holds below its root what printing, which builds the subject
+    /// from what the clause's result matched, cannot build: a set's concatenation (a map's of
+    /// more than one entry), whose parts the match may bind overlapping, or an alias or desugar
+    /// production's application, which forward expansion replaces first (NT-8).
+    IrreversibleAlias {
+        /// Stable reason naming the clause, what printing would write, and the fix.
+        reason: String,
+        /// Sole exact authored range of the refused term.
+        range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
+    },
     /// A named constant's value is not a ground constructor term, the
     /// constants form a cycle, or a use applies a constant to arguments.
     InvalidConstant {
@@ -1080,6 +1092,11 @@ macro_rules! by_subject_slots {
                 item: $open_item,
                 ..
             }
+            | DescriptorLoweringError::IrreversibleAlias {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidConstant {
                 range: $open_range,
                 item: $open_item,
@@ -1438,6 +1455,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::DuplicateSmtlib { reason, .. }
             | Self::InvalidMatchRestriction { reason, .. }
             | Self::InvalidStaticClause { reason, .. }
+            | Self::IrreversibleAlias { reason, .. }
             | Self::InvalidConstant { reason, .. }
             | Self::SmtLemmaUntranslatable { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
@@ -1550,6 +1568,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidMatchRestriction { .. } => codes::analysis::INVALID_MATCH_RESTRICTION,
             Self::SmtLemmaUntranslatable { .. } => codes::analysis::SMT_LEMMA_UNTRANSLATABLE,
             Self::InvalidStaticClause { .. } => codes::analysis::INVALID_STATIC_CLAUSE,
+            Self::IrreversibleAlias { .. } => codes::analysis::IRREVERSIBLE_ALIAS,
             Self::InvalidConstant { .. } => codes::analysis::INVALID_CONSTANT,
             Self::CellWrapper { .. } => codes::analysis::CELL_WRAPPER,
             Self::UnusedConfigurationVariable { .. } => {

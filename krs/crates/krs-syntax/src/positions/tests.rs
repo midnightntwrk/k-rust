@@ -283,12 +283,17 @@ fn a_function_application_where_a_rule_or_an_equation_matches_is_left_to_the_com
         Form::Alias,
         Form::Desugar,
     ] {
+        let application = if form == Form::Alias {
+            Admission::After(Rule::ConcatenationInAliasSubject)
+        } else {
+            Admission::Admit
+        };
         assert_eq!(
             admits(
                 Position::root(form, Slot::Subject),
                 Construct::FunctionApplication
             ),
-            Admission::Admit,
+            application,
             "{form:?}"
         );
         // A sort test is an application, which these subjects hold.
@@ -345,10 +350,12 @@ fn an_alias_subject_is_built_backwards_and_refuses_what_only_matches() {
             "{construct:?}"
         );
     }
-    // A function's application prints as written, and expands back to the same term.
+    // An application is read both ways (built backwards, it is the term the clause expands
+    // back), though the native routes refuse a function on a rule's left side today (finding
+    // NT-8-2); a set's concatenation, which matches only disjoint parts, is told by its head.
     assert_eq!(
         admits(subject, Construct::FunctionApplication),
-        Admission::Admit
+        Admission::After(Rule::ConcatenationInAliasSubject)
     );
     // A desugar clause runs one way, and its result is built only once.
     let desugar = Position::root(Form::Desugar, Slot::Subject);

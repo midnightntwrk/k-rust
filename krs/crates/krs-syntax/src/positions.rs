@@ -541,10 +541,10 @@ pub enum Class {
     AliasInLetPattern,
     /// `alias-outside-pattern`.
     AliasOutsidePattern,
-    /// `alternatives-in-let-pattern`.
-    AlternativesInLetPattern,
     /// `alternatives-in-alias-subject`.
     AlternativesInAliasSubject,
+    /// `alternatives-in-let-pattern`.
+    AlternativesInLetPattern,
     /// `alternatives-in-one-term-rewrite`.
     AlternativesInOneTermRewrite,
     /// `claim-only-term`.
@@ -698,7 +698,7 @@ impl Class {
     pub const fn summary(self) -> &'static str {
         match self {
             Self::AliasInAliasSubject => {
-                "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and `name @ pattern` (K's #as) is a test of the term's shape, which building cannot make: it prints as the conjunction `pattern #And term`, no term, and for a term the pattern does not match, as an alias that does not expand back to it; write `#[k::desugar]` for an expansion that runs one way"
+                "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and `name @ pattern` (K's #as) is a test of the term's shape, which building cannot make: it prints as the conjunction `term #And pattern`, no term, and for a term the pattern does not match, as an alias that does not expand back to it; write `#[k::desugar]` for an expansion that runs one way"
             }
             Self::AliasInLetPattern => {
                 "a `let` pattern destructures one value, which a bare name already names whole: write `let p = e; let P = p;` for `p @ P`"
@@ -795,6 +795,9 @@ pub enum Rule {
     /// `alternatives-outside-pattern`: outside a pattern, `A | B` is the bitwise operator, whose
     /// operand sorts choose its domain.
     AlternativesOutsidePattern,
+    /// `concatenation-in-alias-subject`: whether an application in an alias clause's subject is
+    /// a set's concatenation, which printing may write over overlapping parts.
+    ConcatenationInAliasSubject,
     /// `constant-applies-function`: whether an application in a constant's value applies a
     /// function.
     ConstantAppliesFunction,
@@ -814,8 +817,9 @@ pub enum Rule {
 
 impl Rule {
     /// Every rule.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::AlternativesOutsidePattern,
+        Self::ConcatenationInAliasSubject,
         Self::ConstantAppliesFunction,
         Self::FunctionInPattern,
         Self::MlInCondition,
@@ -828,6 +832,7 @@ impl Rule {
     pub const fn name(self) -> &'static str {
         match self {
             Self::AlternativesOutsidePattern => "alternatives-outside-pattern",
+            Self::ConcatenationInAliasSubject => "concatenation-in-alias-subject",
             Self::ConstantAppliesFunction => "constant-applies-function",
             Self::FunctionInPattern => "function-in-pattern",
             Self::MlInCondition => "ml-in-condition",
@@ -1040,12 +1045,17 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // computed and looked up, and the application with it, when nothing in it outside the
         // constructs that compute selects an entry by matching (a name nothing else binds, `_`, an
         // alias, alternatives, an open record); otherwise it is matched: that takes the key's
-        // names, and a set's element is told by its head, so the compiler decides both.
+        // names, and a set's element is told by its head, so the compiler decides both. An alias
+        // clause's subject is built backwards too: an application reads both ways, but a set's
+        // concatenation matches only disjoint parts, which printing cannot make sure of, and its
+        // head tells it.
         Construct::FunctionApplication => {
             if position.matches_evaluated_terms()
                 || (in_pattern_key && form.matches_evaluated_terms())
             {
                 After(Rule::FunctionInPattern)
+            } else if built_backwards {
+                After(Rule::ConcatenationInAliasSubject)
             } else {
                 Admit
             }
