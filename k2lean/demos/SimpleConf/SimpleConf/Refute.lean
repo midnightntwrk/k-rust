@@ -1,9 +1,10 @@
-import SimpleConf.Views
+import SimpleConf.Slots
 import KSimple.Fuel
 import KSimpleTest.Cases
 
 /-! SIMPLE is not confluent, so the premises of `terminal_unique_of` are false together and that
-theorem holds of no program (`k2lean/docs/design.md`, sections 3.6 and 8.1).
+theorem holds of no program (`k2lean/docs/design.md`, sections 3.6 and 8.1). So are the slots the
+generic attempts leave open (`Open`, the premise of `terminal_unique`).
 
 The witness is SIMPLE's own test `div-nondet` (`print(++ x / (++ x / x), "\n")`): its strict
 operands have effects, and krust's search finds three final configurations
@@ -89,7 +90,10 @@ def Premises.statement : Prop := OpenJoins ∧ SameThreadJoins
 theorem Premises.refuted : ¬ Premises.statement :=
   fun ⟨O, S⟩ => terminalUnique.refuted (terminal_unique_of O S)
 
-#k2l_assert_axioms terminalUnique.refuted
+/-- The open slots are false together: `terminal_unique` would give the same uniqueness. -/
+theorem Open.refuted : ¬ Open := fun P => terminalUnique.refuted (terminal_unique P)
+
+#k2l_assert_axioms terminalUnique.refuted Open.refuted
 #k2l_refuted Premises
 
 end SimpleConf.Refute

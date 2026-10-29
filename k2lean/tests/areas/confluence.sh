@@ -4,7 +4,8 @@
 # pairs of rules classified; UtxoConf: the same for the fixture utxo, coroutines over a UTXO
 # ledger, library utxo; HandoffConf: the same for the fixture handoff, tasks of a coordination
 # script run when their inputs are ready, library handoff; HandoffSeqRel: the script run in its
-# order, the fixture handoffseq, into handoff, library handoffseq). Registry: confluence.py.
+# order, the fixture handoffseq, into handoff, library handoffseq; DrfConf: workers writing one
+# cell, the fixture drf, a slot refuted by hand, library drf). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
@@ -12,6 +13,7 @@ name_confluence() {
     utxo) echo Utxo ;;
     handoff) echo Handoff ;;
     handoffseq) echo HandoffSeq ;;
+    drf) echo Drf ;;
     *) return 1 ;;
   esac
 }
@@ -26,6 +28,8 @@ gen_confluence() {
     handoff) libs_fixture_args "$1" ;;
     # the same script run in its order (tests/fixtures/handoffseq)
     handoffseq) libs_fixture_args "$1" ;;
+    # workers writing one cell, the last write winning (tests/fixtures/drf)
+    drf) libs_fixture_args "$1" ;;
     *) return 1 ;;
   esac
   return 0
@@ -33,8 +37,8 @@ gen_confluence() {
 
 # libs_confluence NS: the confluence scaffold of demo NS (RaceConf: the fixture race, by worker in
 # `NS/Views.lean` and `NS/Slots.lean`, and with every pair of rules a slot in `NS/Pairs/`; SimpleConf: the views of
-# SIMPLE's rules by thread, `NS/Views.lean`, with SIMPLE's pairs of rules counted) and its report
-# `NS/confluence.toml` (or OUT for SimpleConf).
+# SIMPLE's rules by thread, `NS/Views.lean`, and its slots, `NS/Slots.lean`, with SIMPLE's pairs of
+# rules counted) and its report `NS/confluence.toml` (or OUT for SimpleConf).
 libs_confluence() {
   case $1 in
     RaceConf) "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf \
@@ -53,8 +57,14 @@ libs_confluence() {
         --slots "$DEMOS/HandoffConf/HandoffConf/Slots.lean" --hand-module HandoffConf.Hand \
         --open-joins "$DEMOS/HandoffConf/open-joins.txt" \
         --out "$DEMOS/HandoffConf/HandoffConf/Views.lean" --report "$DEMOS/HandoffConf/confluence.toml" ;;
+    DrfConf) "$G" confluence --kore "$(libs_fixture drf)/definition.kore" --name Drf --ns DrfConf \
+        --threads workers --obs acc --slots "$DEMOS/DrfConf/DrfConf/Slots.lean" --hand-module DrfConf.Hand \
+        --open-joins "$DEMOS/DrfConf/open-joins.txt" \
+        --out "$DEMOS/DrfConf/DrfConf/Views.lean" --report "$DEMOS/DrfConf/confluence.toml" ;;
     SimpleConf) "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --ns SimpleConf \
-        --threads threads --obs output --out "$DEMOS/SimpleConf/SimpleConf/Views.lean" --report "$2" ;;
+        --threads threads --obs output --slots "$DEMOS/SimpleConf/SimpleConf/Slots.lean" \
+        --open-joins "$DEMOS/SimpleConf/open-joins.txt" \
+        --out "$DEMOS/SimpleConf/SimpleConf/Views.lean" --report "$2" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
   esac
 }
@@ -103,9 +113,19 @@ gate_confluence() {
     partlib handoffseq HandoffSeq.Rules
     dbuild HandoffSeqRel
   fi
-  # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with what the views by thread
-  # leave open (`k2lean confluence --threads`): a recorded output; the views built against the
-  # library simple (core)
+  # the views by worker of the fixture drf, whose workers each write one cell: the slot of two
+  # writes is refuted by hand (`DrfConf/Hand.lean`, on two workers, through `successors`), so
+  # `OpenJoins` is false and no `terminal_unique` is stated
+  if runs demo DrfConf; then
+    phase "scaffold DrfConf"
+    partlib drf Drf.Adequacy
+    scaffold confluence-DrfConf libs_confluence DrfConf
+    dbuild DrfConf
+  fi
+  # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
+  # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;
+  # the views and slots built against the library simple (core), the open slots false together
+  # (`SimpleConf/Refute.lean`)
   if runs output simple-confluence.toml; then
     phase "confluence SimpleConf"
     kc simple && scaffold "confluence SimpleConf" libs_confluence SimpleConf "$MEAS/simple-confluence.toml" &&

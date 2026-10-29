@@ -1,0 +1,3 @@
+# The slots of DrfConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
+# `NAME | refuted` is refuted in DrfConf/Hand.lean as `hand.NAME.refuted`, which refutes `OpenJoins`.
+join.open.put.put | refuted

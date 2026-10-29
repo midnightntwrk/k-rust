@@ -1,2 +1,2 @@
-import SimpleConf.Views
+import SimpleConf.Slots
 import SimpleConf.Refute

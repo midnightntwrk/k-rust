@@ -49,6 +49,7 @@ lake-manifest.json
 /demos/RaceConf/confluence.toml
 /demos/RaceConf/pairs.toml
 /demos/SimpleConf/SimpleConf/Views.lean
+/demos/SimpleConf/SimpleConf/Slots.lean
 /demos/UtxoConf/UtxoConf/Views.lean
 /demos/UtxoConf/UtxoConf/Slots.lean
 /demos/HandoffConf/HandoffConf/Views.lean
@@ -57,6 +58,9 @@ lake-manifest.json
 /demos/HandoffConf/HandoffConf/ProgressDefs.lean
 /demos/HandoffConf/HandoffConf/Progress.lean
 /demos/UtxoConf/confluence.toml
+/demos/DrfConf/DrfConf/Views.lean
+/demos/DrfConf/DrfConf/Slots.lean
+/demos/DrfConf/confluence.toml
 /demos/ImpNI/ImpNI/Tr.lean
 /demos/ImpNI/ImpNI/NI.lean
 /demos/ImpNI/ImpNI/Levels.lean

@@ -943,10 +943,21 @@ fn with_hooks(o: &str, ns: &str, name: &str) -> String {
 /// at the configurations satisfying `inv`, `joins_of` and `join_static` take it, and
 /// `terminal_unique_of` (and `obs_confluent_of`) hold from a configuration satisfying it, by
 /// `terminal_unique_of_diamond` with `H := inv` and its preservation `pres`.
+/// How the open-joins list has a slot.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    /// left open: a premise of `terminal_unique`
+    Open,
+    /// proved by the hand module (`hand.NAME`)
+    Hand,
+    /// refuted by the hand module (`hand.NAME.refuted : ¬ NAME.statement`)
+    Refuted,
+}
+
 /// The slots of an open-joins list (`open-joins.txt`, `--open-joins`): a name alone is open (a
-/// premise), `NAME | hand` is the hand module's (`hand.NAME`); `#` starts a comment. The value
-/// tells which.
-fn read_open_joins(path: &str) -> BTreeMap<String, bool> {
+/// premise), `NAME | hand` is the hand module's (`hand.NAME`), `NAME | refuted` is refuted by the
+/// hand module (`hand.NAME.refuted`); `#` starts a comment.
+fn read_open_joins(path: &str) -> BTreeMap<String, Mark> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| fail(&format!("{path}: {e}")));
     let mut out = BTreeMap::new();
     for l in text.lines() {
@@ -954,15 +965,16 @@ fn read_open_joins(path: &str) -> BTreeMap<String, bool> {
             continue;
         };
         let rest = l.trim()[n.len()..].split('#').next().unwrap_or("").trim();
-        let hand = match rest {
-            "" => false,
-            "| hand" => true,
+        let mark = match rest {
+            "" => Mark::Open,
+            "| hand" => Mark::Hand,
+            "| refuted" => Mark::Refuted,
             _ => fail(&format!(
-                "{path}: `{}`: expected NAME or NAME | hand",
+                "{path}: `{}`: expected NAME, NAME | hand or NAME | refuted",
                 l.trim()
             )),
         };
-        out.insert(n, hand);
+        out.insert(n, mark);
     }
     out
 }
@@ -1176,40 +1188,44 @@ pub fn main(args: &[String]) {
             }
         }
     }
-    let mut rep = format!(
-        "# k2lean confluence: the pairs of rules of {name}\n\nrules = {n}\nmulti = {}\nranks = {}\nunordered_pairs = {}\ncritical = {}\n\n[one_binding]\n",
+    let head = format!(
+        "# k2lean confluence: the pairs of rules of {name}\n\nrules = {n}\nmulti = {}\nranks = {}\nunordered_pairs = {}\n",
         rs.iter().filter(|r| r.multi).count(),
         if lib.ranked {
             lib.prios.len().max(1)
         } else {
             1
         },
-        n * (n + 1) / 2,
+        n * (n + 1) / 2
+    );
+    // the pair classifier's reading, which no proof uses
+    let mut rep = format!(
+        "\n[diagnostic]  # untrusted: the pairs of rules as the classifier reads them; no proof uses this\ncritical = {}\n\n[diagnostic.one_binding]\n",
         critical.len()
     );
     for (k, v) in &by_class {
         writeln!(rep, "{k} = {v}").unwrap();
     }
-    writeln!(rep, "\n[two_bindings]").unwrap();
+    writeln!(rep, "\n[diagnostic.two_bindings]").unwrap();
     for (k, v) in &distinct {
         writeln!(rep, "{k} = {v}").unwrap();
     }
     writeln!(
         rep,
-        "\n[races]  # pairs at two bindings that both touch the cell, one writing"
+        "\n[diagnostic.races]  # pairs at two bindings that both touch the cell, one writing"
     )
     .unwrap();
     for (k, v) in &races {
         writeln!(rep, "{:?} = {v}", k).unwrap();
     }
-    writeln!(rep, "\n[critical]\npairs = [").unwrap();
+    writeln!(rep, "\n[diagnostic.critical]\npairs = [").unwrap();
     for c in &critical {
         writeln!(rep, "  {c:?},").unwrap();
     }
     writeln!(rep, "]").unwrap();
     if report_only {
         if let Some(p) = opt.get("report") {
-            write_file(p, &rep);
+            write_file(p, &(head + &rep));
         }
         eprintln!(
             "confluence: {n} rules, {} unordered pairs, {} critical (report only)",
@@ -1256,9 +1272,9 @@ pub fn main(args: &[String]) {
             .unwrap_or(format!("{ns}.Views")),
     });
     // the views, what the report says of them, the slots, and the summary line
-    let (mut out, counts_report, slots, summary) = match opt.get("threads") {
+    let (mut out, counts_report, premises, slots, summary) = match opt.get("threads") {
         Some(threads) => {
-            let (out, counts, slots) = views::emit(
+            let (out, counts, premises, slots) = views::emit(
                 &lib,
                 &name,
                 &ns,
@@ -1269,16 +1285,19 @@ pub fn main(args: &[String]) {
                 &rank,
                 slot_opts.as_ref(),
             );
+            let of = |k: usize| premises.slots.iter().filter(|s| s.k == k).count();
             let summary = format!(
                 "{} rules by threads, {} pairs left open, {} same-thread pairs{}",
                 counts.rules,
-                counts.open_global + counts.open_cells + counts.open_priority + counts.open_insert,
-                counts.same_thread,
-                counts
-                    .key_joins
-                    .map_or(String::new(), |k| format!(", {k} in KeyJoins"))
+                of(1),
+                of(0),
+                if premises.present[2] {
+                    format!(", {} in KeyJoins", of(2))
+                } else {
+                    String::new()
+                }
             );
-            (out, counts.report(), slots, summary)
+            (out, counts.report(), premises, slots, summary)
         }
         None => {
             let Some(so) = slot_opts.as_ref() else {
@@ -1286,23 +1305,24 @@ pub fn main(args: &[String]) {
                     "--slots is required without --threads (every ordered pair of rules is a slot)",
                 );
             };
-            let (out, slots) = views::emit_plain(&lib, &name, &ns, obs.as_deref(), &roles, so);
+            let (out, premises, slots) =
+                views::emit_plain(&lib, &name, &ns, obs.as_deref(), &roles, so);
             let summary = format!("{n} rules, {} ordered pairs as slots", n * n);
-            (out, String::new(), Some(slots), summary)
+            (out, String::new(), premises, Some(slots), summary)
         }
     };
     if lib.hooks {
         out = with_hooks(&out, &ns, &name);
     }
-    let mut slot_report = String::new();
-    if let (Some(p), Some((text, report))) = (opt.get("slots"), slots) {
+    let mut status = None;
+    if let (Some(p), Some((text, st))) = (opt.get("slots"), slots) {
         let text = if lib.hooks {
             with_hooks(&text, &ns, &name)
         } else {
             text
         };
         write_file(p, &text);
-        slot_report = report;
+        status = Some(st);
     }
     // a program hypothesis: a preserved invariant, as `claims --assume-invariant` takes one
     if let Some(inv) = opt.get("assume-invariant") {
@@ -1320,7 +1340,8 @@ pub fn main(args: &[String]) {
     }
     write_file(&get("out"), &out);
     if let Some(p) = opt.get("report") {
-        write_file(p, &(rep + &counts_report + &slot_report));
+        let prem = premises_report(rs, &premises, status.as_deref());
+        write_file(p, &(head + &counts_report + &prem + &rep));
     }
     eprintln!("confluence: {summary}");
 }
@@ -1628,8 +1649,8 @@ mod views {
         pub inv: Option<String>,
         /// the module of the hand proofs (`hand.join.K.r₁.r₂`)
         pub hand: Option<String>,
-        /// the open-joins list: a slot left open (`false`) or the hand module's (`true`)
-        pub list: BTreeMap<String, bool>,
+        /// the open-joins list: a slot left open, proved by the hand module, or refuted by it
+        pub list: BTreeMap<String, super::Mark>,
         /// the module of the views (`--out`), which the slots module imports
         pub views: String,
     }
@@ -1647,7 +1668,12 @@ mod views {
         feet: &[BTreeMap<String, (bool, bool)>],
         rank: &dyn Fn(&Rule) -> usize,
         slots: Option<&SlotOpts>,
-    ) -> (String, super::Counts, Option<(String, String)>) {
+    ) -> (
+        String,
+        super::Counts,
+        Premises,
+        Option<(String, Vec<Status>)>,
+    ) {
         let (leaves, top) = tree(lib, name);
         let ti = leaves
             .iter()
@@ -3055,44 +3081,47 @@ def SameThreadJoins : Prop :=
             guard.push_str(" obs_confluent_of");
         }
         writeln!(o, "\n#k2l_assert_axioms {guard}").unwrap();
-        // the count
-        let safe = |c: usize, i: usize| (0..i).all(|j| j < max_rank && safe_tbl(j, c));
-        let mut c = super::Counts {
+        // the views' shape, and the slots: each ordered pair of rules of one rank in the premises
+        // left to it, with the class that leaves it there
+        let c = super::Counts {
             rules: rs.len(),
             thread: kinds.iter().filter(|k| **k == Kind::Thread).count(),
             shared: kinds.iter().filter(|k| **k == Kind::Shared).count(),
             global: kinds.iter().filter(|k| **k == Kind::Global).count(),
             classes: classes.len(),
-            key_joins: any_keyed.then_some(0),
-            ..super::Counts::default()
         };
+        let safe = |c: usize, i: usize| (0..i).all(|j| j < max_rank && safe_tbl(j, c));
         let ins = |k: usize| vroles[k].as_ref().is_some_and(|v| v.inserts());
-        for (i, r1) in rs.iter().enumerate() {
-            for (j, r2) in rs.iter().enumerate() {
-                if rank(r1) != rank(r2) {
-                    continue;
+        let premises = Premises {
+            present: [true, true, any_keyed],
+            slots: slots_of(rs.len(), &|i, j| {
+                if rank(&rs[i]) != rank(&rs[j]) {
+                    return [None; 3];
                 }
                 let pdisj = keyps[i].iter().all(|p| keyps[j].iter().all(|q| p.disj(q)));
-                if kinds[i] == Kind::Thread && kinds[j] == Kind::Thread && !pdisj {
-                    c.same_thread += 1;
-                }
-                if kinds[i] == Kind::Global || kinds[j] == Kind::Global {
-                    c.open_global += 1;
+                let same = kinds[i] == Kind::Thread && kinds[j] == Kind::Thread && !pdisj;
+                let open = if kinds[i] == Kind::Global || kinds[j] == Kind::Global {
+                    Some("global")
                 } else if !compat(&classes[cls[i]], &classes[cls[j]]) {
-                    c.open_cells += 1;
-                } else if !(safe(cls[i], rank(r2)) && safe(cls[j], rank(r1))) {
-                    c.open_priority += 1;
+                    Some("cells")
+                } else if !(safe(cls[i], rank(&rs[j])) && safe(cls[j], rank(&rs[i]))) {
+                    Some("priority")
                 } else if ins(i) && ins(j) {
-                    c.open_insert += 1;
-                } else if let Some(k) = c.key_joins.as_mut()
+                    Some("insert")
+                } else {
+                    None
+                };
+                // `kcompat_of`: the classes may both change one cell holding a map
+                let key = any_keyed
+                    && open.is_none()
                     && (0..n).any(|f| {
-                        classes[cls[i]][f] == Touch::Keyed && classes[cls[j]][f] == Touch::Keyed
-                    })
-                {
-                    *k += 1;
-                }
-            }
-        }
+                        is_keyed(f)
+                            && classes[cls[i]][f] != Touch::None
+                            && classes[cls[j]][f] != Touch::None
+                    });
+                [same.then_some("keys"), open, key.then_some("keys")]
+            }),
+        };
         if slots.is_some() {
             // each premise through its slots: the same text at one pair of rules
             let swap = |o: &mut String, prem: &str, slot: String, body: &str| {
@@ -3152,27 +3181,7 @@ def SameThreadJoins : Prop :=
                     roles,
                     threads: true,
                 },
-                &|i, j| {
-                    if rank(&rs[i]) != rank(&rs[j]) {
-                        return [false; 3];
-                    }
-                    let pdisj = keyps[i].iter().all(|p| keyps[j].iter().all(|q| p.disj(q)));
-                    let same = kinds[i] == Kind::Thread && kinds[j] == Kind::Thread && !pdisj;
-                    let open = kinds[i] == Kind::Global
-                        || kinds[j] == Kind::Global
-                        || !compat(&classes[cls[i]], &classes[cls[j]])
-                        || !(safe(cls[i], rank(&rs[j])) && safe(cls[j], rank(&rs[i])))
-                        || (ins(i) && ins(j));
-                    // `kcompat_of`: the classes may both change one cell holding a map
-                    let key = any_keyed
-                        && !open
-                        && (0..n).any(|f| {
-                            is_keyed(f)
-                                && classes[cls[i]][f] != Touch::None
-                                && classes[cls[j]][f] != Touch::None
-                        });
-                    [same, open, key]
-                },
+                &premises.slots,
                 &|i| match &vroles[i] {
                     Some(v) => v.matches().len(),
                     None => 0,
@@ -3180,7 +3189,7 @@ def SameThreadJoins : Prop :=
             )
         });
         writeln!(o, "\nend {ns}").unwrap();
-        (o, c, slot_out)
+        (o, c, premises, slot_out)
     }
 
     /// A rule's instance (`Inst`): its binders, if any, and the configurations it relates.
@@ -3229,9 +3238,14 @@ def SameThreadJoins : Prop :=
         obs: Option<&[String]>,
         roles: &[MapRole],
         so: &SlotOpts,
-    ) -> (String, (String, String)) {
+    ) -> (String, Premises, (String, Vec<Status>)) {
         let topt = format!("{name}.{}", lib.top);
         let rs = &lib.rules;
+        // every ordered pair of rules is a slot of `OpenJoins`
+        let premises = Premises {
+            present: [false, true, false],
+            slots: slots_of(rs.len(), &|_, _| [None, Some("pairs"), None]),
+        };
         let ctors = crate::preserves::ctors(rs, lib.ranked.then_some(&lib.prios[..]));
         let mut o = String::new();
         writeln!(
@@ -3289,11 +3303,67 @@ def SameThreadJoins : Prop :=
                 cells: &[],
                 roles,
             },
-            &|_, _| [false, true, false],
+            &premises.slots,
             &|_| 0,
         );
         writeln!(o, "\nend {ns}").unwrap();
-        (o, slots)
+        (o, premises, slots)
+    }
+
+    /// The premises of `terminal_unique_of`, by index: the joins at one thread, the joins the views
+    /// leave, the changes of a cell holding a map at overlapping keys.
+    pub(super) const PREMISES: [&str; 3] = ["SameThreadJoins", "OpenJoins", "KeyJoins"];
+
+    /// A slot: the ordered pair of rules `i`, `j` in premise `k` (`PREMISES`), with the class of
+    /// pairs that leaves it there.
+    #[derive(Clone, Copy)]
+    pub(super) struct Slot {
+        pub(super) k: usize,
+        pub(super) i: usize,
+        pub(super) j: usize,
+        pub(super) class: &'static str,
+    }
+
+    /// The premises a run states (`present`, by index) and their slots, in order: by premise,
+    /// then by the first rule, then by the second.
+    pub(super) struct Premises {
+        pub(super) present: [bool; 3],
+        pub(super) slots: Vec<Slot>,
+    }
+
+    /// The slots of `n` rules, given each pair's class in each premise (`None`: not a slot there).
+    fn slots_of(n: usize, class: &dyn Fn(usize, usize) -> [Option<&'static str>; 3]) -> Vec<Slot> {
+        let pairs: Vec<(usize, usize, [Option<&'static str>; 3])> = (0..n)
+            .flat_map(|i| (0..n).map(move |j| (i, j)))
+            .map(|(i, j)| (i, j, class(i, j)))
+            .collect();
+        (0..3)
+            .flat_map(|k| {
+                pairs
+                    .iter()
+                    .filter_map(move |&(i, j, c)| c[k].map(|class| Slot { k, i, j, class }))
+            })
+            .collect()
+    }
+
+    /// How a slot is had: by the generic attempts, by the hand module, left open (a premise of
+    /// `terminal_unique`), or refuted by the hand module.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub(super) enum Status {
+        Generic,
+        Hand,
+        Open,
+        Refuted,
+    }
+
+    /// A slot's name: `join.K.r₁.r₂`.
+    pub(super) fn slot_name(rs: &[Rule], s: &Slot) -> String {
+        format!(
+            "join.{}.{}.{}",
+            ["same", "open", "key"][s.k],
+            rs[s.i].lean,
+            rs[s.j].lean
+        )
     }
 
     /// What the slots module needs of the views.
@@ -3323,9 +3393,9 @@ def SameThreadJoins : Prop :=
     fn emit_slots(
         o: &mut String,
         cx: &SlotCx,
-        class: &dyn Fn(usize, usize) -> [bool; 3],
+        pslots: &[Slot],
         bindings: &dyn Fn(usize) -> usize,
-    ) -> (String, String) {
+    ) -> (String, Vec<Status>) {
         let SlotCx {
             lib,
             name,
@@ -3348,16 +3418,7 @@ def SameThreadJoins : Prop :=
         };
         // the slots, in order: (kind, i, j)
         let kinds = ["same", "open", "key"];
-        let mut slots: Vec<(usize, usize, usize)> = vec![];
-        for k in 0..3 {
-            for i in 0..rs.len() {
-                for j in 0..rs.len() {
-                    if class(i, j)[k] {
-                        slots.push((k, i, j));
-                    }
-                }
-            }
-        }
+        let slots: Vec<(usize, usize, usize)> = pslots.iter().map(|s| (s.k, s.i, s.j)).collect();
         let slot_name = |(k, i, j): (usize, usize, usize)| {
             format!("join.{}.{}.{}", kinds[k], rs[i].lean, rs[j].lean)
         };
@@ -3386,28 +3447,40 @@ def SameThreadJoins : Prop :=
             .unwrap();
         }
         let hinv = if so.inv.is_some() { "hinv " } else { "" };
-        let hand_any = so.list.values().any(|h| *h);
+        let hand_any = so.list.values().any(|h| *h != super::Mark::Open);
         let mut m = String::new();
         writeln!(m, "import {}", so.views).unwrap();
         if hand_any {
             let hand = so.hand.clone().unwrap_or(format!("{ns}.Hand"));
             writeln!(m, "import {hand}").unwrap();
         }
-        let (mut generic, mut hand, mut open) = ([0usize; 3], [0usize; 3], [0usize; 3]);
+        let mut status: Vec<Status> = vec![];
         let mut open_slots: Vec<(usize, usize, usize)> = vec![];
+        let mut refuted: Vec<(usize, usize, usize)> = vec![];
         let mut body = String::new();
         let mut guard: Vec<String> = vec![];
         let us = |i: usize| vec!["_"; ctors[i].args.len()].join(", ");
         for &(k, i, j) in &slots {
             let sn = slot_name((k, i, j));
             match so.list.get(&sn) {
-                Some(false) => {
-                    open[k] += 1;
+                Some(super::Mark::Open) => {
+                    status.push(Status::Open);
                     open_slots.push((k, i, j));
                     continue;
                 }
-                Some(true) => {
-                    hand[k] += 1;
+                Some(super::Mark::Refuted) => {
+                    // checked by `#k2l_refuted`, which also guards its axioms
+                    status.push(Status::Refuted);
+                    refuted.push((k, i, j));
+                    writeln!(
+                        body,
+                        "theorem {sn}.refuted : ¬ {sn}.statement := hand.{sn}.refuted\n\n#k2l_refuted {sn}\n"
+                    )
+                    .unwrap();
+                    continue;
+                }
+                Some(super::Mark::Hand) => {
+                    status.push(Status::Hand);
                     writeln!(
                         body,
                         "theorem {sn} : {sn}.statement := hand.{sn}\n\n#k2l_proves {sn}.statement hand.{sn}\n"
@@ -3416,7 +3489,7 @@ def SameThreadJoins : Prop :=
                     guard.push(sn);
                     continue;
                 }
-                None => generic[k] += 1,
+                None => status.push(Status::Generic),
             }
             let proof = if k == 0 {
                 // two steps at one binding: their keys are the one key, then the instances agree
@@ -3528,20 +3601,42 @@ def SameThreadJoins : Prop :=
                 })
                 .collect()
         };
-        let mut args = format!("(openJoins_of{pa})");
-        guard.push("openJoins_of".into());
+        // each premise from its slots, or refuted by a refuted slot: the premise at the slot's
+        // rules, its guards decided, is the slot's statement
+        let mut prems: Vec<(usize, &str, String, &str)> = vec![];
         if *threads {
-            writeln!(body, "/-- `OpenJoins`, from its slots. -/\ntheorem openJoins_of {pb}: OpenJoins := by\n  intro r₁ r₂ hs\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hs; decide))\n{}", cases_of(1)).unwrap();
-            writeln!(body, "/-- `SameThreadJoins`, from its slots. -/\ntheorem sameThreadJoins_of {pb}: SameThreadJoins := by\n  intro r₁ r₂ k₁ k₂ hr hd\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert k₁ k₂ hr hd; decide))\n{}", cases_of(0)).unwrap();
-            args.push_str(&format!(" (sameThreadJoins_of{pa})"));
-            guard.push("sameThreadJoins_of".into());
+            prems.push((1, "openJoins", format!("by\n  intro r₁ r₂ hs\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hs; decide))\n{}", cases_of(1)), " (by decide)"));
+            prems.push((0, "sameThreadJoins", format!("by\n  intro r₁ r₂ k₁ k₂ hr hd\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert k₁ k₂ hr hd; decide))\n{}", cases_of(0)), " (by decide) (by decide) (by decide) (by decide)"));
         } else {
-            writeln!(body, "/-- `OpenJoins`, from its slots. -/\ntheorem openJoins_of {pb}: OpenJoins := by\n  intro r₁ r₂\n  cases r₁ <;> cases r₂\n{}", cases_of(1)).unwrap();
+            prems.push((
+                1,
+                "openJoins",
+                format!(
+                    "by\n  intro r₁ r₂\n  cases r₁ <;> cases r₂\n{}",
+                    cases_of(1)
+                ),
+                "",
+            ));
         }
         if *any_keyed {
-            writeln!(body, "/-- `KeyJoins`, from its slots; at the other pairs the classes' changes of the cells holding a map\ncommute (`kcompat_of`). -/\ntheorem keyJoins_of {pb}: KeyJoins := by\n  intro r₁ r₂ hr hs\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hr hs; decide))\n{}  all_goals\n    intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk\n    exact (hk (kcompat_of _ _ rfl _ _ o₁.2.2 o₂.2.2)).elim\n", cases_of(2)).unwrap();
-            args.push_str(&format!(" (keyJoins_of{pa})"));
-            guard.push("keyJoins_of".into());
+            prems.push((2, "keyJoins", format!("by\n  intro r₁ r₂ hr hs\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hr hs; decide))\n{}  all_goals\n    intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk\n    exact (hk (kcompat_of _ _ rfl _ _ o₁.2.2 o₂.2.2)).elim\n", cases_of(2)), " (by decide) (by decide)"));
+        }
+        let mut args = String::new();
+        for (k, p, proof, guards) in &prems {
+            let premise = super::views::PREMISES[*k];
+            if let Some(&s) = refuted.iter().find(|s| s.0 == *k) {
+                writeln!(body, "/-- `{premise}` is false: its slot `{}` is refuted. -/\ntheorem {p}_refuted : ¬ {premise} :=\n  fun h => {}.refuted (h .{} .{}{guards})\n", slot_name(s), slot_name(s), rs[s.1].lean, rs[s.2].lean).unwrap();
+                guard.push(format!("{p}_refuted"));
+                continue;
+            }
+            let doc = if *k == 2 {
+                "; at the other pairs the classes' changes of the cells holding a map\ncommute (`kcompat_of`)"
+            } else {
+                ""
+            };
+            writeln!(body, "/-- `{premise}`, from its slots{doc}. -/\ntheorem {p}_of {pb}: {premise} := {proof}").unwrap();
+            write!(args, " ({p}_of{pa})").unwrap();
+            guard.push(format!("{p}_of"));
         }
         let (hb, ha) = match &so.inv {
             Some(inv) => (format!(" (hinv : {inv} c)"), " hinv"),
@@ -3552,11 +3647,17 @@ def SameThreadJoins : Prop :=
         } else {
             " given the open slots `P`".to_string()
         };
-        writeln!(body, "/-- Two runs that end in terminal configurations end in the same one{premise}. -/\ntheorem terminal_unique {pb}{{c n₁ n₂ : {topt}}}{hb}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  terminal_unique_of {args}{ha} h₁ t₁ h₂ t₂\n").unwrap();
-        guard.push("terminal_unique".into());
-        if obs.is_some() {
-            writeln!(body, "/-- The observed cells of the two terminal configurations agree. -/\ntheorem obs_confluent {pb}{{c n₁ n₂ : {topt}}}{hb}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : obs n₁ = obs n₂ :=\n  congrArg obs (terminal_unique{pa}{ha} h₁ t₁ h₂ t₂)\n").unwrap();
-            guard.push("obs_confluent".into());
+        if !refuted.is_empty() {
+            // a premise is false: `terminal_unique_of` is not had from the slots. The premises are
+            // sufficient, not necessary, so this says nothing of whether the definition is confluent
+        } else {
+            let args = args.trim_start();
+            writeln!(body, "/-- Two runs that end in terminal configurations end in the same one{premise}. -/\ntheorem terminal_unique {pb}{{c n₁ n₂ : {topt}}}{hb}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  terminal_unique_of {args}{ha} h₁ t₁ h₂ t₂\n").unwrap();
+            guard.push("terminal_unique".into());
+            if obs.is_some() {
+                writeln!(body, "/-- The observed cells of the two terminal configurations agree. -/\ntheorem obs_confluent {pb}{{c n₁ n₂ : {topt}}}{hb}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : obs n₁ = obs n₂ :=\n  congrArg obs (terminal_unique{pa}{ha} h₁ t₁ h₂ t₂)\n").unwrap();
+                guard.push("obs_confluent".into());
+            }
         }
         let total: Vec<usize> = (0..3)
             .map(|k| slots.iter().filter(|s| s.0 == k).count())
@@ -3591,34 +3692,19 @@ def SameThreadJoins : Prop :=
                     .to_string(),
             )
         };
+        let refutes = if refuted.is_empty() {
+            ""
+        } else {
+            "\nA slot listed `| refuted` is refuted by the hand module (`hand.join.K.r₁.r₂.refuted`), and refutes its\npremise (`P_refuted`); `terminal_unique` is then not stated. The premises are sufficient, not\nnecessary: a refuted premise says nothing of whether the definition is confluent."
+        };
         writeln!(
             m,
-            "\n/-! Generated by `k2lean confluence {cmd}`; do not edit.\n\nThe premises of `{ns}.terminal_unique_of`, one slot per ordered pair of rules: {premises}.\nA slot is proved by the generic attempts ({attempts}), by the hand module\n(`hand.join.K.r₁.r₂`, listed `| hand` in the open-joins list), or open: a field of `Open`, the premise\nof `terminal_unique`. -/\n\nset_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n"
+            "\n/-! Generated by `k2lean confluence {cmd}`; do not edit.\n\nThe premises of `{ns}.terminal_unique_of`, one slot per ordered pair of rules: {premises}.\nA slot is proved by the generic attempts ({attempts}), by the hand module\n(`hand.join.K.r₁.r₂`, listed `| hand` in the open-joins list), or open: a field of `Open`, the premise\nof `terminal_unique`.{refutes} -/\n\nset_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n"
         )
         .unwrap();
         m.push_str(&body);
         writeln!(m, "#k2l_assert_axioms {}\n\nend {ns}", guard.join(" ")).unwrap();
-        let mut rep = String::from("\n[slots]\n");
-        for k in 0..3 {
-            if (k == 2 && !any_keyed) || (k == 0 && !threads) {
-                continue;
-            }
-            writeln!(
-                rep,
-                "{} = {{ slots = {}, generic = {}, hand = {}, open = {} }}",
-                kinds[k], total[k], generic[k], hand[k], open[k]
-            )
-            .unwrap();
-        }
-        let hands: Vec<String> = so
-            .list
-            .iter()
-            .filter(|(_, h)| **h)
-            .map(|(n, _)| n.clone())
-            .collect();
-        let opens: Vec<String> = open_slots.iter().map(|s| slot_name(*s)).collect();
-        writeln!(rep, "hand_slots = {hands:?}\nopen_slots = {opens:?}").unwrap();
-        (m, rep)
+        (m, status)
     }
 
     #[cfg(test)]
@@ -3673,48 +3759,80 @@ def SameThreadJoins : Prop :=
     }
 }
 
-/// What `--threads` leaves open, counted over ordered pairs of rules of one rank.
-#[derive(Default)]
+/// The shape of the views of `--threads`: the rules by kind, and the classes of their changes.
 pub(crate) struct Counts {
     rules: usize,
     thread: usize,
     shared: usize,
     global: usize,
     classes: usize,
-    /// a global rule (`OpenJoins`)
-    open_global: usize,
-    /// two rules touching one cell where one writes (`OpenJoins`)
-    open_cells: usize,
-    /// a rule that may enable one of a rank before the other's (`OpenJoins`)
-    open_priority: usize,
-    /// two rules that add bindings to the thread map (`OpenJoins`)
-    open_insert: usize,
-    /// two thread rules whose keys may be equal, at one binding (`SameThreadJoins`)
-    same_thread: usize,
-    /// with cells holding a map changed at some bindings: two rules of one rank, otherwise
-    /// decided generically, that change one such cell (`KeyJoins`, where their keys overlap)
-    key_joins: Option<usize>,
 }
 
 impl Counts {
     fn report(&self) -> String {
         format!(
-            "\n[threads]\nrules = {}\nthread = {}\nshared = {}\nglobal = {}\nclasses = {}\nopen = {}\nopen-global = {}\nopen-cells = {}\nopen-priority = {}\nopen-insert = {}\nsame-thread = {}\n",
-            self.rules,
-            self.thread,
-            self.shared,
-            self.global,
-            self.classes,
-            self.open_global + self.open_cells + self.open_priority + self.open_insert,
-            self.open_global,
-            self.open_cells,
-            self.open_priority,
-            self.open_insert,
-            self.same_thread
-        ) + &self
-            .key_joins
-            .map_or(String::new(), |k| format!("key-joins = {k}\n"))
+            "\n[threads]\nrules = {}\nthread = {}\nshared = {}\nglobal = {}\nclasses = {}\n",
+            self.rules, self.thread, self.shared, self.global, self.classes
+        )
     }
+}
+
+/// The report's section in the premises' vocabulary: per premise of `terminal_unique_of` and class
+/// of pairs, how many slots are proved by the generic attempts, by the hand module, left open or
+/// refuted; `status` is `None` without `--slots`, where every slot is open (the premise is a
+/// hypothesis).
+fn premises_report(rs: &[Rule], p: &views::Premises, status: Option<&[views::Status]>) -> String {
+    use views::Status;
+    let st = |n: usize| status.map_or(Status::Open, |s| s[n]);
+    let mut rep = String::from(
+        "\n[premises]  # per premise of terminal_unique_of and class of pairs of rules: its slots, each proved\n# by the generic attempts, by the hand module, left open, or refuted by the hand module\n",
+    );
+    writeln!(rep, "attempted = {}", status.is_some()).unwrap();
+    if status.is_some() {
+        for (key, want) in [
+            ("hand_slots", Status::Hand),
+            ("open_slots", Status::Open),
+            ("refuted_slots", Status::Refuted),
+        ] {
+            let names: Vec<String> = (0..p.slots.len())
+                .filter(|&n| st(n) == want)
+                .map(|n| views::slot_name(rs, &p.slots[n]))
+                .collect();
+            writeln!(rep, "{key} = {names:?}").unwrap();
+        }
+    }
+    let classes: [&[&str]; 3] = [
+        &["keys"],
+        if p.present[0] {
+            &["global", "cells", "priority", "insert"]
+        } else {
+            &["pairs"]
+        },
+        &["keys"],
+    ];
+    for (k, cs) in classes.iter().enumerate() {
+        if !p.present[k] {
+            continue;
+        }
+        writeln!(rep, "\n[premises.{}]", views::PREMISES[k]).unwrap();
+        for c in *cs {
+            let ns: Vec<usize> = (0..p.slots.len())
+                .filter(|&n| p.slots[n].k == k && p.slots[n].class == *c)
+                .collect();
+            let count = |w: Status| ns.iter().filter(|&&n| st(n) == w).count();
+            writeln!(
+                rep,
+                "{c} = {{ slots = {}, generic = {}, hand = {}, open = {}, refuted = {} }}",
+                ns.len(),
+                count(Status::Generic),
+                count(Status::Hand),
+                count(Status::Open),
+                count(Status::Refuted)
+            )
+            .unwrap();
+        }
+    }
+    rep
 }
 
 #[cfg(test)]

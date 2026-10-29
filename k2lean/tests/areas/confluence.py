@@ -9,8 +9,10 @@ DEMOS = {
                                               "demos/RaceConf/RaceConf/Pairs/Views.lean",
                                               "demos/RaceConf/RaceConf/Pairs/Slots.lean",
                                               "demos/RaceConf/confluence.toml", "demos/RaceConf/pairs.toml"]},
-    # SIMPLE's steps of two threads joined generically, the rest as hypotheses (`confluence --threads`)
-    "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean"]},
+    # SIMPLE's steps of two threads joined generically, the joins they leave as slots, those the
+    # generic attempts do not prove open (`confluence --threads threads --slots`)
+    "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean",
+                                                "demos/SimpleConf/SimpleConf/Slots.lean"]},
     # coroutines over a UTXO ledger, the same views with the joins they leave as slots
     # (`confluence --threads procs --slots`)
     "UtxoConf": {"tier": "light", "sources": ["generated/utxo",
@@ -24,9 +26,14 @@ DEMOS = {
     # the same script run in its order into it, by hand (`HandoffSeqRel.result_unique`); built
     # against HandoffConf's phase
     "HandoffSeqRel": {"tier": "light", "sources": ["generated/handoffseq"]},
+    # workers writing one cell: the slot of two writes refuted by hand, so `OpenJoins` is false
+    "DrfConf": {"tier": "light", "sources": ["generated/drf",
+                                             "demos/DrfConf/DrfConf/Views.lean", "demos/DrfConf/DrfConf/Slots.lean",
+                                             "demos/DrfConf/confluence.toml"]},
 }
 
-# SIMPLE's pairs of rules classified, and what SimpleConf leaves open (`confluence --threads`)
+# SIMPLE's pairs of rules classified, and its slots by premise and class with their statuses
+# (`confluence --threads --slots`)
 OUTPUTS = {
     "simple-confluence.toml": {"tier": "heavy", "compare": "exact"},
 }

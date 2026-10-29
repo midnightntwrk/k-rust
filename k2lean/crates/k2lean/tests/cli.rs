@@ -785,7 +785,7 @@ fn confluence_separates_a_thread_end_matched_at_a_constructor_key_at_one_binding
         .unwrap();
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let r = std::fs::read_to_string(&report).unwrap();
-    assert!(r.contains("[one_binding]\nclash = 1\n\n"), "{r}");
+    assert!(r.contains("[diagnostic.one_binding]\nclash = 1\n\n"), "{r}");
     assert!(!r.contains("(one binding"), "{r}");
     assert!(
         r.contains("\"step | end (two bindings: the map's bindings change)\""),
@@ -871,7 +871,7 @@ fn confluence_threads_views_a_message_to_a_named_process() {
         "{r}"
     );
     assert!(
-        r.contains("open = 1\nopen-global = 0\nopen-cells = 0\n"),
+        r.contains("global = { slots = 0, generic = 0, hand = 0, open = 0, refuted = 0 }\ncells = { slots = 0,"),
         "{r}"
     );
     let v = std::fs::read_to_string(&out).unwrap();
@@ -917,11 +917,15 @@ fn confluence_threads_views_a_map_cell_by_binding() {
         .unwrap();
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let r = std::fs::read_to_string(&report).unwrap();
-    // create|create, spend|spend, create|spend, spend|create
-    assert!(
-        r.contains("open-insert = 1\nsame-thread = 8\nkey-joins = 4\n"),
-        "{r}"
-    );
+    // create|create, spend|spend, create|spend, spend|create; without slots, every slot is open
+    for x in [
+        "attempted = false\n",
+        "[premises.SameThreadJoins]\nkeys = { slots = 8, generic = 0, hand = 0, open = 8, refuted = 0 }\n",
+        "insert = { slots = 1, generic = 0, hand = 0, open = 1, refuted = 0 }\n",
+        "[premises.KeyJoins]\nkeys = { slots = 4, generic = 0, hand = 0, open = 4, refuted = 0 }\n",
+    ] {
+        assert!(r.contains(x), "{x}\n{r}");
+    }
     let v = std::fs::read_to_string(&out).unwrap();
     assert!(v.contains("  ledger : Utxo.SortMap\n"), "{v}");
     assert!(v.contains("  ledger : MCh Utxo.SortMap := none\n"), "{v}");
@@ -979,7 +983,7 @@ fn confluence_threads_views_a_read_with_an_insertion_as_keyed() {
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let r = std::fs::read_to_string(&report).unwrap();
     assert!(
-        r.contains("open-cells = 0\nopen-priority = 0\nopen-insert = 1\n"),
+        r.contains("cells = { slots = 0, generic = 0, hand = 0, open = 0, refuted = 0 }\npriority = { slots = 0, generic = 0, hand = 0, open = 0, refuted = 0 }\ninsert = { slots = 1,"),
         "{r}"
     );
     let v = std::fs::read_to_string(&out).unwrap();
@@ -1138,7 +1142,7 @@ fn confluence_slots_with_and_without_threads() {
         assert!(m.contains(x), "{x}\n{m}");
     }
     assert!(
-        r.contains("same = { slots = 1, generic = 1, hand = 0, open = 0 }"),
+        r.contains("[premises.SameThreadJoins]\nkeys = { slots = 1, generic = 1, hand = 0, open = 0, refuted = 0 }"),
         "{r}"
     );
     let (v, m, r) = run("RP", &[]);
@@ -1160,7 +1164,7 @@ fn confluence_slots_with_and_without_threads() {
         "{m}"
     );
     assert!(
-        r.contains("[slots]\nopen = { slots = 9, generic = 9, hand = 0, open = 0 }"),
+        r.contains("[premises.OpenJoins]\npairs = { slots = 9, generic = 9, hand = 0, open = 0, refuted = 0 }"),
         "{r}"
     );
 }
@@ -1256,14 +1260,89 @@ fn confluence_threads_slots_split_the_premises() {
         assert!(m.contains(x), "{x}\n{m}");
     }
     assert!(
-        r.contains("open = { slots = 1, generic = 0, hand = 0, open = 1 }")
-            && r.contains("open_slots = [\"join.open.spawn.spawn\"]"),
+        r.contains("insert = { slots = 1, generic = 0, hand = 0, open = 1, refuted = 0 }")
+            && r.contains("keys = { slots = 4, generic = 3, hand = 1, open = 0, refuted = 0 }")
+            && r.contains("hand_slots = [\"join.key.spend.spend\"]\nopen_slots = [\"join.open.spawn.spawn\"]\nrefuted_slots = []\n"),
         "{r}"
     );
     // a name that is no slot
     let o = run(Some("join.open.seq.seq\n"));
     assert!(!o.status.success());
     assert!(String::from_utf8_lossy(&o.stderr).contains("join.open.seq.seq is not a slot"));
+}
+
+/// `confluence --slots` with a slot listed `| refuted` (the fixture `drf`, whose workers each write
+/// `<acc>` once): the slots module states the hand module's refutation, checked by `#k2l_refuted`,
+/// refutes the slot's premise at the slot's rules, and states no `terminal_unique`; the report
+/// counts the slot refuted in its class. An unknown marker is refused.
+#[test]
+fn confluence_slots_refuted_refute_their_premise() {
+    let d = tmp("cli-confluence-refuted");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/drf/definition.kore");
+    let run = |list: &str| {
+        std::fs::write(d.join("open.txt"), list).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("confluence")
+            .arg("--kore")
+            .arg(&fx)
+            .args([
+                "--name",
+                "Drf",
+                "--ns",
+                "DV",
+                "--threads",
+                "workers",
+                "--obs",
+                "acc",
+            ])
+            .args(["--hand-module", "DV.Hand", "--slots"])
+            .arg(d.join("Slots.lean"))
+            .arg("--open-joins")
+            .arg(d.join("open.txt"))
+            .arg("--out")
+            .arg(d.join("Views.lean"))
+            .arg("--report")
+            .arg(d.join("c.toml"))
+            .output()
+            .unwrap()
+    };
+    let o = run("join.open.put.put | refuted\n");
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    let r = std::fs::read_to_string(d.join("c.toml")).unwrap();
+    for x in [
+        "import DV.Hand",
+        "theorem join.open.put.put.refuted : ¬ join.open.put.put.statement := hand.join.open.put.put.refuted\n\n#k2l_refuted join.open.put.put\n",
+        "theorem openJoins_refuted : ¬ OpenJoins :=\n  fun h => join.open.put.put.refuted (h .put .put (by decide))",
+        "theorem sameThreadJoins_of : SameThreadJoins",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    assert!(
+        !m.contains("theorem openJoins_of")
+            && !m.contains("theorem terminal_unique")
+            && !m.contains("theorem obs_confluent"),
+        "{m}"
+    );
+    assert!(
+        r.contains("cells = { slots = 2, generic = 1, hand = 0, open = 0, refuted = 1 }")
+            && r.contains("refuted_slots = [\"join.open.put.put\"]"),
+        "{r}"
+    );
+    // a same-thread slot refutes `SameThreadJoins`, its four guards decided
+    let o = run("join.same.put.put | refuted\n");
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    assert!(
+        m.contains("theorem sameThreadJoins_refuted : ¬ SameThreadJoins :=\n  fun h => join.same.put.put.refuted (h .put .put (by decide) (by decide) (by decide) (by decide))")
+            && m.contains("theorem openJoins_of"),
+        "{m}"
+    );
+    let o = run("join.open.put.put | false\n");
+    assert!(!o.status.success());
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("expected NAME, NAME | hand or NAME | refuted")
+    );
 }
 
 #[test]
@@ -1299,10 +1378,13 @@ fn confluence_threads_views_a_thread_end_as_a_removal() {
         "{r}"
     );
     assert!(
-        r.contains("open = 1\nopen-global = 0\nopen-cells = 1\n"),
+        r.contains("[premises.OpenJoins]\nglobal = { slots = 0, generic = 0, hand = 0, open = 0, refuted = 0 }\ncells = { slots = 1,"),
         "{r}"
     );
-    assert!(r.contains("same-thread = 2\n"), "{r}");
+    assert!(
+        r.contains("[premises.SameThreadJoins]\nkeys = { slots = 2,"),
+        "{r}"
+    );
     let v = std::fs::read_to_string(&out).unwrap();
     assert!(v.contains("| .step => .thread"), "{v}");
     assert!(v.contains("| .«end» => .thread"), "{v}");
