@@ -48,6 +48,12 @@
 //! ([`Nesting::in_computed_key`]). A constructor's fields read as the key does. A key of a map
 //! that is built is built with it. A `let` block and `k::matches!` compute too, but stand in no
 //! key (finding NT-3-2).
+//!
+//! **Collection instances.** Braces write a Set collection's instances, which a pattern looks
+//! the collection up by as by its elements, and a Map collection's, which it matches; only the
+//! cell's declared type tells them apart, which resolution gives. So in a braced instance of a
+//! pattern over evaluated terms ([`Nesting::in_braced_instance`]) a sort test and a record update
+//! are the compiler's to decide, as a function's application is.
 
 use std::fmt;
 
@@ -263,6 +269,10 @@ pub struct Nesting {
     /// Inside a key a pattern looks up, below a pattern-only construct (`name @ pattern`, `A |
     /// B`), which selects an entry by matching the map's keys: matched.
     pub in_selected_key: bool,
+    /// Inside a cell of a collection's instance written in braces (`{ Decl { cell: .. }, .. }`):
+    /// a Set collection's, which a pattern looks up by an instance as by an element, or a Map
+    /// collection's, which it matches.
+    pub in_braced_instance: bool,
 }
 
 /// Where a construct stands.
@@ -290,6 +300,7 @@ impl Position {
                 in_map_key: false,
                 in_computed_key: false,
                 in_selected_key: false,
+                in_braced_instance: false,
             },
         }
     }
@@ -342,6 +353,18 @@ impl Position {
             && self.form.matches_evaluated_terms()
             && (!self.nesting.in_map_key || self.nesting.in_selected_key))
             || self.in_local_pattern()
+    }
+
+    /// Whether the construct stands in a braced collection instance of a pattern over evaluated
+    /// terms, outside a key: looked up when the collection is a Set and the instance is computed,
+    /// matched otherwise, which the collection's declared type and the instance's names decide.
+    #[must_use]
+    pub const fn reads_by_collection_type(self) -> bool {
+        matches!(self.slot, Slot::Subject)
+            && self.nesting.in_braced_instance
+            && !self.nesting.in_map_key
+            && !self.in_local_pattern()
+            && self.form.matches_evaluated_terms()
     }
 
     /// Whether the construct is matched and also built: in an alias clause's subject, which is
@@ -810,20 +833,25 @@ pub enum Rule {
     /// `ml-predicate-as-term`: whether a predicate in a built term is an operand of an object
     /// term.
     MlPredicateAsTerm,
+    /// `record-update-in-pattern`: whether a record update in a braced collection instance
+    /// stands in a Set collection's instance a pattern looks up.
+    RecordUpdateInPattern,
     /// `sort-test-in-pattern`: whether a sort test in a key over evaluated terms stands in a key
-    /// that selects an entry by matching.
+    /// that selects an entry by matching, and one in a braced collection instance in a Set
+    /// collection's instance a pattern looks up.
     SortTestInPattern,
 }
 
 impl Rule {
     /// Every rule.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::AlternativesOutsidePattern,
         Self::ConcatenationInAliasSubject,
         Self::ConstantAppliesFunction,
         Self::FunctionInPattern,
         Self::MlInCondition,
         Self::MlPredicateAsTerm,
+        Self::RecordUpdateInPattern,
         Self::SortTestInPattern,
     ];
 
@@ -837,6 +865,7 @@ impl Rule {
             Self::FunctionInPattern => "function-in-pattern",
             Self::MlInCondition => "ml-in-condition",
             Self::MlPredicateAsTerm => "ml-predicate-as-term",
+            Self::RecordUpdateInPattern => "record-update-in-pattern",
             Self::SortTestInPattern => "sort-test-in-pattern",
         }
     }
@@ -975,9 +1004,12 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // over evaluated terms never meets it, while a simplification's, a claim's and a static
         // clause's subjects hold applications, and a key computes it.
         // In a key over evaluated terms, whether the whole key is computed or selects an entry
-        // by matching takes its names: the compiler decides.
+        // by matching takes its names: the compiler decides. So does a braced collection
+        // instance's type and names.
         Construct::SortTest => {
-            if position.matches_evaluated_terms() && !looked_up {
+            if position.reads_by_collection_type() {
+                After(Rule::SortTestInPattern)
+            } else if position.matches_evaluated_terms() && !looked_up {
                 Refuse(Class::SortTestInPattern)
             } else if in_pattern_key && form.matches_evaluated_terms() {
                 After(Rule::SortTestInPattern)
@@ -1004,9 +1036,12 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         }
         // `..base` takes the fields an update leaves out from a matched record, which a built
         // term can do and a pattern cannot: it matches records and leaves fields out with `..`.
+        // A Set collection's instance a pattern looks up computes it, as a key does.
         Construct::RecordUpdate => {
             if cells_value(position) {
                 Refuse(Class::RecordRemainderInCellsTerm)
+            } else if position.reads_by_collection_type() {
+                After(Rule::RecordUpdateInPattern)
             } else if pattern && !looked_up {
                 Refuse(Class::RecordUpdateInPattern)
             } else {

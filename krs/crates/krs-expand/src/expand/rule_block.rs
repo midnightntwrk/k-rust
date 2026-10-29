@@ -254,6 +254,7 @@ fn expand_head_rule(
                         builder: &mut builder,
                         slots: &mut slots,
                         side: krs_syntax::RuleSide::Left,
+                        braced: false,
                     },
                 )?;
                 state_befores.push((
@@ -355,6 +356,7 @@ fn expand_head_rule(
                                 builder: &mut builder,
                                 slots: &mut slots,
                                 side: krs_syntax::RuleSide::Right,
+                                braced: false,
                             },
                         )?;
                         (Some(ledger.define(extra_keys.result_cell())?), Some(after))
@@ -772,6 +774,9 @@ struct ReadableStateContext<'a, 'b> {
     builder: &'a mut TermBuilder<'b>,
     slots: &'a mut WireSlots,
     side: krs_syntax::RuleSide,
+    /// Whether the state is a cell of a collection's instance written in
+    /// braces.
+    braced: bool,
 }
 
 /// The wire form of a readable optional or collection state (KF-023): its
@@ -797,25 +802,25 @@ fn readable_state_wire(
             value: Box::new(readable_state_wire(inner, context)?),
         },
         StateTerm::Absent(_) => State::Absent,
-        StateTerm::Term(term) | StateTerm::Group(term) => State::Term(
-            context
-                .builder
-                .expand_wire(KeyedTerm::of(term), term_side, context.slots)?,
-        ),
+        StateTerm::Term(term) | StateTerm::Group(term) => {
+            let braced = context.braced;
+            State::Term(context.builder.in_instances(braced, |builder| {
+                builder.expand_wire(KeyedTerm::of(term), term_side, context.slots)
+            })?)
+        }
         StateTerm::KSequence(sequence) => {
             // Every `[..]` has its payload key: an empty one is anchored at
             // its brackets.
             let payload_key = ledger.define(sequence.payload_key())?;
             let mut items = Vec::new();
+            let braced = context.braced;
             for item in sequence.items() {
                 let key = ledger.define(item.keys().payload())?;
                 items.push(krs_ir::ProtocolRuleKSequenceItem {
                     key,
-                    value: context.builder.expand_wire(
-                        KeyedTerm::of(item),
-                        term_side,
-                        context.slots,
-                    )?,
+                    value: context.builder.in_instances(braced, |builder| {
+                        builder.expand_wire(KeyedTerm::of(item), term_side, context.slots)
+                    })?,
                 });
             }
             let tail = match sequence.tail() {
@@ -862,22 +867,29 @@ fn readable_state_wire(
                     rest: super::state_rules::instance_rest(item.rest()),
                 })
             };
+            let braced = list.delimiter() == krs_syntax::InstanceListDelimiter::Brace;
+            let enclosing = ::core::mem::replace(&mut context.braced, braced);
             let front = list
                 .front()
                 .iter()
                 .map(|item| instance(item, context))
-                .collect::<crate::Result<Vec<_>>>()?;
+                .collect::<crate::Result<Vec<_>>>();
+            context.braced = enclosing;
+            let front = front?;
             let rest = match list.rest() {
                 StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
                 _ => krs_ir::ProtocolRuleFrame::Anonymous {
                     key: ledger.define(list.rest_key())?,
                 },
             };
+            let enclosing = ::core::mem::replace(&mut context.braced, braced);
             let back = list
                 .back()
                 .iter()
                 .map(|item| instance(item, context))
-                .collect::<crate::Result<Vec<_>>>()?;
+                .collect::<crate::Result<Vec<_>>>();
+            context.braced = enclosing;
+            let back = back?;
             State::Instances(krs_ir::ProtocolRuleInstances {
                 delimiter: match list.delimiter() {
                     krs_syntax::InstanceListDelimiter::Brace => krs_ir::InstanceDelimiter::Brace,

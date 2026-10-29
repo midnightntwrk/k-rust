@@ -247,6 +247,14 @@ fn contains_top_level_arrow(group: &proc_macro2::Group) -> bool {
 
 /// Parses a readable instance list `{ .. }` or `[ .. ]` (KF-023): records
 /// `[label @] Decl { child: value, .., }` and one `..` rest.
+///
+/// In a pattern, a braced list's children are read as a map's key is: a
+/// pattern where one parses, and otherwise the term expression, notation
+/// read as the call it denotes. Braces write a Set collection, which a
+/// pattern looks up by an instance as by an element, and a Map collection,
+/// whose instances are matched, and only the cell's declared type tells them
+/// apart, after resolution: the compiler then judges what the child holds.
+/// A List collection's brackets are matched, read as any pattern is.
 fn parse_readable_instances(
     group: &proc_macro2::Group,
     context: StateMacroContext,
@@ -272,7 +280,8 @@ fn parse_readable_instances(
             )?));
             continue;
         }
-        let parsed = parse_readable_instance(item, context)?;
+        let parsed =
+            parse_readable_instance(item, context, delimiter == InstanceListDelimiter::Brace)?;
         if rest.is_some() {
             if delimiter == InstanceListDelimiter::Brace {
                 return Err(readable_error(
@@ -296,6 +305,7 @@ fn parse_readable_instances(
 fn parse_readable_instance(
     tokens: TokenStream,
     context: StateMacroContext,
+    braced: bool,
 ) -> Result<InstanceItem, ParseError> {
     let range = TokenRange::for_tokens(&tokens)?;
     let mut trees = tokens.into_iter().collect::<Vec<_>>();
@@ -387,18 +397,26 @@ fn parse_readable_instance(
         let value = value.iter().cloned().collect::<TokenStream>();
         fields.push(InstanceField::new(
             name.clone(),
-            parse_readable_child(value, context)?,
+            parse_readable_child(value, context, braced)?,
         ));
     }
     Ok(InstanceItem::new(range, label, owner, fields, rest))
 }
 
 /// One readable instance child: `[items.., ..]` for a computation cell, or
-/// a term.
+/// a term; a braced list's child in a pattern is read as a key is
+/// ([`parse_readable_instances`]).
 fn parse_readable_child(
     tokens: TokenStream,
     context: StateMacroContext,
+    braced: bool,
 ) -> Result<StateTerm, ParseError> {
+    let read = |tokens| match context {
+        StateMacroContext::Pattern if braced => {
+            Ok(TermExpression::parse_key_pattern_tokens(tokens)?)
+        }
+        context => readable_term(tokens, context),
+    };
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     if let [TokenTree::Group(group)] = trees.as_slice()
         && group.delimiter() == proc_macro2::Delimiter::Bracket
@@ -418,13 +436,13 @@ fn parse_readable_child(
                 tail = StateMacroRemainder::Anonymous(TokenRange::for_tokens(&chunk)?);
                 continue;
             }
-            items.push(readable_term(chunk, context)?);
+            items.push(read(chunk)?);
         }
         return Ok(StateTerm::KSequence(crate::KSequence::readable(
             group, items, tail,
         )?));
     }
-    Ok(StateTerm::Term(readable_term(tokens, context)?))
+    Ok(StateTerm::Term(read(tokens)?))
 }
 
 fn readable_term(

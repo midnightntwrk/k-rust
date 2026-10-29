@@ -463,6 +463,19 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the construct.
         range: Option<Box<SourceRange>>,
     },
+    /// A record update `Ctor { f: e, ..base }` in a Map or a List
+    /// collection's instance, which a pattern matches: the update builds a
+    /// record, which no pattern denotes. The walker leaves it to resolution,
+    /// since a Set collection's instance, which the same braces write, may
+    /// compute it.
+    RecordUpdateInPattern {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the update's head.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `let` statement's (K's `#let`) pattern cannot meet its value's sort,
     /// one of its names has no single sort, or a let-bound name is used at a
     /// sort it does not have (KF-032).
@@ -972,6 +985,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::RecordUpdateInPattern {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::SubjectRootNotFunction {
                 range: $named_range,
                 item: $named_item,
@@ -1439,6 +1457,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::FunctionInPattern { reason, .. }
             | Self::UnboundKeyName { reason, .. }
             | Self::PatternInComputedKey { reason, .. }
+            | Self::RecordUpdateInPattern { reason, .. }
             | Self::SubjectRootNotFunction { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
@@ -1535,6 +1554,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::FunctionInPattern { .. } => codes::analysis::FUNCTION_IN_PATTERN,
             Self::UnboundKeyName { .. } => codes::expand::UNBOUND_NAME,
             Self::PatternInComputedKey { construct, .. } => construct.code(),
+            Self::RecordUpdateInPattern { .. } => codes::syntax::INVALID_RECORD_UPDATE,
             Self::SubjectRootNotFunction { .. } => codes::analysis::SUBJECT_ROOT_NOT_FUNCTION,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,

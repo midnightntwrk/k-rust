@@ -531,6 +531,9 @@ pub(super) struct TermBuilder<'a> {
     /// Whether the key being expanded selects an entry here: below `@` or
     /// `|` in it ([`Nesting::in_selected_key`]).
     in_selected_key: bool,
+    /// Whether a cell of a collection's instance written in braces is being
+    /// expanded ([`Nesting::in_braced_instance`]).
+    in_braced_instance: bool,
     /// The local binders (BIND-1) of the `k::matches!` pattern being
     /// expanded, or `None` outside one.
     local_binders: Option<Vec<Ident>>,
@@ -594,6 +597,7 @@ impl<'a> TermBuilder<'a> {
             in_map_key: false,
             in_computed_key: false,
             in_selected_key: false,
+            in_braced_instance: false,
             local_binders: None,
             let_pattern_binders: None,
             let_scopes: Vec::new(),
@@ -617,6 +621,7 @@ impl<'a> TermBuilder<'a> {
                 in_map_key: self.in_map_key,
                 in_computed_key: self.in_computed_key,
                 in_selected_key: self.in_selected_key,
+                in_braced_instance: self.in_braced_instance,
             },
         };
         match self.rewrite {
@@ -935,6 +940,27 @@ impl<'a> TermBuilder<'a> {
         let wire = self.expand_wire(term, side, slots);
         self.in_map_key = enclosing;
         wire
+    }
+
+    /// Sets whether the walk is in a braced collection instance, returning
+    /// what it was.
+    pub(super) const fn braced_instance(&mut self, braced: bool) -> bool {
+        let enclosing = self.in_braced_instance;
+        self.in_braced_instance = braced;
+        enclosing
+    }
+
+    /// Runs `expand` on the cells of a collection's instances, written in
+    /// braces when `braced` ([`Nesting::in_braced_instance`]).
+    pub(super) fn in_instances<T>(
+        &mut self,
+        braced: bool,
+        expand: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let enclosing = ::core::mem::replace(&mut self.in_braced_instance, braced);
+        let result = expand(self);
+        self.in_braced_instance = enclosing;
+        result
     }
 
     /// Runs `expand` on the operands of a construct that computes them

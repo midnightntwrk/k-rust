@@ -11,7 +11,11 @@
 //! open record is a selection instead: the rule chooses an entry whose key
 //! matches it, and the key is matched against the map's keys, which are
 //! evaluated values. The same holds for a set, which is looked up by its
-//! elements as a map by its keys (`set::item(e)` in a set pattern).
+//! elements as a map by its keys (`set::item(e)` in a set pattern), and for
+//! a Set cell collection, a set of its instances, which is looked up by an
+//! instance as by an element: the instance's cells, all of them written
+//! (no `..` in the instance), are the element's value, and a `..` that
+//! leaves its other cells open selects as a name nothing else binds does.
 //!
 //! So, in one key:
 //! - below a construct that computes, every position is built: `_`, an
@@ -32,15 +36,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    Descriptor, DescriptorApplicationRef, DescriptorApplicationReference, DescriptorHeadRuleExtra,
-    DescriptorPayload, DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest,
-    ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm,
-    ProvenanceKey, SetOperation, StableItemId, TermArgumentRef,
+    CellCollectionType, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
+    DescriptorCellIdentity, DescriptorHeadRuleExtra, DescriptorIndex, DescriptorPayload,
+    DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolInstanceRest,
+    ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleInstance, ProtocolRuleMapBody,
+    ProtocolRuleStateTerm, ProvenanceKey, SetOperation, StableItemId, TermArgumentRef,
 };
 
 use super::{
-    Applied, DescriptorLoweringError, ProductionSignature, applied_function, key_range,
-    matches_evaluated_sentence,
+    Applied, DescriptorLoweringError, ProductionSignature, applied_function, collection_type,
+    key_range, matches_evaluated_sentence,
 };
 use crate::semantic::error::KeyPattern;
 
@@ -59,12 +64,14 @@ use crate::semantic::error::KeyPattern;
 pub(super) fn check(
     descriptor: &Descriptor,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     let payload = descriptor.payload();
     if !matches_evaluated_sentence(payload) {
         return Ok(());
     }
     let mut pattern = Pattern {
+        declarations,
         outside: BTreeSet::new(),
         entries: Vec::new(),
         remainders: Vec::new(),
@@ -83,7 +90,7 @@ pub(super) fn check(
                 built: None,
                 read: Vec::new(),
             };
-            key.term(entry.key, None);
+            key.entry(&entry.key);
             key
         })
         .collect::<Vec<_>>();
@@ -113,6 +120,9 @@ pub(super) fn check(
             Lookup::SetElement => {
                 "an element is evaluated to look it up in the set, so the element"
             }
+            Lookup::Instance => {
+                "an instance is evaluated to look it up in the collection, so the instance"
+            }
         };
         return Err(DescriptorLoweringError::UnboundKeyName {
             item: item(),
@@ -130,14 +140,7 @@ pub(super) fn check(
             Some((&keys[*index], selector, keys[*index].computes.as_ref()?))
         })
     {
-        let reason = format!(
-            "{what} stands in {place} that also holds {selector}, so the key selects an entry by matching {held} rather than computing the {looked} looked up; {what} denotes the value evaluation produces, which no evaluated {one} is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
-            what = computes.what,
-            place = key.lookup.place(),
-            held = key.lookup.held(),
-            looked = key.lookup.looked_up(),
-            one = key.lookup.looked_up(),
-        );
+        let reason = selection_reason(key, selector, computes);
         return Err(computes_refusal(descriptor, computes, reason));
     }
     if let Some(&index) = order.cycle.first() {
@@ -153,6 +156,29 @@ pub(super) fn check(
         return Err(computes_refusal(descriptor, computes, reason));
     }
     Ok(())
+}
+
+/// Why a construct that computes, `computes`, never matches in `key`, which
+/// `selector` makes a selection.
+fn selection_reason(key: &Key<'_, '_>, selector: &str, computes: &Computes<'_>) -> String {
+    match key.lookup {
+        // A selection instance is matched cells, as a Map or a List
+        // collection's instance is.
+        Lookup::Instance => format!(
+            "{what} stands in {place} that also holds {selector}, so the instance selects one by matching {held} as they stand, rather than computing the instance looked up; {what} denotes the value evaluation produces, which no cell of an instance holds, so this pattern describes an instance that never occurs and the sentence never applies: bind the selected part elsewhere in the pattern and write every cell to look the instance up, or match a variable here and relate it to the application in a guard (`requires`)",
+            what = computes.what,
+            place = key.lookup.place(),
+            held = key.lookup.held(),
+        ),
+        Lookup::MapKey | Lookup::SetElement => format!(
+            "{what} stands in {place} that also holds {selector}, so the key selects an entry by matching {held} rather than computing the {looked} looked up; {what} denotes the value evaluation produces, which no evaluated {one} is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+            what = computes.what,
+            place = key.lookup.place(),
+            held = key.lookup.held(),
+            looked = key.lookup.looked_up(),
+            one = key.lookup.looked_up(),
+        ),
+    }
 }
 
 /// The refusal of the construct that computes, `computes`: its class's.
@@ -206,7 +232,7 @@ struct Order {
 }
 
 impl Order {
-    fn of(pattern: &Pattern<'_>, keys: &[Key<'_, '_>]) -> Self {
+    fn of(pattern: &Pattern<'_, '_>, keys: &[Key<'_, '_>]) -> Self {
         let mut bound: BTreeSet<String> = pattern
             .outside
             .iter()
@@ -327,6 +353,8 @@ enum Lookup {
     MapKey,
     /// A set's element.
     SetElement,
+    /// A Set cell collection's instance, the collection's element.
+    Instance,
 }
 
 impl Lookup {
@@ -335,6 +363,7 @@ impl Lookup {
         match self {
             Self::MapKey => "a map key",
             Self::SetElement => "a set element",
+            Self::Instance => "a Set collection's instance",
         }
     }
 
@@ -343,6 +372,7 @@ impl Lookup {
         match self {
             Self::MapKey => "the evaluated keys the map holds",
             Self::SetElement => "the evaluated elements the set holds",
+            Self::Instance => "the instances the collection holds",
         }
     }
 
@@ -351,13 +381,16 @@ impl Lookup {
         match self {
             Self::MapKey => "key",
             Self::SetElement => "element",
+            Self::Instance => "instance",
         }
     }
 }
 
 /// The pattern of one sentence: the names it binds outside its keys and set
 /// elements, and those keys and elements with what their entries bind.
-struct Pattern<'t> {
+struct Pattern<'t, 'd> {
+    /// The cells' declarations, which tell a Set collection.
+    declarations: &'d DescriptorIndex<'d>,
     /// The names the pattern binds outside every key, entry value and
     /// remainder.
     outside: BTreeSet<&'t str>,
@@ -369,7 +402,7 @@ struct Pattern<'t> {
 
 /// One key or set element and its entry.
 struct Entry<'t> {
-    key: &'t DescriptorTerm,
+    key: EntryKey<'t>,
     lookup: Lookup,
     /// The names its entry's value binds once the entry is found.
     values: Vec<&'t str>,
@@ -377,7 +410,14 @@ struct Entry<'t> {
     collection: usize,
 }
 
-impl<'t> Pattern<'t> {
+/// What a collection is looked up by: a term, or a Set collection's
+/// instance, whose cells together are the element.
+enum EntryKey<'t> {
+    Term(&'t DescriptorTerm),
+    Instance(&'t ProtocolRuleInstance<DescriptorTerm>),
+}
+
+impl<'t> Pattern<'t, '_> {
     fn sentence(&mut self, payload: &'t DescriptorPayload) {
         match payload {
             DescriptorPayload::StructuredRule(rule) => {
@@ -400,9 +440,12 @@ impl<'t> Pattern<'t> {
         }
     }
 
-    fn cells<I>(&mut self, cells: &'t ProtocolRuleCells<I, DescriptorTerm>) {
+    fn cells(
+        &mut self,
+        cells: &'t ProtocolRuleCells<krs_ir::DescriptorCellReference, DescriptorTerm>,
+    ) {
         for cell in &cells.cells {
-            self.state(&cell.value);
+            self.state(Some(&cell.field.cell), &cell.value);
         }
         self.frame(&cells.remainder);
     }
@@ -427,7 +470,12 @@ impl<'t> Pattern<'t> {
         names.into_iter().collect()
     }
 
-    fn state(&mut self, state: &'t ProtocolRuleStateTerm<DescriptorTerm>) {
+    /// The state of the cell `cell` names, when it names one.
+    fn state(
+        &mut self,
+        cell: Option<&DescriptorCellIdentity>,
+        state: &'t ProtocolRuleStateTerm<DescriptorTerm>,
+    ) {
         match state {
             ProtocolRuleStateTerm::Map(map) => match &map.body {
                 ProtocolRuleMapBody::Items { items, remainder } => {
@@ -435,7 +483,7 @@ impl<'t> Pattern<'t> {
                     for item in items {
                         let values = self.names_of(&item.value);
                         self.entries.push(Entry {
-                            key: &item.key,
+                            key: EntryKey::Term(&item.key),
                             lookup: Lookup::MapKey,
                             values,
                             collection,
@@ -445,12 +493,29 @@ impl<'t> Pattern<'t> {
                 ProtocolRuleMapBody::Update { base, .. } => self.term(base),
                 ProtocolRuleMapBody::Empty { .. } => {}
             },
-            ProtocolRuleStateTerm::Present { value } => self.state(value),
+            ProtocolRuleStateTerm::Present { value } => self.state(cell, value),
             ProtocolRuleStateTerm::KSequence(sequence) => {
                 for item in &sequence.items {
                     self.term(&item.value);
                 }
                 self.frame(&sequence.tail);
+            }
+            // A Set collection is a set of its instances, each the element it is looked up by;
+            // a Map and a List collection's instances are matched.
+            ProtocolRuleStateTerm::Instances(instances)
+                if cell.is_some_and(|cell| {
+                    collection_type(self.declarations, cell) == Some(CellCollectionType::Set)
+                }) =>
+            {
+                let collection = self.collection(binding(&instances.rest));
+                for instance in instances.front.iter().chain(&instances.back) {
+                    self.entries.push(Entry {
+                        key: EntryKey::Instance(instance),
+                        lookup: Lookup::Instance,
+                        values: Vec::new(),
+                        collection,
+                    });
+                }
             }
             ProtocolRuleStateTerm::Instances(instances) => {
                 for term in state.terms() {
@@ -473,7 +538,7 @@ impl<'t> Pattern<'t> {
                 let collection = self.collection(None);
                 for entry in entries {
                     self.entries.push(Entry {
-                        key: &entry.key,
+                        key: EntryKey::Term(&entry.key),
                         lookup: Lookup::MapKey,
                         values: vec![&entry.value_binding],
                         collection,
@@ -484,7 +549,9 @@ impl<'t> Pattern<'t> {
                 self.outside.insert(base_binding);
             }
             ProtocolHeadRuleExtra::RewriteCell { before, .. } => self.term(before),
-            ProtocolHeadRuleExtra::RewriteState { before, .. } => self.state(before),
+            ProtocolHeadRuleExtra::RewriteState { cell, before, .. } => {
+                self.state(Some(&cell.cell), before);
+            }
             ProtocolHeadRuleExtra::RewriteList { before, .. } => {
                 for term in &before.items {
                     self.term(term);
@@ -509,7 +576,7 @@ impl<'t> Pattern<'t> {
         let collection = self.collection(remainder);
         for element in elements {
             self.entries.push(Entry {
-                key: element,
+                key: EntryKey::Term(element),
                 lookup: Lookup::SetElement,
                 values: Vec::new(),
                 collection,
@@ -657,6 +724,56 @@ struct Read<'t> {
 }
 
 impl<'t> Key<'_, 't> {
+    /// The key `entry`: a term, or each cell of an instance, all of which a
+    /// Set collection's element holds, so an instance that leaves cells open
+    /// selects.
+    fn entry(&mut self, entry: &EntryKey<'t>) {
+        let instance = match entry {
+            EntryKey::Term(term) => return self.term(term, None),
+            EntryKey::Instance(instance) => instance,
+        };
+        if matches!(instance.rest, ProtocolInstanceRest::Open) && self.selection.is_none() {
+            self.selection = Some("`..`, which leaves the instance's other cells open".to_owned());
+        }
+        for field in &instance.fields {
+            self.cell_state(&field.value);
+        }
+    }
+
+    /// One cell's state in an instance: its terms, and a sequence's items, of
+    /// which a `..` leaves the others open.
+    fn cell_state(&mut self, state: &'t ProtocolRuleStateTerm<DescriptorTerm>) {
+        match state {
+            ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
+                self.term(term, None);
+            }
+            ProtocolRuleStateTerm::KSequence(sequence) => {
+                if !matches!(sequence.tail, ProtocolRuleFrame::Exact) && self.selection.is_none() {
+                    self.selection = Some(
+                        "`..` in a cell's sequence, which leaves its other items open".to_owned(),
+                    );
+                }
+                for item in &sequence.items {
+                    self.term(&item.value, None);
+                }
+            }
+            ProtocolRuleStateTerm::Present { value } => self.cell_state(value),
+            // A map's, an optional cell's and a collection's entries match among
+            // what the cell holds.
+            ProtocolRuleStateTerm::Map(_)
+            | ProtocolRuleStateTerm::Absent
+            | ProtocolRuleStateTerm::Instances(_) => {
+                if self.selection.is_none() {
+                    self.selection =
+                        Some("a cell whose entries match among those it holds".to_owned());
+                }
+                for term in state.terms() {
+                    self.term(term, None);
+                }
+            }
+        }
+    }
+
     /// Every name the key holds: its matched part's and those it reads.
     fn names(&self) -> impl Iterator<Item = &'t str> + '_ {
         self.matched
@@ -751,7 +868,15 @@ impl<'t> Key<'_, 't> {
                 self.term(operand, Some("a sort test"));
             }
             DescriptorTerm::Rewrite { from, .. } => self.term(from, computing),
-            DescriptorTerm::Cell { fields, .. } => {
+            // A group's cells are part of the value; `..` leaves some open.
+            DescriptorTerm::Cell {
+                key, fields, open, ..
+            } => {
+                if *open {
+                    self.pattern_only(KeyPattern::OpenRecord, key, computing, || {
+                        "an open record `Ctor { .. }`".to_owned()
+                    });
+                }
                 for field in fields {
                     self.term(&field.value, computing);
                 }

@@ -749,16 +749,20 @@ impl<'a> StateRuleBuilder<'a> {
         list: &krs_syntax::InstanceList,
         slots: &mut WireSlots,
     ) -> crate::Result<krs_ir::ProtocolRuleInstances<WireTerm>> {
+        // A braced list's cells are a Set collection's, which a pattern looks
+        // up, or a Map collection's, which it matches: the cell's declared
+        // type tells, after resolution.
+        let braced = list.delimiter() == krs_syntax::InstanceListDelimiter::Brace;
         let front = list
             .front()
             .iter()
-            .map(|item| self.expand_instance(item, slots))
+            .map(|item| self.in_instances(braced, |this| this.expand_instance(item, slots)))
             .collect::<crate::Result<Vec<_>>>()?;
         let rest = expand_frame(self.terms.ledger, list.rest(), list.rest_key())?;
         let back = list
             .back()
             .iter()
-            .map(|item| self.expand_instance(item, slots))
+            .map(|item| self.in_instances(braced, |this| this.expand_instance(item, slots)))
             .collect::<crate::Result<Vec<_>>>()?;
         Ok(krs_ir::ProtocolRuleInstances {
             delimiter: match list.delimiter() {
@@ -769,6 +773,15 @@ impl<'a> StateRuleBuilder<'a> {
             rest,
             back,
         })
+    }
+
+    /// Runs `expand` with the term builder in a collection's instances,
+    /// braced when `braced`.
+    fn in_instances<T>(&mut self, braced: bool, expand: impl FnOnce(&mut Self) -> T) -> T {
+        let enclosing = self.terms.braced_instance(braced);
+        let result = expand(self);
+        self.terms.braced_instance(enclosing);
+        result
     }
 
     fn expand_instance(

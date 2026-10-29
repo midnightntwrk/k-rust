@@ -12,7 +12,7 @@ fn positions() -> Vec<Position> {
             _ => &[Slot::Subject, Slot::Result, Slot::Requires, Slot::Ensures],
         };
         for &slot in slots {
-            for bits in 0_u8..64 {
+            for bits in 0_u8..128 {
                 positions.push(Position {
                     form,
                     slot,
@@ -23,6 +23,7 @@ fn positions() -> Vec<Position> {
                         in_map_key: bits & 8 != 0,
                         in_computed_key: bits & 16 != 0,
                         in_selected_key: bits & 32 != 0,
+                        in_braced_instance: bits & 64 != 0,
                     },
                 });
             }

@@ -118,7 +118,7 @@ fn refused_at(term: &DescriptorTerm, root: Root) -> Option<(u32, Option<Root>)> 
     }
     .term(term, Some(root))
     .err()
-    .map(|found| (found.reference.key.ordinal(), found.root))
+    .map(|found| (found.key.ordinal(), found.root))
 }
 
 /// The head ordinal of the application the pattern rooted at `term`, a

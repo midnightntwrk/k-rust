@@ -17,14 +17,13 @@
 //! is such a pattern too. A collection's value or element in a pattern is
 //! matched against the values the collection holds, which are evaluated: a
 //! map's value and a list's element (a List cell's, a cons list's). So is a
-//! cell collection's instance: a List collection's instance is its element, a
-//! Map collection pairs an instance's key cell with the whole instance,
-//! key cell included, as the value it maps to, and a Set collection's
-//! instance, which the set is looked up by as by an element, is written as
-//! the cells it holds, which match as they stand until it is written as an
-//! element (finding NT-3-3). A `let` or `k::matches!` pattern matches the
-//! value its term computed, evaluated as well, wherever it stands
-//! ([`check_local_pattern`]).
+//! cell collection's instance: a List collection's instance is its element,
+//! and a Map collection pairs an instance's key cell with the whole instance,
+//! key cell included, as the value it maps to. A sort test and a record
+//! update there are refused too: the walker cannot tell a Map collection's
+//! braces from a Set collection's, so it leaves them here. A `let` or
+//! `k::matches!` pattern matches the value its term computed, evaluated as
+//! well, wherever it stands ([`check_local_pattern`]).
 //!
 //! The application is the meaning, and is admitted, where:
 //! - it is the root of an equation's subject: the function the equation
@@ -34,8 +33,9 @@
 //! - it stands in a claim's subject, a symbolic state whose applications
 //!   denote values;
 //! - it stands in a map's key or a set's element (a map read's or a `cells!`
-//!   map's key, the operand of `set::item`) that the pattern computes and
-//!   looks up, which [`key_names`] judges, with the key's other names.
+//!   map's key, the operand of `set::item`, a Set collection's instance) that
+//!   the pattern computes and looks up, which [`key_names`] judges, with the
+//!   key's other names.
 //!
 //! The positions are the sentence's own shape, which each descriptor carries:
 //! every term of a subject the walker reads as one slot (a fn rule's or an
@@ -54,11 +54,10 @@ use std::collections::BTreeMap;
 
 use krs_ir::{
     BuiltinOperation, CellCollectionType, Descriptor, DescriptorApplicationRef,
-    DescriptorApplicationReference, DescriptorCellIdentity, DescriptorHeadRuleExtra,
-    DescriptorIndex, DescriptorPayload, DescriptorTerm, ListOperation, ProtocolCellContent,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolRuleInstances, ProtocolRuleMapBody,
-    ProtocolRuleStateTerm, SentenceKind, SetOperation, StableItemId, TermArgumentRef,
-    TermMapOperation,
+    DescriptorCellIdentity, DescriptorHeadRuleExtra, DescriptorIndex, DescriptorPayload,
+    DescriptorTerm, ListOperation, ProtocolCellContent, ProtocolHeadRuleExtra,
+    ProtocolHeadRuleListRest, ProtocolRuleInstances, ProtocolRuleMapBody, ProtocolRuleStateTerm,
+    ProvenanceKey, SentenceKind, SetOperation, StableItemId, TermArgumentRef, TermMapOperation,
 };
 
 use super::catalog::ProductionSignature;
@@ -90,7 +89,7 @@ pub(super) fn check_function_patterns(
         };
         sentence_patterns(descriptor.payload(), &patterns)
             .map_err(|found| refusal(descriptor, &found))?;
-        key_names::check(descriptor, catalog)?;
+        key_names::check(descriptor, catalog, declarations)?;
     }
     Ok(())
 }
@@ -198,9 +197,32 @@ fn sentence_patterns<'t>(
     }
 }
 
-/// The refusal of the application `found` names.
+/// The refusal of the construct `found` names.
 fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringError {
-    let function = &found.function;
+    let item = Box::new(descriptor.id().clone());
+    let range = key_range(descriptor, found.key).map(Box::new);
+    let instance = "stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to";
+    let function = match &found.what {
+        What::Function(function) => function,
+        What::SortTest => {
+            return DescriptorLoweringError::InvalidSortTest {
+                item,
+                reason: format!(
+                    "a sort test {instance}; `k::is!` and `k::project!` compute from a term, and those cells hold their values as they are, so this pattern describes a term that never occurs and the sentence never applies: restrict a binder's sort with a typed parameter or `where x: Sort` instead"
+                ),
+                range,
+            };
+        }
+        What::RecordUpdate => {
+            return DescriptorLoweringError::RecordUpdateInPattern {
+                item,
+                reason: format!(
+                    "a record update `Ctor {{ f: e, ..base }}` {instance}; `..base` builds a record from the record `base` matched, which only a term a sentence builds can say, and a pattern denotes no record by it: name the fields the pattern constrains, and leave out the others with `..`"
+                ),
+                range,
+            };
+        }
+    };
     let reason = match (found.place, found.root) {
         (Place::Local, _) => format!(
             "{function} stands in a `let` or `k::matches!` pattern, which matches the value its term computed; a function application denotes the value evaluation produces, and a computed value has its functions evaluated, so this pattern describes a term that never occurs and never matches: match a variable here and compare it with the application (`==`), or apply the function in the value"
@@ -211,12 +233,9 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
         (Place::Instance, _) => format!(
             "{function} stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)"
         ),
-        (Place::SetInstance, _) => format!(
-            "{function} stands in a Set collection's instance, which KRS writes as the cells it holds, matched as they stand; the set is looked up by its instances as by its elements, but reading a computed instance as the element looked up needs a different lowering, which KRS does not have yet (finding NT-3-3): match a variable here and relate it to the application in a guard (`requires`)"
-        ),
         (Place::Pattern, root) => {
-            let method = match found.reference.application {
-                DescriptorApplicationRef::CollectionMethod(method) => Some(method.spelling()),
+            let method = match found.application {
+                Some(DescriptorApplicationRef::CollectionMethod(method)) => Some(method.spelling()),
                 _ => None,
             };
             let instead = match (method, root) {
@@ -225,16 +244,16 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
                 // collection's entries and elements instead.
                 (None, _)
                     if matches!(
-                        found.reference.application,
-                        DescriptorApplicationRef::Map(TermMapOperation::Update)
+                        found.application,
+                        Some(DescriptorApplicationRef::Map(TermMapOperation::Update))
                     ) =>
                 {
                     "a pattern reads a map's entries (`{ k -> v, .. }` in a readable record, `map![k -> v, ..]` in a `cells!` entry), or match a variable here and relate it to the map in a guard (`requires`)"
                 }
                 (None, _)
                     if matches!(
-                        found.reference.application,
-                        DescriptorApplicationRef::Set(SetOperation::Union)
+                        found.application,
+                        Some(DescriptorApplicationRef::Set(SetOperation::Union))
                     ) =>
                 {
                     "match the elements with `set::concat(set::item(x), rest)`, whose operands are disjoint, or match a variable here and relate it to the set in a guard (`requires`)"
@@ -260,9 +279,9 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
         }
     };
     DescriptorLoweringError::FunctionInPattern {
-        item: Box::new(descriptor.id().clone()),
+        item,
         reason,
-        range: key_range(descriptor, &found.reference.key).map(Box::new),
+        range,
     }
 }
 
@@ -300,10 +319,18 @@ enum Place {
     Entry,
     /// A child of a List or a Map collection's instance in the subject.
     Instance,
-    /// A child of a Set collection's instance in the subject.
-    SetInstance,
     /// A `let` or `k::matches!` pattern.
     Local,
+}
+
+/// A construct that computes, which a pattern never meets.
+enum What {
+    /// A function's application, named for a diagnostic.
+    Function(String),
+    /// A sort test, in a collection's instance.
+    SortTest,
+    /// A record update, in a collection's instance.
+    RecordUpdate,
 }
 
 /// The root of a matched slot.
@@ -320,12 +347,15 @@ enum Root {
     Slot,
 }
 
-/// A function application where a pattern matches a term.
+/// A construct that computes where a pattern matches a term.
 struct Found<'t> {
-    /// The application.
-    reference: &'t DescriptorApplicationReference,
-    /// What it applies, described for a diagnostic.
-    function: String,
+    /// Where it stands: an application's head, a sort test's or a record
+    /// update's node.
+    key: &'t ProvenanceKey,
+    /// The application, if it is one.
+    application: Option<&'t DescriptorApplicationRef>,
+    /// What it is.
+    what: What,
     /// The root it stands at, or `None` below a root.
     root: Option<Root>,
     /// What the pattern it stands in is.
@@ -372,9 +402,10 @@ impl Patterns<'_> {
     }
 
     /// The instances of a collection cell, matched as the collection holds
-    /// them: a List collection's instance is its element, a Map collection's
-    /// is the value its key cell maps to, key cell included, and a Set
-    /// collection's is written as the cells it holds (NT-3-3).
+    /// them: a List collection's instance is its element, and a Map
+    /// collection's is the value its key cell maps to, key cell included. A
+    /// Set collection is a set of its instances, looked up by an instance as
+    /// by an element, which [`key_names`] judges.
     fn instances<'t>(
         &self,
         cell: Option<&DescriptorCellIdentity>,
@@ -385,12 +416,13 @@ impl Patterns<'_> {
             .is_some_and(|(cell, declarations)| {
                 collection_type(declarations, cell) == Some(CellCollectionType::Set)
             });
-        let place = if set {
-            Place::SetInstance
-        } else {
-            Place::Instance
+        if set {
+            return Ok(());
+        }
+        let children = Self {
+            place: Place::Instance,
+            ..*self
         };
-        let children = Self { place, ..*self };
         instances
             .front
             .iter()
@@ -433,8 +465,20 @@ impl Patterns<'_> {
             DescriptorTerm::Application {
                 reference,
                 arguments,
+                update,
                 ..
             } => {
+                // The walker cannot tell a Map collection's braces from a Set
+                // collection's, whose instance a record update may compute.
+                if self.place == Place::Instance && update.is_some() {
+                    return Err(Found {
+                        key: &reference.key,
+                        application: None,
+                        what: What::RecordUpdate,
+                        root,
+                        place: self.place,
+                    });
+                }
                 let below = match applied_function(&reference.application, self.catalog) {
                     // A set's elements are its keys ([`key_names`]); the
                     // other operands of its concatenation are the sets it
@@ -453,8 +497,9 @@ impl Patterns<'_> {
                     Applied::Function(_) if root == Some(Root::Defined) => *self,
                     Applied::Function(function) => {
                         return Err(Found {
-                            reference,
-                            function,
+                            key: &reference.key,
+                            application: Some(&reference.application),
+                            what: What::Function(function),
                             root,
                             place: self.place,
                         });
@@ -480,6 +525,15 @@ impl Patterns<'_> {
             DescriptorTerm::Cell { fields, .. } => fields
                 .iter()
                 .try_for_each(|field| self.term(&field.value, None)),
+            // The walker leaves a sort test in a collection's instance here,
+            // where the collection's type tells a Map's from a Set's.
+            DescriptorTerm::SortTest { key, .. } if self.place == Place::Instance => Err(Found {
+                key,
+                application: None,
+                what: What::SortTest,
+                root,
+                place: self.place,
+            }),
             // The term walker refuses a test, a `let`, a predicate and a
             // claim's values in a pattern; the rest are leaves.
             DescriptorTerm::Variable { .. }
