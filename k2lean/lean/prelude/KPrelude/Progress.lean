@@ -8,7 +8,9 @@ import KPrelude.InvColl
 
 The tactic of a generated progress case (`k2lean/docs/design.md`, §3.9): at a configuration whose
 head of `<k>` is fixed, prove `App c` from the rules whose left-hand side has that head, given in
-order.
+order. With priorities the goal is `∃ i, App i c` (some rule of some rank applies; `exists_least`
+gives the least such rank, the one `Step` takes), and each attempt leaves the rank to the rule's
+constructor, so one case can close by rules of different ranks on different branches (SND-15).
 
 `k2l_progress [r₁, …] => close` loops over the goals:
 1. *search*: `apply` each rule's `App` constructor in turn and run `close` on what is left (its
@@ -117,6 +119,18 @@ theorem concat_element_of_inKeys_rest {k x : K} {v : V} {r m : M}
 end KPrelude.MapHook
 
 namespace KPrelude.Progress
+
+/-- Given a rank where `A` holds, there is a least one. With `A i` "a rule of rank `i` applies",
+that rank's rules are the ones `Step` takes: a rule of rank `i` steps only when no rule of a rank
+`j < i` applies (its constructor's `hpri`). -/
+theorem exists_least {A : Nat → Prop} (h : ∃ i, A i) : ∃ i, A i ∧ ∀ j, j < i → ¬ A j := by
+  obtain ⟨i, hi⟩ := h
+  induction i using Nat.strongRecOn with
+  | ind i ih =>
+    by_cases hm : ∃ j, j < i ∧ A j
+    · obtain ⟨j, hj, hj'⟩ := hm
+      exact ih j hj hj'
+    · exact ⟨i, hi, fun j hj hj' => hm ⟨j, hj, hj'⟩⟩
 
 open Lean Meta Elab Tactic
 
@@ -272,7 +286,10 @@ partial def search (cs : Array Name) (close : TSyntax ``Lean.Parser.Tactic.tacti
   for c in cs do
     let s ← saveState
     let r ← tryCatchRuntimeEx (do
-      evalTactic (← `(tactic| apply $(mkIdent c):ident))
+      -- with priorities the goal is `∃ i, App i c`, and the constructor fixes the rank
+      if (← whnfD (← getMainTarget)).isAppOf ``Exists then
+        evalTactic (← `(tactic| (apply Exists.intro; apply $(mkIdent c):ident)))
+      else evalTactic (← `(tactic| apply $(mkIdent c):ident))
       -- `close` runs on the rule's premises only, not on the goals of its variables that
       -- unification has not fixed yet
       let mut rem := #[]

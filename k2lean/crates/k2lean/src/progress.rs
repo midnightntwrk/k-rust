@@ -10,7 +10,12 @@
 //! it, `<k>` is empty) or some rule applies (`App`, the library's own: its left-hand side matches
 //! and its `requires` is true). A rule whose right-hand side is undefined applies, so the theorem
 //! excludes stuck configurations, not undefined results, as type soundness does
-//! (`product.md` §3.2). `no_stuck` composes it with `Invariant.preserved`: from a configuration
+//! (`product.md` §3.2). With several priority ranks (SND-15), `App` is `Progress.App c`, some rule
+//! of some rank applies (`∃ i, App i c`): the priorities decide which rule `Step` takes, the least
+//! rank that applies (`Progress.App.least`), not whether one applies, so the statement means what
+//! it means without them. A rule that would step can then be blocked by one of a higher priority
+//! that applies with an undefined result, which the theorem allows as it allows that result.
+//! `no_stuck` composes it with `Invariant.preserved`: from a configuration
 //! that satisfies the invariant, every configuration reached is an ending or can step; `always`
 //! states the same of every run (`KPrelude.Paths`).
 //!
@@ -94,6 +99,39 @@ theorem Invariant.preserved : Preserved Step Invariant := {p}\n",
 theorem Invariant.preserved : Preserved Step Invariant := by\n  intro _ _ _ _; trivial\n"
         ),
     }
+}
+
+/// What the cases prove: `App c` (no ranks), `App 0 c` (one rank of a ranked `Step`: rules with
+/// several matches), or `Progress.App c` (several priority ranks: some rule of some rank applies).
+fn app_of(cx: &Ctx) -> &'static str {
+    if cx.ranks > 1 {
+        "Progress.App"
+    } else if cx.ranked {
+        "App 0"
+    } else {
+        "App"
+    }
+}
+
+/// With several priority ranks, `Progress.App` and the least rank that applies, which is the rank
+/// `Step` takes (each of its constructors of rank `i` requires that no rule of a rank `j < i`
+/// applies). With one rank, `∃ i, App i c` is `App 0 c`, so nothing is defined. The library's `App`
+/// is named in full: in the body of `Progress.App`, `App` is `Progress.App` itself.
+fn app_def(cx: &Ctx, top: &str) -> String {
+    if cx.ranks <= 1 {
+        return String::new();
+    }
+    format!(
+        "\n/-- Some rule applies, of some priority rank ({} ranks). This is what a case proves: the priorities decide which rule\n\
+`Step` takes, not whether one applies (`Progress.App.least`). -/\n\
+def Progress.App (c : {top}) : Prop :=\n  ∃ i, {ns}.App i c\n\n\
+/-- The least priority rank that applies: a rule of that rank is the one `Step` takes, since a rule of rank `i` steps\n\
+only when no rule of a rank `j < i` applies (`hpri`). -/\n\
+theorem Progress.App.least {{c : {top}}} (h : Progress.App c) : ∃ i, {ns}.App i c ∧ ∀ j, j < i → ¬ {ns}.App j c :=\n  \
+KPrelude.Progress.exists_least h\n",
+        cx.ranks,
+        ns = cx.ns
+    )
 }
 
 pub struct Out {
@@ -226,9 +264,6 @@ pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String>
     let kpath = find_cell(m, top, "k")?;
     if !kpath.colls.is_empty() {
         return emit_coll(cx, open_text, hand_exists, &kpath);
-    }
-    if cx.ranked {
-        return Err("--progress: a ranked Step (priorities, or rules with several matches) is not supported yet (SND-13 slice 3)".into());
     }
     if cx.rules.iter().any(|r| r.multi) {
         return Err("--progress: rules with several matches (free-key map patterns) are not supported yet (SND-13 slice 2)".into());
@@ -406,6 +441,8 @@ pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String>
         defs.push_str(&inv_def(cx, top));
     }
     let inv = "Invariant";
+    let app = app_of(cx);
+    defs.push_str(&app_def(cx, top));
 
     // the open list: `Progress.case.h` names, with `| refuted hand`
     let list =
@@ -436,7 +473,7 @@ pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String>
             .collect();
         let c = cfg(&hd.k);
         defs.push_str(&format!(
-            "/-- The head `{}` of `<k>`: a configuration with it that satisfies the invariant and is not an ending has a rule that applies. -/\ndef Progress.case.{}.statement : Prop :=\n  ∀ {}, {inv} ({c}) → ¬ Ending ({c}) → App ({c})\n\n",
+            "/-- The head `{}` of `<k>`: a configuration with it that satisfies the invariant and is not an ending has a rule that applies. -/\ndef Progress.case.{}.statement : Prop :=\n  ∀ {}, {inv} ({c}) → ¬ Ending ({c}) → {app} ({c})\n\n",
             hd.name,
             hd.name,
             binders.join(" ")
@@ -505,7 +542,7 @@ local macro \"prog_stuck\" : tactic => `(tactic| (exfalso; simp_all [{}]; done))
             .collect()
     };
     let concl = if refuted_heads.is_empty() {
-        "Ending c ∨ App c".to_string()
+        format!("Ending c ∨ {app} c")
     } else {
         for hd in &refuted_heads {
             defs.push_str(&format!(
@@ -524,7 +561,7 @@ local macro \"prog_stuck\" : tactic => `(tactic| (exfalso; simp_all [{}]; done))
             "/-- The configurations at the heads whose case is refuted: stuck configurations the invariant allows. -/\ndef Progress.Refuted (c : {top}) : Prop :=\n  {}\n\n",
             ats.join(" ∨ ")
         ));
-        "Ending c ∨ App c ∨ Progress.Refuted c".to_string()
+        format!("Ending c ∨ {app} c ∨ Progress.Refuted c")
     };
     let case_term = |hd: &Head| -> String {
         let us = vec!["_"; n_args(hd)].join(" ");
@@ -885,10 +922,7 @@ fn emit_coll(
             coll.kind
         ));
     }
-    if cx.ranks > 1 {
-        return Err("--progress: priority ranks are not supported yet (SND-15)".into());
-    }
-    let app = if cx.ranked { "App 0" } else { "App" };
+    let app = app_of(cx);
     let (key_sort, elem_sort, map_sort) = (&coll.elems[0], &coll.elems[1], &coll.sort);
     let Some(el0) = inner.first() else {
         return Err("--progress: `<k>` is the element of its cell map".into());
@@ -1138,6 +1172,7 @@ def Progress.Above (m : {map_sort}) (k : {key_sort}) (e : {elem_sort}) : Prop :=
         b.extend(sib_binders.iter().cloned());
         b
     };
+    defs.push_str(&app_def(cx, top));
     defs.push('\n');
     for hd in &heads {
         let bs: Vec<String> = all_binders(hd)

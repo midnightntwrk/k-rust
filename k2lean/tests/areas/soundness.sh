@@ -4,7 +4,8 @@
 # libraries kexpr and exprtypes; ImpPlusTypes: IMP++ of K's tutorial, whose threads are a cell map,
 # against demos/k/impplus-typing.k, libraries impplus and impplustypes), and no stuck states
 # (`gen --progress`: the stack machine tests/fixtures/vm, library vm, and its variant without a rule,
-# tests/fixtures/vmstuck, library vmstuck, whose one stuck case is refuted by hand; coroutines in a
+# tests/fixtures/vmstuck, library vmstuck, whose one stuck case is refuted by hand, and its variant
+# with priorities, tests/fixtures/vmpri, library vmpri; coroutines in a
 # cell map, tests/fixtures/coro, library coro, and its variant with a join that can deadlock,
 # tests/fixtures/corojoin, library corojoin, whose deadlock is refuted by hand; a coordination
 # script's tasks, tests/fixtures/handoff, under the kind 2 invariant of demos/HandoffConf; kimp under
@@ -35,6 +36,7 @@ name_soundness() {
     impplustypes) echo KImpPlusTypes ;;
     vm) echo KVm ;;
     vmstuck) echo KVmStuck ;;
+    vmpri) echo KVmPri ;;
     coro) echo Coro ;;
     corojoin) echo CoroJoin ;;
     *) return 1 ;;
@@ -62,7 +64,7 @@ gen_soundness() {
             --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,typeOfB,wt,wts,printable") ;;
     # no stuck states: the machine's well-formedness `kOk` (only instructions, programs and halts on
     # `<k>`), its acceptable endings `halted`
-    vm|vmstuck) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending halted@k) ;;
+    vm|vmstuck|vmpri) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending halted@k) ;;
     coro|corojoin) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending ended@k) ;;
     *) return 1 ;;
   esac
@@ -223,9 +225,11 @@ gate_soundness() {
     dbuild ImpPlusTypes
   fi
   # no stuck states (design.md §3.9): the stack machine, every case automatic; its variant without
-  # `pop`'s underflow rule, whose one case is refuted by hand
+  # `pop`'s underflow rule, whose one case is refuted by hand; with priorities (SND-15), every case
+  # automatic, some by rules of different ranks on different branches
   runs lib vm && prog_lib vm KVm
   runs lib vmstuck && prog_lib vmstuck KVmStuck
+  runs lib vmpri && prog_lib vmpri KVmPri
   # with `<k>` in a cell map (SND-14): coroutines, every case automatic (a resume reads the child it
   # waits on); with a join that can wait on any process, whose deadlock is refuted by hand
   runs lib coro && prog_lib coro Coro
@@ -234,5 +238,5 @@ gate_soundness() {
   # script (`--rank`); `resume` is proved by hand
   runs prog handoff && prog_handoff
   phase "diff soundness"
-  diffs imptypes kexpr exprtypes impplus impplustypes vm vmstuck coro corojoin
+  diffs imptypes kexpr exprtypes impplus impplustypes vm vmstuck vmpri coro corojoin
 }

@@ -1496,6 +1496,33 @@ fn progress_states_one_case_per_head_and_a_refuted_head_is_a_third_outcome() {
     assert!(!d.join("KVm/Progress.lean").exists() && !d.join("KVm/ProgressDefs.lean").exists());
 }
 
+/// `gen --progress` with priority ranks (design.md §3.9, SND-15) on `vmpri`, the stack machine with
+/// `add`'s underflows at `priority(40)` and `pop`'s as `owise`: every case states `Progress.App`
+/// (some rule of some rank applies), `Progress.App.least` gives the rank `Step` takes, and a case
+/// still lists its head's rules, of every rank.
+#[test]
+fn progress_with_priority_ranks_states_that_some_rule_of_some_rank_applies() {
+    let d = tmp("cli-progress-ranks");
+    let args = ["--invariant", "kOk@k", "--progress", "--ending", "halted@k"];
+    let o = gen_progress("vmpri", &d, "KVmPri", &args);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("progress: 31 cases, 0 open"));
+    let defs = std::fs::read_to_string(d.join("KVmPri/ProgressDefs.lean")).unwrap();
+    assert!(defs.contains(
+        "def Progress.App (c : SortGeneratedTopCell) : Prop :=\n  ∃ i, KVmPri.App i c\n"
+    ));
+    assert!(defs.contains("(h : Progress.App c) : ∃ i, KVmPri.App i c ∧ ∀ j, j < i → ¬ KVmPri.App j c :=\n  KPrelude.Progress.exists_least h"));
+    assert_eq!(defs.matches("def Progress.case.").count(), 31);
+    assert_eq!(defs.matches("→ Progress.App (").count(), 31);
+    let thms = std::fs::read_to_string(d.join("KVmPri/Progress.lean")).unwrap();
+    assert!(thms.contains(
+        "k2l_progress [App.«add-underflow0», App.«add-underflow1», App.add] => prog_close else prog_stuck"
+    ));
+    assert!(thms.contains("k2l_progress [App.pop, App.«pop-underflow»] => prog_close"));
+    assert!(thms.contains("(hI : Invariant c) : Ending c ∨ Progress.App c := by"));
+    assert!(thms.contains("∀ n, Ending (s n) ∨ Progress.App (s n) :="));
+}
+
 /// `gen --progress` with `<k>` in a cell map (design.md §3.9, SND-14) on the coroutines `coro`: one
 /// case per head of an element's `<k>`, stated at the element's match with `Progress.Keys` and
 /// `Progress.Above` (every element of a higher rank is an ending), the rules of a head read off

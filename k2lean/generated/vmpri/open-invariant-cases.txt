@@ -1,0 +1,4 @@
+# Cases of the invariant `KVmPri.Invariant` that `k2l_preserve` does not close (`k2lean gen --invariant`, `--sidecar`).
+# `k2lean open-from-log KVmPri/Invariants.lean BUILD.log open-invariant-cases.txt` adds the cases whose proof failed.
+# Each line: the case, its statement, the rule's source position. Prove each in KVmPri/InvariantsHand.lean as
+# `theorem Invariant.hand.r : Step.Case.r Invariant` (namespace `KVmPri`; `Step.Case.r` is stated in KVmPri/Preserves.lean).

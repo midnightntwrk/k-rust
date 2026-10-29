@@ -13,6 +13,8 @@ LIBS = {
     # far as their invariant and `progress` (no `…Test.Axioms`; the modules assert their axioms)
     "vm": {"ns": "KVm", "tier": "light", "guard": False},
     "vmstuck": {"ns": "KVmStuck", "tier": "light", "guard": False},
+    # the stack machine with priorities: three ranks (SND-15)
+    "vmpri": {"ns": "KVmPri", "tier": "light", "guard": False},
     # the same with `<k>` in a cell map: coroutines, and their variant with a join that can deadlock
     "coro": {"ns": "Coro", "tier": "light", "guard": False},
     "corojoin": {"ns": "CoroJoin", "tier": "light", "guard": False},
@@ -21,6 +23,7 @@ LIBS = {
 INVS = {
     "vm": {"ns": "KVm", "tier": "light"},
     "vmstuck": {"ns": "KVmStuck", "tier": "light"},
+    "vmpri": {"ns": "KVmPri", "tier": "light"},
     "coro": {"ns": "Coro", "tier": "light"},
     "corojoin": {"ns": "CoroJoin", "tier": "light"},
 }
@@ -28,6 +31,7 @@ INVS = {
 PROGS = {
     "vm": {"ns": "KVm", "tier": "light"},
     "vmstuck": {"ns": "KVmStuck", "tier": "light"},
+    "vmpri": {"ns": "KVmPri", "tier": "light"},
     "coro": {"ns": "Coro", "tier": "light"},
     "corojoin": {"ns": "CoroJoin", "tier": "light"},
     # under a kind 2 invariant (demos/HandoffConf/HandoffConf/Live.lean): the progress modules are the
