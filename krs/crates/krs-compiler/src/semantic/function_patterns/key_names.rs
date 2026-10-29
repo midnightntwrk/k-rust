@@ -1,51 +1,60 @@
-//! A name a map key or a set element reads below a function application,
-//! which the pattern binds nowhere else (`krs::expand::unbound-name`).
+//! The reading of a map key or a set element in a pattern, which the
+//! collection is looked up by: computed and looked up, or a selection among
+//! the collection's evaluated keys.
 //!
-//! A map pattern's key is evaluated: the rule looks its entry up by the
-//! key's value. A name in the key binds where the key is matched as it
-//! stands (`env: { k -> v, .. }`, `{ Pair(a, b) -> v, .. }`), but below a
-//! function application the key computes a value from the name, which some
-//! other part of the pattern must give it: `{ int::add(x, 1) -> v, .. }`
-//! reads `x`. With `x` bound nowhere else the lookup reads a value nothing
-//! gave, so the name is unbound, as a name only a result reads is.
+//! A key is computable when its value follows from names the rest of the
+//! pattern binds: nothing in it but what the pattern matches elsewhere,
+//! values, and constructs that compute (a function application, an
+//! operator, a sort test, a record update) from those. The rule computes it
+//! and looks its entry up. A key that holds, outside every construct that
+//! computes, a name nothing else binds, `_`, an alias, alternatives or an
+//! open record is a selection instead: the rule chooses an entry whose key
+//! matches it, and the key is matched against the map's keys, which are
+//! evaluated values. The same holds for a set, which is looked up by its
+//! elements as a map by its keys (`set::item(e)` in a set pattern).
 //!
-//! A set is a map with no values: its elements are what it is looked up by,
-//! so a set element (`set::item(e)` in a set pattern) is evaluated and
-//! looked up as a key is, and a name below a function application in it
-//! reads a value and binds nothing: `set::concat(set::item(Size(n)), rest)`
-//! reads `n`.
+//! So, in one key:
+//! - below a construct that computes, every position is built: `_`, an
+//!   alias, alternatives and an open record mean nothing there
+//!   ([`DescriptorLoweringError::PatternInComputedKey`]), and a name is read,
+//!   which some other part of the pattern must bind: `{ int::add(x, 1) -> v,
+//!   .. }` reads `x`, and with `x` bound nowhere else the lookup reads a value
+//!   nothing gave ([`DescriptorLoweringError::UnboundKeyName`]);
+//! - in a selection, a construct that computes describes a term that never
+//!   occurs among the evaluated keys, so the key never matches it:
+//!   `{ Pair { a: Size(n), b: y } -> v, .. }` with `y` bound nowhere else
+//!   (`function-in-pattern`, and a sort test's own class).
 //!
-//! A key that computes its value reads the names below the construct that
-//! computes it as a function application's arguments: a sort test's operand
-//! and a record update's fields. A key holds no `let` block or `k::matches!`
-//! (`krs_syntax::positions`, finding NT-3-2).
-//!
-//! Whether an application in a key is a function's is a fact of the
-//! declaration its head resolves to, so this is decided here, after
-//! resolution: the front binds every name of a key, since it cannot tell
-//! `Size(n)` the function from `Pair(n)` the constructor.
+//! Whether an application computes is a fact of the declaration its head
+//! resolves to, and whether a name is bound elsewhere a fact of the whole
+//! pattern, so this is decided here, after resolution.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    Descriptor, DescriptorApplicationRef, DescriptorHeadRuleExtra, DescriptorPayload,
-    DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolRuleCells,
-    ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SetOperation,
-    StableItemId, TermArgumentRef,
+    Descriptor, DescriptorApplicationRef, DescriptorApplicationReference, DescriptorHeadRuleExtra,
+    DescriptorPayload, DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest,
+    ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm,
+    ProvenanceKey, SetOperation, StableItemId, TermArgumentRef,
 };
 
 use super::{
     Applied, DescriptorLoweringError, ProductionSignature, applied_function, key_range,
     matches_evaluated_sentence,
 };
+use crate::semantic::error::KeyPattern;
 
-/// Refuses the first name that a map key or a set element of the
-/// descriptor's pattern reads below a function application, and that the
-/// pattern binds nowhere else.
+/// Refuses, in the descriptor's pattern, the first pattern-only construct
+/// below a construct a key computes, then the first name a key reads that the
+/// pattern binds nowhere else, then the first construct that computes in a
+/// key that is a selection.
 ///
 /// # Errors
 ///
-/// Returns [`DescriptorLoweringError::UnboundKeyName`] at the name.
+/// Returns [`DescriptorLoweringError::PatternInComputedKey`],
+/// [`DescriptorLoweringError::UnboundKeyName`],
+/// [`DescriptorLoweringError::FunctionInPattern`] or
+/// [`DescriptorLoweringError::InvalidSortTest`].
 pub(super) fn check(
     descriptor: &Descriptor,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
@@ -54,66 +63,93 @@ pub(super) fn check(
     if !matches_evaluated_sentence(payload) {
         return Ok(());
     }
-    let mut names = Names {
-        catalog,
-        bound: BTreeSet::new(),
-        read: Vec::new(),
-        open: None,
+    let mut pattern = Pattern {
+        outside: BTreeSet::new(),
+        keys: Vec::new(),
     };
-    names.sentence(payload);
-    if let Some(open) = &names.open {
-        return Err(DescriptorLoweringError::OpenRecordInComputedKey {
-            item: Box::new(descriptor.id().clone()),
+    pattern.sentence(payload);
+    let keys = pattern
+        .keys
+        .iter()
+        .map(|(term, lookup)| {
+            let mut key = Key {
+                catalog,
+                outside: &pattern.outside,
+                lookup: *lookup,
+                matched: BTreeSet::new(),
+                selection: None,
+                computes: None,
+                built: None,
+                read: Vec::new(),
+            };
+            key.term(term, None);
+            key
+        })
+        .collect::<Vec<_>>();
+    let item = || Box::new(descriptor.id().clone());
+    if let Some(key) = keys.iter().find(|key| key.built.is_some()) {
+        let (construct, at, function) = key.built.as_ref().expect("found");
+        return Err(DescriptorLoweringError::PatternInComputedKey {
+            item: item(),
+            construct: *construct,
             reason: format!(
-                "`..` leaves a record's other fields open, which only a pattern can: this record stands below {function} in {place}, which computes the value looked up, and has no value for the fields `..` leaves open; name every field",
-                function = open.function,
-                place = open.lookup.place(),
+                "{what} stands below {function} in {place}, which computes the value looked up, so the position is built: {why}",
+                what = construct.spelling(),
+                place = key.lookup.place(),
+                why = construct.why(),
             ),
-            range: key_range(descriptor, open.key).map(Box::new),
+            range: key_range(descriptor, at).map(Box::new),
         });
     }
-    let Some(read) = names
-        .read
+    let unbound = keys.iter().find_map(|key| {
+        key.read
+            .iter()
+            .find(|read| !key.outside.contains(read.name) && !key.matched.contains(read.name))
+            .map(|read| (key, read))
+    });
+    if let Some((key, read)) = unbound {
+        let why = match key.lookup {
+            Lookup::MapKey => "a key is evaluated to look its entry up, so the key",
+            Lookup::SetElement => {
+                "an element is evaluated to look it up in the set, so the element"
+            }
+        };
+        return Err(DescriptorLoweringError::UnboundKeyName {
+            item: item(),
+            reason: format!(
+                "`{name}` is not bound in this sentence: it stands only below {function} in {place}, and {why} reads `{name}` and binds nothing; bind `{name}` elsewhere in the pattern",
+                name = read.name,
+                function = read.function,
+                place = key.lookup.place(),
+            ),
+            range: key_range(descriptor, read.key).map(Box::new),
+        });
+    }
+    let selection = keys
         .iter()
-        .find(|read| !names.bound.contains(read.name))
-    else {
+        .find_map(|key| Some((key, key.selection.as_ref()?, key.computes.as_ref()?)));
+    let Some((key, selector, computes)) = selection else {
         return Ok(());
     };
-    let place = read.lookup.place();
-    let why = match read.lookup {
-        Lookup::MapKey => "a key is evaluated to look its entry up, so the key",
-        Lookup::SetElement => "an element is evaluated to look it up in the set, so the element",
-    };
-    Err(DescriptorLoweringError::UnboundKeyName {
-        item: Box::new(descriptor.id().clone()),
-        reason: format!(
-            "`{name}` is not bound in this sentence: it stands only below {function} in {place}, and {why} reads `{name}` and binds nothing; bind `{name}` elsewhere in the pattern",
-            name = read.name,
-            function = read.function,
-        ),
-        range: key_range(descriptor, read.key).map(Box::new),
+    let reason = format!(
+        "{what} stands in {place} that also holds {selector}, so the key selects an entry by matching the evaluated keys the collection holds rather than computing the key looked up; {what} denotes the value evaluation produces, which no evaluated key is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+        what = computes.what,
+        place = key.lookup.place(),
+    );
+    let range = key_range(descriptor, computes.at).map(Box::new);
+    Err(if computes.sort_test {
+        DescriptorLoweringError::InvalidSortTest {
+            item: item(),
+            reason,
+            range,
+        }
+    } else {
+        DescriptorLoweringError::FunctionInPattern {
+            item: item(),
+            reason,
+            range,
+        }
     })
-}
-
-/// The names of one sentence's pattern.
-struct Names<'a, 't> {
-    catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
-    /// The names the pattern binds.
-    bound: BTreeSet<&'t str>,
-    /// The names a key reads below a function application, in pattern order.
-    read: Vec<Read<'t>>,
-    /// The first open record a key holds below a function application.
-    open: Option<Read<'t>>,
-}
-
-/// A name a key reads below a function application.
-struct Read<'t> {
-    name: &'t str,
-    key: &'t ProvenanceKey,
-    /// The innermost function application above the name, described.
-    function: String,
-    /// The key it stands in.
-    lookup: Lookup,
 }
 
 /// What a collection is looked up by.
@@ -135,43 +171,27 @@ impl Lookup {
     }
 }
 
-/// Where the operands of a construct that computes, `what`, stand when the
-/// construct stands `in_key` below `function`: in a key, they are read below
-/// it, as a function application's arguments are.
-const fn computed<'f>(
-    in_key: InKey,
-    function: Option<&'f str>,
-    what: &'f str,
-) -> (InKey, Option<&'f str>) {
-    match in_key {
-        InKey::Matched(lookup) | InKey::Read(lookup) => (InKey::Read(lookup), Some(what)),
-        InKey::No => (in_key, function),
-    }
+/// The pattern of one sentence: the names it binds outside its keys and set
+/// elements, and those keys and elements.
+struct Pattern<'t> {
+    /// The names the pattern binds outside every key and set element.
+    outside: BTreeSet<&'t str>,
+    /// The keys and set elements, in pattern order.
+    keys: Vec<(&'t DescriptorTerm, Lookup)>,
 }
 
-/// Where in a key a term stands.
-#[derive(Clone, Copy)]
-enum InKey {
-    /// Outside every key.
-    No,
-    /// In a key, matched as it stands.
-    Matched(Lookup),
-    /// In a key, below a function application.
-    Read(Lookup),
-}
-
-impl<'t> Names<'_, 't> {
+impl<'t> Pattern<'t> {
     fn sentence(&mut self, payload: &'t DescriptorPayload) {
         match payload {
             DescriptorPayload::StructuredRule(rule) => {
-                self.term(&rule.subject, InKey::No, None);
+                self.term(&rule.subject);
                 if let Some(context) = &rule.function_context {
                     self.cells(&context.cells);
                 }
             }
             DescriptorPayload::HeadRule(rule) => {
                 for item in rule.head.iter().flat_map(|head| &head.items) {
-                    self.term(item, InKey::No, None);
+                    self.term(item);
                 }
                 for extra in &rule.extras {
                     self.extra(extra);
@@ -192,7 +212,7 @@ impl<'t> Names<'_, 't> {
 
     fn frame(&mut self, frame: &'t ProtocolRuleFrame) {
         if let ProtocolRuleFrame::Bind { binding, .. } = frame {
-            self.bound.insert(binding);
+            self.outside.insert(binding);
         }
     }
 
@@ -201,29 +221,29 @@ impl<'t> Names<'_, 't> {
             ProtocolRuleStateTerm::Map(map) => match &map.body {
                 ProtocolRuleMapBody::Items { items, remainder } => {
                     for item in items {
-                        self.term(&item.key, InKey::Matched(Lookup::MapKey), None);
-                        self.term(&item.value, InKey::No, None);
+                        self.keys.push((&item.key, Lookup::MapKey));
+                        self.term(&item.value);
                     }
                     self.frame(remainder);
                 }
-                ProtocolRuleMapBody::Update { base, .. } => self.term(base, InKey::No, None),
+                ProtocolRuleMapBody::Update { base, .. } => self.term(base),
                 ProtocolRuleMapBody::Empty { .. } => {}
             },
             ProtocolRuleStateTerm::Present { value } => self.state(value),
             ProtocolRuleStateTerm::KSequence(sequence) => {
                 for item in &sequence.items {
-                    self.term(&item.value, InKey::No, None);
+                    self.term(&item.value);
                 }
                 self.frame(&sequence.tail);
             }
             ProtocolRuleStateTerm::Instances(instances) => {
                 for term in state.terms() {
-                    self.term(term, InKey::No, None);
+                    self.term(term);
                 }
                 self.frame(&instances.rest);
             }
             ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
-                self.term(term, InKey::No, None);
+                self.term(term);
             }
             ProtocolRuleStateTerm::Absent => {}
         }
@@ -235,126 +255,65 @@ impl<'t> Names<'_, 't> {
         match extra {
             ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
                 for entry in entries {
-                    self.term(&entry.key, InKey::Matched(Lookup::MapKey), None);
-                    self.bound.insert(&entry.value_binding);
+                    self.keys.push((&entry.key, Lookup::MapKey));
+                    self.outside.insert(&entry.value_binding);
                 }
             }
             ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } => {
-                self.bound.insert(base_binding);
+                self.outside.insert(base_binding);
             }
-            ProtocolHeadRuleExtra::RewriteCell { before, .. } => {
-                self.term(before, InKey::No, None);
-            }
+            ProtocolHeadRuleExtra::RewriteCell { before, .. } => self.term(before),
             ProtocolHeadRuleExtra::RewriteState { before, .. } => self.state(before),
             ProtocolHeadRuleExtra::RewriteList { before, .. } => {
                 for term in &before.items {
-                    self.term(term, InKey::No, None);
+                    self.term(term);
                 }
                 if let ProtocolHeadRuleListRest::Term(rest) = &before.rest {
-                    self.term(rest, InKey::No, None);
+                    self.term(rest);
                 }
                 for term in &before.back {
-                    self.term(term, InKey::No, None);
+                    self.term(term);
                 }
             }
         }
     }
 
-    /// A name at `key`: bound, unless a key reads it below `function`.
-    fn name(
-        &mut self,
-        name: &'t str,
-        key: &'t ProvenanceKey,
-        in_key: InKey,
-        function: Option<&str>,
-    ) {
-        match (in_key, function) {
-            (InKey::Read(lookup), Some(function)) => self.read.push(Read {
-                name,
-                key,
-                function: function.to_owned(),
-                lookup,
-            }),
-            _ => {
-                self.bound.insert(name);
-            }
-        }
-    }
-
-    /// `term`, `in_key`, below the innermost function application
-    /// `function` when a key reads it.
-    fn term(&mut self, term: &'t DescriptorTerm, in_key: InKey, function: Option<&str>) {
+    /// `term`, outside every key: its names are bound, and a set's element is
+    /// a key of its own.
+    fn term(&mut self, term: &'t DescriptorTerm) {
         match term {
-            DescriptorTerm::Variable { key, name, .. } => self.name(name, key, in_key, function),
-            DescriptorTerm::As {
-                binding_key,
-                name,
-                pattern,
-                ..
-            } => {
-                self.name(name, binding_key, in_key, function);
-                self.term(pattern, in_key, function);
+            DescriptorTerm::Variable { name, .. } => {
+                self.outside.insert(name);
+            }
+            DescriptorTerm::As { name, pattern, .. } => {
+                self.outside.insert(name);
+                self.term(pattern);
             }
             DescriptorTerm::Application {
                 reference,
                 arguments,
-                open,
-                update,
                 ..
             } => {
-                if *open
-                    && self.open.is_none()
-                    && let (InKey::Read(lookup), Some(function)) = (in_key, function)
-                {
-                    self.open = Some(Read {
-                        name: "",
-                        key: &reference.key,
-                        function: function.to_owned(),
-                        lookup,
-                    });
-                }
-                let applied = applied_function(&reference.application, self.catalog);
-                // A record update builds its record from a matched one: a key
-                // computes it.
-                let (in_key, function) = if update.is_some() {
-                    computed(in_key, function, "a record update")
-                } else {
-                    (in_key, function)
-                };
-                let (in_key, function) = match (&applied, in_key) {
-                    (Applied::Function(applied), InKey::Matched(lookup) | InKey::Read(lookup)) => {
-                        (InKey::Read(lookup), Some(applied.as_str()))
+                let element =
+                    reference.application == DescriptorApplicationRef::Set(SetOperation::Item);
+                for value in argument_values(arguments) {
+                    if element {
+                        self.keys.push((value, Lookup::SetElement));
+                    } else {
+                        self.term(value);
                     }
-                    // A set's element is what the set is looked up by.
-                    (_, InKey::No)
-                        if reference.application
-                            == DescriptorApplicationRef::Set(SetOperation::Item) =>
-                    {
-                        (InKey::Matched(Lookup::SetElement), function)
-                    }
-                    _ => (in_key, function),
-                };
-                for argument in arguments {
-                    let (TermArgumentRef::Positional { value }
-                    | TermArgumentRef::Named { value, .. }) = argument;
-                    self.term(value, in_key, function);
                 }
             }
             DescriptorTerm::Or { alternatives, .. } => {
                 for alternative in alternatives {
-                    self.term(alternative, in_key, function);
+                    self.term(alternative);
                 }
             }
-            DescriptorTerm::Rewrite { from, .. } => self.term(from, in_key, function),
+            DescriptorTerm::Rewrite { from, .. } => self.term(from),
             DescriptorTerm::Cell { fields, .. } => {
                 for field in fields {
-                    self.term(&field.value, in_key, function);
+                    self.term(&field.value);
                 }
-            }
-            // A key computes its value from the operand of a sort test.
-            DescriptorTerm::SortTest { operand, .. } => {
-                let (in_key, function) = computed(in_key, function, "a sort test");
-                self.term(operand, in_key, function);
             }
             DescriptorTerm::Literal { .. }
             | DescriptorTerm::Wildcard { .. }
@@ -362,9 +321,192 @@ impl<'t> Names<'_, 't> {
             | DescriptorTerm::Anonymous { .. }
             | DescriptorTerm::OrBool { .. }
             | DescriptorTerm::Lexeme { .. }
+            | DescriptorTerm::SortTest { .. }
             | DescriptorTerm::Matches { .. }
             | DescriptorTerm::Let { .. }
             | DescriptorTerm::Closure { .. } => {}
+        }
+    }
+}
+
+/// The values of an application's arguments.
+fn argument_values(
+    arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+) -> impl Iterator<Item = &DescriptorTerm> {
+    arguments.into_iter().map(|argument| {
+        let (TermArgumentRef::Positional { value } | TermArgumentRef::Named { value, .. }) =
+            argument;
+        value
+    })
+}
+
+/// One key or set element, as its walk finds it.
+struct Key<'a, 't> {
+    catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+    outside: &'a BTreeSet<&'t str>,
+    lookup: Lookup,
+    /// The names its matched part binds.
+    matched: BTreeSet<&'t str>,
+    /// What makes it a selection: the first name nothing else binds, `_`,
+    /// alias, alternatives or open record outside every construct that
+    /// computes, described.
+    selection: Option<String>,
+    /// The first construct that computes in it.
+    computes: Option<Computes<'t>>,
+    /// The first pattern-only construct below a construct that computes, its
+    /// key, and the construct above it, described.
+    built: Option<(KeyPattern, &'t ProvenanceKey, String)>,
+    /// The names it reads below a construct that computes.
+    read: Vec<Read<'t>>,
+}
+
+/// A construct that computes, where it stands, described.
+struct Computes<'t> {
+    at: &'t ProvenanceKey,
+    what: String,
+    sort_test: bool,
+}
+
+/// A name a key reads below a construct that computes.
+struct Read<'t> {
+    name: &'t str,
+    key: &'t ProvenanceKey,
+    /// The innermost construct above the name that computes, described.
+    function: String,
+}
+
+impl<'t> Key<'_, 't> {
+    /// A pattern-only `construct` at `at`: built below `computing`, a
+    /// selection otherwise.
+    fn pattern_only(
+        &mut self,
+        construct: KeyPattern,
+        at: &'t ProvenanceKey,
+        computing: Option<&str>,
+        selector: impl FnOnce() -> String,
+    ) {
+        match computing {
+            Some(function) => {
+                if self.built.is_none() {
+                    self.built = Some((construct, at, function.to_owned()));
+                }
+            }
+            None => {
+                if self.selection.is_none() {
+                    self.selection = Some(selector());
+                }
+            }
+        }
+    }
+
+    /// The first construct that computes.
+    fn computes(&mut self, at: &'t ProvenanceKey, what: &str, sort_test: bool) {
+        if self.computes.is_none() {
+            self.computes = Some(Computes {
+                at,
+                what: what.to_owned(),
+                sort_test,
+            });
+        }
+    }
+
+    /// `term`, below the innermost construct that computes, `computing`, or
+    /// in the key's matched part when `None`.
+    fn term(&mut self, term: &'t DescriptorTerm, computing: Option<&str>) {
+        match term {
+            DescriptorTerm::Variable { key, name, .. } => {
+                if let Some(function) = computing {
+                    self.read.push(Read {
+                        name,
+                        key,
+                        function: function.to_owned(),
+                    });
+                } else {
+                    self.matched.insert(name);
+                    if !self.outside.contains(name.as_str()) && self.selection.is_none() {
+                        self.selection =
+                            Some(format!("the name `{name}`, which nothing else binds"));
+                    }
+                }
+            }
+            DescriptorTerm::Wildcard { key } => {
+                self.pattern_only(KeyPattern::Wildcard, key, computing, || "`_`".to_owned());
+            }
+            DescriptorTerm::As {
+                binding_key,
+                name,
+                pattern,
+                ..
+            } => {
+                self.pattern_only(KeyPattern::Alias, binding_key, computing, || {
+                    format!("the alias `{name} @ ..`")
+                });
+                if computing.is_none() {
+                    self.matched.insert(name);
+                }
+                self.term(pattern, computing);
+            }
+            DescriptorTerm::Or { key, alternatives } => {
+                self.pattern_only(KeyPattern::Alternatives, key, computing, || {
+                    "alternatives `A | B`".to_owned()
+                });
+                for alternative in alternatives {
+                    self.term(alternative, computing);
+                }
+            }
+            DescriptorTerm::Application {
+                reference,
+                arguments,
+                open,
+                update,
+                ..
+            } => self.application(reference, arguments, *open, update.is_some(), computing),
+            DescriptorTerm::SortTest { key, operand, .. } => {
+                self.computes(key, "a sort test", true);
+                self.term(operand, Some("a sort test"));
+            }
+            DescriptorTerm::Rewrite { from, .. } => self.term(from, computing),
+            DescriptorTerm::Cell { fields, .. } => {
+                for field in fields {
+                    self.term(&field.value, computing);
+                }
+            }
+            DescriptorTerm::Literal { .. }
+            | DescriptorTerm::BuiltinToken { .. }
+            | DescriptorTerm::Anonymous { .. }
+            | DescriptorTerm::OrBool { .. }
+            | DescriptorTerm::Lexeme { .. }
+            | DescriptorTerm::Matches { .. }
+            | DescriptorTerm::Let { .. }
+            | DescriptorTerm::Closure { .. } => {}
+        }
+    }
+
+    fn application(
+        &mut self,
+        reference: &'t DescriptorApplicationReference,
+        arguments: &'t krs_ir::Arguments<krs_ir::DescriptorStage>,
+        open: bool,
+        update: bool,
+        computing: Option<&str>,
+    ) {
+        if open {
+            self.pattern_only(KeyPattern::OpenRecord, &reference.key, computing, || {
+                "an open record `Ctor { .. }`".to_owned()
+            });
+        }
+        let applied = applied_function(&reference.application, self.catalog);
+        let below = match &applied {
+            Applied::Function(function) => {
+                self.computes(&reference.key, function, false);
+                Some(function.clone())
+            }
+            // A record update builds its record from a matched one.
+            _ if update => Some("a record update".to_owned()),
+            _ => computing.map(str::to_owned),
+        };
+        for value in argument_values(arguments) {
+            self.term(value, below.as_deref());
         }
     }
 }

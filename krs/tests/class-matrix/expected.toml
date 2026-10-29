@@ -743,7 +743,7 @@ class = "binder-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'terms/{cells-claim/item-root,cells-claim/subject,cells/map-key,cells/map-value}/k::builtin::int::add(x\, 1)'
+match = 'terms/{cells-claim/item-root,cells-claim/subject,cells/map-key,cells/map-key/beside-fresh,cells/map-value}/k::builtin::int::add(x\, 1)'
 class = "binder-sort"
 at = "spelling"
 
@@ -794,7 +794,7 @@ at = "spelling"
 
 # list-notation-sort (NT-2): list brackets at a `KItem` position
 [[refuse]]
-match = 'terms/{alias/subject,alias/subject-root,cells-claim/item-root,cells-claim/subject,cells-local/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,context/subject-root,desugar/subject,desugar/subject-root,equation/subject,equation/subject-depth-2,local-rule/subject,local-rule/subject/rewrite-left,readable/collection-child,readable/cons-element,readable/item-root,readable/list-element,readable/subject,readable/subject-depth-2,rule/guard/let-pattern,rule/subject,rule/subject-depth-2,rule/subject-root,rule/subject/as-body,simplification/subject,simplification/subject-root,sort-rule/result/let-pattern,sort-rule/subject,sort-rule/subject-depth-2,sort-rule/subject-root,sort-rule/subject-root-term,table/subject,table/subject-depth-2}/[x\, ..]'
+match = 'terms/{cells/map-key/beside-fresh,readable/map-key-child,readable/map-value-child,readable/set-instance-child,rule/subject/set-element-beside-fresh,alias/subject,alias/subject-root,cells-claim/item-root,cells-claim/subject,cells-local/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,context/subject-root,desugar/subject,desugar/subject-root,equation/subject,equation/subject-depth-2,local-rule/subject,local-rule/subject/rewrite-left,readable/collection-child,readable/cons-element,readable/item-root,readable/list-element,readable/subject,readable/subject-depth-2,rule/guard/let-pattern,rule/subject,rule/subject-depth-2,rule/subject-root,rule/subject/as-body,simplification/subject,simplification/subject-root,sort-rule/result/let-pattern,sort-rule/subject,sort-rule/subject-depth-2,sort-rule/subject-root,sort-rule/subject-root-term,table/subject,table/subject-depth-2}/[x\, ..]'
 class = "list-notation-sort"
 at = "spelling"
 
@@ -902,13 +902,13 @@ at = "spelling"
 
 # binder-sort (NT-2 review): a `cells!` binder declared `KItem` that a notation form's operand sorts more narrowly, at a sibling whose product refuses it for another reason first
 [[refuse]]
-match = 'terms/cells/map-key/{!(x < 1),-(x + 1),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}'
+match = 'terms/{cells/map-key,cells/map-key/beside-fresh}/{!(x < 1),-(x + 1),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}'
 class = "binder-sort"
 at = "spelling"
 
 # list-notation-sort (NT-2 review): list brackets at a `KItem` position, at a sibling whose product refuses it for another reason first
 [[refuse]]
-match = 'terms/{readable/map-key,readable/map-key/as-body,readable/map-key/let-pattern,readable/map-key/or-branch}/[x\, ..]'
+match = 'terms/{readable/map-key/beside-fresh,readable/map-key,readable/map-key/as-body,readable/map-key/let-pattern,readable/map-key/or-branch}/[x\, ..]'
 class = "list-notation-sort"
 at = "spelling"
 
@@ -933,7 +933,7 @@ at = "spelling"
 
 # alternatives-bind-unequally (NT-2 review): alternatives in a subject that bind other names, at a sibling whose product refuses it for another reason first, and at the review's new positions
 [[refuse]]
-match = 'terms/{alias/subject,cells-claim/item-root,cells-claim/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,desugar/subject,equation/subject,equation/subject-depth-2,readable/collection-child,readable/cons-element,readable/item-root,readable/list-element,readable/map-key/matches-pattern,readable/subject,readable/subject-depth-2,rule/guard/matches-pattern,rule/subject,rule/subject-depth-2,rule/subject/as-body,rule/subject/or-branch,rule/subject/set-element,sort-rule/result/matches-pattern,sort-rule/subject,sort-rule/subject-depth-2,table/subject,table/subject-depth-2}/x | 1'
+match = 'terms/{cells/map-key/beside-fresh,readable/map-key-child,readable/map-value-child,readable/set-instance-child,rule/subject/set-element-beside-fresh,alias/subject,cells-claim/item-root,cells-claim/subject,cells/item-root,cells/map-key,cells/map-value,cells/subject,claim/item-root,claim/subject,context-alias/item-root,context-alias/subject,context/subject,desugar/subject,equation/subject,equation/subject-depth-2,readable/collection-child,readable/cons-element,readable/item-root,readable/list-element,readable/map-key/matches-pattern,readable/subject,readable/subject-depth-2,rule/guard/matches-pattern,rule/subject,rule/subject-depth-2,rule/subject/as-body,rule/subject/or-branch,rule/subject/set-element,sort-rule/result/matches-pattern,sort-rule/subject,sort-rule/subject-depth-2,table/subject,table/subject-depth-2}/x | 1'
 class = "alternatives-bind-unequally"
 at = "spelling"
 
@@ -989,7 +989,7 @@ at = "spelling"
 
 # record-update-base (NT-2 review): a record update whose base `x` is no alias of a matched record, at a sibling whose product refuses it for another reason first, and at the review's new positions
 [[refuse]]
-match = 'terms/{rule/subject/set-element,simplification/guard}/Cmd::Pair \{ a: x\, ..x \}'
+match = 'terms/{readable/map-key/beside-fresh,readable/set-instance-child,rule/subject/set-element-beside-fresh,rule/subject/set-element,simplification/guard}/Cmd::Pair \{ a: x\, ..x \}'
 class = "record-update-base"
 at = "spelling"
 

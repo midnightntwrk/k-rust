@@ -95,10 +95,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 16 values, the computation cell's remainder, 3 field orders and the
             // nested group's, and 8 typed cells × 4 contents.
             (Family::Init, 112 + 1 + 3 + 1 + 32),
-            // (77 positions of depth 1 + 22 positions constructs open) × 47 constructs.
-            (Family::Terms, 99 * 47),
-            // 77 positions of depth 1 × 2 bare variants.
-            (Family::Import, 77 * 2),
+            // (80 positions of depth 1 + 25 positions constructs open) × 47 constructs.
+            (Family::Terms, 105 * 47),
+            // 80 positions of depth 1 × 2 bare variants.
+            (Family::Import, 80 * 2),
         ])
     );
     assert!(cases.len() <= FRONT_CASE_CAP);
@@ -244,7 +244,7 @@ fn a_computation_subject_case_is_never_batched() {
 
 /// The term cases a table rule decides before the oracle's resolution refusal, with the oracle's
 /// class ([`the_shipped_table_and_red_list_parse`]).
-const OVERRIDDEN: [(&str, &str); 34] = [
+const OVERRIDDEN: [(&str, &str); 45] = [
     (
         "terms/alias/subject-root/[x, ..]",
         "static-clause-root-not-marked",
@@ -263,6 +263,50 @@ const OVERRIDDEN: [(&str, &str); 34] = [
     ),
     (
         "terms/cells/item-root/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/!(x < 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/-(x + 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/x & 1",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/x && true",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/x + 1",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/x < 1",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/x << 1",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/x == 1",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/x || true",
+        "function-in-pattern",
+    ),
+    (
+        "terms/cells/map-key/beside-fresh/x.add::<Int>(1)",
         "function-in-pattern",
     ),
     (

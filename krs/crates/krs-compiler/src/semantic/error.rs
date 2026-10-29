@@ -37,6 +37,61 @@ pub enum FreshProblem {
     InvalidGenerator,
 }
 
+/// A pattern-only construct below a construct that computes a key
+/// ([`DescriptorLoweringError::PatternInComputedKey`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KeyPattern {
+    /// `_`.
+    Wildcard,
+    /// `name @ pattern`.
+    Alias,
+    /// `A | B`.
+    Alternatives,
+    /// `Ctor { f: e, .. }`.
+    OpenRecord,
+}
+
+impl KeyPattern {
+    /// The code of the construct's class outside a pattern.
+    #[must_use]
+    pub const fn code(self) -> krs_diagnostic::Code {
+        match self {
+            Self::Wildcard => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
+            Self::Alias => codes::syntax::INVALID_PATTERN_AS,
+            Self::Alternatives => codes::analysis::AMBIGUOUS_OPERATOR,
+            Self::OpenRecord => codes::syntax::INVALID_RECORD_UPDATE,
+        }
+    }
+
+    /// The construct, for a diagnostic.
+    #[must_use]
+    pub const fn spelling(self) -> &'static str {
+        match self {
+            Self::Wildcard => "`_`",
+            Self::Alias => "an alias `name @ pattern`",
+            Self::Alternatives => "alternatives `A | B`",
+            Self::OpenRecord => "an open record `Ctor { f: e, .. }`",
+        }
+    }
+
+    /// Why a built term holds no such construct.
+    #[must_use]
+    pub const fn why(self) -> &'static str {
+        match self {
+            Self::Wildcard => "`_` matches any term, and names none to build",
+            Self::Alias => {
+                "an alias names the term a pattern matched, and nothing is matched there"
+            }
+            Self::Alternatives => {
+                "alternatives match one of several terms, and a built term is one term"
+            }
+            Self::OpenRecord => {
+                "`..` leaves the record's other fields open, which only a pattern can; name every field"
+            }
+        }
+    }
+}
+
 /// Typed failure at the sole descriptor-bundle to semantic-theory boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DescriptorLoweringError {
@@ -394,15 +449,18 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the name.
         range: Option<Box<SourceRange>>,
     },
-    /// An open record `Ctor { f: e, .. }` below a function application in
-    /// a map key or a set element: the key computes the value looked up
-    /// there, which has no value for the fields `..` leaves open.
-    OpenRecordInComputedKey {
+    /// A pattern-only construct (`_`, an alias, alternatives, an open
+    /// record) below a construct that computes a map key or a set element:
+    /// the position is built, the value the key looks up.
+    PatternInComputedKey {
         /// Item the diagnostic is about.
         item: Box<StableItemId>,
-        /// Stable reason naming the function.
+        /// The construct, which chooses the code: its class's outside a
+        /// pattern.
+        construct: KeyPattern,
+        /// Stable reason naming the construct that computes.
         reason: String,
-        /// Sole exact authored range of the record's head.
+        /// Sole exact authored range of the construct.
         range: Option<Box<SourceRange>>,
     },
     /// A `let` statement's (K's `#let`) pattern cannot meet its value's sort,
@@ -896,7 +954,7 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
-            | DescriptorLoweringError::OpenRecordInComputedKey {
+            | DescriptorLoweringError::PatternInComputedKey {
                 range: $named_range,
                 item: $named_item,
                 ..
@@ -1362,7 +1420,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidMatches { reason, .. }
             | Self::FunctionInPattern { reason, .. }
             | Self::UnboundKeyName { reason, .. }
-            | Self::OpenRecordInComputedKey { reason, .. }
+            | Self::PatternInComputedKey { reason, .. }
             | Self::SubjectRootNotFunction { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
@@ -1457,7 +1515,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
             Self::FunctionInPattern { .. } => codes::analysis::FUNCTION_IN_PATTERN,
             Self::UnboundKeyName { .. } => codes::expand::UNBOUND_NAME,
-            Self::OpenRecordInComputedKey { .. } => codes::syntax::INVALID_RECORD_UPDATE,
+            Self::PatternInComputedKey { construct, .. } => construct.code(),
             Self::SubjectRootNotFunction { .. } => codes::analysis::SUBJECT_ROOT_NOT_FUNCTION,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,

@@ -16,10 +16,15 @@
 //! A context matches the configuration's terms as a rule does, so its subject
 //! is such a pattern too. A collection's value or element in a pattern is
 //! matched against the values the collection holds, which are evaluated: a
-//! map's value, a list's element (a List cell's, a cons list's), and a child
-//! of a cell collection's instance, which K writes as the cells it holds,
-//! whatever the collection's type. A `let` or `k::matches!` pattern matches the value its term
-//! computed, evaluated as well, wherever it stands ([`check_local_pattern`]).
+//! map's value and a list's element (a List cell's, a cons list's). So is a
+//! cell collection's instance: a List collection's instance is its element, a
+//! Map collection pairs an instance's key cell with the whole instance,
+//! key cell included, as the value it maps to, and a Set collection's
+//! instance, which the set is looked up by as by an element, is written as
+//! the cells it holds, which match as they stand until it is written as an
+//! element (finding NT-3-3). A `let` or `k::matches!` pattern matches the
+//! value its term computed, evaluated as well, wherever it stands
+//! ([`check_local_pattern`]).
 //!
 //! The application is the meaning, and is admitted, where:
 //! - it is the root of an equation's subject: the function the equation
@@ -28,8 +33,9 @@
 //!   whose applications stand unevaluated;
 //! - it stands in a claim's subject, a symbolic state whose applications
 //!   denote values;
-//! - it stands in a map's key or a set's element, which a lookup evaluates:
-//!   a map read's or a `cells!` map's key, the operand of a set's element.
+//! - it stands in a map's key or a set's element (a map read's or a `cells!`
+//!   map's key, the operand of `set::item`) that the pattern computes and
+//!   looks up, which [`key_names`] judges, with the key's other names.
 //!
 //! The positions are the sentence's own shape, which each descriptor carries:
 //! every term of a subject the walker reads as one slot (a fn rule's or an
@@ -38,9 +44,11 @@
 //! `k::rewrite!`'s left side is matched where it stands; its right side is
 //! built and is no pattern.
 //!
-//! A key is evaluated, so a name below a function application in a map key,
-//! or in a set element, which a set is looked up by, reads a value and binds
-//! none; [`key_names`] refuses a name that the pattern binds nowhere else.
+//! A key or a set element is computed and looked up when nothing in it
+//! outside the constructs that compute selects an entry by matching; then a
+//! name below a function application reads a value and binds none.
+//! Otherwise it is a selection, matched, and a function there never matches.
+//! [`key_names`] decides both.
 
 use std::collections::BTreeMap;
 
@@ -194,7 +202,10 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
             "{function} stands in a `let` or `k::matches!` pattern, which matches the value its term computed; a function application denotes the value evaluation produces, and a computed value has its functions evaluated, so this pattern describes a term that never occurs and never matches: match a variable here and compare it with the application (`==`), or apply the function in the value"
         ),
         (Place::Entry, _) => format!(
-            "{function} stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes"
+            "{function} stands in a collection's value or element (a map's value, a list's element), which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); a map's key or a set's element whose every part is computed from names bound elsewhere is looked up by its value instead"
+        ),
+        (Place::Instance, _) => format!(
+            "{function} stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)"
         ),
         (Place::Pattern, root) => {
             let instead = match root {
@@ -246,6 +257,8 @@ enum Place {
     Pattern,
     /// A collection's value or element in the subject.
     Entry,
+    /// A child of a cell collection's instance in the subject.
+    Instance,
     /// A `let` or `k::matches!` pattern.
     Local,
 }
@@ -278,6 +291,14 @@ struct Found<'t> {
 
 impl Patterns<'_> {
     /// These patterns, matching a collection's values and elements.
+    /// These patterns, matching a cell collection's instances.
+    const fn instance(self) -> Self {
+        Self {
+            place: Place::Instance,
+            ..self
+        }
+    }
+
     const fn entries(self) -> Self {
         Self {
             place: Place::Entry,
@@ -285,10 +306,9 @@ impl Patterns<'_> {
         }
     }
 
-    /// One state of a cell a pattern names, `cell` when the pattern names it
-    /// as a field: its term, its computation items, its map's base and
-    /// values, a collection cell's matched children. A map's keys and a Set
-    /// collection's instances are looked up.
+    /// One state of a cell a pattern names: its term, its computation items,
+    /// its map's base and values, and a collection cell's instances, all
+    /// matched. A map's keys are judged with their reading ([`key_names`]).
     fn state<'t>(&self, state: &'t ProtocolRuleStateTerm<DescriptorTerm>) -> Result<(), Found<'t>> {
         let root = Some(Root::Slot);
         match state {
@@ -312,10 +332,10 @@ impl Patterns<'_> {
         }
     }
 
-    /// The instances of a collection cell, whose children are cells a
-    /// pattern matches as the collection holds them, whatever the
-    /// collection's type: the instance is no key or element term, but the
-    /// cells K writes where the collection stands.
+    /// The instances of a collection cell, matched as the collection holds
+    /// them: a List collection's instance is its element, a Map collection's
+    /// is the value its key cell maps to, key cell included, and a Set
+    /// collection's is written as the cells it holds (NT-3-3).
     fn instances<'t>(
         &self,
         instances: &'t ProtocolRuleInstances<DescriptorTerm>,
@@ -325,7 +345,7 @@ impl Patterns<'_> {
             .iter()
             .chain(&instances.back)
             .flat_map(|instance| &instance.fields)
-            .try_for_each(|child| self.entries().state(&child.value))
+            .try_for_each(|child| self.instance().state(&child.value))
     }
 
     /// The matched side of a readable rule's cell: a cell's content, an

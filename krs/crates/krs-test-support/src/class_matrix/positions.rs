@@ -277,6 +277,8 @@ pub enum Entry {
     MapValue,
     /// A set's element.
     SetElement,
+    /// A cell collection's instance, matched against the instances the collection holds.
+    Instance,
 }
 
 impl Entry {
@@ -435,6 +437,9 @@ pub enum Opening {
     SetElement,
     /// An element of a list read or written.
     ListElement,
+    /// A Map or List collection's instance in a pattern, which the collection holds as a value or
+    /// an element: matched. A Set collection's instance is its element ([`Self::SetElement`]).
+    Instance,
 }
 
 /// Where a construct stands.
@@ -576,6 +581,9 @@ impl Position {
             Opening::ListElement => {
                 position.nesting.entries = self.nesting.entries.push(Entry::ListElement);
             }
+            Opening::Instance => {
+                position.nesting.entries = self.nesting.entries.push(Entry::Instance);
+            }
             Opening::ComputationItem => {
                 position.nesting.entries = self.nesting.entries.push(Entry::ComputationItem);
             }
@@ -634,6 +642,9 @@ impl Notation {
 pub enum Construct {
     /// A bare name: a binder, or a unit constructor at a fn subject's root.
     Reference,
+    /// A binder the case's pattern binds nowhere else: in a key or a set's element, where it is
+    /// matched, it selects the entries whose key matches.
+    Fresh,
     /// A constructor application, a unit constructor's path included.
     Constructor,
     /// A constructor application whose turbofish names its parametric production's instance,
@@ -690,8 +701,9 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 36] = [
+    pub const ALL: [Self; 37] = [
         Self::Reference,
+        Self::Fresh,
         Self::Constructor,
         Self::Turbofish,
         Self::Literal,

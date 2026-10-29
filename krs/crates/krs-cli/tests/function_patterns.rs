@@ -570,10 +570,12 @@ impl Machine {
 }
 "#;
 
-/// A cell collection's instance is the cells K writes where the collection stands, which a
-/// pattern matches as the collection holds them, whatever its type: a function in a child of a
-/// List, a Map (its key included) or a Set collection's instance never matches and is refused
-/// (decision D1), so no name stands only below one (X4 has nothing to read there).
+/// A cell collection's instance is matched as the collection holds it: a List collection's
+/// instance is its element, and a Map collection pairs an instance's key cell with the whole
+/// instance, key cell included, as the value it maps to, so a function in any of their cells never
+/// matches (decision D1). A Set collection is looked up by its instances, but KRS writes an instance
+/// as the cells it holds, which match as they stand, so a function there is refused too until the
+/// instance is written as an element (finding NT-3-3).
 #[test]
 fn a_cell_collection_matches_the_cells_of_its_instances() {
     let outcomes = outcomes_after(
@@ -608,7 +610,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:52",
                     ],
                 ),
@@ -618,7 +620,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:48",
                     ],
                 ),
@@ -628,7 +630,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:58",
                     ],
                 ),
@@ -638,7 +640,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a collection's value or element, which the pattern matches against the values the collection holds; a function application denotes the value evaluation produces, and those values have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`); only a map read's key and a set's element, `set::item(..)`, are looked up by the value a function there computes",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, and a List or a Set collection's instance is written as the cells it holds; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:56",
                     ],
                 ),

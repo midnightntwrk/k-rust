@@ -32,10 +32,10 @@ use super::positions::Form::{
     Simplification, SortRule,
 };
 use super::positions::Opening::{
-    Argument, AsBody, ComputationItem, FragmentField, FunctionArgument, LetBody, LetPattern,
-    LetValue, ListElement, MapKey, MapValue, MatchesPattern, MatchesSubject, OrBoolOperand,
-    OrBranch, PredicateBody, PredicateOperand, RewriteLeft, RewriteRight, SetElement,
-    SortTestOperand, UpdateBase, UpdateField,
+    Argument, AsBody, ComputationItem, FragmentField, FunctionArgument, Instance, LetBody,
+    LetPattern, LetValue, ListElement, MapKey, MapValue, MatchesPattern, MatchesSubject,
+    OrBoolOperand, OrBranch, PredicateBody, PredicateOperand, RewriteLeft, RewriteRight,
+    SetElement, SortTestOperand, UpdateBase, UpdateField,
 };
 use super::positions::Slot as Part;
 use super::positions::{Form, Node, Notation, Opening, Position, TermCase, node};
@@ -141,6 +141,36 @@ pub struct Member {
     pub item: Stmt,
 }
 
+/// The parent of the Set collection `token`.
+#[k::cell]
+pub struct Tray {
+    #[k::cell(multiplicity = "*", cell_type = "Set", nested)]
+    pub token: Token,
+}
+
+/// One instance of the `token` collection.
+#[k::cell]
+pub struct Token {
+    #[k::cell]
+    pub mark: Stmt,
+}
+
+/// The parent of the Map collection `row`, keyed by an instance's first child.
+#[k::cell]
+pub struct Table {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub row: Row,
+}
+
+/// One instance of the `row` collection.
+#[k::cell]
+pub struct Row {
+    #[k::cell]
+    pub id: Stmt,
+    #[k::cell]
+    pub value: Stmt,
+}
+
 #[k::configuration]
 pub struct Machine {
     #[k::cell]
@@ -155,6 +185,10 @@ pub struct Machine {
     pub seq: Items,
     #[k::cell(nested)]
     pub pool: Pool,
+    #[k::cell(nested)]
+    pub tray: Tray,
+    #[k::cell(nested)]
+    pub table: Table,
 }
 
 "#;
@@ -169,6 +203,8 @@ const INITIALIZER: &str = r#"impl Machine {
             frame: Frame { ret: 0 },
             seq: Seq::Nil(),
             pool: Pool { member: Member { item: Cmd::Go() } },
+            tray: Tray { token: Token { mark: Cmd::Go() } },
+            table: Table { row: Row { id: Cmd::Go(), value: Cmd::Go() } },
         }
     }
 }
@@ -506,6 +542,8 @@ fn imported_spellings() -> Vec<Spelling> {
 enum Binder {
     X,
     Alias,
+    /// `z`, a name the pattern binds in a key only.
+    Fresh,
     Value,
 }
 
@@ -654,6 +692,7 @@ impl Slot {
             let name = match binder {
                 Binder::X => "x",
                 Binder::Value => "v",
+                Binder::Fresh => "z",
                 Binder::Alias if self.side == Side::Subject && construct.starts_with("y @ ") => "y",
                 Binder::Alias => continue,
             };
@@ -1340,6 +1379,30 @@ fn slots() -> Vec<Slot> {
             (ReadableRule, Part::Subject, &[ListElement, Argument, Argument]),
             "k::rules! {\n    for Machine;\nUSES\n    case_TAG: { k: [Cmd::NAME(x, _), ..], member: [Member { item: Cmd::Hold(HOLE) }, ..] } => { k: [..] };\n}\n",
         ),
+        // A Set collection's instance is its element, which the set is looked up by; a Map
+        // collection pairs an instance's key cell with the whole instance as the value, so both
+        // its cells are matched.
+        slot(
+            "readable",
+            "set-instance-child",
+            Side::Subject,
+            (ReadableRule, Part::Subject, &[SetElement, Argument, Argument]),
+            "k::rules! {\n    for Machine;\nUSES\n    case_TAG: { k: [Cmd::NAME(x, _), ..], token: { Token { mark: Cmd::Hold(HOLE) }, .. } } => { k: [..] };\n}\n",
+        ),
+        slot(
+            "readable",
+            "map-key-child",
+            Side::Subject,
+            (ReadableRule, Part::Subject, &[Instance, Argument, Argument]),
+            "k::rules! {\n    for Machine;\nUSES\n    case_TAG: { k: [Cmd::NAME(x, _), ..], row: { Row { id: Cmd::Hold(HOLE), value: Cmd::Go() }, .. } } => { k: [..] };\n}\n",
+        ),
+        slot(
+            "readable",
+            "map-value-child",
+            Side::Subject,
+            (ReadableRule, Part::Subject, &[Instance, Argument, Argument]),
+            "k::rules! {\n    for Machine;\nUSES\n    case_TAG: { k: [Cmd::NAME(x, _), ..], row: { Row { id: Cmd::Go(), value: Cmd::Hold(HOLE) }, .. } } => { k: [..] };\n}\n",
+        ),
         slot(
             "readable",
             "result-list-element",
@@ -1509,7 +1572,7 @@ fn slots() -> Vec<Slot> {
 /// An initializer whose computation cell holds `pgm` and `item`.
 fn initializer(item: &str) -> String {
     format!(
-        "impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {{\n        Self {{\n            k: k::k![pgm, {item}],\n            env: k::map![],\n            stack: list::empty(),\n            frame: Frame {{ ret: 0 }},\n            seq: Seq::Nil(),\n            pool: Pool {{ member: Member {{ item: Cmd::Go() }} }},\n        }}\n    }}\n}}\n"
+        "impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {{\n        Self {{\n            k: k::k![pgm, {item}],\n            env: k::map![],\n            stack: list::empty(),\n            frame: Frame {{ ret: 0 }},\n            seq: Seq::Nil(),\n            pool: Pool {{ member: Member {{ item: Cmd::Go() }} }},\n            tray: Tray {{ token: Token {{ mark: Cmd::Go() }} }},\n            table: Table {{ row: Row {{ id: Cmd::Go(), value: Cmd::Go() }} }},\n        }}\n    }}\n}}\n"
     )
 }
 
@@ -1652,7 +1715,45 @@ fn openers() -> Vec<Slot> {
             &[],
         )
     };
+    // A construct beside a name the pattern binds nowhere else, which makes the key a selection:
+    // in a readable key, a `cells!` key and a set's element.
+    let cells_key = slot(
+        "cells",
+        "map-key",
+        Side::Subject,
+        (CellsRule, Part::Subject, &[MapKey]),
+        "",
+    );
+    let cells_key = Slot {
+        template: cells_rule(
+            &format!("{CELLS_COMMAND}, env: k::configuration::Cell(k::map![HOLE -> v, ..])"),
+            CELLS_TAIL,
+        ),
+        binders: &[Binder::X, Binder::Alias, Binder::Fresh, Binder::Value],
+        ..cells_key
+    };
+    let beside_fresh = |host: &Slot| {
+        host.open(
+            "beside-fresh",
+            "Cmd::Pair { a: HOLE, b: z }",
+            &[node(C::Constructor, &[])],
+            &[Argument],
+            &[node(C::Fresh, &[Argument])],
+        )
+    };
     vec![
+        beside_fresh(&evaluated),
+        beside_fresh(&cells_key),
+        matched.open(
+            "set-element-beside-fresh",
+            "k::builtin::set::item(Cmd::Pair { a: HOLE, b: z })",
+            &[
+                node(C::Constructor, &[]),
+                node(C::Constructor, &[SetElement]),
+            ],
+            &[SetElement, Argument],
+            &[node(C::Fresh, &[SetElement, Argument])],
+        ),
         let_pattern(&built, "x", C::Reference),
         let_pattern(&guard, "true", C::Literal),
         let_pattern(&evaluated, "x", C::Reference),

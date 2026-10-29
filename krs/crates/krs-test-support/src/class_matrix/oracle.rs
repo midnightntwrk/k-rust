@@ -146,12 +146,95 @@ pub enum Outcome {
     Refuse(Refusal),
 }
 
+/// Whether `position` lies in the matched part of a key or a set's element in a pattern: not below
+/// a construct that computes it, nor in a local pattern.
+fn in_key_reading(position: Position) -> bool {
+    (position.nesting.entries.contains(Entry::MapKey)
+        || position.nesting.entries.contains(Entry::SetElement))
+        && matches!(position.kind, Kind::Evaluated | Kind::Matched)
+        && position.nesting.local.is_none()
+}
+
+/// Whether `construct` selects an entry by matching where a key reads it: a name nothing else
+/// binds, `_`, an alias, alternatives (`x | 1` reads as alternatives there), an open record, a
+/// list's rest.
+const fn selects(construct: Construct) -> bool {
+    matches!(
+        construct,
+        Construct::Fresh
+            | Construct::Wildcard
+            | Construct::As
+            | Construct::Or
+            | Construct::Notation(Notation::BitwiseOr)
+            | Construct::OpenRecord
+            | Construct::Rest
+    )
+}
+
+/// What a construct that computes means in a key that is a selection: the key is matched against
+/// the collection's evaluated keys, which no application, operator or sort test is, so it never
+/// matches (told once the key's names are known); a `let` block and `k::matches!` are refused as in
+/// any pattern.
+const fn in_selection(construct: Construct) -> Option<Refusal> {
+    match construct {
+        Construct::FunctionApplication
+        | Construct::BuiltinApplication
+        | Construct::Notation(
+            Notation::Arithmetic
+            | Notation::Bitwise
+            | Notation::Shift
+            | Notation::Comparison
+            | Notation::Equality
+            | Notation::AndThen
+            | Notation::OrElse
+            | Notation::Not
+            | Notation::Negation
+            | Notation::Method,
+        ) => Some(resolution(Class::FunctionInPattern)),
+        Construct::SortTest => Some(resolution(Class::SortTestInPattern)),
+        Construct::Let => Some(placement(Class::LetOutsideTerm)),
+        Construct::Matches => Some(placement(Class::MatchesOutsideCondition)),
+        _ => None,
+    }
+}
+
+/// Each node's refusal at its position in `nodes` at `hole`, the node's own entry
+/// ([`admits`]) read with its key's: a key that holds a selecting construct is a selection.
+#[must_use]
+pub fn refusals(hole: Position, nodes: &[Node]) -> Vec<Option<Refusal>> {
+    let selection = nodes
+        .iter()
+        .any(|node| selects(node.construct) && in_key_reading(hole.enter_all(&node.path)));
+    nodes
+        .iter()
+        .map(|node| {
+            let position = hole.enter_all(&node.path);
+            match in_selection(node.construct) {
+                // Below `@` or `|` the key is matched already, by the construct's own entry.
+                Some(refusal)
+                    if selection
+                        && in_key_reading(position)
+                        && position.kind == Kind::Evaluated =>
+                {
+                    Some(refusal)
+                }
+                _ => admits(node.construct, position),
+            }
+        })
+        .collect()
+}
+
 /// The oracle's answer for `nodes` at `hole`.
+///
+/// A key or a set's element in a pattern reads two ways (`positions::Kind::Evaluated`): computed
+/// and looked up when nothing in its matched part selects an entry, a selection otherwise. Each
+/// construct's entry reads the first; a case whose key holds a selecting construct reads the
+/// second, and a construct that computes there never matches.
 #[must_use]
 pub fn expected(hole: Position, nodes: &[Node]) -> Outcome {
     let mut resolution = None;
-    for node in nodes {
-        match admits(node.construct, hole.enter_all(&node.path)) {
+    for (node, refusal) in nodes.iter().zip(refusals(hole, nodes)) {
+        match refusal {
             None => {}
             Some(refusal) => {
                 let refusal = Refusal {
@@ -243,7 +326,10 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
     // introduces, or `_` for a value it does not name; a shape the value must have is a test of
     // that name.
     if in_readable_read_value(position)
-        && !matches!(construct, Construct::Reference | Construct::Wildcard)
+        && !matches!(
+            construct,
+            Construct::Reference | Construct::Fresh | Construct::Wildcard
+        )
     {
         return Some(placement(Class::MapReadValueBinder));
     }
@@ -257,6 +343,7 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         // A value denotes itself wherever a term stands, but at a root that is a function's
         // application or a static clause's production ([`value_at_root`]).
         Construct::Reference
+        | Construct::Fresh
         | Construct::Constructor
         | Construct::Literal
         | Construct::IdToken

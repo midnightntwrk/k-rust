@@ -105,7 +105,7 @@ fn a_pattern_admits_what_matches_and_refuses_what_computes() {
     };
     assert_eq!(
         admits(key, Construct::FunctionApplication),
-        Admission::Admit
+        Admission::After(Rule::FunctionInPattern)
     );
 }
 
@@ -119,17 +119,24 @@ fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
         ..Position::root(Form::ReadableRule, Slot::Subject)
     };
     // A name or a pattern-only construct selects an entry by matching the map's keys; a
-    // computed construct computes the key looked up.
+    // computed construct computes the key looked up, when the whole key is computed, which
+    // takes its names: the compiler decides.
     for construct in [
         Construct::Wildcard,
         Construct::As,
         Construct::Or,
-        Construct::SortTest,
         Construct::RecordUpdate,
-        Construct::FunctionApplication,
     ] {
         assert_eq!(admits(key, construct), Admission::Admit, "{construct:?}");
     }
+    assert_eq!(
+        admits(key, Construct::FunctionApplication),
+        Admission::After(Rule::FunctionInPattern)
+    );
+    assert_eq!(
+        admits(key, Construct::SortTest),
+        Admission::After(Rule::SortTestInPattern)
+    );
     let computed = Position {
         nesting: Nesting {
             in_computed_key: true,
@@ -154,7 +161,10 @@ fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
         Admission::Refuse(Class::OpenRecordOutsidePattern)
     );
     assert_eq!(admits(key, Construct::OpenRecord), Admission::Admit);
-    assert_eq!(admits(computed, Construct::SortTest), Admission::Admit);
+    assert_eq!(
+        admits(computed, Construct::SortTest),
+        Admission::After(Rule::SortTestInPattern)
+    );
     // K's `#let` and `:=K` stand in built terms and conditions only: no key holds them, at any
     // depth (NT-3-2).
     for position in [key, computed] {
@@ -176,6 +186,15 @@ fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
         ..key
     };
     assert_eq!(admits(selected, Construct::Wildcard), Admission::Admit);
+    // Below `@` or `|` a key is matched: a function there never matches.
+    assert_eq!(
+        admits(selected, Construct::FunctionApplication),
+        Admission::After(Rule::FunctionInPattern)
+    );
+    assert_eq!(
+        admits(selected, Construct::SortTest),
+        Admission::Refuse(Class::SortTestInPattern)
+    );
     assert_eq!(
         admits(selected, Construct::Let),
         Admission::Refuse(Class::LetOutsideTerm)
@@ -189,7 +208,10 @@ fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
         admits(cells_key, Construct::Let),
         Admission::Refuse(Class::LetOutsideTerm)
     );
-    assert_eq!(admits(cells_key, Construct::SortTest), Admission::Admit);
+    assert_eq!(
+        admits(cells_key, Construct::SortTest),
+        Admission::After(Rule::SortTestInPattern)
+    );
 }
 
 #[test]

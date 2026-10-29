@@ -382,7 +382,7 @@
       "error[krs::syntax::invalid-matches]: did you mean `k::matches!`? std's matches! tests a host value"
     ],
     "matches-lhs": [
-      "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) is a Bool test of a bound term, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; here it stands in the subject of a `k::rules!` sort rule"
+      "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) is a Bool test of a bound term, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; here it stands in the subject of a `k::rules!` sort rule"
     ],
     "matches-alias-result": [
       "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in a `k::matches!` pattern in the result of a `k::rules!` sort rule"
@@ -391,7 +391,7 @@
       "error[krs::analysis::invalid-matches]: the pattern has sort `Color` and the subject has sort `Exp`, which share no subsort, so this test is always false"
     ],
     "matches-claim": [
-      "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) is a Bool test of a bound term, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; here it stands in the `requires` condition of a `cells!` claim"
+      "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) is a Bool test of a bound term, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; here it stands in the `requires` condition of a `cells!` claim"
     ],
     "let-shape": [
       "error[krs::syntax::invalid-let]: a term block is `let pattern = term;`* followed by one result term (K's #let)"
@@ -403,7 +403,7 @@
       "error[krs::syntax::invalid-let]: a `let` pattern destructures one value, which a bare name already names whole: write `let p = e; let P = p;` for `p @ P`; here it stands in a `let` pattern in the result of an equation"
     ],
     "let-pattern": [
-      "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; here it stands in the subject of an equation"
+      "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `#let` binds its pattern's names (it is `#fun(P => B)(E)`), and in a rule's left side those names would read as the rule's pattern variables; here it stands in the subject of an equation"
     ],
     "let-scope": [
       "error[krs::expand::unbound-name]: `x` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one; did you mean `e`?"
@@ -412,7 +412,7 @@
       "error[krs::analysis::invalid-let]: the pattern has sort `Bool` and the value has sort `Exp`, which share no subsort, so this `let` is always undefined"
     ],
     "let-claim": [
-      "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; here it stands in the `requires` condition of a `cells!` claim"
+      "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `#let` binds its pattern's names (it is `#fun(P => B)(E)`), and in a rule's left side those names would read as the rule's pattern variables; here it stands in the `requires` condition of a `cells!` claim"
     ],
     "context-remainder": [
       "error[krs::syntax::invalid-function-context]: a function context frames the rest of the configuration with an anonymous `..`"

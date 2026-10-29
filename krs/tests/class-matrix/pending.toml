@@ -797,6 +797,8 @@ deviation = "krs::analysis::collection-entry @ entry"
 step = "S5"
 
 # S0-14: a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys
+# NT-3: a readable key beside a name bound nowhere else (`Cmd::Pair { a: HOLE, b: z }`) cannot spell
+# `_`, `@` or alternatives below its root, and reads `x | 1` as the operator.
 
 ["terms/readable/map-key/Cmd::Go() | Cmd::Hold(_)"]
 finding = "S0-14"
@@ -1231,6 +1233,31 @@ step = "S5"
 ["terms/readable/map-key/or-branch/k::project!(Int, x)"]
 finding = "S0-14"
 deviation = "krs::analysis::invalid-term @ entry"
+step = "S5"
+
+["terms/readable/map-key/beside-fresh/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-14"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S5"
+
+["terms/readable/map-key/beside-fresh/[x, ..]"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["terms/readable/map-key/beside-fresh/_"]
+finding = "S0-14"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S5"
+
+["terms/readable/map-key/beside-fresh/x | 1"]
+finding = "S0-14"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+step = "S5"
+
+["terms/readable/map-key/beside-fresh/y @ Cmd::Hold(_)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ spelling"
 step = "S5"
 
 # S0-15: `job: []`, a List collection with no instance, is refused in a subject ("names no instance"), though the reference documents it
@@ -3630,6 +3657,10 @@ deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 finding = "NT-2-13"
 deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 
+["terms/cells/map-key/beside-fresh/y @ Cmd::Hold(_)"]
+finding = "NT-2-13"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+
 # NT-2-14: a static clause whose body rustc cannot parse leaves its production's marker orphaned
 # `y @ Cmd::Hold(_)` in a desugar or alias result is rustc's parse error, beside which KRS must
 # answer with the construct's class; the clause's attribute never runs, so the marked production
@@ -3780,6 +3811,22 @@ finding = "NT-2-16"
 deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
 
 ["k3/terms/readable/map-key/update-field/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/map-key-child/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/map-key/beside-fresh/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/map-value-child/Wrap::<KItem>(x)"]
+finding = "NT-2-16"
+deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
+
+["k3/terms/readable/set-instance-child/Wrap::<KItem>(x)"]
 finding = "NT-2-16"
 deviation = "printed surface refused: krs expand: krs::reference::external-declaration @ unlocated"
 
@@ -4064,6 +4111,8 @@ deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 # reports `function-in-pattern` before the name mistake `context-hole-unbound` (`hole = x` names no
 # binder of the root): the compiler checks functions in patterns before it lowers a sentence, where
 # it meets a declared binder's sort and a context's hole; the table meets names and sorts first.
+# NT-3 review: a `cells!` key beside a name bound nowhere else (`Cmd::Pair { a: x + 1, b: z }`) is a
+# selection, where the operator never matches; the compiler tells that before `x`'s declared sort.
 
 ["terms/cells/item-root/k::builtin::int::add(x, 1)"]
 finding = "NT-2-29"
@@ -4086,6 +4135,50 @@ finding = "NT-2-29"
 deviation = "krs::analysis::function-in-pattern @ spelling"
 
 ["terms/context/subject-root/k::builtin::int::add(1, 2)"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/!(x < 1)"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/-(x + 1)"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/k::builtin::int::add(x, 1)"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/x & 1"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/x && true"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/x + 1"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/x < 1"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/x << 1"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/x == 1"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/x || true"]
+finding = "NT-2-29"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/cells/map-key/beside-fresh/x.add::<Int>(1)"]
 finding = "NT-2-29"
 deviation = "krs::analysis::function-in-pattern @ spelling"
 
@@ -4136,6 +4229,11 @@ deviation = "krs::syntax::invalid-local-rewrite @ item"
 # head's path before resolution would give one term two meanings by its spelling (an imported or
 # renamed `set::item`). Proposal: give a set's element in a pattern a syntax of its own, NT-6's
 # `set![e, ..]`, whose elements read as `k::map!` keys do. Plan: NT-6 (stop rule of NT-3).
+# The review's mixed keys (`set::item(Cmd::Pair { a: HOLE, b: z })`, `z` bound nowhere else) show the
+# same: notation there is the parser's refusal, though the key is a selection where a function never
+# matches. Deferring a sort test or a record update in a set element to the compiler, as a function
+# is, would move every pattern's sort test and record update refusal from placement to resolution,
+# which their classes do not have: kept as is.
 
 ["terms/rule/subject/set-element/Cmd::Pair { a: x, ..x }"]
 finding = "NT-3-1"
@@ -4205,17 +4303,63 @@ deviation = "krs::syntax::invalid-expression-notation @ spelling"
 finding = "NT-3-1"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
+["terms/rule/subject/set-element-beside-fresh/!(x < 1)"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/-(x + 1)"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/Cmd::Pair { a: x, ..x }"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-record-update @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/x & 1"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/x && true"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/x + 1"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/x < 1"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/x << 1"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/x == 1"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/x || true"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/rule/subject/set-element-beside-fresh/x.add::<Int>(1)"]
+finding = "NT-3-1"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
 # NT-3-2: a map key in a pattern refuses a `let` block and `k::matches!`, which compute the key looked up
 # A key that computes denotes the value it computes, so the oracle accepts a `let` block and a
-# `k::matches!` there, at the key's root as below a construct that computes. KRS lowers both to K's
-# `#let` and `:=K`, which its IR places in built terms and conditions only (the validator refuses
-# `#let` in a pre-term), and whether K's frontends and backends evaluate `#let`'s generated `#fun`
-# application and `:=K` when they look a key up is unverified. Lowering them in a key needs that
-# design, so the walker keeps refusing them there (`let-outside-term`, `matches-outside-condition`),
-# at any depth of the key. Proposal: admit `#let` and `:=K` in a pattern's map key in the IR
-# validator, after a differential check that the Java frontend and k-rust's native frontend accept
-# them in a left-hand side's map key and look the key up by their value; otherwise state the
-# boundary in the class's message. Plan: new (stop rule of NT-3).
+# `k::matches!` there, at the key's root as below a construct that computes, and in a Set
+# collection's instance, which the set is looked up by. Both carry binders: `#let P = E #in B` is
+# `#fun(P => B)(E)`, a function whose own rule binds `P`'s names, and `:=K` binds its pattern's names.
+# KRS's sentences put every name of a rule's left side in the rule's pattern variables, so in a
+# left side those binders would read as the rule's variables, bound by the match, not by the
+# construct (the IR also places `#let` and `:=K` in built terms and conditions only). The
+# walker refuses both anywhere in a pattern's key (`let-outside-term`, `matches-outside-condition`),
+# and the class messages say why. Proposal: give the lowering local binders a left side's key can
+# carry (renamed apart from the rule's variables, as a result's `let` binders are), then admit both
+# in a key; a differential run of the Java frontend and k-rust's native frontend over the emitted
+# rule would support it. Plan: new (stop rule of NT-3).
 
 ["terms/readable/map-key/k::matches!(x, Cmd::Hold(_))"]
 finding = "NT-3-2"
@@ -4657,6 +4801,99 @@ deviation = "krs::expand::let-outside-term @ spelling"
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
 
+["terms/readable/set-instance-child/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-3-2"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/readable/set-instance-child/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/set-instance-child/{ let y = x; y }"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/readable/set-instance-child/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-3-2"
+deviation = "krs::expand::let-outside-term @ spelling"
+
 ["terms/readable/map-key/let-pattern/Cmd::Go() | Cmd::Hold(_)"]
 finding = "NT-3-2"
 deviation = "krs::expand::let-outside-term @ entry"
+
+# NT-3-3: a Set collection's instance is read as matched cells, not as the set's element
+# A Set collection is looked up by its instances as a set by its elements, so an instance whose
+# every part is computed from names bound elsewhere denotes the element it computes, and a function,
+# an operator, a sort test or a record update there is admitted as in a key; the oracle reads it so
+# (`readable/set-instance-child`). KRS writes a Set collection's instance as the cells it holds, the
+# cell content of the collection's parent, which a rule matches as it stands: emitted that way, a
+# function there describes a term that never occurs (also observed: k-rust's native frontend refuses
+# the emitted rule, `IllegalFunctionOnLhs`). The product keeps reading the instance as matched cells
+# (`function_patterns::instances`, the walker's and the parser's pattern reading). Admitting it needs
+# the instance written as an element the lowering looks up, which is new design. Proposal: lower a
+# Set collection's computed instance as the element of the collection's set, or keep the refusal and
+# say so in the class message. Plan: new (stop rule of the NT-3 review).
+
+["terms/readable/set-instance-child/!(x < 1)"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/readable/set-instance-child/-(x + 1)"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/readable/set-instance-child/Cmd::Pair { a: x, ..x }"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-record-update @ spelling"
+
+["terms/readable/set-instance-child/Size(x)"]
+finding = "NT-3-3"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/readable/set-instance-child/k::builtin::int::add(1, 2)"]
+finding = "NT-3-3"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/readable/set-instance-child/k::builtin::int::add(x, 1)"]
+finding = "NT-3-3"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/readable/set-instance-child/k::is!(Int, x)"]
+finding = "NT-3-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/readable/set-instance-child/k::project!(Int, x)"]
+finding = "NT-3-3"
+deviation = "krs::analysis::invalid-sort-test @ spelling"
+
+["terms/readable/set-instance-child/x & 1"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/readable/set-instance-child/x && true"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/readable/set-instance-child/x + 1"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/readable/set-instance-child/x < 1"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/readable/set-instance-child/x << 1"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/readable/set-instance-child/x == 1"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/readable/set-instance-child/x || true"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["terms/readable/set-instance-child/x.add::<Int>(1)"]
+finding = "NT-3-3"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"

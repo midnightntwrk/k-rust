@@ -671,10 +671,10 @@ impl Class {
                 "`k::fragment!` names a nested cell term, and an initializer builds its nested cells with their structs"
             }
             Self::LetOutsideTerm => {
-                "a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim"
+                "a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `#let` binds its pattern's names (it is `#fun(P => B)(E)`), and in a rule's left side those names would read as the rule's pattern variables"
             }
             Self::MatchesOutsideCondition => {
-                "`k::matches!` (K's :=K) is a Bool test of a bound term, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim"
+                "`k::matches!` (K's :=K) is a Bool test of a bound term, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables"
             }
             Self::MlInInitializer => {
                 "a matching-logic predicate states a property of a symbolic state, and an initializer builds one concrete state"
@@ -741,16 +741,20 @@ pub enum Rule {
     /// `ml-predicate-as-term`: whether a predicate in a built term is an operand of an object
     /// term.
     MlPredicateAsTerm,
+    /// `sort-test-in-pattern`: whether a sort test in a key over evaluated terms stands in a key
+    /// that selects an entry by matching.
+    SortTestInPattern,
 }
 
 impl Rule {
     /// Every rule.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::AlternativesOutsidePattern,
         Self::ConstantAppliesFunction,
         Self::FunctionInPattern,
         Self::MlInCondition,
         Self::MlPredicateAsTerm,
+        Self::SortTestInPattern,
     ];
 
     /// The class's name in `expected.toml`.
@@ -762,6 +766,7 @@ impl Rule {
             Self::FunctionInPattern => "function-in-pattern",
             Self::MlInCondition => "ml-in-condition",
             Self::MlPredicateAsTerm => "ml-predicate-as-term",
+            Self::SortTestInPattern => "sort-test-in-pattern",
         }
     }
 }
@@ -833,9 +838,9 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // in a pattern; a claim's sides and conditions describe symbolic states the prover
         // reaches rather than compute from one match, and a `cells!` value is a cell's content
         // (S6 decides whether that changes for readable rules written as `cells!` rules). A key a
-        // pattern looks up computes its value, but K's `#let` and `:=K` stand in built terms and
-        // conditions only, so a key holds neither, at any depth, a boundary kept pending finding
-        // NT-3-2.
+        // pattern looks up computes its value, but `#let` and `:=K` bind their patterns' names,
+        // which in a rule's left side would read as its pattern variables, so a key holds neither,
+        // at any depth (finding NT-3-2).
         Construct::Matches => {
             if pattern || in_pattern_key || form.is_claim() || cells_value(position) {
                 Refuse(Class::MatchesOutsideCondition)
@@ -878,9 +883,13 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // A sort test applies the sort's generated predicate or projection, a function: a pattern
         // over evaluated terms never meets it, while a simplification's, a claim's and a static
         // clause's subjects hold applications, and a key computes it.
+        // In a key over evaluated terms, whether the whole key is computed or selects an entry
+        // by matching takes its names: the compiler decides.
         Construct::SortTest => {
             if position.matches_evaluated_terms() && !looked_up {
                 Refuse(Class::SortTestInPattern)
+            } else if in_pattern_key && form.matches_evaluated_terms() {
+                After(Rule::SortTestInPattern)
             } else {
                 Admit
             }
@@ -930,10 +939,15 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // value or a list's element as in a constructor's field, matches only if it is a
         // constructor's, which resolution decides. The root of an equation's subject is the
         // function it defines, which the compiler tells from the root of a function-context cell;
-        // a simplification's and a claim's subjects hold unevaluated applications; a lookup
-        // evaluates a map's key, and a set's element, which the compiler tells by its head.
+        // a simplification's and a claim's subjects hold unevaluated applications. A key is
+        // computed and looked up, and the application with it, when nothing in it outside the
+        // constructs that compute selects an entry by matching (a name nothing else binds, `_`, an
+        // alias, alternatives, an open record); otherwise it is matched: that takes the key's
+        // names, and a set's element is told by its head, so the compiler decides both.
         Construct::FunctionApplication => {
-            if position.matches_evaluated_terms() {
+            if position.matches_evaluated_terms()
+                || (in_pattern_key && form.matches_evaluated_terms())
+            {
                 After(Rule::FunctionInPattern)
             } else {
                 Admit

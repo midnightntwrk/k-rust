@@ -29,7 +29,23 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 15] = [
+const KNOWN: [(&str, &str); 18] = [
+    (
+        r"terms/readable/set-instance-child/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::project!(Int\, x)}",
+        "NT-3-3",
+    ),
+    (
+        r"terms/readable/set-instance-child/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        "NT-3-2",
+    ),
+    (
+        r"terms/rule/subject/set-element-beside-fresh/Cmd::Pair \{ a: x\, ..x \}",
+        "NT-3-1",
+    ),
+    (
+        r"terms/rule/subject/set-element-beside-fresh/{k::is!(Int\, x),k::project!(Int\, x)}",
+        "NT-3-1",
+    ),
     (
         r"terms/{alias/result,alias/result-root,cells-claim/guard,cells-claim/guard/closure-body,claim/result,claim/result-item-root,context/guard,desugar/result,desugar/result-root,equation/guard,equation/result,local-rule/subject/rewrite-right,readable/guard,readable/result,readable/result-item-root,readable/result-list-element,rule/guard,rule/guard/closure-body,rule/guard/let-body,rule/result,rule/result-root,shorthand/result,shorthand/result-root,simplification/guard,simplification/result,simplification/result-root,sort-rule/result,sort-rule/result-root,sort-rule/result/function-argument,sort-rule/result/let-body,sort-rule/result/update-field,table/result}/Cmd::Pair \{ a: x\, .. \}",
         "NT-2-4",
@@ -37,13 +53,6 @@ const KNOWN: [(&str, &str); 15] = [
     (
         r"terms/{sort-rule/subject-root,sort-rule/subject-root-term}/_",
         "NT-2-9",
-    ),
-    // A function's argument in a key is built, and the table cannot tell it from a constructor's
-    // before resolution: the compiler refuses the open record there (`key_names`), and the readable
-    // key's reader, which reads an expression, refuses `_`, alternatives and a closure first.
-    (
-        r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0))}",
-        "NT-2-2",
     ),
     (
         r"terms/readable/map-key/function-argument/y @ Cmd::Hold(_)",
@@ -96,6 +105,13 @@ const KNOWN: [(&str, &str); 15] = [
     ),
 ];
 
+/// The disagreements that are no finding's, as globs over case IDs, and why: the product decides
+/// them outside its table, where the oracle's answer is met.
+const NOT_RED: [(&str, &str); 1] = [(
+    r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0))}",
+    "a function's argument in a key is built, and the table cannot tell it from a constructor's before resolution: the compiler refuses the open record there (`key_names`), and the readable key's reader, which reads an expression, refuses `_`, alternatives and a closure first",
+)];
+
 /// The disagreements the product decides before or outside the table's row, which are not red:
 /// the table refuses a `let` block and `k::matches!` in a readable key (NT-3-2), and the term
 /// reader refuses the construct inside first, with the class the oracle gives it (`_`, a map
@@ -103,8 +119,10 @@ const KNOWN: [(&str, &str); 15] = [
 /// alternatives binding other names in a `k::matches!` pattern); the readable key's reader, which
 /// reads an expression, refuses `_`, alternatives and a closure below a function's application;
 /// and the compiler refuses an open record there (`key_names`), which the table cannot tell from a
-/// constructor's argument before resolution.
-const DECIDED_BEFORE_THE_TABLE: [&str; 14] = [
+/// constructor's argument before resolution; a sort test in a set's element beside a name bound
+/// nowhere else is refused with its class at placement, as in a constructor's field (NT-3-1), where
+/// the oracle tells it once the element's names are known.
+const DECIDED_BEFORE_THE_TABLE: [&str; 16] = [
     "terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)",
     "terms/readable/map-key/function-argument/Cmd::Pair { a: x, .. }",
     "terms/readable/map-key/function-argument/_",
@@ -119,6 +137,8 @@ const DECIDED_BEFORE_THE_TABLE: [&str; 14] = [
     "terms/readable/map-key/matches-pattern/k::map![x -> 1]",
     "terms/readable/map-key/matches-pattern/map![x -> 1]",
     "terms/readable/map-key/matches-pattern/x | 1",
+    "terms/rule/subject/set-element-beside-fresh/k::is!(Int, x)",
+    "terms/rule/subject/set-element-beside-fresh/k::project!(Int, x)",
 ];
 
 fn read_class_matrix(file: &str) -> String {
@@ -196,9 +216,9 @@ fn product_form(form: model::Form) -> Form {
         .unwrap_or_else(|| panic!("the product's table has no form {form:?}"))
 }
 
-/// The product's position of a model position, `in_computed` when an opening below the key is a
-/// construct the walker reads as computing it.
-fn product_position(position: model::Position, in_computed: bool) -> Position {
+/// The product's position of a model position, with the key reading the walker gives it from the
+/// constructs above it ([`KeyReading`]).
+fn product_position(position: model::Position, reading: KeyReading) -> Position {
     let form = product_form(position.form);
     let slot = match position.slot {
         model::Slot::Subject => Slot::Subject,
@@ -208,11 +228,8 @@ fn product_position(position: model::Position, in_computed: bool) -> Position {
         model::Slot::Value => Slot::InitializerValue,
     };
     let nesting = position.nesting;
-    // A map's key reads by its construct, which the model's kind there says: built below a
-    // computed one, matched below a pattern-only one. The walker knows a construct computes by
-    // its syntax (a `let` block, `k::matches!`, a sort test, a record update, notation), not a
-    // function's application, which resolution alone tells from a constructor's; so is a set's
-    // element, an application's argument to the table.
+    // A set's element is an application's argument to the table, which resolution alone tells
+    // from a constructor's.
     let in_map_key = nesting.entries.contains(Entry::MapKey) && slot == Slot::Subject;
     let product = Position {
         form,
@@ -222,12 +239,8 @@ fn product_position(position: model::Position, in_computed: bool) -> Position {
             in_let_pattern: nesting.local == Some(LocalPattern::Let),
             in_rewrite: nesting.rewrite.is_some(),
             in_map_key,
-            in_computed_key: in_map_key
-                && in_computed
-                && matches!(position.kind, Kind::Built | Kind::Guard),
-            in_selected_key: in_map_key
-                && position.kind == Kind::Matched
-                && nesting.local.is_none(),
+            in_computed_key: in_map_key && reading.computed,
+            in_selected_key: in_map_key && reading.selected && nesting.local.is_none(),
         },
     };
     if nesting.rewrite == Some(RewriteSide::Right) {
@@ -237,13 +250,63 @@ fn product_position(position: model::Position, in_computed: bool) -> Position {
     }
 }
 
+/// How the walker reads a key above a node, from the openings from the key to the node: below a
+/// construct whose syntax computes (a `let` block, `k::matches!`, a sort test, a record update,
+/// notation's operands), built; below `@` or `|` where nothing computes yet, a selection. A
+/// function's application computes too, but resolution alone tells it from a constructor's, so
+/// the walker reads its arguments as the key.
+#[derive(Clone, Copy, Default)]
+struct KeyReading {
+    computed: bool,
+    selected: bool,
+}
+
+fn key_reading(path: &[Opening], node: &model::Node, nodes: &[model::Node]) -> KeyReading {
+    let mut reading = KeyReading::default();
+    let mut in_key = false;
+    let operand_of_notation = |depth: usize| {
+        nodes.iter().any(|parent| {
+            parent.path == node.path[..depth]
+                && matches!(parent.construct, model::Construct::Notation(notation) if notation != Notation::BitwiseOr)
+        })
+    };
+    for (index, opening) in path.iter().chain(&node.path).enumerate() {
+        if *opening == Opening::MapKey {
+            in_key = true;
+            continue;
+        }
+        if !in_key {
+            continue;
+        }
+        let depth = index.checked_sub(path.len());
+        let computes = matches!(
+            opening,
+            Opening::LetValue
+                | Opening::LetBody
+                | Opening::MatchesSubject
+                | Opening::SortTestOperand
+                | Opening::UpdateField
+                | Opening::UpdateBase
+                | Opening::PredicateBody
+                | Opening::PredicateOperand
+        ) || (*opening == Opening::FunctionArgument
+            && depth.is_some_and(operand_of_notation));
+        if computes {
+            reading.computed = true;
+        } else if matches!(opening, Opening::AsBody | Opening::OrBranch) && !reading.computed {
+            reading.selected = true;
+        }
+    }
+    reading
+}
+
 /// The product's construct of a model construct; `None` for a construct the table has no row
 /// for: a binder and a constructor application, which stand wherever a term does below a
 /// pattern's root, and list brackets, whose sort the compiler judges.
 const fn product_construct(construct: model::Construct) -> Option<Construct> {
     use model::Construct as M;
     Some(match construct {
-        M::Reference | M::Constructor | M::ListBrackets => return None,
+        M::Reference | M::Fresh | M::Constructor | M::ListBrackets => return None,
         M::Turbofish => Construct::Turbofish,
         M::Literal => Construct::Literal,
         M::FunctionApplication
@@ -381,22 +444,8 @@ fn product(hole: model::Position, path: &[Opening], nodes: &[model::Node]) -> An
         let Some(construct) = product_construct(read) else {
             continue;
         };
-        let mut openings = path.iter().chain(&node.path);
-        let in_computed = openings.by_ref().any(|opening| *opening == Opening::MapKey)
-            && openings.any(|opening| {
-                matches!(
-                    opening,
-                    Opening::LetValue
-                        | Opening::LetBody
-                        | Opening::MatchesSubject
-                        | Opening::SortTestOperand
-                        | Opening::UpdateField
-                        | Opening::UpdateBase
-                        | Opening::PredicateBody
-                        | Opening::PredicateOperand
-                )
-            });
-        match admits(product_position(position, in_computed), construct) {
+        let reading = key_reading(path, node, nodes);
+        match admits(product_position(position, reading), construct) {
             Admission::Refuse(class) => {
                 answer.refused = Some(class.name());
                 break;
@@ -414,9 +463,9 @@ fn product(hole: model::Position, path: &[Opening], nodes: &[model::Node]) -> An
 /// and its resolution refusals before it below a pattern's root.
 fn oracle(hole: model::Position, nodes: &[model::Node]) -> Answer {
     let mut answer = Answer::default();
-    for node in nodes {
+    for (node, refusal) in nodes.iter().zip(oracle::refusals(hole, nodes)) {
         let position = hole.enter_all(&node.path);
-        match oracle::admits(node.construct, position) {
+        match refusal {
             Some(refusal) if refusal.stage == Stage::Placement => {
                 answer.refused = Some(refusal.class.name());
                 break;
@@ -461,10 +510,15 @@ fn the_table_decides_every_term_case_as_the_oracle_does() {
         judged += 1;
     }
     assert!(judged > 4000, "only {judged} term cases were judged");
-    let known = KNOWN.map(|(pattern, finding)| {
-        let glob = Glob::parse(pattern).unwrap_or_else(|reason| panic!("{pattern}: {reason}"));
-        (pattern, glob, finding)
-    });
+    let known = KNOWN
+        .iter()
+        .map(|(pattern, finding)| (*pattern, Some(*finding)))
+        .chain(NOT_RED.iter().map(|(pattern, _)| (*pattern, None)))
+        .map(|(pattern, finding)| {
+            let glob = Glob::parse(pattern).unwrap_or_else(|reason| panic!("{pattern}: {reason}"));
+            (pattern, glob, finding)
+        })
+        .collect::<Vec<_>>();
     let unknown = disagreements
         .iter()
         .filter(|(id, _)| !known.iter().any(|(_, glob, _)| glob.matches(id)))
@@ -501,9 +555,9 @@ fn the_table_decides_every_term_case_as_the_oracle_does() {
             .find(|(_, glob, _)| glob.matches(id))
             .expect("every disagreement is known");
         let filed = pending.entries.get(*id).map(|entry| entry.finding.as_str());
-        if filed.is_some_and(|filed| filed != *finding) {
+        if filed.is_some() && filed != *finding {
             misfiled.push(format!(
-                "{id} ({pattern}): pending as {filed:?}, not {finding}"
+                "{id} ({pattern}): pending as {filed:?}, not {finding:?}"
             ));
         }
         if filed.is_none() && !overridden.contains_key(*id) {
