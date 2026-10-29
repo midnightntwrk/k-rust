@@ -304,7 +304,7 @@ The inputs a person writes (the open lists and the kind 1 hand modules) are not 
 
 `k2lean relate` reads the compiled KORE of two definitions `A` and `B` of one language, each generated into its own library, and pairs them:
 
-- a constructor of `A` with the constructor of `B` of the same KORE symbol, else of the same result and argument sorts and the same concrete syntax (the `format` attribute of `syntaxDefinition.kore`), a strictness freezer with the freezer of its symbol's counterpart; this gives the translation `tr : A → B` on every sort of `A`'s term universe;
+- a constructor of `A` with the constructor of `B` of the same KORE symbol at the same result and argument sorts (two definitions may declare one symbol, `<T>`, over different cells; such a pair is no pair, and `relate` refuses the constructor), else of the same result and argument sorts and the same concrete syntax (the `format` attribute of `syntaxDefinition.kore`), a strictness freezer with the freezer of its symbol's counterpart; this gives the translation `tr : A → B` on every sort of `A`'s term universe;
 - a rule of `A` with the rule of `B` whose KORE axiom is the same after renaming symbols and variables, or of which `B`'s is an instance at a subsort of some variables (a refinement); a KORE axiom is one rule per overload variant, in the same order on both sides, and the variants correspond one to one.
 
 When every rule of `A` pairs, it states and proves `bisim : Bisimulation A.Step B.Step R` with `R c d := Inv c ∧ d = tr c`, and `app_iff` (a rule applies in one exactly when its counterpart applies in the other), `stepsN_iff`, `terminal_iff` and `run_agree`; each simulation is one case per rule, by generic tactics.

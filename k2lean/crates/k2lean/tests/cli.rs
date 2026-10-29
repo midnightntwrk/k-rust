@@ -728,6 +728,43 @@ fn relate_refuses_a_recursive_function_with_a_free_key_equation() {
     );
 }
 
+/// The fixtures `handoffseq` and `handoff` both declare `<T>`, over `<k>` and over `<tasks>`: a
+/// symbol of the same name pairs only at the same sorts, so `<T>` has no counterpart and `relate`
+/// refuses (exit status 2) instead of writing a translation that does not typecheck.
+#[test]
+fn relate_pairs_a_symbol_of_the_same_name_only_at_the_same_sorts() {
+    let d = tmp("cli-relate-handoffseq");
+    let fx = |n: &str| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures")
+            .join(n)
+            .join("definition.kore")
+    };
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("relate")
+        .arg("--kore-a")
+        .arg(fx("handoffseq"))
+        .args(["--name-a", "HandoffSeq", "--kore-b"])
+        .arg(fx("handoff"))
+        .args(["--name-b", "Handoff", "--ns", "Rel", "--out"])
+        .arg(d.join("Bisim.lean"))
+        .arg("--report")
+        .arg(d.join("correspondence.toml"))
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("relate: constructors of HandoffSeq without a counterpart in Handoff: [")
+            && err.contains("\"<T>\""),
+        "{err}"
+    );
+    assert!(
+        err.contains("\"<procs>\" = { b = \"<procs>\", how = \"same symbol\" }"),
+        "{err}"
+    );
+}
+
 /// `confluence --report-only` on the `threadend` fixture: the end of a thread (its `<k>` empty) is
 /// matched at the key `<id> _ </id>`, the step of a thread at a variable key; taken as one binding
 /// (the classifier's same-binding mode), the two keys unify and the two `<k>` cells clash, so the

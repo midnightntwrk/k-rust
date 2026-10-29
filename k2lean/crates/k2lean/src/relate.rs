@@ -4,10 +4,10 @@
 //! library with `k2lean gen`), this proposes a correspondence and states and proves, as far as
 //! the generic tactics go, that the two `Step` relations are bisimilar:
 //!
-//! 1. **Symbols.** Every constructor of `A` gets a constructor of `B`: the same KORE symbol;
-//!    else the same result and argument sorts and the same concrete syntax (the `format`
-//!    attribute of the `syntaxDefinition.kore` files); a strictness freezer follows the symbol it
-//!    freezes. The result is a translation `tr : A → B` on every sort of `A`'s term universe.
+//! 1. **Symbols.** Every constructor of `A` gets a constructor of `B`: the same KORE symbol at
+//!    the same sorts; else the same result and argument sorts and the same concrete syntax (the
+//!    `format` attribute of the `syntaxDefinition.kore` files); a strictness freezer follows the
+//!    symbol it freezes. The result is a translation `tr : A → B` on every sort of `A`'s term universe.
 //! 2. **Rules.** A rule of `A` corresponds to the rule of `B` whose KORE axiom is the same after
 //!    renaming symbols by (1) and variables by first occurrence.
 //! 3. **Statements.** `forward : Inv c → A.Step c c' → B.Step (tr c) (tr c')` and
@@ -237,9 +237,13 @@ fn match_symbols(a: &Side, b: &Side) -> SymMap {
             .cloned()
     };
     let mut pending_freezers = Vec::new();
-    for s in a.m.ctors.keys() {
-        if b.m.ctors.contains_key(s) {
-            map.insert(s.clone(), (s.clone(), "same symbol"));
+    for (s, ca) in &a.m.ctors {
+        // the translation sends a sort to the sort of the same name, so a symbol of the same
+        // name pairs only at the same sorts (two definitions may declare `<T>` over other cells)
+        if let Some(cb) = b.m.ctors.get(s) {
+            if ca.sort == cb.sort && ca.args == cb.args {
+                map.insert(s.clone(), (s.clone(), "same symbol"));
+            }
             continue;
         }
         let label = names::demangle(s);
@@ -666,15 +670,15 @@ pub fn main(args: &[String]) {
         .collect();
     if !needed.is_empty() {
         eprintln!("{rep}");
-        panic!(
-            "relate: constructors of {} without a counterpart in {}: {:?}",
+        fail(&format!(
+            "constructors of {} without a counterpart in {}: {:?}",
             a.ns,
             b.ns,
             needed
                 .iter()
                 .map(|s| names::demangle(s))
                 .collect::<Vec<_>>()
-        );
+        ));
     }
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     let mut unmatched_rules_a = Vec::new();
