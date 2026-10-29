@@ -667,7 +667,8 @@ pub enum DescriptorLoweringError {
     InvalidStaticClause {
         /// Stable reason naming the clause or production and the fix.
         reason: String,
-        /// Sole exact authored range of the clause name or production marker.
+        /// Sole exact authored range of the clause's root (its name when the root has none) or
+        /// the production marker.
         range: Option<Box<SourceRange>>,
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,

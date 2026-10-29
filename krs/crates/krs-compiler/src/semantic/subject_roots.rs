@@ -11,15 +11,19 @@
 //!
 //! A simplification rewrites an unevaluated application to an equal, simpler
 //! term. Only a function's application, a declared or a builtin one, stands
-//! unevaluated in a term; a constructor application or a literal is a value,
-//! so a simplification rooted at one simplifies nothing, for the same reason.
+//! unevaluated in a term; a constructor application, a collection's unit,
+//! element or concatenation, or a literal is a value, so a simplification
+//! rooted at one simplifies nothing, for the same reason.
 //! A predicate simplification is rooted at its predicate, which `ml` judges.
 //!
 //! Whether a head is a function is a fact of the declaration it resolves to
 //! ([`ProductionSignature::function`]), so this is decided here, after
 //! resolution. The root is read after the alternatives at an equation's root
 //! are distributed (`equation_alternatives`), so alternatives that apply one
-//! constructor are that constructor's application.
+//! constructor are that constructor's application. Alternatives left at the
+//! root apply no one head: each is a whole subject, so the first that applies
+//! no function is refused as a root without `|` is, and alternatives that each
+//! apply a function but not one are refused as alternatives.
 
 use std::collections::BTreeMap;
 
@@ -30,7 +34,9 @@ use krs_ir::{
 
 use super::catalog::ProductionSignature;
 use super::collection_types::{application_spelling, spelling, term_key};
+use super::equation_alternatives::{different_functions, root_alternatives};
 use super::error::DescriptorLoweringError;
+use super::function_patterns::{Applied, applied_function};
 use super::origin::key_range;
 
 /// Refuses each equation whose subject is not the application of a function
@@ -40,7 +46,8 @@ use super::origin::key_range;
 /// # Errors
 ///
 /// Returns [`DescriptorLoweringError::SubjectRootNotFunction`] for the first
-/// such sentence.
+/// such sentence, and [`DescriptorLoweringError::InvalidPatternOr`] for root
+/// alternatives that apply different functions.
 pub(super) fn check_subject_roots(
     descriptors: &[&Descriptor],
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
@@ -49,23 +56,40 @@ pub(super) fn check_subject_roots(
         let DescriptorPayload::StructuredRule(rule) = descriptor.payload() else {
             continue;
         };
-        let reason = match rule.sentence_kind {
-            SentenceKind::Equation => equation_root(&rule.subject, catalog),
-            SentenceKind::Simplification if !rule.predicate => {
-                simplification_root(&rule.subject, catalog)
-            }
-            _ => None,
-        };
-        if let Some(reason) = reason {
-            let key = match &rule.subject {
+        let refuse = |root: &DescriptorTerm, reason| {
+            let key = match root {
                 DescriptorTerm::Application { reference, .. } => &reference.key,
                 other => term_key(other),
             };
-            return Err(DescriptorLoweringError::SubjectRootNotFunction {
+            Err(DescriptorLoweringError::SubjectRootNotFunction {
                 item: Box::new(descriptor.id().clone()),
                 reason,
                 range: key_range(descriptor, key).map(Box::new),
-            });
+            })
+        };
+        match rule.sentence_kind {
+            SentenceKind::Equation if matches!(rule.subject, DescriptorTerm::Or { .. }) => {
+                let alternatives = root_alternatives(&rule.subject);
+                for alternative in &alternatives {
+                    if let Some(reason) = equation_root(alternative, catalog) {
+                        return refuse(alternative, reason);
+                    }
+                }
+                if let Some(error) = different_functions(descriptor, &alternatives) {
+                    return Err(error);
+                }
+            }
+            SentenceKind::Equation => {
+                if let Some(reason) = equation_root(&rule.subject, catalog) {
+                    return refuse(&rule.subject, reason);
+                }
+            }
+            SentenceKind::Simplification if !rule.predicate => {
+                if let Some(reason) = simplification_root(&rule.subject, catalog) {
+                    return refuse(&rule.subject, reason);
+                }
+            }
+            _ => {}
         }
     }
     Ok(())
@@ -115,6 +139,19 @@ fn simplification_root(
                 format!(
                     "`{}` builds a value of its builtin domain, and its application",
                     builtin_spelling(&reference.application)
+                )
+            }
+            // A collection's unit, element and concatenation build the collection: the
+            // singleton set `set::item(x)` is a value as a constructor's application is.
+            application
+                if matches!(
+                    applied_function(application, catalog),
+                    Applied::Collection | Applied::Elements
+                ) =>
+            {
+                format!(
+                    "`{}` builds a value of its builtin domain, and its application",
+                    builtin_spelling(application)
                 )
             }
             _ => return None,

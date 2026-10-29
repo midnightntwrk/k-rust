@@ -216,7 +216,8 @@ fn refusals<const N: usize>(cases: [(&'static str, &str); N]) -> String {
 
 /// An equation whose subject's root is a constructor, a literal or a builtin operation defines
 /// no function, refused at the root's head in each spelling: a `#[k::equation]` fn with and
-/// without `k::term!`, and root alternatives that apply one constructor. A `k::equations!`
+/// without `k::term!`, root alternatives that apply one constructor, and at the first of root
+/// alternatives that applies no function, each alternative being a whole subject. A `k::equations!`
 /// table names its function in its header, so a constructor there is refused at the header. The
 /// class tests cover a constructor in `k::term!` (`terms/equation/subject-root/Cmd::Go()`), whose
 /// message the native constructor's case here shares.
@@ -232,6 +233,9 @@ fn an_equation_rooted_at_no_function_is_refused_at_the_root() {
         alternatives-term:
         error[krs::analysis::subject-root-not-function]: an equation defines one function, so its subject is that function's application, but `Duo` is a constructor: its application is a value, which evaluation leaves as written, so the equation defines no function; to define a function, write its application here, and to rewrite this term in a step of the computation, write a `#[k::rule]`
         --> src/lib.rs:62:20
+        constructor-alternatives:
+        error[krs::analysis::subject-root-not-function]: an equation defines one function, so its subject is that function's application, but `Red` is a constructor: its application is a value, which evaluation leaves as written, so the equation defines no function; to define a function, write its application here, and to rewrite this term in a step of the computation, write a `#[k::rule]`
+        --> src/lib.rs:62:12
         literal:
         error[krs::analysis::subject-root-not-function]: an equation defines one function, so its subject is that function's application, and `1` applies none: it is a value, which no equation defines; to define a function, write its application here, and to rewrite this term in a step of the computation, write a `#[k::rule]`
         --> src/lib.rs:62:11
@@ -254,6 +258,10 @@ fn an_equation_rooted_at_no_function_is_refused_at_the_root() {
             "#[k::equation]\nfn not_fn(k::term![Cmd::Duo { c: Cmd::Red(), n: 1 } | Cmd::Duo { c: Cmd::Red(), n: 2 }]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Blue()\n}\n",
         ),
         (
+            "constructor-alternatives",
+            "#[k::equation]\nfn not_fn((Cmd::Red() | Cmd::Blue()): Term<Stmt>) -> Term<Stmt> {\n    Cmd::Green()\n}\n",
+        ),
+        (
             "literal",
             "#[k::equation]\nfn not_fn(1: Term<Int>) -> Term<Int> {\n    2\n}\n",
         ),
@@ -268,10 +276,35 @@ fn an_equation_rooted_at_no_function_is_refused_at_the_root() {
     ]));
 }
 
-/// A simplification rewrites a function's unevaluated application, so a constructor or a
-/// literal at its root, a value, is refused at the root's head, with or without `k::term!`; the
-/// class tests cover a constructor in `k::term!` (`terms/simplification/subject-root/Cmd::Go()`),
-/// whose message the native constructor's case here shares.
+/// An alias or desugar clause's root is the production it expands, so a root that is no
+/// production marked as the clause is (a constructor of an unmarked production, a function) is
+/// refused at the root, not at the clause's name; the class tests cover every construct at the
+/// root (`terms/{alias,desugar}/subject-root/..`).
+#[test]
+fn a_static_clause_rooted_at_no_marked_production_is_refused_at_the_root() {
+    expect_test::expect![[r"
+        alias-constructor:
+        error[krs::analysis::invalid-static-clause]: alias clause `red_alias` expands `Cmd::Red`, which is not marked `#[k::alias]`; mark the production `#[k::alias]` or `#[k::alias(recursive)]`
+        --> src/lib.rs:62:14
+        desugar-function:
+        error[krs::analysis::invalid-static-clause]: desugar clause `code_red` expands `Code`, which is not marked `#[k::desugar]`; mark the production `#[k::desugar]` or `#[k::desugar(recursive)]`
+        --> src/lib.rs:62:22"]].assert_eq(&refusals([
+        (
+            "alias-constructor",
+            "#[k::alias]\nfn red_alias(Cmd::Red(): Term<Stmt>) -> Term<Stmt> {\n    Cmd::Blue()\n}\n",
+        ),
+        (
+            "desugar-function",
+            "#[k::desugar]\nfn code_red(k::term![Code { c: Cmd::Red() }]: Term<Int>) -> Term<Int> {\n    1\n}\n",
+        ),
+    ]));
+}
+
+/// A simplification rewrites a function's unevaluated application, so a constructor, a set's
+/// element or a literal at its root, a value, is refused at the root's head, with or without
+/// `k::term!`; the class tests cover a constructor and `set::item` in `k::term!`
+/// (`terms/simplification/subject-root/{Cmd::Go(),k::builtin::set::item(x)}`), whose messages the
+/// cases here share.
 #[test]
 fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
     expect_test::expect![[r"
@@ -280,7 +313,10 @@ fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
         --> src/lib.rs:62:9
         literal:
         error[krs::analysis::subject-root-not-function]: a simplification rewrites a function's unevaluated application to an equal, simpler term, but `1` applies no function and is a value, which evaluation leaves as written, so the simplification simplifies nothing; to rewrite this term in a step of the computation, write a `#[k::rule]`
-        --> src/lib.rs:62:9"]].assert_eq(&refusals([
+        --> src/lib.rs:62:9
+        set-element:
+        error[krs::analysis::subject-root-not-function]: a simplification rewrites a function's unevaluated application to an equal, simpler term, but `set::item(..)` builds a value of its builtin domain, and its application is a value, which evaluation leaves as written, so the simplification simplifies nothing; to rewrite this term in a step of the computation, write a `#[k::rule]`
+        --> src/lib.rs:62:18"]].assert_eq(&refusals([
         (
             "constructor",
             "#[k::simplification]\nfn simp(Cmd::Red(): Term<Stmt>) -> Term<Stmt> {\n    Cmd::Blue()\n}\n",
@@ -288,6 +324,10 @@ fn a_simplification_rooted_at_a_value_is_refused_at_the_root() {
         (
             "literal",
             "#[k::simplification]\nfn simp(1: Term<Int>) -> Term<Int> {\n    2\n}\n",
+        ),
+        (
+            "set-element",
+            "#[k::simplification]\nfn simp(k::term![k::builtin::set::item(x)]: Term<k::builtin::Set>) -> Term<k::builtin::Set> {\n    k::builtin::set::item(x)\n}\n",
         ),
     ]));
 }

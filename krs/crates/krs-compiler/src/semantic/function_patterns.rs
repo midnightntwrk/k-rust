@@ -467,7 +467,7 @@ impl Patterns<'_> {
 }
 
 /// What an application head applies.
-enum Applied {
+pub(super) enum Applied {
     /// A function, named for a diagnostic: "the function `Size`".
     Function(String),
     /// A constructor, matched as written.
@@ -498,7 +498,7 @@ fn collection_type(
 /// is a function (an operator denotes one in every domain), or one of a
 /// collection's operations other than its unit, element and concatenation,
 /// which are its functions (a lookup, a size, an update).
-fn applied_function(
+pub(super) fn applied_function(
     application: &DescriptorApplicationRef,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Applied {

@@ -76,6 +76,13 @@ pub(super) fn check_static_clauses(
             _ => None,
         });
         let name = rule.id().item_name();
+        // The clause's root is the production it expands, so a root that is none is the root's
+        // mistake: it is reported there, or at the clause when the root has no range of its own.
+        let at = rule
+            .body()
+            .map(|body| body.from().origin())
+            .filter(|origin| origin.origin().exact_authored_range().is_some())
+            .unwrap_or_else(|| rule.origin());
         let Some(head) = head else {
             return Err(invalid(
                 rule.id(),
@@ -84,7 +91,7 @@ pub(super) fn check_static_clauses(
                     clause.clause(),
                     clause.attribute(),
                 ),
-                rule.origin(),
+                at,
             ));
         };
         match modes.get(head) {
@@ -102,7 +109,7 @@ pub(super) fn check_static_clauses(
                         mode.attribute(),
                         clause.attribute(),
                     ),
-                    rule.origin(),
+                    at,
                 ));
             }
             None => {
@@ -116,7 +123,7 @@ pub(super) fn check_static_clauses(
                         clause.attribute(),
                         clause.recursive_attribute(),
                     ),
-                    rule.origin(),
+                    at,
                 ));
             }
         }
