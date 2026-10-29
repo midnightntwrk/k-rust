@@ -1711,12 +1711,13 @@ fn progress_under_a_kind_2_invariant_is_written_where_the_invariant_is() {
         defs.contains("import Handoff.Preserves\nimport KPrelude.InvTactic\nimport Pkg.Live\n")
     );
     assert!(defs.contains("import KPrelude.Progress\nimport KPrelude.PendingTactic\n"));
-    assert!(defs.contains("def Invariant (c : SortGeneratedTopCell) : Prop := Pkg.Live c"));
-    assert!(
-        defs.contains(
-            "theorem Invariant.preserved : Preserved Step Invariant := Pkg.Live.preserved"
-        )
-    );
+    // the progress modules' own name, never the library's `Invariant` (a kind 1 invariant of its
+    // own, which the kind 2 one may read)
+    assert!(defs.contains("def Progress.Inv (c : SortGeneratedTopCell) : Prop := Pkg.Live c"));
+    assert!(defs.contains(
+        "theorem Progress.Inv.preserved : Preserved Step Progress.Inv := Pkg.Live.preserved"
+    ));
+    assert!(!defs.contains("def Invariant "));
     assert!(defs.contains("Nat := Pkg.taskRank m k e"));
     assert!(defs.contains("namespace Handoff\n\nvariable [Hooks]\n"));
     let thms = std::fs::read_to_string(pkg.join("Pkg/Progress.lean")).unwrap();
@@ -1725,7 +1726,9 @@ fn progress_under_a_kind_2_invariant_is_written_where_the_invariant_is() {
     assert!(thms.contains(
         "  have hF := Pkg.Live.taskOk hI hm\n  try simp [Pkg.TaskOk] at hF\n  k2l_destruct\n"
     ));
-    assert!(thms.contains("Ending.elem, Invariant,") && thms.contains(", Pkg.TaskOk"));
+    assert!(thms.contains(", Progress.Inv,") && thms.contains(", Pkg.TaskOk"));
+    assert!(thms.contains("(hI : Progress.Inv c) (hK : Progress.Keys c)"));
+    assert!(thms.contains("progress c (Progress.Inv.preserved.star h h0)"));
 
     std::fs::write(
         pkg.join("open-progress-cases.txt"),

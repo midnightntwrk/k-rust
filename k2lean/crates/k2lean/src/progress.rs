@@ -4,8 +4,9 @@
 //! package that holds it instead (`--progress-out DIR --progress-prefix PFX`: `PFX/…`).
 //!
 //! **The theorem.** `progress c : Inv c → Ending c ∨ App c`: a configuration that satisfies the
-//! well-formedness property (`Invariant`, the kind 1 invariant of `--invariant`, or a kind 2 one,
-//! a Lean predicate, with `--assume-invariant`; `True` without one)
+//! well-formedness property (the library's `Invariant`, the kind 1 invariant of `--invariant`; or
+//! `Progress.Inv`, which the progress modules define: a kind 2 one, a Lean predicate, with
+//! `--assume-invariant`, or `True` without either)
 //! is an acceptable ending (`--ending NAME@CELL`, a `Bool` K function of a cell's content; without
 //! it, `<k>` is empty) or some rule applies (`App`, the library's own: its left-hand side matches
 //! and its `requires` is true). A rule whose right-hand side is undefined applies, so the theorem
@@ -15,7 +16,7 @@
 //! rank that applies (`Progress.App.least`), not whether one applies, so the statement means what
 //! it means without them. A rule that would step can then be blocked by one of a higher priority
 //! that applies with an undefined result, which the theorem allows as it allows that result.
-//! `no_stuck` composes it with `Invariant.preserved`: from a configuration
+//! `no_stuck` composes it with the invariant's preservation: from a configuration
 //! that satisfies the invariant, every configuration reached is an ending or can step; `always`
 //! states the same of every run (`KPrelude.Paths`).
 //!
@@ -47,7 +48,8 @@ pub struct Ctx<'a> {
     pub fns: &'a Fns,
     pub top: &'a str,
     pub ns: &'a str,
-    /// The invariant's unfolding set (`invariant-unfold.txt`), when the library has an invariant.
+    /// The invariant's unfolding set (`invariant-unfold.txt`), when `progress` assumes the library's
+    /// kind 1 invariant (not when a kind 2 one is given: that one may read the kind 1 invariant).
     pub invariant: Option<Vec<String>>,
     /// The ending: the K function's symbol and the cell whose content it reads.
     pub ending: Option<(String, String)>,
@@ -87,20 +89,32 @@ pub struct Kind2 {
     pub unfold: Vec<String>,
 }
 
-/// `Invariant` when the library has no kind 1 invariant: the kind 2 one, or `True`.
+/// The invariant `progress` assumes: the library's kind 1 `Invariant`, or `Progress.Inv`, which the
+/// progress modules define (`inv_def`). It is never named `Invariant` there: a library can have a
+/// kind 1 invariant of its own that a kind 2 one reads, as handoff's `wf` is read by `Live`.
+fn inv_name(cx: &Ctx) -> &'static str {
+    if cx.invariant.is_some() {
+        "Invariant"
+    } else {
+        "Progress.Inv"
+    }
+}
+
+/// `Progress.Inv` when `progress` does not assume the library's kind 1 invariant: the kind 2 one,
+/// or `True`.
 fn inv_def(cx: &Ctx, top: &str) -> String {
     match &cx.kind2 {
         Some(k) => format!(
             "\n/-- The well-formedness property: `{n}` (`--assume-invariant`, a Lean predicate of `{m}`). -/\n\
-def Invariant (c : {top}) : Prop := {n} c\n\n\
-theorem Invariant.preserved : Preserved Step Invariant := {p}\n",
+def Progress.Inv (c : {top}) : Prop := {n} c\n\n\
+theorem Progress.Inv.preserved : Preserved Step Progress.Inv := {p}\n",
             n = k.name,
             m = k.module,
             p = k.preserved
         ),
         None => format!(
-            "\n/-- The well-formedness property: none (no `--invariant`). -/\ndef Invariant (c : {top}) : Prop := True\n\n\
-theorem Invariant.preserved : Preserved Step Invariant := by\n  intro _ _ _ _; trivial\n"
+            "\n/-- The well-formedness property: none (no `--invariant`). -/\ndef Progress.Inv (c : {top}) : Prop := True\n\n\
+theorem Progress.Inv.preserved : Preserved Step Progress.Inv := by\n  intro _ _ _ _; trivial\n"
         ),
     }
 }
@@ -408,12 +422,11 @@ pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String>
         }
     }
     let mut stuck: BTreeSet<String> = close.clone();
+    stuck.insert(inv_name(cx).into());
     if let Some(u) = &cx.invariant {
-        stuck.insert("Invariant".into());
         stuck.extend(u.iter().cloned());
     }
     if let Some(k) = &cx.kind2 {
-        stuck.insert("Invariant".into());
         stuck.extend(k.unfold.iter().cloned());
     }
     let mut defs = String::new();
@@ -482,7 +495,7 @@ pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String>
     if cx.invariant.is_none() {
         defs.push_str(&inv_def(cx, top));
     }
-    let inv = "Invariant";
+    let inv = inv_name(cx);
     let app = app_of(cx);
     defs.push_str(&app_def(cx, top));
 
@@ -661,8 +674,8 @@ theorem progress (c : {top}) (hI : {inv} c) : {concl} := by\n  by_cases hE : End
         leaf_arms.join("\n          ")
     ));
     let (preserved, star) = (
-        "Invariant.preserved".to_string(),
-        "Invariant.preserved.star h h0".to_string(),
+        format!("{inv}.preserved"),
+        format!("{inv}.preserved.star h h0"),
     );
     let concl_s = concl.replace(" c", " (s n)");
     th.push_str(&format!(
@@ -813,10 +826,10 @@ set_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\
 
 /// The heartbeat budget of a case at a cell map: a case that waits on a partner splits the
 /// partner's `<k>` as well (measured: `coro`'s `resume` needs between 400,000 and 700,000).
-/// The names the invariant unfolds to (the start of `prog_stuck_deep`): `Invariant`, the kind 2
+/// The names the invariant unfolds to (the start of `prog_stuck_deep`): `inv_name`, the kind 2
 /// predicate and its unfolding set, or the kind 1 invariant's.
 fn inv_names(cx: &Ctx) -> Vec<String> {
-    let mut v = vec!["Invariant".to_string()];
+    let mut v = vec![inv_name(cx).to_string()];
     if let Some(u) = &cx.invariant {
         v.extend(u.iter().cloned());
     }
@@ -1102,12 +1115,11 @@ fn emit_coll(
         }
     }
     let mut stuck: BTreeSet<String> = close.clone();
+    stuck.insert(inv_name(cx).into());
     if let Some(u) = &cx.invariant {
-        stuck.insert("Invariant".into());
         stuck.extend(u.iter().cloned());
     }
     if let Some(k) = &cx.kind2 {
-        stuck.insert("Invariant".into());
         stuck.extend(k.unfold.iter().cloned());
     }
     stuck.insert("Ending.elem".into());
@@ -1223,7 +1235,7 @@ def Progress.Above (m : {map_sort}) (k : {key_sort}) (e : {elem_sort}) : Prop :=
     if cx.invariant.is_none() {
         defs.push_str(&inv_def(cx, top));
     }
-    let inv = "Invariant";
+    let inv = inv_name(cx);
 
     let list =
         crate::refuted::parse(open_text).map_err(|e| format!("open-progress-cases.txt: {e}"))?;
@@ -1492,10 +1504,10 @@ k2l_cases kk with ⟨it, R⟩\n  all_goals k2l_norm_idx\n  all_goals first\n    
     th.push_str(&format!(
         "/-- From a configuration that satisfies the invariant and `Progress.Keys`, every configuration reached is {what}. -/\n\
 theorem no_stuck {{c0 c : {top}}} (h0 : {inv} c0) (hk0 : Progress.Keys c0) (h : Star Step c0 c) : {concl} :=\n  \
-progress c (Invariant.preserved.star h h0) (Progress.Keys.preserved.star h hk0)\n\n\
+progress c ({inv}.preserved.star h h0) (Progress.Keys.preserved.star h hk0)\n\n\
 /-- The same, on every run from `c0` (`KPrelude.Paths`: a run that halts repeats its last configuration). -/\n\
 theorem always {{c0 : {top}}} (h0 : {inv} c0) (hk0 : Progress.Keys c0) :\n    ∀ s, s 0 = c0 → Paths.IsRun Step s → ∀ n, {concl_s} :=\n  \
-Paths.always_iff.2 fun c h =>\n    progress c (Preserved.star Invariant.preserved h h0) (Preserved.star Progress.Keys.preserved h hk0)\n\n\
+Paths.always_iff.2 fun c h =>\n    progress c (Preserved.star {inv}.preserved h h0) (Preserved.star Progress.Keys.preserved h hk0)\n\n\
 #k2l_assert_axioms progress no_stuck always\n{}",
         refuted_heads.iter().map(|h| format!("#k2l_refuted Progress.case.{}\n", h.name)).collect::<String>(),
     ));

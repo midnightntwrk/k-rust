@@ -873,14 +873,11 @@ fn main() {
                         .map(|i| a.rest[i + 1].clone())
                 };
                 // a kind 2 invariant, spelled as `claims` takes it; its modules are downstream of
-                // the library, so the progress modules go to the package that holds it
+                // the library, so the progress modules go to the package that holds it. It may
+                // read the library's own kind 1 invariant (`--invariant`), which `progress` then
+                // does not assume itself
                 let kind2 = match flag("--assume-invariant") {
                     Some(name) => {
-                        if !specs.is_empty() {
-                            panic!(
-                                "--progress: --assume-invariant (kind 2) replaces --invariant (kind 1); give one"
-                            );
-                        }
                         let need = |f: &str| {
                             flag(f).unwrap_or_else(|| {
                                 panic!("--progress --assume-invariant needs {f}")
@@ -963,7 +960,11 @@ fn main() {
                     fns: &fgen.fns,
                     top: &top,
                     ns,
-                    invariant: inv_unfold.clone(),
+                    invariant: if kind2.is_some() {
+                        None
+                    } else {
+                        inv_unfold.clone()
+                    },
                     ending: ending.clone(),
                     ending_lean: ending_lean.clone(),
                     ranked,
