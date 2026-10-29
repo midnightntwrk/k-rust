@@ -4,7 +4,9 @@
 # libraries kexpr and exprtypes; ImpPlusTypes: IMP++ of K's tutorial, whose threads are a cell map,
 # against demos/k/impplus-typing.k, libraries impplus and impplustypes), and no stuck states
 # (`gen --progress`: the stack machine tests/fixtures/vm, library vm, and its variant without a rule,
-# tests/fixtures/vmstuck, library vmstuck, whose one stuck case is refuted by hand). Registry:
+# tests/fixtures/vmstuck, library vmstuck, whose one stuck case is refuted by hand; coroutines in a
+# cell map, tests/fixtures/coro, library coro, and its variant with a join that can deadlock,
+# tests/fixtures/corojoin, library corojoin, whose deadlock is refuted by hand). Registry:
 # soundness.py.
 
 # IMP++ (K's tutorial, beside SIMPLE's sources)
@@ -31,6 +33,8 @@ name_soundness() {
     impplustypes) echo KImpPlusTypes ;;
     vm) echo KVm ;;
     vmstuck) echo KVmStuck ;;
+    coro) echo Coro ;;
+    corojoin) echo CoroJoin ;;
     *) return 1 ;;
   esac
 }
@@ -57,6 +61,7 @@ gen_soundness() {
     # no stuck states: the machine's well-formedness `kOk` (only instructions, programs and halts on
     # `<k>`), its acceptable endings `halted`
     vm|vmstuck) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending halted@k) ;;
+    coro|corojoin) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending ended@k) ;;
     *) return 1 ;;
   esac
   return 0
@@ -171,6 +176,10 @@ gate_soundness() {
   # `pop`'s underflow rule, whose one case is refuted by hand
   runs lib vm && prog_lib vm KVm
   runs lib vmstuck && prog_lib vmstuck KVmStuck
+  # with `<k>` in a cell map (SND-14): coroutines, every case automatic (a resume reads the child it
+  # waits on); with a join that can wait on any process, whose deadlock is refuted by hand
+  runs lib coro && prog_lib coro Coro
+  runs lib corojoin && prog_lib corojoin CoroJoin
   phase "diff soundness"
-  diffs imptypes kexpr exprtypes impplus impplustypes vm vmstuck
+  diffs imptypes kexpr exprtypes impplus impplustypes vm vmstuck coro corojoin
 }

@@ -13,16 +13,23 @@ LIBS = {
     # far as their invariant and `progress` (no `…Test.Axioms`; the modules assert their axioms)
     "vm": {"ns": "KVm", "tier": "light", "guard": False},
     "vmstuck": {"ns": "KVmStuck", "tier": "light", "guard": False},
+    # the same with `<k>` in a cell map: coroutines, and their variant with a join that can deadlock
+    "coro": {"ns": "Coro", "tier": "light", "guard": False},
+    "corojoin": {"ns": "CoroJoin", "tier": "light", "guard": False},
 }
 
 INVS = {
     "vm": {"ns": "KVm", "tier": "light"},
     "vmstuck": {"ns": "KVmStuck", "tier": "light"},
+    "coro": {"ns": "Coro", "tier": "light"},
+    "corojoin": {"ns": "CoroJoin", "tier": "light"},
 }
 
 PROGS = {
     "vm": {"ns": "KVm", "tier": "light"},
     "vmstuck": {"ns": "KVmStuck", "tier": "light"},
+    "coro": {"ns": "Coro", "tier": "light"},
+    "corojoin": {"ns": "CoroJoin", "tier": "light"},
 }
 
 DEMOS = {

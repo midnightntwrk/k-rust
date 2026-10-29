@@ -1136,7 +1136,7 @@ fn gen_progress(fx: &str, out: &Path, ns: &str, extra: &[&str]) -> std::process:
 /// `gen --progress` (design.md §3.9) on the stack machine `vm`: one case per head of `<k>`, each
 /// proved among the rules of its head only; a case marked `| refuted hand` becomes the third
 /// outcome `Progress.Refuted` with its refutation checked, and the hand skeleton is written once; a
-/// generation without `--progress` removes the modules; `<k>` in a cell collection is refused.
+/// generation without `--progress` removes the modules.
 #[test]
 fn progress_states_one_case_per_head_and_a_refuted_head_is_a_third_outcome() {
     let d = tmp("cli-progress");
@@ -1178,9 +1178,65 @@ fn progress_states_one_case_per_head_and_a_refuted_head_is_a_third_outcome() {
     let o = gen_progress("vm", &d, "KVm", &["--invariant", "kOk@k"]);
     assert!(o.status.success());
     assert!(!d.join("KVm/Progress.lean").exists() && !d.join("KVm/ProgressDefs.lean").exists());
+}
 
-    let u = tmp("cli-progress-utxo");
-    let o = gen_progress("utxo", &u, "Utxo", &["--progress"]);
+/// `gen --progress` with `<k>` in a cell map (design.md §3.9, SND-14) on the coroutines `coro`: one
+/// case per head of an element's `<k>`, stated at the element's match with `Progress.Keys` and
+/// `Progress.Above` (every element of a higher rank is an ending), the rules of a head read off
+/// their first element, the partner lemma and `Keys` preserved per rule; a refuted case's head is
+/// the third outcome at an element's match; an ending's cell outside the elements is refused.
+#[test]
+fn progress_at_a_cell_map_states_a_case_per_element_head_above_which_every_element_ends() {
+    let d = tmp("cli-progress-coro");
+    let args = ["--invariant", "kOk@k", "--progress", "--ending", "ended@k"];
+    let o = gen_progress("coro", &d, "Coro", &args);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("progress: 36 cases, 0 open"));
+    let defs = std::fs::read_to_string(d.join("Coro/ProgressDefs.lean")).unwrap();
+    assert_eq!(defs.matches("def Progress.case.").count(), 36);
+    assert!(defs.contains("def Progress.Keys (c : SortGeneratedTopCell) : Prop :="));
+    assert!(defs.contains("K.«ended(_)_CORO_Bool_K» (Ending.content e) = true"));
+    assert!(defs.contains(
+        "∀ k e r, MapHook.concat (MapHook.element k e) r = some (Progress.map c) → Ending.elem e"
+    ));
+    assert!(defs.contains("Progress.Keys (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortProcsCell.«<procs>» m)) x0_1) → Progress.Above m kc"));
+    let thms = std::fs::read_to_string(d.join("Coro/Progress.lean")).unwrap();
+    assert!(thms.contains(
+        "k2l_progress [App.resume, App.«resume-finished», App.«resume-failed», App.«resume-none»] => prog_close else prog_stuck partner (Progress.partner hm hK hA) rank prog_rank"
+    ));
+    assert!(thms.contains(
+        "theorem Progress.Keys.case.spawn : Step.Case.spawn Progress.Keys := by k2l_keys"
+    ));
+    assert!(thms.contains("theorem Progress.partner {kc k' : SortPidCell}"));
+    assert!(thms.contains("(hK : Progress.Keys c) : Ending c ∨ App 0 c := by"));
+    assert!(
+        thms.contains("MapHook.exists_maximal (P := fun _ e => Ending.elem e) Progress.rank hx")
+    );
+
+    std::fs::write(
+        d.join("open-progress-cases.txt"),
+        "Progress.case.«Instr.resume(_)» | refuted hand\n",
+    )
+    .unwrap();
+    let o = gen_progress("coro", &d, "Coro", &args);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let defs = std::fs::read_to_string(d.join("Coro/ProgressDefs.lean")).unwrap();
+    assert!(
+        defs.contains("x0_1 ∧ MapHook.concat (MapHook.element kc (SortProcCell.«<proc>» kc e0_1")
+    );
+    let thms = std::fs::read_to_string(d.join("Coro/Progress.lean")).unwrap();
+    assert!(thms.contains("Ending c ∨ App 0 c ∨ Progress.Refuted c := by"));
+    assert!(thms.contains("#k2l_refuted Progress.case.«Instr.resume(_)»"));
+
+    let o = gen_progress(
+        "coro",
+        &d,
+        "Coro",
+        &["--progress", "--ending", "ended@procs"],
+    );
     assert!(!o.status.success());
-    assert!(String::from_utf8_lossy(&o.stderr).contains("inside a cell collection"));
+    assert!(
+        String::from_utf8_lossy(&o.stderr)
+            .contains("the ending's cell must be in the same elements")
+    );
 }

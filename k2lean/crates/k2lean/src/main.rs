@@ -864,6 +864,7 @@ fn main() {
                     invariant: inv_unfold.clone(),
                     ending: ending.clone(),
                     ranked,
+                    ranks: prios.len(),
                     eqns,
                     unfold: punfold,
                 };

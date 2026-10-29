@@ -1,0 +1,5 @@
+# Cases of the invariant `Coro.Invariant` that `k2l_preserve` does not close (`k2lean gen --invariant`, `--sidecar`).
+# `k2lean open-from-log Coro/Invariants.lean BUILD.log open-invariant-cases.txt` adds the cases whose proof failed.
+# Each line: the case, its statement, the rule's source position. Prove each in Coro/InvariantsHand.lean as
+# `theorem Invariant.hand.r : Step.Case.r Invariant` (namespace `Coro`; `Step.Case.r` is stated in Coro/Preserves.lean).
+init | ∀ (pgm : SortPgm), Invariant (init pgm) | the configuration declaration

@@ -670,7 +670,27 @@ A case marked `| refuted hand` is false: a stuck configuration the invariant all
 - `tests/fixtures/vmstuck`, the same without the rule that halts `pop` on an empty stack: 30 cases close, and `pop`'s is refuted with `<k> pop </k> <stack> .Stack </stack>`; `progress` then reads `Ending c ∨ App c ∨ Progress.Refuted c`.
 - kimp with its kind 1 invariant (`envOk`, `storeNoIds`; outside the gate): 3 of 63 cases close, 60 fail, in 18 to 20 minutes of CPU (1.5 min wall). kimp is untyped: `true + 1` and an unbound variable are stuck, and the invariant says nothing about `<k>`. What closes them is a typing of `<k>`, the part of type soundness's `WTc` its checker provides (§3.3); a failing case costs most, because it splits the rest of `<k>` toward the cooling rules' patterns.
 
-Not supported yet (the generator stops with a message): `<k>` inside a cell collection (threads; slice 2), rules with several matches (free-key map patterns), priority ranks (slice 3).
+**`<k>` in a cell map** (threads, coroutines; SND-14). A configuration is stuck when no process can move, and a process that cannot move may be waiting on one that can, so a split by one process's head cannot prove progress alone. The statement keeps its form, with one more hypothesis:
+
+```lean
+theorem progress (c : Top) (hI : Invariant c) (hK : Progress.Keys c) : Ending c ∨ App 0 c
+```
+
+- `Ending c`: every element of the cell map is an ending (`Ending.elem`: `--ending NAME@CELL` of a cell in the element, or the element's `<k>` empty), stated over the matches `K |-> E REST` a rule sees, so it needs no well-formedness of the map. A process waiting on another is never an ending, and need not be excused: the cases below show that some process then steps.
+- `Progress.Keys c`: every binding of the cell map is at its element's key cell. Every K configuration has it (a cell map is keyed by its elements' key cell), a Lean term of the carrier need not, and a rule that matches a second element at the key it computes reads that element's cells, so without it a case is false on such terms. `Progress.Keys.preserved` is proved per rule by `k2l_preserve`; `no_stuck` and `always` take it at their start configuration, as they take the invariant.
+- `App 0`: rules over a cell map have several matches, so the library's `App` is indexed by rank; one rank is supported.
+
+**The cases** are one per head of an element's `<k>`, for an element `e` matched as the rules match it, `concat (element kc e) rest = some m`, with the hypotheses `Invariant`, `Keys`, `¬ Ending.elem e`, and `Progress.Above m kc e`: every element of a higher rank is an ending. `progress` takes, among the elements that are not endings, one of maximal rank (`MapHook.exists_maximal`; the bindings are finitely many), for which `Above` holds, and its head's case gives `App`. This is the argument that no set of processes waits on each other in a cycle, made into one obligation per head.
+
+The rank is internal to the proof: `progress` does not mention it and holds whatever it is; it decides only which cases close. It is the size of the key (`sizeOf`), so that a process ranks below the processes whose ids contain its id: with ids derived from content (`child(P, N)`), a parent that waits on its child finds the child ended, suspended or failed.
+
+`k2l_progress` gains two steps at a cell map, each a `cases`, a `by_cases` or a lemma: it splits a variable of an element that a hypothesis matches at the key a rule's remaining premise names (the case's own element, then a partner's); and, for a premise that matches a second element at a known key in the rest of the case's match (a partner), it cases on `inKeys`, takes the partner's match from the generated `Progress.partner` (at its own key cell, from `Keys`) and, where `prog_rank` proves that the partner ranks higher, its ending from `Above`. A partner that does not exist leaves the waiting process stuck unless a rule handles it (K can say it: `notBool (<pid> Q </pid> in_keys(REST))` over the rest of the cell map). The closers do not compute on premises with metavariables (`k2l_ground`) and leave out `Above` and `Keys`.
+
+Measured (same host):
+- `tests/fixtures/coro`, coroutines in a cell map (`spawn`, `yield`, `resume` of a child, with `#fail` for a child that is missing, finished or failed), invariant `kOk@k` per element, ending `ended@k` (finished, suspended, failed): 36 cases, all by `k2l_progress`, `Keys` preserved by all 8 rules; `Progress.lean` builds in about 22 s, most of it `resume`'s case, which splits the child's `<k>` too and needs between 400,000 and 700,000 heartbeats (each case at a cell map is given 2,000,000). The invariant's initial case is by hand, as for `vm`.
+- `tests/fixtures/corojoin`, the same with `join(Q)`, which waits until any process `Q` has finished: 36 cases close, and `join`'s is refuted with a deadlock, `root` at `join(child(root, 0))` and its child at `join(root)` (the child's key is the larger, so no element ranks above it); `progress` then has `Progress.Refuted c` as a third outcome.
+
+Not supported yet (the generator stops with a message): nested cell collections and cell lists or sets, `<k>` at the top and in a collection, an author-given rank, rules with several matches when `<k>` is not in a cell map, priority ranks (SND-15).
 
 ## 4. Commands
 
@@ -681,7 +701,7 @@ Not supported yet (the generator stops with a message): `<k>` inside a cell coll
 | `goldens`, `cases`, `configs` | test and benchmark data from krust runs |
 | `survey` | which constructs of a definition the generator supports, without writing a library |
 | `relate` | the correspondence of two definitions, and its Lean translation |
-| `gen --progress [--ending NAME@CELL]` | no stuck states: every configuration satisfying the invariant is an acceptable ending or has a rule that applies, one case per head of `<k>` (§3.9) |
+| `gen --progress [--ending NAME@CELL]` | no stuck states: every configuration satisfying the invariant is an acceptable ending or has a rule that applies, one case per head of `<k>`, or of an element's `<k>` when `<k>` is in a cell map (§3.9) |
 | `soundness` | the runtime typing, preservation, progress and type soundness of a semantics for a K type checker, around a hand module (§3.3) |
 | `refine` | a stuttering bisimulation between two definitions whose steps do not correspond one to one, from `relate --per-rule` and a hand module (§3.5) |
 | `confluence` | the determinism of observations modulo scheduling, one join per ordered pair of rules, and a classification of the pairs (§3.6) |
@@ -759,7 +779,7 @@ A theorem the generator states is either K's own statement, or a different theor
 Where K states no original (noninterference, confluence), the comparison is with the property's usual form.
 The weaker ones, each with where it is stated:
 - **Type soundness** (§3.3) excludes stuck configurations, not undefined results: `Applies c` holds where a rule applies and its result is undefined (`x / 0` in kimp).
-- **No stuck states** (§3.9) excludes stuck configurations, not undefined results, in the same way, and holds only of configurations that satisfy the author's invariant; a head whose case is refuted by hand is a third outcome of `progress`, `no_stuck` and `always` (`Progress.Refuted`), which say nothing more of the configurations with it.
+- **No stuck states** (§3.9) excludes stuck configurations, not undefined results, in the same way, and holds only of configurations that satisfy the author's invariant; a head whose case is refuted by hand is a third outcome of `progress`, `no_stuck` and `always` (`Progress.Refuted`), which say nothing more of the configurations with it. With `<k>` in a cell map, it also assumes `Progress.Keys` (every binding at its element's key cell), which every K configuration has and every rule keeps.
   With threads, a thread whose head is that of a rule needing another thread (`join T;`) counts as done (`Waits`) whether thread `T` is running or does not exist, so a deadlock is a `Final` configuration.
 - **A claim under `--assume-invariant NAME`** (§3.8) says nothing of a left-hand side outside `NAME`, so it is weaker than the K claim. The K claim itself may be false (kimp's `copy` and `copy-loop`, refuted by hand).
 - **A claim carried along a stuttering bisimulation** (`--transfer-kind stutter`, §3.8) without `--transfer-det` carries an all-path claim as one-path (`EF`, through `AF.toEF`). An all-path claim does not carry in general.
