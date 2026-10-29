@@ -59,6 +59,16 @@ open = []
 overlaps = 0
 unwitnessed = 0
 
+[lib.coro]
+tier = "light"
+stated = 100
+open = []
+
+[lib.corojoin]
+tier = "light"
+stated = 100
+open = []
+
 [demo.ImpTypes]
 tier = "light"
 guarded = 43
@@ -93,6 +103,20 @@ auto = 11
 open = ["init"]
 guarded = 4
 
+[inv.coro]
+tier = "light"
+cases = 8
+auto = 8
+open = ["init"]
+guarded = 4
+
+[inv.corojoin]
+tier = "light"
+cases = 12
+auto = 12
+open = ["init"]
+guarded = 4
+
 [prog.vm]
 tier = "light"
 cases = 31
@@ -107,6 +131,22 @@ cases = 31
 auto = 30
 open = []
 refuted = ["Progress.case.«Instr.pop»"]
+guarded = 8
+
+[prog.coro]
+tier = "light"
+cases = 36
+auto = 36
+open = []
+refuted = []
+guarded = 7
+
+[prog.corojoin]
+tier = "light"
+cases = 37
+auto = 36
+open = []
+refuted = ["Progress.case.«Instr.join(_)»"]
 guarded = 8
 
 [sources]
@@ -124,6 +164,50 @@ guarded = 8
 "demos/ImpTypes/ImpTypes/Tr.lean" = { tier = "light", sha256 = "7d5c653d47818914f8b4e8a1ceadc5213b911f3397f98ad4dbb29687f6a0d0bc" }
 "demos/ImpTypes/ImpTypes/Typing.lean" = { tier = "light", sha256 = "c83295e94a7e2606af8ea5e354d17a48db9eff97cd6cd76eff77c49e0e7a818e" }
 "demos/ImpTypes/correspondence.toml" = { tier = "light", sha256 = "d718a02a680fc8ebdc94898d98af4ef880e228e13fcbc185f1170668c8194572" }
+"generated/coro/Coro.lean" = { tier = "light", sha256 = "7c2766dc84785c0ee59365c7068f9433e8dfd29d98697137366faea8a8feb9f7" }
+"generated/coro/Coro/Adequacy.lean" = { tier = "light", sha256 = "735d67f8854cfaf34aa1f34c4cae89678005d4dd3d79ed763c31f59ac4449f9c" }
+"generated/coro/Coro/Determinism.lean" = { tier = "light", sha256 = "3c1c0bd33572817eb2d2286f4a1198016766c879912e84ee8df2dec4460f11c9" }
+"generated/coro/Coro/EqBase.lean" = { tier = "light", sha256 = "8c2595c45d597093b1a305a55bc986715a71518b108ad7598aba0f57e45d390e" }
+"generated/coro/Coro/Equations.lean" = { tier = "light", sha256 = "6a7a4cbe870646ac2c6644d2e4e9c1f0ca04542e20d61a128e2133bb3b983518" }
+"generated/coro/Coro/Fuel.lean" = { tier = "light", sha256 = "d1a4183dcd51d4620f97b3aa178da48835d1ccf9a32f215271e30e410d40937a" }
+"generated/coro/Coro/Functions.lean" = { tier = "light", sha256 = "070bd0a80755305a834b3fced6484d610ecd8f9dc234e307edd590ba9d3b3327" }
+"generated/coro/Coro/Init.lean" = { tier = "light", sha256 = "3e6dc422af44eba9c69ebfa6638949a5f655ba2cc26a943650e2f4964414b2e0" }
+"generated/coro/Coro/InvariantDefs.lean" = { tier = "light", sha256 = "b80c89325c4f955f12291e3391d9456fd97b6f91fea798c15acead9d7d8ab621" }
+"generated/coro/Coro/Invariants.lean" = { tier = "light", sha256 = "49792d914cfcece2df2e64531bca6fdd33a7e2c326c9ece46668d7e252950ef9" }
+"generated/coro/Coro/Preserves.lean" = { tier = "light", sha256 = "ff25104f81413356c64b3658a0b700dc116db849905895a51a949f692a13fa1c" }
+"generated/coro/Coro/Progress.lean" = { tier = "light", sha256 = "698d5898f1575a50e8f82f52b581060dbe7a7f2faf52987bf480bc3f7f15f6d7" }
+"generated/coro/Coro/ProgressDefs.lean" = { tier = "light", sha256 = "2337cbc0453f57b9beda9c9b1c673a94a3cabc64e34707460bd552074dd1150b" }
+"generated/coro/Coro/Rules.lean" = { tier = "light", sha256 = "adfd6aa636842a4cd35667225968879f37cab0871129ce1c5fe462f6a1d37e0a" }
+"generated/coro/Coro/Terms.lean" = { tier = "light", sha256 = "56afa7853d90bee3ab9e59f016b829e93db035e61ece14db3754aee1c569140e" }
+"generated/coro/CoroBench/Main.lean" = { tier = "light", sha256 = "57f05704cf43515e4e9f335a1064232583f6249cc6e60834ad1da7881b68cef3" }
+"generated/coro/CoroBench/Programs.lean" = { tier = "light", sha256 = "3c1aeb870b6e9a47aec3a11c1f56c1d89975aaa3ff54874df4f10cea4fb8570d" }
+"generated/coro/CoroTest/Axioms.lean" = { tier = "light", sha256 = "7f0d7343709c399d8be35600b2782904f12f6661935628f6d1be9dfc13635de5" }
+"generated/coro/CoroTest/Main.lean" = { tier = "light", sha256 = "8a022860bd0b2a8cf69d4d7886b8359f08a646744f466f538bfe8dea3bd92665" }
+"generated/coro/invariant-unfold.txt" = { tier = "light", sha256 = "d8e2755e0e7dc2d2c9aa9802874728e62719699f7aa04f79b9c1de7b30e76d07" }
+"generated/coro/lakefile.lean" = { tier = "light", sha256 = "e882986fb228e5538a88306d683c2f0d3177a933c274687da27b29ec45b92345" }
+"generated/coro/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/corojoin/CoroJoin.lean" = { tier = "light", sha256 = "c10ad526faecfa9165167cd8ee37e1c82ceb303ce79137f283beb24567ea0bde" }
+"generated/corojoin/CoroJoin/Adequacy.lean" = { tier = "light", sha256 = "40bcd16cb6bc0bb043b27e98f43b09729d7f6ff1c9b1df1277b1fcb331f7a9ef" }
+"generated/corojoin/CoroJoin/Determinism.lean" = { tier = "light", sha256 = "22858bddb2557406baa7996e8a54d7464c3abd564bf4dab7d00ece564136387c" }
+"generated/corojoin/CoroJoin/EqBase.lean" = { tier = "light", sha256 = "226c539e53cf129dd1122b871115214fe112041ce7b365c4241c90821c1e8150" }
+"generated/corojoin/CoroJoin/Equations.lean" = { tier = "light", sha256 = "ad9137122583d77b4914d32fc4c6e1d8335a7fe2d1ad819c0633d2993841b50b" }
+"generated/corojoin/CoroJoin/Fuel.lean" = { tier = "light", sha256 = "311a69de4d082638440d3848ba3d69c481b37797a1ba41d9c4f767300a648e98" }
+"generated/corojoin/CoroJoin/Functions.lean" = { tier = "light", sha256 = "e5746a871219435befde4ad08e66163ee6d07c5567f2d04817d7850a839dbc04" }
+"generated/corojoin/CoroJoin/Init.lean" = { tier = "light", sha256 = "ca9ee1824dacad2e0e43871bcb61248f291f5e86055b9f35579e4e32f9016942" }
+"generated/corojoin/CoroJoin/InvariantDefs.lean" = { tier = "light", sha256 = "10b434c76f61f1d43584e486095724b5b7e879c2abc589097f0b174a7a11fec7" }
+"generated/corojoin/CoroJoin/Invariants.lean" = { tier = "light", sha256 = "130ae5d36901eadec3d89809184e9e2e08851d7554a8ea20ed8edc8ce57829bd" }
+"generated/corojoin/CoroJoin/Preserves.lean" = { tier = "light", sha256 = "9aba532cc7b6f6b4d9ea41ddc07668eb70611e81beeaf61052b1ee94f5ad617e" }
+"generated/corojoin/CoroJoin/Progress.lean" = { tier = "light", sha256 = "6f6b67df47be071589e69b3cccdd39a752ea152ba7ece7cedcdea4c384a8c9cd" }
+"generated/corojoin/CoroJoin/ProgressDefs.lean" = { tier = "light", sha256 = "520b57d17dcbf2680b8b7d3d4c8ef922c5e19b2438cb7d95cc55df4e4ef86526" }
+"generated/corojoin/CoroJoin/Rules.lean" = { tier = "light", sha256 = "add67f0970ba726d6dd36b63cb7a61aedf303eb3a02a46a0163d0a18f9615f85" }
+"generated/corojoin/CoroJoin/Terms.lean" = { tier = "light", sha256 = "e426d74ae6975a48168f3db27f656187968457cb641ccf01b32178dd53bdf1ae" }
+"generated/corojoin/CoroJoinBench/Main.lean" = { tier = "light", sha256 = "a4d0260c6ad3011c86381a0d6348eb4e78b55e9f9b9710e22048a01e613ea3d3" }
+"generated/corojoin/CoroJoinBench/Programs.lean" = { tier = "light", sha256 = "494b86c57cdc349b34649c7467e35968bc8b55afadfe05597dee0c661c952ad6" }
+"generated/corojoin/CoroJoinTest/Axioms.lean" = { tier = "light", sha256 = "b24a3e86dbc009b65926703433ab95e2c3233a58c74eb180e2b28ec1cec45b6f" }
+"generated/corojoin/CoroJoinTest/Main.lean" = { tier = "light", sha256 = "f6de6c2b28191a515a0e03d2dda075fff6a518beaba6afcee00e42b398bedd90" }
+"generated/corojoin/invariant-unfold.txt" = { tier = "light", sha256 = "203bb650260863f4433c56c8f8f9334eb1e50942f186ba542f1fae8bad49ddc4" }
+"generated/corojoin/lakefile.lean" = { tier = "light", sha256 = "cbe9dc05e85733d1a0a733a2578e93786735d7829366c0a6aa6cc9fdf553ed9d" }
+"generated/corojoin/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/exprtypes/KExprTypes.lean" = { tier = "light", sha256 = "b4d8008e039575ea4bff5c8fafa9dd5163772cf4a6acd114cd4ae9bcc3137ded" }
 "generated/exprtypes/KExprTypes/Adequacy.lean" = { tier = "light", sha256 = "b990d2dd22e77c24bc9da7d014f19d56936fa75e28809a551244928677ecf4e4" }
 "generated/exprtypes/KExprTypes/Determinism.lean" = { tier = "light", sha256 = "87a11e7d1e5b1c1f1adb847511fd2e4ef47c5f699fc2cee7baadece24fcc9ab6" }
