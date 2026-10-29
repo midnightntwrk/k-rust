@@ -2014,3 +2014,152 @@ fn invariant_init_over_configuration_variables_is_computed_or_its_content_is_the
         }
     }
 }
+
+#[test]
+fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fixture() {
+    let d = tmp("cli-noninterference-disclosure");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    std::fs::write(
+        d.join("open.txt"),
+        "cq CONTRACT.var\ncq CONTRACT.assign\nsq CONTRACT.var\nsame CONTRACT.var\nsame CONTRACT.assign\n",
+    )
+    .unwrap();
+    let run = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("noninterference")
+            .arg("--kore")
+            .arg(fx.join("contract/definition.kore"))
+            .args([
+                "--name",
+                "Contract",
+                "--ns",
+                "CN",
+                "--store-cell",
+                "env",
+                "--program-sort",
+                "SortStmt",
+                "--params",
+                "(G : ContractSec.SortMap)",
+                "--secure",
+                "secure G",
+                "--low-eq",
+                "lowEq G",
+                "--checker-name",
+                "ContractSec",
+                "--lev",
+                "lev",
+                "--sec",
+                "sec",
+                "--conf",
+                "conf",
+                "--quiet",
+                "quiet",
+            ])
+            .arg("--checker-kore")
+            .arg(fx.join("contractsec/definition.kore"))
+            .arg("--open")
+            .arg(d.join("open.txt"))
+            .arg("--out")
+            .arg(d.join("NI.lean"))
+            .arg("--report")
+            .arg(d.join("ni.toml"))
+            .arg("--out-dir")
+            .arg(&d)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
+    let full = [
+        "--inputs",
+        "LEDGER=public,WIT=private",
+        "--observe",
+        "ledger,transcript",
+        "--disclosed",
+        "disclosed",
+    ];
+    let o = run(&full);
+    assert!(o.status.success(), "{}", err(&o));
+    let read = |f: &str| std::fs::read_to_string(d.join(f)).unwrap();
+    let (ni, levels, stack, proof, rep) = (
+        read("NI.lean"),
+        read("Levels.lean"),
+        read("Stack.lean"),
+        read("Proof.lean"),
+        read("ni.toml"),
+    );
+    // the statement: the ledger public, the answers private, the disclosed values a premise
+    for x in [
+        "init : ∀ P L W₁ W₂, secure G P → Rel (Contract.init P L W₁) (Contract.init P L W₂)",
+        "final : ∀ {f₁ f₂}, Rel f₁ f₂ → Final f₁ → Final f₂ → discOf f₁ = discOf f₂ → pubOf f₁ = pubOf f₂",
+        "def discOf : Contract.SortGeneratedTopCell → Contract.SortList",
+        "{P : Contract.SortStmt} {L : Contract.SortMap} {W₁ W₂ : Contract.SortList}",
+    ] {
+        assert!(ni.contains(x), "{x}\n{ni}");
+    }
+    // the checker's values at the constructors only its `owise` equation covers
+    for x in [
+        "theorem quiet.«read(_)» (G : TEnv) (x0 : Contract.SortId) :",
+        "theorem conf.«emit(_);» (G : TEnv) (x0 : Contract.SortExpr) :",
+    ] {
+        assert!(levels.contains(x), "{x}\n{levels}");
+    }
+    // the disclosure's construct and freezer, read off its rules; the value sort
+    for x in [
+        "abbrev frzD : Contract.SortKItem :=\n  Contract.SortKItem.inj_KItem Contract.SortKItem.Own.«#freezerdisclose(_)_CONTRACT-SYNTAX_Expr_Expr0_»",
+        "kOf c = .kseq (Contract.SortKItem.inj_Expr (Contract.SortExpr.Own.«disclose(_)» e)) K →",
+        "theorem isRes_Expr_iff (e : Contract.SortExpr) :",
+        "``Contract.SortEnvCell, ``Contract.SortDisclosedCell",
+    ] {
+        assert!(stack.contains(x), "{x}\n{stack}");
+    }
+    for x in [
+        "def Div (c₁ c₂ : Contract.SortGeneratedTopCell) : Prop :=",
+        "theorem disc_step {c c' : Contract.SortGeneratedTopCell}",
+        "lowEq_refl (good_init P L W₁), rfl, rfl⟩)",
+        "theorem contract_noninterference {P : Contract.SortStmt} {L : Contract.SortMap} {W₁ W₂ : Contract.SortList}",
+    ] {
+        assert!(proof.contains(x), "{x}\n{proof}");
+    }
+    assert!(
+        !proof.contains("theorem cq.«CONTRACT.var»")
+            && proof.contains("theorem cq.«CONTRACT.read»"),
+        "{proof}"
+    );
+    assert!(
+        rep.contains("cases = 204\ngeneric = 199\nhand = 5"),
+        "{rep}"
+    );
+    // refused: disclosure with only the store observed; a cell written by a two-argument construct;
+    // a configuration of several inputs without --inputs
+    let o = run(&[
+        "--inputs",
+        "LEDGER=public,WIT=private",
+        "--disclosed",
+        "disclosed",
+    ]);
+    assert!(
+        !o.status.success() && err(&o).contains("cells compared by equality"),
+        "{}",
+        err(&o)
+    );
+    let o = run(&[
+        "--inputs",
+        "LEDGER=public,WIT=private",
+        "--observe",
+        "transcript",
+        "--disclosed",
+        "ledger",
+    ]);
+    assert!(
+        !o.status.success() && err(&o).contains("one argument"),
+        "{}",
+        err(&o)
+    );
+    let o = run(&["--observe", "ledger,transcript"]);
+    assert!(
+        !o.status.success() && err(&o).contains("--inputs is required"),
+        "{}",
+        err(&o)
+    );
+}

@@ -81,6 +81,12 @@ lake-manifest.json
 /demos/ImpNI/ImpNI/Stack.lean
 /demos/ImpNI/ImpNI/Proof.lean
 /demos/ImpNI/noninterference.toml
+/demos/ContractNI/ContractNI/Tr.lean
+/demos/ContractNI/ContractNI/NI.lean
+/demos/ContractNI/ContractNI/Levels.lean
+/demos/ContractNI/ContractNI/Stack.lean
+/demos/ContractNI/ContractNI/Proof.lean
+/demos/ContractNI/noninterference.toml
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean
 /demos/CellMapRel/CellMapRel/Bisim.lean

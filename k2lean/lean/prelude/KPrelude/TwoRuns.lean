@@ -21,11 +21,14 @@ the two paths it found (`k2l_two_runs`).
 - `refute_of_runs`: two runs apart refute `UniqueFrom`.
 - `UniqueFrom.of_eq`: uniqueness of the terminal configurations gives `UniqueFrom` for every
   observation.
+- `AgreeFrom`, `refute_from_runs`: the same for two starting configurations, as noninterference
+  compares them: two runs that end and agree on a premise (the disclosed values) but not on the
+  observation refute agreement.
 -/
 
 namespace KPrelude.TwoRuns
 
-universe u v
+universe u v w
 
 variable {α : Type u} {β : Type v}
 
@@ -95,6 +98,35 @@ theorem refute_of_runs [DecidableEq β] {S : α → α → Prop} {next all : α 
     exact h.2 (u (star_of_follow hs p₁ e₁) (terminal_of_isEmpty hc h.1.1)
       (star_of_follow hs p₂ e₂) (terminal_of_isEmpty hc h.1.2))
   · cases h
+
+/-- Two runs, one from `c₁` and one from `c₂`, that both end in configurations `fin` accepts and
+agree on `prem`, agree on `obs`: what noninterference up to disclosure says of two starting
+configurations (`prem`, the disclosed values; `obs`, the observation). -/
+def AgreeFrom {γ : Type w} (S : α → α → Prop) (fin : α → Bool) (prem : α → γ) (obs : α → β)
+    (c₁ c₂ : α) : Prop :=
+  ∀ {f₁ f₂ : α}, Star S c₁ f₁ → fin f₁ = true → Star S c₂ f₂ → fin f₂ = true → prem f₁ = prem f₂ →
+    obs f₁ = obs f₂
+
+/-- A run from `c₁` along `p₁` and one from `c₂` along `p₂` end in configurations `fin` accepts,
+which agree on `prem` and differ on `obs`. -/
+def runsApartFrom {γ : Type w} [DecidableEq β] [DecidableEq γ] (next : α → List α)
+    (fin : α → Bool) (prem : α → γ) (obs : α → β) (c₁ c₂ : α) (p₁ p₂ : List Nat) : Bool :=
+  match follow next c₁ p₁, follow next c₂ p₂ with
+  | some n₁, some n₂ => fin n₁ && fin n₂ && decide (prem n₁ = prem n₂) && !decide (obs n₁ = obs n₂)
+  | _, _ => false
+
+/-- Two such runs refute agreement from their starting configurations. -/
+theorem refute_from_runs {γ : Type w} [DecidableEq β] [DecidableEq γ] {S : α → α → Prop}
+    {next : α → List α} (hs : ∀ c c' : α, c' ∈ next c → S c c') {fin : α → Bool} {prem : α → γ}
+    {obs : α → β} {c₁ c₂ : α} (p₁ p₂ : List Nat)
+    (h : runsApartFrom next fin prem obs c₁ c₂ p₁ p₂ = true) : ¬ AgreeFrom S fin prem obs c₁ c₂ :=
+  fun u => by
+    unfold runsApartFrom at h
+    split at h
+    · rename_i n₁ n₂ e₁ e₂
+      simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_false_iff_not, decide_eq_true_eq] at h
+      exact h.2 (u (star_of_follow hs p₁ e₁) h.1.1.1 (star_of_follow hs p₂ e₂) h.1.1.2 h.1.2)
+    · cases h
 
 /-! ## The search, run by the elaborator -/
 

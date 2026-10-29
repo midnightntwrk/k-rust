@@ -1,0 +1,7 @@
+# The per-rule cases of the noninterference relation that read or write the store, proved by hand
+# in ContractNI/Store.lean (`k2lean noninterference --open`): KIND RULE, KIND one of cq, sq, same.
+cq CONTRACT.var
+cq CONTRACT.assign
+sq CONTRACT.var
+same CONTRACT.var
+same CONTRACT.assign

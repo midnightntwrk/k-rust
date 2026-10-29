@@ -709,7 +709,7 @@ fn cell_vars(l: &L) -> BTreeSet<String> {
     out
 }
 
-fn is_cell(head: &str) -> Option<String> {
+pub(crate) fn is_cell(head: &str) -> Option<String> {
     let i = head.find(".«<")?;
     let name = head[i + ".«<".len()..].strip_suffix(">»")?;
     Some(name.to_string())
@@ -719,7 +719,7 @@ fn is_cell(head: &str) -> Option<String> {
 /// is written when its right-hand side differs from its left-hand side, and read when its
 /// left-hand side is not a variable or its variable occurs elsewhere (another cell, a side
 /// condition). A cell map's content is reported under the map cell's name.
-fn footprint(r: &Rule) -> BTreeMap<String, (bool, bool)> {
+pub(crate) fn footprint(r: &Rule) -> BTreeMap<String, (bool, bool)> {
     let lhs = &r.step.index;
     let rhs = r.rhs.subst(&r.step.subst);
     let hyps: String = r
