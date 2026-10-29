@@ -2,6 +2,7 @@ import KPrelude.Invariant
 import KPrelude.InvAttr
 import KPrelude.Hooks
 import KPrelude.FamilyCases
+import KPrelude.InvDisjoint
 
 /-!
 # `k2l_preserve`: one case per rule, closed generically or left tagged by the rule
@@ -301,6 +302,10 @@ def casesCells : TacticM Unit := do
         continue
       let some (.inductInfo info) := (← getEnv).find? n | continue
       if info.numIndices != 0 || info.ctors.length != 1 then continue
+      -- not a class instance (`[Hooks]`): every generated statement is stated over the instance,
+      -- and a lemma with an instance argument (a K function's equation) does not apply where the
+      -- instance is replaced by its fields
+      if d.binderInfo.isInstImplicit || isClass (← getEnv) n then continue
       -- not a type whose constructor holds a value of the type itself (the split would not end)
       let some (.ctorInfo ci) := (← getEnv).find? info.ctors[0]! | continue
       if ← g.withContext do forallTelescope ci.type fun as _ => as.anyM fun a => do
@@ -380,6 +385,10 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
     -- some l`, `kAll (fun x => f x ?S = some true) k`): a hypothesis fits it or nothing does, and a
     -- search on it renews the depth at every lemma that applies
     if tgt.hasExprMVar then return ← closes disch
+    -- the claims of a rule's rebuilt map defined and without repetition (`KPrelude.InvDisjoint`):
+    -- the claims it writes, counted, are no more than those it removes
+    if tgt.isAppOf `KPrelude.MapHook.ClaimsOK then
+      if ← closes (← `(tactic| k2l_claims [$U,*])) then return true
     -- every goal of `gs` closed by the closer at `depth`
     let all (gs : List MVarId) (depth : Nat) : TacticM Bool := do
       for g' in gs do
