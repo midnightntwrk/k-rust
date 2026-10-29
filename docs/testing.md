@@ -125,7 +125,7 @@ Each entry belongs to one area, which registers it in `k2lean/tests/areas/AREA.s
 | `invariants` | the kind 1 invariant libraries and KRS IMP's sidecar invariant, the negative check, the kind 2 demonstrations and the kind 2 template |
 | `relational` | `relate` (ImpRel, ImpMut, the fixture self-relations) and `refine` (ImpUnroll) |
 | `soundness` | `soundness` (ImpTypes) |
-| `confluence` | `confluence` (RaceConf; UtxoConf, the views by process of the fixture utxo; SimpleConf and the classification of SIMPLE's pairs of rules) |
+| `confluence` | `confluence` (RaceConf; UtxoConf, the views by process of the fixture utxo; HandoffConf and HandoffSeqRel, the fixtures handoff and handoffseq; DrfConf, a slot refuted by hand; SimpleConf and the classification of SIMPLE's pairs of rules) |
 | `noninterference` | `noninterference` (ImpNI) |
 | `claims` | `claims` over kimp's specifications, the claims under kimpinv's invariant, and the claim transferred along ImpRel's bisimulation (heavy); IMP++'s claims, a `Step` that is not a function, and kstrict's, whose framed claim steps by the cases of `Step` (light) |
 
@@ -138,6 +138,8 @@ A run keeps a copy of the baseline and registry it started from (`measured/again
 A recorded output is rewritten only when its content differs after the normalization the comparison applies.
 The gate starts every library from its tracked open-obligation list (`k2lean/generated/*/open-obligations.txt`), so it finds a proof that stopped working but not one that started working; `GATE_RETRY_OPEN=1` attempts every open obligation again, except those marked refuted.
 An entry marked `| refuted` (or `| refuted hand`) is a statement shown false, whose refutation the library's axiom guard checks (`#k2l_refuted`; `k2lean/docs/design.md` §3); the baseline records it under `refuted`, apart from `open`.
+A confluence demonstration's slots are compared by name, from the statuses `k2l-eval --result` reads in its built environment: each is generic, by hand or refuted as its open-joins list marks it, or open, and the baseline records each with the identity of its statement (the fingerprints of the statement and of the definitions it reaches).
+The one change that fails by itself is a slot that was generic and no longer is while its statement and those definitions are unchanged (or the result does not say); a slot that appears, disappears, or changes status after its statement changed is listed for the landing note to explain, and a list mark the result does not bear out fails.
 An entry may move from open to refuted; one that is open again, or proved, or newly refuted without having been open, fails until accepted, since its statement changed.
 Each library prints a G1 line: stated, proved, refuted, open.
 `k2lean/tests/gate.sh` with no argument lists its environment variables, and `k2lean/docs/invariants.md` (section 10) shows how to put a new invariant under the gate.

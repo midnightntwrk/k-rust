@@ -23,7 +23,12 @@ directory), for the areas of LIBS_AREAS in tests/libs.sh beside them. A registry
             modules' prefix), sources (as a demo's)}: the no-stuck-states theorem `progress` of
             library name (`gen --progress`)
   DEMOS     name -> {tier, sources (files or directories under k2lean/ that the demo's phase
-            generates, hashed)}
+            generates, hashed), slots (optional: {prefixes, list}: the demo's obligations
+            compared by name, read from its result `logs/result-demo-NAME.json`; ns, the demo's
+            namespace (default its name); prefixes, the names relative to it that are its
+            obligations (a demo with slots and none of them fails); list (optional), the
+            open list under k2lean/ that names the open ones and marks those proved by hand,
+            `| hand`, or refuted, `| refuted`)}
   NEGATIVE  name -> {tier}: an entry of measured/negative.toml
   RECORDS   name -> {tier, compare_in, measure (a function of the run, returning the record's
             fields), sources}
@@ -47,7 +52,15 @@ What is compared:
             number of overlapping pairs `gen` lists (determinism along the rule index) and of
             those without a witness equal the baseline's
   demo.X    theorems under the guard may not decrease; each `k2l_preserve` call closes no fewer
-            rules and has no new residual rule
+            rules and has no new residual rule; with slots, each obligation by name: generic (proved
+            and not marked in the list), hand, open or refuted, and the identity of its statement
+            (a hash of the result's `stmt` and `spec` fingerprints: the statement and the
+            definitions it reaches). An obligation that was generic and no longer is fails unless
+            its identity changed (a changed claim, or a claim about changed definitions, is listed:
+            its proof was allowed to break) or is unknown on either side (fails: accept it if the
+            change is meant); an entry of another status (`axioms`, `moved`, `unbuilt`,
+            `not-a-theorem`), or a list mark that the result does not bear out, fails; every other
+            change (an obligation new, gone, or of another status) is listed, not judged
   diff      `k2lean diff` of each library's last generation (the tree under test's generated/)
             against the regenerated one: a NOTE naming the changed rules and functions and the
             hand-written references to revisit (the sources check is what fails)
@@ -213,6 +226,44 @@ def refuted_marks(path):
         if "|" in rest and rest.split("|", 1)[1].split()[:1] == ["refuted"]:
             out.add(name)
     return out
+
+
+def slot_statuses(path, ns, prefixes, lst):
+    """({name: {status, id}}, problems) of a demo's obligations (DEMOS slots): the entries of its
+    result (`k2l-eval --result`) whose names relative to NS start with one of PREFIXES. Status:
+    `refuted`, `open`, `hand` (proved, and marked `| hand` in the open list LST), `generic` (proved,
+    unmarked), or the result's own (`axioms`, `moved`, `unbuilt`, `not-a-theorem`). The id hashes
+    the entry's `stmt` and `spec` fingerprints (absent when the result has none, or `-`). A problem is a
+    list entry whose status the result does not bear out (a mark with no such obligation, `| hand`
+    not proved, `| refuted` not refuted, a name alone not open). None when there is no result."""
+    text = read(path)
+    if text is None:
+        return None, []
+    rel = lambda n: n[len(ns) + 1:] if n.startswith(ns + ".") else n
+    marks = {}
+    for name, rest in (listed_names(lst) if lst else []):
+        rest = rest.split("#")[0]
+        marks[name] = rest.split("|", 1)[1].split()[0] if "|" in rest and rest.split("|", 1)[1].split() else "open"
+    out = {}
+    for e in json.loads(text)["entries"]:
+        n = rel(e["name"])
+        if not any(n.startswith(x) for x in prefixes):
+            continue
+        st = e["status"]
+        if st == "proved":
+            st = "hand" if marks.get(n) == "hand" else "generic"
+        fp = (e.get("stmt"), e.get("spec"))
+        # "-": the environment has neither a theorem nor a statement for it, so no identity
+        out[n] = {"status": st, "id": hashlib.sha256(f"{fp[0]}/{fp[1]}".encode()).hexdigest()[:16]} \
+            if not any(x in (None, "-") for x in fp) else {"status": st}
+    problems = []
+    for n, mk in marks.items():
+        got = out.get(n, {}).get("status")
+        if got is None:
+            problems.append(f"{n} (listed {mk}): no such obligation in the result")
+        elif got != mk:
+            problems.append(f"{n} (listed {mk}): {got} in the result")
+    return out, problems
 
 
 def overlaps(log):
@@ -395,6 +446,12 @@ def measure(work, tier, reg):
             # still says how many rules the tactic closed
             m["demo"][d] = {"tier": t, "guarded": guarded(logs / f"build-{d}.log") if ok else None,
                             "preserve": preserve_lines(logs / f"build-{d}.log")}
+            if e.get("slots"):
+                res = status.get(f"result demo {d}", ("",))[0] == "ok"
+                sl, probs = slot_statuses(logs / f"result-demo-{d}.json", e["slots"].get("ns", d), e["slots"]["prefixes"],
+                                          tree / e["slots"]["list"] if "list" in e["slots"] else None) \
+                    if res else (None, [])
+                m["demo"][d]["slots"], m["demo"][d]["list_problems"] = sl, probs
         elif kind == "negative":
             if d in neg_doc:
                 m["negative"][d] = dict(neg_doc[d], tier=t)
@@ -484,6 +541,45 @@ def prog_compare(m, base, F, N, P, lower):
                 N(f"prog.{d}: fewer open cases or more automatic ones; {lower}")
 
 
+def slots_compare(p, e, b, F, N, P, lower):
+    """Compare demo p's obligations by name with the baseline's (module documentation, demo.X)."""
+    now, was = e.get("slots"), b.get("slots", {})
+    if now is None:
+        F(f"demo.{p}: no result (`k2l-eval --result`), so its obligations are not compared")
+        return
+    if not now:
+        F(f"demo.{p}: no obligation in its result under the registered namespace and prefixes")
+    for x in e.get("list_problems", []):
+        F(f"demo.{p}: the open list does not match the result: {x}")
+    for n, x in sorted(now.items()):
+        if x["status"] not in ("generic", "hand", "open", "refuted"):
+            F(f"demo.{p}: {n}: {x['status']}")
+    for n in sorted(set(was) & set(now)):
+        a, c = was[n], now[n]
+        if a["status"] == c["status"]:
+            continue
+        same = a.get("id") is not None and a.get("id") == c.get("id")
+        unknown = a.get("id") is None or c.get("id") is None
+        move = f"{n}: {a['status']} -> {c['status']}"
+        if a["status"] == "generic" and (same or unknown):
+            F(f"demo.{p}: lost its generic proof, " + ("its statement unchanged" if same else
+              "and the result does not say whether its statement changed") + f": {move}")
+        else:
+            N(f"demo.{p}: {move}" + ("" if same or unknown else " (its statement changed)") + f"; {lower}")
+    gone, new = sorted(set(was) - set(now)), sorted(set(now) - set(was))
+    if gone:
+        N(f"demo.{p}: {len(gone)} obligations no longer stated: {', '.join(gone[:12])}" + (" …" if len(gone) > 12 else ""))
+    if new:
+        N(f"demo.{p}: {len(new)} new obligations: " + ", ".join(f"{n} ({now[n]['status']})" for n in new[:12])
+          + (" …" if len(new) > 12 else "") + f"; {lower}")
+    for n in sorted(set(was) & set(now)):
+        if was[n].get("id") and now[n].get("id") and was[n]["id"] != now[n]["id"] and was[n]["status"] == now[n]["status"]:
+            N(f"demo.{p}: {n}: its statement changed ({now[n]['status']}); {lower}")
+    count = lambda d: ", ".join(f"{k} {sum(1 for x in d.values() if x['status'] == k)}"
+                                for k in ("generic", "hand", "open", "refuted"))
+    P(f"demo.{p}: {len(now)} obligations: {count(now)}")
+
+
 def to_baseline(m, area, reg, old=None):
     """Area AREA's baseline document for measurements m: the entries of the tiers m's run accepts,
     and old's entries of the other tiers (an entry only compared by the run keeps old's). An old
@@ -499,7 +595,8 @@ def to_baseline(m, area, reg, old=None):
         for d, e in m[sec].items():
             if mine(kind, d) and e["tier"] in run_t:
                 # a field not measured is left out (a kept entry, parsed back, has no trace of it)
-                b[sec][d] = {k: v for k, v in e.items() if k not in ("first_error", "invalid") and v is not None}
+                b[sec][d] = {k: v for k, v in e.items() if k not in ("first_error", "invalid", "list_problems")
+                             and v is not None}
     b["record"] = {}
     orec = old.get("record", {})
     names = [n for (k, n), a in owner.items() if k == "record" and a == area]
@@ -551,7 +648,9 @@ def dump(b, header):
         if k != "unit":
             table(tk(k), e)
     for p, e in b["demo"].items():
-        table(f"demo.{p}", e)
+        table(f"demo.{p}", {k: v for k, v in e.items() if k != "slots"})
+        if "slots" in e:
+            table(f"demo.{p}.slots", e["slots"])
     for d, e in b["inv"].items():
         table(f"inv.{d}", e)
     for d, e in b["prog"].items():
@@ -738,6 +837,8 @@ def compare(m, base, expected, accept_cmd, reg):
                   + (f"; new residual: {', '.join(new)}" if new else ""))
             elif y["closed"] > x["closed"]:
                 N(f"demo.{p}: k2l_preserve #{i + 1} closes {y['closed']} of {y['total']} (baseline {x['closed']}); {lower}")
+        if "slots" in b or e.get("slots") is not None:
+            slots_compare(p, e, b, F, N, P, lower)
         if not [f for f in fails if f.startswith(f"demo.{p}:")]:
             pres = "; ".join(f"{y['closed']}/{y['total']}" for y in ep)
             P(f"demo.{p}: {e['guarded']} theorems under the guard; k2l_preserve {pres or 'none'}")

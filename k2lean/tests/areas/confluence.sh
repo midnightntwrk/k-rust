@@ -71,6 +71,16 @@ libs_confluence() {
 
 # ---------------------------------------------------------------- gate phases (tests/gate.sh)
 
+# dbuild_slots PROJECT: build confluence demo PROJECT, then read its frozen names' statuses from the
+# built environment (`k2l-eval --result`), by which gate-check compares its slots by name
+dbuild_slots() {
+  if lbuild "$D/$1" "build-$1"; then
+    ok "build $1" "$L/build-$1.log"
+    if (cd "$D/$1" && "$RT" lake env "$EV" --result "$1" "$L/result-demo-$1.json" "$1") > "$L/result-demo-$1.log" 2>&1
+    then ok "result demo $1" "$L/result-demo-$1.log"; else bad "result demo $1" "$L/result-demo-$1.log"; fi
+  else bad "build $1" "$L/build-$1.log"; fi
+}
+
 needs_confluence() {
   if runs output simple-confluence.toml; then
     [ -d "$SD" ] || need "SIMPLE's sources at $SD (set GATE_K_CHECKOUT)"
@@ -85,7 +95,7 @@ gate_confluence() {
     phase "scaffold RaceConf"
     partlib race Race.Preserves
     scaffold confluence-RaceConf libs_confluence RaceConf
-    dbuild RaceConf
+    dbuild_slots RaceConf
   fi
   # the views by process of the fixture utxo (`confluence --threads procs`), as SimpleConf's, and
   # the joins they leave as slots (`--slots`): generic, or proved in `UtxoConf/Hand.lean`
@@ -93,7 +103,7 @@ gate_confluence() {
     phase "scaffold UtxoConf"
     partlib utxo Utxo.Preserves
     scaffold confluence-UtxoConf libs_confluence UtxoConf
-    dbuild UtxoConf
+    dbuild_slots UtxoConf
   fi
   # the views by task of the fixture handoff (`confluence --threads tasks`): readiness in the rules,
   # a resume's whole segment one step; under the script's well-formedness (no step of a process
@@ -103,7 +113,7 @@ gate_confluence() {
     phase "scaffold HandoffConf"
     partlib handoff Handoff.Preserves
     scaffold confluence-HandoffConf libs_confluence HandoffConf
-    dbuild HandoffConf
+    dbuild_slots HandoffConf
   fi
   # the script run in its order (the fixture handoffseq) into handoff, by hand: a run of handoffseq
   # to the script's end is a run of handoff, so every terminal run of handoff ends where it does
@@ -120,7 +130,7 @@ gate_confluence() {
     phase "scaffold DrfConf"
     partlib drf Drf.Adequacy
     scaffold confluence-DrfConf libs_confluence DrfConf
-    dbuild DrfConf
+    dbuild_slots DrfConf
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with the slots the views by
   # thread leave, by premise and class (`k2lean confluence --threads --slots`): a recorded output;
@@ -129,6 +139,6 @@ gate_confluence() {
   if runs output simple-confluence.toml; then
     phase "confluence SimpleConf"
     kc simple && scaffold "confluence SimpleConf" libs_confluence SimpleConf "$MEAS/simple-confluence.toml" &&
-      { ! runs demo SimpleConf || dbuild SimpleConf; }
+      { ! runs demo SimpleConf || dbuild_slots SimpleConf; }
   fi
 }
