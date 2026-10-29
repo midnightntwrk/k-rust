@@ -372,6 +372,16 @@ fn maps_freeze_empty_items_remainders_and_functional_update() {
     )
     .unwrap();
     assert!(matches!(update.body(), MapBody::Update { .. }));
+    // Brackets that end the last value of `k -> v` items are an index, not
+    // the update `base[key <- value]`, and so are brackets that compare with
+    // a negative operand, `i < -1`, which holds no `<-`.
+    for source in ["X -> m[k]", "X -> m[i < -1]", "X -> 1, Y -> l[0]"] {
+        let indexed = krs_syntax::parse_map_expression(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(indexed.body(), MapBody::Items { .. }), "{source}");
+    }
     let items = krs_syntax::parse_map_pattern(
         krs_syntax::parse::tokens_from_source(r#"k::id!("$s") -> 3, k::id!("$n") -> 4, rest @ .."#)
             .unwrap(),

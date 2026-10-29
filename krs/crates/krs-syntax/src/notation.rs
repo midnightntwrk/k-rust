@@ -353,6 +353,25 @@ fn method_call(call: &ExprMethodCall) -> Result<ExprCall, SyntaxError> {
         }
         return Err(missing_domain(&name, span));
     };
+    domain_method_call(call, &name, span, turbofish).map_err(|error| {
+        if CollectionMethod::named(&name).is_some() {
+            error.with_help(
+                "a collection method takes no turbofish: its receiver's sort chooses the collection",
+            )
+        } else {
+            error
+        }
+    })
+}
+
+/// `recv.op::<D>(args..)`, the method call of the domain its turbofish names.
+fn domain_method_call(
+    call: &ExprMethodCall,
+    name: &str,
+    span: Span,
+    turbofish: &syn::AngleBracketedGenericArguments,
+) -> Result<ExprCall, SyntaxError> {
+    let name = name.to_owned();
     let domain = match (turbofish.args.len(), turbofish.args.first()) {
         (1, Some(GenericArgument::Type(Type::Path(domain))))
             if domain.qself.is_none()

@@ -267,17 +267,21 @@ impl StructuredTermBuilder<'_> {
         self.method_error(key, OperatorProblem::Ambiguous, reason)
     }
 
-    /// The error for a receiver of a sort no collection lies below.
+    /// The error for a receiver of a sort no collection lies below: the
+    /// notation does not apply to it, which is no ambiguity.
     fn foreign_receiver(
         &self,
         key: &ProvenanceKey,
         method: CollectionMethod,
         sort: &SemanticSortRef,
     ) -> DescriptorLoweringError {
-        let scalar = scalar_forms(method);
+        let scalar = scalar_forms(method, |domain| {
+            semantic_is_subsort(sort, &SemanticSortRef::Builtin(domain), self.sort_parents)
+        });
+        // Nothing is ambiguous: the notation reads no receiver of this sort.
         self.method_error(
             key,
-            OperatorProblem::Ambiguous,
+            OperatorProblem::Undefined,
             format!(
                 "`{}` has a receiver of sort `{}`, which is no collection: an index and the collection methods read a `Map`, a `List` or a `Set`{scalar}",
                 method.written(),
@@ -355,25 +359,26 @@ fn method_names(domain: CollectionDomain) -> String {
     prose_list(&names, "and")
 }
 
-/// For a method whose name a scalar domain's module also defines, the
-/// turbofish forms that name that operation instead.
-fn scalar_forms(method: CollectionMethod) -> String {
+/// For a method whose name the module of a scalar domain the receiver's sort
+/// lies in also defines (`b.update(i, v)` on `Bytes`), the turbofish form
+/// that names that operation instead.
+fn scalar_forms(method: CollectionMethod, receiver_in: impl Fn(BuiltinSort) -> bool) -> String {
     let name = method.rust_name();
     let forms = [
-        ("Int", "int"),
-        ("Bool", "bool"),
-        ("String", "string"),
-        ("Float", "float"),
-        ("Bytes", "bytes"),
-        ("K", "kequal"),
+        ("Int", "int", BuiltinSort::Int),
+        ("Bool", "bool", BuiltinSort::Bool),
+        ("String", "string", BuiltinSort::String),
+        ("Float", "float", BuiltinSort::Float),
+        ("Bytes", "bytes", BuiltinSort::Bytes),
     ]
     .into_iter()
-    .filter(|(_, module)| {
+    .filter(|(_, _, sort)| receiver_in(*sort))
+    .filter(|(_, module, _)| {
         krs_ir::BuiltinOperation::ALL.iter().any(|operation| {
             operation.spec().rust_module == *module && operation.spec().rust_name == name
         })
     })
-    .map(|(domain, _)| format!("`{name}::<{domain}>`"))
+    .map(|(domain, _, _)| format!("`{name}::<{domain}>`"))
     .collect::<Vec<_>>();
     if forms.is_empty() {
         String::new()

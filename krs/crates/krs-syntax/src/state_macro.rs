@@ -2287,11 +2287,12 @@ fn split_bracket_update(tokens: &TokenStream) -> Option<(TokenStream, proc_macro
     Some((trees.into_iter().collect(), group))
 }
 
-/// Whether `trees` hold the punctuation `first` directly followed by `second`
-/// (`->`, `<-`).
+/// Whether `trees` hold the punctuation `first` joined to `second` (`->`,
+/// `<-`); `i < -1`, a comparison with a negative operand, holds no `<-`.
 fn has_arrow(trees: &[TokenTree], first: char, second: char) -> bool {
     trees.windows(2).any(|window| {
-        matches!(&window[0], TokenTree::Punct(value) if value.as_char() == first)
+        matches!(&window[0], TokenTree::Punct(value)
+            if value.as_char() == first && value.spacing() == proc_macro2::Spacing::Joint)
             && matches!(&window[1], TokenTree::Punct(value) if value.as_char() == second)
     })
 }

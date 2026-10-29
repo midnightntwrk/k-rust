@@ -15,7 +15,7 @@ use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, te
 /// A package with one placeholder `{NAME}` per term; [`SPELLINGS`] fills each
 /// with a call or with the notation that denotes it.
 const SOURCE: &str = r#"
-use k::builtin::{Bool, Int, KSequence, List, Map, Set, list, map, set};
+use k::builtin::{Bool, Int, KSequence, List, Map, Set, int, list, map, set};
 use k::{KItem, KResult, Term};
 
 k::sorts! {
@@ -30,6 +30,8 @@ pub enum ExpSyntax {
     Drop { n: Int },
     #[k::syntax("peek")]
     Peek,
+    #[k::syntax("tally")]
+    Tally,
 }
 
 #[k::function(total, internal)]
@@ -45,6 +47,12 @@ pub fn Covered(m: Term<Map>, s: Term<Set>, t: Term<Set>) -> Term<Bool> {
 #[k::function(total, internal)]
 pub fn Listed(m: Term<Map>, s: Term<Set>) -> Term<Int> {
     k::term![{LISTED}]
+}
+
+/// A receiver and an operand a `let` binds have their values' sorts.
+#[k::function(total, internal)]
+pub fn LetBound(m: Term<Map>, a: Term<Int>) -> Term<Int> {
+    k::term![int::add({LET_SIZE}, {LET_DOUBLE})]
 }
 
 #[k::function(partial, internal)]
@@ -196,6 +204,16 @@ const SPELLINGS: &[(&str, &str, &str)] = &[
         "c.update(n, c[n] + 1)",
     ),
     ("PEEK_KEY", "list::size(st)", "st.len()"),
+    (
+        "LET_SIZE",
+        "{ let n = m; map::size(n) }",
+        "{ let n = m; n.len() }",
+    ),
+    (
+        "LET_DOUBLE",
+        "{ let b = a; int::add(b, b) }",
+        "{ let b = a; b + b }",
+    ),
     ("DROP_ENV", "map::remove(e, n)", "e.without(n)"),
     ("CLAIM_REQUIRES", "map::in_keys(n, e)", "e.contains_key(n)"),
     (
@@ -332,6 +350,7 @@ fn collection_notation_emits_the_k_of_the_calls_it_denotes() {
         rule covered ( M:Map , S:Set , T:Set ) => keys(M:Map) <=Set intersectSet((S:Set |Set T:Set) -Set S:Set, T:Set) [label(krsRule_8be4fdb3e54ee1b9ecb3d4a2)]
         rule lookup ( M:Map , Key:Int ) => {M:Map [ Key:Int ]}:>Int [label(krsRule_ca9c6cb787329cb196b90848)]
         rule sizes ( M:Map , L:List , S:Set ) => (size(M:Map) +Int size(L:List)) +Int size(S:Set) [label(krsRule_cc124f9a8f35c9e67f745b2e)]
+        rule letBound ( M:Map , A:Int ) => ( #let N:Map = M:Map #in size(N:Map) ) +Int ( #let B:Int = A:Int #in B:Int +Int B:Int ) [label(krsRule_ece27c839115a2c3e2b7ad22)]
         rule [peek]:
         <k> peek => V:KItem ... </k>
         <env> size(St:List) |-> V:KItem ... </env>
@@ -347,6 +366,52 @@ fn collection_notation_emits_the_k_of_the_calls_it_denotes() {
         <k> drop ( N:Int ) ~> Tail:K => .K ~> Tail:K </k>
         <env> E:Map => E:Map [ N:Int <- {E:Map [ N:Int ]}:>KItem ] </env>
         requires N:Int in_keys(E:Map)"#]].assert_eq(&sentences);
+}
+
+/// A readable rule whose result binds a receiver with `let`: `krs expand`
+/// writes a readable result's `let` into a `cells!` rule, which refuses it
+/// (finding S0-17), so this rule stays out of [`SOURCE`], which the expansion
+/// test reads.
+const LET_RESULT: (&str, &str) = (
+    "{ let l = list::item(1); list::update(st, 0, list::size(l)) }",
+    "{ let l = list::item(1); st.update(0, l.len()) }",
+);
+
+/// A receiver and an operand a `let` binds have their values' sorts, so they
+/// choose as the value would: in a fn body (`LetBound`) and in a readable
+/// rule's result.
+#[test]
+fn a_let_bound_receiver_chooses_as_its_value() {
+    let target = shared_fixture_target();
+    let rule = |stack: &str| {
+        format!(
+            "k::rules! {{ for Machine; use ExpSyntax::*; tally: {{ k: [Tally(), ..], stack: st }} => {{ k: [..], stack: {stack} }}; }}"
+        )
+    };
+    let calls = temp_dir();
+    let notation = temp_dir();
+    let call_k = emitted_k(
+        target.path(),
+        calls.path(),
+        &(spelled(false) + &rule(LET_RESULT.0)),
+    );
+    let notation_k = emitted_k(
+        target.path(),
+        notation.path(),
+        &(spelled(true) + &rule(LET_RESULT.1)),
+    );
+    assert_eq!(notation_k, call_k);
+    let definition = &notation_k
+        .iter()
+        .find(|(name, _)| name == "definition.k")
+        .expect("a definition is emitted")
+        .1;
+    for sentence in [
+        "( #let N:Map = M:Map #in size(N:Map) ) +Int ( #let B:Int = A:Int #in B:Int +Int B:Int )",
+        "<stack> St:List => ( #let L:List = ListItem(1) #in St:List [ 0 <- size(L:List) ] ) </stack>",
+    ] {
+        assert!(definition.contains(sentence), "{sentence}:\n{definition}");
+    }
 }
 
 #[test]
@@ -402,18 +467,29 @@ fn expand_writes_the_calls_collection_notation_denotes() {
 }
 
 /// The first `error[..]` headline and its message of `krs check` on a
-/// package whose last item is `item`.
+/// package whose last item is `item`, with the help lines that follow it.
 fn check_error(target: &Path, item: &str) -> String {
     let temporary = temp_dir();
     let source = spelled(true) + item;
     let manifest = package(temporary.path(), "collections", &source);
     let (success, _, stderr) = krs(target, &manifest, "check", &[]);
     assert!(!success, "{item} was accepted");
-    stderr
+    let mut lines = stderr
         .lines()
-        .find(|line| line.starts_with("error["))
-        .unwrap_or_else(|| panic!("no error headline:\n{stderr}"))
-        .to_owned()
+        .skip_while(|line| !line.starts_with("error["));
+    let headline = lines
+        .next()
+        .unwrap_or_else(|| panic!("no error headline:\n{stderr}"));
+    let mut message = headline.to_owned();
+    for help in lines
+        .take_while(|line| !line.starts_with("error"))
+        .filter_map(|line| line.trim_start().strip_prefix("= help: "))
+    {
+        message.push_str(" [help: ");
+        message.push_str(help);
+        message.push(']');
+    }
+    message
 }
 
 #[test]
@@ -426,11 +502,15 @@ fn a_receiver_that_chooses_no_collection_and_a_method_it_lacks_are_errors() {
         // A receiver of a sort that is no collection.
         "#[k::function(total, internal)]
          pub fn Count(x: Term<Int>) -> Term<Int> { k::term![x.len()] }",
-        // A scalar domain's operation of the same name is named.
+        // A scalar domain's operation of the same name is named, when the
+        // receiver lies in that domain: `bytes::update` for a `Bytes`, none
+        // for an `Int`.
         "#[k::function(total, internal)]
          pub fn Patch(b: Term<k::builtin::Bytes>) -> Term<k::builtin::Bytes> {
              k::term![b.update(0, 1)]
          }",
+        "#[k::function(total, internal)]
+         pub fn Patch(x: Term<Int>) -> Term<Int> { k::term![x.update(0, 1)] }",
         // A method of another collection.
         "#[k::function(total, internal)]
          pub fn Join(m: Term<Map>, n: Term<Map>) -> Term<Map> { k::term![m.union(n)] }",
@@ -444,22 +524,27 @@ fn a_receiver_that_chooses_no_collection_and_a_method_it_lacks_are_errors() {
         // A method takes the arguments of the call it denotes.
         "#[k::function(total, internal)]
          pub fn Count(m: Term<Map>) -> Term<Int> { k::term![m.len(1)] }",
-        // A turbofish names a scalar domain, as before.
+        // A turbofish names a scalar domain, as before, with the help that a
+        // collection method takes none.
         "#[k::function(total, internal)]
          pub fn Count(m: Term<Map>) -> Term<Int> { k::term![m.len::<Int>()] }",
+        "#[k::function(total, internal)]
+         pub fn Has(m: Term<Map>) -> Term<Bool> { k::term![m.contains_key::<Map>(1)] }",
     ]
     .map(|item| check_error(target.path(), item));
     expect_test::expect![[r#"
         [
             "error[krs::analysis::ambiguous-operator]: `.len()` has the receiver `x`, which no occurrence sorts more precisely than `KItem`, so it chooses no collection; narrow it (the typed binder `x: Term<Map>`) or write the call you mean: `map::size(..)`, `list::size(..)`, or `set::size(..)`",
-            "error[krs::analysis::ambiguous-operator]: `.len()` has a receiver of sort `Int`, which is no collection: an index and the collection methods read a `Map`, a `List` or a `Set`",
-            "error[krs::analysis::ambiguous-operator]: `.update(..)` has a receiver of sort `Bytes`, which is no collection: an index and the collection methods read a `Map`, a `List` or a `Set`; a builtin operation of a scalar domain names its domain: `update::<Bytes>`",
+            "error[krs::syntax::invalid-expression-notation]: `.len()` has a receiver of sort `Int`, which is no collection: an index and the collection methods read a `Map`, a `List` or a `Set`",
+            "error[krs::syntax::invalid-expression-notation]: `.update(..)` has a receiver of sort `Bytes`, which is no collection: an index and the collection methods read a `Map`, a `List` or a `Set`; a builtin operation of a scalar domain names its domain: `update::<Bytes>`",
+            "error[krs::syntax::invalid-expression-notation]: `.update(..)` has a receiver of sort `Int`, which is no collection: an index and the collection methods read a `Map`, a `List` or a `Set`",
             "error[krs::syntax::invalid-expression-notation]: the method `.union(..)` reads a `Set`, and the receiver is a `Map`, whose methods are `[..]`, `.get_or(..)`, `.contains_key(..)`, `.update(..)`, `.without(..)`, `.without_all(..)`, `.extend(..)`, `.keys()`, `.keys_list()`, `.values()`, and `.len()`",
             "error[krs::syntax::invalid-expression-notation]: an index reads a `Map` or a `List`, and the receiver is a `Set`, whose methods are `.len()`, `.contains(..)`, `.union(..)`, `.difference(..)`, `.intersection(..)`, `.is_subset(..)`, and `.to_list()`",
             "error[krs::syntax::invalid-expression-notation]: `.size(..)` is neither a collection method nor a builtin operation of any domain; a term's methods are the collection methods (`m.get_or(k, d)`, `s.contains(x)`, ..) and builtin operations, written `receiver.operation::<Domain>(..)`",
             "error[krs::syntax::invalid-expression-notation]: a method call names its builtin domain in a turbofish: write `lt::<Int>`, `lt::<String>`, or `lt::<Float>`",
             "error[krs::syntax::invalid-expression-notation]: `.len()` takes no argument besides its receiver",
-            "error[krs::syntax::invalid-expression-notation]: the builtin module `int` has no operation `len`",
+            "error[krs::syntax::invalid-expression-notation]: the builtin module `int` has no operation `len` [help: a collection method takes no turbofish: its receiver's sort chooses the collection]",
+            "error[krs::syntax::invalid-expression-notation]: `Map` is not a builtin domain; a method call names `Int`, `Bool`, `String`, `Float`, `Bytes`, or `K` [help: a collection method takes no turbofish: its receiver's sort chooses the collection]",
         ]
     "#]].assert_debug_eq(&errors);
 }
@@ -488,4 +573,35 @@ fn an_index_or_a_method_in_a_pattern_is_a_function_in_a_pattern() {
             "error[krs::analysis::function-in-pattern]: the collection method `.len()`, a builtin function, stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: read the value into a name and compare it in a guard (`requires`)",
         ]
     "#]].assert_debug_eq(&errors);
+}
+
+/// Every reading of the method table, each collection's operation a method
+/// or an index denotes, is written in [`SPELLINGS`] beside its call, so a new
+/// row needs its spelling here.
+#[test]
+fn every_reading_of_the_method_table_has_a_spelling() {
+    let mut missing = Vec::new();
+    for method in krs_ir::CollectionMethod::ALL {
+        for domain in method.domains() {
+            let marker = method
+                .reading(domain)
+                .expect("a listed domain reads")
+                .facade_marker();
+            let call = format!("{}::{}(", marker.module, marker.name);
+            let written = match method.spelling() {
+                krs_ir::CollectionMethodSpelling::Index => "[".to_owned(),
+                krs_ir::CollectionMethodSpelling::Method => format!(".{}(", method.rust_name()),
+            };
+            if !SPELLINGS
+                .iter()
+                .any(|(_, calls, notation)| calls.contains(&call) && notation.contains(&written))
+            {
+                missing.push(format!("{} in {}", method.written(), domain.name()));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "readings without a spelling: {missing:?}"
+    );
 }
