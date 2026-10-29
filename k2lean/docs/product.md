@@ -9,6 +9,7 @@ Each item says where it comes from:
 
 Companions:
 - [`contract.md`](contract.md): what a generated library promises, and what an optimization loop may change in it;
+- [`direction.md`](direction.md): the map these decisions fit in, and the directions beyond what exists; a direction moves here when Sebastien decides it;
 - `design.md` §3, "What a generator knows": what each generator states from K, and what a user writes.
 
 The records behind this note are the lab notebook (`draft-personal/matching-logic-vs-dtt/`): its decisions are summarized here, and its history is not imported (decided 2026-10-24).
