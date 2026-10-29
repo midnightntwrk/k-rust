@@ -693,7 +693,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a List collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, matched as a list's element is (decision D1); those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:52",
                     ],
                 ),
@@ -703,7 +703,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a Map collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, so its cells are values a match compares (decision D1), where a Set collection's computed instance is looked up as the set's element; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:48",
                     ],
                 ),
@@ -713,7 +713,7 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
                 (
                     false,
                     [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a Map collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, so its cells are values a match compares (decision D1), where a Set collection's computed instance is looked up as the set's element; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                         "--> src/lib.rs:88:58",
                     ],
                 ),

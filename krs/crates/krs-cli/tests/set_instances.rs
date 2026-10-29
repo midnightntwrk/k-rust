@@ -28,7 +28,7 @@ use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, te
 /// Each `{NAME}` is a rule [`ACCEPTED`] fills, or a test replaces.
 const SOURCE: &str = r#"
 use k::KResult;
-use k::builtin::{Int, KSequence, Map, int, map};
+use k::builtin::{Int, KSequence, Map, Set, int, map, set};
 
 k::sorts! {
     Stmt;
@@ -38,7 +38,7 @@ k::sorts! {
 
 #[k::constructors(sort = Stmt, result = KResult)]
 #[k::precedence(
-    cmd (Mk, Touch, Probe, Drop, Bump, Next, Via, Find, Check)
+    cmd (Mk, Touch, Probe, Drop, Bump, Next, Via, Find, Check, Dup, Dz, Mkb, Bags, Bagm, Bagc)
     > right seq (Seq)
 )]
 #[rustfmt::skip]
@@ -52,6 +52,12 @@ pub enum Cmd {
     #[k::syntax("via {key}")] Via { key: Int },
     #[k::syntax("find {oid}")] Find { oid: Int },
     #[k::syntax("check {oid}")] Check { oid: Int },
+    #[k::syntax("dup {oid}")] Dup { oid: Int },
+    #[k::syntax("dz {oid}")] Dz { oid: Int },
+    #[k::syntax("mkb {id}")] Mkb { id: Int },
+    #[k::syntax("bags {id}")] Bags { id: Int },
+    #[k::syntax("bagm {id}")] Bagm { id: Int },
+    #[k::syntax("bagc {id}")] Bagc { id: Int },
     #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
 }
 
@@ -67,6 +73,31 @@ pub struct Obj {
     pub oid: Int,
     #[k::cell]
     pub hits: Int,
+}
+
+/// A Set collection whose instances hold a set and a map.
+#[k::cell]
+pub struct Sacks {
+    #[k::cell(multiplicity = "*", cell_type = "Set", nested)]
+    pub bag: Bag,
+}
+
+#[k::cell]
+pub struct Bag {
+    #[k::cell]
+    pub key: Int,
+    #[k::cell]
+    pub s: Set,
+    #[k::cell]
+    pub m: Map,
+}
+
+#[k::cell]
+pub struct Meta {
+    #[k::cell]
+    pub a: Int,
+    #[k::cell]
+    pub b: Int,
 }
 
 #[k::cell]
@@ -93,6 +124,10 @@ pub struct Machine {
     pub objects: Objects,
     #[k::cell(nested)]
     pub table: Table,
+    #[k::cell(nested)]
+    pub sacks: Sacks,
+    #[k::cell(nested)]
+    pub meta: Meta,
 }
 
 impl Machine {
@@ -103,6 +138,8 @@ impl Machine {
             env: map![1 -> 4],
             objects: Objects { obj: Obj { oid: 0, hits: 0 } },
             table: Table { row: Row { id: 0, value: Cmd::Mk(0) } },
+            sacks: Sacks { bag: Bag { key: 0, s: set![], m: map![] } },
+            meta: Meta { a: 0, b: 0 },
         }
     }
 }
@@ -159,6 +196,43 @@ k::rules! {
         k: [..],
     };
 
+    dup: {
+        k: [Dup(n), ..],
+        obj: { Obj { oid: n + 1, hits: 0 }, Obj { oid: n + 1, hits: 0 }, .. },
+    } => {
+        k: [..],
+    };
+
+    #[k::requires(10 / n > 0)]
+    dz: {
+        k: [Dz(n), ..],
+        obj: { Obj { oid: n + 100, hits: 0 }, .. },
+    } => {
+        k: [..],
+    };
+
+    mkb: {
+        k: [Mkb(n), ..],
+        bag: { .. },
+    } => {
+        k: [..],
+        bag: { Bag { key: n, s: set![n, n + 1], m: map![n -> n + 1] }, .. },
+    };
+
+    bags: {
+        k: [Bags(n), ..],
+        bag: { Bag { key: n, s: set![n + 1, n], m: map![n -> n + 1] }, .. },
+    } => {
+        k: [..],
+    };
+
+    bagm: {
+        k: [Bagm(n), ..],
+        bag: { Bag { key: n - 1, s: set![n - 1, n], m: map![n - 1 -> n] }, .. },
+    } => {
+        k: [..],
+    };
+
     #[k::requires(n > 0)]
     check: {
         k: [Check(n), ..],
@@ -174,7 +248,7 @@ fn find(
     k::cells! {
         k: k::configuration::KCell(Cmd::Find(n), tail @ ..),
         Objects::obj: {
-            me @ k::fragment![crate::Obj { oid: int::add(n, 1), hits: 0 }],
+            me @ k::fragment![crate::Obj { oid: n + 1, hits: 0 }],
             instances0 @ ..
         },
         state @ ..
@@ -206,6 +280,27 @@ fn via(
     k::cells! {
         k: k::configuration::KCell(..tail),
         Objects::obj: { ..instances0 },
+        ..state
+    }
+}
+
+/// An exact map cell is part of the instance's value, its key read as a
+/// key is.
+#[k::rule(label = "bagc")]
+fn bagc(
+    n: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Bagc(n), tail @ ..),
+        Sacks::bag: {
+            k::fragment![crate::Bag { key: n + 1, s: set![n + 2, n + 1], m: map![n + 1 -> int::add(n, 2)] }],
+            instances0 @ ..
+        },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Sacks::bag: { ..instances0 },
         ..state
     }
 }
@@ -317,33 +412,7 @@ fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, 
 /// map entry (`via`, a `cells!` rule) binds is looked up after it.
 #[test]
 fn a_computed_instance_is_emitted_with_its_guards() {
-    let target = shared_fixture_target();
-    let temporary = temp_dir();
-    let manifest = package(temporary.path(), &source(&[]));
-    let output = temporary.path().join("emitted");
-    let (success, _, stderr) = krs(
-        target.path(),
-        &manifest,
-        "emit-k",
-        &["--output", output.to_str().unwrap()],
-    );
-    assert!(success, "{stderr}");
-    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
-    let mut rules = Vec::new();
-    for label in ["probe", "drop", "bump", "next", "via", "check", "find"] {
-        let rule = definition
-            .lines()
-            .skip_while(|line| line.trim() != format!("rule [{label}]:"))
-            .take_while(|line| {
-                !line.trim().is_empty()
-                    && line.trim() != "endmodule"
-                    && (line.trim() == format!("rule [{label}]:") || !line.contains("rule ["))
-            })
-            .map(str::trim)
-            .collect::<Vec<_>>()
-            .join("\n");
-        rules.push(rule);
-    }
+    let rules = emitted_rules(&["probe", "drop", "bump", "next", "via", "check", "find"]);
     expect_test::expect![[r"
         rule [probe]:
         <k> probe N:Int => .K ... </k>
@@ -391,15 +460,90 @@ fn a_computed_instance_is_emitted_with_its_guards() {
         <oid> Krs_Instance0:Int </oid>
         <hits> Krs_Instance1:Int </hits>
         </obj>
-        requires (Krs_Instance0:Int ==K (N:Int *Int 2)) andBool ((Krs_Instance1:Int ==K (N:Int -Int 1)) andBool (N:Int >Int 0))
+        requires (Krs_Instance0:Int ==K (N:Int *Int 2)) andThenBool ((Krs_Instance1:Int ==K (N:Int -Int 1)) andThenBool (N:Int >Int 0))
         rule [find]:
         <k> find N:Int ~> Tail:K => .K ~> Tail:K </k>
         <obj>
         <oid> Krs_Instance0:Int </oid>
         <hits> 0 </hits>
         </obj>
-        requires Krs_Instance0:Int ==K (N:Int +Int 1)"]]
-    .assert_eq(&rules.join("\n"));
+        requires Krs_Instance0:Int ==K (N:Int +Int 1)"]].assert_eq(&rules);
+}
+
+/// Two computed instances in one rule are two guarded elements; the guards
+/// come before the author's condition, which reads what they found (`dz`);
+/// set and map cells, a `cells!` instance's exact map cell among them
+/// (`bagc`), are part of the value looked up.
+#[test]
+fn set_and_map_cells_and_two_instances_are_emitted_with_their_guards() {
+    let rules = emitted_rules(&["dup", "dz", "bags", "bagc"]);
+    expect_test::expect![[r"
+        rule [dup]:
+        <k> dup N:Int => .K ... </k>
+        <obj>
+        <oid> Krs_Instance0:Int </oid>
+        <hits> 0 </hits>
+        </obj>
+        <obj>
+        <oid> Krs_Instance1:Int </oid>
+        <hits> 0 </hits>
+        </obj>
+        requires (Krs_Instance0:Int ==K (N:Int +Int 1)) andThenBool (Krs_Instance1:Int ==K (N:Int +Int 1))
+        rule [dz]:
+        <k> dz N:Int => .K ... </k>
+        <obj>
+        <oid> Krs_Instance0:Int </oid>
+        <hits> 0 </hits>
+        </obj>
+        requires (Krs_Instance0:Int ==K (N:Int +Int 100)) andThenBool ((10 /Int N:Int) >Int 0)
+        rule [bags]:
+        <k> bags N:Int => .K ... </k>
+        <bag>
+        <key> N:Int </key>
+        <s> Krs_Instance0:Set </s>
+        <m> Krs_Instance1:Map </m>
+        </bag>
+        requires (Krs_Instance0:Set ==K SetItem(N:Int +Int 1) |Set SetItem(N:Int)) andThenBool (Krs_Instance1:Map ==K .Map [ N:Int <- N:Int +Int 1 ])
+        rule [bagc]:
+        <k> bagc N:Int ~> Tail:K => .K ~> Tail:K </k>
+        (<bag>
+        <key> Krs_Instance0:Int </key>
+        <s> Krs_Instance1:Set </s>
+        <m> Krs_Instance2:Int |-> Krs_Instance3:Int </m>
+        </bag> => .Bag)
+        requires (Krs_Instance0:Int ==K (N:Int +Int 1)) andThenBool ((Krs_Instance1:Set ==K SetItem(N:Int +Int 2) |Set SetItem(N:Int +Int 1)) andThenBool ((Krs_Instance2:Int ==K (N:Int +Int 1)) andThenBool (Krs_Instance3:Int ==K (N:Int +Int 2))))"]].assert_eq(&rules);
+}
+
+/// The emitted rules `labels` of [`SOURCE`], one line each.
+fn emitted_rules(labels: &[&str]) -> String {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), &source(&[]));
+    let output = temporary.path().join("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let mut rules = Vec::new();
+    for label in labels {
+        let rule = definition
+            .lines()
+            .skip_while(|line| line.trim() != format!("rule [{label}]:"))
+            .take_while(|line| {
+                !line.trim().is_empty()
+                    && line.trim() != "endmodule"
+                    && (line.trim() == format!("rule [{label}]:") || !line.contains("rule ["))
+            })
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join("\n");
+        rules.push(rule);
+    }
+    rules.join("\n")
 }
 
 /// The first `error[..]` headline of `krs check` with the rules `replaced`,
@@ -441,11 +585,16 @@ fn probe(subject: &str) -> String {
 /// whose own key reads it); one that reads a name bound
 /// nowhere reads a value nothing gave. A Map collection's instance is matched:
 /// the notation, the sort test and the record update the walker reads as in a
-/// key are refused there by resolution.
+/// key are refused there by resolution. A `cells!` instance's map cell with
+/// `..` leaves entries open, so its instance selects. A claim's state reads
+/// its instances' cells as any pattern, where an operation is spelled as its
+/// call. An ordinary map key that holds an open group record selects too.
 #[test]
 fn an_instance_that_is_not_computed_is_refused() {
     let target = shared_fixture_target();
     let cycle = "#[k::rule(label = \"cycle\")]\nfn cycle(\n    v: k::Term<Int>,\n    k::cells! {\n        k: k::configuration::KCell(Cmd::Probe(0), tail @ ..),\n        Objects::obj: {\n            k::fragment![crate::Obj { oid: int::add(v, 2), hits: 0 }],\n            instances0 @ ..\n        },\n        env: k::configuration::Cell(map![int::add(v, 1) -> v, ..]),\n        state @ ..\n    }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n";
+    let open_map = "#[k::rule(label = \"open-map\")]\nfn open_map(\n    n: k::Term<Int>,\n    k::cells! {\n        k: k::configuration::KCell(Cmd::Probe(n), tail @ ..),\n        Sacks::bag: {\n            k::fragment![crate::Bag { key: n + 1, s: set![], m: map![1 -> 2, ..] }],\n            instances0 @ ..\n        },\n        state @ ..\n    }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n";
+    let claim = "k::claims! {\n    for Machine;\n    use Cmd::*;\n\n    #[k::claim(all_paths)]\n    spelled: { k: [Probe(n), ..], obj: { Obj { oid: n + 1, hits: 0 } } } => { k: [..] };\n}\n";
     let errors = [
         vec![("PROBE", probe("obj: { Obj { oid: n + 1, .. }, .. }"))],
         vec![("PROBE", probe("obj: { Obj { oid: n + 1, hits: h }, .. }"))],
@@ -465,6 +614,9 @@ fn an_instance_that_is_not_computed_is_refused() {
             "probe: { k: [Probe(n), v @ Mk { .. }, ..], row: { Row { id: n, value: Mk { oid: 1, ..v } }, .. } } => { k: [..] };"
                 .to_owned(),
         )],
+        vec![("EXTRA", open_map.to_owned())],
+        vec![("EXTRA", claim.to_owned())],
+        vec![("PROBE", probe("env: { Meta { a: n + 1, .. } -> v, .. }"))],
     ]
     .map(|replaced| {
         let replaced = replaced
@@ -492,7 +644,7 @@ fn an_instance_that_is_not_computed_is_refused() {
                 "m",
             ),
             (
-                "error[krs::analysis::function-in-pattern]: the operator `+`, a builtin function, stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
+                "error[krs::analysis::function-in-pattern]: the operator `+`, a builtin function, stands in a Map collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, so its cells are values a match compares (decision D1), where a Set collection's computed instance is looked up as the set's element; those cells have their functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match a variable here and relate it to the application in a guard (`requires`)",
                 "+",
             ),
             (
@@ -500,8 +652,20 @@ fn an_instance_that_is_not_computed_is_refused() {
                 "k::project!(Int, n)",
             ),
             (
-                "error[krs::syntax::invalid-record-update]: a record update `Ctor { f: e, ..base }` stands in a cell collection's instance, which the pattern matches against the instances the collection holds: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to; `..base` builds a record from the record `base` matched, which only a term a sentence builds can say, and a pattern denotes no record by it: name the fields the pattern constrains, and leave out the others with `..`",
+                "error[krs::syntax::invalid-record-update]: a record update `Ctor { f: e, ..base }` stands in a Map collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, so its cells are values a match compares (decision D1), where a Set collection's computed instance is looked up as the set's element; `..base` builds a record from the record `base` matched, which only a term a sentence builds can say, and a pattern denotes no record by it: name the fields the pattern constrains, and leave out the others with `..`",
                 "Mk",
+            ),
+            (
+                "error[krs::analysis::function-in-pattern]: the operator `+`, a builtin function, stands in a Set collection's instance that also holds `..` in a cell's map, which leaves its other entries open, so the instance selects one by matching the instances the collection holds as they stand, rather than computing the instance looked up; the operator `+`, a builtin function, denotes the value evaluation produces, which no cell of an instance holds, so this pattern describes an instance that never occurs and the sentence never applies: bind the selected part elsewhere in the pattern and write every cell to look the instance up, or match a variable here and relate it to the application in a guard (`requires`)",
+                "+",
+            ),
+            (
+                "error[krs::syntax::invalid-expression-notation]: `+` is not a pattern: a pattern writes a builtin operation as its call, `int::add(..)`, `string::concat(..)`, or `float::add(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a map's key or a set's element, which are looked up",
+                "+",
+            ),
+            (
+                "error[krs::analysis::function-in-pattern]: the operator `+`, a builtin function, stands in a map key that also holds an open record `Ctor { .. }`, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; the operator `+`, a builtin function, denotes the value evaluation produces, which no evaluated key is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+                "+",
             ),
         ]
     "#]].assert_debug_eq(&errors);
@@ -513,7 +677,11 @@ fn an_instance_that_is_not_computed_is_refused() {
 /// beside the one before it with the same hits, the `cells!` rule `via` removes
 /// one whose id an `env` entry gives, `check` finds one whose two cells it
 /// computes, under the author's condition, and the `cells!` rule `find` one it
-/// computes by a call, which its label keeps.
+/// computes with an operator, which its label keeps. Among four objects the
+/// probe finds the last in either order of creation; `dup` never finds two
+/// instances in one; `dz`'s guards hold before its condition, which divides
+/// by `n`, is read; `bags`, `bagm` and the `cells!` rule `bagc` compare set
+/// and map cells (`==K` on a `Set` and a `Map`).
 #[test]
 fn a_computed_instance_is_looked_up_at_run_time() {
     let target = shared_fixture_target();
@@ -533,6 +701,16 @@ fn a_computed_instance_is_looked_up_at_run_time() {
         "mk 4 check 2",
         "mk 0 check 0",
         "mk 3 find 2",
+        "mk 1 mk 2 mk 3 mk 40 probe 39",
+        "mk 40 mk 3 mk 2 mk 1 probe 39",
+        "mk 1 mk 2 mk 3 dup 1",
+        "mk 1 dz 0",
+        "mk 105 dz 5",
+        "mkb 5 bags 5",
+        "mkb 5 bags 4",
+        "mkb 5 bagm 6",
+        "mkb 5 bagc 4",
+        "mkb 5 bagc 5",
     ]
     .map(|program| {
         let file = manifest.with_file_name("program.txt");
@@ -550,26 +728,37 @@ fn a_computed_instance_is_looked_up_at_run_time() {
             flat[start..end].to_owned()
         };
         format!(
-            "{program} => k: {}; objects: {}",
+            "{program} => k: {}; objects: {}; sacks: {}",
             cell("k"),
-            cell("objects")
+            cell("objects"),
+            cell("sacks")
         )
     });
     expect_test::expect![[r#"
         [
-            "mk 3 probe 2 => k: .K; objects: <obj> <oid> 3 </oid> <hits> 0 </hits> </obj>",
-            "mk 3 touch 3 probe 2 => k: probe 2 ~> .K; objects: <obj> <oid> 3 </oid> <hits> 1 </hits> </obj>",
-            "probe 5 => k: probe 5 ~> .K; objects: .ObjCellSet",
-            "mk 4 mk 3 touch 4 probe 3 => k: probe 3 ~> .K; objects: <obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>",
-            "mk 3 drop 2 probe 2 => k: probe 2 ~> .K; objects: .ObjCellSet",
-            "mk 3 bump 2 probe 2 => k: probe 2 ~> .K; objects: <obj> <oid> 3 </oid> <hits> 1 </hits> </obj>",
-            "mk 3 mk 4 touch 3 touch 4 next 3 => k: .K; objects: <obj> <oid> 3 </oid> <hits> 1 </hits> </obj> <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>",
-            "mk 3 mk 4 touch 3 next 3 => k: next 3 ~> .K; objects: <obj> <oid> 3 </oid> <hits> 1 </hits> </obj> <obj> <oid> 4 </oid> <hits> 0 </hits> </obj>",
-            "mk 5 via 1 => k: .K; objects: .ObjCellSet",
-            "mk 4 touch 4 check 2 => k: .K; objects: <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>",
-            "mk 4 check 2 => k: check 2 ~> .K; objects: <obj> <oid> 4 </oid> <hits> 0 </hits> </obj>",
-            "mk 0 check 0 => k: check 0 ~> .K; objects: <obj> <oid> 0 </oid> <hits> 0 </hits> </obj>",
-            "mk 3 find 2 => k: .K; objects: <obj> <oid> 3 </oid> <hits> 0 </hits> </obj>",
+            "mk 3 probe 2 => k: .K; objects: <obj> <oid> 3 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mk 3 touch 3 probe 2 => k: probe 2 ~> .K; objects: <obj> <oid> 3 </oid> <hits> 1 </hits> </obj>; sacks: .BagCellSet",
+            "probe 5 => k: probe 5 ~> .K; objects: .ObjCellSet; sacks: .BagCellSet",
+            "mk 4 mk 3 touch 4 probe 3 => k: probe 3 ~> .K; objects: <obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>; sacks: .BagCellSet",
+            "mk 3 drop 2 probe 2 => k: probe 2 ~> .K; objects: .ObjCellSet; sacks: .BagCellSet",
+            "mk 3 bump 2 probe 2 => k: probe 2 ~> .K; objects: <obj> <oid> 3 </oid> <hits> 1 </hits> </obj>; sacks: .BagCellSet",
+            "mk 3 mk 4 touch 3 touch 4 next 3 => k: .K; objects: <obj> <oid> 3 </oid> <hits> 1 </hits> </obj> <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>; sacks: .BagCellSet",
+            "mk 3 mk 4 touch 3 next 3 => k: next 3 ~> .K; objects: <obj> <oid> 3 </oid> <hits> 1 </hits> </obj> <obj> <oid> 4 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mk 5 via 1 => k: .K; objects: .ObjCellSet; sacks: .BagCellSet",
+            "mk 4 touch 4 check 2 => k: .K; objects: <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>; sacks: .BagCellSet",
+            "mk 4 check 2 => k: check 2 ~> .K; objects: <obj> <oid> 4 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mk 0 check 0 => k: check 0 ~> .K; objects: <obj> <oid> 0 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mk 3 find 2 => k: .K; objects: <obj> <oid> 3 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mk 1 mk 2 mk 3 mk 40 probe 39 => k: .K; objects: <obj> <oid> 1 </oid> <hits> 0 </hits> </obj> <obj> <oid> 2 </oid> <hits> 0 </hits> </obj> <obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 40 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mk 40 mk 3 mk 2 mk 1 probe 39 => k: .K; objects: <obj> <oid> 1 </oid> <hits> 0 </hits> </obj> <obj> <oid> 2 </oid> <hits> 0 </hits> </obj> <obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 40 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mk 1 mk 2 mk 3 dup 1 => k: dup 1 ~> .K; objects: <obj> <oid> 1 </oid> <hits> 0 </hits> </obj> <obj> <oid> 2 </oid> <hits> 0 </hits> </obj> <obj> <oid> 3 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mk 1 dz 0 => k: dz 0 ~> .K; objects: <obj> <oid> 1 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mk 105 dz 5 => k: .K; objects: <obj> <oid> 105 </oid> <hits> 0 </hits> </obj>; sacks: .BagCellSet",
+            "mkb 5 bags 5 => k: .K; objects: .ObjCellSet; sacks: <bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>",
+            "mkb 5 bags 4 => k: bags 4 ~> .K; objects: .ObjCellSet; sacks: <bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>",
+            "mkb 5 bagm 6 => k: .K; objects: .ObjCellSet; sacks: <bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>",
+            "mkb 5 bagc 4 => k: .K; objects: .ObjCellSet; sacks: .BagCellSet",
+            "mkb 5 bagc 5 => k: bagc 5 ~> .K; objects: .ObjCellSet; sacks: <bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>",
         ]
     "#]].assert_debug_eq(&runs);
 }
