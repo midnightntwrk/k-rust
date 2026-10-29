@@ -41,6 +41,7 @@ Several theorem kinds need the same facts, and each takes them in its own form t
 
 - **Legality, or well-formedness:** which configurations are meaningful.
   Claims take it as `--assume-invariant`, noninterference as its store predicates, soundness as the part of its well-typedness about cells other than `<k>`.
+  No stuck states (`gen --progress`) takes it as its `Invariant`: the library's kind 1 invariant, or a kind 2 one in Lean with the flags of claims (`--assume-invariant`, `--invariant-module`, `--invariant-preserved`; `design.md` §3.9).
   Confluence is planned to take it as its program hypothesis (CNF-10); today `--threads` states the hypothesis `True`, and the per-pair mode takes `--hyp` from a hand module.
 - **Acceptable endings:** which configurations that cannot step count as finished (halt, trap, exception), as opposed to gaps in the semantics.
   A configuration has no successor in three ways, which the step relation does not tell apart (a rule whose right-hand side is ⊥ counts like a stuck one):

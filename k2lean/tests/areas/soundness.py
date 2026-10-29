@@ -30,6 +30,11 @@ PROGS = {
     "vmstuck": {"ns": "KVmStuck", "tier": "light"},
     "coro": {"ns": "Coro", "tier": "light"},
     "corojoin": {"ns": "CoroJoin", "tier": "light"},
+    # under a kind 2 invariant (demos/HandoffConf/HandoffConf/Live.lean): the progress modules are the
+    # demo's, which holds the invariant (`gen --progress-out`); the library is the confluence area's
+    "handoff": {"ns": "HandoffConf", "tier": "light", "dir": "demos/HandoffConf",
+                "sources": ["demos/HandoffConf/HandoffConf/ProgressDefs.lean",
+                            "demos/HandoffConf/HandoffConf/Progress.lean"]},
 }
 
 DEMOS = {

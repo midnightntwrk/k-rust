@@ -163,7 +163,7 @@ partial def mismatch (p e : Expr) : MetaM (Option Expr) := do
 
 /-- `concat (element k v) d = some x`: `(k, v, x)`. -/
 def matchOf? (t : Expr) : MetaM (Option (Expr × Expr × Expr)) := do
-  let t ← instantiateMVars t
+  let t := (← instantiateMVars t).consumeMData
   unless t.isAppOfArity ``Eq 3 do return none
   let lhs := t.getArg! 1
   let rhs := t.getArg! 2
@@ -267,7 +267,8 @@ partial def search (cs : Array Name) (close : TSyntax ``Lean.Parser.Tactic.tacti
 /-- A variable of the main goal's configuration that one of the constructors `cs` needs to be a
 constructor. -/
 def splitVar (cs : Array Name) (g : MVarId) : MetaM (Option Expr) := g.withContext do
-  let t ← instantiateMVars (← g.getType)
+  -- a goal left by `cases` or `subst` can carry an annotation around its type
+  let t := (← instantiateMVars (← g.getType)).consumeMData
   unless t.isApp do return none
   for c in cs do
     let k ← mkConstWithFreshMVarLevels c

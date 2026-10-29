@@ -1,9 +1,11 @@
 //! No stuck states (SND-13, `k2lean/docs/design.md` §3.9): `k2lean gen --progress` writes
 //! `{ns}/ProgressDefs.lean` and `{ns}/Progress.lean`, and beside the library
-//! `open-progress-cases.txt`.
+//! `open-progress-cases.txt`; under a kind 2 invariant, which the library cannot import, into the
+//! package that holds it instead (`--progress-out DIR --progress-prefix PFX`: `PFX/…`).
 //!
 //! **The theorem.** `progress c : Inv c → Ending c ∨ App c`: a configuration that satisfies the
-//! well-formedness property (`Invariant`, the kind 1 invariant of `--invariant`; `True` without one)
+//! well-formedness property (`Invariant`, the kind 1 invariant of `--invariant`, or a kind 2 one,
+//! a Lean predicate, with `--assume-invariant`; `True` without one)
 //! is an acceptable ending (`--ending NAME@CELL`, a `Bool` K function of a cell's content; without
 //! it, `<k>` is empty) or some rule applies (`App`, the library's own: its left-hand side matches
 //! and its `requires` is true). A rule whose right-hand side is undefined applies, so the theorem
@@ -54,6 +56,44 @@ pub struct Ctx<'a> {
     /// The library's hook definitions and sort injections and projections, which a side condition
     /// unfolds into.
     pub unfold: Vec<String>,
+    /// A kind 2 invariant (`--assume-invariant`), in place of the kind 1 `Invariant`.
+    pub kind2: Option<Kind2>,
+    /// The prefix of the progress modules' names: the library's namespace, or the package that
+    /// holds a kind 2 invariant (`--progress-out`), which the library cannot import.
+    pub module: String,
+    /// `--element-fact NAME`: what the invariant says of each element of the cell map, added to
+    /// every case.
+    pub element_fact: Option<String>,
+    /// `--rank NAME`: the rank of an element, a Lean function of the cell map, the key and the
+    /// element.
+    pub rank: Option<String>,
+}
+
+/// A kind 2 invariant, spelled as `claims --assume-invariant` takes it: the predicate, the module
+/// that defines it, its preservation theorem, and the names the stuck closer unfolds.
+pub struct Kind2 {
+    pub name: String,
+    pub module: String,
+    pub preserved: String,
+    pub unfold: Vec<String>,
+}
+
+/// `Invariant` when the library has no kind 1 invariant: the kind 2 one, or `True`.
+fn inv_def(cx: &Ctx, top: &str) -> String {
+    match &cx.kind2 {
+        Some(k) => format!(
+            "\n/-- The well-formedness property: `{n}` (`--assume-invariant`, a Lean predicate of `{m}`). -/\n\
+def Invariant (c : {top}) : Prop := {n} c\n\n\
+theorem Invariant.preserved : Preserved Step Invariant := {p}\n",
+            n = k.name,
+            m = k.module,
+            p = k.preserved
+        ),
+        None => format!(
+            "\n/-- The well-formedness property: none (no `--invariant`). -/\ndef Invariant (c : {top}) : Prop := True\n\n\
+theorem Invariant.preserved : Preserved Step Invariant := by\n  intro _ _ _ _; trivial\n"
+        ),
+    }
 }
 
 pub struct Out {
@@ -289,6 +329,10 @@ pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String>
         stuck.insert("Invariant".into());
         stuck.extend(u.iter().cloned());
     }
+    if let Some(k) = &cx.kind2 {
+        stuck.insert("Invariant".into());
+        stuck.extend(k.unfold.iter().cloned());
+    }
     let mut defs = String::new();
     let ending_def;
     match &cx.ending {
@@ -358,15 +402,10 @@ pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String>
         }
     }
     defs.push_str(&ending_def);
-    let inv = if cx.invariant.is_some() {
-        "Invariant".to_string()
-    } else {
-        defs.push_str(&format!(
-            "\n/-- The well-formedness property: none (no `--invariant`). -/\ndef Invariant (c : {top}) : Prop := True\n\n\
-theorem Invariant.preserved : Preserved Step Invariant := by\n  intro _ _ _ _; trivial\n"
-        ));
-        "Invariant".to_string()
-    };
+    if cx.invariant.is_none() {
+        defs.push_str(&inv_def(cx, top));
+    }
+    let inv = "Invariant";
 
     // the open list: `Progress.case.h` names, with `| refuted hand`
     let list =
@@ -566,6 +605,7 @@ theorem always {{c0 : {top}}} (h0 : {inv} c0) :\n    ∀ s, s 0 = c0 → Paths.I
             stuck_list: &stuck_list,
             hand_exists,
             n_heads: heads.len(),
+            coll: false,
             doc: format!(
                 "`progress`: a configuration that satisfies `{inv}` is an acceptable ending (`Ending`) or some rule applies\n\
 (`App`), so no such configuration is stuck. One case per head of `<k>` ({} heads), each by\n\
@@ -588,13 +628,15 @@ struct Finish<'a> {
     stuck_list: &'a [String],
     hand_exists: bool,
     n_heads: usize,
+    /// `<k>` is in a cell map: `Progress.Keys` is proved with `k2l_preserve` over `Step.Case`
+    coll: bool,
     /// the module documentation of `Progress.lean`
     doc: String,
 }
 
 /// The open list, the hand skeleton and the two modules.
 fn finish(cx: &Ctx, f: Finish) -> Result<Out, String> {
-    let ns = cx.ns;
+    let (ns, pfx) = (cx.ns, cx.module.as_str());
     let (defs, th, open_text, open, refuted, stuck_list, hand_exists, n_heads) = (
         f.defs,
         f.th,
@@ -622,7 +664,7 @@ fn finish(cx: &Ctx, f: Finish) -> Result<Out, String> {
     let any_hand = !open.is_empty();
     let hand_skeleton = (any_hand && !hand_exists).then(|| {
         let mut s = format!(
-            "import {ns}.ProgressDefs\nimport {ns}.Adequacy\n\n/-! Hand-written proofs of the cases of `progress` listed in `open-progress-cases.txt`.\n\n\
+            "import {pfx}.ProgressDefs\nimport {ns}.Adequacy\n\n/-! Hand-written proofs of the cases of `progress` listed in `open-progress-cases.txt`.\n\n\
 `k2lean gen` wrote this file once, because it did not exist, and never changes it. Prove each case below as the\n\
 theorem it names, or refute it (`theorem Progress.case.h.refuted : ¬ Progress.case.h.statement`, marked\n\
 `| refuted hand` in the list; a witness configuration, with `step_stuck` for its last part). The generated proofs use `k2l_progress [rules] => prog_close`, then\n\
@@ -650,18 +692,36 @@ theorem it names, or refute it (`theorem Progress.case.h.refuted : ¬ Progress.c
 The acceptable endings `Ending` and the statement of each case of `progress` (`Progress.lean`): one per head\n\
 of `<k>`. This module is separate so that the hand-written `ProgressHand.lean` can prove the cases the\n\
 generic tactic does not close. -/\n\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n\n{defs}\nend {ns}\n",
-        if cx.invariant.is_some() {
-            format!("import {ns}.Invariants\n")
-        } else {
-            String::new()
+        match (&cx.invariant, &cx.kind2) {
+            (Some(_), _) => format!("import {ns}.Invariants\n"),
+            // `Progress.Keys` is proved over `Step.Case` by `k2l_preserve`, which the invariant's
+            // modules import otherwise
+            (None, k) => format!(
+                "{}{}",
+                if f.coll {
+                    format!(
+                        "import {ns}.Preserves\nimport KPrelude.InvTactic\n{}",
+                        if cx.element_fact.is_some() {
+                            "import KPrelude.PendingTactic\n"
+                        } else {
+                            ""
+                        }
+                    )
+                } else {
+                    String::new()
+                },
+                k.as_ref()
+                    .map(|k| format!("import {}\n", k.module))
+                    .unwrap_or_default()
+            ),
         }
     );
     let thm_mod = format!(
-        "import {ns}.ProgressDefs\n{}\n\
+        "import {pfx}.ProgressDefs\n{}\n\
 /-! Generated by k2lean (`gen --progress`); do not edit.\n\n{} -/\n\n\
 set_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\n\nnamespace {ns}\n\nopen KPrelude\n\n{th}\nend {ns}\n",
         if any_hand {
-            format!("import {ns}.ProgressHand\n")
+            format!("import {pfx}.ProgressHand\n")
         } else {
             String::new()
         },
@@ -940,6 +1000,10 @@ fn emit_coll(
         stuck.insert("Invariant".into());
         stuck.extend(u.iter().cloned());
     }
+    if let Some(k) = &cx.kind2 {
+        stuck.insert("Invariant".into());
+        stuck.extend(k.unfold.iter().cloned());
+    }
     stuck.insert("Ending.elem".into());
     stuck.insert("Ending.content".into());
 
@@ -997,6 +1061,18 @@ def Progress.Keys (c : {top}) : Prop :=\n  MapHook.EntriesOn (fun p => p.1 = Pro
         ),
     };
     let epat = nest(&epath, &ecell_lean, "x", &|_, _| "_".into());
+    let rank_def = match &cx.rank {
+        Some(r) => format!(
+            "/-- The rank of an element in the proof of `progress` (not in its statement, which holds whatever the rank is):\n\
+`{r}` (`--rank`), which reads the cell map. -/\n\
+noncomputable def Progress.rank (m : {map_sort}) (k : {key_sort}) (e : {elem_sort}) : Nat := {r} m k e"
+        ),
+        None => format!(
+            "/-- The rank of an element in the proof of `progress` (not in its statement, which holds whatever the rank is): the size\n\
+of its key, so that an element is below the elements whose keys contain its key (ids derived from content). -/\n\
+noncomputable def Progress.rank (_ : {map_sort}) (k : {key_sort}) (_ : {elem_sort}) : Nat := sizeOf k"
+        ),
+    };
     let what_end = match &cx.ending {
         Some((sym, cell)) => format!(
             "the K function `{}` is `true` of its `<{cell}>` cell",
@@ -1009,17 +1085,12 @@ def Progress.Keys (c : {top}) : Prop :=\n  MapHook.EntriesOn (fun p => p.1 = Pro
 /-- An element is an acceptable ending: {what_end}. -/\ndef Ending.elem (e : {elem_sort}) : Prop :=\n  {erhs}\n\n\
 /-- The acceptable endings: every element of the cell map is one (stated over the matches `K |-> E REST` a rule sees). -/\n\
 def Ending (c : {top}) : Prop :=\n  ∀ k e r, MapHook.concat (MapHook.element k e) r = some (Progress.map c) → Ending.elem e\n\n\
-/-- The rank of an element in the proof of `progress` (not in its statement, which holds whatever the rank is): the size\n\
-of its key, so that an element is below the elements whose keys contain its key (ids derived from content). -/\n\
-noncomputable def Progress.rank (k : {key_sort}) (_ : {elem_sort}) : Nat := sizeOf k\n\n\
+{rank_def}\n\n\
 /-- Every element of a higher rank than `e` (at `k`) is an ending. -/\n\
-def Progress.Above (m : {map_sort}) (k : {key_sort}) (e : {elem_sort}) : Prop :=\n  ∀ k' e' r', MapHook.concat (MapHook.element k' e') r' = some m → Progress.rank k e < Progress.rank k' e' → Ending.elem e'\n"
+def Progress.Above (m : {map_sort}) (k : {key_sort}) (e : {elem_sort}) : Prop :=\n  ∀ k' e' r', MapHook.concat (MapHook.element k' e') r' = some m → Progress.rank m k e < Progress.rank m k' e' → Ending.elem e'\n"
     ));
     if cx.invariant.is_none() {
-        defs.push_str(&format!(
-            "\n/-- The well-formedness property: none (no `--invariant`). -/\ndef Invariant (c : {top}) : Prop := True\n\n\
-theorem Invariant.preserved : Preserved Step Invariant := by\n  intro _ _ _ _; trivial\n"
-        ));
+        defs.push_str(&inv_def(cx, top));
     }
     let inv = "Invariant";
 
@@ -1116,7 +1187,7 @@ theorem Progress.partner {{kc k' : {key_sort}}} {{e : {elem_sort}}} {{rest m : {
 (hm : MapHook.concat (MapHook.element kc e) rest = some m) (hK : Progress.Keys ({cfg}))\n    \
 (hA : Progress.Above m kc e) (hin : MapHook.inKeys k' rest = true) :\n    \
 ∃ {} (r1 : {map_sort}), MapHook.concat (MapHook.element k' ({partner_elem})) r1 = some rest ∧\n      \
-(Progress.rank kc e < Progress.rank k' ({partner_elem}) → Ending.elem ({partner_elem})) := by\n  \
+(Progress.rank m kc e < Progress.rank m k' ({partner_elem}) → Ending.elem ({partner_elem})) := by\n  \
 obtain ⟨w, r1, r2, h1, h2⟩ := MapHook.concat_element_of_inKeys_rest hm hin\n  \
 have hk := MapHook.entry_of_concat_element h2 hK\n  \
 k2l_cases w with ⟨{}⟩\n  all_goals k2l_norm_idx\n  simp only [Progress.key] at hk\n  subst hk\n  \
@@ -1141,6 +1212,15 @@ exact ⟨{}, r1, h1, fun h => hA _ _ _ h2 h⟩\n\n",
         other.join(", "),
     ));
     let fail = "fail \"no rule of this head applies, and the invariant and the endings do not exclude it\"";
+    // the element's fact from the invariant (`--element-fact`): unfolded, split, its equations
+    // substituted, so that the search and the stuck closer read it
+    let fact = cx.element_fact.as_ref().map(|f| {
+        let u: Vec<String> = cx.kind2.iter().flat_map(|k| k.unfold.iter().cloned()).collect();
+        format!(
+            "  have hF := {f} hI hm\n  try simp [{}] at hF\n  k2l_destruct\n  all_goals try subst_vars",
+            u.join(", ")
+        )
+    });
     for hd in &heads {
         if refuted.contains(&hd.name) {
             continue;
@@ -1164,8 +1244,12 @@ exact ⟨{}, r1, h1, fun h => hA _ _ _ h2 h⟩\n\n",
             )
         };
         th.push_str(&format!(
-            "set_option maxHeartbeats {CASE_BUDGET} in\ntheorem Progress.case.{n} : Progress.case.{n}.statement := by\n  intro {} hm hI hE hK hA\n  k2l_entries hm [hI]\n{tac}\n\n",
+            "set_option maxHeartbeats {CASE_BUDGET} in\ntheorem Progress.case.{n} : Progress.case.{n}.statement := by\n  intro {} hm hI hE hK hA\n  k2l_entries hm [hI]\n{}\n\n",
             xs.join(" "),
+            match &fact {
+                Some(f) => format!("{f}\n  all_goals (\n  {}\n  )", tac.trim_start()),
+                None => tac,
+            },
             n = hd.name
         ));
     }
@@ -1261,7 +1345,7 @@ theorem progress (c : {top}) (hI : {inv} c) (hK : Progress.Keys c) : {concl} := 
 by_cases hE : Ending c\n  · exact Or.inl hE\n  right\n  \
 have hx : ∃ k e r, MapHook.concat (MapHook.element k e) r = some (Progress.map c) ∧ ¬ Ending.elem e := by\n    \
 simp only [Ending, Classical.not_forall] at hE\n    obtain ⟨k, e, r, h, hn⟩ := hE\n    exact ⟨k, e, r, h, hn⟩\n  \
-obtain ⟨k, e, r, hm, hne, hA⟩ := MapHook.exists_maximal (P := fun _ e => Ending.elem e) Progress.rank hx\n  \
+obtain ⟨k, e, r, hm, hne, hA⟩ := MapHook.exists_maximal (P := fun _ e => Ending.elem e) (Progress.rank (Progress.map c)) hx\n  \
 have hk := MapHook.entry_of_concat_element hm hK\n  \
 k2l_cases c with {dpat}\n  all_goals k2l_norm_idx\n  \
 k2l_cases e with {edpat}\n  all_goals k2l_norm_idx\n  \
@@ -1293,6 +1377,7 @@ Paths.always_iff.2 fun c h =>\n    progress c (Preserved.star Invariant.preserve
             stuck_list: &stuck_list,
             hand_exists,
             n_heads,
+            coll: true,
             doc: format!(
                 "`progress`: a configuration that satisfies `{inv}` (and whose cell map binds each element at its key cell,\n\
 `Progress.Keys`) is an acceptable ending (`Ending`: every element is one) or some rule applies (`App`), so no such\n\

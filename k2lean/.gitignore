@@ -54,6 +54,8 @@ lake-manifest.json
 /demos/HandoffConf/HandoffConf/Views.lean
 /demos/HandoffConf/HandoffConf/Slots.lean
 /demos/HandoffConf/confluence.toml
+/demos/HandoffConf/HandoffConf/ProgressDefs.lean
+/demos/HandoffConf/HandoffConf/Progress.lean
 /demos/UtxoConf/confluence.toml
 /demos/ImpNI/ImpNI/Tr.lean
 /demos/ImpNI/ImpNI/NI.lean

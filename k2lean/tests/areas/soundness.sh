@@ -6,7 +6,8 @@
 # (`gen --progress`: the stack machine tests/fixtures/vm, library vm, and its variant without a rule,
 # tests/fixtures/vmstuck, library vmstuck, whose one stuck case is refuted by hand; coroutines in a
 # cell map, tests/fixtures/coro, library coro, and its variant with a join that can deadlock,
-# tests/fixtures/corojoin, library corojoin, whose deadlock is refuted by hand). Registry:
+# tests/fixtures/corojoin, library corojoin, whose deadlock is refuted by hand; a coordination
+# script's tasks, tests/fixtures/handoff, under the kind 2 invariant of demos/HandoffConf). Registry:
 # soundness.py.
 
 # IMP++ (K's tutorial, beside SIMPLE's sources)
@@ -91,6 +92,38 @@ prog_reset() { # DIR: GATE_RETRY_OPEN also retries the open progress cases (refu
   fi
   return 0
 }
+# no stuck states under a kind 2 invariant (SND-14 slice 2b): `progress` of the fixture handoff under
+# the script's closure `HandoffConf.Live`, which the library cannot import, so the progress modules go
+# to the demo that holds it (`--progress-out`); its open cases are proved in HandoffConf/ProgressHand.lean
+gen_handoff_prog() {
+  local o=$GEN/handoff c=$D/HandoffConf GEN_ARGS=()
+  libs_fixture_args handoff
+  "$G" gen "${GEN_ARGS[@]}" --progress --assume-invariant HandoffConf.Live \
+    --invariant-module HandoffConf.Live --invariant-preserved HandoffConf.Live.preserved \
+    --invariant-unfold "$c/live-unfold.txt" --element-fact HandoffConf.Live.taskOk \
+    --rank HandoffConf.taskRank --progress-out "$c" --progress-prefix HandoffConf
+}
+prog_handoff() { # `progress` of handoff in demos/HandoffConf, as progcases does for a library
+  local c=$D/HandoffConf k
+  phase "progress handoff"
+  lib_open handoff
+  if [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$c/open-progress-cases.txt" ]; then
+    grep -E '^#| \| refuted( hand)?( *#.*)?$' "$c/open-progress-cases.txt" > "$c/open-progress-cases.txt.keep" || true
+    mv -f "$c/open-progress-cases.txt.keep" "$c/open-progress-cases.txt"
+  fi
+  gen_handoff_prog > "$L/gen-handoff-prog.log" 2>&1 || { bad "gen handoff" "$L/gen-handoff-prog.log"; return 1; }
+  for k in 1 2 3; do
+    if lbuild "$c" "build-handoff-prog-$k" HandoffConf.Progress; then
+      cp "$L/build-handoff-prog-$k.log" "$L/build-handoff-prog.log"; ok "progress handoff" "$L/build-handoff-prog.log"; return 0
+    fi
+    cp "$L/build-handoff-prog-$k.log" "$L/build-handoff-prog.log"
+    [ "$k" = 3 ] && break
+    "$G" open-from-log "$c/HandoffConf/Progress.lean" "$L/build-handoff-prog-$k.log" "$c/open-progress-cases.txt" >> "$L/gen-handoff-prog.log" 2>&1
+    gen_handoff_prog >> "$L/gen-handoff-prog.log" 2>&1 || { bad "gen handoff" "$L/gen-handoff-prog.log"; return 1; }
+  done
+  bad "progress handoff" "$L/build-handoff-prog.log"; unbuilt "$c" "$L/build-handoff-prog.log" "HandoffConf.Progress"; return 1
+}
+
 prog_lib() { # DIR NAME: a library built as far as `progress` needs: Equations, Invariants, Progress
   local d=$1 n=$2
   phase "lib $d"
@@ -180,6 +213,9 @@ gate_soundness() {
   # waits on); with a join that can wait on any process, whose deadlock is refuted by hand
   runs lib coro && prog_lib coro Coro
   runs lib corojoin && prog_lib corojoin CoroJoin
+  # under a kind 2 invariant: a coordination script's tasks wait on shared cells, so the rank reads the
+  # script (`--rank`); `resume` is proved by hand
+  runs prog handoff && prog_handoff
   phase "diff soundness"
   diffs imptypes kexpr exprtypes impplus impplustypes vm vmstuck coro corojoin
 }

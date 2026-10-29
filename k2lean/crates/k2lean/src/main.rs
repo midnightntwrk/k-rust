@@ -851,9 +851,60 @@ fn main() {
             }
             // no stuck states: `ProgressDefs.lean`, `Progress.lean`, `open-progress-cases.txt`
             if progress_on {
+                let flag = |f: &str| {
+                    a.rest
+                        .iter()
+                        .position(|x| x == f)
+                        .map(|i| a.rest[i + 1].clone())
+                };
+                // a kind 2 invariant, spelled as `claims` takes it; its modules are downstream of
+                // the library, so the progress modules go to the package that holds it
+                let kind2 = match flag("--assume-invariant") {
+                    Some(name) => {
+                        if !specs.is_empty() {
+                            panic!(
+                                "--progress: --assume-invariant (kind 2) replaces --invariant (kind 1); give one"
+                            );
+                        }
+                        let need = |f: &str| {
+                            flag(f).unwrap_or_else(|| {
+                                panic!("--progress --assume-invariant needs {f}")
+                            })
+                        };
+                        Some(progress::Kind2 {
+                            name,
+                            module: need("--invariant-module"),
+                            preserved: need("--invariant-preserved"),
+                            unfold: flag("--invariant-unfold")
+                                .map(|f| claims::read_unfold(&PathBuf::from(f)))
+                                .unwrap_or_default(),
+                        })
+                    }
+                    None => {
+                        for f in [
+                            "--invariant-module",
+                            "--invariant-preserved",
+                            "--invariant-unfold",
+                            "--element-fact",
+                        ] {
+                            if flag(f).is_some() {
+                                panic!("--progress: {f} needs --assume-invariant");
+                            }
+                        }
+                        None
+                    }
+                };
+                let (pdir, pfx) = match flag("--progress-out") {
+                    Some(d) => (
+                        PathBuf::from(d),
+                        flag("--progress-prefix")
+                            .unwrap_or_else(|| panic!("--progress-out needs --progress-prefix")),
+                    ),
+                    None => (out.to_path_buf(), ns.to_string()),
+                };
                 let open_path = match a.rest.iter().position(|x| x == "--open-progress-cases") {
                     Some(i) => PathBuf::from(&a.rest[i + 1]),
-                    None => out.join("open-progress-cases.txt"),
+                    None => pdir.join("open-progress-cases.txt"),
                 };
                 let open_text = std::fs::read_to_string(&open_path).unwrap_or_default();
                 let stated_names: std::collections::BTreeSet<String> =
@@ -888,7 +939,8 @@ fn main() {
                         names::short_sort(&y)
                     ));
                 }
-                let hand = out.join(ns).join("ProgressHand.lean");
+                let pmod = pdir.join(pfx.replace('.', "/"));
+                let hand = pmod.join("ProgressHand.lean");
                 let cx = progress::Ctx {
                     m: &m,
                     rules: &rs,
@@ -901,20 +953,43 @@ fn main() {
                     ranks: prios.len(),
                     eqns,
                     unfold: punfold,
+                    kind2,
+                    module: pfx.clone(),
+                    element_fact: flag("--element-fact"),
+                    rank: flag("--rank"),
                 };
                 let o = progress::emit(&cx, &open_text, hand.exists())
                     .unwrap_or_else(|e| panic!("{e}"));
+                std::fs::create_dir_all(&pmod)
+                    .unwrap_or_else(|e| panic!("{}: {e}", pmod.display()));
+                // modules of an earlier generation into the library itself
+                if pmod != out.join(ns) {
+                    for f in ["ProgressDefs.lean", "Progress.lean"] {
+                        let _ = std::fs::remove_file(out.join(ns).join(f));
+                    }
+                }
                 write(
-                    &out.join(ns).join("ProgressDefs.lean"),
+                    &pmod.join("ProgressDefs.lean"),
                     &with_hooks(o.defs, ns, &fgen.params),
                 );
-                write(
-                    &out.join(ns).join("Progress.lean"),
-                    &with_hooks(o.theorems, ns, &fgen.params),
-                );
+                // `Progress.lean` and the hand module import the library through `ProgressDefs`
+                // only, which may be downstream (`--progress-out`): they state over the library's
+                // `Step` all the same
+                let hooked = |t: String| {
+                    if fgen.params.is_empty() {
+                        t
+                    } else {
+                        t.replacen(
+                            &format!("\nnamespace {ns}\n"),
+                            &format!("\nnamespace {ns}\n\nvariable [Hooks]\n"),
+                            1,
+                        )
+                    }
+                };
+                write(&pmod.join("Progress.lean"), &hooked(o.theorems));
                 write(&open_path, &o.open_list);
-                if let Some(sk) = &o.hand_skeleton {
-                    write(&hand, sk);
+                if let Some(sk) = o.hand_skeleton {
+                    write(&hand, &hooked(sk));
                     eprintln!(
                         "note: wrote the hand-proof skeleton {} (it is never overwritten)",
                         hand.display()

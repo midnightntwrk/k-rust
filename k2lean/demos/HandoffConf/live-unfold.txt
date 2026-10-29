@@ -1,0 +1,2 @@
+# The names the stuck closer of `progress` unfolds in `Live` (`gen --progress --invariant-unfold`).
+HandoffConf.TaskOk

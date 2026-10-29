@@ -18,7 +18,10 @@ directory), for the areas of LIBS_AREAS in tests/libs.sh beside them. A registry
             its invariant, no `…Test.Axioms`), not_regenerated (files of generated/name that the gate
             does not regenerate)}; generated/name is hashed
   INVS      name -> {ns, tier}: the kind 1 invariant of library name
-  PROGS     name -> {ns, tier}: the no-stuck-states theorem `progress` of library name (`gen --progress`)
+  PROGS     name -> {ns, tier, dir (where the progress modules are, default generated/name: a
+            demo's directory when the invariant is kind 2, `gen --progress-out`; ns is then the
+            modules' prefix), sources (as a demo's)}: the no-stuck-states theorem `progress` of
+            library name (`gen --progress`)
   DEMOS     name -> {tier, sources (files or directories under k2lean/ that the demo's phase
             generates, hashed)}
   NEGATIVE  name -> {tier}: an entry of measured/negative.toml
@@ -51,7 +54,7 @@ What is compared:
   inv.X     the kind 1 invariant of library X (`X/NS/Invariants.lean`) builds; its open rule cases
             (open-invariant-cases.txt) may only shrink, the cases proved by `k2l_preserve` may not
             decrease, nor the theorems under its axiom guard
-  prog.X    `progress` of library X (`X/NS/Progress.lean`) builds; its open cases
+  prog.X    `progress` of library X (`X/NS/Progress.lean`, or the PROGS entry's dir) builds; its open cases
             (open-progress-cases.txt, unmarked) may only shrink; its refuted cases (marked
             `| refuted hand`, each checked by `#k2l_refuted`) may only grow from the open ones; the
             cases proved by `k2l_progress` may not decrease, the number of cases (heads of `<k>`) is
@@ -146,7 +149,7 @@ def owned_sources(reg):
     for a, r in reg.items():
         for d, e in r["LIBS"].items():
             yield a, e["tier"], f"generated/{d}", {f"generated/{d}/{x}" for x in e["not_regenerated"]}
-        for k in ("DEMOS", "RECORDS"):
+        for k in ("DEMOS", "RECORDS", "PROGS"):
             for e in r[k].values():
                 for p in e.get("sources", []):
                     yield a, e["tier"], p, set()
@@ -430,13 +433,14 @@ def prog_measure(tree, logs, status, d, e):
     """The measurements of `progress` of library d (`gen --progress`): its cases (one per head of
     `<k>`), those proved by `k2l_progress`, by hand, refuted, open, and the theorems under its guard;
     None when the library has no Progress.lean."""
-    src = read(tree / "generated" / d / e["ns"] / "Progress.lean")
+    at = tree / e.get("dir", f"generated/{d}")
+    src = read(at / e["ns"] / "Progress.lean")
     if src is None:
         return None
     built = status.get(f"progress {d}", ("",))[0] == "ok"
     auto = len(re.findall(r"^theorem Progress\.case\.\S+ : \S+ := by$", src, re.M))
     hand = len(re.findall(r"^theorem Progress\.case\.\S+ : \S+ := Progress\.hand\.", src, re.M))
-    lst = tree / "generated" / d / "open-progress-cases.txt"
+    lst = at / "open-progress-cases.txt"
     marked = refuted_marks(lst)
     names = [n for n, _ in listed_names(lst)]
     opened = sorted(n for n in names if n not in marked)

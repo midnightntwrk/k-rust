@@ -1398,9 +1398,12 @@ fn progress_at_a_cell_map_states_a_case_per_element_head_above_which_every_eleme
     ));
     assert!(thms.contains("theorem Progress.partner {kc k' : SortPidCell}"));
     assert!(thms.contains("(hK : Progress.Keys c) : Ending c ∨ App 0 c := by"));
-    assert!(
-        thms.contains("MapHook.exists_maximal (P := fun _ e => Ending.elem e) Progress.rank hx")
-    );
+    assert!(thms.contains(
+        "MapHook.exists_maximal (P := fun _ e => Ending.elem e) (Progress.rank (Progress.map c)) hx"
+    ));
+    assert!(defs.contains(
+        "noncomputable def Progress.rank (_ : SortProcCellMap) (k : SortPidCell) (_ : SortProcCell) : Nat := sizeOf k"
+    ));
 
     std::fs::write(
         d.join("open-progress-cases.txt"),
@@ -1428,6 +1431,88 @@ fn progress_at_a_cell_map_states_a_case_per_element_head_above_which_every_eleme
         String::from_utf8_lossy(&o.stderr)
             .contains("the ending's cell must be in the same elements")
     );
+}
+
+/// `gen --progress` under a kind 2 invariant (SND-14 slice 2b, design.md §3.9) on `handoff`: spelled
+/// as `claims` takes it, `Invariant` is the Lean predicate and its preservation theorem; the modules go
+/// to the package that holds it (`--progress-out`, under `--progress-prefix`) with the library's
+/// hooks, and none is left in the library; each case adds the element fact (`--element-fact`) and the
+/// rank is the author's, of the cell map (`--rank`); the hand skeleton imports the downstream module.
+#[test]
+fn progress_under_a_kind_2_invariant_is_written_where_the_invariant_is() {
+    let d = tmp("cli-progress-kind2");
+    let pkg = d.join("Pkg");
+    let unfold = d.join("unfold.txt");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(&unfold, "# the stuck closer's names\nPkg.TaskOk\n").unwrap();
+    std::fs::create_dir_all(d.join("lib/Handoff")).unwrap();
+    std::fs::write(d.join("lib/Handoff/Progress.lean"), "-- stale\n").unwrap();
+    let args: Vec<String> = [
+        "--progress",
+        "--assume-invariant",
+        "Pkg.Live",
+        "--invariant-module",
+        "Pkg.Live",
+        "--invariant-preserved",
+        "Pkg.Live.preserved",
+        "--element-fact",
+        "Pkg.Live.taskOk",
+        "--rank",
+        "Pkg.taskRank",
+        "--progress-prefix",
+        "Pkg",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .chain([
+        "--invariant-unfold".to_string(),
+        unfold.display().to_string(),
+        "--progress-out".to_string(),
+        pkg.display().to_string(),
+    ])
+    .collect();
+    let argv: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let o = gen_progress("handoff", &d.join("lib"), "Handoff", &argv);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("progress: 37 cases, 0 open"));
+    assert!(!d.join("lib/Handoff/Progress.lean").exists());
+    let defs = std::fs::read_to_string(pkg.join("Pkg/ProgressDefs.lean")).unwrap();
+    assert!(defs.contains("import Handoff.Preserves\nimport KPrelude.InvTactic\nimport KPrelude.PendingTactic\nimport Pkg.Live\n"));
+    assert!(defs.contains("def Invariant (c : SortGeneratedTopCell) : Prop := Pkg.Live c"));
+    assert!(
+        defs.contains(
+            "theorem Invariant.preserved : Preserved Step Invariant := Pkg.Live.preserved"
+        )
+    );
+    assert!(defs.contains("Nat := Pkg.taskRank m k e"));
+    assert!(defs.contains("namespace Handoff\n\nvariable [Hooks]\n"));
+    let thms = std::fs::read_to_string(pkg.join("Pkg/Progress.lean")).unwrap();
+    assert!(thms.starts_with("import Pkg.ProgressDefs\n"));
+    assert!(thms.contains("namespace Handoff\n\nvariable [Hooks]\n"));
+    assert!(thms.contains(
+        "  have hF := Pkg.Live.taskOk hI hm\n  try simp [Pkg.TaskOk] at hF\n  k2l_destruct\n"
+    ));
+    assert!(thms.contains("Ending.elem, Invariant,") && thms.contains(", Pkg.TaskOk"));
+
+    std::fs::write(
+        pkg.join("open-progress-cases.txt"),
+        "Progress.case.«Instr.resume(_,_,_)»\n",
+    )
+    .unwrap();
+    let o = gen_progress("handoff", &d.join("lib"), "Handoff", &argv);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let hand = std::fs::read_to_string(pkg.join("Pkg/ProgressHand.lean")).unwrap();
+    assert!(hand.starts_with("import Pkg.ProgressDefs\n"));
+    assert!(hand.contains("namespace Handoff\n\nvariable [Hooks]\n"));
+
+    let o = gen_progress(
+        "handoff",
+        &d.join("lib"),
+        "Handoff",
+        &["--progress", "--element-fact", "Pkg.Live.taskOk"],
+    );
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--element-fact needs --assume-invariant"));
 }
 
 /// `gen --invariant` at `init` when a cell holds configuration variables under constructors

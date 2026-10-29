@@ -93,7 +93,7 @@ struct Inv {
 /// The unfolding set of an invariant: the Lean names of a file such as the
 /// `invariant-unfold.txt` that `gen --invariant` writes beside the library, separated by commas,
 /// spaces or new lines; a line whose first character other than a space is `#` is a comment.
-fn read_unfold(path: &PathBuf) -> Vec<String> {
+pub fn read_unfold(path: &PathBuf) -> Vec<String> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let list = text
         .lines()
