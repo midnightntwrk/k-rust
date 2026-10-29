@@ -35,6 +35,7 @@ pub(crate) use record_updates::{head_rule_long_form, structured_rule_long_form};
 mod references;
 mod restriction;
 mod rules;
+mod set_instances;
 mod smt;
 mod spec_modules;
 mod statics;

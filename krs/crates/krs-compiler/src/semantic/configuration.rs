@@ -899,6 +899,7 @@ fn lower_initializer_term(
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
         in_key: false,
+        instance_guards: None,
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
         declared_binders: BTreeMap::new(),

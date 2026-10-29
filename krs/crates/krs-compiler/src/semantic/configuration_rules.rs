@@ -56,9 +56,38 @@ struct StateRuleTerms<'a> {
     /// Computation remainders the result does not put back, each with its
     /// frame key: the rule moves them, so they must be used elsewhere.
     moved_remainders: Vec<(SemanticId, ProvenanceKey)>,
+    /// Whether a cell of a Set collection's instance the pattern looks up is
+    /// being lowered ([`super::set_instances`]).
+    looking_up: bool,
+    /// The guards of the instances the pattern looks up, which the rule's
+    /// condition holds.
+    guards: Vec<super::set_instances::Guard>,
 }
 
-impl StateRuleTerms<'_> {
+impl<'a> StateRuleTerms<'a> {
+    /// The terms of a sentence over `collections`, before any is lowered.
+    fn new(
+        descriptor: &'a Descriptor,
+        declarations: &'a DescriptorIndex<'a>,
+        sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+        catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+        collections: &'a CollectionTyping,
+    ) -> Self {
+        Self {
+            descriptor,
+            declarations,
+            sort_parents,
+            catalog,
+            collections,
+            declared_binders: BTreeMap::new(),
+            wildcard_ordinal: 0,
+            variables: Vec::new(),
+            moved_remainders: Vec::new(),
+            looking_up: false,
+            guards: Vec::new(),
+        }
+    }
+
     /// Infers and lowers one ordinary term; its wildcards join `variables`.
     fn term(
         &mut self,
@@ -81,6 +110,13 @@ impl StateRuleTerms<'_> {
         in_key: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
+        // A looked-up instance's cell is read as a key is, and what it
+        // computes is guarded.
+        let instance_guards = self.looking_up.then(|| {
+            let mut guards = super::set_instances::InstanceGuards::after(self.guards.len());
+            guards.activate(true);
+            guards
+        });
         let mut builder = StructuredTermBuilder {
             descriptor: self.descriptor,
             catalog: self.catalog,
@@ -96,7 +132,8 @@ impl StateRuleTerms<'_> {
             wildcards: Vec::new(),
             result_wildcards: false,
             locals: super::infer::LocalBinders::default(),
-            in_key,
+            in_key: in_key || self.looking_up,
+            instance_guards,
             head_pending: false,
             operators: super::operators::OperatorInference::default(),
             declared_binders: self.declared_binders.clone(),
@@ -110,6 +147,12 @@ impl StateRuleTerms<'_> {
         let lowered = builder.lower(term, expected_sort, subject)?;
         self.wildcard_ordinal += builder.wildcards.len();
         self.variables.append(&mut builder.wildcards);
+        if let Some(guards) = builder.instance_guards.take() {
+            let guards = guards.into_guards();
+            self.variables
+                .extend(guards.iter().map(super::set_instances::Guard::variable));
+            self.guards.extend(guards);
+        }
         Ok(lowered)
     }
 
@@ -164,6 +207,7 @@ impl StateRuleTerms<'_> {
             result_wildcards: false,
             locals: super::infer::LocalBinders::default(),
             in_key: false,
+            instance_guards: None,
             head_pending: false,
             operators: super::operators::OperatorInference::default(),
             declared_binders: self.declared_binders.clone(),
@@ -512,15 +556,9 @@ pub(super) fn lower_configuration_rule_descriptor(
         ))
     }));
     let mut terms = StateRuleTerms {
-        descriptor,
-        declarations,
-        sort_parents,
-        catalog,
-        collections: &typing,
         declared_binders,
-        wildcard_ordinal: 0,
         variables,
-        moved_remainders: Vec::new(),
+        ..StateRuleTerms::new(descriptor, declarations, sort_parents, catalog, &typing)
     };
     let clauses = lower_configuration_rule_clauses(
         &mut terms,
@@ -625,6 +663,11 @@ pub(super) fn lower_configuration_rule_descriptor(
             )
         })
         .transpose()?;
+    let requires = super::set_instances::guarded_requires(
+        descriptor,
+        requires,
+        std::mem::take(&mut terms.guards),
+    )?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
     check_moved_remainders(&unused_moved, requires.as_ref(), ensures.as_ref())?;
@@ -871,6 +914,18 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
         };
         self.terms
             .state_term(state, sort, entry_key, binding_sorts, subject)
+    }
+
+    fn lower_looked_up(
+        &mut self,
+        state: &ProtocolRuleStateTerm<DescriptorTerm>,
+        sort: &SemanticSortRef,
+        entry_key: &ProvenanceKey,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        self.terms.looking_up = true;
+        let lowered = self.lower_state(state, sort, entry_key, true);
+        self.terms.looking_up = false;
+        lowered
     }
 
     fn lower_result(
@@ -1200,15 +1255,14 @@ pub(super) fn lower_context_alias_descriptor(
         ));
     }
     let mut terms = StateRuleTerms {
-        descriptor,
-        declarations,
-        sort_parents,
-        catalog,
-        collections: CollectionTyping::empty(),
-        declared_binders: BTreeMap::new(),
-        wildcard_ordinal: 0,
         variables,
-        moved_remainders: Vec::new(),
+        ..StateRuleTerms::new(
+            descriptor,
+            declarations,
+            sort_parents,
+            catalog,
+            CollectionTyping::empty(),
+        )
     };
     let cells = alias
         .pattern
@@ -1319,15 +1373,8 @@ pub(super) fn lower_function_context(
         "a function context reads the fixed configuration",
     )?;
     let mut terms = StateRuleTerms {
-        descriptor,
-        declarations,
-        sort_parents,
-        catalog,
-        collections,
-        declared_binders: BTreeMap::new(),
         wildcard_ordinal,
-        variables: Vec::new(),
-        moved_remainders: Vec::new(),
+        ..StateRuleTerms::new(descriptor, declarations, sort_parents, catalog, collections)
     };
     let cells = context
         .cells

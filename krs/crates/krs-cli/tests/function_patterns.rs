@@ -656,9 +656,9 @@ impl Machine {
 /// A cell collection's instance is matched as the collection holds it: a List collection's
 /// instance is its element, and a Map collection pairs an instance's key cell with the whole
 /// instance, key cell included, as the value it maps to, so a function in any of their cells never
-/// matches (decision D1). A Set collection is looked up by its instances, but KRS writes an instance
-/// as the cells it holds, which match as they stand, so a function there is refused too until the
-/// instance is written as an element (finding NT-3-3).
+/// matches (decision D1). A Set collection is looked up by its instances as by its elements, so an
+/// instance whose every cell is written and whose names the pattern binds elsewhere is computed
+/// (decision NT-Q6, `set_instances.rs`).
 #[test]
 fn a_cell_collection_matches_the_cells_of_its_instances() {
     let outcomes = outcomes_after(
@@ -721,11 +721,8 @@ fn a_cell_collection_matches_the_cells_of_its_instances() {
             (
                 "set-instance",
                 (
-                    false,
-                    [
-                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a Set collection's instance, which KRS writes as the cells it holds, matched as they stand; the set is looked up by its instances as by its elements, but reading a computed instance as the element looked up needs a different lowering, which KRS does not have yet (finding NT-3-3): match a variable here and relate it to the application in a guard (`requires`)",
-                        "--> src/lib.rs:88:56",
-                    ],
+                    true,
+                    [],
                 ),
             ),
             (

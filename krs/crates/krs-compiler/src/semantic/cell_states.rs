@@ -51,6 +51,16 @@ pub(super) trait StateLowering {
         base: &MapBase<'_>,
     ) -> Result<SemanticTerm, DescriptorLoweringError>;
 
+    /// Lowers one cell of a Set collection's instance that a pattern looks
+    /// up: as a key is, each construct it computes written as a fresh
+    /// variable a guard equates with its value ([`super::set_instances`]).
+    fn lower_looked_up(
+        &mut self,
+        state: &DescriptorState,
+        sort: &SemanticSortRef,
+        entry_key: &ProvenanceKey,
+    ) -> Result<SemanticTerm, DescriptorLoweringError>;
+
     /// Whether two lowered terms are the same term, ignoring origins.
     fn same(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool;
 }
@@ -528,6 +538,10 @@ pub(super) fn lower_instances_clause(
         configuration,
         collection: cell,
         map: collection == CellCollectionType::Map,
+        // A rule's, an equation's and a context's pattern looks a Set
+        // collection up by an instance; a claim's states hold terms.
+        looked_up: collection == CellCollectionType::Set
+            && super::function_patterns::matches_evaluated_sentence(descriptor.payload()),
     };
     let mut segments = Vec::new();
     for (back, subject_items, result_items, offset) in [
@@ -673,9 +687,27 @@ struct LoweredInstances<'a, 'b, L: StateLowering> {
     configuration: &'a DescriptorFixedConfiguration,
     collection: &'a DescriptorCellReference,
     map: bool,
+    /// Whether the pattern looks the collection up by its instances: a Set
+    /// collection's, in a sentence that matches evaluated terms.
+    looked_up: bool,
 }
 
 impl<L: StateLowering> LoweredInstances<'_, '_, L> {
+    /// One cell of a subject instance.
+    fn subject_state(
+        &mut self,
+        field: &krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
+        sort: &SemanticSortRef,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        if self.looked_up {
+            self.lowering
+                .lower_looked_up(&field.value, sort, &field.key)
+        } else {
+            self.lowering
+                .lower_state(&field.value, sort, &field.key, true)
+        }
+    }
+
     fn child<'d>(
         &self,
         instance: &ProtocolRuleInstance<DescriptorTerm>,
@@ -787,9 +819,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                     .iter()
                     .find(|candidate| candidate.field == field.field)
             });
-            let before = self
-                .lowering
-                .lower_state(&field.value, &sort, &field.key, true)?;
+            let before = self.subject_state(field, &sort)?;
             let frame = state_frame(
                 descriptor,
                 &field.value,
@@ -857,8 +887,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
             let (kind, sort) = cell_kind_sort(declared);
             // A new instance's whole `map![..]` is built over the empty map.
             let term = if subject {
-                self.lowering
-                    .lower_state(&field.value, &sort, &field.key, true)?
+                self.subject_state(field, &sort)?
             } else {
                 self.lowering
                     .lower_result(&field.value, &sort, &field.key, &MapBase::Unmatched)?

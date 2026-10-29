@@ -60,6 +60,10 @@ pub(super) struct StructuredTermBuilder<'a> {
     /// ([`Self::infer_key`]): a sort test there computes the value looked
     /// up, so it and its operand are built.
     pub(super) in_key: bool,
+    /// While a Set collection's instance a pattern looks up is lowered, the
+    /// guards that equate each construct it computes with a fresh variable
+    /// written in its place ([`super::set_instances`]).
+    pub(super) instance_guards: Option<super::set_instances::InstanceGuards>,
     /// Whether the next term lowered is the head of an equation or rule,
     /// whose parametric instance its turbofish fixes (KF-027).
     pub(super) head_pending: bool,
@@ -1825,6 +1829,16 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        if self
+            .instance_guards
+            .as_ref()
+            .is_some_and(super::set_instances::InstanceGuards::active)
+            && self.computes(term)
+        {
+            return self
+                .guarded(term, expected_sort, subject)
+                .map_err(|error| self.locate(error, term));
+        }
         self.lower_term(term, expected_sort, subject)
             .map_err(|error| self.locate(error, term))
     }

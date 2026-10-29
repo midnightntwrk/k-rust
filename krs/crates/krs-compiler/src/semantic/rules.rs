@@ -535,6 +535,8 @@ pub(super) fn lower_head_rule_descriptor(
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
         in_key: false,
+        // The guards of the Set collection instances the pattern looks up.
+        instance_guards: Some(super::set_instances::InstanceGuards::after(0)),
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
         declared_binders,
@@ -641,6 +643,16 @@ pub(super) fn lower_head_rule_descriptor(
         omitted_siblings,
     )?;
     let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
+    let guards = builder
+        .instance_guards
+        .take()
+        .map(super::set_instances::InstanceGuards::into_guards)
+        .unwrap_or_default();
+    let guard_variables = guards
+        .iter()
+        .map(super::set_instances::Guard::variable)
+        .collect::<Vec<_>>();
+    let requires = super::set_instances::guarded_requires(descriptor, requires, guards)?;
     let (existentials, ensures) =
         lower_rule_existentials(&mut builder, &rule.existentials, rule.ensures.as_ref())?;
     let fresh = lower_rule_fresh(descriptor, &rule.fresh)?;
@@ -670,6 +682,7 @@ pub(super) fn lower_head_rule_descriptor(
         })
         .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
     variables.append(&mut builder.wildcards);
+    variables.extend(guard_variables);
     // A readable claim's declaration has the claim role (F7).
     let declaration = if rule.claim.is_some() {
         ProvenanceRole::ClaimDeclaration
@@ -1384,23 +1397,39 @@ fn infer_readable_state(
             let ProtocolCellContent::Nested { declaration } = &field.content else {
                 return Ok(());
             };
+            // A pattern looks a Set collection up by an instance, read as a key is.
+            let looked_up = subject
+                && field.cell_type.as_ref().is_some_and(|cell_type| {
+                    krs_ir::CellCollectionType::from(cell_type.value)
+                        == krs_ir::CellCollectionType::Set
+                })
+                && super::function_patterns::matches_evaluated_sentence(
+                    builder.descriptor.payload(),
+                );
             let children = &declarations.cell(&declaration.declaration)?.fields;
-            for instance in instances.front.iter().chain(&instances.back) {
-                for child in &instance.fields {
-                    if let Some(declared) = children
+            let enclosing = builder.in_key;
+            builder.in_key |= looked_up;
+            let inferred = instances
+                .front
+                .iter()
+                .chain(&instances.back)
+                .flat_map(|instance| &instance.fields)
+                .try_for_each(|child| {
+                    children
                         .iter()
                         .find(|candidate| candidate.rust_field == child.field)
-                    {
-                        infer_readable_state(
-                            builder,
-                            declarations,
-                            declared,
-                            &child.value,
-                            subject,
-                        )?;
-                    }
-                }
-            }
+                        .map_or(Ok(()), |declared| {
+                            infer_readable_state(
+                                builder,
+                                declarations,
+                                declared,
+                                &child.value,
+                                subject,
+                            )
+                        })
+                });
+            builder.in_key = enclosing;
+            inferred?;
         }
     }
     Ok(())
@@ -1415,6 +1444,24 @@ struct HeadStateLowering<'a, 'b> {
 impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
     fn descriptor(&self) -> &Descriptor {
         self.builder.descriptor
+    }
+
+    fn lower_looked_up(
+        &mut self,
+        state: &krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,
+        sort: &SemanticSortRef,
+        entry_key: &ProvenanceKey,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let enclosing = std::mem::replace(&mut self.builder.in_key, true);
+        if let Some(guards) = self.builder.instance_guards.as_mut() {
+            guards.activate(true);
+        }
+        let lowered = self.lower_state(state, sort, entry_key, true);
+        if let Some(guards) = self.builder.instance_guards.as_mut() {
+            guards.activate(false);
+        }
+        self.builder.in_key = enclosing;
+        lowered
     }
 
     fn lower_state(
@@ -2004,6 +2051,7 @@ pub(super) fn lower_structured_rule_descriptor(
             .is_some_and(krs_ir::DescriptorUnboundVariables::lists_wildcard),
         locals: super::infer::LocalBinders::default(),
         in_key: false,
+        instance_guards: None,
         head_pending: false,
         operators: super::operators::OperatorInference::default(),
         declared_binders,
