@@ -1,23 +1,24 @@
 //! `k2lean confluence`: the determinism of observations modulo scheduling, as a scaffold
 //! (`k2lean/docs/design.md`, section 3.6).
 //!
-//! Statement, for a program hypothesis `H` (a preserved predicate the hand module supplies) and
-//! an observation `obs` (a projection of configuration cells, `--obs`):
+//! Statement, for a program hypothesis `H` (`--assume-invariant`, a preserved predicate; `True`
+//! without one) and an observation `obs` (a projection of configuration cells, `--obs`):
 //! `H c → Star Step c n₁ → Terminal Step n₁ → Star Step c n₂ → Terminal Step n₂ → n₁ = n₂`, hence
 //! `obs n₁ = obs n₂`. It follows from the diamond property (`KPrelude.terminal_unique_of_diamond`,
-//! no termination hypothesis) or, with `--join local`, from local confluence and a measure every
-//! step decreases (Newman's lemma, `terminal_unique_of_local`; the hand module supplies `μ` and
-//! `μ_dec`).
+//! no termination hypothesis).
 //!
-//! The joins are one obligation per ordered pair of rules (`pair.r₁.r₂`): two instances of the
-//! rules whose left-hand sides are one configuration have successors that join. Each is
-//! attempted by generic arguments, in order: the instances are refuted (the left-hand sides do
-//! not unify, `cases`), or are one instance (the same successor), or act at two bindings of a cell
-//! map matched at a free key (threads) and commute (`MapHook.concat_element_same_or_comm`), or
-//! one updates a binding and the other inserts a fresh one (`concat_element_comm_insert`), or
+//! One pipeline: views, then slots. With `--threads CELL` (a cell map holding the threads), one
+//! view per rule proves the joins of steps of two threads generically (module `views`); the pairs
+//! of rules left are premises. Without it every rule is global and every ordered pair of rules is
+//! a premise (`views::emit_plain`). With `--slots` each pair in a premise is an obligation of its
+//! own (`join.K.r₁.r₂`), attempted by generic arguments, in order: the instances are refuted (the
+//! left-hand sides do not unify, `cases`) or are one instance (`k2l_det`); or they act at two
+//! bindings of a cell map matched at a free key and commute (`MapHook.concat_element_same_or_comm`),
+//! or one updates a binding and the other inserts a fresh one (`concat_element_comm_insert`), or
 //! each applies after the other unchanged; the two final states are closed by `k2l_join_eq`
-//! (equal up to the commutativity of integer addition). The pairs listed in `--open` are the hand
-//! module's (`hand.pair.r₁.r₂`, of the same type).
+//! (equal up to the commutativity of integer addition). The slots listed `NAME | hand` in
+//! `--open-joins` are the hand module's (`hand.NAME`), those listed alone are open (premises of
+//! `terminal_unique`).
 //!
 //! The report (`--report`) classifies the pairs without Lean: by the pair classifier of
 //! `pairs.rs` with two free-key matches taken as one binding (`clash`, `exclusive`, `joinable`,
@@ -153,6 +154,95 @@ fn map_role(r: &Rule) -> MapRole {
         }
         _ => MapRole::None,
     }
+}
+
+/// The commuting attempts at two steps by `r1` and `r2` from one configuration, their instances
+/// unified (the binders of `r2` suffixed `sfx`): two updates of one map (at one key one instance,
+/// at two each step after the other), an update and an insertion, and each step after the other as
+/// they stand, joined by `k2l_join_eq`.
+fn commute_alts(
+    name: &str,
+    r1: &Rule,
+    r2: &Rule,
+    roles: (&MapRole, &MapRole),
+    sfx: &str,
+) -> Vec<String> {
+    let refl = "Or.inl rfl";
+    // a step of `r` with the hypotheses `named` (constructor binder := value)
+    let ctor = |r: &Rule, named: &[(String, String)]| {
+        let mut s = format!("{name}.Step.{}", r.lean);
+        for (b, v) in named {
+            write!(s, " ({b} := {v})").unwrap();
+        }
+        s.push_str(" ..");
+        format!("Or.inr ({s})")
+    };
+    let replace = |hs: &[(String, String)], with: &[(&String, String)]| {
+        hs.iter()
+            .map(|(b, v)| {
+                with.iter()
+                    .find(|(x, _)| *x == b)
+                    .map(|(x, w)| ((*x).clone(), w.clone()))
+                    .unwrap_or((b.clone(), v.clone()))
+            })
+            .collect::<Vec<_>>()
+    };
+    let hyps1: Vec<(String, String)> = r1
+        .step
+        .hyps
+        .iter()
+        .map(|(x, _)| (x.clone(), x.clone()))
+        .collect();
+    let hyps2: Vec<(String, String)> = r2
+        .step
+        .hyps
+        .iter()
+        .map(|(x, _)| (x.clone(), format!("{x}{sfx}")))
+        .collect();
+    let sf = |x: &String| format!("{x}{sfx}");
+    let mut alts = vec![];
+    match roles {
+        (MapRole::Update { hm, hr }, MapRole::Update { hm: hm2, hr: hr2 }) => {
+            let s2 = replace(&hyps2, &[(hm2, "a₁".into()), (hr2, "a₂".into())]);
+            let s1 = replace(&hyps1, &[(hm, "a₃".into()), (hr, "a₄".into())]);
+            alts.push(format!(
+                "(rcases MapHook.concat_element_same_or_comm {hm} {} {hr} {} with ⟨hk, hv, hR⟩ | ⟨R₁₂, R₂₁, m', a₁, a₂, a₃, a₄⟩\n       · cases hk; cases hv; cases hR; cases {hr}.symm.trans {}\n         first | exact ⟨_, _, {refl}, {refl}, rfl⟩ | (exfalso; simp_all) | omega\n       · exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
+                sf(hm2),
+                sf(hr2),
+                sf(hr2),
+                ctor(r2, &s2),
+                ctor(r1, &s1)
+            ));
+        }
+        (MapRole::Update { hm, hr }, MapRole::Insert { hr: hr2 }) => {
+            let s2 = replace(&hyps2, &[(hr2, "a₃".into())]);
+            let s1 = replace(&hyps1, &[(hm, "a₁".into()), (hr, "a₂".into())]);
+            alts.push(format!(
+                "(obtain ⟨R₂₁, m', a₁, a₂, a₃⟩ := MapHook.concat_element_comm_insert {hm} {hr} {}\n       exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
+                sf(hr2),
+                ctor(r2, &s2),
+                ctor(r1, &s1)
+            ));
+        }
+        (MapRole::Insert { hr }, MapRole::Update { hm: hm2, hr: hr2 }) => {
+            let s2 = replace(&hyps2, &[(hm2, "a₁".into()), (hr2, "a₂".into())]);
+            let s1 = replace(&hyps1, &[(hr, "a₃".into())]);
+            alts.push(format!(
+                "(obtain ⟨R₂₁, m', a₁, a₂, a₃⟩ := MapHook.concat_element_comm_insert {} {} {hr}\n       exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
+                sf(hm2),
+                sf(hr2),
+                ctor(r2, &s2),
+                ctor(r1, &s1)
+            ));
+        }
+        _ => {}
+    }
+    alts.push(format!(
+        "exact ⟨_, _, {}, {}, by k2l_join_eq⟩",
+        ctor(r2, &hyps2),
+        ctor(r1, &hyps1)
+    ));
+    alts
 }
 
 /// Whether the key of a map hypothesis is free: none of its variables occurs in the left-hand
@@ -837,14 +927,6 @@ pub(crate) fn proj_def(
     )
 }
 
-fn intro(xs: &[String]) -> String {
-    if xs.is_empty() {
-        String::new()
-    } else {
-        format!("  intro {}\n", xs.join(" "))
-    }
-}
-
 /// A module over a library with parameters (`class Hooks`) states everything for every instance:
 /// `variable [NAME.Hooks]` after its namespace, as the library's own modules have.
 fn with_hooks(o: &str, ns: &str, name: &str) -> String {
@@ -908,8 +990,10 @@ fn under_invariant(o: &str, name: &str, inv: &str, pres: &str, module: &str) -> 
         &format!("}}, {inv} c → StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    DiamondMod"),
         false,
     );
-    // the same-thread premise, or with slots its slot (`StepAt`)
-    if o.contains("def SameSlot") {
+    // the same-thread premise, or with slots its slot (`StepAt`); none without threads
+    let threads = o.contains("def SameThreadJoins");
+    if !threads {
+    } else if o.contains("def SameSlot") {
         sub(
             &mut o,
             "{a₁ a₂ k}, StepAt r₁ a₁ c c₁",
@@ -934,18 +1018,20 @@ fn under_invariant(o: &str, name: &str, inv: &str, pres: &str, module: &str) -> 
         sub(&mut o, " b₁ b₂ ⟨", " hinv b₁ b₂ ⟨", true);
     }
     // the generic joins take it, to pass it to the premises
-    sub(
-        &mut o,
-        "(hs : staticOK r₁ r₂ = true)",
-        &format!("(hinv : {inv} c) (hs : staticOK r₁ r₂ = true)"),
-        false,
-    );
-    sub(
-        &mut o,
-        "refine S r₁ r₂ hk₁ hk₂ hr hd ",
-        "refine S r₁ r₂ hk₁ hk₂ hr hd hinv ",
-        true,
-    );
+    if threads {
+        sub(
+            &mut o,
+            "(hs : staticOK r₁ r₂ = true)",
+            &format!("(hinv : {inv} c) (hs : staticOK r₁ r₂ = true)"),
+            false,
+        );
+        sub(
+            &mut o,
+            "refine S r₁ r₂ hk₁ hk₂ hr hd ",
+            "refine S r₁ r₂ hk₁ hk₂ hr hd hinv ",
+            true,
+        );
+    }
     sub(
         &mut o,
         &format!("(h₁ : {name}.Step c c₁)\n    (h₂ : {name}.Step c c₂) : DiamondMod"),
@@ -954,13 +1040,22 @@ fn under_invariant(o: &str, name: &str, inv: &str, pres: &str, module: &str) -> 
         ),
         false,
     );
-    sub(
-        &mut o,
-        "exact O r₁ r₂ hs v₁",
-        "exact O r₁ r₂ hs hinv v₁",
-        false,
-    );
-    sub(&mut o, " hs v₁ v₂", " hinv hs v₁ v₂", false);
+    if threads {
+        sub(
+            &mut o,
+            "exact O r₁ r₂ hs v₁",
+            "exact O r₁ r₂ hs hinv v₁",
+            false,
+        );
+        sub(&mut o, " hs v₁ v₂", " hinv hs v₁ v₂", false);
+    } else {
+        sub(
+            &mut o,
+            "exact O r₁ r₂ v₁ v₂",
+            "exact O r₁ r₂ hinv v₁ v₂",
+            false,
+        );
+    }
     // the theorems: from a configuration satisfying it
     sub(
         &mut o,
@@ -1009,11 +1104,6 @@ pub fn main(args: &[String]) {
     let lib = load(&get("kore"));
     let name = get("name");
     let report_only = opt.get("report-only").is_some_and(|v| v == "true");
-    let local = match opt.get("join").map(|s| s.as_str()) {
-        None | Some("diamond") => false,
-        Some("local") => true,
-        Some(o) => fail(&format!("--join {o}: expected diamond or local")),
-    };
     let rs = &lib.rules;
     let rank = |r: &Rule| lib.prios.iter().position(|p| *p == r.priority).unwrap_or(0);
     // the classes of the unordered pairs, two free-key matches taken as one binding
@@ -1128,354 +1218,111 @@ pub fn main(args: &[String]) {
         );
         return;
     }
-    if let Some(threads) = opt.get("threads") {
-        // the per-pair options that the views do not take yet; the program hypothesis is
-        // `--assume-invariant`, the hand proofs are by slot (`--slots`)
-        for k in ["hyp", "join", "open"] {
-            if opt.contains_key(k) {
-                fail(&format!("--threads does not take --{k} yet"));
-            }
+    // the options of the per-pair mode, which the slots replace
+    for (k, instead) in [
+        ("hyp", "a program hypothesis is `--assume-invariant NAME`"),
+        (
+            "open",
+            "the hand module's slots are listed `NAME | hand` in `--open-joins`",
+        ),
+        (
+            "join",
+            "the slots are joins in at most one step each (`DiamondMod`)",
+        ),
+    ] {
+        if opt.contains_key(k) {
+            fail(&format!("--{k} is retired: {instead}"));
         }
-        for k in ["hand-module", "open-joins"] {
-            if opt.contains_key(k) && !opt.contains_key("slots") {
-                fail(&format!("--{k} needs --slots"));
-            }
-        }
-        let ns = get("ns");
-        let obs: Option<Vec<String>> = opt
-            .get("obs")
-            .map(|o| o.split(',').map(|s| s.to_string()).collect());
-        let slot_opts = opt.get("slots").map(|_| views::SlotOpts {
-            inv: opt.get("assume-invariant").cloned(),
-            hand: opt.get("hand-module").cloned(),
-            list: match opt.get("open-joins") {
-                Some(p) => read_open_joins(p),
-                None => BTreeMap::new(),
-            },
-            views: opt
-                .get("views-module")
-                .cloned()
-                .unwrap_or(format!("{ns}.Views")),
-        });
-        let (mut out, counts, slots) = views::emit(
-            &lib,
-            &name,
-            &ns,
-            threads,
-            obs.as_deref(),
-            &roles,
-            &feet,
-            &rank,
-            slot_opts.as_ref(),
-        );
-        if lib.hooks {
-            out = with_hooks(&out, &ns, &name);
-        }
-        let mut slot_report = String::new();
-        if let (Some(p), Some((text, report))) = (opt.get("slots"), slots) {
-            let text = if lib.hooks {
-                with_hooks(&text, &ns, &name)
-            } else {
-                text
-            };
-            write_file(p, &text);
-            slot_report = report;
-        }
-        // a program hypothesis: a preserved invariant, as `claims --assume-invariant` takes one
-        if let Some(inv) = opt.get("assume-invariant") {
-            let pres = opt
-                .get("invariant-preserved")
-                .cloned()
-                .unwrap_or(format!("{inv}.preserved"));
-            let module = opt
-                .get("invariant-module")
-                .cloned()
-                .unwrap_or(format!("{name}.Invariants"));
-            out = under_invariant(&out, &name, inv, &pres, &module);
-        } else if opt.contains_key("invariant-preserved") || opt.contains_key("invariant-module") {
-            fail("--invariant-preserved and --invariant-module need --assume-invariant");
-        }
-        write_file(&get("out"), &out);
-        if let Some(p) = opt.get("report") {
-            write_file(p, &(rep + &counts.report() + &slot_report));
-        }
-        eprintln!(
-            "confluence: {} rules by threads, {} pairs left open, {} same-thread pairs{}",
-            counts.rules,
-            counts.open_global + counts.open_cells + counts.open_priority + counts.open_insert,
-            counts.same_thread,
-            counts
-                .key_joins
-                .map_or(String::new(), |k| format!(", {k} in KeyJoins"))
-        );
-        return;
     }
-    if lib.ranked && lib.prios.len() > 1 {
-        fail("the Lean scaffold supports definitions without priority ranks (use --report-only)");
+    for k in ["hand-module", "open-joins"] {
+        if opt.contains_key(k) && !opt.contains_key("slots") {
+            fail(&format!("--{k} needs --slots"));
+        }
     }
     let ns = get("ns");
-    let hand = opt
-        .get("hand-module")
-        .cloned()
-        .unwrap_or(format!("{ns}.Hand"));
-    let h = opt.get("hyp").cloned().unwrap_or("H".into());
-    let open: BTreeSet<(String, String)> = match opt.get("open") {
-        Some(p) => std::fs::read_to_string(p)
-            .unwrap_or_else(|e| fail(&format!("{p}: {e}")))
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .map(|l| match l.split_once(" | ") {
-                Some((a, b)) => (a.trim().to_string(), b.trim().to_string()),
-                None => fail(&format!("{p}: `{l}` is not `RULE | RULE`")),
-            })
-            .collect(),
-        None => BTreeSet::new(),
-    };
-    let names: BTreeSet<String> = rs.iter().map(rules::display_name).collect();
-    for (a, b) in &open {
-        if !names.contains(a) || !names.contains(b) {
-            fail(&format!("open pair {a} | {b}: no such rule"));
-        }
-    }
-    let cells: Vec<String> = get("obs").split(',').map(|s| s.to_string()).collect();
-    let (j, refl, step) = if local {
-        ("JoinMod", ".refl _", "Star.single")
-    } else {
-        ("DiamondMod", "Or.inl rfl", "Or.inr")
-    };
-    let top = format!("{name}.{}", lib.top);
-    let mut o = String::new();
-    writeln!(o, "import {hand}\nimport KPrelude.Tactic\n").unwrap();
-    writeln!(
-        o,
-        "/-! Generated by `k2lean confluence`; do not edit.\n\n\
-Under the hypothesis `{h}` of `{hand}`, every two runs of `{name}.Step` from one configuration that\n\
-end in terminal configurations end in the same one, so in particular they observe the same\n\
-`obs`. One obligation per ordered pair of rules (`pair.r₁.r₂`, {} of them): the successors of two\n\
-instances of the rules at one configuration {}. The pairs the generic arguments do not close\n\
-are the hand module's (`hand.pair.r₁.r₂`). -/\n",
-        n * n,
-        if local {
-            "join (`JoinMod`; with the measure `μ` of the hand module, Newman's lemma)"
-        } else {
-            "join in at most one step each (`DiamondMod`)"
-        }
-    )
-    .unwrap();
-    writeln!(o, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
-    o.push_str(&proj_def(&lib, &name, "obs", &cells, None));
-    o.push('\n');
-    let args_of = |r: &Rule| rules::ctor_args(&r.step);
-    let mut guard = vec![];
-    let mut counts = (0usize, 0usize);
-    let mut hand_pairs = vec![];
-    for (i, r1) in rs.iter().enumerate() {
-        let a1 = args_of(r1);
-        let taken: BTreeSet<&String> = a1.iter().collect();
-        for (k, r2) in rs.iter().enumerate() {
-            let mut suf = "_r".to_string();
-            while args_of(r2)
-                .iter()
-                .any(|x| taken.contains(&format!("{x}{suf}")))
-            {
-                suf.push('\'');
-            }
-            let a2: Vec<String> = args_of(r2).iter().map(|x| format!("{x}{suf}")).collect();
-            let hyps1: Vec<(String, String)> = r1
-                .step
-                .hyps
-                .iter()
-                .map(|(x, _)| (x.clone(), x.clone()))
-                .collect();
-            let hyps2: Vec<(String, String)> = r2
-                .step
-                .hyps
-                .iter()
-                .map(|(x, _)| (x.clone(), format!("{x}{suf}")))
-                .collect();
-            let (l1, l2) = (&r1.lean, &r2.lean);
-            let ty = format!(
-                "{name}.Step.Rel.{l1} (fun c c₁ => {name}.Step.Rel.{l2} (fun c' c₂ => c' = c → {h} c → {j} {name}.Step Eq c₁ c₂))"
+    let obs: Option<Vec<String>> = opt
+        .get("obs")
+        .map(|o| o.split(',').map(|s| s.to_string()).collect());
+    let slot_opts = opt.get("slots").map(|_| views::SlotOpts {
+        inv: opt.get("assume-invariant").cloned(),
+        hand: opt.get("hand-module").cloned(),
+        list: match opt.get("open-joins") {
+            Some(p) => read_open_joins(p),
+            None => BTreeMap::new(),
+        },
+        views: opt
+            .get("views-module")
+            .cloned()
+            .unwrap_or(format!("{ns}.Views")),
+    });
+    // the views, what the report says of them, the slots, and the summary line
+    let (mut out, counts_report, slots, summary) = match opt.get("threads") {
+        Some(threads) => {
+            let (out, counts, slots) = views::emit(
+                &lib,
+                &name,
+                &ns,
+                threads,
+                obs.as_deref(),
+                &roles,
+                &feet,
+                &rank,
+                slot_opts.as_ref(),
             );
-            let mut xs = a1.clone();
-            xs.extend(a2.iter().cloned());
-            xs.extend(["hc".to_string(), "hH".to_string()]);
-            writeln!(
-                o,
-                "theorem pair.{l1}.{l2} :\n    {ty} := by\n{}",
-                intro(&xs)
-            )
-            .unwrap();
-            let listed = open.contains(&(rules::display_name(r1), rules::display_name(r2)));
-            if listed {
-                counts.1 += 1;
-                hand_pairs.push(format!(
-                    "{} | {}",
-                    rules::display_name(r1),
-                    rules::display_name(r2)
-                ));
-                writeln!(o, "  exact hand.pair.{l1}.{l2} {}\n", xs.join(" ")).unwrap();
-                guard.push(format!("pair.{l1}.{l2}"));
-                continue;
-            }
-            counts.0 += 1;
-            // a step of `r` with the hypotheses `named` (constructor binder := value)
-            let ctor = |r: &Rule, named: &[(String, String)]| {
-                let mut s = format!("{name}.Step.{}", r.lean);
-                for (b, v) in named {
-                    write!(s, " ({b} := {v})").unwrap();
-                }
-                s.push_str(" ..");
-                format!("{step} ({s})")
-            };
-            let replace = |hs: &[(String, String)], with: &[(&String, String)]| {
-                hs.iter()
-                    .map(|(b, v)| {
-                        with.iter()
-                            .find(|(x, _)| *x == b)
-                            .map(|(x, w)| ((*x).clone(), w.clone()))
-                            .unwrap_or((b.clone(), v.clone()))
-                    })
-                    .collect::<Vec<_>>()
-            };
-            let mut alts = vec![format!("exact ⟨_, _, {refl}, {refl}, rfl⟩")];
-            if i == k {
-                // one instance: its right-hand-side hypotheses determine the same values
-                let lhs_hyps: BTreeSet<&String> = r1.app.hyps.iter().map(|(x, _)| x).collect();
-                let unify: Vec<String> = r1
-                    .step
-                    .hyps
-                    .iter()
-                    .filter(|(x, p)| !lhs_hyps.contains(x) && p.contains("= some "))
-                    .map(|(x, _)| format!("cases {x}.symm.trans {x}{suf}"))
-                    .collect();
-                if !unify.is_empty() {
-                    alts.push(format!(
-                        "({}; exact ⟨_, _, {refl}, {refl}, rfl⟩)",
-                        unify.join("; ")
-                    ));
-                }
-            }
-            let sfx = |x: &String| format!("{x}{suf}");
-            match (&roles[i], &roles[k]) {
-                (MapRole::Update { hm, hr }, MapRole::Update { hm: hm2, hr: hr2 }) => {
-                    let s2 = replace(&hyps2, &[(hm2, "a₁".into()), (hr2, "a₂".into())]);
-                    let s1 = replace(&hyps1, &[(hm, "a₃".into()), (hr, "a₄".into())]);
-                    alts.push(format!(
-                        "(rcases MapHook.concat_element_same_or_comm {hm} {} {hr} {} with ⟨hk, hv, hR⟩ | ⟨R₁₂, R₂₁, m', a₁, a₂, a₃, a₄⟩\n       · cases hk; cases hv; cases hR; cases {hr}.symm.trans {}\n         first | exact ⟨_, _, {refl}, {refl}, rfl⟩ | (exfalso; simp_all) | omega\n       · exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
-                        sfx(hm2),
-                        sfx(hr2),
-                        sfx(hr2),
-                        ctor(r2, &s2),
-                        ctor(r1, &s1)
-                    ));
-                }
-                (MapRole::Update { hm, hr }, MapRole::Insert { hr: hr2 }) => {
-                    let s2 = replace(&hyps2, &[(hr2, "a₃".into())]);
-                    let s1 = replace(&hyps1, &[(hm, "a₁".into()), (hr, "a₂".into())]);
-                    alts.push(format!(
-                        "(obtain ⟨R₂₁, m', a₁, a₂, a₃⟩ := MapHook.concat_element_comm_insert {hm} {hr} {}\n       exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
-                        sfx(hr2),
-                        ctor(r2, &s2),
-                        ctor(r1, &s1)
-                    ));
-                }
-                (MapRole::Insert { hr }, MapRole::Update { hm: hm2, hr: hr2 }) => {
-                    let s2 = replace(&hyps2, &[(hm2, "a₁".into()), (hr2, "a₂".into())]);
-                    let s1 = replace(&hyps1, &[(hr, "a₃".into())]);
-                    alts.push(format!(
-                        "(obtain ⟨R₂₁, m', a₁, a₂, a₃⟩ := MapHook.concat_element_comm_insert {} {} {hr}\n       exact ⟨_, _, {}, {}, by k2l_join_eq⟩)",
-                        sfx(hm2),
-                        sfx(hr2),
-                        ctor(r2, &s2),
-                        ctor(r1, &s1)
-                    ));
-                }
-                _ => {}
-            }
-            alts.push(format!(
-                "exact ⟨_, _, {}, {}, by k2l_join_eq⟩",
-                ctor(r2, &hyps2),
-                ctor(r1, &hyps1)
-            ));
-            writeln!(o, "  cases hc\n  all_goals first").unwrap();
-            for a in &alts {
-                writeln!(o, "    | {a}").unwrap();
-            }
-            writeln!(o).unwrap();
-            guard.push(format!("pair.{l1}.{l2}"));
+            let summary = format!(
+                "{} rules by threads, {} pairs left open, {} same-thread pairs{}",
+                counts.rules,
+                counts.open_global + counts.open_cells + counts.open_priority + counts.open_insert,
+                counts.same_thread,
+                counts
+                    .key_joins
+                    .map_or(String::new(), |k| format!(", {k} in KeyJoins"))
+            );
+            (out, counts.report(), slots, summary)
         }
-    }
-    // assembly
-    writeln!(o, "/-! ## Every two steps from one configuration join -/\n").unwrap();
-    for r1 in rs {
-        let l1 = &r1.lean;
-        let a1 = args_of(r1);
-        let mut xs = a1.clone();
-        xs.extend(["c₂".to_string(), "h₂".to_string()]);
-        let parts: Vec<String> = rs
-            .iter()
-            .map(|r2| format!("(pair.{l1}.{} {})", r2.lean, a1.join(" ")))
-            .collect();
-        writeln!(
-            o,
-            "theorem left.{l1} :\n    {name}.Step.Rel.{l1} (fun c c₁ => ∀ c₂, {name}.Step c c₂ → {h} c → {j} {name}.Step Eq c₁ c₂) := by\n{}  exact {name}.Step.rel_of {} h₂ rfl\n",
-            intro(&xs),
-            parts.join(" ")
-        )
-        .unwrap();
-    }
-    let lefts: Vec<String> = rs.iter().map(|r| format!("left.{}", r.lean)).collect();
-    writeln!(
-        o,
-        "theorem joins {{c c₁ c₂ : {top}}} (hH : {h} c) (h₁ : {name}.Step c c₁) (h₂ : {name}.Step c c₂) :\n    {j} {name}.Step Eq c₁ c₂ :=\n  {name}.Step.rel_of {} h₁ c₂ h₂ hH\n",
-        lefts.join(" ")
-    )
-    .unwrap();
-    let uniq = if local {
-        format!("terminal_unique_of_local StepEquiv.eq {h}.preserved μ μ_dec joins")
-    } else {
-        format!("terminal_unique_of_diamond StepEquiv.eq {h}.preserved joins")
+        None => {
+            let Some(so) = slot_opts.as_ref() else {
+                fail(
+                    "--slots is required without --threads (every ordered pair of rules is a slot)",
+                );
+            };
+            let (out, slots) = views::emit_plain(&lib, &name, &ns, obs.as_deref(), &roles, so);
+            let summary = format!("{n} rules, {} ordered pairs as slots", n * n);
+            (out, String::new(), Some(slots), summary)
+        }
     };
-    writeln!(
-        o,
-        "/-- Two runs from a configuration satisfying `{h}` that end in terminal configurations end in the same one. -/\n\
-theorem terminal_unique {{c n₁ n₂ : {top}}} (hc : {h} c) (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁)\n    (h₂ : Star {name}.Step c n₂) (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  {uniq} hc h₁ t₁ h₂ t₂\n\n\
-/-- The observation is determined: whatever the schedule, a terminal configuration observes the same `obs`. -/\n\
-theorem obs_confluent {{c n₁ n₂ : {top}}} (hc : {h} c) (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁)\n    (h₂ : Star {name}.Step c n₂) (t₂ : Terminal {name}.Step n₂) : obs n₁ = obs n₂ :=\n  congrArg obs (terminal_unique hc h₁ t₁ h₂ t₂)\n"
-    )
-    .unwrap();
-    guard.extend([
-        "joins".into(),
-        "terminal_unique".into(),
-        "obs_confluent".into(),
-    ]);
-    writeln!(o, "#k2l_assert_axioms {}\n\nend {ns}", guard.join(" ")).unwrap();
-    let o = if lib.hooks {
-        with_hooks(&o, &ns, &name)
-    } else {
-        o
-    };
-    write_file(&get("out"), &o);
-    writeln!(
-        rep,
-        "\n[lean]\nordered_pairs = {}\ngenerated = {}\nhand = {}\nhand_pairs = {hand_pairs:?}",
-        n * n,
-        counts.0,
-        counts.1
-    )
-    .unwrap();
+    if lib.hooks {
+        out = with_hooks(&out, &ns, &name);
+    }
+    let mut slot_report = String::new();
+    if let (Some(p), Some((text, report))) = (opt.get("slots"), slots) {
+        let text = if lib.hooks {
+            with_hooks(&text, &ns, &name)
+        } else {
+            text
+        };
+        write_file(p, &text);
+        slot_report = report;
+    }
+    // a program hypothesis: a preserved invariant, as `claims --assume-invariant` takes one
+    if let Some(inv) = opt.get("assume-invariant") {
+        let pres = opt
+            .get("invariant-preserved")
+            .cloned()
+            .unwrap_or(format!("{inv}.preserved"));
+        let module = opt
+            .get("invariant-module")
+            .cloned()
+            .unwrap_or(format!("{name}.Invariants"));
+        out = under_invariant(&out, &name, inv, &pres, &module);
+    } else if opt.contains_key("invariant-preserved") || opt.contains_key("invariant-module") {
+        fail("--invariant-preserved and --invariant-module need --assume-invariant");
+    }
+    write_file(&get("out"), &out);
     if let Some(p) = opt.get("report") {
-        write_file(p, &rep);
+        write_file(p, &(rep + &counts_report + &slot_report));
     }
-    eprintln!(
-        "confluence: {n} rules, {} ordered pairs, {} generated, {} by hand; {} critical unordered pairs",
-        n * n,
-        counts.0,
-        counts.1,
-        critical.len()
-    );
+    eprintln!("confluence: {summary}");
 }
 
 /// `--threads CELL`: the joins of a definition whose threads are the bindings of a cell map
@@ -2047,11 +1894,9 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                 is_cell_sort(&lib.m, a).is_some_and(|kc| lib.m.ctors[&kc].klabel == "<k>")
             })
         });
-        let (Some(vc), Some(kpos)) = (vctor, kpos) else {
-            super::fail("--threads: the threads are expected to be cells with a <k> cell");
+        let Some(vc) = vctor else {
+            super::fail("--threads: the threads are expected to be cells");
         };
-        let kcell = lib.m.ctors[&vc].args[kpos].clone();
-        let kctor = is_cell_sort(&lib.m, &kcell).unwrap();
         let kitem = lib.m.sort("SortKItem");
         let mut own_arms = String::new();
         for l in &kitem.leaves {
@@ -2090,15 +1935,6 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
             )
             .unwrap();
         }
-        let vargs: Vec<String> = (0..lib.m.ctors[&vc].args.len())
-            .map(|i| {
-                if i == kpos {
-                    "kc".to_string()
-                } else {
-                    "_".to_string()
-                }
-            })
-            .collect();
         writeln!(o, "\n/-- An item of a thread's `<k>`: its injection into `KItem` and the constructor of the injected\nvalue. -/\ndef kitem (it : {name}.SortKItem) : String × String :=\n        match it with\n{own_arms}").unwrap();
         // without a sort `KResult` no item is one, and the library need not define `isKResult`
         let (it, kres) = if lib.m.sorts.contains_key("SortKResult") {
@@ -2106,8 +1942,25 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
         } else {
             ("_", "false".to_string())
         };
-        writeln!(o, "/-- What a key reads of a thread's `<k>` (`KeyView`): its number of items up to 2, and each\nitem (`(\"dotk\", \"\")` past the end). -/\ndef tkey (t : {vt}) : KeyView :=\n  match t with\n  | {name}.{} {} =>\n    match kc with\n    | {name}.{} k =>\n      ⟨match k with | .dotk => 0 | .kseq _ r => (match r with | .dotk => 0 | .kseq _ _ => 1) + 1,\n       fun i => match k with\n         | .dotk => (\"dotk\", \"\")\n         | .kseq it r =>\n           match i with\n           | 0 => kitem it\n           | _ => match r with\n             | .dotk => (\"dotk\", \"\")\n             | .kseq it₂ _ => kitem it₂,\n       match k with | .dotk => false | .kseq {it} _ => {kres}⟩\n",
-            lib.m.ctor_path(&vc), vargs.join(" "), lib.m.ctor_path(&kctor)).unwrap();
+        match kpos {
+            Some(kpos) => {
+                let kcell = lib.m.ctors[&vc].args[kpos].clone();
+                let kctor = is_cell_sort(&lib.m, &kcell).unwrap();
+                let vargs: Vec<String> = (0..lib.m.ctors[&vc].args.len())
+                    .map(|i| {
+                        if i == kpos {
+                            "kc".to_string()
+                        } else {
+                            "_".to_string()
+                        }
+                    })
+                    .collect();
+                writeln!(o, "/-- What a key reads of a thread's `<k>` (`KeyView`): its number of items up to 2, and each\nitem (`(\"dotk\", \"\")` past the end). -/\ndef tkey (t : {vt}) : KeyView :=\n  match t with\n  | {name}.{} {} =>\n    match kc with\n    | {name}.{} k =>\n      ⟨match k with | .dotk => 0 | .kseq _ r => (match r with | .dotk => 0 | .kseq _ _ => 1) + 1,\n       fun i => match k with\n         | .dotk => (\"dotk\", \"\")\n         | .kseq it r =>\n           match i with\n           | 0 => kitem it\n           | _ => match r with\n             | .dotk => (\"dotk\", \"\")\n             | .kseq it₂ _ => kitem it₂,\n       match k with | .dotk => false | .kseq {it} _ => {kres}⟩\n",
+                    lib.m.ctor_path(&vc), vargs.join(" "), lib.m.ctor_path(&kctor)).unwrap();
+            }
+            // a thread without `<k>`: no key reads anything (every rule's pattern is `KeyPat.any`)
+            None => writeln!(o, "/-- What a key reads of a thread (`KeyView`): a thread has no `<k>`, so nothing. -/\ndef tkey (_ : {vt}) : KeyView :=\n  ⟨0, fun _ => (\"dotk\", \"\"), false⟩\n").unwrap(),
+        }
         // the rules: their kind, rank, class and key
         let field_of = |key: &str| -> Option<usize> {
             shared
@@ -2636,32 +2489,11 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
         // thread map it matches (`StepAt`), which its view records
         let ctors = crate::preserves::ctors(rs, lib.ranked.then_some(&lib.prios[..]));
         if slots.is_some() {
-            let mut inst = String::new();
             let mut at = String::new();
-            let mut proofs = String::new();
             for ((r, c), (k, v)) in rs.iter().zip(&ctors).zip(kinds.iter().zip(&vroles)) {
                 let l = &r.lean;
                 // a rule without variables is its one instance
-                let (ex, body) = if c.binders.is_empty() {
-                    ("", format!("c = {} ∧ c' = {}", c.lhs, c.rhs))
-                } else {
-                    (
-                        "∃ ",
-                        format!("{}, c = {} ∧ c' = {}", c.binders.join(" "), c.lhs, c.rhs),
-                    )
-                };
-                writeln!(inst, "  | .{l}, c, c' => {ex}{body}").unwrap();
-                if c.args.is_empty() {
-                    writeln!(proofs, "  · exact h _ ⟨rfl, rfl⟩").unwrap();
-                } else {
-                    writeln!(
-                        proofs,
-                        "  · exact h _ (fun {} => ⟨{}, rfl, rfl⟩)",
-                        c.args.join(" "),
-                        c.args.join(", ")
-                    )
-                    .unwrap();
-                }
+                let (ex, body) = inst_body(c);
                 let part = |h: &str| {
                     let p = &r.step.hyps.iter().find(|(x, _)| x == h).unwrap().1;
                     let i = p.find("KPrelude.MapHook.concat ").unwrap()
@@ -2685,7 +2517,7 @@ commute. -/\ntheorem mstep_comm {{a₁ b₁ a₂ b₂ ch₁ ch₂}} {{c c₁ c�
                     _ => writeln!(at, "  | .{l}, _, _, _ => False").unwrap(),
                 }
             }
-            writeln!(o, "\nopen {name} in\n/-- A step by rule `r`: an instance of the rule. -/\ndef Inst : Rule → {topt} → {topt} → Prop\n{inst}\ntheorem Inst.of {{r : Rule}} {{c c' : {topt}}} (h : StepBy r c c') : Inst r c c' := by\n  cases r\n{proofs}\nopen {name} in\n/-- A step by thread rule `r` whose match of the thread map is `a`: an instance of the rule, the\nbindings it matches being `a`. -/\ndef StepAt : Rule → {mt} → {topt} → {topt} → Prop\n{at}").unwrap();
+            writeln!(o, "{}\nopen {name} in\n/-- A step by thread rule `r` whose match of the thread map is `a`: an instance of the rule, the\nbindings it matches being `a`. -/\ndef StepAt : Rule → {mt} → {topt} → {topt} → Prop\n{at}", inst_def(name, &topt, rs, &ctors)).unwrap();
         }
         let small = if any_keyed { " ∧ ch.Small" } else { "" };
         let at_conj = if slots.is_some() {
@@ -3317,6 +3149,8 @@ def SameThreadJoins : Prop :=
                     so,
                     ctors: &ctors,
                     cells: &cells_of,
+                    roles,
+                    threads: true,
                 },
                 &|i, j| {
                     if rank(&rs[i]) != rank(&rs[j]) {
@@ -3349,6 +3183,119 @@ def SameThreadJoins : Prop :=
         (o, c, slot_out)
     }
 
+    /// A rule's instance (`Inst`): its binders, if any, and the configurations it relates.
+    fn inst_body(c: &crate::preserves::Ctor) -> (&'static str, String) {
+        if c.binders.is_empty() {
+            ("", format!("c = {} ∧ c' = {}", c.lhs, c.rhs))
+        } else {
+            (
+                "∃ ",
+                format!("{}, c = {} ∧ c' = {}", c.binders.join(" "), c.lhs, c.rhs),
+            )
+        }
+    }
+
+    /// `Inst`, a step as an instance of its rule, and `Inst.of`.
+    fn inst_def(name: &str, topt: &str, rs: &[Rule], ctors: &[crate::preserves::Ctor]) -> String {
+        let mut inst = String::new();
+        let mut proofs = String::new();
+        for (r, c) in rs.iter().zip(ctors) {
+            let (ex, body) = inst_body(c);
+            writeln!(inst, "  | .{}, c, c' => {ex}{body}", r.lean).unwrap();
+            if c.args.is_empty() {
+                writeln!(proofs, "  · exact h _ ⟨rfl, rfl⟩").unwrap();
+            } else {
+                writeln!(
+                    proofs,
+                    "  · exact h _ (fun {} => ⟨{}, rfl, rfl⟩)",
+                    c.args.join(" "),
+                    c.args.join(", ")
+                )
+                .unwrap();
+            }
+        }
+        format!(
+            "\nopen {name} in\n/-- A step by rule `r`: an instance of the rule. -/\ndef Inst : Rule → {topt} → {topt} → Prop\n{inst}\ntheorem Inst.of {{r : Rule}} {{c c' : {topt}}} (h : StepBy r c c') : Inst r c c' := by\n  cases r\n{proofs}"
+        )
+    }
+
+    /// Without `--threads`: every rule is global, so the views are the rules' steps alone and every
+    /// ordered pair of rules is a slot of `OpenJoins` (`--slots`, required). Returns the views and
+    /// the slots module with its report section.
+    pub(super) fn emit_plain(
+        lib: &Lib,
+        name: &str,
+        ns: &str,
+        obs: Option<&[String]>,
+        roles: &[MapRole],
+        so: &SlotOpts,
+    ) -> (String, (String, String)) {
+        let topt = format!("{name}.{}", lib.top);
+        let rs = &lib.rules;
+        let ctors = crate::preserves::ctors(rs, lib.ranked.then_some(&lib.prios[..]));
+        let mut o = String::new();
+        writeln!(
+            o,
+            "import {name}.Preserves\nimport KPrelude.Scaffold\nimport KPrelude.Tactic\n"
+        )
+        .unwrap();
+        writeln!(o, "/-! Generated by `k2lean confluence`; do not edit.\n\nNo cell map holds the threads (no `--threads`), so every rule is global: the joins of every ordered\npair of rules are the premise `OpenJoins`, one slot per pair. -/\n").unwrap();
+        writeln!(o, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude").unwrap();
+        writeln!(
+            o,
+            "\n/-- The rules. -/\ninductive Rule where\n{}\n  deriving DecidableEq",
+            rs.iter()
+                .map(|r| format!("  | {}", r.lean))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+        .unwrap();
+        writeln!(o, "\n/-- A step by rule `r`: every per-rule property of `r` holds of it. -/\ndef StepBy : Rule → {topt} → {topt} → Prop\n{}", rs.iter().map(|r| format!("  | .{l}, c, c' => ∀ Q, {name}.Step.Rel.{l} Q → Q c c'", l = r.lean)).collect::<Vec<_>>().join("\n")).unwrap();
+        o.push_str(&inst_def(name, &topt, rs, &ctors));
+        for (r, c) in rs.iter().zip(&ctors) {
+            let l = &r.lean;
+            if c.args.is_empty() {
+                writeln!(o, "\ntheorem frame.{l} : {name}.Step.Rel.{l} (fun c c' => ∃ r, StepBy r c c') :=\n  ⟨.{l}, fun _ hQ => hQ⟩").unwrap();
+            } else {
+                writeln!(o, "\ntheorem frame.{l} : {name}.Step.Rel.{l} (fun c c' => ∃ r, StepBy r c c') :=\n  fun {xs} => ⟨.{l}, fun _ hQ => hQ {xs}⟩", xs = c.args.join(" ")).unwrap();
+            }
+        }
+        let frames: Vec<String> = rs.iter().map(|r| format!("frame.{}", r.lean)).collect();
+        writeln!(o, "\ntheorem view_of {{c c' : {topt}}} (h : {name}.Step c c') : ∃ r, StepBy r c c' :=\n  {name}.Step.rel_of {} h", frames.join(" ")).unwrap();
+        writeln!(o, "\n/-- The join of two steps by `r₁` and `r₂` from one configuration: a slot of `OpenJoins`. -/\ndef OpenSlot (r₁ r₂ : Rule) : Prop :=\n  ∀ {{c c₁ c₂ : {topt}}}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    DiamondMod {name}.Step Eq c₁ c₂").unwrap();
+        writeln!(o, "\n/-- The joins of every two steps from one configuration, one per ordered pair of rules. -/\ndef OpenJoins : Prop :=\n  ∀ r₁ r₂, OpenSlot r₁ r₂").unwrap();
+        writeln!(o, "\ntheorem joins_of (O : OpenJoins) {{c c₁ c₂ : {topt}}} (h₁ : {name}.Step c c₁)\n    (h₂ : {name}.Step c c₂) : DiamondMod {name}.Step Eq c₁ c₂ := by\n  obtain ⟨r₁, v₁⟩ := view_of h₁\n  obtain ⟨r₂, v₂⟩ := view_of h₂\n  exact O r₁ r₂ v₁ v₂").unwrap();
+        writeln!(o, "\n/-- Given the joins, two runs that end in terminal configurations end in the same one. -/\ntheorem terminal_unique_of (O : OpenJoins) {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  terminal_unique_of_diamond (H := fun _ => True) StepEquiv.eq (fun _ _ _ _ => trivial)\n    (fun _ h₁ h₂ => joins_of O h₁ h₂) trivial h₁ t₁ h₂ t₂").unwrap();
+        let mut guard = "view_of joins_of terminal_unique_of".to_string();
+        if let Some(cells) = obs {
+            o.push('\n');
+            o.push_str(&super::proj_def(lib, name, "obs", cells, None));
+            writeln!(o, "\n/-- A corollary of `terminal_unique_of`: the observed cells of the two terminal configurations agree. -/\ntheorem obs_confluent_of (O : OpenJoins) {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : obs n₁ = obs n₂ :=\n  congrArg obs (terminal_unique_of O h₁ t₁ h₂ t₂)").unwrap();
+            guard.push_str(" obs_confluent_of");
+        }
+        writeln!(o, "\n#k2l_assert_axioms {guard}").unwrap();
+        let slots = emit_slots(
+            &mut o,
+            &SlotCx {
+                lib,
+                name,
+                ns,
+                obs,
+                topt: &topt,
+                any_keyed: false,
+                threads: false,
+                so,
+                ctors: &ctors,
+                cells: &[],
+                roles,
+            },
+            &|_, _| [false, true, false],
+            &|_| 0,
+        );
+        writeln!(o, "\nend {ns}").unwrap();
+        (o, slots)
+    }
+
     /// What the slots module needs of the views.
     struct SlotCx<'a> {
         lib: &'a Lib,
@@ -3361,6 +3308,9 @@ def SameThreadJoins : Prop :=
         ctors: &'a [crate::preserves::Ctor],
         /// the keyed cells' projections (`ledgerOf`)
         cells: &'a [String],
+        roles: &'a [MapRole],
+        /// whether a cell map holds the threads (`--threads`): else no `SameThreadJoins`
+        threads: bool,
     }
 
     /// The slots (`--slots`): one obligation per ordered pair of rules in a premise of
@@ -3386,6 +3336,8 @@ def SameThreadJoins : Prop :=
             so,
             ctors,
             cells,
+            roles,
+            threads,
         } = cx;
         let rs = &lib.rules;
         let raw = |r: &Rule| {
@@ -3466,7 +3418,6 @@ def SameThreadJoins : Prop :=
                 }
                 None => generic[k] += 1,
             }
-            let close = "  k2l_det\n  all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩";
             let proof = if k == 0 {
                 // two steps at one binding: their keys are the one key, then the instances agree
                 let (b1, b2) = (bindings(i), bindings(j));
@@ -3494,11 +3445,32 @@ def SameThreadJoins : Prop :=
                     key(b2, "₂")
                 )
             } else if k == 1 {
-                format!(
-                    "  intro c c₁ c₂ {hinv}s₁ s₂\n  obtain ⟨{}, rfl, rfl⟩ := Inst.of s₁\n  obtain ⟨{}, e, rfl⟩ := Inst.of s₂\n  cases e\n{close}",
-                    us(i),
-                    us(j)
-                )
+                // the instances named, the second's binders suffixed: one instance or a clash
+                // (`k2l_det`), else the steps commute
+                let a1 = &ctors[i].args;
+                let mut sfx = "_r".to_string();
+                while ctors[j]
+                    .args
+                    .iter()
+                    .any(|x| a1.contains(&format!("{x}{sfx}")))
+                {
+                    sfx.push('\'');
+                }
+                let a2: Vec<String> = ctors[j].args.iter().map(|x| format!("{x}{sfx}")).collect();
+                let pat = |xs: &[String], e: &str| {
+                    let mut v: Vec<&str> = xs.iter().map(|x| x.as_str()).collect();
+                    v.extend([e, "rfl"]);
+                    v.join(", ")
+                };
+                let mut p = format!(
+                    "  intro c c₁ c₂ {hinv}s₁ s₂\n  have i₁ := Inst.of s₁\n  have i₂ := Inst.of s₂\n  obtain ⟨{}⟩ := i₁\n  obtain ⟨{}⟩ := i₂\n  cases e\n  first\n    | (k2l_det\n       all_goals exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩)",
+                    pat(a1, "rfl"),
+                    pat(&a2, "e")
+                );
+                for a in super::commute_alts(name, &rs[i], &rs[j], (&roles[i], &roles[j]), &sfx) {
+                    write!(p, "\n    | {a}").unwrap();
+                }
+                p
             } else {
                 // two changes of a cell holding a map at their keys (`k2l_keyed`): at one key the
                 // instances agree or clash, at two the changes commute; else the instances alone
@@ -3556,10 +3528,16 @@ def SameThreadJoins : Prop :=
                 })
                 .collect()
         };
-        writeln!(body, "/-- `OpenJoins`, from its slots. -/\ntheorem openJoins_of {pb}: OpenJoins := by\n  intro r₁ r₂ hs\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hs; decide))\n{}", cases_of(1)).unwrap();
-        writeln!(body, "/-- `SameThreadJoins`, from its slots. -/\ntheorem sameThreadJoins_of {pb}: SameThreadJoins := by\n  intro r₁ r₂ k₁ k₂ hr hd\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert k₁ k₂ hr hd; decide))\n{}", cases_of(0)).unwrap();
-        let mut args = format!("(openJoins_of{pa}) (sameThreadJoins_of{pa})");
-        guard.extend(["openJoins_of".into(), "sameThreadJoins_of".into()]);
+        let mut args = format!("(openJoins_of{pa})");
+        guard.push("openJoins_of".into());
+        if *threads {
+            writeln!(body, "/-- `OpenJoins`, from its slots. -/\ntheorem openJoins_of {pb}: OpenJoins := by\n  intro r₁ r₂ hs\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hs; decide))\n{}", cases_of(1)).unwrap();
+            writeln!(body, "/-- `SameThreadJoins`, from its slots. -/\ntheorem sameThreadJoins_of {pb}: SameThreadJoins := by\n  intro r₁ r₂ k₁ k₂ hr hd\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert k₁ k₂ hr hd; decide))\n{}", cases_of(0)).unwrap();
+            args.push_str(&format!(" (sameThreadJoins_of{pa})"));
+            guard.push("sameThreadJoins_of".into());
+        } else {
+            writeln!(body, "/-- `OpenJoins`, from its slots. -/\ntheorem openJoins_of {pb}: OpenJoins := by\n  intro r₁ r₂\n  cases r₁ <;> cases r₂\n{}", cases_of(1)).unwrap();
+        }
         if *any_keyed {
             writeln!(body, "/-- `KeyJoins`, from its slots; at the other pairs the classes' changes of the cells holding a map\ncommute (`kcompat_of`). -/\ntheorem keyJoins_of {pb}: KeyJoins := by\n  intro r₁ r₂ hr hs\n  cases r₁ <;> cases r₂ <;> (try (exfalso; revert hr hs; decide))\n{}  all_goals\n    intro c c₁ c₂ ch₁ ch₂ {hinv}s₁ s₂ o₁ o₂ hk\n    exact (hk (kcompat_of _ _ rfl _ _ o₁.2.2 o₂.2.2)).elim\n", cases_of(2)).unwrap();
             args.push_str(&format!(" (keyJoins_of{pa})"));
@@ -3583,20 +3561,46 @@ def SameThreadJoins : Prop :=
         let total: Vec<usize> = (0..3)
             .map(|k| slots.iter().filter(|s| s.0 == k).count())
             .collect();
+        let (cmd, premises, attempts) = if *threads {
+            (
+                "--threads --slots",
+                format!(
+                    "{} of `SameThreadJoins`,\n{} of `OpenJoins`{}",
+                    total[0],
+                    total[1],
+                    if *any_keyed {
+                        format!(", {} of `KeyJoins`", total[2])
+                    } else {
+                        String::new()
+                    }
+                ),
+                format!(
+                    "each rule's instance, the one key of two steps at one thread,\n{}`k2l_det`,\neach step after the other (`k2l_join_eq`)",
+                    if *any_keyed {
+                        "the keys of two changes of a cell holding a map (`k2l_keyed`), "
+                    } else {
+                        ""
+                    }
+                ),
+            )
+        } else {
+            (
+                "--slots",
+                format!("{} of `OpenJoins`", total[1]),
+                "each rule's instance (`k2l_det`),\neach step after the other (`k2l_join_eq`)"
+                    .to_string(),
+            )
+        };
         writeln!(
             m,
-            "\n/-! Generated by `k2lean confluence --threads --slots`; do not edit.\n\nThe premises of `{ns}.terminal_unique_of`, one slot per ordered pair of rules: {} of `SameThreadJoins`,\n{} of `OpenJoins`{}. A slot is proved by the generic attempts (each rule's instance, the one key of two\nsteps at one thread, {}`k2l_det`), by the hand module (`hand.join.K.r₁.r₂`, listed `| hand` in the open-joins\nlist), or open: a field of `Open`, the premise of `terminal_unique`. -/\n\nset_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n",
-            total[0],
-            total[1],
-            if *any_keyed { format!(", {} of `KeyJoins`", total[2]) } else { String::new() },
-            if *any_keyed { "the keys of two changes of a cell holding a map (`k2l_keyed`), " } else { "" }
+            "\n/-! Generated by `k2lean confluence {cmd}`; do not edit.\n\nThe premises of `{ns}.terminal_unique_of`, one slot per ordered pair of rules: {premises}.\nA slot is proved by the generic attempts ({attempts}), by the hand module\n(`hand.join.K.r₁.r₂`, listed `| hand` in the open-joins list), or open: a field of `Open`, the premise\nof `terminal_unique`. -/\n\nset_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n"
         )
         .unwrap();
         m.push_str(&body);
         writeln!(m, "#k2l_assert_axioms {}\n\nend {ns}", guard.join(" ")).unwrap();
         let mut rep = String::from("\n[slots]\n");
         for k in 0..3 {
-            if k == 2 && !any_keyed {
+            if (k == 2 && !any_keyed) || (k == 0 && !threads) {
                 continue;
             }
             writeln!(

@@ -2,8 +2,13 @@
 # The format of every area's registry is described in gate-check.py's docstring.
 
 DEMOS = {
+    # workers adding to a shared accumulator: by worker (`confluence --threads workers --slots`), and
+    # every pair of rules a slot (`confluence --slots`, `RaceConf.Pairs`)
     "RaceConf": {"tier": "light", "sources": ["generated/race",
-                                              "demos/RaceConf/RaceConf/Confluence.lean", "demos/RaceConf/confluence.toml"]},
+                                              "demos/RaceConf/RaceConf/Views.lean", "demos/RaceConf/RaceConf/Slots.lean",
+                                              "demos/RaceConf/RaceConf/Pairs/Views.lean",
+                                              "demos/RaceConf/RaceConf/Pairs/Slots.lean",
+                                              "demos/RaceConf/confluence.toml", "demos/RaceConf/pairs.toml"]},
     # SIMPLE's steps of two threads joined generically, the rest as hypotheses (`confluence --threads`)
     "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean"]},
     # coroutines over a UTXO ledger, the same views with the joins they leave as slots

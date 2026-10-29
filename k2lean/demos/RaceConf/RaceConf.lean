@@ -1,2 +1,2 @@
-import RaceConf.Hand
-import RaceConf.Confluence
+import RaceConf.Slots
+import RaceConf.Pairs.Slots

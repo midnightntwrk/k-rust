@@ -1007,42 +1007,125 @@ fn confluence_threads_states_the_joins_under_a_program_hypothesis() {
     );
 }
 
-/// `confluence --threads` refuses the per-pair options the views do not take yet, rather than
-/// stating a theorem without them.
+/// `confluence` refuses the retired per-pair options, naming what replaced them, rather than
+/// stating a theorem without them; the hand module and its list need slots, and without
+/// `--threads` slots are required.
 #[test]
-fn confluence_threads_refuses_per_pair_options() {
+fn confluence_refuses_retired_options() {
     let d = tmp("cli-confluence-refuse");
     let fx =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/utxo/definition.kore");
-    for (k, v, msg) in [
-        ("--hyp", "H", "--threads does not take --hyp yet"),
-        ("--hand-module", "M", "--hand-module needs --slots"),
-        ("--open-joins", "open.txt", "--open-joins needs --slots"),
-        ("--join", "local", "--threads does not take --join yet"),
-        ("--open", "open.txt", "--threads does not take --open yet"),
-    ] {
+    for threads in [true, false] {
+        for (k, v, msg) in [
+            (
+                "--hyp",
+                "H",
+                "--hyp is retired: a program hypothesis is `--assume-invariant NAME`",
+            ),
+            ("--hand-module", "M", "--hand-module needs --slots"),
+            ("--open-joins", "open.txt", "--open-joins needs --slots"),
+            ("--join", "local", "--join is retired"),
+            ("--open", "open.txt", "--open is retired"),
+        ] {
+            let mut c = Command::new(env!("CARGO_BIN_EXE_k2lean"));
+            c.arg("confluence")
+                .arg("--kore")
+                .arg(&fx)
+                .args(["--name", "Utxo", "--ns", "UV", k, v, "--out"])
+                .arg(d.join("Views.lean"));
+            if threads {
+                c.args(["--threads", "procs"]);
+            }
+            let o = c.output().unwrap();
+            let e = String::from_utf8_lossy(&o.stderr);
+            assert!(!o.status.success(), "{k}");
+            assert!(e.contains(msg), "{k}: {e}");
+        }
+    }
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(&fx)
+        .args(["--name", "Utxo", "--ns", "UV", "--out"])
+        .arg(d.join("Views.lean"))
+        .output()
+        .unwrap();
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--slots is required without --threads"));
+}
+
+/// `confluence` on the fixture `race`, whose workers have no `<k>`: by worker (`--threads
+/// workers`), a key reads nothing of a worker, so each rule's pattern fits any; without
+/// `--threads`, every rule is global and every ordered pair of rules a slot of `OpenJoins`. Two
+/// workers' steps, and a step beside a spawn, are open slots the commuting attempt closes: the
+/// instances named, the second's binders suffixed, each step after the other.
+#[test]
+fn confluence_slots_with_and_without_threads() {
+    let d = tmp("cli-confluence-race");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/race/definition.kore");
+    let run = |ns: &str, extra: &[&str]| {
         let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
             .arg("confluence")
             .arg("--kore")
             .arg(&fx)
-            .args([
-                "--name",
-                "Utxo",
-                "--ns",
-                "UV",
-                "--threads",
-                "procs",
-                k,
-                v,
-                "--out",
-            ])
-            .arg(d.join("Views.lean"))
+            .args(["--name", "Race", "--ns", ns, "--obs", "acc"])
+            .args(extra)
+            .arg("--slots")
+            .arg(d.join(format!("{ns}.Slots.lean")))
+            .arg("--out")
+            .arg(d.join(format!("{ns}.Views.lean")))
+            .arg("--report")
+            .arg(d.join(format!("{ns}.toml")))
             .output()
             .unwrap();
-        let e = String::from_utf8_lossy(&o.stderr);
-        assert!(!o.status.success(), "{k}");
-        assert!(e.contains(msg), "{k}: {e}");
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let read = |f: String| std::fs::read_to_string(d.join(f)).unwrap();
+        (
+            read(format!("{ns}.Views.lean")),
+            read(format!("{ns}.Slots.lean")),
+            read(format!("{ns}.toml")),
+        )
+    };
+    let (v, m, r) = run("RW", &["--threads", "workers"]);
+    assert!(
+        v.contains("def tkey (_ : Race.SortWorkerCell) : KeyView :=\n  ⟨0, fun _ => (\"dotk\", \"\"), false⟩")
+            && v.contains("  | .work => [KeyPat.any]"),
+        "{v}"
+    );
+    for x in [
+        "obtain ⟨N_r, P_r, DotVar2_r, DotVar3_r, DotVar1_r, I_r, DotVar0_r, r_r, hr_r, e, rfl⟩ := i₂",
+        "| (obtain ⟨R₂₁, m', a₁, a₂, a₃⟩ := MapHook.concat_element_comm_insert hm hr hr_r",
+        "theorem terminal_unique {c n₁ n₂",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
     }
+    assert!(
+        r.contains("same = { slots = 1, generic = 1, hand = 0, open = 0 }"),
+        "{r}"
+    );
+    let (v, m, r) = run("RP", &[]);
+    for x in [
+        "def OpenJoins : Prop :=\n  ∀ r₁ r₂, OpenSlot r₁ r₂",
+        "theorem view_of {c c' : Race.SortGeneratedTopCell} (h : Race.Step c c') : ∃ r, StepBy r c c' :=",
+        "theorem obs_confluent_of (O : OpenJoins)",
+        "def join.open.stop.stop.statement : Prop := OpenSlot .stop .stop",
+    ] {
+        assert!(v.contains(x), "{x}\n{v}");
+    }
+    assert!(!v.contains("SameThreadJoins") && !v.contains("tkey"), "{v}");
+    assert!(
+        m.contains("| (rcases MapHook.concat_element_same_or_comm hm hm_r hr hr_r with")
+            && m.contains(
+                "theorem openJoins_of : OpenJoins := by\n  intro r₁ r₂\n  cases r₁ <;> cases r₂\n"
+            )
+            && m.contains("terminal_unique_of (openJoins_of) h₁ t₁ h₂ t₂"),
+        "{m}"
+    );
+    assert!(
+        r.contains("[slots]\nopen = { slots = 9, generic = 9, hand = 0, open = 0 }"),
+        "{r}"
+    );
 }
 
 /// `confluence --threads --slots`: one obligation per pair of rules in a premise, its statement

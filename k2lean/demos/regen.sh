@@ -11,7 +11,8 @@
 #                 bisimilar to themselves under two namespaces (`k2lean relate`, `Bisim.lean`)
 #   ImpUnroll     kimp and a variant whose `while` unrolls in one step less are stuttering
 #                 bisimilar (`k2lean refine`, with no hand module)
-#   RaceConf      every schedule of the fixture race ends in one configuration (`k2lean confluence`)
+#   RaceConf      every schedule of the fixture race ends in one configuration (`k2lean confluence`,
+#                 by worker and with every pair of rules a slot)
 #   ImpNI         kimp's noninterference for the checker k/imp-sec.k, stated with its obligations
 #                 (`k2lean noninterference`)
 # ImpRel, ImpTypes and KrsImpTyping also have `Preserve.lean`, the preservation theorem proved with

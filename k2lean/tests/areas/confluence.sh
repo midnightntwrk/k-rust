@@ -27,14 +27,19 @@ gen_confluence() {
   return 0
 }
 
-# libs_confluence NS: the confluence scaffold of demo NS (RaceConf: the fixture race, every pair
-# generated, `NS/Confluence.lean` after the hand module `NS/Hand.lean`; SimpleConf: the views of
+# libs_confluence NS: the confluence scaffold of demo NS (RaceConf: the fixture race, by worker in
+# `NS/Views.lean` and `NS/Slots.lean`, and with every pair of rules a slot in `NS/Pairs/`; SimpleConf: the views of
 # SIMPLE's rules by thread, `NS/Views.lean`, with SIMPLE's pairs of rules counted) and its report
 # `NS/confluence.toml` (or OUT for SimpleConf).
 libs_confluence() {
   case $1 in
-    RaceConf) "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf --obs acc \
-        --out "$DEMOS/RaceConf/RaceConf/Confluence.lean" --report "$DEMOS/RaceConf/confluence.toml" ;;
+    RaceConf) "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf \
+        --threads workers --obs acc --slots "$DEMOS/RaceConf/RaceConf/Slots.lean" \
+        --out "$DEMOS/RaceConf/RaceConf/Views.lean" --report "$DEMOS/RaceConf/confluence.toml" &&
+      mkdir -p "$DEMOS/RaceConf/RaceConf/Pairs" &&
+      "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf.Pairs --obs acc \
+        --views-module RaceConf.Pairs.Views --slots "$DEMOS/RaceConf/RaceConf/Pairs/Slots.lean" \
+        --out "$DEMOS/RaceConf/RaceConf/Pairs/Views.lean" --report "$DEMOS/RaceConf/pairs.toml" ;;
     UtxoConf) "$G" confluence --kore "$(libs_fixture utxo)/definition.kore" --name Utxo --ns UtxoConf \
         --threads procs --obs ledger --slots "$DEMOS/UtxoConf/UtxoConf/Slots.lean" --hand-module UtxoConf.Hand \
         --open-joins "$DEMOS/UtxoConf/open-joins.txt" \
@@ -60,8 +65,8 @@ needs_confluence() {
 }
 
 gate_confluence() {
-  # confluence modulo scheduling (docs/design.md, section 3.6) of the fixture race, its library
-  # built only as far as the demo needs
+  # confluence modulo scheduling (docs/design.md, section 3.6) of the fixture race, by worker and
+  # with every pair of rules a slot, its library built only as far as the demo needs
   if runs demo RaceConf; then
     phase "scaffold RaceConf"
     partlib race Race.Preserves
