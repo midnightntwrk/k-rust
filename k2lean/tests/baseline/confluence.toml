@@ -12,7 +12,7 @@ preserve = []
 
 [demo.SimpleConf]
 tier = "heavy"
-guarded = 13
+guarded = 284
 preserve = []
 
 [demo.UtxoConf]
@@ -30,25 +30,50 @@ tier = "light"
 guarded = 39
 preserve = []
 
+[demo.DrfConf]
+tier = "light"
+guarded = 20
+preserve = []
+
 [outputs]
 "simple-confluence.toml" = { tier = "heavy", compare = "exact" }
 
 [sources]
 
 [sources.sha256]
+"demos/DrfConf/DrfConf/Slots.lean" = { tier = "light", sha256 = "3878e24720b3e961fe8261ce0f1841a5d8f61f9b1512b7ba2970def960ddfe2d" }
+"demos/DrfConf/DrfConf/Views.lean" = { tier = "light", sha256 = "c0a365e9e33f09691cec99f06676d52490cf4ff6e0db76aba0c0256cdd6b6bd9" }
+"demos/DrfConf/confluence.toml" = { tier = "light", sha256 = "51628504b8e98061d4bf13295d883201120323a08f5fcd48e4197428339285d7" }
 "demos/HandoffConf/HandoffConf/Slots.lean" = { tier = "light", sha256 = "ebc099fa2efe1f7ad0529c80b1169777a0ce0e3b22b482caaa3f21a68a4b65c9" }
 "demos/HandoffConf/HandoffConf/Views.lean" = { tier = "light", sha256 = "3b536ff11941c4540cbdfeb4ba624cec9cc131741cda884af21397d18483d437" }
-"demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "1e81b3dc725a15c180a08b333d35894ade5a8e272618b85ed4647661b70fffc1" }
+"demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "80c9b3eac2ea452a5b6e50ba68cff6e90cb2a4500a2d4116a3361631962b6245" }
 "demos/RaceConf/RaceConf/Pairs/Slots.lean" = { tier = "light", sha256 = "2ed1bb62711ac427069fc8650509345e77ca4f9c73e2bea1001a8874b9e943c7" }
 "demos/RaceConf/RaceConf/Pairs/Views.lean" = { tier = "light", sha256 = "354f75fa3c5b5d2711a67dd2b534440b7d10eb36189f7d020cb907b31723ac97" }
 "demos/RaceConf/RaceConf/Slots.lean" = { tier = "light", sha256 = "70fb99ffc88b66d6f94a18674f7b006805d34f00e063a80d24cdbe54af9807c4" }
 "demos/RaceConf/RaceConf/Views.lean" = { tier = "light", sha256 = "49fb93d5934fb1c5b3c12d2da5907db2839bb65f9a732b7f944e8536fcc32bb9" }
-"demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "092ceadb1d6f3a9bb4719f94db412c01f66a022f3c650610bdd1886d295c9352" }
-"demos/RaceConf/pairs.toml" = { tier = "light", sha256 = "4ff21b106f4f43bd9343c95500d05347d3b5f2b2783b6c0f9ffcb1f22ed919a3" }
-"demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "6f4cb5078f2e811c270cd18c68fc91f3fad2fe84dd21e7b7ae62d2a6118b7261" }
+"demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "2255c4bbcf17fb3291a50116472959301e19343d9fd4a973320794200d7cc292" }
+"demos/RaceConf/pairs.toml" = { tier = "light", sha256 = "893187b2c1638854d1a62231bdfff88f5d2b650d7c3247e1659d61ea5372a2c1" }
+"demos/SimpleConf/SimpleConf/Slots.lean" = { tier = "heavy", sha256 = "4d98b11a9102df8d86aa55ef2124ebebc28f6c8d57e69ef8f8419de640d9c1dc" }
+"demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "ff5ae580c5c3a8cfed51f230d25931e8af69f54e3895b38e517cc83cd878bdab" }
 "demos/UtxoConf/UtxoConf/Slots.lean" = { tier = "light", sha256 = "b241112e7eacdff3e4f11b2eff6e18eb66e09b340b70cd17c5a2eb95dcc8f69d" }
 "demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "20f7bb57a07adfecbbe05e37cfa8b187fc6e1a5856f2e08ceffcd0a53c234ca8" }
-"demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "eb522463e42b25424350706adba356df8e0f87e353faebe0cac14344b0ee8f4c" }
+"demos/UtxoConf/confluence.toml" = { tier = "light", sha256 = "f1caa6876267d02167a7fd07453dc85c2cecf824061ceb0013b4538ed75ff671" }
+"generated/drf/Drf.lean" = { tier = "light", sha256 = "86614fa19a31a71943757ed7d9432dabb9c000928af4e20050cfb5ee653bd5da" }
+"generated/drf/Drf/Adequacy.lean" = { tier = "light", sha256 = "b3bdc95d8130ef1736ae6cf0a580d3748e718696a0ed6c589b5f09684b807006" }
+"generated/drf/Drf/Determinism.lean" = { tier = "light", sha256 = "a7ca8f109b6e6bca95646221a5401560be6890b39888605f84fe940a06c410fc" }
+"generated/drf/Drf/EqBase.lean" = { tier = "light", sha256 = "e7578fa1ee4c25a5c16f9265df3268a81c9df7b12136a3f2174b29d05427233c" }
+"generated/drf/Drf/Equations.lean" = { tier = "light", sha256 = "17ab266c7c558557741a5964101ca9c1b7c2d03caedf6dfa12275782752db55b" }
+"generated/drf/Drf/Functions.lean" = { tier = "light", sha256 = "a794237887eef4746bc338953a636ee2635c9ff707b72a90479c2327ac952271" }
+"generated/drf/Drf/Init.lean" = { tier = "light", sha256 = "3246cb29e6bd5836b19a906536bc2b203e00dac6e5f2dbd51b2e01ca970a2a29" }
+"generated/drf/Drf/Preserves.lean" = { tier = "light", sha256 = "3ed3a879d226ab8027aebcd9797675eb6939ccc7c094234969878ece0715d3a9" }
+"generated/drf/Drf/Rules.lean" = { tier = "light", sha256 = "92e4496946409287ea6024e42a38206962c62ede3062eaff15d361388aa06145" }
+"generated/drf/Drf/Terms.lean" = { tier = "light", sha256 = "97760649592ce1bffaa1ea2304311d6a04cb0aad3ee1965af974fe090b46b9ac" }
+"generated/drf/DrfBench/Main.lean" = { tier = "light", sha256 = "54d5e2d48042335a3b60c2dbfcaa9d9f9e464f2747b60ce381331f289a6010cf" }
+"generated/drf/DrfBench/Programs.lean" = { tier = "light", sha256 = "803663b158e4ed23e78ae72b938e08a51888e7a1dba709d3e6ae4f05003142cf" }
+"generated/drf/DrfTest/Axioms.lean" = { tier = "light", sha256 = "6d028331ac7fcf8959e04d1b80241dac6ed349ca4fd63b29a12bfce0218e6830" }
+"generated/drf/DrfTest/Main.lean" = { tier = "light", sha256 = "e0fae749d3038efde11baf8e4854dfde84e78f91c32dfcd96c970764174333e4" }
+"generated/drf/lakefile.lean" = { tier = "light", sha256 = "01c3f9ab6cc3cd1d7787ab8059cd2453980e0bc7824c144544a37f6e6fdbb635" }
+"generated/drf/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/handoff/Handoff.lean" = { tier = "light", sha256 = "fc225125e6cd2a9ee167f14c2741d445f5a4dada20a7982ee1ad71353afd7672" }
 "generated/handoff/Handoff/Adequacy.lean" = { tier = "light", sha256 = "79a20ad47aa3c60a8f7cb24bea685f2e2b7650ab6bc76027fb3449f0036ffd5a" }
 "generated/handoff/Handoff/Determinism.lean" = { tier = "light", sha256 = "a55bfe9e7b163055e26ac490fed2d9d5b5642544eff3aa7448156c3500553d87" }
