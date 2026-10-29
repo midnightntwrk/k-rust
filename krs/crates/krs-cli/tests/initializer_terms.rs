@@ -156,11 +156,11 @@ fn initializer_terms_are_krs_terms() {
         &format!("{PREAMBLE}{}", initializer(K)),
     );
     let definition = emit(target.path(), &manifest);
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         <k> $PGM:Stmt ~> tag .Bytes ~> mk ( 1 ) ~> seq $PGM:Stmt ; ~> five ( ) </k>
         <env> .Map [ $N:Id <- five ( ) ] </env>
         <stack> ListItem($Y:Stmt) </stack>
-        <acc> $X:Value </acc>"#]]
+        <acc> $X:Value </acc>"]]
     .assert_eq(&configuration(&definition));
 
     // The run starts from the configuration with the functions evaluated.
@@ -340,11 +340,11 @@ fn initializer_terms_take_record_syntax() {
         ),
     );
     let definition = emit(target.path(), &records);
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         <k> $PGM:Stmt ~> tag .Bytes ~> seq $PGM:Stmt ; </k>
         <env> .Map [ $N:Id <- boxed 1 ] </env>
         <stack> ListItem($Y:Stmt) ListItem(tag .Bytes) </stack>
-        <acc> $X:Value </acc>"#]]
+        <acc> $X:Value </acc>"]]
     .assert_eq(&configuration(&definition));
     assert_eq!(
         configuration(&emit(target.path(), &positional)),

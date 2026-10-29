@@ -222,14 +222,14 @@ fn a_cells_whole_map_emits_the_calls_it_denotes() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         <env> .Map [ $A:Int <- 1 ] [ $B:Int <- 2 ] </env>
         <keyed> .Map [ 0 <- $A:Int ] </keyed>
         <empty> .Map </empty>
         <based> $BASE:Map [ 0 <- 1 ] </based>
         <env> A:Int |-> V:Int => A:Int |-> B:Int ... </env>
         <env> A:Int |-> V:Int Rest:Map => A:Int |-> 10 Rest:Map </env>
-        <env> E:Map => .Map [ A:Int <- 1 ] [ B:Int <- 2 ] </env>"#]]
+        <env> E:Map => .Map [ A:Int <- 1 ] [ B:Int <- 2 ] </env>"]]
     .assert_eq(&lines);
 }
 
