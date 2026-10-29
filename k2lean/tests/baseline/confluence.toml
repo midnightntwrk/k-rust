@@ -25,6 +25,11 @@ tier = "light"
 guarded = 37
 preserve = []
 
+[demo.HandoffSeqRel]
+tier = "light"
+guarded = 39
+preserve = []
+
 [outputs]
 "simple-confluence.toml" = { tier = "heavy", compare = "exact" }
 
@@ -60,6 +65,24 @@ preserve = []
 "generated/handoff/HandoffTest/Main.lean" = { tier = "light", sha256 = "c161e101bc9647c8ef5a5cd3736359fa56865cb5b6b46f4f42b4cab3ff42453a" }
 "generated/handoff/lakefile.lean" = { tier = "light", sha256 = "5e64f2b3e5fbfa0499c79b0f70d80f1e518d33554428479785b1e10cd61b3d1b" }
 "generated/handoff/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/handoffseq/HandoffSeq.lean" = { tier = "light", sha256 = "4e3beb216539c2215106d99f969ebb0134a8e44802fafd6b0bea11ce63afc698" }
+"generated/handoffseq/HandoffSeq/Adequacy.lean" = { tier = "light", sha256 = "469872cd044d649f77baf8d9e8f8d28aea7dd3c47c1324be5399f7ef9d118b0b" }
+"generated/handoffseq/HandoffSeq/Determinism.lean" = { tier = "light", sha256 = "ea0e0da5cd7e23ea937f2a1d130e554a4564d8ba05a7c40915009f8fa75af7b9" }
+"generated/handoffseq/HandoffSeq/Determinism/L1.lean" = { tier = "light", sha256 = "7b7c9cf40a87106b15a1a6fecf65ffe0e1fd176b216da27f0f59c6323e3b11ad" }
+"generated/handoffseq/HandoffSeq/Determinism/Pre.lean" = { tier = "light", sha256 = "cdf876c763f4dc2a1939ce506d25ba5ff5aefc4ac234266e65da7244ad374ace" }
+"generated/handoffseq/HandoffSeq/EqBase.lean" = { tier = "light", sha256 = "2dada155d539bcad3ee39e42dc17d3f742907d60b7e175f1ea23f4def517f788" }
+"generated/handoffseq/HandoffSeq/Equations.lean" = { tier = "light", sha256 = "a155841426ede243458e73a4129034e8829e0a8a91bfb9ee93a5fc870defc35a" }
+"generated/handoffseq/HandoffSeq/Functions.lean" = { tier = "light", sha256 = "eefe4841208ac427866e16de81edecb9b0db31fc6136a6a68b70e57e2e577334" }
+"generated/handoffseq/HandoffSeq/Init.lean" = { tier = "light", sha256 = "087f64d176f0468dcc5be114a660417726a919fef6b2298bd2360eae3fef2e75" }
+"generated/handoffseq/HandoffSeq/Preserves.lean" = { tier = "light", sha256 = "00b8b112353899554cc8d3896ec414ae296b4f4e68a79a5ded5890bbe8b4ffdf" }
+"generated/handoffseq/HandoffSeq/Rules.lean" = { tier = "light", sha256 = "6e1caba03a36bd493907f7820530432ff890ee8aa7ae82e191bb9df40788e5de" }
+"generated/handoffseq/HandoffSeq/Terms.lean" = { tier = "light", sha256 = "5c68b2d3c740c865e4d5845d6c6de6a966f5d459ea5bcbf43b86f63a64c4cc5b" }
+"generated/handoffseq/HandoffSeqBench/Main.lean" = { tier = "light", sha256 = "12017430fede8fd5c998fe6154fe4287e29a4b6ffb3fe97ac18d572dc8f51aa9" }
+"generated/handoffseq/HandoffSeqTest/Axioms.lean" = { tier = "light", sha256 = "97d3ac88b225ce948765f9069e33090103df0ee6beffb251997ec57db108b8ef" }
+"generated/handoffseq/HandoffSeqTest/DetAxioms.lean" = { tier = "light", sha256 = "e15f7d005f429da8b84480a4b618afa18aa8b66d7fc356b736c6d60edab24b1c" }
+"generated/handoffseq/HandoffSeqTest/Main.lean" = { tier = "light", sha256 = "e8916cb68a91d39934d61b9c80b1d9b060c62eecb8f6c66d171c03e692e8216d" }
+"generated/handoffseq/lakefile.lean" = { tier = "light", sha256 = "f0e4f8dabbd14402cc5285e9a3c9ea5a48e7e9a3a48b366a182e9b78e69b72b5" }
+"generated/handoffseq/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/race/Race.lean" = { tier = "light", sha256 = "ab36117730ae402e6cceac6b36bffc4b5abc5081b70dbc04aa7582c237a60292" }
 "generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
 "generated/race/Race/Determinism.lean" = { tier = "light", sha256 = "52be43ddc62f4bcba653d03c572e05763d36f0f9df02c55d18eb5d0177359276" }
