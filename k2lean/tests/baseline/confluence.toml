@@ -10,20 +10,1204 @@ tier = "light"
 guarded = 37
 preserve = []
 
+[demo.RaceConf.slots]
+"Pairs.join.open.spawn.spawn" = { status = "generic" }
+"Pairs.join.open.spawn.stop" = { status = "generic" }
+"Pairs.join.open.spawn.work" = { status = "generic" }
+"Pairs.join.open.stop.spawn" = { status = "generic" }
+"Pairs.join.open.stop.stop" = { status = "generic" }
+"Pairs.join.open.stop.work" = { status = "generic" }
+"Pairs.join.open.work.spawn" = { status = "generic" }
+"Pairs.join.open.work.stop" = { status = "generic" }
+"Pairs.join.open.work.work" = { status = "generic" }
+"join.open.spawn.spawn" = { status = "generic" }
+"join.open.spawn.stop" = { status = "generic" }
+"join.open.spawn.work" = { status = "generic" }
+"join.open.stop.spawn" = { status = "generic" }
+"join.open.stop.stop" = { status = "generic" }
+"join.open.work.spawn" = { status = "generic" }
+"join.open.work.work" = { status = "generic" }
+"join.same.work.work" = { status = "generic" }
+
 [demo.SimpleConf]
 tier = "heavy"
 guarded = 284
 preserve = []
+
+[demo.SimpleConf.slots]
+"join.open.execute.execute" = { status = "open" }
+"join.open.execute.«lambda(Xs, S)(Vs)»" = { status = "open" }
+"join.open.execute.«print(V, Es);»" = { status = "open" }
+"join.open.popx.«print(V, Es);»" = { status = "open" }
+"join.open.«! T».«print(V, Es);»" = { status = "open" }
+"join.open.«++ HOLE».«print(V, Es);»" = { status = "open" }
+"join.open.«++ loc(L)».«++ loc(L)»" = { status = "open" }
+"join.open.«++ loc(L)».«X:Id»" = { status = "open" }
+"join.open.«++ loc(L)».«function F(Xs) S»" = { status = "open" }
+"join.open.«++ loc(L)».«loc(L) = V»" = { status = "open" }
+"join.open.«++ loc(L)».«lookup(L)»" = { status = "open" }
+"join.open.«++ loc(L)».«print(V, Es);»" = { status = "open" }
+"join.open.«++ loc(L)».«var X;»" = { status = "open" }
+"join.open.«++ loc(L)».«var X[N];»" = { status = "open" }
+"join.open.«- I».«print(V, Es);»" = { status = "open" }
+"join.open.«.K».«.K»" = { status = "open" }
+"join.open.«.K».«acquire V:Val; #aa08d0»" = { status = "open" }
+"join.open.«.K».«join T;»" = { status = "open" }
+"join.open.«.K».«print(V, Es);»" = { status = "open" }
+"join.open.«.K».«release V:Val; #8d12cb»" = { status = "open" }
+"join.open.«HOLE = _».«print(V, Es);»" = { status = "open" }
+"join.open.«HOLE:Exps #0f8f7f».«print(V, Es);»" = { status = "open" }
+"join.open.«HOLE:Exps #9932d9».«print(V, Es);»" = { status = "open" }
+"join.open.«HOLE:Exp».«print(V, Es);»" = { status = "open" }
+"join.open.«I1 % I2».«print(V, Es);»" = { status = "open" }
+"join.open.«I1 * I2».«print(V, Es);»" = { status = "open" }
+"join.open.«I1 + I2».«print(V, Es);»" = { status = "open" }
+"join.open.«I1 - I2».«print(V, Es);»" = { status = "open" }
+"join.open.«I1 / I2».«print(V, Es);»" = { status = "open" }
+"join.open.«I1 < I2».«print(V, Es);»" = { status = "open" }
+"join.open.«I1 <= I2».«print(V, Es);»" = { status = "open" }
+"join.open.«I1 > I2».«print(V, Es);»" = { status = "open" }
+"join.open.«I1 >= I2».«print(V, Es);»" = { status = "open" }
+"join.open.«S1 S2».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«print(V, Es);»" = { status = "open" }
+"join.open.«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«print(V, Es);»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinGetc».«STDIN-STREAM.stdinGetc»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseInt».«STDIN-STREAM.stdinParseInt»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseInt».«STDIN-STREAM.stdinParseString»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseInt».«STDIN-STREAM.stdinTrim»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseInt».«print(V, Es);»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseInt».«read() #0fc146»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseInt».«read() #aef085»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseString».«STDIN-STREAM.stdinParseInt»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseString».«STDIN-STREAM.stdinParseString»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseString».«STDIN-STREAM.stdinTrim»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseString».«print(V, Es);»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseString».«read() #0fc146»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinParseString».«read() #aef085»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinTrim».«STDIN-STREAM.stdinParseInt»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinTrim».«STDIN-STREAM.stdinParseString»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinTrim».«STDIN-STREAM.stdinTrim»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinTrim».«print(V, Es);»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinTrim».«read() #0fc146»" = { status = "open" }
+"join.open.«STDIN-STREAM.stdinTrim».«read() #aef085»" = { status = "open" }
+"join.open.«STDOUT-STREAM.stdoutBufferInt».«STDOUT-STREAM.stdoutBufferInt»" = { status = "open" }
+"join.open.«STDOUT-STREAM.stdoutBufferInt».«STDOUT-STREAM.stdoutBufferString»" = { status = "open" }
+"join.open.«STDOUT-STREAM.stdoutBufferString».«STDOUT-STREAM.stdoutBufferInt»" = { status = "open" }
+"join.open.«STDOUT-STREAM.stdoutBufferString».«STDOUT-STREAM.stdoutBufferString»" = { status = "open" }
+"join.open.«STDOUT-STREAM.stdoutWrite».«STDOUT-STREAM.stdoutWrite»" = { status = "open" }
+"join.open.«Str1 + Str2».«print(V, Es);»" = { status = "open" }
+"join.open.«V1 != V2».«print(V, Es);»" = { status = "open" }
+"join.open.«V1 == V2».«print(V, Es);»" = { status = "open" }
+"join.open.«X:Id».«++ loc(L)»" = { status = "open" }
+"join.open.«X:Id».«function F(Xs) S»" = { status = "open" }
+"join.open.«X:Id».«loc(L) = V»" = { status = "open" }
+"join.open.«X:Id».«print(V, Es);»" = { status = "open" }
+"join.open.«X:Id».«var X;»" = { status = "open" }
+"join.open.«X:Id».«var X[N];»" = { status = "open" }
+"join.open.«_;».«print(V, Es);»" = { status = "open" }
+"join.open.«acquire V:Val; #59f263».«print(V, Es);»" = { status = "open" }
+"join.open.«acquire V:Val; #aa08d0».«.K»" = { status = "open" }
+"join.open.«acquire V:Val; #aa08d0».«acquire V:Val; #aa08d0»" = { status = "open" }
+"join.open.«acquire V:Val; #aa08d0».«print(V, Es);»" = { status = "open" }
+"join.open.«acquire V:Val; #aa08d0».«release V:Val; #8d12cb»" = { status = "open" }
+"join.open.«false && _».«print(V, Es);»" = { status = "open" }
+"join.open.«false || E».«print(V, Es);»" = { status = "open" }
+"join.open.«function F(Xs) S».«++ loc(L)»" = { status = "open" }
+"join.open.«function F(Xs) S».«X:Id»" = { status = "open" }
+"join.open.«function F(Xs) S».«function F(Xs) S»" = { status = "open" }
+"join.open.«function F(Xs) S».«loc(L) = V»" = { status = "open" }
+"join.open.«function F(Xs) S».«lookup(L)»" = { status = "open" }
+"join.open.«function F(Xs) S».«print(V, Es);»" = { status = "open" }
+"join.open.«function F(Xs) S».«var X;»" = { status = "open" }
+"join.open.«function F(Xs) S».«var X[N];»" = { status = "open" }
+"join.open.«if(false) _ else S».«print(V, Es);»" = { status = "open" }
+"join.open.«if(true) S else _».«print(V, Es);»" = { status = "open" }
+"join.open.«join T;».«.K»" = { status = "open" }
+"join.open.«join T;».«print(V, Es);»" = { status = "open" }
+"join.open.«lambda(Xs, S)(Vs)».execute" = { status = "open" }
+"join.open.«lambda(Xs, S)(Vs)».«print(V, Es);»" = { status = "open" }
+"join.open.«loc(L) = V».«++ loc(L)»" = { status = "open" }
+"join.open.«loc(L) = V».«X:Id»" = { status = "open" }
+"join.open.«loc(L) = V».«function F(Xs) S»" = { status = "open" }
+"join.open.«loc(L) = V».«loc(L) = V»" = { status = "open" }
+"join.open.«loc(L) = V».«lookup(L)»" = { status = "open" }
+"join.open.«loc(L) = V».«print(V, Es);»" = { status = "open" }
+"join.open.«loc(L) = V».«var X;»" = { status = "open" }
+"join.open.«loc(L) = V».«var X[N];»" = { status = "open" }
+"join.open.«lookup(L)».«++ loc(L)»" = { status = "open" }
+"join.open.«lookup(L)».«function F(Xs) S»" = { status = "open" }
+"join.open.«lookup(L)».«loc(L) = V»" = { status = "open" }
+"join.open.«lookup(L)».«print(V, Es);»" = { status = "open" }
+"join.open.«lookup(L)».«var X;»" = { status = "open" }
+"join.open.«lookup(L)».«var X[N];»" = { status = "open" }
+"join.open.«lvalue(HOLE:Exp) #0b3173».«print(V, Es);»" = { status = "open" }
+"join.open.«lvalue(HOLE:Exp) #f94de7».«print(V, Es);»" = { status = "open" }
+"join.open.«lvalue(HOLE[_])».«print(V, Es);»" = { status = "open" }
+"join.open.«lvalue(X)».«print(V, Es);»" = { status = "open" }
+"join.open.«lvalue(_[HOLE])».«print(V, Es);»" = { status = "open" }
+"join.open.«lvalue(lookup(L))».«print(V, Es);»" = { status = "open" }
+"join.open.«print(.Vals);».«print(V, Es);»" = { status = "open" }
+"join.open.«print(V, Es);».execute" = { status = "open" }
+"join.open.«print(V, Es);».popx" = { status = "open" }
+"join.open.«print(V, Es);».«! T»" = { status = "open" }
+"join.open.«print(V, Es);».«++ HOLE»" = { status = "open" }
+"join.open.«print(V, Es);».«++ loc(L)»" = { status = "open" }
+"join.open.«print(V, Es);».«- I»" = { status = "open" }
+"join.open.«print(V, Es);».«.K»" = { status = "open" }
+"join.open.«print(V, Es);».«HOLE = _»" = { status = "open" }
+"join.open.«print(V, Es);».«HOLE:Exps #0f8f7f»" = { status = "open" }
+"join.open.«print(V, Es);».«HOLE:Exps #9932d9»" = { status = "open" }
+"join.open.«print(V, Es);».«HOLE:Exp»" = { status = "open" }
+"join.open.«print(V, Es);».«I1 % I2»" = { status = "open" }
+"join.open.«print(V, Es);».«I1 * I2»" = { status = "open" }
+"join.open.«print(V, Es);».«I1 + I2»" = { status = "open" }
+"join.open.«print(V, Es);».«I1 - I2»" = { status = "open" }
+"join.open.«print(V, Es);».«I1 / I2»" = { status = "open" }
+"join.open.«print(V, Es);».«I1 < I2»" = { status = "open" }
+"join.open.«print(V, Es);».«I1 <= I2»" = { status = "open" }
+"join.open.«print(V, Es);».«I1 > I2»" = { status = "open" }
+"join.open.«print(V, Es);».«I1 >= I2»" = { status = "open" }
+"join.open.«print(V, Es);».«S1 S2»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.open.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.open.«print(V, Es);».«STDIN-STREAM.stdinParseInt»" = { status = "open" }
+"join.open.«print(V, Es);».«STDIN-STREAM.stdinParseString»" = { status = "open" }
+"join.open.«print(V, Es);».«STDIN-STREAM.stdinTrim»" = { status = "open" }
+"join.open.«print(V, Es);».«Str1 + Str2»" = { status = "open" }
+"join.open.«print(V, Es);».«V1 != V2»" = { status = "open" }
+"join.open.«print(V, Es);».«V1 == V2»" = { status = "open" }
+"join.open.«print(V, Es);».«X:Id»" = { status = "open" }
+"join.open.«print(V, Es);».«_;»" = { status = "open" }
+"join.open.«print(V, Es);».«acquire V:Val; #59f263»" = { status = "open" }
+"join.open.«print(V, Es);».«acquire V:Val; #aa08d0»" = { status = "open" }
+"join.open.«print(V, Es);».«false && _»" = { status = "open" }
+"join.open.«print(V, Es);».«false || E»" = { status = "open" }
+"join.open.«print(V, Es);».«function F(Xs) S»" = { status = "open" }
+"join.open.«print(V, Es);».«if(false) _ else S»" = { status = "open" }
+"join.open.«print(V, Es);».«if(true) S else _»" = { status = "open" }
+"join.open.«print(V, Es);».«join T;»" = { status = "open" }
+"join.open.«print(V, Es);».«lambda(Xs, S)(Vs)»" = { status = "open" }
+"join.open.«print(V, Es);».«loc(L) = V»" = { status = "open" }
+"join.open.«print(V, Es);».«lookup(L)»" = { status = "open" }
+"join.open.«print(V, Es);».«lvalue(HOLE:Exp) #0b3173»" = { status = "open" }
+"join.open.«print(V, Es);».«lvalue(HOLE:Exp) #f94de7»" = { status = "open" }
+"join.open.«print(V, Es);».«lvalue(HOLE[_])»" = { status = "open" }
+"join.open.«print(V, Es);».«lvalue(X)»" = { status = "open" }
+"join.open.«print(V, Es);».«lvalue(_[HOLE])»" = { status = "open" }
+"join.open.«print(V, Es);».«lvalue(lookup(L))»" = { status = "open" }
+"join.open.«print(V, Es);».«print(.Vals);»" = { status = "open" }
+"join.open.«print(V, Es);».«print(V, Es);»" = { status = "open" }
+"join.open.«print(V, Es);».«read() #0fc146»" = { status = "open" }
+"join.open.«print(V, Es);».«read() #aef085»" = { status = "open" }
+"join.open.«print(V, Es);».«release V:Val; #489dca»" = { status = "open" }
+"join.open.«print(V, Es);».«release V:Val; #8d12cb»" = { status = "open" }
+"join.open.«print(V, Es);».«rendezvous V;»" = { status = "open" }
+"join.open.«print(V, Es);».«return V;»" = { status = "open" }
+"join.open.«print(V, Es);».«setEnv(Env)»" = { status = "open" }
+"join.open.«print(V, Es);».«setEnv(_)»" = { status = "open" }
+"join.open.«print(V, Es);».«sizeOf(array(_, N))»" = { status = "open" }
+"join.open.«print(V, Es);».«spawn S»" = { status = "open" }
+"join.open.«print(V, Es);».«throw V;»" = { status = "open" }
+"join.open.«print(V, Es);».«true && E»" = { status = "open" }
+"join.open.«print(V, Es);».«true || _»" = { status = "open" }
+"join.open.«print(V, Es);».«try S1 catch(X) {S2}»" = { status = "open" }
+"join.open.«print(V, Es);».«var E1, E2, Es;_ov1»" = { status = "open" }
+"join.open.«print(V, Es);».«var E1, E2, Es;_ov2»" = { status = "open" }
+"join.open.«print(V, Es);».«var E1, E2, Es;_ov3»" = { status = "open" }
+"join.open.«print(V, Es);».«var E1, E2, Es;_ov4»" = { status = "open" }
+"join.open.«print(V, Es);».«var E1, E2, Es;»" = { status = "open" }
+"join.open.«print(V, Es);».«var X = E;»" = { status = "open" }
+"join.open.«print(V, Es);».«var X;»" = { status = "open" }
+"join.open.«print(V, Es);».«var X[N1, N2, Vs];»" = { status = "open" }
+"join.open.«print(V, Es);».«var X[N];»" = { status = "open" }
+"join.open.«print(V, Es);».«var _[HOLE];»" = { status = "open" }
+"join.open.«print(V, Es);».«while(E) S»" = { status = "open" }
+"join.open.«print(V, Es);».«{S}»" = { status = "open" }
+"join.open.«print(V, Es);».«{}»" = { status = "open" }
+"join.open.«read() #0fc146».«STDIN-STREAM.stdinParseInt»" = { status = "open" }
+"join.open.«read() #0fc146».«STDIN-STREAM.stdinParseString»" = { status = "open" }
+"join.open.«read() #0fc146».«STDIN-STREAM.stdinTrim»" = { status = "open" }
+"join.open.«read() #0fc146».«print(V, Es);»" = { status = "open" }
+"join.open.«read() #0fc146».«read() #0fc146»" = { status = "open" }
+"join.open.«read() #0fc146».«read() #aef085»" = { status = "open" }
+"join.open.«read() #aef085».«STDIN-STREAM.stdinParseInt»" = { status = "open" }
+"join.open.«read() #aef085».«STDIN-STREAM.stdinParseString»" = { status = "open" }
+"join.open.«read() #aef085».«STDIN-STREAM.stdinTrim»" = { status = "open" }
+"join.open.«read() #aef085».«print(V, Es);»" = { status = "open" }
+"join.open.«read() #aef085».«read() #0fc146»" = { status = "open" }
+"join.open.«read() #aef085».«read() #aef085»" = { status = "open" }
+"join.open.«release V:Val; #489dca».«print(V, Es);»" = { status = "open" }
+"join.open.«release V:Val; #8d12cb».«.K»" = { status = "open" }
+"join.open.«release V:Val; #8d12cb».«acquire V:Val; #aa08d0»" = { status = "open" }
+"join.open.«release V:Val; #8d12cb».«print(V, Es);»" = { status = "open" }
+"join.open.«release V:Val; #8d12cb».«release V:Val; #8d12cb»" = { status = "open" }
+"join.open.«rendezvous V;».«print(V, Es);»" = { status = "open" }
+"join.open.«return V;».«print(V, Es);»" = { status = "open" }
+"join.open.«setEnv(Env)».«print(V, Es);»" = { status = "open" }
+"join.open.«setEnv(_)».«print(V, Es);»" = { status = "open" }
+"join.open.«sizeOf(array(_, N))».«print(V, Es);»" = { status = "open" }
+"join.open.«spawn S».«print(V, Es);»" = { status = "open" }
+"join.open.«spawn S».«spawn S»" = { status = "open" }
+"join.open.«throw V;».«print(V, Es);»" = { status = "open" }
+"join.open.«true && E».«print(V, Es);»" = { status = "open" }
+"join.open.«true || _».«print(V, Es);»" = { status = "open" }
+"join.open.«try S1 catch(X) {S2}».«print(V, Es);»" = { status = "open" }
+"join.open.«var E1, E2, Es;_ov1».«print(V, Es);»" = { status = "open" }
+"join.open.«var E1, E2, Es;_ov2».«print(V, Es);»" = { status = "open" }
+"join.open.«var E1, E2, Es;_ov3».«print(V, Es);»" = { status = "open" }
+"join.open.«var E1, E2, Es;_ov4».«print(V, Es);»" = { status = "open" }
+"join.open.«var E1, E2, Es;».«print(V, Es);»" = { status = "open" }
+"join.open.«var X = E;».«print(V, Es);»" = { status = "open" }
+"join.open.«var X;».«++ loc(L)»" = { status = "open" }
+"join.open.«var X;».«X:Id»" = { status = "open" }
+"join.open.«var X;».«function F(Xs) S»" = { status = "open" }
+"join.open.«var X;».«loc(L) = V»" = { status = "open" }
+"join.open.«var X;».«lookup(L)»" = { status = "open" }
+"join.open.«var X;».«print(V, Es);»" = { status = "open" }
+"join.open.«var X;».«var X;»" = { status = "open" }
+"join.open.«var X;».«var X[N];»" = { status = "open" }
+"join.open.«var X[N1, N2, Vs];».«print(V, Es);»" = { status = "open" }
+"join.open.«var X[N];».«++ loc(L)»" = { status = "open" }
+"join.open.«var X[N];».«X:Id»" = { status = "open" }
+"join.open.«var X[N];».«function F(Xs) S»" = { status = "open" }
+"join.open.«var X[N];».«loc(L) = V»" = { status = "open" }
+"join.open.«var X[N];».«lookup(L)»" = { status = "open" }
+"join.open.«var X[N];».«print(V, Es);»" = { status = "open" }
+"join.open.«var X[N];».«var X;»" = { status = "open" }
+"join.open.«var X[N];».«var X[N];»" = { status = "open" }
+"join.open.«var _[HOLE];».«print(V, Es);»" = { status = "open" }
+"join.open.«while(E) S».«print(V, Es);»" = { status = "open" }
+"join.open.«{S}».«print(V, Es);»" = { status = "open" }
+"join.open.«{}».«print(V, Es);»" = { status = "open" }
+"join.same.execute.execute" = { status = "generic" }
+"join.same.popx.popx" = { status = "open" }
+"join.same.«! T».«! T»" = { status = "generic" }
+"join.same.«! T».«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«++ HOLE».«++ HOLE»" = { status = "generic" }
+"join.same.«++ HOLE».«++ loc(L)»" = { status = "open" }
+"join.same.«++ loc(L)».«++ HOLE»" = { status = "open" }
+"join.same.«++ loc(L)».«++ loc(L)»" = { status = "generic" }
+"join.same.«- I».«- I»" = { status = "generic" }
+"join.same.«- I».«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«.K».«.K»" = { status = "generic" }
+"join.same.«HOLE = _».«HOLE = _»" = { status = "generic" }
+"join.same.«HOLE = _».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«HOLE = _».«loc(L) = V»" = { status = "open" }
+"join.same.«HOLE:Exps #0f8f7f».«HOLE:Exps #0f8f7f»" = { status = "generic" }
+"join.same.«HOLE:Exps #0f8f7f».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«HOLE:Exps #0f8f7f».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«HOLE:Exps #0f8f7f».«X:Id»" = { status = "open" }
+"join.same.«HOLE:Exps #9932d9».«HOLE:Exps #9932d9»" = { status = "generic" }
+"join.same.«HOLE:Exps #9932d9».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«HOLE:Exps #9932d9».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«HOLE:Exps #9932d9».«X:Id»" = { status = "open" }
+"join.same.«HOLE:Exp».«HOLE:Exp»" = { status = "generic" }
+"join.same.«HOLE:Exp».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«HOLE:Exp».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«HOLE:Exp».«X:Id»" = { status = "open" }
+"join.same.«I1 % I2».«I1 % I2»" = { status = "generic" }
+"join.same.«I1 % I2».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«I1 % I2».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«I1 * I2».«I1 * I2»" = { status = "generic" }
+"join.same.«I1 * I2».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«I1 * I2».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«I1 + I2».«I1 + I2»" = { status = "generic" }
+"join.same.«I1 + I2».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«I1 + I2».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«I1 + I2».«Str1 + Str2»" = { status = "generic" }
+"join.same.«I1 - I2».«I1 - I2»" = { status = "generic" }
+"join.same.«I1 - I2».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«I1 - I2».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«I1 / I2».«I1 / I2»" = { status = "generic" }
+"join.same.«I1 / I2».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«I1 / I2».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«I1 < I2».«I1 < I2»" = { status = "generic" }
+"join.same.«I1 < I2».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«I1 < I2».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«I1 <= I2».«I1 <= I2»" = { status = "generic" }
+"join.same.«I1 <= I2».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«I1 <= I2».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«I1 > I2».«I1 > I2»" = { status = "generic" }
+"join.same.«I1 > I2».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«I1 > I2».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«I1 >= I2».«I1 >= I2»" = { status = "generic" }
+"join.same.«I1 >= I2».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«I1 >= I2».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«S1 S2».«S1 S2»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat».«! T»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat».«- I»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«V1 != V2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«V1 != V2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«I1 % I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«I1 % I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«false && _»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«true && E»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«lambda(Xs, S)(Vs)»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«lambda(Xs, S)(Vs)»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«I1 * I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«I1 * I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«I1 + I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«Str1 + Str2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«I1 + I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«Str1 + Str2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«HOLE:Exps #0f8f7f»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«HOLE:Exps #9932d9»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«HOLE:Exp»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«HOLE:Exps #0f8f7f»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«HOLE:Exps #9932d9»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«HOLE:Exp»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2».«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«I1 - I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«I1 - I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«I1 / I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«I1 / I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«_;»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«I1 <= I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«I1 <= I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«I1 < I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«I1 < I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«V1 == V2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«V1 == V2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«HOLE = _»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«loc(L) = V»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«I1 >= I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«I1 >= I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«I1 > I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«I1 > I2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«false || E»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat».«true || _»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«acquire V:Val; #59f263»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«acquire V:Val; #aa08d0»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool».«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-heat».«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-heat».«if(false) _ else S»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-heat».«if(true) S else _»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«join T;»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-heat».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-heat».«print(.Vals);»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-heat».«print(V, Es);»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«release V:Val; #489dca»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«release V:Val; #8d12cb»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«rendezvous V;»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«return V;»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat».«sizeOf(array(_, N))»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov2»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool».«X:Id»" = { status = "open" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "generic" }
+"join.same.«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat».«throw V;»" = { status = "open" }
+"join.same.«Str1 + Str2».«I1 + I2»" = { status = "generic" }
+"join.same.«Str1 + Str2».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«Str1 + Str2».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«Str1 + Str2».«Str1 + Str2»" = { status = "generic" }
+"join.same.«V1 != V2».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«V1 != V2».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«V1 != V2».«V1 != V2»" = { status = "generic" }
+"join.same.«V1 == V2».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«V1 == V2».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«V1 == V2».«V1 == V2»" = { status = "generic" }
+"join.same.«X:Id».«HOLE:Exps #0f8f7f»" = { status = "open" }
+"join.same.«X:Id».«HOLE:Exps #9932d9»" = { status = "open" }
+"join.same.«X:Id».«HOLE:Exp»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.!__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._!=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._%__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._*__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._+__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._-__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._/__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._<=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._<__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._==__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._>=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._>__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-cool»" = { status = "open" }
+"join.same.«X:Id».«X:Id»" = { status = "generic" }
+"join.same.«_;».«SIMPLE-UNTYPED-SYNTAX._;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.same.«_;».«_;»" = { status = "generic" }
+"join.same.«acquire V:Val; #59f263».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.same.«acquire V:Val; #59f263».«acquire V:Val; #59f263»" = { status = "generic" }
+"join.same.«acquire V:Val; #59f263».«acquire V:Val; #aa08d0»" = { status = "generic" }
+"join.same.«acquire V:Val; #aa08d0».«SIMPLE-UNTYPED-SYNTAX.acquire_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.same.«acquire V:Val; #aa08d0».«acquire V:Val; #59f263»" = { status = "generic" }
+"join.same.«acquire V:Val; #aa08d0».«acquire V:Val; #aa08d0»" = { status = "generic" }
+"join.same.«false && _».«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«false && _».«false && _»" = { status = "generic" }
+"join.same.«false && _».«true && E»" = { status = "generic" }
+"join.same.«false || E».«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«false || E».«false || E»" = { status = "generic" }
+"join.same.«false || E».«true || _»" = { status = "generic" }
+"join.same.«function F(Xs) S».«function F(Xs) S»" = { status = "generic" }
+"join.same.«if(false) _ else S».«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-heat»" = { status = "open" }
+"join.same.«if(false) _ else S».«if(false) _ else S»" = { status = "generic" }
+"join.same.«if(false) _ else S».«if(true) S else _»" = { status = "generic" }
+"join.same.«if(true) S else _».«SIMPLE-UNTYPED-SYNTAX.if(_)_else__SIMPLE-UNTYPED-SYNTAX_Stmt_Exp_Block_Block1-heat»" = { status = "open" }
+"join.same.«if(true) S else _».«if(false) _ else S»" = { status = "generic" }
+"join.same.«if(true) S else _».«if(true) S else _»" = { status = "generic" }
+"join.same.«join T;».«SIMPLE-UNTYPED-SYNTAX.join_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.same.«join T;».«join T;»" = { status = "generic" }
+"join.same.«lambda(Xs, S)(Vs)».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-heat»" = { status = "open" }
+"join.same.«lambda(Xs, S)(Vs)».«SIMPLE-UNTYPED-SYNTAX._(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps2-heat»" = { status = "open" }
+"join.same.«lambda(Xs, S)(Vs)».«lambda(Xs, S)(Vs)»" = { status = "generic" }
+"join.same.«loc(L) = V».«HOLE = _»" = { status = "open" }
+"join.same.«loc(L) = V».«SIMPLE-UNTYPED-SYNTAX._=__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp2-heat»" = { status = "open" }
+"join.same.«loc(L) = V».«loc(L) = V»" = { status = "generic" }
+"join.same.«lookup(L)».«lookup(L)»" = { status = "generic" }
+"join.same.«lvalue(HOLE:Exp) #0b3173».«lvalue(HOLE:Exp) #0b3173»" = { status = "generic" }
+"join.same.«lvalue(HOLE:Exp) #0b3173».«lvalue(HOLE:Exp) #f94de7»" = { status = "generic" }
+"join.same.«lvalue(HOLE:Exp) #0b3173».«lvalue(HOLE[_])»" = { status = "open" }
+"join.same.«lvalue(HOLE:Exp) #0b3173».«lvalue(X)»" = { status = "open" }
+"join.same.«lvalue(HOLE:Exp) #0b3173».«lvalue(_[HOLE])»" = { status = "open" }
+"join.same.«lvalue(HOLE:Exp) #0b3173».«lvalue(lookup(L))»" = { status = "open" }
+"join.same.«lvalue(HOLE:Exp) #f94de7».«lvalue(HOLE:Exp) #0b3173»" = { status = "generic" }
+"join.same.«lvalue(HOLE:Exp) #f94de7».«lvalue(HOLE:Exp) #f94de7»" = { status = "generic" }
+"join.same.«lvalue(HOLE:Exp) #f94de7».«lvalue(HOLE[_])»" = { status = "open" }
+"join.same.«lvalue(HOLE:Exp) #f94de7».«lvalue(X)»" = { status = "open" }
+"join.same.«lvalue(HOLE:Exp) #f94de7».«lvalue(_[HOLE])»" = { status = "open" }
+"join.same.«lvalue(HOLE:Exp) #f94de7».«lvalue(lookup(L))»" = { status = "open" }
+"join.same.«lvalue(HOLE[_])».«lvalue(HOLE:Exp) #0b3173»" = { status = "open" }
+"join.same.«lvalue(HOLE[_])».«lvalue(HOLE:Exp) #f94de7»" = { status = "open" }
+"join.same.«lvalue(HOLE[_])».«lvalue(HOLE[_])»" = { status = "generic" }
+"join.same.«lvalue(HOLE[_])».«lvalue(X)»" = { status = "generic" }
+"join.same.«lvalue(HOLE[_])».«lvalue(_[HOLE])»" = { status = "open" }
+"join.same.«lvalue(HOLE[_])».«lvalue(lookup(L))»" = { status = "generic" }
+"join.same.«lvalue(X)».«lvalue(HOLE:Exp) #0b3173»" = { status = "open" }
+"join.same.«lvalue(X)».«lvalue(HOLE:Exp) #f94de7»" = { status = "open" }
+"join.same.«lvalue(X)».«lvalue(HOLE[_])»" = { status = "generic" }
+"join.same.«lvalue(X)».«lvalue(X)»" = { status = "generic" }
+"join.same.«lvalue(X)».«lvalue(_[HOLE])»" = { status = "generic" }
+"join.same.«lvalue(X)».«lvalue(lookup(L))»" = { status = "generic" }
+"join.same.«lvalue(_[HOLE])».«lvalue(HOLE:Exp) #0b3173»" = { status = "open" }
+"join.same.«lvalue(_[HOLE])».«lvalue(HOLE:Exp) #f94de7»" = { status = "open" }
+"join.same.«lvalue(_[HOLE])».«lvalue(HOLE[_])»" = { status = "open" }
+"join.same.«lvalue(_[HOLE])».«lvalue(X)»" = { status = "generic" }
+"join.same.«lvalue(_[HOLE])».«lvalue(_[HOLE])»" = { status = "generic" }
+"join.same.«lvalue(_[HOLE])».«lvalue(lookup(L))»" = { status = "generic" }
+"join.same.«lvalue(lookup(L))».«lvalue(HOLE:Exp) #0b3173»" = { status = "open" }
+"join.same.«lvalue(lookup(L))».«lvalue(HOLE:Exp) #f94de7»" = { status = "open" }
+"join.same.«lvalue(lookup(L))».«lvalue(HOLE[_])»" = { status = "generic" }
+"join.same.«lvalue(lookup(L))».«lvalue(X)»" = { status = "generic" }
+"join.same.«lvalue(lookup(L))».«lvalue(_[HOLE])»" = { status = "generic" }
+"join.same.«lvalue(lookup(L))».«lvalue(lookup(L))»" = { status = "generic" }
+"join.same.«print(.Vals);».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-heat»" = { status = "open" }
+"join.same.«print(.Vals);».«print(.Vals);»" = { status = "generic" }
+"join.same.«print(.Vals);».«print(V, Es);»" = { status = "generic" }
+"join.same.«print(V, Es);».«SIMPLE-UNTYPED-SYNTAX.print(_);_SIMPLE-UNTYPED-SYNTAX_Stmt_Exps1-heat»" = { status = "open" }
+"join.same.«print(V, Es);».«print(.Vals);»" = { status = "generic" }
+"join.same.«print(V, Es);».«print(V, Es);»" = { status = "generic" }
+"join.same.«read() #0fc146».«read() #0fc146»" = { status = "open" }
+"join.same.«read() #0fc146».«read() #aef085»" = { status = "open" }
+"join.same.«read() #aef085».«read() #0fc146»" = { status = "open" }
+"join.same.«read() #aef085».«read() #aef085»" = { status = "open" }
+"join.same.«release V:Val; #489dca».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.same.«release V:Val; #489dca».«release V:Val; #489dca»" = { status = "generic" }
+"join.same.«release V:Val; #489dca».«release V:Val; #8d12cb»" = { status = "open" }
+"join.same.«release V:Val; #8d12cb».«SIMPLE-UNTYPED-SYNTAX.release_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.same.«release V:Val; #8d12cb».«release V:Val; #489dca»" = { status = "open" }
+"join.same.«release V:Val; #8d12cb».«release V:Val; #8d12cb»" = { status = "generic" }
+"join.same.«rendezvous V;».«SIMPLE-UNTYPED-SYNTAX.rendezvous_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.same.«rendezvous V;».«rendezvous V;»" = { status = "open" }
+"join.same.«return V;».«SIMPLE-UNTYPED-SYNTAX.return_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.same.«return V;».«return V;»" = { status = "open" }
+"join.same.«setEnv(Env)».«setEnv(Env)»" = { status = "generic" }
+"join.same.«setEnv(Env)».«setEnv(_)»" = { status = "open" }
+"join.same.«setEnv(_)».«setEnv(Env)»" = { status = "open" }
+"join.same.«setEnv(_)».«setEnv(_)»" = { status = "generic" }
+"join.same.«sizeOf(array(_, N))».«SIMPLE-UNTYPED-SYNTAX.sizeOf(_)_SIMPLE-UNTYPED-SYNTAX_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«sizeOf(array(_, N))».«sizeOf(array(_, N))»" = { status = "generic" }
+"join.same.«spawn S».«spawn S»" = { status = "generic" }
+"join.same.«throw V;».«SIMPLE-UNTYPED-SYNTAX.throw_;_SIMPLE-UNTYPED-SYNTAX_Stmt_Exp1-heat»" = { status = "open" }
+"join.same.«throw V;».«throw V;»" = { status = "open" }
+"join.same.«true && E».«SIMPLE-UNTYPED-SYNTAX._&&__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«true && E».«false && _»" = { status = "generic" }
+"join.same.«true && E».«true && E»" = { status = "generic" }
+"join.same.«true || _».«SIMPLE-UNTYPED-SYNTAX._||__SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exp1-heat»" = { status = "open" }
+"join.same.«true || _».«false || E»" = { status = "generic" }
+"join.same.«true || _».«true || _»" = { status = "generic" }
+"join.same.«try S1 catch(X) {S2}».«try S1 catch(X) {S2}»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var X = E;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var X;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var X[N1, N2, Vs];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var X[N];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov1».«var _[HOLE];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var X = E;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var X;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var X[N1, N2, Vs];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var X[N];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov2».«var _[HOLE];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var X = E;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var X;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var X[N1, N2, Vs];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var X[N];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov3».«var _[HOLE];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var X = E;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var X;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var X[N1, N2, Vs];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var X[N];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;_ov4».«var _[HOLE];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var X = E;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var X;»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var X[N1, N2, Vs];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var X[N];»" = { status = "generic" }
+"join.same.«var E1, E2, Es;».«var _[HOLE];»" = { status = "generic" }
+"join.same.«var X = E;».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var X = E;».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var X = E;».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var X = E;».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var X = E;».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var X = E;».«var X = E;»" = { status = "generic" }
+"join.same.«var X = E;».«var X;»" = { status = "generic" }
+"join.same.«var X = E;».«var X[N1, N2, Vs];»" = { status = "generic" }
+"join.same.«var X = E;».«var X[N];»" = { status = "generic" }
+"join.same.«var X = E;».«var _[HOLE];»" = { status = "generic" }
+"join.same.«var X;».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var X;».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var X;».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var X;».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var X;».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var X;».«var X = E;»" = { status = "generic" }
+"join.same.«var X;».«var X;»" = { status = "generic" }
+"join.same.«var X;».«var X[N1, N2, Vs];»" = { status = "generic" }
+"join.same.«var X;».«var X[N];»" = { status = "generic" }
+"join.same.«var X;».«var _[HOLE];»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var X = E;»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var X;»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var X[N1, N2, Vs];»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var X[N];»" = { status = "generic" }
+"join.same.«var X[N1, N2, Vs];».«var _[HOLE];»" = { status = "open" }
+"join.same.«var X[N];».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var X[N];».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var X[N];».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var X[N];».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var X[N];».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var X[N];».«var X = E;»" = { status = "generic" }
+"join.same.«var X[N];».«var X;»" = { status = "generic" }
+"join.same.«var X[N];».«var X[N1, N2, Vs];»" = { status = "generic" }
+"join.same.«var X[N];».«var X[N];»" = { status = "generic" }
+"join.same.«var X[N];».«var _[HOLE];»" = { status = "open" }
+"join.same.«var _[HOLE];».«var E1, E2, Es;_ov1»" = { status = "generic" }
+"join.same.«var _[HOLE];».«var E1, E2, Es;_ov2»" = { status = "generic" }
+"join.same.«var _[HOLE];».«var E1, E2, Es;_ov3»" = { status = "generic" }
+"join.same.«var _[HOLE];».«var E1, E2, Es;_ov4»" = { status = "generic" }
+"join.same.«var _[HOLE];».«var E1, E2, Es;»" = { status = "generic" }
+"join.same.«var _[HOLE];».«var X = E;»" = { status = "generic" }
+"join.same.«var _[HOLE];».«var X;»" = { status = "generic" }
+"join.same.«var _[HOLE];».«var X[N1, N2, Vs];»" = { status = "open" }
+"join.same.«var _[HOLE];».«var X[N];»" = { status = "open" }
+"join.same.«var _[HOLE];».«var _[HOLE];»" = { status = "generic" }
+"join.same.«while(E) S».«while(E) S»" = { status = "generic" }
+"join.same.«{S}».«{S}»" = { status = "generic" }
+"join.same.«{}».«{}»" = { status = "generic" }
 
 [demo.UtxoConf]
 tier = "light"
 guarded = 28
 preserve = []
 
+[demo.UtxoConf.slots]
+"join.key.create.create" = { status = "generic" }
+"join.key.create.spend" = { status = "generic" }
+"join.key.spend.create" = { status = "generic" }
+"join.key.spend.spend" = { status = "generic" }
+"join.open.spawn.spawn" = { status = "hand" }
+"join.same.create.create" = { status = "generic" }
+"join.same.done.done" = { status = "generic" }
+"join.same.nil.nil" = { status = "generic" }
+"join.same.resume.resume" = { status = "generic" }
+"join.same.seq.seq" = { status = "generic" }
+"join.same.spawn.spawn" = { status = "generic" }
+"join.same.spend.spend" = { status = "generic" }
+"join.same.yield.yield" = { status = "generic" }
+
 [demo.HandoffConf]
 tier = "light"
 guarded = 37
 preserve = []
+
+[demo.HandoffConf.slots]
+"join.key.new.new" = { status = "hand" }
+"join.key.new.«resume-lit»" = { status = "generic" }
+"join.key.new.«resume-oid»" = { status = "generic" }
+"join.key.«resume-lit».new" = { status = "generic" }
+"join.key.«resume-lit».«resume-lit»" = { status = "hand" }
+"join.key.«resume-lit».«resume-oid»" = { status = "hand" }
+"join.key.«resume-oid».new" = { status = "generic" }
+"join.key.«resume-oid».«resume-lit»" = { status = "hand" }
+"join.key.«resume-oid».«resume-oid»" = { status = "hand" }
+"join.open.fork.fork" = { status = "generic" }
+"join.same.done.done" = { status = "generic" }
+"join.same.fork.fork" = { status = "generic" }
+"join.same.new.new" = { status = "generic" }
+"join.same.nil.nil" = { status = "generic" }
+"join.same.«resume-lit».«resume-lit»" = { status = "generic" }
+"join.same.«resume-lit».«resume-oid»" = { status = "generic" }
+"join.same.«resume-oid».«resume-lit»" = { status = "generic" }
+"join.same.«resume-oid».«resume-oid»" = { status = "generic" }
 
 [demo.HandoffSeqRel]
 tier = "light"
@@ -34,6 +1218,16 @@ preserve = []
 tier = "light"
 guarded = 20
 preserve = []
+
+[demo.DrfConf.slots]
+"join.open.put.put" = { status = "refuted" }
+"join.open.put.spawn" = { status = "generic" }
+"join.open.spawn.put" = { status = "generic" }
+"join.open.spawn.spawn" = { status = "generic" }
+"join.open.spawn.stop" = { status = "generic" }
+"join.open.stop.spawn" = { status = "generic" }
+"join.open.stop.stop" = { status = "generic" }
+"join.same.put.put" = { status = "generic" }
 
 [outputs]
 "simple-confluence.toml" = { tier = "heavy", compare = "exact" }
