@@ -24,7 +24,7 @@ So k2lean emits two things:
 
 Performance after that is the loop's.
 
-Code that is the same for every library (the prelude's tactics and lemmas, and per-library text that does not depend on the K definition) is optimized once, by k2lean's own loop measured on the gate, KEVM and KMIR (the named simp set `k2l_eq` was such a change: kimp's equation proofs from 114M to 35M heartbeats), and a user's library gets it with the release.
+Code that is the same for every library (the prelude's tactics and lemmas, and per-library text that does not depend on the K definition) is optimized once, by k2lean's own loop measured on the gate, KEVM and KMIR (the named simp set `k2l_eq` was such a change: kimp's equation proofs from 114M to 35M heartbeats; so was defining the equation tactics once, in the prelude and in each library's `EqBase`, rather than again in every module and part of `Equations`: 35M to 28M), and a user's library gets it with the release.
 Such an optimization is measured on k2lean's benchmarks, which may not be a user's: so nothing upstream is the only way to a proof, and a user's loop can replace a prelude tactic at any use in its library.
 
 So when a choice trades generality or faithfulness against cost, take the general, faithful construction if the cost lies in a layer that can be optimized later (§2, the checked and derived layers).
@@ -106,7 +106,7 @@ The second kind is the one frozen part that no regeneration reproduces, so it is
 
 ## 5. The output as a loop target
 
-What makes a generated library a good target for the loop, and where k2lean stands (2026-10-28):
+What makes a generated library a good target for the loop, and where k2lean stands (2026-10-29):
 
 | need | why the loop needs it | today |
 |---|---|---|

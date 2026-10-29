@@ -67,7 +67,7 @@ Speed is not the argument: compiled Lean already runs a semantics 2 to 4 times f
 
 ### 3.5 Cost
 13. **The specification's build cost counts. A proof's cost is the optimization loop's** (decided 2026-10-22, restated 2026-10-28; `contract.md` §1 and §3). There is no fixed bar: a specification's cost is judged from first principles, case by case (decided 2026-10-28). This supersedes the earlier wording "build cost of the definitions and proofs matters".
-14. **Cost is measured so that two runs compare.** Heartbeats, which count allocations and do not depend on load, come with peak memory per module under a cap. Wall time on the shared host does not compare, nor does a whole gate's peak (proposed; ticket CT-4).
+14. **Cost is measured so that two runs compare.** Heartbeats count allocations and do not depend on load: `k2l-eval FILE MODULE` reports them per declaration, the loop's metric (`contract.md` §5). Memory is measured per module under a cap (the KEVM and KMIR pipelines record each module's peak). Wall time on the shared host does not compare, nor does a whole gate's peak (established 2026-10-29, CT-4).
 
 ### 3.6 Specification in Lean, and other Lean libraries
 15. **A user can state in Lean what K cannot express, as a first-class input** (decided 2026-10-28: "K can't do [everything] so we need this for most projects").
