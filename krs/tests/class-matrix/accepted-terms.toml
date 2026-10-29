@@ -32231,3 +32231,139 @@ configuration
 </row>
 </table>
 """
+
+[accept."import/alias/result-root-ground/Go()"]
+k = """
+rule cTAG => go [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."notation/alias/result-root-ground/k::builtin::map::empty()"]
+k = """
+rule cTAG => .Map [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."notation/alias/result-root-ground/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG => .Map [ 0 <- 1 ] [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."notation/alias/result-root-ground/k::builtin::set::empty()"]
+k = """
+rule cTAG => .Set [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."notation/alias/result-root-ground/map![0 -> 1]"]
+same_k_as = ["notation/alias/result-root-ground/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+rule cTAG => .Map [ 0 <- 1 ] [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."notation/alias/result-root-ground/map![]"]
+same_k_as = ["notation/alias/result-root-ground/k::builtin::map::empty()"]
+k = """
+rule cTAG => .Map [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."notation/alias/result-root-ground/set![]"]
+same_k_as = ["notation/alias/result-root-ground/k::builtin::set::empty()"]
+k = """
+rule cTAG => .Set [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept.'terms/alias/result-root-ground/"s"']
+k = '''
+rule cTAG => #token("\"s\"","String") [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+'''
+
+[accept."terms/alias/result-root-ground/-1"]
+k = """
+rule cTAG => -1 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."terms/alias/result-root-ground/1"]
+k = """
+rule cTAG => 1 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."terms/alias/result-root-ground/1.5"]
+k = """
+rule cTAG => 1.5 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."terms/alias/result-root-ground/Cmd::Go"]
+k = """
+rule cTAG => go [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."terms/alias/result-root-ground/Cmd::Go()"]
+k = """
+rule cTAG => go [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."terms/alias/result-root-ground/k::builtin::int::add(1, 2)"]
+k = """
+rule cTAG => 1 +Int 2 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept.'terms/alias/result-root-ground/k::bytes!(b"ab")']
+k = '''
+rule cTAG => #token("b\"\x61\x62\"","Bytes") [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+'''
+
+[accept."terms/alias/result-root-ground/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule cTAG => <frame> <ret> 1 </ret> </frame> [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept.'terms/alias/result-root-ground/k::id!("$x")']
+k = """
+rule cTAG => #token("$x","Id") [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept.'terms/alias/result-root-ground/k::lexeme!(Word, "word")']
+k = """
+rule cTAG => #token("word","Word") [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""
+
+[accept."terms/alias/result-root-ground/true"]
+k = """
+rule cTAG => true [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), alias, format(%1)]
+"""

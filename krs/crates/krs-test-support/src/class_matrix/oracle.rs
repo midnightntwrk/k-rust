@@ -90,6 +90,7 @@ classes! {
     AlternativesOutsidePattern => "alternatives-outside-pattern",
     ClaimOnlyTerm => "claim-only-term",
     ClaimSubjectOnlyTerm => "claim-subject-only-term",
+    ConcatenationInAliasSubject => "concatenation-in-alias-subject",
     ConstantAppliesFunction => "constant-applies-function",
     ConstantNotGround => "constant-not-ground",
     EquationRootNotFunction => "equation-root-not-function",
@@ -377,6 +378,7 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         Construct::FunctionApplication | Construct::BuiltinApplication => {
             application(construct, position)
         }
+        Construct::Concatenation => concatenation(position),
         // An index, a collection method or a collection literal is the application of a
         // collection's function it denotes, decided as that application is wherever it stands: a
         // pattern holds it as it holds the call (`m[k]` is `map::get(m, k)`, `map![k -> v]` is
@@ -446,6 +448,24 @@ const fn application(construct: Construct, position: Position) -> Option<Refusal
         }
         Kind::Built if in_constant(position) => Some(resolution(Class::ConstantAppliesFunction)),
         Kind::Evaluated | Kind::Built | Kind::Guard => None,
+    }
+}
+
+/// A set's concatenation matches a set split into disjoint parts, a pattern as a constructor is
+/// (at a root too), and builds their union where the parts are disjoint. In an alias clause's
+/// subject it is also built, from what the clause's result matched in a printed term, whose parts
+/// may overlap, and their concatenation denotes no set: disjointness is a test of the term, which
+/// the backward reading cannot make, as `@`'s is. Telling a concatenation from another application
+/// takes its head. A constant's value applies no function.
+const fn concatenation(position: Position) -> Option<Refusal> {
+    if built_backwards(position) {
+        Some(resolution(Class::ConcatenationInAliasSubject))
+    } else if in_constant(position) {
+        Some(resolution(Class::ConstantAppliesFunction))
+    } else if matches!(position.kind, Kind::Matched | Kind::Evaluated) {
+        value_at_root(position)
+    } else {
+        None
     }
 }
 

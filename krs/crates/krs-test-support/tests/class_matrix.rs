@@ -95,10 +95,12 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 16 values, the computation cell's remainder, 3 field orders and the
             // nested group's, and 8 typed cells × 4 contents.
             (Family::Init, 112 + 1 + 3 + 1 + 32),
-            // (81 positions of depth 1 + 25 positions constructs open) × 47 constructs.
-            (Family::Terms, 106 * 47),
-            // 81 positions of depth 1 × 2 bare variants.
-            (Family::Import, 81 * 2),
+            // (81 positions of depth 1 + 25 positions constructs open) × 47 constructs, the alias
+            // roots' slots each splitting their position's constructs with a twin by whether they
+            // read `x`, and 3 elements in an alias subject's set concatenation.
+            (Family::Terms, 106 * 47 + 3),
+            // 83 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
+            (Family::Import, 83 * 2),
             // The term family's 106 positions × (6 collection notation forms and their calls, and
             // 8 collection literals and the 7 calls they denote apart from the method's).
             (Family::Notation, 106 * (12 + 15)),
@@ -270,11 +272,7 @@ fn a_computation_subject_case_is_never_batched() {
 /// notation and the calls it denotes) that reads `x` and applies a function
 /// ([`reads_x_and_applies`]), as `k::builtin::int::add(x, 1)` does at the term family's same
 /// positions ([`OVERRIDDEN`]).
-const OVERRIDDEN_POSITIONS: [(&str, &str); 7] = [
-    (
-        "notation/alias/subject-root",
-        "static-clause-root-not-marked",
-    ),
+const OVERRIDDEN_POSITIONS: [(&str, &str); 6] = [
     ("notation/constant/value", "constant-applies-function"),
     ("notation/constant/value-root", "constant-applies-function"),
     ("notation/local-rule/subject-root", "function-in-pattern"),
@@ -309,17 +307,13 @@ fn reads_x_and_applies(case: &Case) -> bool {
     reads_x && !value
 }
 
-const OVERRIDDEN: [(&str, &str); 70] = [
+const OVERRIDDEN: [(&str, &str); 61] = [
+    (
+        "import/alias/subject-root-binding/Go()",
+        "static-clause-root-not-marked",
+    ),
     (
         "import/alias/subject-root/Hold(x)",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "notation/alias/subject-root/k::builtin::set::item(x)",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "notation/alias/subject-root/set![x]",
         "static-clause-root-not-marked",
     ),
     (
@@ -339,39 +333,7 @@ const OVERRIDDEN: [(&str, &str); 70] = [
         "function-in-pattern",
     ),
     (
-        "terms/alias/result-root/k::ml::exists(|v: Int| k::ml::equals(v, 0))",
-        "ml-predicate-as-term",
-    ),
-    (
-        "terms/alias/subject-root/Cmd::Hold(x)",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "terms/alias/subject-root/Size(x)",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "terms/alias/subject-root/Wrap::<dyn k::KItemSort>(x)",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "terms/alias/subject-root/k::builtin::int::add(x, 1)",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "terms/alias/subject-root/k::builtin::set::item(x)",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "terms/alias/subject-root/k::map![x -> 1]",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "terms/alias/subject-root/map![x -> 1]",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "terms/alias/subject-root/x",
+        "terms/alias/subject-root-binding/x",
         "static-clause-root-not-marked",
     ),
     (
@@ -1357,10 +1319,18 @@ fn a_name_or_sort_rule_refuses_a_spelling_at_every_sibling() {
 
 /// The term positions where the table accepts no construct, and why that is the position's own
 /// fact rather than a generator's mistake.
-const POSITIONS_WITHOUT_AN_ACCEPTED_CASE: [(&str, &str); 4] = [
+const POSITIONS_WITHOUT_AN_ACCEPTED_CASE: [(&str, &str); 6] = [
     (
         "terms/alias/subject-root",
         "a static clause's whole subject is the production it expands, marked as the clause is, and no construct of the catalog is one (the base marks the command of the clause's other slots): the slot shows what each construct is refused for there",
+    ),
+    (
+        "terms/alias/subject-root-binding",
+        "a static clause's whole subject is the production it expands, marked as the clause is, and no construct of the catalog is one (the base marks the command of the clause's other slots): the slot shows what each construct that binds `x` is refused for there",
+    ),
+    (
+        "terms/alias/subject/set-concat",
+        "a set's concatenation in an alias clause's subject is refused by its head, whatever element it holds (NT-8): the three elements show that it is told before them",
     ),
     (
         "terms/desugar/subject-root",
@@ -1714,6 +1684,7 @@ fn rustc_parses_exactly_the_fn_bodies_and_the_constant_value() {
             [
                 "alias/result",
                 "alias/result-root",
+                "alias/result-root-ground",
                 "constant/value",
                 "constant/value-root",
                 "desugar/result",

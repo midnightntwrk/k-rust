@@ -50,7 +50,7 @@ doc = "`name @ pattern` for the whole subject of a fn, a context or a static cla
 
 [class.alias-in-alias-subject]
 code = "krs::expand::irreversible-alias"
-doc = "`name @ pattern` in an alias clause's subject, which is also built when a result is printed: the alias prints each term its result matches as its subject, built from the match's bindings, and the pattern's test of the term prints as the conjunction `pattern #And term`, no term (NT-8)"
+doc = "`name @ pattern` in an alias clause's subject, which is also built when a result is printed: the alias prints each term its result matches as its subject, built from the match's bindings, and the pattern's test of the term prints as the conjunction `term #And pattern`, no term (NT-8)"
 
 [class.alias-subject-name-unbound]
 code = "krs::expand::irreversible-alias"
@@ -127,6 +127,10 @@ doc = "a `*` collection written as one value (a binder, `_`, a literal, a record
 [class.computation-back-item]
 code = "krs::collect::invalid-configuration"
 doc = "an item after the rest of the computation cell, which is matched from its front"
+
+[class.concatenation-in-alias-subject]
+code = "krs::analysis::irreversible-alias"
+doc = "a set's concatenation `set::concat(a, b)` in an alias clause's subject, which is also built when a result is printed: forward it matches only a set whose parts are disjoint, and the parts the result's match binds may overlap, which prints as a concatenation that denotes no set; told by the concatenation's head (NT-8)"
 
 [class.condition-sort]
 code = "krs::analysis::invalid-term"
@@ -335,6 +339,12 @@ doc = "`k::is!`/`k::project!`, which apply a generated function, in a matched po
 [class.static-clause-root-not-marked]
 code = "krs::analysis::invalid-static-clause"
 doc = "a desugar or alias clause whose subject's root is no production marked as the clause is (a constructor of an unmarked production, a function, a value): the root is the production the clause expands"
+
+# A compiler class no generated case makes: the term families' static clauses expand the case's own
+# command, and no construct of the catalog applies another alias or desugar production.
+[class.static-production-in-alias-subject]
+code = "krs::analysis::irreversible-alias"
+doc = "an application of an alias or desugar production below an alias clause's root: forward expansion replaces it before the clause can apply, so the clause never applies, and backward it would print unexpanded (NT-8)"
 
 [class.turbofish-instance-sort]
 code = "krs::analysis::parametric-instance"
@@ -768,9 +778,11 @@ class = "wildcard-outside-pattern"
 at = "spelling"
 
 # alias-subject-name-unbound (NT-8): an alias clause runs backwards, so every name its subject
-# binds is one its result uses: at the subject's root a construct that binds `x` beside the result
-# `Cmd::Go()`, and at the result's root a construct that does not read the subject's `x`. A names
-# mistake, told before the root's head is resolved; the result root's `x` lies outside the spelling.
+# binds is one its result reads. The terms and notation spellings stand at the alias root slot of
+# their own reading; the import axis's two variants stand at both, so a variant at the other
+# reading's slot pins the names rules: `Hold(x)` at the subject's root beside the result
+# `Cmd::Go()` binds `x` its result does not read, told before the root's head is resolved, and
+# `Go()` at the result's root leaves the subject's `x` unread, at the subject, outside the spelling.
 [[refuse]]
 match = 'import/alias/subject-root/Hold(x)'
 class = "alias-subject-name-unbound"
@@ -781,24 +793,18 @@ match = 'import/alias/result-root/Go()'
 class = "alias-subject-name-unbound"
 at = "item"
 
+# unbound-name (NT-8): the other reading's import variants at the alias root slots' twins: `Hold(x)`
+# at the result's root beside a subject that binds nothing, and `Go()` at the subject's root beside
+# the result `Cmd::Hold(x)`, whose `x` nothing binds (outside the spelling), told before the root's
+# head is resolved.
 [[refuse]]
-match = 'notation/alias/subject-root/{k::builtin::list::get(k::builtin::list::item(x)\, 0),k::builtin::list::item(x).len(),k::builtin::list::item(x)[0],k::builtin::list::size(k::builtin::list::item(x)),k::builtin::map::empty().contains_key(x),k::builtin::map::empty().update(x\, 1),k::builtin::map::empty()[x],k::builtin::map::get(k::builtin::map::empty()\, x),k::builtin::map::in_keys(x\, k::builtin::map::empty()),k::builtin::map::update(k::builtin::map::empty()\, x\, 1),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, 2\, 3),k::builtin::set::item(x),k::builtin::set::item(x).to_list(),k::builtin::set::to_list(k::builtin::set::item(x)),k::builtin::set::union(k::builtin::set::empty()\, k::builtin::set::item(x)),k::builtin::set::union(k::builtin::set::item(x)\, k::builtin::set::item(1)),map![x -> 1\, ..k::builtin::map::empty()],map![x -> 1\, 2 -> 3],set![x\, ..k::builtin::set::empty()],set![x\, 1],set![x]}'
-class = "alias-subject-name-unbound"
+match = 'import/alias/result-root-ground/Hold(x)'
+class = "unbound-name"
 at = "spelling"
 
 [[refuse]]
-match = 'notation/alias/result-root/{k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),k::builtin::set::empty(),map![0 -> 1],map![],set![]}'
-class = "alias-subject-name-unbound"
-at = "item"
-
-[[refuse]]
-match = 'terms/alias/subject-root/{Cmd::Hold(x),Size(x),Wrap::<dyn k::KItemSort>(x),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::map![x -> 1],map![x -> 1]}'
-class = "alias-subject-name-unbound"
-at = "spelling"
-
-[[refuse]]
-match = 'terms/alias/result-root/{"s",-1,1,1.5,Cmd::Go,Cmd::Go(),k::builtin::int::add(1\, 2),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::lexeme!(Word\, "word"),k::ml::exists(|v: Int| k::ml::equals(v\, 0)),true}'
-class = "alias-subject-name-unbound"
+match = 'import/alias/subject-root-binding/Go()'
+class = "unbound-name"
 at = "item"
 
 [accept]
@@ -926,7 +932,7 @@ at = "spelling"
 
 # unbound-name (NT-2): a name nothing binds: in an initializer or a constant, or a bare name at a fn subject's root, which names a unit constructor
 [[refuse]]
-match = 'terms/{alias/subject-root,context/subject-root,desugar/subject-root,equation/subject-root,rule/subject-root,simplification/subject-root}/x'
+match = 'terms/{alias/subject-root-binding,context/subject-root,desugar/subject-root,equation/subject-root,rule/subject-root,simplification/subject-root}/x'
 class = "unbound-name"
 at = "spelling"
 

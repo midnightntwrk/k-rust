@@ -818,6 +818,51 @@ struct Slot {
     binders: &'static [Binder],
     /// Whether each case is rendered alone ([`Packaging::Alone`]).
     own_package: bool,
+    /// Which of the terms and notation spellings the slot holds.
+    holds: Holds,
+}
+
+/// Which of the terms and notation spellings a slot holds; the import axis's two bare variants
+/// stand at every slot of depth 1.
+#[derive(Clone, Copy)]
+enum Holds {
+    /// Every spelling.
+    All,
+    /// The spellings that read the name `x` (`true`) or those that do not (`false`): an alias
+    /// clause's root slots, whose base binds or reads `x` around the hole, so that the clause's
+    /// subject binds exactly the names its result reads. A spelling of the other reading stands
+    /// at the root slot's twin; the import axis's `Hold(x)` and `Go()` stand at both, and pin the
+    /// names rules there.
+    ReadingX(bool),
+    /// The listed spellings only: a position of one host whose construct is judged, before what
+    /// stands in it, by what its head resolves to.
+    Only(&'static [&'static str]),
+}
+
+impl Holds {
+    fn admits(self, text: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::ReadingX(reads) => reads_x(text) == reads,
+            Self::Only(texts) => texts.contains(&text),
+        }
+    }
+}
+
+/// Whether a spelling reads the name `x`, outside its string literals.
+fn reads_x(text: &str) -> bool {
+    let mut outside = String::new();
+    let mut quoted = false;
+    for character in text.chars() {
+        if character == '"' {
+            quoted = !quoted;
+        } else if !quoted {
+            outside.push(character);
+        }
+    }
+    outside
+        .split(|character: char| !(character.is_alphanumeric() || character == '_'))
+        .any(|word| word == "x")
 }
 
 fn slot(
@@ -845,6 +890,7 @@ fn slot(
         marker: None,
         binders: &[],
         own_package: false,
+        holds: Holds::All,
     }
 }
 
@@ -877,6 +923,11 @@ impl Slot {
             own_package: true,
             ..self
         }
+    }
+
+    /// The slot, holding only the spellings `holds` admits.
+    fn holding(self, holds: Holds) -> Self {
+        Self { holds, ..self }
     }
 
     /// The slot, in a `cells!` sentence that declares `binders`.
@@ -915,6 +966,7 @@ impl Slot {
             marker: self.marker,
             binders: self.binders,
             own_package: self.own_package,
+            holds: self.holds,
         }
     }
 
@@ -943,6 +995,8 @@ const RULE_SUBJECT: &str = concat!(
     "]: Term<Stmt>) -> Term<Stmt> {\n",
     "    Cmd::Hold(x)\n}\n"
 );
+
+const ALIAS_SUBJECT: &str = "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n";
 
 const RULE_GUARD: &str = concat!(
     "#[k::rule(label = \"case-TAG\")]\n",
@@ -1430,9 +1484,11 @@ fn slots() -> Vec<Slot> {
         // The static clauses, whose command is the production a subject's clause expands. A root
         // case's clause names a construct of its own, and its command is no production. An alias
         // clause also runs backwards when a result is printed, so its bases read both ways: the
-        // subject holds no `_`, and the result uses every name the subject binds (`x`), which a
-        // result-root construct that does not read `x` leaves unused. A desugar clause runs one
-        // way.
+        // subject holds no `_`, and the result reads every name the subject binds. A root's
+        // construct is judged at a base of its own reading: one that binds `x` at the subject's
+        // root beside a result that reads it, one that binds none beside `Cmd::Go()`; at the
+        // result's root, one that reads `x` beside a subject that binds it, one that reads none
+        // beside a subject that binds none. A desugar clause runs one way.
         slot(
             "desugar",
             "subject",
@@ -1471,7 +1527,7 @@ fn slots() -> Vec<Slot> {
             "subject",
             Side::Subject,
             (Alias, Part::Subject, &[Argument]),
-            "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(x)\n}\n",
+            ALIAS_SUBJECT,
         )
         .marked("#[k::alias]"),
         slot(
@@ -1480,7 +1536,16 @@ fn slots() -> Vec<Slot> {
             Side::Subject,
             (Alias, Part::Subject, &[]),
             "#[k::alias]\nfn case_TAG(k::term![HOLE]: Term<KItem>) -> Term<KItem> {\n    Cmd::Go()\n}\n",
-        ),
+        )
+        .holding(Holds::ReadingX(false)),
+        slot(
+            "alias",
+            "subject-root-binding",
+            Side::Subject,
+            (Alias, Part::Subject, &[]),
+            "#[k::alias]\nfn case_TAG(k::term![HOLE]: Term<KItem>) -> Term<KItem> {\n    Cmd::Hold(x)\n}\n",
+        )
+        .holding(Holds::ReadingX(true)),
         slot(
             "alias",
             "result-root",
@@ -1490,7 +1555,19 @@ fn slots() -> Vec<Slot> {
         )
         .parsed_by_rustc()
         .arity(1)
-        .marked("#[k::alias]"),
+        .marked("#[k::alias]")
+        .holding(Holds::ReadingX(true)),
+        slot(
+            "alias",
+            "result-root-ground",
+            Side::Result,
+            (Alias, Part::Result, &[]),
+            "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME()]: Term<Stmt>) -> Term<KItem> {\n    HOLE\n}\n",
+        )
+        .parsed_by_rustc()
+        .arity(0)
+        .marked("#[k::alias]")
+        .holding(Holds::ReadingX(false)),
         slot(
             "alias",
             "result",
@@ -1845,6 +1922,16 @@ fn variable_initializer(item: &str) -> String {
     reason = "One list of the openers and their hosts; each entry is one position."
 )]
 fn openers() -> Vec<Slot> {
+    // An alias clause's subject, matched and built backwards: a set's concatenation there is
+    // judged by its head, before the element it holds, so three elements stand for every one.
+    let alias_subject = slot(
+        "alias",
+        "subject",
+        Side::Subject,
+        (Alias, Part::Subject, &[Argument]),
+        ALIAS_SUBJECT,
+    )
+    .marked("#[k::alias]");
     let matched = slot(
         "rule",
         "subject",
@@ -2001,6 +2088,20 @@ fn openers() -> Vec<Slot> {
         )
     };
     vec![
+        alias_subject
+            .open(
+                "set-concat",
+                "k::builtin::set::concat(k::builtin::set::item(x), k::builtin::set::item(HOLE))",
+                &[
+                    node(C::Concatenation, &[]),
+                    node(C::Constructor, &[Argument]),
+                    node(C::Reference, &[Argument, SetElement]),
+                    node(C::Constructor, &[Argument]),
+                ],
+                &[Argument, SetElement],
+                &[],
+            )
+            .holding(Holds::Only(&["x", "1", "Cmd::Hold(x)"])),
         beside_fresh(&evaluated),
         beside_fresh(&cells_key),
         matched.open(
@@ -2064,10 +2165,14 @@ pub(super) fn cases(cases: &mut Vec<Case>) {
     let notation = notation_spellings();
     for slot in slots() {
         for spelling in &spellings {
-            cases.push(case(Family::Terms, &slot, spelling));
+            if slot.holds.admits(spelling.text(slot.at.form)) {
+                cases.push(case(Family::Terms, &slot, spelling));
+            }
         }
         for spelling in &notation {
-            cases.push(case(Family::Notation, &slot, spelling));
+            if slot.holds.admits(spelling.text(slot.at.form)) {
+                cases.push(case(Family::Notation, &slot, spelling));
+            }
         }
         if slot.opener.is_none() {
             for spelling in &imported {

@@ -4133,7 +4133,7 @@ deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 # reports `krs::expand::orphan-helper` at the declaration instead. Probe:
 # `terms/desugar/result/y @ Cmd::Hold(_)`. Plan: new.
 
-["terms/alias/result-root/y @ Cmd::Hold(_)"]
+["terms/alias/result-root-ground/y @ Cmd::Hold(_)"]
 finding = "NT-2-14"
 deviation = "krs::expand::orphan-helper @ item; krs::rust-expansion::uncoded-error @ spelling"
 

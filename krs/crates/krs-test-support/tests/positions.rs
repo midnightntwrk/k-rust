@@ -343,7 +343,7 @@ const fn product_construct(construct: model::Construct) -> Option<Construct> {
         | M::Notation(Notation::CollectionValue) => return None,
         M::Turbofish => Construct::Turbofish,
         M::Literal => Construct::Literal,
-        M::FunctionApplication | M::BuiltinApplication | M::Notation(_) => {
+        M::FunctionApplication | M::BuiltinApplication | M::Concatenation | M::Notation(_) => {
             Construct::FunctionApplication
         }
         M::Rest => Construct::Rest,

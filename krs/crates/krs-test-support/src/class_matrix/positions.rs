@@ -706,6 +706,9 @@ pub enum Construct {
     /// An application of a builtin operation (`k::builtin::int::add(..)`), a function no
     /// equation defines.
     BuiltinApplication,
+    /// A set's concatenation of parts, `k::builtin::set::concat(a, b)` (K's `A B`): a pattern
+    /// that matches a set split into disjoint parts, and their union where it is built.
+    Concatenation,
     /// A notation form, which denotes a builtin operation's application.
     Notation(Notation),
     /// `_`.
@@ -748,7 +751,7 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 41] = [
+    pub const ALL: [Self; 42] = [
         Self::Reference,
         Self::Fresh,
         Self::Constructor,
@@ -756,6 +759,7 @@ impl Construct {
         Self::Literal,
         Self::FunctionApplication,
         Self::BuiltinApplication,
+        Self::Concatenation,
         Self::Notation(Notation::Arithmetic),
         Self::Notation(Notation::Bitwise),
         Self::Notation(Notation::BitwiseOr),
