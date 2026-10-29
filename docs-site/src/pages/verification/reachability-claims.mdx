@@ -93,7 +93,7 @@ The records have the readable rules' grammar and meaning: `[a, b]` is the whole 
 A cell the records leave out is framed, as in the reference claim's `state @ ..`: it is unconstrained and unchanged, so a claim names every cell its run changes.
 A cell value may also be a builtin literal or a claim-only island, as the reference claim's `Cell(..)` may: `program: k::bytes!(b"\x60\x00")` is a Bytes cell holding those bytes, and `k::id!("$x")` and `k::anonymous!(Sort, "_Name")` (in the subject) are written the same way; `k::lexeme!(Sort, "text")` is a token in any readable record.
 The empty Map, List, and Set of a leaf cell are `map::empty()`, `[]`, and `set::empty()` ([empty collections](/reference/language#rules-that-leave-the-computation-cell-out)).
-Readable claims reject `let` blocks and `k::matches!` as `#[k::claim]` fns do.
+Readable claims reject `let` blocks and `k::matches!` as `#[k::claim]` fns do: a claim's states and conditions could hold them as a rule's do, but neither prover lowers K's `#let` and `:=K` in a claim (they lower them to generated functions only in a definition's sentences), so write the term a block computes, or define a function and apply it.
 
 `#[k::claim(all_paths)]` or `#[k::claim(one_path)]` is required and takes `circularity` and `trusted`; the label is the clause name with `_` written `-`, so the attribute takes no `label`.
 `#[k::requires]`, `#[k::exists]`, `#[k::ensures]`, and doc comments apply as on the fn, binders are inferred as in a readable rule (`where x: Sort` narrows one), and `#[k::rule]`, `#[k::fresh]`, and a term clause `label: Pattern => result;` are rejected.
