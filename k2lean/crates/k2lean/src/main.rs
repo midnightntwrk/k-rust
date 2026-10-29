@@ -994,10 +994,12 @@ fn main() {
             let div_file = out.join(ns).join("Diverges.lean");
             let div_check = out.join(format!("{ns}Test")).join("Diverges.lean");
             let div_sound = out.join(ns).join("DivergesSound.lean");
+            let div_total = out.join(ns).join("DivergesTotal.lean");
             if fgen.diverges.is_empty() {
                 let _ = std::fs::remove_file(&div_file);
                 let _ = std::fs::remove_file(&div_check);
                 let _ = std::fs::remove_file(&div_sound);
+                let _ = std::fs::remove_file(&div_total);
             } else {
                 write(
                     &div_file,
@@ -1050,10 +1052,37 @@ fn main() {
                     &with_hooks(diverges::emit_sound(ns, &sound), ns, &fgen.params),
                 );
                 let sound_names: Vec<&String> = sound.iter().map(|(n, _)| n).collect();
+                // K's `total` (TERM-1h): refuted where the group's divergence and the soundness
+                // of its pending calls are proved and every member is declared total; else open.
+                // In a library with parameters the derived refutation holds for every instance,
+                // which is not the refutation of the statement's closure: open there.
+                let mut refuted: Vec<&String> = Vec::new();
+                for (n, all) in &fgen.totals {
+                    let g = n.strip_suffix(".total").unwrap_or(n);
+                    if *all
+                        && fgen.params.is_empty()
+                        && !open.contains(n)
+                        && proved.iter().any(|d| d.as_str() == format!("{g}.diverges"))
+                        && sound_names
+                            .iter()
+                            .any(|d| d.as_str() == format!("{g}.pending_sound"))
+                    {
+                        refuted.push(n);
+                        eprintln!(
+                            "note: {n}: refuted (K declares the group total, and its rewriting diverges)"
+                        );
+                    } else {
+                        eprintln!("note: {n}: open (K declares the group total; not refuted)");
+                    }
+                }
+                write(
+                    &div_total,
+                    &with_hooks(diverges::emit_total(ns, &refuted), ns, &fgen.params),
+                );
                 write(
                     &div_check,
                     &with_hooks(
-                        diverges::emit_check(ns, &proved, &sound_names),
+                        diverges::emit_check(ns, &proved, &sound_names, &refuted),
                         ns,
                         &fgen.params,
                     ),

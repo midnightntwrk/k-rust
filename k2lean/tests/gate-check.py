@@ -36,7 +36,8 @@ What is compared:
             printed); its refuted set (the entries its open list marks `| refuted`, each checked
             under the axiom guard) may only grow from the open set: a refuted entry that is open
             again, or proved, or a newly refuted one that was not open, fails until accepted (a
-            statement changed); a G1 line counts stated, proved, refuted and open; fewer stated
+            statement changed); a group's `F.total` refuted by derivation (TERM-1h) counts as
+            refuted; a G1 line counts stated, proved, refuted and open; fewer stated
             equations or fewer theorems under the axiom guard fail; the
             number of overlapping pairs `gen` lists (determinism along the rule index) and of
             those without a witness equal the baseline's
@@ -156,8 +157,9 @@ def read(p):
 
 
 def equations(path):
-    """(stated, open set) of a generated Equations.lean, with the parts it imports when it is
-    written in parts (`NS/Equations/PartK.lean`, `import NS.Equations.PartK`)."""
+    """(stated, open set, derived refutations) of a generated Equations.lean, with the parts it
+    imports when it is written in parts (`NS/Equations/PartK.lean`, `import NS.Equations.PartK`),
+    and the obligations of its least fixed points (NS/Diverges.lean)."""
     text = read(path)
     if text is None:
         return None
@@ -176,7 +178,14 @@ def equations(path):
     checked = set(re.findall(r"^example : (\S+\.diverges)\.statement := ",
                              read(path.parent.parent / f"{ns}Test" / "Diverges.lean") or "", re.M))
     opened += [n for n in div if n not in checked]
-    return len(opened) + len(proved) + len(checked & set(div)), sorted(opened)
+    # K's `total` of a group (TERM-1h): refuted where NSTest/Diverges.lean checks the derived
+    # refutation (`#k2l_refuted NS.F.total`), else open
+    tot = re.findall(r"^def (\S+\.total)\.statement : Prop", read(path.parent / "Diverges.lean") or "", re.M)
+    tref = set(re.findall(rf"^#k2l_refuted {re.escape(ns)}\.(\S+\.total)$",
+                          read(path.parent.parent / f"{ns}Test" / "Diverges.lean") or "", re.M))
+    opened += [n for n in tot if n not in tref]
+    return (len(opened) + len(proved) + len(checked & set(div)) + len(tref & set(tot)), sorted(opened),
+            sorted(tref & set(tot)))
 
 
 def listed_names(path):
@@ -366,7 +375,7 @@ def measure(work, tier, reg):
             # not an open one
             marked = refuted_marks(tree / "generated" / d / "open-obligations.txt")
             opened = [n for n in eq[1] if n not in marked] if eq else None
-            ref = [n for n in eq[1] if n in marked] if eq else None
+            ref = [n for n in eq[1] if n in marked] + eq[2] if eq else None
             m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": opened, "guarded": g,
                            "refuted": ref or None, "overlaps": ov[0], "unwitnessed": ov[1]}
         elif kind == "inv":

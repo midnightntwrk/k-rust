@@ -367,6 +367,10 @@ pub struct Generated {
     /// Per group of least fixed points, the derived proof that its pending-call function is sound
     /// (`NS/DivergesSound.lean`, TERM-1c), with the theorem's name.
     pub pending_sound: Vec<(String, String)>,
+    /// Per group of least fixed points with a member K declares total, the name of its statement
+    /// that every call has a value (`F.total`, TERM-1h), and whether every member is declared
+    /// total (the refutation is then derived from `F.diverges` and `F.pending_sound`).
+    pub totals: Vec<(String, bool)>,
     pub notes: Vec<String>,
 }
 
@@ -854,6 +858,7 @@ fn gen_recursive(
     free_key: &mut Vec<crate::agree::FreeKeyFn>,
     diverges: &mut Vec<(String, String)>,
     pending_sound: &mut Vec<(String, String)>,
+    totals: &mut Vec<(String, bool)>,
 ) -> Result<String, String> {
     let mut o = String::new();
     // declarations before the group: the file's `before` texts, rank functions of the measures
@@ -1000,6 +1005,9 @@ fn gen_recursive(
     let mut call_ctors = String::new();
     let mut undef_arms = String::new();
     let mut sound_arms = String::new();
+    // the members K declares total (`functional`, `total`), for `F.total` (TERM-1h)
+    let mut declared_arms = String::new();
+    let mut n_total = 0usize;
     for (mi, mb) in members.iter().enumerate() {
         let f = mb.f;
         let sig = &mb.sig;
@@ -1041,6 +1049,14 @@ fn gen_recursive(
                 params.join(" "),
                 fn_name(f),
                 params.join(" ")
+            ));
+            let total = eqs[f].iter().any(|e| e.total);
+            n_total += usize::from(total);
+            declared_arms.push_str(&format!(
+                "  | .{} {} => {}\n",
+                call_of(f),
+                params.join(" "),
+                if total { "True" } else { "False" }
             ));
             pending_arms.push_str(&format!(
                 "  | .{} {} =>\n{pbody}",
@@ -1278,8 +1294,11 @@ requires never calls the group, and both cascades bind the same calls in the sam
 proof is derived, in `DivergesSound.lean`. -/\n\
 def {g}.pending_sound.statement : Prop := KPrelude.Pending.Sound {g}.pending {g}.Call.undef\n\n",
                 labels.join(", ")
-            ),
+            ) + &total_text(g, n_total, members.len(), &declared_arms),
         ));
+        if n_total > 0 {
+            totals.push((format!("{g}.total"), n_total == members.len()));
+        }
         pending_sound.push((
             format!("{g}.pending_sound"),
             format!(
@@ -1289,6 +1308,29 @@ theorem {g}.pending_sound : {g}.pending_sound.statement := by\n  intro c c' h\n 
         ));
     }
     Ok(format!("{pre}{o}"))
+}
+
+/// `F.total.statement` of a group of least fixed points `g` with `n_total` of its `n` members
+/// declared total (TERM-1h): K's `total` is the K author's claim that every call has a value.
+/// It is stated, never assumed: where it is false, K's theory with it has no model (a size adding
+/// a positive amount around a cycle) or gives a value no evaluation reaches, so assuming it would
+/// make the library prove what K's rewriting does not do. Empty when no member is declared total.
+fn total_text(g: &str, n_total: usize, n: usize, declared_arms: &str) -> String {
+    let doc = "/-- K declares the functions of the group total (`functional`, `total`): every call has a\n\
+value. k2lean states it and does not assume it: where it is false, K's theory with it has no model,\n\
+or a value that no evaluation reaches (TERM-1h). It is refuted where a call diverges\n\
+(`diverges` and `pending_sound`) or has no value. -/\n";
+    if n_total == 0 {
+        String::new()
+    } else if n_total == n {
+        format!("{doc}def {g}.total.statement : Prop := ∀ c, ¬ {g}.Call.undef c\n\n")
+    } else {
+        format!(
+            "/-- The calls of the members that K declares total. -/\n\
+def {g}.Call.declaredTotal : {g}.Call → Prop\n{declared_arms}\n\
+{doc}def {g}.total.statement : Prop := ∀ c, {g}.Call.declaredTotal c → ¬ {g}.Call.undef c\n\n"
+        )
+    }
 }
 
 /// Whether every recursive call of a function with the list measure `meas` (the length of
@@ -1683,6 +1725,7 @@ pub fn generate_with(
     let mut free_key: Vec<crate::agree::FreeKeyFn> = Vec::new();
     let mut diverges: Vec<(String, String)> = Vec::new();
     let mut pending_sound: Vec<(String, String)> = Vec::new();
+    let mut totals: Vec<(String, bool)> = Vec::new();
     let is_choose = |st: &[crate::lower::Step]| {
         st.iter()
             .any(|x| matches!(x, crate::lower::Step::MapChoose { .. }))
@@ -1713,6 +1756,7 @@ pub fn generate_with(
                 &mut free_key,
                 &mut diverges,
                 &mut pending_sound,
+                &mut totals,
             )?;
             lean.push_str(&text);
             for f in scc {
@@ -1912,6 +1956,7 @@ pub fn generate_with(
         agree_thms,
         diverges,
         pending_sound,
+        totals,
         notes,
     })
 }
@@ -2003,6 +2048,27 @@ pub(crate) mod tests {
             pending_rhs(&steps, &calls).unwrap(),
             "((K.info x0 x1) >>= fun r => KPrelude.pendCall (K.size x0 r) (K.size.Call.size x0 r) fun r_1 => none)"
         );
+    }
+
+    /// K's `total` of a group of least fixed points (TERM-1h) is a statement: every call when
+    /// every member is declared total, the declared members' calls when some are; none when no
+    /// member is.
+    #[test]
+    fn total_is_stated_over_the_declared_members() {
+        let all = total_text("K.f", 2, 2, "");
+        assert!(
+            all.contains("def K.f.total.statement : Prop := ∀ c, ¬ K.f.Call.undef c\n"),
+            "{all}"
+        );
+        let mixed = total_text("K.f", 1, 2, "  | .f x0 => True\n  | .g x0 => False\n");
+        assert!(
+            mixed.contains("def K.f.Call.declaredTotal : K.f.Call → Prop\n  | .f x0 => True\n"),
+            "{mixed}"
+        );
+        assert!(mixed.contains(
+            "def K.f.total.statement : Prop := ∀ c, K.f.Call.declaredTotal c → ¬ K.f.Call.undef c\n"
+        ));
+        assert!(total_text("K.f", 0, 2, "").is_empty());
     }
 
     /// An `ensures` on an equation of a function declared total is refused: where it is false
