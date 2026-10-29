@@ -842,6 +842,112 @@ fn intro(xs: &[String]) -> String {
     }
 }
 
+/// The views' module under a program hypothesis `inv` (`--assume-invariant`): each premise holds
+/// at the configurations satisfying `inv`, `joins_of` and `join_static` take it, and
+/// `terminal_unique_of` (and `obs_confluent_of`) hold from a configuration satisfying it, by
+/// `terminal_unique_of_diamond` with `H := inv` and its preservation `pres`.
+fn under_invariant(o: &str, name: &str, inv: &str, pres: &str, module: &str) -> String {
+    fn sub(o: &mut String, a: &str, b: &str, all: bool) {
+        let n = o.matches(a).count();
+        assert!(
+            n == 1 || (all && n > 0),
+            "confluence --assume-invariant: `{a}` found {n} times in the views"
+        );
+        *o = o.replace(a, b);
+    }
+    let mut o = o.to_string();
+    sub(
+        &mut o,
+        &format!("import {name}.Preserves\n"),
+        &format!("import {name}.Preserves\nimport {module}\n"),
+        false,
+    );
+    // the premises: `inv c →` after the configuration's binder
+    for (a, b) in [
+        (
+            "}, StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    DiamondMod",
+            format!("}}, {inv} c → StepBy r₁ c c₁ → StepBy r₂ c c₂ →\n    DiamondMod"),
+        ),
+        (
+            "{a₁ b₁ ch₁ bs₁ a₂ b₂ ch₂ bs₂ k}, StepBy r₁ c c₁",
+            format!("{{a₁ b₁ ch₁ bs₁ a₂ b₂ ch₂ bs₂ k}}, {inv} c → StepBy r₁ c c₁"),
+        ),
+    ] {
+        sub(&mut o, a, &b, false);
+    }
+    if o.contains("def KeyJoins") {
+        sub(
+            &mut o,
+            "{ch₁ ch₂}, StepBy r₁ c c₁",
+            &format!("{{ch₁ ch₂}}, {inv} c → StepBy r₁ c c₁"),
+            false,
+        );
+        sub(
+            &mut o,
+            "exact K r₁ r₂ hr b₁ b₂",
+            "exact K r₁ r₂ hr hinv b₁ b₂",
+            true,
+        );
+    }
+    // the generic joins take it, to pass it to the premises
+    sub(
+        &mut o,
+        "(hs : staticOK r₁ r₂ = true)",
+        &format!("(hinv : {inv} c) (hs : staticOK r₁ r₂ = true)"),
+        false,
+    );
+    sub(
+        &mut o,
+        "refine S r₁ r₂ hk₁ hk₂ hr hd b₁",
+        "refine S r₁ r₂ hk₁ hk₂ hr hd hinv b₁",
+        true,
+    );
+    sub(
+        &mut o,
+        &format!("(h₁ : {name}.Step c c₁)\n    (h₂ : {name}.Step c c₂) : DiamondMod"),
+        &format!(
+            "(hinv : {inv} c)\n    (h₁ : {name}.Step c c₁) (h₂ : {name}.Step c c₂) : DiamondMod"
+        ),
+        false,
+    );
+    sub(
+        &mut o,
+        "exact O r₁ r₂ hs v₁",
+        "exact O r₁ r₂ hs hinv v₁",
+        false,
+    );
+    sub(&mut o, " hs v₁ v₂", " hinv hs v₁ v₂", false);
+    // the theorems: from a configuration satisfying it
+    sub(
+        &mut o,
+        "    (h₁ : Star ",
+        &format!("    (hinv : {inv} c) (h₁ : Star "),
+        true,
+    );
+    sub(
+        &mut o,
+        "terminal_unique_of_diamond (H := fun _ => True) StepEquiv.eq (fun _ _ _ _ => trivial)",
+        &format!("terminal_unique_of_diamond (H := {inv}) StepEquiv.eq {pres}"),
+        false,
+    );
+    sub(
+        &mut o,
+        "(fun _ h₁ h₂ => joins_of",
+        "(fun hinv h₁ h₂ => joins_of",
+        false,
+    );
+    sub(
+        &mut o,
+        " h₁ h₂) trivial h₁ t₁ h₂ t₂",
+        " hinv h₁ h₂) hinv h₁ t₁ h₂ t₂",
+        false,
+    );
+    if o.contains("theorem obs_confluent_of") {
+        sub(&mut o, " h₁ t₁ h₂ t₂)", " hinv h₁ t₁ h₂ t₂)", false);
+    }
+    o
+}
+
 pub fn main(args: &[String]) {
     let mut opt: BTreeMap<String, String> = BTreeMap::new();
     let mut it = args.iter();
@@ -979,7 +1085,8 @@ pub fn main(args: &[String]) {
         return;
     }
     if let Some(threads) = opt.get("threads") {
-        // the per-pair options that the views do not take yet (PLAN4: CNF-10, CNF-11)
+        // the per-pair options that the views do not take yet (PLAN4: CNF-11); the program
+        // hypothesis is `--assume-invariant`
         for k in ["hyp", "hand-module", "join", "open"] {
             if opt.contains_key(k) {
                 fail(&format!("--threads does not take --{k} yet"));
@@ -989,7 +1096,7 @@ pub fn main(args: &[String]) {
         let obs: Option<Vec<String>> = opt
             .get("obs")
             .map(|o| o.split(',').map(|s| s.to_string()).collect());
-        let (out, counts) = views::emit(
+        let (mut out, counts) = views::emit(
             &lib,
             &name,
             &ns,
@@ -999,6 +1106,20 @@ pub fn main(args: &[String]) {
             &feet,
             &rank,
         );
+        // a program hypothesis: a preserved invariant, as `claims --assume-invariant` takes one
+        if let Some(inv) = opt.get("assume-invariant") {
+            let pres = opt
+                .get("invariant-preserved")
+                .cloned()
+                .unwrap_or(format!("{inv}.preserved"));
+            let module = opt
+                .get("invariant-module")
+                .cloned()
+                .unwrap_or(format!("{name}.Invariants"));
+            out = under_invariant(&out, &name, inv, &pres, &module);
+        } else if opt.contains_key("invariant-preserved") || opt.contains_key("invariant-module") {
+            fail("--invariant-preserved and --invariant-module need --assume-invariant");
+        }
         write_file(&get("out"), &out);
         if let Some(p) = opt.get("report") {
             write_file(p, &(rep + &counts.report()));

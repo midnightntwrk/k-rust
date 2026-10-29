@@ -38,7 +38,8 @@ libs_confluence() {
     UtxoConf) "$G" confluence --kore "$(libs_fixture utxo)/definition.kore" --name Utxo --ns UtxoConf \
         --threads procs --obs ledger --out "$DEMOS/UtxoConf/UtxoConf/Views.lean" --report "$DEMOS/UtxoConf/confluence.toml" ;;
     HandoffConf) "$G" confluence --kore "$(libs_fixture handoff)/definition.kore" --name Handoff --ns HandoffConf \
-        --threads tasks --obs vals --out "$DEMOS/HandoffConf/HandoffConf/Views.lean" --report "$DEMOS/HandoffConf/confluence.toml" ;;
+        --threads tasks --obs vals --assume-invariant HandoffConf.Wf --invariant-module HandoffConf.Inv \
+        --out "$DEMOS/HandoffConf/HandoffConf/Views.lean" --report "$DEMOS/HandoffConf/confluence.toml" ;;
     SimpleConf) "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --ns SimpleConf \
         --threads threads --obs output --out "$DEMOS/SimpleConf/SimpleConf/Views.lean" --report "$2" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
@@ -71,7 +72,8 @@ gate_confluence() {
     dbuild UtxoConf
   fi
   # the views by task of the fixture handoff (`confluence --threads tasks`): readiness in the rules,
-  # a resume's whole segment one step
+  # a resume's whole segment one step; under the script's well-formedness (no step of a process
+  # named twice), which the hand module `HandoffConf/Inv.lean` states and `Joins.lean` uses
   if runs demo HandoffConf; then
     phase "scaffold HandoffConf"
     partlib handoff Handoff.Preserves

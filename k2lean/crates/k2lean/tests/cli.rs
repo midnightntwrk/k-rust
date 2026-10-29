@@ -944,6 +944,57 @@ fn confluence_threads_views_a_read_with_an_insertion_as_keyed() {
     assert!(v.contains("MCh.smallR_extend hr_18"), "{v}");
 }
 
+/// `confluence --threads --assume-invariant NAME`: every premise holds at the configurations
+/// satisfying `NAME`, the generic joins take it, and `terminal_unique_of` holds from one by
+/// `NAME.preserved` (`--invariant-module` is imported); without the option the module is as before.
+#[test]
+fn confluence_threads_states_the_joins_under_a_program_hypothesis() {
+    let d = tmp("cli-confluence-invariant");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/handoff/definition.kore");
+    let run = |extra: &[&str], out: &Path| {
+        let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("confluence")
+            .arg("--kore")
+            .arg(&fx)
+            .args(["--name", "Handoff", "--ns", "HV", "--threads", "tasks"])
+            .args(extra)
+            .arg("--out")
+            .arg(out)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        std::fs::read_to_string(out).unwrap()
+    };
+    let plain = run(&[], &d.join("Plain.lean"));
+    let v = run(
+        &[
+            "--assume-invariant",
+            "HV.Wf",
+            "--invariant-module",
+            "HV.Inv",
+        ],
+        &d.join("Views.lean"),
+    );
+    assert!(!plain.contains("HV.Wf"), "{plain}");
+    assert!(
+        v.contains("import Handoff.Preserves\nimport HV.Inv\n"),
+        "{v}"
+    );
+    for premise in [
+        "staticOK r₁ r₂ = false → ∀ {c c₁ c₂ : Handoff.SortGeneratedTopCell}, HV.Wf c → StepBy",
+        "{a₁ b₁ ch₁ bs₁ a₂ b₂ ch₂ bs₂ k}, HV.Wf c → StepBy",
+        "{ch₁ ch₂}, HV.Wf c → StepBy",
+    ] {
+        assert!(v.contains(premise), "{premise}\n{v}");
+    }
+    assert!(
+        v.contains("terminal_unique_of_diamond (H := HV.Wf) StepEquiv.eq HV.Wf.preserved")
+            && v.contains("(fun hinv h₁ h₂ => joins_of O S K hinv h₁ h₂) hinv h₁ t₁ h₂ t₂"),
+        "{v}"
+    );
+}
+
 /// `confluence --threads` refuses the per-pair options the views do not take yet, rather than
 /// stating a theorem without them.
 #[test]
