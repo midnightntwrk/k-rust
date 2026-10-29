@@ -3,13 +3,15 @@
 # SimpleConf: SIMPLE's steps of two threads joined generically, library simple, with SIMPLE's
 # pairs of rules classified; UtxoConf: the same for the fixture utxo, coroutines over a UTXO
 # ledger, library utxo; HandoffConf: the same for the fixture handoff, tasks of a coordination
-# script run when their inputs are ready, library handoff). Registry: confluence.py.
+# script run when their inputs are ready, library handoff; HandoffSeqRel: the script run in its
+# order, the fixture handoffseq, into handoff, library handoffseq). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
     race) echo Race ;;
     utxo) echo Utxo ;;
     handoff) echo Handoff ;;
+    handoffseq) echo HandoffSeq ;;
     *) return 1 ;;
   esac
 }
@@ -22,6 +24,8 @@ gen_confluence() {
     utxo) libs_fixture_args "$1" ;;
     # a coordination script's tasks over processes resumed segment by segment (tests/fixtures/handoff)
     handoff) libs_fixture_args "$1" ;;
+    # the same script run in its order (tests/fixtures/handoffseq)
+    handoffseq) libs_fixture_args "$1" ;;
     *) return 1 ;;
   esac
   return 0
@@ -90,6 +94,14 @@ gate_confluence() {
     partlib handoff Handoff.Preserves
     scaffold confluence-HandoffConf libs_confluence HandoffConf
     dbuild HandoffConf
+  fi
+  # the script run in its order (the fixture handoffseq) into handoff, by hand: a run of handoffseq
+  # to the script's end is a run of handoff, so every terminal run of handoff ends where it does
+  # (`HandoffSeqRel.result_unique`, through HandoffConf's `terminal_unique`, built just above)
+  if runs demo HandoffSeqRel; then
+    phase "build HandoffSeqRel"
+    partlib handoffseq HandoffSeq.Rules
+    dbuild HandoffSeqRel
   fi
   # SIMPLE's pairs of rules for confluence modulo scheduling, counted, with what the views by thread
   # leave open (`k2lean confluence --threads`): a recorded output; the views built against the

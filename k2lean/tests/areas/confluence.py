@@ -21,6 +21,9 @@ DEMOS = {
                                                  "demos/HandoffConf/HandoffConf/Views.lean",
                                                  "demos/HandoffConf/HandoffConf/Slots.lean",
                                                  "demos/HandoffConf/confluence.toml"]},
+    # the same script run in its order into it, by hand (`HandoffSeqRel.result_unique`); built
+    # against HandoffConf's phase
+    "HandoffSeqRel": {"tier": "light", "sources": ["generated/handoffseq"]},
 }
 
 # SIMPLE's pairs of rules classified, and what SimpleConf leaves open (`confluence --threads`)
