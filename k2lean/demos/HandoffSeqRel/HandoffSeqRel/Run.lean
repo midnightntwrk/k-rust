@@ -1,13 +1,14 @@
 import HandoffSeqRel.Sim
 import HandoffConf.Slots
-import KPrelude.Paths
+import KPrelude.Forward
 import Handoff.Init
 import HandoffSeq.Init
 
-/-! The script's result is the one every ready order gives: a run of `handoffseq` that ends the
-script is matched by a run of `handoff` that leaves no task (`run_sim`), and every run of `handoff`
-to a terminal configuration ends there (`HandoffConf.terminal_unique`, under the script's
-well-formedness: `wf` in K, the generated `Handoff.Invariant`).
+/-! The script's result is the one every ready order gives: `handoffseq`'s steps are matched by
+`handoff`'s (`sim`, a `Forward.Sim`), at the script's end `handoff` has no task left (`sim_end`),
+and every run of `handoff` to a terminal configuration ends there (`HandoffConf.terminal_unique`,
+under the script's well-formedness: `wf` in K, the generated `Handoff.Invariant`). The composition
+is the prelude's `Forward.result_unique_of`.
 
 The well-formedness is not assumed: a script that runs to its end in order names no claim twice
 (`claims_of_run`), so its initial configuration satisfies `wf` (`HandoffConf.invariant_init`). A
@@ -19,7 +20,7 @@ set_option linter.unusedSectionVars false
 
 namespace HandoffSeqRel
 
-open KPrelude MapHook HandoffConf
+open KPrelude MapHook MapRep HandoffConf
 
 variable [Handoff.Hooks]
 
@@ -36,26 +37,23 @@ theorem terminal_done {sp sv : HandoffSeq.SortMap} {c : HandoffSeq.SortGenerated
     Terminal HandoffSeq.Step (scfg .dotk sp sv c) := by
   intro c' h; cases h
 
-/-- A run of `handoffseq` to the end of the script, from a configuration related to `r`, is
-matched by a run of `handoff` from `r` that leaves no task, with the same bindings. -/
-theorem run_sim {s t : HandoffSeq.SortGeneratedTopCell} (h : Star HandoffSeq.Step s t) (ht : Done t) :
-    ∀ {r : Handoff.SortGeneratedTopCell}, Sim s r → ∃ r', Star Handoff.Step r r' ∧ Fin t r' := by
-  induction h with
-  | refl s =>
-    intro r hs
-    obtain ⟨P, f, g, h, -⟩ := hs
-    exact (not_done h ht).elim
-  | @step s₀ s₁ t st rest ih =>
-    intro r hs
-    obtain ⟨r₁, h₁, hs₁ | hf⟩ := step_sim hs st
-    · obtain ⟨r', h', hf'⟩ := ih ht hs₁
-      exact ⟨r', Paths.star_trans h₁ h', hf'⟩
-    · have tm : Terminal HandoffSeq.Step s₁ := by
-        obtain ⟨f, g, ⟨sp, sv, c, e, -, -⟩, -⟩ := hf
-        rw [e]; exact terminal_done
-      have e := Star.eq_of_terminal tm rest
-      subst e
-      exact ⟨r₁, h₁, hf⟩
+/-- Both at the same point of the script, or both done. -/
+def Rel (s : HandoffSeq.SortGeneratedTopCell) (r : Handoff.SortGeneratedTopCell) : Prop :=
+  Sim s r ∨ Fin s r
+
+/-- `handoffseq`'s steps are matched by `handoff`'s. -/
+theorem sim : Forward.Sim HandoffSeq.Step Handoff.Step Rel := by
+  intro s s' r h st
+  rcases h with h | ⟨f, g, ⟨sp, sv, c, rfl, -, -⟩, -⟩
+  · exact step_sim h st
+  · exact (terminal_done _ st).elim
+
+/-- At the script's end, `handoff` is terminal, with the same bindings. -/
+theorem sim_end {s : HandoffSeq.SortGeneratedTopCell} {r : Handoff.SortGeneratedTopCell} (h : Rel s r)
+    (hd : Done s) : ∃ r', Star Handoff.Step r r' ∧ Terminal Handoff.Step r' ∧ Fin s r' := by
+  rcases h with ⟨P, f, g, hs, -⟩ | ⟨f, g, hsd, ⟨rp, rv, c, rfl, hp, hv⟩⟩
+  · exact (not_done hs hd).elim
+  · exact ⟨_, .refl _, terminal_rdone, f, g, hsd, rp, rv, c, rfl, hp, hv⟩
 
 /-! ## The script's well-formedness, from a run to its end -/
 
@@ -129,8 +127,8 @@ theorem claims_of_run {s t : HandoffSeq.SortGeneratedTopCell} (h : Star HandoffS
     | nil => simp [trPgm_nil, pclaims]
 
 /-- Both definitions start from the script `P` with no process and no value. -/
-theorem sim_init (P : HandoffSeq.SortPgm) : Sim (HandoffSeq.init P) (Handoff.init (trPgm P)) :=
-  ⟨P, fun _ => none, fun _ => none, ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩,
+theorem sim_init (P : HandoffSeq.SortPgm) : Rel (HandoffSeq.init P) (Handoff.init (trPgm P)) :=
+  .inl ⟨P, fun _ => none, fun _ => none, ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩,
     ⟨0, unit, unit, _, Int.le_refl 0, by rw [← element_eq_update]; rfl, rep_unit, rep_unit⟩⟩
 
 /-! ## The script's result -/
@@ -139,22 +137,18 @@ theorem sim_init (P : HandoffSeq.SortPgm) : Sim (HandoffSeq.init P) (Handoff.ini
 same bindings. -/
 theorem run_exists {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopCell}
     (hs : Star HandoffSeq.Step (HandoffSeq.init P) s) (hd : Done s) :
-    ∃ r, Star Handoff.Step (Handoff.init (trPgm P)) r ∧ Terminal Handoff.Step r ∧ Fin s r := by
-  obtain ⟨r, hr, hf⟩ := run_sim hs hd (sim_init P)
-  obtain ⟨f, g, hsd, ⟨rp, rv, c, rfl, hp, hv⟩⟩ := hf
-  exact ⟨_, hr, terminal_rdone, f, g, hsd, rp, rv, c, rfl, hp, hv⟩
+    ∃ r, Star Handoff.Step (Handoff.init (trPgm P)) r ∧ Terminal Handoff.Step r ∧ Fin s r :=
+  Forward.result_of sim (fun _ _ => sim_end) (sim_init P) hs hd
 
 /-- **The script's result is the one every ready order gives.** If `handoffseq` runs the script `P`
 to its end, then every run of `handoff` from `P` to a terminal configuration leaves no task and
 ends with the same processes and values: the same bindings of `<procs>` and `<vals>`. -/
 theorem result_unique {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopCell}
     {r : Handoff.SortGeneratedTopCell} (hs : Star HandoffSeq.Step (HandoffSeq.init P) s) (hd : Done s)
-    (hr : Star Handoff.Step (Handoff.init (trPgm P)) r) (ht : Terminal Handoff.Step r) : Fin s r := by
-  obtain ⟨r₀, h₀, t₀, hf⟩ := run_exists hs hd
+    (hr : Star Handoff.Step (Handoff.init (trPgm P)) r) (ht : Terminal Handoff.Step r) : Fin s r :=
   have hw : Handoff.Invariant (Handoff.init (trPgm P)) :=
     HandoffConf.invariant_init (claims_of_run hs hd ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩).1
-  rw [terminal_unique hw hr ht h₀ t₀]
-  exact hf
+  Forward.result_unique_of sim (fun _ _ => sim_end) (fun _ _ => terminal_unique hw) (sim_init P) hs hd hr ht
 
 #k2l_assert_axioms result_unique run_exists
 

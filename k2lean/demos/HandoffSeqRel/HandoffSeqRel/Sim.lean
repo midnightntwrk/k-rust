@@ -1,4 +1,4 @@
-import HandoffSeqRel.Rep
+import KPrelude.MapRep
 import HandoffSeq.Rules
 import Handoff.Rules
 
@@ -16,7 +16,7 @@ set_option linter.unusedSectionVars false
 
 namespace HandoffSeqRel
 
-open KPrelude MapHook
+open KPrelude MapHook MapRep
 
 variable [Handoff.Hooks]
 

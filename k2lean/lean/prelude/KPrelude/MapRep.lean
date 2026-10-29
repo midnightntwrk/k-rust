@@ -2,16 +2,17 @@ import KPrelude.Scaffold
 import KPrelude.InvColl
 
 /-! A map that holds exactly the bindings of a partial function, through injective encodings of its
-arguments and results. The two definitions have their own `KItem`s, so their `<procs>` and
-`<vals>` are compared through the function both represent: the same bindings, each written with its
-own definition's constructors. -/
+arguments and results (`Rep`). Two definitions have their own `KItem`s, so the maps of two
+configurations, one of each, are compared through the function both represent: the same bindings,
+each written with its own definition's constructors. This compares bindings, not the maps' order:
+two libraries may order their keys differently. The lemmas follow `Rep` through the map patterns of
+K rules: a lookup, an insertion, a rebinding, an insertion beside a matched binding. -/
 
 set_option linter.unusedSectionVars false
 
-namespace HandoffSeqRel
+namespace KPrelude.MapRep
 
-open KPrelude MapHook Classical
-
+open MapHook Classical
 section
 variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V] [Std.TransOrd K]
   [Std.LawfulEqOrd K] {α β : Type} [DecidableEq α]
@@ -138,4 +139,4 @@ theorem element_eq_update {k : K} {v : V} : (element k v : M) = update unit k v 
 
 end
 
-end HandoffSeqRel
+end KPrelude.MapRep
