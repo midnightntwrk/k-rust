@@ -51,6 +51,10 @@ pub struct Ctx<'a> {
     pub invariant: Option<Vec<String>>,
     /// The ending: the K function's symbol and the cell whose content it reads.
     pub ending: Option<(String, String)>,
+    /// `--ending-lean NAME@CELL`: the ending as a Lean predicate of the cell's content, from the
+    /// kind 2 invariant's module (a wait the language allows to last forever, which no K function
+    /// of a definition one cannot change can state), in place of `--ending`.
+    pub ending_lean: Option<(String, String)>,
     /// The library's `Step` is ranked (priorities, or rules with several matches): `App` is
     /// indexed by the rank.
     pub ranked: bool,
@@ -259,6 +263,50 @@ fn heads_of(m: &Model, ns: &str) -> Vec<Head> {
     heads
 }
 
+/// The ending's predicate of a cell's content: the cell, the predicate applied to a term, what it
+/// says, and the names the stuck closer unfolds for it.
+struct EndPred {
+    cell: String,
+    apply: Box<dyn Fn(&str) -> String>,
+    what: String,
+    stuck: Vec<String>,
+}
+
+fn end_pred(cx: &Ctx) -> Result<Option<EndPred>, String> {
+    match (&cx.ending, &cx.ending_lean) {
+        (Some(_), Some(_)) => Err("--ending and --ending-lean: give one".into()),
+        (Some((sym, cell)), None) => {
+            let sig = cx
+                .fns
+                .get(sym)
+                .ok_or_else(|| format!("--ending: the function {sym} is not generated"))?;
+            let rhs = if sig.partial { "some true" } else { "true" };
+            let f = sig.lean.clone();
+            Ok(Some(EndPred {
+                cell: cell.clone(),
+                apply: Box::new(move |x| format!("{f} ({x}) = {rhs}")),
+                what: format!("the K function `{}` is `true` of", names::demangle(sym)),
+                stuck: cx.eqns.get(sym).cloned().unwrap_or_default(),
+            }))
+        }
+        (None, Some((name, cell))) => {
+            if cx.kind2.is_none() {
+                return Err(format!(
+                    "--ending-lean {name}: the predicate is taken from the invariant's module (--assume-invariant, --invariant-module)"
+                ));
+            }
+            let n = name.clone();
+            Ok(Some(EndPred {
+                cell: cell.clone(),
+                apply: Box::new(move |x| format!("{n} ({x})")),
+                what: format!("the Lean predicate `{name}` (`--ending-lean`) holds of"),
+                stuck: vec![name.clone()],
+            }))
+        }
+        (None, None) => Ok(None),
+    }
+}
+
 pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String> {
     let (m, ns, top) = (cx.m, cx.ns, cx.top);
     let kpath = find_cell(m, top, "k")?;
@@ -370,12 +418,9 @@ pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String>
     }
     let mut defs = String::new();
     let ending_def;
-    match &cx.ending {
-        Some((sym, cell)) => {
-            let sig = cx
-                .fns
-                .get(sym)
-                .ok_or_else(|| format!("--ending: the function {sym} is not generated"))?;
+    match end_pred(cx)? {
+        Some(ep_) => {
+            let cell = &ep_.cell;
             let ep = find_cell(m, top, cell)?;
             if !ep.colls.is_empty() {
                 return Err(format!(
@@ -400,17 +445,14 @@ pub fn emit(cx: &Ctx, open_text: &str, hand_exists: bool) -> Result<Out, String>
             defs.push_str(&format!(
                 "/-- The content of the `<{cell}>` cell. -/\ndef Ending.content : {top} → {content_sort}\n  | {pat} => x\n\n"
             ));
-            let rhs = if sig.partial { "some true" } else { "true" };
             ending_def = format!(
-                "/-- The acceptable endings: the K function `{}` is `true` of the `<{cell}>` cell. -/\ndef Ending (c : {top}) : Prop :=\n  {} (Ending.content c) = {rhs}\n",
-                names::demangle(sym),
-                sig.lean
+                "/-- The acceptable endings: {} the `<{cell}>` cell. -/\ndef Ending (c : {top}) : Prop :=\n  {}\n",
+                ep_.what,
+                (ep_.apply)("Ending.content c")
             );
             stuck.insert("Ending".into());
             stuck.insert("Ending.content".into());
-            if let Some(es) = cx.eqns.get(sym) {
-                stuck.extend(es.iter().cloned());
-            }
+            stuck.extend(ep_.stuck.iter().cloned());
         }
         None => {
             let mut pat = format!("{} x", kpath.cell_lean);
@@ -810,8 +852,10 @@ enum HeadPat {
     Dotk,
     /// a constructor, by its K symbol
     Sym(String),
-    /// a value of a sort injected into `KItem` (a builtin value, or a variable of the sort)
-    Leaf(String),
+    /// a value of a sort injected into `KItem` (a builtin value, or a variable of the sort): the
+    /// sort's leaves, since a variable of the sort is any of them (a cooling rule's hole of sort
+    /// `BExp` is at a `Bool` value, or at a constructor of `BExp`)
+    Leaves(Vec<String>),
 }
 
 fn first_k<'a>(p: &'a P, ksym: &str) -> Option<&'a P> {
@@ -832,7 +876,11 @@ fn kore_head(p: &P, ksym: &str, m: &Model) -> HeadPat {
             P::App(i, sorts, x) if i == "inj" && x.len() == 1 => match &x[0] {
                 P::App(cs, _, _) if m.ctors.contains_key(cs) => HeadPat::Sym(cs.clone()),
                 _ => match sorts.first().and_then(|s| s.name()) {
-                    Some(sub) => HeadPat::Leaf(sub.to_string()),
+                    Some(sub) => HeadPat::Leaves(
+                        m.sorts
+                            .get(sub)
+                            .map_or_else(|| vec![sub.to_string()], |si| si.leaves.clone()),
+                    ),
                     None => HeadPat::Any,
                 },
             },
@@ -849,7 +897,7 @@ impl HeadPat {
             HeadPat::Any => true,
             HeadPat::Dotk => hd.dispatch.is_none(),
             HeadPat::Sym(s) => hd.sym.as_deref() == Some(s.as_str()),
-            HeadPat::Leaf(l) => hd.leaf.as_deref() == Some(l.as_str()),
+            HeadPat::Leaves(ls) => hd.leaf.as_ref().is_some_and(|l| ls.contains(l)),
         }
     }
 }
@@ -987,7 +1035,6 @@ fn emit_coll(
         cur
     };
     let cfg = wrap(holder(&|j| format!("h_{j}")), &|i, j| format!("x{i}_{j}"));
-    let cfg_pat = wrap(holder(&|_| "_".into()), &|_, _| "_".into());
     let mut dpat = {
         let a: Vec<String> = (0..coll.holder_arity)
             .map(|j| {
@@ -1066,11 +1113,44 @@ fn emit_coll(
     stuck.insert("Ending.elem".into());
     stuck.insert("Ending.content".into());
 
+    // `Progress.map` in layers, one function per cell: a rule whose left-hand side leaves a cell on
+    // the way a variable (the stream rules' `<T> Gen4 …`, `Gen4` the `<threads>` cell) keeps that
+    // variable on both sides, and the layers reduce to the same term there; one match over the
+    // whole path does not reduce on the variable
     let mut defs = String::new();
+    let mut map_fns: Vec<String> = Vec::new();
+    let mut map_body = "c".to_string();
+    for lv in &kpath.levels {
+        let f = format!("Progress.cell_{}", lv.name);
+        let pat: Vec<&str> = (0..lv.arity)
+            .map(|j| if j == lv.index { "x" } else { "_" })
+            .collect();
+        defs.push_str(&format!(
+            "/-- The cell `<{}>`. -/\ndef {f} : {} → {}\n  | {} {} => x\n\n",
+            lv.name,
+            lv.sort,
+            lv.child,
+            lv.lean,
+            pat.join(" ")
+        ));
+        map_body = format!("{f} {}", paren(&map_body));
+        map_fns.push(f);
+    }
+    let hpat: Vec<&str> = (0..coll.holder_arity)
+        .map(|j| if j == coll.index { "x" } else { "_" })
+        .collect();
     defs.push_str(&format!(
-        "/-- The cell map of the `<{}>` cell. -/\ndef Progress.map : {top} → {map_sort}\n  | {cfg_pat} => m\n\n",
-        coll.holder_name
+        "/-- The cell map of the `<{h}>` cell. -/\ndef Progress.content_{h} : {} → {map_sort}\n  | {} {} => x\n\n\
+/-- The cell map of the configuration. -/\ndef Progress.map (c : {top}) : {map_sort} :=\n  Progress.content_{h} {}\n\n",
+        coll.holder_sort,
+        coll.holder_lean,
+        hpat.join(" "),
+        paren(&map_body),
+        h = coll.holder_name
     ));
+    map_fns.push(format!("Progress.content_{}", coll.holder_name));
+    map_fns.push("Progress.map".into());
+    let map_fns_s = map_fns.join(", ");
     let key_pat: Vec<String> = (0..el0.arity)
         .map(|j| {
             if j == keypos {
@@ -1089,27 +1169,22 @@ def Progress.Keys (c : {top}) : Prop :=\n  MapHook.EntriesOn (fun p => p.1 = Pro
         key_pat.join(" ")
     ));
     // the ending of an element: the K function of a cell of the element, or `<k>` empty
-    let (epath, ecell_lean, econtent, erhs) = match &cx.ending {
-        Some((sym, cell)) => {
-            let sig = cx
-                .fns
-                .get(sym)
-                .ok_or_else(|| format!("--ending: the function {sym} is not generated"))?;
+    let endp = end_pred(cx)?;
+    let (epath, ecell_lean, econtent, erhs) = match &endp {
+        Some(ep_) => {
+            let cell = &ep_.cell;
             let ep = find_cell(m, top, cell)?;
             if ep.colls.len() != 1 || ep.colls[0].0.holder_sym != coll.holder_sym {
                 return Err(format!(
                     "--ending {cell}: with `<k>` in a cell map, the ending's cell must be in the same elements"
                 ));
             }
-            if let Some(es) = cx.eqns.get(sym) {
-                stuck.extend(es.iter().cloned());
-            }
-            let rhs = if sig.partial { "some true" } else { "true" };
+            stuck.extend(ep_.stuck.iter().cloned());
             (
                 ep.colls[0].1.clone(),
                 ep.cell_lean.clone(),
                 ep.cell_args[0].clone(),
-                format!("{} (Ending.content e) = {rhs}", sig.lean),
+                (ep_.apply)("Ending.content e"),
             )
         }
         None => (
@@ -1132,11 +1207,8 @@ of its key, so that an element is below the elements whose keys contain its key 
 noncomputable def Progress.rank (_ : {map_sort}) (k : {key_sort}) (_ : {elem_sort}) : Nat := sizeOf k"
         ),
     };
-    let what_end = match &cx.ending {
-        Some((sym, cell)) => format!(
-            "the K function `{}` is `true` of its `<{cell}>` cell",
-            names::demangle(sym)
-        ),
+    let what_end = match &endp {
+        Some(ep_) => format!("{} its `<{}>` cell", ep_.what, ep_.cell),
         None => "its `<k>` is empty (no `--ending`)".to_string(),
     };
     defs.push_str(&format!(
@@ -1239,7 +1311,7 @@ set_option hygiene false in\n\
 {}/-- A partner's key contains the case's key, so it ranks higher. -/\n\
 local macro \"prog_rank\" : tactic => `(tactic| (simp only [Progress.rank]; simp [{}]; omega))\n\n\
 /-- `k2l_preserve` with the unfolding set of `Progress.Keys`. -/\n\
-local macro \"k2l_keys\" : tactic => `(tactic| k2l_preserve [Progress.Keys, Progress.map, Progress.key])\n\n\
+local macro \"k2l_keys\" : tactic => `(tactic| k2l_preserve [Progress.Keys, {map_fns_s}, Progress.key])\n\n\
 {}/-- Every rule keeps `Progress.Keys`: its right-hand side binds each element at its key cell. -/\n\
 theorem Progress.Keys.preserved : Preserved Step Progress.Keys :=\n  Step.preserves_of{}\n\n\
 /-- A key bound in the rest of the case's match is a partner: its match in the rest, at its own key cell, and, when it\n\

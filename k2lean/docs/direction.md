@@ -21,7 +21,7 @@ Every theorem k2lean states is about one or the other, and the theorems differ i
 |---|---|---|
 | One function | Is each of K's equations true in the model? Does each function terminate, or where does it diverge? | **today**: equations proved or refuted, termination measures, divergence theorems (`design.md` §1, §2.2; TERM-1). Most of G1's work |
 | One step | Does each state have one successor? Do two steps commute? | **today**: determinism (`design.md` §3.1). Commutation lemmas exist inside the confluence module (§3.6), not yet as a statement other kinds consume (CNF-15) |
-| Every reachable state | Does P hold after every step? Is every reachable state finished or able to step? Do programs the checker accepts never go wrong? | **today**: invariants, type soundness (§3.3). No stuck states exists only inside type soundness (§2) |
+| Every reachable state | Does P hold after every step? Is every reachable state finished or able to step? Do programs the checker accepts never go wrong? | **today**: invariants; no stuck states under the author's invariant (`gen --progress`, §3.9), of which type soundness (§3.3) is an instance under the checker's runtime typing (kimp) |
 | Whole runs: safety | Does nothing bad ever happen along a run? (a continuation resumed at most once, a spend after its create, messages in protocol order) | **today** only when the configuration already records the history, as an invariant (§5) |
 | One program's runs | Does this program reach this state, on all paths or on one? Does it terminate in a value? | **today**: claims (§3.8): `AF` and `EF`, weak all-path and one-path eventually (partial correctness); `Reach` under `--induction`, total correctness |
 | Every program's runs: liveness | Does something good eventually happen, for every program? (every run ends; every request to a server is answered; a long-running program keeps making progress) | nothing (§5) |
@@ -151,7 +151,7 @@ A second, hand-written model of the same layer (for a model checker, say) is a s
   Then monitors, as a second definition stepped in product with the first (§4's parameterization, applied to a property).
 - **Liveness depends on whether executions are finite.**
   - *Finite executions.* A Starstream transaction is a finite DAG of UTXO transitions, executed in some order the DAG allows; everything in it runs.
-    What there is to prove is that each step terminates (one function, §1), that no execution gets stuck (§2), and that every order the DAG allows gives the same result (confluence).
+    What there is to prove is that each step terminates (one function, §1), that no execution gets stuck (§2), that every execution ends (here a measure every step decreases: the transitions of the DAG not yet run), and that every order the DAG allows gives the same result (confluence).
     There is no fairness question: the interleaving borrows concurrency's vocabulary (coroutines, schedules) without its starvation problem.
     What plays the part of scheduling is performance: which steps are independent, so that their proofs can be made in parallel (§4, at two levels).
     That is a commutation question (confluence's footprints, `product.md` §4), not a liveness one.

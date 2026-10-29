@@ -1588,6 +1588,81 @@ fn progress_at_a_cell_map_states_a_case_per_element_head_above_which_every_eleme
     );
 }
 
+/// `gen --progress` with `<k>` in a cell map and a strict operator (SND-17) on `threadexp`: a cooling
+/// rule, whose head is the hole (a variable of sort `Exp`), is a candidate of the head of each of the
+/// sort's leaves, an `Int` value included; the cell map is read through one function per cell, so
+/// that a rule leaving a cell on the way a variable keeps `Keys` by computation; the ending may be a
+/// Lean predicate of the kind 2 invariant's module (`--ending-lean`), which the stuck closer
+/// unfolds, and not together with `--ending`, nor without a kind 2 invariant.
+#[test]
+fn progress_at_a_cell_map_cools_values_reads_cells_in_layers_and_takes_a_lean_ending() {
+    let d = tmp("cli-progress-threadexp");
+    let o = gen_progress("threadexp", &d, "KThreadExp", &["--progress"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let thms = std::fs::read_to_string(d.join("KThreadExp/Progress.lean")).unwrap();
+    let int_case = &thms[thms.find("theorem Progress.case.inj_Int ").unwrap()..];
+    let int_case = &int_case[..int_case.find("\n\n").unwrap()];
+    assert!(int_case.contains(
+        "k2l_progress [App.«THREADEXP-SYNTAX._+__THREADEXP-SYNTAX_Exp_Exp_Exp1-cool», App.«THREADEXP-SYNTAX._+__THREADEXP-SYNTAX_Exp_Exp_Exp2-cool»]"
+    ));
+    let defs = std::fs::read_to_string(d.join("KThreadExp/ProgressDefs.lean")).unwrap();
+    assert!(defs.contains(
+        "def Progress.cell_T : SortGeneratedTopCell → SortTCell\n  | SortGeneratedTopCell.«<generatedTop>» x _ => x"
+    ));
+    assert!(defs.contains(
+        "def Progress.content_threads : SortThreadsCell → SortThreadCellMap\n  | SortThreadsCell.«<threads>» x => x"
+    ));
+    assert!(defs.contains(
+        "def Progress.map (c : SortGeneratedTopCell) : SortThreadCellMap :=\n  Progress.content_threads (Progress.cell_threads (Progress.cell_T c))"
+    ));
+    assert!(thms.contains(
+        "k2l_preserve [Progress.Keys, Progress.cell_T, Progress.cell_threads, Progress.content_threads, Progress.map, Progress.key]"
+    ));
+
+    let o = gen_progress(
+        "threadexp",
+        &d,
+        "KThreadExp",
+        &["--progress", "--ending-lean", "Pkg.done@k"],
+    );
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--ending-lean needs --assume-invariant"));
+    let pkg = d.join("Pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    let kind2 = [
+        "--progress",
+        "--assume-invariant",
+        "Pkg.Inv",
+        "--invariant-module",
+        "Pkg.Inv",
+        "--invariant-preserved",
+        "Pkg.Inv.preserved",
+        "--progress-prefix",
+        "Pkg",
+        "--progress-out",
+        pkg.to_str().unwrap(),
+        "--ending-lean",
+        "Pkg.done@k",
+    ];
+    let o = gen_progress("threadexp", &d, "KThreadExp", &kind2);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let defs = std::fs::read_to_string(pkg.join("Pkg/ProgressDefs.lean")).unwrap();
+    assert!(defs.contains(
+        "/-- An element is an acceptable ending: the Lean predicate `Pkg.done` (`--ending-lean`) holds of its `<k>` cell. -/\ndef Ending.elem (e : SortThreadCell) : Prop :=\n  Pkg.done (Ending.content e)"
+    ));
+    let thms = std::fs::read_to_string(pkg.join("Pkg/Progress.lean")).unwrap();
+    let stuck = thms
+        .lines()
+        .find(|l| l.starts_with("local macro \"prog_stuck\""))
+        .unwrap();
+    assert!(stuck.contains("Ending.elem,") && stuck.contains(" Pkg.done,"));
+    let mut both = kind2.to_vec();
+    both.extend(["--ending", "kOk@k"]);
+    let o = gen_progress("threadexp", &d, "KThreadExp", &both);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--ending and --ending-lean: give one"));
+}
+
 /// `gen --progress` under a kind 2 invariant (SND-14 slice 2b, design.md §3.9) on `handoff`: spelled
 /// as `claims` takes it, `Invariant` is the Lean predicate and its preservation theorem; the modules go
 /// to the package that holds it (`--progress-out`, under `--progress-prefix`) with the library's

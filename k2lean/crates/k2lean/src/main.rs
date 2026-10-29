@@ -356,6 +356,10 @@ fn main() {
             }
             // no stuck states (`progress.rs`): the ending's function is generated too
             let progress_on = a.rest.iter().any(|x| x == "--progress");
+            if a.rest.iter().any(|x| x == "--ending") && a.rest.iter().any(|x| x == "--ending-lean")
+            {
+                panic!("--ending and --ending-lean: give one");
+            }
             let ending: Option<(String, String)> =
                 a.rest.iter().position(|x| x == "--ending").map(|i| {
                     let sp = invariants::parse_spec(&a.rest[i + 1]);
@@ -370,6 +374,17 @@ fn main() {
             if let Some((sym, _)) = &ending {
                 roots.insert(sym.clone());
             }
+            // a kind 2 ending: a Lean predicate, nothing to generate
+            let ending_lean: Option<(String, String)> =
+                a.rest.iter().position(|x| x == "--ending-lean").map(|i| {
+                    let sp = invariants::parse_spec(&a.rest[i + 1]);
+                    (
+                        sp.name,
+                        sp.cell.unwrap_or_else(|| {
+                            panic!("--ending-lean NAME@CELL: the cell is required")
+                        }),
+                    )
+                });
             // the functions the claims of a specification apply (`claims.rs`): `--spec FILE`,
             // repeatable, the spec's compiled `definition.kore` as `claims --spec` reads it
             let spec_files: Vec<PathBuf> = a
@@ -886,6 +901,7 @@ fn main() {
                             "--invariant-preserved",
                             "--invariant-unfold",
                             "--element-fact",
+                            "--ending-lean",
                         ] {
                             if flag(f).is_some() {
                                 panic!("--progress: {f} needs --assume-invariant");
@@ -949,6 +965,7 @@ fn main() {
                     ns,
                     invariant: inv_unfold.clone(),
                     ending: ending.clone(),
+                    ending_lean: ending_lean.clone(),
                     ranked,
                     ranks: prios.len(),
                     eqns,
