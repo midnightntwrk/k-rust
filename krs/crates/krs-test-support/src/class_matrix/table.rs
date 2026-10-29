@@ -15,7 +15,7 @@
 //!    --record`) and reviewed as a diff, never by hand; an entry without `k` is a case that should
 //!    be accepted and is refused today, whose K is recorded once it is accepted.
 //!
-//! The term families' accept entries (`terms/..`, `import/..`) live in a file of their own,
+//! The term families' accept entries (`terms/..`, `import/..`, `notation/..`) live in a file of their own,
 //! `krs/tests/class-matrix/accepted-terms.toml` ([`TERM_ACCEPTS_FILE`]), which holds only
 //! `[accept."ID"]` entries of those families, in the schema of part 3: they are most of the
 //! table, written by the record mode, and apart they leave `expected.toml` readable.
@@ -37,7 +37,7 @@
 //! other is a tie, and a case no entry covers is uncovered; both are table errors, so a
 //! complete table decides every case exactly once.
 //!
-//! **The term families.** A `terms/` or `import/` case is judged by the oracle
+//! **The term families.** A `terms/`, `import/` or `notation/` case is judged by the oracle
 //! ([`super::oracle`]) first, from its position and its construct's nodes, and the table's
 //! entries decide only what the oracle leaves:
 //!
@@ -75,7 +75,7 @@ pub const TERM_ACCEPTS_FILE: &str = "accepted-terms.toml";
 /// Whether `id` is a case of the term families, whose accept entries [`TERM_ACCEPTS_FILE`] holds.
 #[must_use]
 pub fn is_term_case(id: &str) -> bool {
-    id.starts_with("terms/") || id.starts_with("import/")
+    id.starts_with("terms/") || id.starts_with("import/") || id.starts_with("notation/")
 }
 
 /// The range a refusal's error must lie inside.

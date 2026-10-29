@@ -81,13 +81,27 @@ mod terms;
 use std::fmt::Write as _;
 use std::ops::Range;
 
-/// The most cases [`cases`] may generate. The fast tier runs every case in-process: measured with
-/// NT-2's term positions, 5,518 cases take 41.0 s on one CPU (7.4 ms a case, the term family's
-/// roots and depth-2 cases being larger items than S0's) and 3.0 s on 32 threads. 6,000 cases are
-/// 45 s single-threaded, the budget of a test a developer runs after each change, and leave room
-/// for the cases NT-5 and NT-6's notations add; past it the term family is split into shards
-/// rather than the cap raised.
+/// The most cases one shard of the fast tier ([`FRONT_SHARDS`]) may hold. The fast tier runs every
+/// case in-process: measured with NT-2's term positions, 5,518 cases take 41.0 s on one CPU
+/// (7.4 ms a case, the term family's roots and depth-2 cases being larger items than S0's) and
+/// 3.0 s on 32 threads. 6,000 cases are 45 s single-threaded, the budget of a test a developer
+/// runs after each change; past it the term family is split into shards rather than the cap
+/// raised, as NT-5's collection notation is ([`Family::Notation`]).
 pub const FRONT_CASE_CAP: usize = 6_000;
+
+/// The shards of the fast tier, each the families one of its tests runs, and each within
+/// [`FRONT_CASE_CAP`]: the collection notation's term cases are a shard of their own.
+pub const FRONT_SHARDS: [&[Family]; 2] = [
+    &[
+        Family::Readable,
+        Family::Claim,
+        Family::Cells,
+        Family::Init,
+        Family::Terms,
+        Family::Import,
+    ],
+    &[Family::Notation],
+];
 
 /// The family a case belongs to: its form, which fixes its base and its templates.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -105,17 +119,22 @@ pub enum Family {
     /// A bare constructor at a term position, with the constructors imported once at module
     /// level and no block of its own importing them (the import axis).
     Import,
+    /// An index read or a collection method (`m[k]`, `s.contains(x)`), or the call it denotes,
+    /// at a term position: the term family's positions, templates and oracle, kept apart so that
+    /// each shard of the fast tier stays within its budget ([`FRONT_SHARDS`]).
+    Notation,
 }
 
 impl Family {
     /// Every family, in ID order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Readable,
         Self::Claim,
         Self::Cells,
         Self::Init,
         Self::Terms,
         Self::Import,
+        Self::Notation,
     ];
 
     /// The first segment of the IDs of this family's cases.
@@ -128,6 +147,7 @@ impl Family {
             Self::Init => "init",
             Self::Terms => "terms",
             Self::Import => "import",
+            Self::Notation => "notation",
         }
     }
 }
@@ -587,8 +607,8 @@ fn place(case: &Case, start: usize, command: Option<Range<usize>>) -> Placed<'_>
 ///
 /// # Panics
 ///
-/// Panics if the generator produces more than [`FRONT_CASE_CAP`] cases, or two cases with one
-/// ID.
+/// Panics if a shard of the fast tier ([`FRONT_SHARDS`]) holds more than [`FRONT_CASE_CAP`]
+/// cases, or if two cases share one ID.
 #[must_use]
 pub fn cases() -> Vec<Case> {
     let mut cases = Vec::new();
@@ -599,11 +619,16 @@ pub fn cases() -> Vec<Case> {
     cells::cases(&mut cases);
     terms::cases(&mut cases);
     cases.sort_by(|left, right| left.id.cmp(&right.id));
-    assert!(
-        cases.len() <= FRONT_CASE_CAP,
-        "{} class-test cases exceed the cap of {FRONT_CASE_CAP}",
-        cases.len()
-    );
+    for shard in FRONT_SHARDS {
+        let count = cases
+            .iter()
+            .filter(|case| shard.contains(&case.family))
+            .count();
+        assert!(
+            count <= FRONT_CASE_CAP,
+            "{count} class-test cases of the shard {shard:?} exceed the cap of {FRONT_CASE_CAP}"
+        );
+    }
     if let Some(pair) = cases.windows(2).find(|pair| pair[0].id == pair[1].id) {
         panic!("two class-test cases share the ID {}", pair[0].id);
     }

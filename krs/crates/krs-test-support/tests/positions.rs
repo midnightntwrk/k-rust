@@ -29,7 +29,20 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 17] = [
+const KNOWN: [(&str, &str); 20] = [
+    // A pattern's key holds no `let` block or `k::matches!` (NT-3-2's boundary), so a construct in
+    // one's body, pattern or matched pattern there is refused with it; the collection notation and
+    // its calls are such constructs. Where a `let` or `k::matches!` pattern holds the notation, no
+    // Rust parser reads the pattern first (NT-2-6).
+    ("notation/readable/map-key/let-body/*", "NT-3-2"),
+    (
+        r"notation/readable/map-key/{let-pattern,matches-pattern}/k::builtin::{list::get,list::size,map::get,map::in_keys,map::update,set::to_list}(*",
+        "NT-3-2",
+    ),
+    (
+        r"notation/readable/map-key/{let-pattern,matches-pattern}/k::builtin::{list::item(x)[0],list::item(x).len(),map::empty()[x],map::empty().contains_key(x),map::empty().update(x\, 1),set::item(x).to_list()}",
+        "NT-2-6",
+    ),
     (
         r"terms/readable/set-instance-child/{Cmd::Pair \{ a: x\, ..x \},k::is!(Int\, x),k::project!(Int\, x)}",
         "NT-3-3",
@@ -345,8 +358,10 @@ enum Read {
 /// - `krs_syntax::notation::notation_in_pattern`: where a pattern is parsed, a subject or a local
 ///   pattern, a notation form is no pattern; elsewhere it is the application it denotes, which
 ///   the table's application row decides, in a key too (a readable map read parses its key as an
-///   expression, and a `cells!` map's as a pattern or else an expression);
-/// - a constant's value reader refuses an operator and a map literal as no ground term;
+///   expression, and a `cells!` map's as a pattern or else an expression); an index or a
+///   collection method is the application it denotes in a pattern too;
+/// - a constant's value reader refuses an operator and a map literal as no ground term, and
+///   reads an index or a collection method as the call it denotes;
 /// - the term reader takes no macro but the compiler-owned islands, so a map literal is refused
 ///   at every term position;
 /// - list notation: an anonymous `..` keeps a rest only in a pattern;
@@ -373,6 +388,8 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
     let constant = position.form == model::Form::Constant;
     match construct {
         M::Notation(Notation::BitwiseOr) if or_is_alternatives => Read::Table,
+        // An index or a collection method is read as the call it denotes everywhere.
+        M::Notation(notation) if notation.is_collection() => Read::Table,
         M::Notation(_) if parsed_as_pattern => Read::Refuses("notation-in-pattern"),
         M::Notation(_) | M::MapLiteral | M::Rest if constant => {
             Read::Refuses("constant-not-ground")
@@ -475,9 +492,12 @@ fn oracle(hole: model::Position, nodes: &[model::Node]) -> Answer {
 }
 
 fn term_cases(cases: &[Case]) -> impl Iterator<Item = &Case> {
-    cases
-        .iter()
-        .filter(|case| matches!(case.family, Family::Terms | Family::Import))
+    cases.iter().filter(|case| {
+        matches!(
+            case.family,
+            Family::Terms | Family::Import | Family::Notation
+        )
+    })
 }
 
 #[test]
@@ -765,7 +785,30 @@ fn every_construct_and_notation_has_a_spelling() {
     // every expression shape: each it calls notation is a form of the model with a spelling. The
     // product exposes no table of its forms, so the shapes are listed here: a notation NT-5 or
     // NT-6 adds over a shape not listed (an index `m[k]` is) must add its shape.
-    for (shape, notation) in EXPRESSION_SHAPES {
+    // Every row of the collection-method catalog, written as its shape.
+    let collection_shapes = krs_ir::CollectionMethod::ALL.map(|method| {
+        let arguments = (1..method.arity())
+            .map(|index| format!("b{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let shape = match method.spelling() {
+            krs_ir::CollectionMethodSpelling::Index => format!("a[{arguments}]"),
+            krs_ir::CollectionMethodSpelling::Method => {
+                format!("a.{}({arguments})", method.rust_name())
+            }
+        };
+        let notation = match method.spelling() {
+            krs_ir::CollectionMethodSpelling::Index => Notation::Index,
+            krs_ir::CollectionMethodSpelling::Method => Notation::CollectionMethod,
+        };
+        (shape, Some(notation))
+    });
+    let shapes = EXPRESSION_SHAPES
+        .iter()
+        .map(|(shape, notation)| ((*shape).to_owned(), *notation))
+        .chain(collection_shapes);
+    for (shape, notation) in shapes {
+        let shape = shape.as_str();
         let expression =
             syn::parse_str::<syn::Expr>(shape).unwrap_or_else(|error| panic!("{shape}: {error}"));
         match (krs_syntax::is_expression_notation(&expression), notation) {
@@ -813,7 +856,7 @@ const EXPRESSION_SHAPES: [(&str, Option<Notation>); 37] = [
     ("a <<= b", None),
     ("a >>= b", None),
     ("*a", None),
-    ("a[b]", None),
+    ("a[b]", Some(Notation::Index)),
     ("a as T", None),
     ("a..b", None),
     ("a.b", None),

@@ -99,9 +99,17 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::Terms, 105 * 47),
             // 80 positions of depth 1 × 2 bare variants.
             (Family::Import, 80 * 2),
+            // The term family's 105 positions × 6 collection notation forms and their calls.
+            (Family::Notation, 105 * 12),
         ])
     );
-    assert!(cases.len() <= FRONT_CASE_CAP);
+    for shard in class_matrix::FRONT_SHARDS {
+        let count = cases
+            .iter()
+            .filter(|case| shard.contains(&case.family))
+            .count();
+        assert!(count <= FRONT_CASE_CAP, "{shard:?}: {count}");
+    }
 }
 
 #[test]
@@ -244,6 +252,22 @@ fn a_computation_subject_case_is_never_batched() {
 
 /// The term cases a table rule decides before the oracle's resolution refusal, with the oracle's
 /// class ([`the_shipped_table_and_red_list_parse`]).
+/// The notation family's positions where a table rule decides every case before the oracle's
+/// resolution refusal, with the oracle's class: each of the family's spellings (the collection
+/// notation and the calls it denotes) reads `x` and applies a function, as `k::builtin::int::add(x,
+/// 1)` does at the term family's same positions ([`OVERRIDDEN`]).
+const OVERRIDDEN_POSITIONS: [(&str, &str); 6] = [
+    ("notation/constant/value", "constant-applies-function"),
+    ("notation/constant/value-root", "constant-applies-function"),
+    ("notation/local-rule/subject-root", "function-in-pattern"),
+    ("notation/rule/guard/matches-pattern", "function-in-pattern"),
+    ("notation/rule/subject/or-branch", "function-in-pattern"),
+    (
+        "notation/sort-rule/result/matches-pattern",
+        "function-in-pattern",
+    ),
+];
+
 const OVERRIDDEN: [(&str, &str); 45] = [
     (
         "terms/alias/subject-root/[x, ..]",
@@ -446,11 +470,19 @@ fn the_shipped_table_and_red_list_parse() {
     // name names a unit constructor), a `k::matches!` pattern that rebinds `x`, alternatives that
     // bind other names, a `KItem` binder an operand sorts as `Int`, `_` in a desugar result
     // without `unbound_variables`, a record update's base, brackets at a `KItem` root.
+    let positions = ids.iter().filter_map(|id| {
+        let (position, _) = id.rsplit_once("/k::builtin::")?;
+        OVERRIDDEN_POSITIONS
+            .iter()
+            .find(|(overridden, _)| *overridden == position)
+            .map(|(_, class)| ((*id).to_owned(), *class))
+    });
     assert_eq!(
         resolution.overridden,
         OVERRIDDEN
             .into_iter()
             .map(|(id, class)| (id.to_owned(), class))
+            .chain(positions)
             .collect::<BTreeMap<_, _>>()
     );
     assert_eq!(resolution.expected.len(), ids.len());
@@ -990,6 +1022,21 @@ const NAME_AND_SORT_CLASSES: [&str; 12] = [
 /// Why a readable key's alternative or `k::matches!` pattern that reads `x` binds no name.
 const KEY_READS_ITS_NAMES: &str = "in a readable map key a name the pattern binds elsewhere is looked up (D2), so an alternative or a `k::matches!` pattern that reads it binds nothing; in a subject's it binds";
 
+/// The notation family's positions whose every case is a sibling exception, and why: each of the
+/// family's spellings reads `x` as `k::builtin::int::add(x, 1)` does ([`SIBLING_EXCEPTIONS`]).
+const SIBLING_EXCEPTION_POSITIONS: [(&str, &str, &str); 2] = [
+    (
+        "notation/readable/map-key/matches-pattern",
+        "matches-pattern-binder",
+        KEY_READS_ITS_NAMES,
+    ),
+    (
+        "notation/readable/map-key/or-branch",
+        "alternatives-bind-unequally",
+        KEY_READS_ITS_NAMES,
+    ),
+];
+
 /// Sibling cases a name or sort rule does not decide though it decides the spelling at another
 /// sibling, and why.
 const SIBLING_EXCEPTIONS: [(&str, &str, &str); 9] = [
@@ -1113,6 +1160,14 @@ fn a_name_or_sort_rule_refuses_a_spelling_at_every_sibling() {
             let Some(how) = open(case) else {
                 continue;
             };
+            if SIBLING_EXCEPTION_POSITIONS
+                .iter()
+                .any(|(position, excepted_class, _)| {
+                    case.id.starts_with(&format!("{position}/")) && excepted_class == class
+                })
+            {
+                continue;
+            }
             if SIBLING_EXCEPTIONS
                 .iter()
                 .any(|(id, excepted_class, _)| *id == case.id && excepted_class == class)
@@ -1475,11 +1530,14 @@ fn rustc_parses_exactly_the_fn_bodies_and_the_constant_value() {
             let form = segments.next().unwrap_or_default();
             let position = segments.next().unwrap_or_default();
             assert!(
-                matches!(case.family, Family::Terms | Family::Import),
+                matches!(
+                    case.family,
+                    Family::Terms | Family::Import | Family::Notation
+                ),
                 "{} is no term position",
                 case.id
             );
-            assert!(matches!(family, "terms" | "import"));
+            assert!(matches!(family, "terms" | "import" | "notation"));
             format!("{form}/{position}")
         })
         .collect::<BTreeSet<_>>();

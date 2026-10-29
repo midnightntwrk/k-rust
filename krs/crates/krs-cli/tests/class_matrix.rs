@@ -6,7 +6,8 @@
 //! `pending.toml`.
 //!
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
-//! `cells`, `init`, `terms`, and `import`, each of which also judges its accepted cases by K3
+//! `cells`, `init`, `terms`, `import`, and `notation` (the collection notation at the term
+//! positions), each of which also judges its accepted cases by K3
 //! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`; `k5`, which checks one broken header per entry
 //! point ([`mutations`]); and `k4`, which compares KRS's sort judges with
 //! k-rust's lattice on each base's emitted definition ([`lattice`]). Each prints its counts and its red cases per finding
@@ -467,7 +468,9 @@ fn k3(
     let mut segments = judged.id.split('/');
     let family = segments.next().unwrap_or_default();
     let form = match family {
-        "terms" | "import" => format!("{family}/{}", segments.next().unwrap_or_default()),
+        "terms" | "import" | "notation" => {
+            format!("{family}/{}", segments.next().unwrap_or_default())
+        }
         _ => family.to_owned(),
     };
     *forms
@@ -711,6 +714,12 @@ fn terms() {
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn import() {
     shard("import", &[Family::Import]);
+}
+
+#[test]
+#[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
+fn notation() {
+    shard("notation", &[Family::Notation]);
 }
 
 #[test]

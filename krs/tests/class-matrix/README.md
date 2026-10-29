@@ -6,7 +6,7 @@ rules, initializers, the strict-subsort axis, every term shape at the term posit
 sentence form, and the module-import axis. `pending.toml` lists the cases known not to conform.
 The schema and the rules that read both files are documented in the `class_matrix` module.
 
-For the term families (`terms/..`, `import/..`), the outcome comes from the oracle
+For the term families (`terms/..`, `import/..`, `notation/..`), the outcome comes from the oracle
 (`class_matrix::oracle`), not from refusal rules. Each term case carries its position (the form,
 the slot, what a term there means: matched, evaluated, built or a guard, its root role and its
 nesting) and its construct's nodes as data, and the oracle states, per construct, where the
@@ -51,10 +51,13 @@ on every term case, and a case they disagree on must be pending.
 A refusal of the oracle lies at the spelling, or at the entry (the outer construct's text) when the
 refused construct is the one a depth-2 case's construct stands in.
 
-**Size.** The term family is about 4,650 cases and the import axis 154, of about 5,600 in all; the
-generator caps the total at `FRONT_CASE_CAP` (6,000), whose documentation argues the fast tier's
-budget (7.5 ms a case single-threaded). The full tier's `terms` shard takes about 4 minutes with 22
-workers. The term families' accept entries are most of the table, so they live in
+**Size.** The term family is about 4,950 cases and the import axis 160, of about 5,900 in all, and
+the notation family (`notation/..`: the term family's positions, templates and oracle for the
+collection notation, `m[k]` and `s.contains(x)`, and the calls it denotes) 1,260. The generator caps
+each shard of the fast tier at `FRONT_CASE_CAP` (6,000), whose documentation argues the fast tier's
+budget (7.5 ms a case single-threaded); the notation family is a shard of its own
+(`FRONT_SHARDS`), one test of `class_front` each. The full tier's `terms` shard takes about 5
+minutes with 22 workers, and its `notation` shard about 2. The term families' accept entries are most of the table, so they live in
 `accepted-terms.toml`, in `expected.toml`'s accept schema and written by the same record mode;
 `expected.toml` keeps the classes, the refusal rules and the other families' accept entries, and
 holds no term case's entry (`class_matrix::table`).
@@ -108,7 +111,7 @@ failed item leaves its imports unused (`unused_imports`), which no proc macro ca
 second error, and which `krs check` relays away. Its entry is keyed by the mutation,
 `entry/attribute/cell`.
 
-Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `k4`, `k5`), and choose the worker count yourself
+Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `notation`, `k4`, `k5`), and choose the worker count yourself
 when the default (from the available memory, 3 GiB per worker) does not suit:
 
 ```sh
@@ -130,7 +133,7 @@ tag written `TAG` (for an initializer, its `configuration`), is written by the r
 hand:
 
 ```sh
-scripts/krs-class.sh --record --shard readable --shard cells --shard init --shard terms --shard import
+scripts/krs-class.sh --record --shard readable --shard cells --shard init --shard terms --shard import --shard notation
 ```
 
 It writes `k` for every accepted case that the table does not refuse (the oracle included),

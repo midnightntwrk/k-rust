@@ -6,7 +6,7 @@
 set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-all_shards=(readable cells init terms import k4 k5)
+all_shards=(readable cells init terms import notation k4 k5)
 
 usage() {
   cat <<EOF
@@ -21,7 +21,7 @@ directory, removed when the run ends, failure included. KRS_CLASS_TARGET_DIR sel
 test binary is built in (default target/gates), KRS_CLASS_OUT a directory for one TSV line per case
 and the pending entries of each unrecorded deviation (see the test's documentation). --record writes
 the K of every accepted case that no refusal rule covers into krs/tests/class-matrix/expected.toml,
-a term family's case (terms/.., import/..) into krs/tests/class-matrix/accepted-terms.toml, for
+a term family's case (terms/.., import/.., notation/..) into krs/tests/class-matrix/accepted-terms.toml, for
 review as a diff. Exit status 0
 when every case conforms or is pending as recorded, 1 otherwise, 2 on a usage error.
 EOF

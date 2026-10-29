@@ -865,6 +865,41 @@ class = "unbound-name"
 at = "spelling"
 
 
+# unbound-name (NT-5): the collection notation and the calls it denotes read `x`, which no
+# constant's or initializer's value binds
+[[refuse]]
+match = 'notation/{constant/value,constant/value-root,init/item,init/item-depth-2,init/item-root}/*'
+class = "unbound-name"
+at = "spelling"
+
+# alternatives-bind-unequally (NT-5): an alternative that reads `x` beside `Cmd::Go()`, which binds
+# no name, in a subject; the collection notation is the call it denotes there
+[[refuse]]
+match = 'notation/rule/subject/or-branch/*'
+class = "alternatives-bind-unequally"
+at = "entry"
+
+# condition-sort (NT-5): a collection method whose result is no Bool (a `Map`, an `Int`, a `List`)
+# in a condition, as the call it denotes
+[[refuse]]
+match = 'notation/{cells-claim/guard,context/guard,equation/guard,readable/guard,rule/guard,rule/guard/let-body,simplification/guard}/{k::builtin::list::item(x).len(),k::builtin::list::size(k::builtin::list::item(x)),k::builtin::map::empty().update(x\, 1),k::builtin::map::update(k::builtin::map::empty()\, x\, 1),k::builtin::set::item(x).to_list(),k::builtin::set::to_list(k::builtin::set::item(x))}'
+class = "condition-sort"
+at = "spelling"
+
+# matches-pattern-binder (NT-5): a `k::matches!` pattern that rebinds the sentence's `x`, here in
+# the collection notation or the call it denotes
+[[refuse]]
+match = 'notation/{rule/guard,sort-rule/result}/matches-pattern/*'
+class = "matches-pattern-binder"
+at = "spelling"
+
+# object-term-as-predicate (NT-5): the collection notation or the call it denotes, an object term,
+# as a quantifier's body
+[[refuse]]
+match = 'notation/cells-claim/guard/closure-body/*'
+class = "object-term-as-predicate"
+at = "spelling"
+
 # condition-sort (NT-2): a nested cell term or a bare variant in a condition
 [[refuse]]
 match = 'terms/{cells-claim/guard,context/guard,readable/guard,rule/guard/let-body}/k::fragment![crate::Frame \{ ret: 1 \}]'
@@ -884,7 +919,7 @@ at = "spelling"
 
 # single-body-without-rewrite (NT-2): a single-body rule's whole subject that holds no rewrite
 [[refuse]]
-match = '{import,terms}/local-rule/subject-root/*'
+match = '{import,notation,terms}/local-rule/subject-root/*'
 class = "single-body-without-rewrite"
 at = "item"
 

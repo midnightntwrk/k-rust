@@ -25,8 +25,9 @@
 //! Every case must be covered by the table ([`UNCOVERED_IS_TABLE_ERROR`]).
 //!
 //! The cases run on every available thread: `proc_macro2`'s fallback spans are per thread, and
-//! each thread drops its spans after every case. The generator caps the number of cases
-//! ([`class_matrix::FRONT_CASE_CAP`]); no time is asserted.
+//! each thread drops its spans after every case. Each shard of the fast tier
+//! ([`class_matrix::FRONT_SHARDS`]) is one test, and the generator caps the number of cases in
+//! each ([`class_matrix::FRONT_CASE_CAP`]); no time is asserted.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -690,6 +691,17 @@ fn failure_message(failures: &[(&str, Option<Test>, Judgement)]) -> String {
 
 #[test]
 fn every_case_meets_the_front_invariants_and_keys_its_payloads() {
+    front(class_matrix::FRONT_SHARDS[0]);
+}
+
+#[test]
+fn every_notation_case_meets_the_front_invariants_and_keys_its_payloads() {
+    front(class_matrix::FRONT_SHARDS[1]);
+}
+
+/// Runs the cases of the families `shard` names, one shard of the fast tier, judged by the whole
+/// table.
+fn front(shard: &[class_matrix::Family]) {
     let started = Instant::now();
     let table = Table::parse_with_term_accepts(
         &read_class_matrix("expected.toml"),
@@ -698,8 +710,13 @@ fn every_case_meets_the_front_invariants_and_keys_its_payloads() {
     .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
     let pending = Pending::parse(&read_class_matrix("pending.toml"))
         .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
-    let cases = class_matrix::cases();
-    let resolution = table.resolve_cases(&cases, registry_kind);
+    let all = class_matrix::cases();
+    let resolution = table.resolve_cases(&all, registry_kind);
+    let cases = all
+        .iter()
+        .filter(|case| shard.contains(&case.family))
+        .cloned()
+        .collect::<Vec<_>>();
     let mut table_errors = resolution
         .errors
         .iter()

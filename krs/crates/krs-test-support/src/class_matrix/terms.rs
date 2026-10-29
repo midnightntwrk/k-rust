@@ -524,6 +524,91 @@ fn spellings() -> Vec<Spelling> {
     spellings
 }
 
+/// The collection notation (`krs_syntax::notation`), each form beside the call it denotes, which
+/// its accept entry names in `same_k_as`: an index of a `Map` and of a `List`, a method of each
+/// collection whose receiver its row chooses (`update` is a `Map`'s here and `len` a `List`'s),
+/// and `contains_key`, whose receiver is the call's second argument. Each receiver is a builtin
+/// collection term, so that it has its collection's sort wherever it stands; its nodes are in the
+/// walker's order, the denoted call's.
+fn notation_spellings() -> Vec<Spelling> {
+    let map = || node(C::Constructor, &[FunctionArgument]);
+    let x = || node(C::Reference, &[FunctionArgument]);
+    let one = || node(C::Literal, &[FunctionArgument]);
+    let list_of_x = || {
+        [
+            node(C::Constructor, &[FunctionArgument]),
+            node(C::Reference, &[FunctionArgument, ListElement]),
+        ]
+    };
+    let set_of_x = || {
+        [
+            node(C::Constructor, &[FunctionArgument]),
+            node(C::Reference, &[FunctionArgument, SetElement]),
+        ]
+    };
+    let index = || node(C::Notation(Notation::Index), &[]);
+    let method = || node(C::Notation(Notation::CollectionMethod), &[]);
+    let call = || node(C::BuiltinApplication, &[]);
+    let with = |head: Node, operands: &[Node]| {
+        let mut nodes = vec![head];
+        nodes.extend_from_slice(operands);
+        nodes
+    };
+    let list_index = [list_of_x().as_slice(), &[one()]].concat();
+    let list_len = list_of_x();
+    let set_to_list = set_of_x();
+    let mut spellings = Vec::new();
+    for (written, denoted, operands) in [
+        (
+            "k::builtin::map::empty()[x]",
+            "k::builtin::map::get(k::builtin::map::empty(), x)",
+            vec![map(), x()],
+        ),
+        (
+            "k::builtin::list::item(x)[0]",
+            "k::builtin::list::get(k::builtin::list::item(x), 0)",
+            list_index,
+        ),
+        (
+            "k::builtin::map::empty().update(x, 1)",
+            "k::builtin::map::update(k::builtin::map::empty(), x, 1)",
+            vec![map(), x(), one()],
+        ),
+        (
+            "k::builtin::list::item(x).len()",
+            "k::builtin::list::size(k::builtin::list::item(x))",
+            list_len.to_vec(),
+        ),
+        (
+            "k::builtin::set::item(x).to_list()",
+            "k::builtin::set::to_list(k::builtin::set::item(x))",
+            set_to_list.to_vec(),
+        ),
+        (
+            "k::builtin::map::empty().contains_key(x)",
+            "k::builtin::map::in_keys(x, k::builtin::map::empty())",
+            vec![x(), map()],
+        ),
+    ] {
+        let head = if written.ends_with(']') {
+            index()
+        } else {
+            method()
+        };
+        spellings.push(Spelling {
+            text: written,
+            readable: None,
+            nodes: with(head, &operands),
+        });
+        spellings.push(Spelling {
+            text: denoted,
+            readable: None,
+            nodes: with(call(), &operands),
+        });
+    }
+    spellings
+}
+
 /// The constructs of the import axis: bare variants, which only a module-level import names.
 fn imported_spellings() -> Vec<Spelling> {
     vec![
@@ -1797,14 +1882,18 @@ fn openers() -> Vec<Slot> {
     ]
 }
 
-/// The term family: every slot × every construct, and the import axis: every slot of depth 1 ×
-/// 2 bare variants.
+/// The term family: every slot × every construct, the import axis: every slot of depth 1 × 2
+/// bare variants, and the notation family: every slot × the collection notation and its calls.
 pub(super) fn cases(cases: &mut Vec<Case>) {
     let spellings = spellings();
     let imported = imported_spellings();
+    let notation = notation_spellings();
     for slot in slots() {
         for spelling in &spellings {
             cases.push(case(Family::Terms, &slot, spelling));
+        }
+        for spelling in &notation {
+            cases.push(case(Family::Notation, &slot, spelling));
         }
         if slot.opener.is_none() {
             for spelling in &imported {

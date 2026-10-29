@@ -189,7 +189,9 @@ const fn in_selection(construct: Construct) -> Option<Refusal> {
             | Notation::OrElse
             | Notation::Not
             | Notation::Negation
-            | Notation::Method,
+            | Notation::Method
+            | Notation::Index
+            | Notation::CollectionMethod,
         ) => Some(resolution(Class::FunctionInPattern)),
         Construct::SortTest => Some(resolution(Class::SortTestInPattern)),
         Construct::Let => Some(placement(Class::LetOutsideTerm)),
@@ -361,6 +363,12 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         }
         Construct::FunctionApplication | Construct::BuiltinApplication => {
             application(construct, position)
+        }
+        // An index or a collection method is the application of a collection's function it
+        // denotes, decided as that application is wherever it stands: a pattern holds it as it
+        // holds the call (`m[k]` is `map::get(m, k)`), and a function there never matches.
+        Construct::Notation(notation) if notation.is_collection() => {
+            application(Construct::BuiltinApplication, position)
         }
         // A notation form is notation for the builtin application it denotes, and means what
         // the application does. It is no pattern, though: where a pattern is read, it is refused

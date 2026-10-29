@@ -618,11 +618,17 @@ pub enum Notation {
     Negation,
     /// `recv.op::<D>(args..)`.
     Method,
+    /// `m[k]` and `l[i]`, an index read: `map::get(m, k)` or `list::get(l, i)` by the receiver's
+    /// collection.
+    Index,
+    /// A collection method without a turbofish, `m.update(k, v)`, `s.contains(x)`: the Map, List
+    /// or Set operation of the receiver's collection.
+    CollectionMethod,
 }
 
 impl Notation {
     /// Every notation form.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 13] = [
         Self::Arithmetic,
         Self::Bitwise,
         Self::BitwiseOr,
@@ -634,7 +640,16 @@ impl Notation {
         Self::Not,
         Self::Negation,
         Self::Method,
+        Self::Index,
+        Self::CollectionMethod,
     ];
+
+    /// Whether the form is collection notation: an index or a collection method, the
+    /// application of a collection's function, which a pattern holds as it holds the call.
+    #[must_use]
+    pub const fn is_collection(self) -> bool {
+        matches!(self, Self::Index | Self::CollectionMethod)
+    }
 }
 
 /// A term construct, as the oracle tells them apart.
@@ -701,7 +716,7 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 39] = [
         Self::Reference,
         Self::Fresh,
         Self::Constructor,
@@ -720,6 +735,8 @@ impl Construct {
         Self::Notation(Notation::Not),
         Self::Notation(Notation::Negation),
         Self::Notation(Notation::Method),
+        Self::Notation(Notation::Index),
+        Self::Notation(Notation::CollectionMethod),
         Self::Wildcard,
         Self::As,
         Self::Or,
