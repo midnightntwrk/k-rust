@@ -329,6 +329,55 @@ fn a_built_term_refuses_what_only_matches() {
 }
 
 #[test]
+fn an_alias_subject_is_built_backwards_and_refuses_what_only_matches() {
+    let subject = Position::root(Form::Alias, Slot::Subject);
+    assert!(subject.is_built_backwards());
+    for (construct, class) in [
+        (Construct::Wildcard, Class::WildcardInAliasSubject),
+        (Construct::As, Class::AliasInAliasSubject),
+        (Construct::Or, Class::AlternativesInAliasSubject),
+        (Construct::OpenRecord, Class::OpenRecordInAliasSubject),
+        (Construct::Rest, Class::RestInAliasSubject),
+    ] {
+        assert_eq!(
+            admits(subject, construct),
+            Admission::Refuse(class),
+            "{construct:?}"
+        );
+    }
+    // A function's application prints as written, and expands back to the same term.
+    assert_eq!(
+        admits(subject, Construct::FunctionApplication),
+        Admission::Admit
+    );
+    // A desugar clause runs one way, and its result is built only once.
+    let desugar = Position::root(Form::Desugar, Slot::Subject);
+    assert!(!desugar.is_built_backwards());
+    for construct in [
+        Construct::Wildcard,
+        Construct::As,
+        Construct::Or,
+        Construct::OpenRecord,
+        Construct::Rest,
+    ] {
+        assert_eq!(
+            admits(desugar, construct),
+            Admission::Admit,
+            "{construct:?}"
+        );
+    }
+    let result = Position::root(Form::Alias, Slot::Result);
+    assert!(!result.is_built_backwards());
+    for construct in [Construct::Let, Construct::Matches, Construct::SortTest] {
+        assert_eq!(admits(result, construct), Admission::Admit, "{construct:?}");
+    }
+    assert_eq!(
+        admits(Position::root(Form::RuleFn, Slot::Subject), Construct::Rest),
+        Admission::Admit
+    );
+}
+
+#[test]
 fn a_matches_pattern_binds_an_alias_in_a_condition_only() {
     let in_matches = |slot| Position {
         nesting: Nesting {

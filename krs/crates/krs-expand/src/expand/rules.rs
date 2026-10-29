@@ -369,6 +369,33 @@ fn sentence_first(
     }
 }
 
+/// An alias clause also runs backwards: when a result is printed, each term its result matches
+/// prints as its subject, built from what that match bound. So every name the subject binds must
+/// be a name the result uses (`used`, the sentence's names the result's walk resolved, a `let`'s
+/// or a `k::matches!`'s own names apart): a name the result does not use is bound by no such
+/// match, and would print as a variable where the term stood. It is a names mistake, told after
+/// the constructs and the sentence's own mistakes, at the name.
+fn check_alias_names(rule: &krs_syntax::RuleItem, used: &[Path]) -> crate::Result<()> {
+    let unused = rule
+        .parameter()
+        .pattern
+        .bindings()
+        .iter()
+        .find(|binding| !used.iter().any(|path| path.is_ident(*binding)));
+    let Some(binding) = unused else {
+        return Ok(());
+    };
+    let name = binding.unraw();
+    Err(ExpandError::new(
+        expand::IRREVERSIBLE_ALIAS,
+        binding.span(),
+        format!(
+            "alias clause `{}`: its subject binds `{name}`, which its result does not use; an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and no match binds `{name}`, so it would print as a variable where the term stood; use `{name}` in the result, or write `#[k::desugar]` for an expansion that runs one way",
+            rule.item().sig.ident.unraw(),
+        ),
+    ))
+}
+
 /// What a rule fn that refuses `_`, an alias or an island for its whole subject should be
 /// written as (decision D3): a fn's subject is its parameter, whose root names the constructor
 /// the rule matches, and a rule for any term of a sort is a `for Sort` clause, whose root binds
@@ -776,11 +803,13 @@ fn expand_ordinary_rule(
         })
         .transpose()?;
     let (function_context, context_tokens) = function_context.unzip();
+    let before_result = term_builder.tooling_binding_references.len();
     let result = rule
         .result()
         .map(|result| term_builder.expand_wire(KeyedTerm::of(result), TermSide::Right, &mut slots))
         .transpose()
         .map_err(|error| sentence_first(rule, term_builder.refused_by_position(), error))?;
+    let result_references = before_result..term_builder.tooling_binding_references.len();
     let requires = if let Some(condition) = rule.requires() {
         let term = term_builder
             .expand_wire(
@@ -799,6 +828,12 @@ fn expand_ordinary_rule(
     let ensures = ensures_condition(rule.existentials(), &mut term_builder, &mut slots)
         .map_err(|error| sentence_first(rule, term_builder.refused_by_position(), error))?;
     rule.check_sentence()?;
+    if matches!(sentence, RuleSentence::Alias) {
+        check_alias_names(
+            rule,
+            &term_builder.tooling_binding_references[result_references],
+        )?;
+    }
     let mut term_key_functions = term_builder.key_functions;
     term_key_functions.extend(existential_key_functions);
     term_key_functions.extend(fresh_key_functions);

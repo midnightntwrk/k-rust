@@ -35,7 +35,10 @@
 //! single-body rule's subject is matched and kept, except inside its `k::rewrite!` islands. A
 //! `k::rewrite!`'s left side matches, as the subject around it does; its right side is what the
 //! matched term becomes, a term built in place, so it is judged as a result is
-//! ([`Position::rewrite_right`]).
+//! ([`Position::rewrite_right`]). An alias clause's subject is matched and also built: the
+//! clause runs backwards when a result is printed, each term its result matches printed as its
+//! subject built from the match's bindings, so a construct that only matches has no meaning there
+//! ([`Position::is_built_backwards`]).
 //!
 //! **Keys.** A map's key in a pattern is what the map is looked up by, and reads by what stands
 //! at its root: a name or a pattern-only construct (`_`, `@`, `|`) selects an entry by matching
@@ -72,7 +75,8 @@ pub enum Form {
     Simplification,
     /// A `#[k::context]` fn, whose subject rewrites its hole.
     Context,
-    /// A `#[k::alias]` fn.
+    /// A `#[k::alias]` fn, which expands its production as a desugar clause does and runs
+    /// backwards when a result is printed.
     Alias,
     /// A `#[k::desugar]` clause.
     Desugar,
@@ -126,6 +130,13 @@ impl Form {
             self,
             Self::CellsRule | Self::CellsLocalRule | Self::CellsClaim | Self::ContextAlias
         )
+    }
+
+    /// Whether the form's subject is also built: an alias clause runs backwards when a result
+    /// is printed, and each term its result matches is printed as its subject, built from what
+    /// the result's match bound.
+    const fn builds_subject_backwards(self) -> bool {
+        matches!(self, Self::Alias)
     }
 
     /// Whether the form is a single-body rule, whose subject is kept as it is outside its
@@ -333,6 +344,15 @@ impl Position {
             || self.in_local_pattern()
     }
 
+    /// Whether the construct is matched and also built: in an alias clause's subject, which is
+    /// printed backwards, built from the bindings of what the clause's result matched. A
+    /// construct that only matches (`_`, `name @ pattern`, `A | B`, an open record, a list's
+    /// anonymous rest) has no meaning there: printing cannot build it.
+    #[must_use]
+    pub const fn is_built_backwards(self) -> bool {
+        self.form.builds_subject_backwards() && self.is_pattern() && !self.in_local_pattern()
+    }
+
     /// Whether the construct is inside a `k::matches!` or `let` pattern.
     const fn in_local_pattern(self) -> bool {
         self.nesting.in_matches_pattern || self.nesting.in_let_pattern
@@ -456,6 +476,9 @@ pub enum Construct {
     RecordUpdate,
     /// An open record `Ctor { f: e, .. }`.
     OpenRecord,
+    /// A list pattern's anonymous rest `[e, ..]`, the elements it leaves unnamed; a term built
+    /// outside a pattern holds none, which the list notation's parser refuses.
+    Rest,
     /// A turbofish instance on an application head, `Choose::<Int> { .. }`.
     Turbofish,
     /// `k::id!`.
@@ -473,7 +496,7 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Wildcard,
         Self::As,
         Self::Or,
@@ -487,6 +510,7 @@ impl Construct {
         Self::Fragment,
         Self::RecordUpdate,
         Self::OpenRecord,
+        Self::Rest,
         Self::Turbofish,
         Self::IdToken,
         Self::BytesToken,
@@ -511,12 +535,16 @@ pub enum Admission {
 /// the same name.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Class {
+    /// `alias-in-alias-subject`.
+    AliasInAliasSubject,
     /// `alias-in-let-pattern`.
     AliasInLetPattern,
     /// `alias-outside-pattern`.
     AliasOutsidePattern,
     /// `alternatives-in-let-pattern`.
     AlternativesInLetPattern,
+    /// `alternatives-in-alias-subject`.
+    AlternativesInAliasSubject,
     /// `alternatives-in-one-term-rewrite`.
     AlternativesInOneTermRewrite,
     /// `claim-only-term`.
@@ -535,6 +563,8 @@ pub enum Class {
     MatchesInClaim,
     /// `matches-outside-condition`.
     MatchesOutsideCondition,
+    /// `open-record-in-alias-subject`.
+    OpenRecordInAliasSubject,
     /// `open-record-outside-pattern`.
     OpenRecordOutsidePattern,
     /// `ml-in-initializer`.
@@ -547,21 +577,27 @@ pub enum Class {
     RecordRemainderInInitializer,
     /// `record-update-in-pattern`.
     RecordUpdateInPattern,
+    /// `rest-in-alias-subject`.
+    RestInAliasSubject,
     /// `rewrite-in-map-key`.
     RewriteInMapKey,
     /// `rewrite-outside-local-rule`.
     RewriteOutsideLocalRule,
     /// `sort-test-in-pattern`.
     SortTestInPattern,
+    /// `wildcard-in-alias-subject`.
+    WildcardInAliasSubject,
     /// `wildcard-outside-pattern`.
     WildcardOutsidePattern,
 }
 
 impl Class {
     /// Every class.
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 27] = [
+        Self::AliasInAliasSubject,
         Self::AliasInLetPattern,
         Self::AliasOutsidePattern,
+        Self::AlternativesInAliasSubject,
         Self::AlternativesInLetPattern,
         Self::AlternativesInOneTermRewrite,
         Self::ClaimOnlyTerm,
@@ -572,15 +608,18 @@ impl Class {
         Self::LetOutsideTerm,
         Self::MatchesInClaim,
         Self::MatchesOutsideCondition,
+        Self::OpenRecordInAliasSubject,
         Self::OpenRecordOutsidePattern,
         Self::MlInInitializer,
         Self::MlPredicateAsTerm,
         Self::RecordRemainderInCellsTerm,
         Self::RecordRemainderInInitializer,
         Self::RecordUpdateInPattern,
+        Self::RestInAliasSubject,
         Self::RewriteInMapKey,
         Self::RewriteOutsideLocalRule,
         Self::SortTestInPattern,
+        Self::WildcardInAliasSubject,
         Self::WildcardOutsidePattern,
     ];
 
@@ -588,8 +627,10 @@ impl Class {
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
+            Self::AliasInAliasSubject => "alias-in-alias-subject",
             Self::AliasInLetPattern => "alias-in-let-pattern",
             Self::AliasOutsidePattern => "alias-outside-pattern",
+            Self::AlternativesInAliasSubject => "alternatives-in-alias-subject",
             Self::AlternativesInLetPattern => "alternatives-in-let-pattern",
             Self::AlternativesInOneTermRewrite => "alternatives-in-one-term-rewrite",
             Self::ClaimOnlyTerm => "claim-only-term",
@@ -600,15 +641,18 @@ impl Class {
             Self::LetOutsideTerm => "let-outside-term",
             Self::MatchesInClaim => "matches-in-claim",
             Self::MatchesOutsideCondition => "matches-outside-condition",
+            Self::OpenRecordInAliasSubject => "open-record-in-alias-subject",
             Self::OpenRecordOutsidePattern => "open-record-outside-pattern",
             Self::MlInInitializer => "ml-in-initializer",
             Self::MlPredicateAsTerm => "ml-predicate-as-term",
             Self::RecordRemainderInCellsTerm => "record-remainder-in-cells-term",
             Self::RecordRemainderInInitializer => "record-remainder-in-initializer",
             Self::RecordUpdateInPattern => "record-update-in-pattern",
+            Self::RestInAliasSubject => "rest-in-alias-subject",
             Self::RewriteInMapKey => "rewrite-in-map-key",
             Self::RewriteOutsideLocalRule => "rewrite-outside-local-rule",
             Self::SortTestInPattern => "sort-test-in-pattern",
+            Self::WildcardInAliasSubject => "wildcard-in-alias-subject",
             Self::WildcardOutsidePattern => "wildcard-outside-pattern",
         }
     }
@@ -617,6 +661,11 @@ impl Class {
     #[must_use]
     pub const fn code(self) -> Code {
         match self {
+            Self::AliasInAliasSubject
+            | Self::AlternativesInAliasSubject
+            | Self::OpenRecordInAliasSubject
+            | Self::RestInAliasSubject
+            | Self::WildcardInAliasSubject => codes::expand::IRREVERSIBLE_ALIAS,
             Self::AliasInLetPattern | Self::AlternativesInLetPattern => codes::syntax::INVALID_LET,
             Self::AliasOutsidePattern => codes::syntax::INVALID_PATTERN_AS,
             Self::AlternativesInOneTermRewrite => codes::analysis::INVALID_PATTERN_OR,
@@ -648,11 +697,17 @@ impl Class {
     #[must_use]
     pub const fn summary(self) -> &'static str {
         match self {
+            Self::AliasInAliasSubject => {
+                "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and `name @ pattern` (K's #as) is a test of the term's shape, which building cannot make: it prints as the conjunction `pattern #And term`, no term, and for a term the pattern does not match, as an alias that does not expand back to it; write `#[k::desugar]` for an expansion that runs one way"
+            }
             Self::AliasInLetPattern => {
                 "a `let` pattern destructures one value, which a bare name already names whole: write `let p = e; let P = p;` for `p @ P`"
             }
             Self::AliasOutsidePattern => {
                 "`name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds"
+            }
+            Self::AlternativesInAliasSubject => {
+                "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and `A | B` (K's #Or) denotes no one term: it prints as the disjunction `A #Or B`; write one alias clause per alternative, each with the result, or `#[k::desugar]` for an expansion that runs one way"
             }
             Self::AlternativesInLetPattern => {
                 "a `let` reads its value by one pattern, whose names the rest of its block uses: test which shape a value has with `k::matches!`, or match each shape in a sentence of its own"
@@ -690,6 +745,9 @@ impl Class {
             Self::MlPredicateAsTerm => {
                 "a matching-logic predicate is a formula about terms, no term itself, so a pattern cannot match it"
             }
+            Self::OpenRecordInAliasSubject => {
+                "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the fields `..` leaves open have no value from that match: they print as variables (`_Krs_Wildcard0`); name every field and use it in the result, or write `#[k::desugar]` for an expansion that runs one way"
+            }
             Self::OpenRecordOutsidePattern => {
                 "`..` leaves a record's other fields open, which only a pattern can: a built term has no value for them, so name every field"
             }
@@ -702,6 +760,9 @@ impl Class {
             Self::RecordUpdateInPattern => {
                 "`..base` builds a record whose unlisted fields are those of the record the alias `base` matched, which only a term a sentence builds can say; a pattern denotes no record by it, and leaves out the fields it does not constrain with `..`"
             }
+            Self::RestInAliasSubject => {
+                "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); name the rest, `rest @ ..`, and use it in the result, or write `#[k::desugar]` for an expansion that runs one way"
+            }
             Self::RewriteInMapKey => {
                 "a map key is what the map is looked up by, and a rewrite there would move the entry to another key, a removal and an insertion that may meet a key the map already holds: a rewrite in a map changes a value, `key -> k::rewrite!(old => new)`, and a rule with a result moves an entry with `map::remove` and `map::update`"
             }
@@ -710,6 +771,9 @@ impl Class {
             }
             Self::SortTestInPattern => {
                 "`k::is!` and `k::project!` compute from a term, and a pattern matches terms as they are: restrict a binder's sort with a typed parameter or `where x: Sort` instead"
+            }
+            Self::WildcardInAliasSubject => {
+                "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and `_` names no term the match gives a value: it prints as a variable (`_Krs_Wildcard0`) where the term stood; name the term and use the name in the result, or write `#[k::desugar]` for an expansion that runs one way"
             }
             Self::WildcardOutsidePattern => {
                 "`_` matches any term, so it stands only in a pattern; a result, a condition and an initializer build a term, which `_` does not name"
@@ -795,11 +859,16 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
     let pattern = position.is_pattern();
     let looked_up = position.is_looked_up();
     let in_pattern_key = matches!(position.slot, Slot::Subject) && nesting.in_map_key;
+    // An alias clause's subject is also built, from what the clause's result matched in a
+    // printed term: what only matches cannot be built there.
+    let built_backwards = position.is_built_backwards();
     match construct {
         // `_` names no term; a desugar clause's result lists it in `unbound_variables`, where it
         // is K's anonymous variable of the rewritten program.
         Construct::Wildcard => {
-            if pattern || matches!((form, position.slot), (Form::Desugar, Slot::Result)) {
+            if built_backwards {
+                Refuse(Class::WildcardInAliasSubject)
+            } else if pattern || matches!((form, position.slot), (Form::Desugar, Slot::Result)) {
                 Admit
             } else {
                 Refuse(Class::WildcardOutsidePattern)
@@ -817,6 +886,8 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 }
             } else if nesting.in_let_pattern {
                 Refuse(Class::AliasInLetPattern)
+            } else if built_backwards {
+                Refuse(Class::AliasInAliasSubject)
             } else if pattern {
                 if form.is_single_body() && !nesting.in_rewrite {
                     Refuse(Class::AliasOutsidePattern)
@@ -828,10 +899,12 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
             }
         }
         // Alternatives match one of several terms; a subject rewritten in place as one term
-        // stands for the one term it matched, and a `let` reads its value by one shape. Outside a
-        // pattern `A | B` is the bitwise operator.
+        // stands for the one term it matched, an alias's subject is built as one term, and a
+        // `let` reads its value by one shape. Outside a pattern `A | B` is the bitwise operator.
         Construct::Or => {
-            if pattern && !position.in_local_pattern() && form.rewrites_one_term() {
+            if built_backwards {
+                Refuse(Class::AlternativesInAliasSubject)
+            } else if pattern && !position.in_local_pattern() && form.rewrites_one_term() {
                 Refuse(Class::AlternativesInOneTermRewrite)
             } else if nesting.in_let_pattern {
                 Refuse(Class::AlternativesInLetPattern)
@@ -936,12 +1009,23 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
             }
         }
         // Below a construct a key computes, the record is built, and `..` names no value for the
-        // fields it leaves open.
+        // fields it leaves open; so is an alias's subject, from a match that gives them none.
         Construct::OpenRecord => {
             if cells_value(position) {
                 Refuse(Class::RecordRemainderInCellsTerm)
+            } else if built_backwards {
+                Refuse(Class::OpenRecordInAliasSubject)
             } else if nesting.in_computed_key && !position.in_local_pattern() {
                 Refuse(Class::OpenRecordOutsidePattern)
+            } else {
+                Admit
+            }
+        }
+        // A list pattern's anonymous rest stands for the elements it leaves unnamed, which an
+        // alias's subject, built from what its result matched, has no value for.
+        Construct::Rest => {
+            if built_backwards {
+                Refuse(Class::RestInAliasSubject)
             } else {
                 Admit
             }
@@ -1002,7 +1086,8 @@ const fn constant_value(construct: Construct) -> Admission {
         | Construct::OrBool
         | Construct::Fragment
         | Construct::RecordUpdate
-        | Construct::OpenRecord => Admission::Refuse(Class::ConstantNotGround),
+        | Construct::OpenRecord
+        | Construct::Rest => Admission::Refuse(Class::ConstantNotGround),
     }
 }
 

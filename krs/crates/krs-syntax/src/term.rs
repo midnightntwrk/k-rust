@@ -500,6 +500,30 @@ impl TermApplication {
         self.notation && crate::list_notation::is_level_head(&self.head)
     }
 
+    /// The range of a list pattern's anonymous rest `..`, when this level's
+    /// remainder is one: the parser writes it as `_`, the tail of a
+    /// `__list::cons` level (`[a, ..]`) or the init of a `__list::snoc` one
+    /// (`[.., z]`). An element the author writes `_` is the head of a level
+    /// of its own, never a level's remainder.
+    #[must_use]
+    pub fn anonymous_rest(&self) -> Option<TokenRange> {
+        if !self.is_list_notation() {
+            return None;
+        }
+        let TermArguments::Positional(arguments) = &self.arguments else {
+            return None;
+        };
+        let remainder = match self.head.segments.last()?.ident.to_string().as_str() {
+            "cons" => arguments.get(1),
+            "snoc" => arguments.first(),
+            _ => None,
+        };
+        match remainder {
+            Some(TermTree::Wildcard(range)) => Some(*range),
+            _ => None,
+        }
+    }
+
     /// Whether the application is notation that applies an operation, not
     /// notation for a collection's value: a level of list notation, and the
     /// empty collection and a set's singleton that a collection literal

@@ -995,6 +995,11 @@ impl<'a> TermBuilder<'a> {
                     application.is_open(),
                     head_range,
                 )?;
+                // A list pattern's anonymous rest, which the parser wrote as the level's `_`
+                // remainder, is judged as a rest before that `_` is.
+                if let Some(rest) = application.anonymous_rest() {
+                    self.admit(side, Construct::Rest, rest)?;
+                }
                 let path_key = keys.path(application.head())?;
                 let node = keys.node(NodeKind::ApplicationHead, head_range)?;
                 let (key, path_key) = node.head(path_key)?;

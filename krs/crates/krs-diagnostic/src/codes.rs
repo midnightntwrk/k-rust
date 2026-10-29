@@ -451,6 +451,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         INVALID_RECORD_UPDATE: "krs::expand::invalid-record-update" => "The base `t` of a record update `Ctor { f: e, ..t }` is not a binder of the rule.",
         MATCHES_OUTSIDE_CONDITION: "krs::expand::matches-outside-condition" => "A `k::matches!` (K's `:=K`) occurs in a pattern, a pattern's map key, a `cells!` cell value, or a claim.",
         LET_OUTSIDE_TERM: "krs::expand::let-outside-term" => "A `let` block (K's `#let`) occurs in a pattern, a pattern's map key, a `cells!` cell value, or a claim.",
+        IRREVERSIBLE_ALIAS: "krs::expand::irreversible-alias" => "An `#[k::alias]` clause also runs backwards when a result is printed: each term its result matches prints as its subject, built from the match's bindings. Its subject holds a construct that only matches (`_`, `name @ pattern`, `A | B`, an open record, an anonymous list rest `..`) or a name its result does not use, so a value would print as a term that does not denote it; `#[k::desugar]` expands one way.",
         CLAIM_SUBJECT_ONLY_TERM: "krs::expand::claim-subject-only-term" => "An anonymous term occurrence appears outside a claim subject.",
         CONFIGURATION_SHAPE: "krs::expand::configuration-shape" => "A fixed configuration is not a named-field struct.",
         FRAGMENT_SHAPE: "krs::expand::fragment-shape" => "A fragment payload is not a parent record with named fields.",
