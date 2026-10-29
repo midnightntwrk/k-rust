@@ -1788,13 +1788,35 @@ fn validate_initializer_term<S: ConfigurationValidationStage>(
     keys.define(&term.key, ProvenanceRole::InitializerTerm)?;
     validate_term(
         &term.term,
-        &mut InitializerTermValidation { bindings, keys },
+        &mut InitializerTermValidation {
+            bindings,
+            keys,
+            in_matches_pattern: false,
+            in_let_pattern: false,
+            let_scopes: Vec::new(),
+        },
     )
 }
 
+/// An initializer term is built, as a rule's result is: its names are the configuration
+/// variables, and the local binders of a `let` block and a `k::matches!` pattern, which it may
+/// hold as a result does.
 struct InitializerTermValidation<'a> {
     bindings: &'a BTreeSet<String>,
     keys: &'a mut WireKeys,
+    /// Whether the walk is inside the pattern of a `k::matches!`.
+    in_matches_pattern: bool,
+    /// Whether the walk is inside the pattern of a `let` statement.
+    in_let_pattern: bool,
+    /// The names bound by the enclosing `let` statements, innermost last.
+    let_scopes: Vec<BTreeSet<String>>,
+}
+
+impl InitializerTermValidation<'_> {
+    /// Whether the walk is inside a local pattern, whose names are local binders.
+    const fn in_local_pattern(&self) -> bool {
+        self.in_matches_pattern || self.in_let_pattern
+    }
 }
 
 impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
@@ -1806,7 +1828,11 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         path_key: &ProvenanceKey,
         name: &str,
     ) -> Result<(), Self::Error> {
-        if key != path_key || !self.bindings.contains(name) {
+        // A name in a `k::matches!` or `let` pattern, or bound by an enclosing `let`, is a local
+        // binder (BIND-1); semantic lowering scopes it.
+        let local =
+            self.in_local_pattern() || self.let_scopes.iter().any(|scope| scope.contains(name));
+        if key != path_key || !(local || self.bindings.contains(name)) {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::VariableKeyOrBindingMismatch,
             ));
@@ -1853,10 +1879,19 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         Ok(())
     }
 
-    fn wildcard(&mut self, _: &ProvenanceKey) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::WildcardsAreNotAllowedInInitializers,
-        ))
+    /// `_` matches any term, in a local pattern; an initializer builds every other term.
+    fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if self.in_let_pattern {
+            self.keys.define(key, ProvenanceRole::LetWildcard)?;
+            Ok(())
+        } else if self.in_matches_pattern {
+            self.keys.define(key, ProvenanceRole::MatchesWildcard)?;
+            Ok(())
+        } else {
+            Err(StateTransportError::InvalidTerm(
+                StateTermReason::WildcardsAreNotAllowedInInitializers,
+            ))
+        }
     }
 
     /// A builtin literal is one constant of its sort, an initializer term as any constant is.
@@ -1906,21 +1941,28 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         Ok(())
     }
 
+    /// A sort test applies the sort's generated predicate or projection, an application.
     fn sort_test(
         &mut self,
-        _: &ProvenanceKey,
+        key: &ProvenanceKey,
         _: crate::SortTestKind,
-        _: &S::Sort,
+        sort: &S::Sort,
     ) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerSortTest,
-        ))
+        S::validate_sort(sort)
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidSortTestSort))?;
+        self.keys
+            .define(S::sort_key(sort), ProvenanceRole::SortTestSort)?;
+        self.keys.define(key, ProvenanceRole::SortTest)?;
+        Ok(())
     }
 
-    fn application_instance(&mut self, _: &S::Sort) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerApplicationInstance,
-        ))
+    /// A turbofish names the instance of a parametric constructor's application.
+    fn application_instance(&mut self, sort: &S::Sort) -> Result<(), Self::Error> {
+        S::validate_sort(sort)
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidSortTestSort))?;
+        self.keys
+            .define(S::sort_key(sort), ProvenanceRole::ApplicationInstance)?;
+        Ok(())
     }
 
     fn pattern_as(
@@ -1934,27 +1976,57 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
-    fn pattern_or(&mut self, _: &ProvenanceKey) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerPatternOr,
-        ))
+    /// Alternatives match one of several terms, in a `k::matches!` pattern.
+    fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if !self.in_matches_pattern {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::InitializerPatternOr,
+            ));
+        }
+        self.keys.define(key, ProvenanceRole::PatternOr)?;
+        Ok(())
     }
 
-    fn matches(&mut self, _: &ProvenanceKey) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerMatches,
-        ))
+    /// `k::matches!` is a Bool computed by matching a term, outside every local pattern.
+    fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        if self.in_local_pattern() {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::MatchesInPattern,
+            ));
+        }
+        self.keys.define(key, ProvenanceRole::Matches)?;
+        Ok(())
     }
 
-    fn matches_pattern(&mut self, _: bool) {}
-
-    fn let_binding(&mut self, _: &ProvenanceKey, _: Option<&S::Sort>) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerLet,
-        ))
+    fn matches_pattern(&mut self, inside: bool) {
+        self.in_matches_pattern = inside;
     }
 
-    fn let_pattern(&mut self, _: bool) {}
+    /// A `let` block computes a term, outside every local pattern.
+    fn let_binding(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: Option<&S::Sort>,
+    ) -> Result<(), Self::Error> {
+        if self.in_local_pattern() {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::LetInPattern,
+            ));
+        }
+        if let Some(sort) = sort {
+            S::validate_sort(sort).map_err(|_| {
+                StateTransportError::InvalidTerm(StateTermReason::InvalidSortTestSort)
+            })?;
+            self.keys
+                .define(S::sort_key(sort), ProvenanceRole::LetSort)?;
+        }
+        self.keys.define(key, ProvenanceRole::Let)?;
+        Ok(())
+    }
+
+    fn let_pattern(&mut self, inside: bool) {
+        self.in_let_pattern = inside;
+    }
 
     fn closure(
         &mut self,
@@ -1967,7 +2039,14 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
-    fn let_body(&mut self, _: Option<&BTreeSet<String>>) {}
+    fn let_body(&mut self, names: Option<&BTreeSet<String>>) {
+        match names {
+            Some(names) => self.let_scopes.push(names.clone()),
+            None => {
+                self.let_scopes.pop();
+            }
+        }
+    }
 
     fn rewrite(
         &mut self,
@@ -2037,10 +2116,15 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
-    fn record_update(&mut self, _: &Term<S>) -> Result<(), Self::Error> {
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerRecordUpdate,
-        ))
+    /// The base of a record update is a value, outside every local pattern: a configuration
+    /// variable, a name a `let` binds, or a constant, which the compiler substitutes.
+    fn record_update(&mut self, base: &Term<S>) -> Result<(), Self::Error> {
+        if self.in_local_pattern() {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::RecordUpdateBase,
+            ));
+        }
+        super::validation::validate_term(base, self)
     }
 }
 

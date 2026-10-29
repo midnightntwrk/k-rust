@@ -728,6 +728,12 @@ pub(super) struct RecordUpdateState {
     pub(super) declared: BTreeSet<SemanticId>,
     /// The next ordinal of a generated term's origin.
     pub(super) ordinal: usize,
+    /// Whether a base is a value no pattern matched: an initializer's configuration variable or
+    /// a name its `let` binds, whose fields the `let` that destructures it reads.
+    pub(super) by_value: bool,
+    /// The local binders of the fields the record update being lowered by value takes from its
+    /// base.
+    pub(super) taken: Vec<SemanticId>,
 }
 
 impl RecordUpdates {

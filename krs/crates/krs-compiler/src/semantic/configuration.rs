@@ -79,24 +79,19 @@ pub(super) fn lower_fixed_configuration_descriptor(
         catalog,
         sort_parents,
     )?;
+    let tables = InitializerTables {
+        declarations,
+        sort_parents,
+        catalog,
+        binding_sorts: &binding_sorts,
+        collections: &typing,
+        generated: std::cell::Cell::new(0),
+    };
     let initializer = configuration
         .initializer
         .cells
         .iter()
-        .map(|cell| {
-            lower_initializer_cell(
-                descriptor,
-                cell,
-                declarations,
-                &InitializerTables {
-                    declarations,
-                    sort_parents,
-                    catalog,
-                    binding_sorts: &binding_sorts,
-                    collections: &typing,
-                },
-            )
-        })
+        .map(|cell| lower_initializer_cell(descriptor, cell, declarations, &tables))
         .collect::<Result<Vec<_>, _>>()?;
     console.check_initializers(&initializer)?;
     let initializer = in_declaration_order(
@@ -493,6 +488,10 @@ struct InitializerTables<'a> {
     binding_sorts: &'a BTreeMap<String, SemanticSortRef>,
     /// The element types of the initializer's typed cells.
     collections: &'a CollectionTyping,
+    /// How many variables the initializer's terms lowered so far generated (wildcards and the
+    /// local binders of `let` blocks, `k::matches!` patterns and record updates), so that each
+    /// term numbers its own after them and no two terms share one.
+    generated: std::cell::Cell<usize>,
 }
 
 /// The element types of an initializer: each leaf cell's value at the
@@ -864,6 +863,7 @@ fn lower_initializer_term(
         catalog,
         binding_sorts,
         collections,
+        ref generated,
     } = *tables;
     let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
     // Each configuration variable is a term of its declared sort wherever
@@ -879,7 +879,7 @@ fn lower_initializer_term(
         binding_sorts: BTreeMap::new(),
         binding_constraints: initial_binding_constraints(binding_sorts),
         constraint_sites: BTreeMap::new(),
-        wildcard_offset: 0,
+        wildcard_offset: generated.get(),
         wildcards: Vec::new(),
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
@@ -889,12 +889,19 @@ fn lower_initializer_term(
         declared_binders: BTreeMap::new(),
         configuration_variables: binding_sorts.clone(),
         subject_keys: BTreeMap::new(),
-        record_updates: super::record_updates::RecordUpdateState::default(),
+        // A record update's base is a configuration variable or a name a `let` binds, a value
+        // no pattern matched.
+        record_updates: super::record_updates::RecordUpdateState {
+            by_value: true,
+            ..super::record_updates::RecordUpdateState::default()
+        },
         collections: CollectionUse::new(collections),
     };
     builder.infer_sentence(|builder| builder.infer(term, expected_sort, false))?;
     builder.resolve_binding_sorts()?;
-    builder.lower(term, expected_sort, false)
+    let lowered = builder.lower(term, expected_sort, false);
+    generated.set(builder.wildcard_offset + builder.wildcards.len());
+    lowered
 }
 
 /// The `stream = "stdin"` cells of a configuration declaration, by identity, with their emitted names.

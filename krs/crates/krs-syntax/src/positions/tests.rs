@@ -536,15 +536,32 @@ fn claims_hold_the_symbolic_islands() {
         assert_eq!(admits(subject, Construct::OrBool), Admission::Admit);
         assert_eq!(admits(result, Construct::OrBool), Admission::Admit);
         assert_eq!(admits(result, Construct::SortTest), Admission::Admit);
+    }
+    // A readable claim's states and conditions could hold `let` and `k::matches!`, but no prover
+    // takes them there (finding NT-7-1); a `cells!` claim's cell values are `cells!` values.
+    for slot in [Slot::Subject, Slot::Result, Slot::Requires, Slot::Ensures] {
+        let position = Position::root(Form::ReadableClaim, slot);
         assert_eq!(
-            admits(result, Construct::Matches),
-            Admission::Refuse(Class::MatchesOutsideCondition)
+            admits(position, Construct::Matches),
+            Admission::Refuse(Class::MatchesInClaim),
+            "{slot:?}"
         );
         assert_eq!(
-            admits(result, Construct::Let),
-            Admission::Refuse(Class::LetOutsideTerm)
+            admits(position, Construct::Let),
+            Admission::Refuse(Class::LetInClaim),
+            "{slot:?}"
         );
     }
+    let requires = Position::root(Form::CellsClaim, Slot::Requires);
+    assert_eq!(
+        admits(requires, Construct::Let),
+        Admission::Refuse(Class::LetInClaim)
+    );
+    let result = Position::root(Form::CellsClaim, Slot::Result);
+    assert_eq!(
+        admits(result, Construct::Let),
+        Admission::Refuse(Class::LetOutsideTerm)
+    );
     let rule = Position::root(Form::RuleFn, Slot::Result);
     assert_eq!(
         admits(rule, Construct::OrBool),
@@ -560,18 +577,60 @@ fn an_initializer_builds_concrete_values() {
         Admission::Refuse(Class::ClaimSubjectOnlyTerm)
     );
     assert_eq!(
-        admits(value, Construct::Turbofish),
-        Admission::Refuse(Class::TurbofishInInitializer)
+        admits(value, Construct::OpenRecord),
+        Admission::Refuse(Class::RecordRemainderInInitializer)
     );
-    for construct in [Construct::RecordUpdate, Construct::OpenRecord] {
-        assert_eq!(
-            admits(value, construct),
-            Admission::Refuse(Class::RecordRemainderInInitializer)
-        );
-    }
-    for construct in [Construct::Literal, Construct::IdToken, Construct::Lexeme] {
+    assert_eq!(
+        admits(value, Construct::MlPredicate),
+        Admission::Refuse(Class::MlInInitializer)
+    );
+    assert_eq!(
+        admits(value, Construct::Fragment),
+        Admission::Refuse(Class::FragmentInInitializer)
+    );
+    // It is built as a result is: a `let` block, `k::matches!`, a sort test, a turbofish and a
+    // record update mean there what they mean in a result.
+    for construct in [
+        Construct::Literal,
+        Construct::IdToken,
+        Construct::Lexeme,
+        Construct::FunctionApplication,
+        Construct::Let,
+        Construct::Matches,
+        Construct::SortTest,
+        Construct::Turbofish,
+        Construct::RecordUpdate,
+    ] {
         assert_eq!(admits(value, construct), Admission::Admit, "{construct:?}");
     }
+    // A local pattern in it reads as one: `_` and an open record match, a predicate is no
+    // pattern, and `@`, which K's right-hand side refuses, is refused in a `k::matches!` there.
+    let matches = Position {
+        nesting: Nesting {
+            in_matches_pattern: true,
+            ..Nesting::default()
+        },
+        ..value
+    };
+    for construct in [Construct::Wildcard, Construct::Or, Construct::OpenRecord] {
+        assert_eq!(
+            admits(matches, construct),
+            Admission::Admit,
+            "{construct:?}"
+        );
+    }
+    assert_eq!(
+        admits(matches, Construct::As),
+        Admission::Refuse(Class::AliasOutsidePattern)
+    );
+    assert_eq!(
+        admits(matches, Construct::MlPredicate),
+        Admission::Refuse(Class::MlPredicateAsTerm)
+    );
+    assert_eq!(
+        admits(matches, Construct::Let),
+        Admission::Refuse(Class::LetOutsideTerm)
+    );
 }
 
 #[test]

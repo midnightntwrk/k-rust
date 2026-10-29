@@ -1941,6 +1941,16 @@ impl StructuredTermBuilder<'_> {
                 reference,
                 arguments,
                 instance,
+                update: Some(base),
+                ..
+            } if self.record_updates.by_value => {
+                self.head_pending = false;
+                self.lower_update_of_value(reference, arguments, instance, expected_sort, base)
+            }
+            DescriptorTerm::Application {
+                reference,
+                arguments,
+                instance,
                 update,
                 open,
                 ..
@@ -2633,6 +2643,24 @@ impl StructuredTermBuilder<'_> {
         if let Some(argument) = argument {
             return self.lower(argument, sort, record.subject);
         }
+        // A field an update takes from a base no pattern matched is the local binder the `let`
+        // that destructures the base gives it ([`Self::lower_update_of_value`]).
+        if self.record_updates.by_value
+            && let Some(base) = record.update
+        {
+            let key = Self::term_key(base);
+            let sort = self.record_field_sort(sort, field)?;
+            let id =
+                SemanticId::local(field.as_str(), self.wildcard_offset + self.wildcards.len())?;
+            self.wildcards
+                .push(SemanticVariable::new(id.clone(), sort.clone()));
+            self.record_updates.taken.push(id.clone());
+            return Ok(SemanticTerm::variable(
+                self.generated_record_origin(key, "record-update-field")?,
+                sort,
+                id,
+            ));
+        }
         if let Some(DescriptorTerm::Variable { key, name, .. }) = record.update {
             return match fill(&self.record_updates.updates, name) {
                 Some(fill) => self.lower_fill(fill, sort, field, key),
@@ -2649,6 +2677,109 @@ impl StructuredTermBuilder<'_> {
             self.invalid_term("a record rest at a parameter position needs a turbofish")
         })?;
         self.lower_record_rest_wildcard(&sort)
+    }
+
+    /// Lowers a record update `Ctor { f: e, ..base }` whose base no pattern matched, an
+    /// initializer's configuration variable, a name its `let` binds or a constant's value: the
+    /// record `base` with the listed fields replaced. Its other fields are read the only way a
+    /// term's fields are, by matching it, so the update is the `let` that destructures the base,
+    /// `#let Ctor(_, G) = base #in Ctor(e, G)`: the record where `base` is a `Ctor` record, and no
+    /// value otherwise, as the `let` has none. A base that is another constructor's record (a
+    /// constant's) has no such value anywhere, so it is refused.
+    fn lower_update_of_value(
+        &mut self,
+        reference: &DescriptorApplicationReference,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+        instance: &[krs_ir::DescriptorSortReference],
+        expected_sort: Option<&SemanticSortRef>,
+        base: &DescriptorTerm,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let key = Self::term_key(base);
+        let fields = match &reference.application {
+            DescriptorApplicationRef::Declared(id) => self
+                .catalog
+                .get(id)
+                .filter(|signature| signature.parameters.is_empty())
+                .map(|signature| signature.fields.clone()),
+            _ => None,
+        }
+        .ok_or_else(|| {
+            self.invalid_record_update(
+                key,
+                "an initializer's record update takes its base's fields by matching the base against the record's constructor, which needs the fields' sorts; a parametric constructor's fields take its instance's sort, so name every field".to_owned(),
+            )
+        })?;
+        let value = self.lower(base, None, false)?;
+        let outer = std::mem::take(&mut self.record_updates.taken);
+        let record = RecordContext {
+            alias: None,
+            update: Some(base),
+            subject: false,
+            open: false,
+        };
+        let body = self.lower_application(
+            reference,
+            arguments,
+            instance,
+            expected_sort,
+            &record,
+            false,
+        );
+        let taken = std::mem::replace(&mut self.record_updates.taken, outer);
+        let body = body?;
+        let krs_ir_levels::IrTermKind::Application {
+            application,
+            arguments: lowered,
+            ..
+        } = body.kind()
+        else {
+            return Err(self.invalid_term("a record update lowers to no application"));
+        };
+        if let krs_ir_levels::IrTermKind::Application {
+            application: base_application,
+            ..
+        } = value.kind()
+            && base_application != application
+        {
+            return Err(self.invalid_record_update(
+                key,
+                "the base is a record of another constructor, which has none of the update's fields to take: write the record whole".to_owned(),
+            ));
+        }
+        // The pattern reads each taken field into its binder and leaves the listed ones `_`.
+        let mut pattern_arguments = Vec::with_capacity(lowered.len());
+        for (argument, (_, sort)) in lowered.iter().zip(&fields) {
+            let id = match argument.kind() {
+                krs_ir_levels::IrTermKind::Variable { variable } if taken.contains(variable) => {
+                    variable.clone()
+                }
+                _ => {
+                    let id = SemanticId::wildcard(self.wildcard_offset + self.wildcards.len());
+                    self.wildcards
+                        .push(SemanticVariable::new(id.clone(), sort.clone()));
+                    id
+                }
+            };
+            pattern_arguments.push(SemanticTerm::variable(
+                self.generated_record_origin(key, "record-update-binder")?,
+                sort.clone(),
+                id,
+            ));
+        }
+        let pattern = SemanticTerm::application(
+            self.generated_record_origin(key, "record-update-pattern")?,
+            body.sort().clone(),
+            application.clone(),
+            pattern_arguments,
+        );
+        Ok(SemanticTerm::let_binding(
+            self.generated_record_origin(key, "record-update-let")?,
+            body.sort().clone(),
+            pattern,
+            value,
+            body,
+            taken,
+        ))
     }
 
     /// The term that fills `field`, which an update leaves out, from its

@@ -380,10 +380,17 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
             krs_ir::IrField::MultipleMainConfigurationVariables,
         )));
     }
+    // An initializer's terms are built as a result is, and a `let` block or a `k::matches!` in
+    // one binds its pattern's names and wildcards locally: no sentence lists them, so each takes
+    // the sort its pattern gives it.
+    let mut locals = BTreeMap::new();
+    initializer_local_binders::<L>(configuration.initializer(), &scope, &mut locals)?;
+    let mut terms_scope = scope.clone();
+    terms_scope.extend(locals.iter().map(|(id, sort)| (id.clone(), sort.clone())));
     validate_initializer_forest::<L>(
         configuration.cells(),
         configuration.initializer(),
-        &scope,
+        &terms_scope,
         declarations,
         signatures,
         sort_parents,
@@ -392,8 +399,74 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
     )?;
     let mut used = BTreeSet::new();
     collect_initializer_variables::<L>(configuration.initializer(), &mut used);
+    used.retain(|variable| !locals.contains_key(variable));
     if used != scope.keys().cloned().collect() {
         return Err(L::error(ValidationError::VariableClosure));
+    }
+    Ok(())
+}
+
+/// Adds the local binders of `initializer`'s terms to `locals`: every variable of a `let` or
+/// `k::matches!` pattern, at the sort its occurrence there has. A local binder that is also a
+/// configuration variable, that two patterns bind, or whose occurrences in its pattern have two
+/// sorts, is refused.
+fn initializer_local_binders<L: Validation>(
+    initializer: &[FixedInitializerCell<L::Cell, IrTerm<L>>],
+    variables: &BTreeMap<SemanticId, L::Sort>,
+    locals: &mut BTreeMap<SemanticId, L::Sort>,
+) -> Result<(), L::Error> {
+    fn pattern_variables<L: Validation>(
+        term: &IrTerm<L>,
+        bound: &BTreeMap<SemanticId, L::Sort>,
+        pattern: &mut BTreeMap<SemanticId, L::Sort>,
+    ) -> Result<(), L::Error> {
+        if let IrTermKind::Variable { variable } = term.kind() {
+            if bound.contains_key(variable) {
+                return Err(L::error(ValidationError::DuplicateVariable(
+                    variable.clone(),
+                )));
+            }
+            match pattern.get(variable) {
+                Some(sort) if sort != term.sort() => {
+                    return Err(L::error(ValidationError::VariableSortMismatch(
+                        variable.clone(),
+                    )));
+                }
+                Some(_) => {}
+                None => {
+                    pattern.insert(variable.clone(), term.sort().clone());
+                }
+            }
+        }
+        for child in term.children() {
+            pattern_variables::<L>(child, bound, pattern)?;
+        }
+        Ok(())
+    }
+    fn term_binders<L: Validation>(
+        term: &IrTerm<L>,
+        variables: &BTreeMap<SemanticId, L::Sort>,
+        locals: &mut BTreeMap<SemanticId, L::Sort>,
+    ) -> Result<(), L::Error> {
+        if let IrTermKind::Matches { pattern, .. } | IrTermKind::Let { pattern, .. } = term.kind() {
+            let mut bound = variables.clone();
+            bound.extend(locals.iter().map(|(id, sort)| (id.clone(), sort.clone())));
+            let mut own = BTreeMap::new();
+            pattern_variables::<L>(pattern, &bound, &mut own)?;
+            locals.extend(own);
+        }
+        for child in term.children() {
+            term_binders::<L>(child, variables, locals)?;
+        }
+        Ok(())
+    }
+    for cell in initializer {
+        match cell.content() {
+            FixedInitializerContent::Term { term } => term_binders::<L>(term, variables, locals)?,
+            FixedInitializerContent::Children { children } => {
+                initializer_local_binders::<L>(children, variables, locals)?;
+            }
+        }
     }
     Ok(())
 }

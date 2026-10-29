@@ -527,8 +527,12 @@ pub enum Class {
     ConstantNotGround,
     /// `fragment-in-initializer`.
     FragmentInInitializer,
+    /// `let-in-claim`.
+    LetInClaim,
     /// `let-outside-term`.
     LetOutsideTerm,
+    /// `matches-in-claim`.
+    MatchesInClaim,
     /// `matches-outside-condition`.
     MatchesOutsideCondition,
     /// `open-record-outside-pattern`.
@@ -547,12 +551,8 @@ pub enum Class {
     RewriteInMapKey,
     /// `rewrite-outside-local-rule`.
     RewriteOutsideLocalRule,
-    /// `rule-term-in-initializer`.
-    RuleTermInInitializer,
     /// `sort-test-in-pattern`.
     SortTestInPattern,
-    /// `turbofish-in-initializer`.
-    TurbofishInInitializer,
     /// `wildcard-outside-pattern`.
     WildcardOutsidePattern,
 }
@@ -568,7 +568,9 @@ impl Class {
         Self::ClaimSubjectOnlyTerm,
         Self::ConstantNotGround,
         Self::FragmentInInitializer,
+        Self::LetInClaim,
         Self::LetOutsideTerm,
+        Self::MatchesInClaim,
         Self::MatchesOutsideCondition,
         Self::OpenRecordOutsidePattern,
         Self::MlInInitializer,
@@ -578,9 +580,7 @@ impl Class {
         Self::RecordUpdateInPattern,
         Self::RewriteInMapKey,
         Self::RewriteOutsideLocalRule,
-        Self::RuleTermInInitializer,
         Self::SortTestInPattern,
-        Self::TurbofishInInitializer,
         Self::WildcardOutsidePattern,
     ];
 
@@ -596,7 +596,9 @@ impl Class {
             Self::ClaimSubjectOnlyTerm => "claim-subject-only-term",
             Self::ConstantNotGround => "constant-not-ground",
             Self::FragmentInInitializer => "fragment-in-initializer",
+            Self::LetInClaim => "let-in-claim",
             Self::LetOutsideTerm => "let-outside-term",
+            Self::MatchesInClaim => "matches-in-claim",
             Self::MatchesOutsideCondition => "matches-outside-condition",
             Self::OpenRecordOutsidePattern => "open-record-outside-pattern",
             Self::MlInInitializer => "ml-in-initializer",
@@ -606,9 +608,7 @@ impl Class {
             Self::RecordUpdateInPattern => "record-update-in-pattern",
             Self::RewriteInMapKey => "rewrite-in-map-key",
             Self::RewriteOutsideLocalRule => "rewrite-outside-local-rule",
-            Self::RuleTermInInitializer => "rule-term-in-initializer",
             Self::SortTestInPattern => "sort-test-in-pattern",
-            Self::TurbofishInInitializer => "turbofish-in-initializer",
             Self::WildcardOutsidePattern => "wildcard-outside-pattern",
         }
     }
@@ -620,12 +620,14 @@ impl Class {
             Self::AliasInLetPattern | Self::AlternativesInLetPattern => codes::syntax::INVALID_LET,
             Self::AliasOutsidePattern => codes::syntax::INVALID_PATTERN_AS,
             Self::AlternativesInOneTermRewrite => codes::analysis::INVALID_PATTERN_OR,
-            Self::ClaimOnlyTerm | Self::RuleTermInInitializer => codes::expand::CLAIM_ONLY_TERM,
+            Self::ClaimOnlyTerm => codes::expand::CLAIM_ONLY_TERM,
             Self::ClaimSubjectOnlyTerm => codes::expand::CLAIM_SUBJECT_ONLY_TERM,
             Self::ConstantNotGround => codes::syntax::INVALID_CONSTANT,
             Self::FragmentInInitializer => codes::expand::INITIALIZER_FRAGMENT,
-            Self::LetOutsideTerm => codes::expand::LET_OUTSIDE_TERM,
-            Self::MatchesOutsideCondition => codes::expand::MATCHES_OUTSIDE_CONDITION,
+            Self::LetInClaim | Self::LetOutsideTerm => codes::expand::LET_OUTSIDE_TERM,
+            Self::MatchesInClaim | Self::MatchesOutsideCondition => {
+                codes::expand::MATCHES_OUTSIDE_CONDITION
+            }
             Self::MlInInitializer => codes::expand::ML_PLACEMENT,
             Self::MlPredicateAsTerm => codes::analysis::INVALID_ML_PREDICATE,
             Self::RecordRemainderInCellsTerm => codes::analysis::INVALID_RECORD_UPDATE,
@@ -637,7 +639,6 @@ impl Class {
                 codes::syntax::INVALID_LOCAL_REWRITE
             }
             Self::SortTestInPattern => codes::analysis::INVALID_SORT_TEST,
-            Self::TurbofishInInitializer => codes::expand::TURBOFISH_PLACEMENT,
             Self::WildcardOutsidePattern => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
         }
     }
@@ -671,11 +672,17 @@ impl Class {
             Self::FragmentInInitializer => {
                 "`k::fragment!` names a nested cell term, and an initializer builds its nested cells with their structs"
             }
+            Self::LetInClaim => {
+                "a `let` block (K's #let) denotes the term it computes, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower #let to the function it applies only in a definition's sentences, so a claim's #let reaches them unlowered and is refused; write the term the block computes, or define a function and apply it"
+            }
             Self::LetOutsideTerm => {
-                "a `let` block (K's #let) computes a term from values the sentence has bound, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `#let` binds its pattern's names (it is `#fun(P => B)(E)`), and in a rule's left side those names would read as the rule's pattern variables"
+                "a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block alone, which no term holds, so it stands where a term is built or a condition computed, never in a pattern, which matches terms as they are; a pattern's map key computes its value, but `#let` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a readable rule, a `#[k::rule]` fn's result or a condition"
+            }
+            Self::MatchesInClaim => {
+                "`k::matches!` (K's :=K) denotes a Bool, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower :=K to the function it applies only in a definition's sentences, so a claim's :=K reaches them unlowered and is refused; define a function whose equations match the pattern, and apply it"
             }
             Self::MatchesOutsideCondition => {
-                "`k::matches!` (K's :=K) is a Bool test of a bound term, so it stands in a result or a condition of a rule, never in a pattern, an initializer or a claim; a pattern's map key computes its value too, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables"
+                "`k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test alone, which no term holds, so it stands where a term is built or a condition computed, never in a pattern, which matches terms as they are; a pattern's map key computes its value, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the test in a readable rule, a `#[k::rule]` fn's result or a condition"
             }
             Self::MlInInitializer => {
                 "a matching-logic predicate states a property of a symbolic state, and an initializer builds one concrete state"
@@ -690,7 +697,7 @@ impl Class {
                 "a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained; `..base` and `..` are readable-record notation"
             }
             Self::RecordRemainderInInitializer => {
-                "an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing"
+                "`..` leaves a record's other fields open, which only a pattern can: an initializer builds its record, which has no value for them, so name every field, or write `..base` to take them from the record `base`"
             }
             Self::RecordUpdateInPattern => {
                 "`..base` builds a record whose unlisted fields are those of the record the alias `base` matched, which only a term a sentence builds can say; a pattern denotes no record by it, and leaves out the fields it does not constrain with `..`"
@@ -701,14 +708,8 @@ impl Class {
             Self::RewriteOutsideLocalRule => {
                 "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body rule or the hole of a context, once and outside any local pattern"
             }
-            Self::RuleTermInInitializer => {
-                "`k::is!` and `k::project!` test and narrow a term a rule or claim matched, and an initializer matches nothing"
-            }
             Self::SortTestInPattern => {
                 "`k::is!` and `k::project!` compute from a term, and a pattern matches terms as they are: restrict a binder's sort with a typed parameter or `where x: Sort` instead"
-            }
-            Self::TurbofishInInitializer => {
-                "a turbofish instance chooses a parametric production's instance, and an initializer builds concrete values, whose syntax numbers no instance"
             }
             Self::WildcardOutsidePattern => {
                 "`_` matches any term, so it stands only in a pattern; a result, a condition and an initializer build a term, which `_` does not name"
@@ -782,7 +783,11 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
     use Admission::{Admit, After, Refuse};
     match position.form {
         Form::Constant => return constant_value(construct),
-        Form::Initializer => return initializer_value(construct),
+        Form::Initializer => {
+            if let Some(admission) = initializer_value(position, construct) {
+                return admission;
+            }
+        }
         _ => {}
     }
     let form = position.form;
@@ -803,8 +808,9 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         Construct::As => {
             if nesting.in_matches_pattern {
                 // A `k::matches!` in a condition is part of the matching that decides whether
-                // the sentence applies; in a result it is a test of the built term.
-                if matches!(position.slot, Slot::Result) {
+                // the sentence applies; in a result or an initializer it is a test of the built
+                // term.
+                if matches!(position.slot, Slot::Result | Slot::InitializerValue) {
                     Refuse(Class::AliasOutsidePattern)
                 } else {
                     Admit
@@ -835,23 +841,29 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 After(Rule::AlternativesOutsidePattern)
             }
         }
-        // `k::matches!` tests and `let` computes from terms a match has bound, so neither stands
-        // in a pattern; a claim's sides and conditions describe symbolic states the prover
-        // reaches rather than compute from one match, and a `cells!` value is a cell's content
-        // (S6 decides whether that changes for readable rules written as `cells!` rules). A key a
-        // pattern looks up computes its value, but `#let` and `:=K` bind their patterns' names,
-        // which in a rule's left side would read as its pattern variables, so a key holds neither,
-        // at any depth (finding NT-3-2).
-        Construct::Matches => {
-            if pattern || in_pattern_key || form.is_claim() || cells_value(position) {
-                Refuse(Class::MatchesOutsideCondition)
+        // `k::matches!` tests and `let` computes, each by applying a function generated for it
+        // alone, which no term holds: a pattern, which matches terms as they are, never meets
+        // one. A claim's states hold applications, which denote their values, so its start state
+        // could hold either, as its end state and conditions could; but the provers lower the
+        // generated functions only in a definition's sentences, so a claim holds neither (finding
+        // NT-7-1). A `cells!` value is a cell's content (S6 decides whether that changes for
+        // readable rules written as `cells!` rules). A key a pattern looks up computes its value,
+        // but `#let` and `:=K` bind their patterns' names, which in a rule's left side would read
+        // as its pattern variables, so a key holds neither, at any depth (finding NT-3-2).
+        Construct::Matches | Construct::Let => {
+            let (outside, in_claim) = if matches!(construct, Construct::Matches) {
+                (Class::MatchesOutsideCondition, Class::MatchesInClaim)
             } else {
-                Admit
-            }
-        }
-        Construct::Let => {
-            if pattern || in_pattern_key || form.is_claim() || cells_value(position) {
-                Refuse(Class::LetOutsideTerm)
+                (Class::LetOutsideTerm, Class::LetInClaim)
+            };
+            if position.in_local_pattern()
+                || in_pattern_key
+                || cells_value(position)
+                || (pattern && !form.is_claim())
+            {
+                Refuse(outside)
+            } else if form.is_claim() {
+                Refuse(in_claim)
             } else {
                 Admit
             }
@@ -995,31 +1007,24 @@ const fn constant_value(construct: Construct) -> Admission {
 }
 
 /// An initializer's value: the concrete initial content of a cell, built from constants and
-/// configuration variables. Outside a pattern `A | B` is the bitwise operator, whose operand
-/// sorts the compiler judges.
-const fn initializer_value(construct: Construct) -> Admission {
-    use Admission::{Admit, After, Refuse};
+/// configuration variables, its functions evaluated when the configuration is built. It is a
+/// built term as a result is, read by the same rows, `let` blocks, `k::matches!`, sort tests,
+/// turbofish instances and record updates included, with three exceptions: a matching-logic
+/// predicate states a property of a symbolic state, where an initializer builds one concrete
+/// state; `k::fragment!` names a nested cell term, where an initializer builds nested cells
+/// with their structs; and an open record leaves fields open, which only a pattern can, so it
+/// is refused outside a local pattern.
+const fn initializer_value(position: Position, construct: Construct) -> Option<Admission> {
+    use Admission::Refuse;
     match construct {
-        Construct::Literal
-        | Construct::IdToken
-        | Construct::BytesToken
-        | Construct::Lexeme
-        | Construct::FunctionApplication => Admit,
-        Construct::Or => After(Rule::AlternativesOutsidePattern),
-        Construct::Wildcard => Refuse(Class::WildcardOutsidePattern),
-        Construct::As => Refuse(Class::AliasOutsidePattern),
-        Construct::Matches => Refuse(Class::MatchesOutsideCondition),
-        Construct::Let => Refuse(Class::LetOutsideTerm),
-        Construct::MlPredicate => Refuse(Class::MlInInitializer),
-        Construct::Rewrite => Refuse(Class::RewriteOutsideLocalRule),
-        Construct::SortTest => Refuse(Class::RuleTermInInitializer),
-        Construct::Anonymous => Refuse(Class::ClaimSubjectOnlyTerm),
-        Construct::OrBool => Refuse(Class::ClaimOnlyTerm),
-        Construct::Fragment => Refuse(Class::FragmentInInitializer),
-        Construct::RecordUpdate | Construct::OpenRecord => {
-            Refuse(Class::RecordRemainderInInitializer)
+        Construct::Fragment => Some(Refuse(Class::FragmentInInitializer)),
+        Construct::MlPredicate if !position.in_local_pattern() => {
+            Some(Refuse(Class::MlInInitializer))
         }
-        Construct::Turbofish => Refuse(Class::TurbofishInInitializer),
+        Construct::OpenRecord if !position.in_local_pattern() => {
+            Some(Refuse(Class::RecordRemainderInInitializer))
+        }
+        _ => None,
     }
 }
 

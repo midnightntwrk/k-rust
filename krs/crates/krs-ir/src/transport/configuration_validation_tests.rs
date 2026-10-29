@@ -846,3 +846,52 @@ fn k_sequence_shells_define_their_payload_keys_once() {
         )))
     );
 }
+
+/// An initializer's terms are built as a result is: a `let` binds its pattern's names in its body
+/// and nowhere else, `_` stands in a local pattern only, and a configuration variable is a name
+/// everywhere.
+#[test]
+fn an_initializer_term_scopes_the_names_of_its_local_patterns() {
+    let variable = |name: &str, ordinal: u32| {
+        let key = ProvenanceKey::new(ProvenanceRole::InitializerTermPath, ordinal);
+        Term::<DescriptorStage>::Variable {
+            key: key.clone(),
+            path_key: key,
+            name: name.to_owned(),
+        }
+    };
+    let block = |body: Term<DescriptorStage>| Term::Let {
+        key: key(ProvenanceRole::Let),
+        pattern: Box::new(variable("y", 1)),
+        sort: None,
+        value: Box::new(variable("x", 2)),
+        body: Box::new(body),
+    };
+    let validate = |term: Term<DescriptorStage>| {
+        validate_initializer_term::<DescriptorStage>(
+            &ProtocolInitializerTerm {
+                key: key(ProvenanceRole::InitializerTerm),
+                term,
+            },
+            &BTreeSet::from(["x".to_owned()]),
+            &mut WireKeys::default(),
+        )
+    };
+    assert_eq!(validate(block(variable("y", 3))), Ok(()));
+    assert_eq!(
+        validate(block(variable("z", 3))),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::VariableKeyOrBindingMismatch
+        ))
+    );
+    assert_eq!(
+        validate(Term::Matches {
+            key: key(ProvenanceRole::Matches),
+            subject: Box::new(variable("x", 1)),
+            pattern: Box::new(Term::Wildcard {
+                key: key(ProvenanceRole::MatchesWildcard)
+            }),
+        }),
+        Ok(())
+    );
+}

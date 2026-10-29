@@ -447,6 +447,23 @@ impl InitializerFunction {
             let (nodes, _, term_keys) = term.keying();
             crate::term::allocate_lexeme_keys(&mut keys, nodes, term_keys)?;
         }
+        // Sort tests, a `k::matches!` pattern's alternatives, turbofish sort markers (KF-027),
+        // `k::matches!` shells and pattern wildcards (KF-031), and `let` statements and their
+        // pattern wildcards (KF-032), each kind in expansion order, as a rule's terms number
+        // them.
+        let islands: [crate::term::IslandKeys; 5] = [
+            crate::term::allocate_sort_test_keys,
+            crate::term::allocate_pattern_or_keys,
+            crate::term::allocate_application_instance_keys,
+            crate::term::allocate_matches_keys,
+            crate::term::allocate_let_keys,
+        ];
+        for island in islands {
+            for term in &mut terms {
+                let (nodes, _, term_keys) = term.keying();
+                island(&mut keys, nodes, term_keys)?;
+            }
+        }
         // Record field names, numbered in preorder across the terms.
         for term in &mut terms {
             let (_, tree, term_keys) = term.keying();
@@ -996,6 +1013,9 @@ fn parse_initializer_cell(
     // builtin call (`a && b`, `x.max::<Int>(0)`). A bare call stays a host call. A
     // compiler-owned island (`k::bytes!(..)`, `k::id!(..)`, `k::lexeme!(..)`) is a term too,
     // so a constant can be a cell's whole value and any other island reports its own error.
+    if let Some(reason) = unsorted_cell_value(&field.expr) {
+        return Err(unsupported_body(reason, field.expr.span()));
+    }
     let readable_term = match &field.expr {
         Expr::Lit(_) | Expr::Unary(_) => true,
         // A set literal is the term its calls build; `map![..]` is the cell's own map, below.
@@ -1160,6 +1180,43 @@ fn parse_initializer_cell(
         field_key: None,
         constructor_key: None,
     })
+}
+
+/// Why `expression` cannot be a leaf cell's whole initial value, though it is an initializer
+/// term below one: K reads each leaf cell's sort from its initial content, the native frontend
+/// from the content's head production as it reads the configuration, and a `let` block (K's
+/// `#let`), `k::matches!` (`:=K`) and `k::is!` (a sort predicate K generates later) head none it
+/// knows then; Java K infers no sort for `#let` there either (finding NT-7-2).
+fn unsorted_cell_value(expression: &Expr) -> Option<&'static str> {
+    match expression {
+        Expr::Block(_) => Some(
+            "a `let` block is an initializer term, but no K frontend reads a cell's sort from it: K takes a cell's sort from its initial content, and neither Java K's kompile (`#let` gets no sort there) nor the native frontend (no production heads `#let` as it reads the configuration) finds one; write the block below a constructor or as an item of a `k::k![..]` cell",
+        ),
+        Expr::Macro(ExprMacro { mac, .. })
+            if mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "matches")
+                && !crate::term::is_std_matches(&mac.path) =>
+        {
+            Some(
+                "`k::matches!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and no production heads K's `:=K` as the native frontend reads the configuration; write the test below a constructor or as an item of a `k::k![..]` cell",
+            )
+        }
+        Expr::Macro(ExprMacro { mac, .. })
+            if mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "is") =>
+        {
+            Some(
+                "`k::is!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and the sort predicate it applies is generated after the native frontend reads the configuration; write the test below a constructor or as an item of a `k::k![..]` cell",
+            )
+        }
+        _ => None,
+    }
 }
 
 /// Whether `path` is `Some`/`None` alone or under `Option::`.

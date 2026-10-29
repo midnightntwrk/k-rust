@@ -1359,9 +1359,11 @@ impl<'a> TermBuilder<'a> {
     }
 
     /// Expands the base `t` of a record update `Ctor { f: e, ..t }` (F5),
-    /// after the record's fields, as a reference to the binder `t`. A name
-    /// that binds nothing would resolve as a constructor, which has no
-    /// fields to take, so it is rejected here.
+    /// after the record's fields, as a reference to the binder `t`. In a
+    /// sentence, a name that binds nothing would resolve as a constructor,
+    /// which has no fields to take, so it is rejected here. An initializer
+    /// matches nothing: its base is a value, a parameter, a name a `let`
+    /// binds, or a constant, which rustc resolves as any reference.
     fn expand_record_update(
         &mut self,
         base: Option<&TermTree>,
@@ -1373,6 +1375,7 @@ impl<'a> TermBuilder<'a> {
             return Ok(None);
         };
         if let TermTree::Reference(path) = base
+            && !matches!(self.form, Form::Initializer)
             && !self.is_local_binder(path)
             && !is_bound_ident_path(path, self.bindings)
         {
