@@ -939,8 +939,26 @@ pub fn main(args: &[String]) {
         return;
     }
     if let Some(threads) = opt.get("threads") {
+        // the per-pair options that the views do not take yet (PLAN4: CNF-10, CNF-11)
+        for k in ["hyp", "hand-module", "join", "open"] {
+            if opt.contains_key(k) {
+                fail(&format!("--threads does not take --{k} yet"));
+            }
+        }
         let ns = get("ns");
-        let (out, counts) = views::emit(&lib, &name, &ns, threads, &roles, &feet, &rank);
+        let obs: Option<Vec<String>> = opt
+            .get("obs")
+            .map(|o| o.split(',').map(|s| s.to_string()).collect());
+        let (out, counts) = views::emit(
+            &lib,
+            &name,
+            &ns,
+            threads,
+            obs.as_deref(),
+            &roles,
+            &feet,
+            &rank,
+        );
         write_file(&get("out"), &out);
         if let Some(p) = opt.get("report") {
             write_file(p, &(rep + &counts.report()));
@@ -1515,11 +1533,13 @@ mod views {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit(
         lib: &Lib,
         name: &str,
         ns: &str,
         threads: &str,
+        obs: Option<&[String]>,
         roles: &[MapRole],
         feet: &[BTreeMap<String, (bool, bool)>],
         rank: &dyn Fn(&Rule) -> usize,
@@ -2728,7 +2748,14 @@ def SameThreadJoins : Prop :=
         };
         writeln!(o, "\ntheorem joins_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c c₁ c₂ : {topt}}} (h₁ : {name}.Step c c₁)\n    (h₂ : {name}.Step c c₂) : DiamondMod {name}.Step Eq c₁ c₂ := by\n  obtain ⟨r₁, v₁⟩ := view_of h₁\n  obtain ⟨r₂, v₂⟩ := view_of h₂\n  cases hs : staticOK r₁ r₂\n  · exact O r₁ r₂ hs v₁.2.2.1 v₂.2.2.1\n  · exact join_static S{ka} hs v₁ v₂").unwrap();
         writeln!(o, "\n/-- Given the joins left open, two runs that end in terminal configurations end in the same one. -/\ntheorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : n₁ = n₂ :=\n  terminal_unique_of_diamond (H := fun _ => True) StepEquiv.eq (fun _ _ _ _ => trivial)\n    (fun _ h₁ h₂ => joins_of O S{ka} h₁ h₂) trivial h₁ t₁ h₂ t₂").unwrap();
-        writeln!(o, "\n#k2l_assert_axioms mstep_comm compat_of app_back app_back_s view_of join_static joins_of terminal_unique_of").unwrap();
+        let mut guard = "mstep_comm compat_of app_back app_back_s view_of join_static joins_of terminal_unique_of".to_string();
+        if let Some(cells) = obs {
+            o.push('\n');
+            o.push_str(&super::proj_def(lib, name, "obs", cells, None));
+            writeln!(o, "\n/-- A corollary of `terminal_unique_of`: the observed cells of the two terminal configurations agree. -/\ntheorem obs_confluent_of (O : OpenJoins) (S : SameThreadJoins){kb} {{c n₁ n₂ : {topt}}}\n    (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁) (h₂ : Star {name}.Step c n₂)\n    (t₂ : Terminal {name}.Step n₂) : obs n₁ = obs n₂ :=\n  congrArg obs (terminal_unique_of O S{ka} h₁ t₁ h₂ t₂)").unwrap();
+            guard.push_str(" obs_confluent_of");
+        }
+        writeln!(o, "\n#k2l_assert_axioms {guard}").unwrap();
         // the count
         let safe = |c: usize, i: usize| (0..i).all(|j| j < max_rank && safe_tbl(j, c));
         let mut c = super::Counts {

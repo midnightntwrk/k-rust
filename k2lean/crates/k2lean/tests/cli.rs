@@ -895,6 +895,53 @@ fn confluence_threads_views_a_map_cell_by_binding() {
         ),
         "{v}"
     );
+    // `--obs ledger`: the projection and its corollary, under the same premises
+    assert!(v.contains("def obs : Utxo.SortGeneratedTopCell"), "{v}");
+    assert!(
+        v.contains("theorem obs_confluent_of (O : OpenJoins) (S : SameThreadJoins) (K : KeyJoins)")
+            && v.contains("  congrArg obs (terminal_unique_of O S K h₁ t₁ h₂ t₂)"),
+        "{v}"
+    );
+}
+
+/// `confluence --threads` refuses the per-pair options the views do not take yet, rather than
+/// stating a theorem without them.
+#[test]
+fn confluence_threads_refuses_per_pair_options() {
+    let d = tmp("cli-confluence-refuse");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/utxo/definition.kore");
+    for (k, v) in [
+        ("--hyp", "H"),
+        ("--hand-module", "M"),
+        ("--join", "local"),
+        ("--open", "open.txt"),
+    ] {
+        let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("confluence")
+            .arg("--kore")
+            .arg(&fx)
+            .args([
+                "--name",
+                "Utxo",
+                "--ns",
+                "UV",
+                "--threads",
+                "procs",
+                k,
+                v,
+                "--out",
+            ])
+            .arg(d.join("Views.lean"))
+            .output()
+            .unwrap();
+        let e = String::from_utf8_lossy(&o.stderr);
+        assert!(!o.status.success(), "{k}");
+        assert!(
+            e.contains(&format!("--threads does not take {k} yet")),
+            "{k}: {e}"
+        );
+    }
 }
 
 #[test]
