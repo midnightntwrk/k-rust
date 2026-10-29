@@ -327,9 +327,73 @@ open ListIso
 variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V]
   [Std.TransOrd K] [Std.LawfulEqOrd K] {L E : Type} [ListIso L E]
 
-/-- Every binding matching the fold's patterns (`T`) with its claims defined, and no claim twice. -/
-def ClaimsOK (T : K → V → Prop) (g : K → V → Option L) (m : M) : Prop :=
-  EntriesOn (fun p => T p.1 p.2 ∧ (g p.1 p.2).isSome = true) m ∧ (claimsOf g m).Nodup
+/-- Every binding matching the fold's patterns (`T`) with its claims defined, the claims `o` of the
+configuration's other parts defined, and no claim twice among all of them. -/
+def ClaimsOK (T : K → V → Prop) (g : K → V → Option L) (m : M) (o : Option L) : Prop :=
+  EntriesOn (fun p => T p.1 p.2 ∧ (g p.1 p.2).isSome = true) m ∧ o.isSome = true ∧
+    (claimsOf g m ++ (o.map toList).getD []).Nodup
+
+section Bridge
+
+variable [DecidableEq E] {T : K → V → Prop} {g : K → V → Option L} {F : M → Option L} {D : L → Option Bool}
+
+/-- The bridge from K's `noDup` of the fold (and of the other parts' claims, either side) to the
+order-free `ClaimsOK`, from the fold's value up to order (`fold`), its definedness (`isSome`), the
+well-formedness of a map it is defined on (`wf`), and `noDup`'s meaning (`hD`). -/
+theorem claimsOK_iff_of (hD : ∀ l, D l = some (decide (toList l).Nodup))
+    (fold : ∀ m l, F m = some l → ClaimsDef T g m ∧ (toList l).Perm (claimsOf g m))
+    (wf : ∀ m l, F m = some l → WF m)
+    (isSome : ∀ m, WF m → ClaimsDef T g m → (F m).isSome) (m : M) (o : Option L) :
+    ((F m).bind fun r => o.bind fun r₁ => D (ListHook.concat r r₁)) = some true ↔
+      WF m ∧ ClaimsOK T g m o := by
+  constructor
+  · intro h
+    obtain ⟨l, hl, h⟩ := Option.bind_eq_some_iff.1 h
+    obtain ⟨l₁, ho, hn⟩ := Option.bind_eq_some_iff.1 h
+    rw [hD] at hn
+    simp only [Option.some.injEq, decide_eq_true_eq, ListHook.concat, toList_ofList] at hn
+    obtain ⟨hd, hp⟩ := fold m l hl
+    refine ⟨wf m l hl, hd, by rw [ho]; rfl, ?_⟩
+    rw [ho]
+    exact (hp.append_right _).nodup_iff.1 hn
+  · rintro ⟨hw, hd, ho, hn⟩
+    obtain ⟨l, hl⟩ := Option.isSome_iff_exists.1 (isSome m hw hd)
+    obtain ⟨l₁, rfl⟩ := Option.isSome_iff_exists.1 ho
+    rw [hl, Option.bind_some, Option.bind_some, hD]
+    simp only [ListHook.concat, toList_ofList, Option.some.injEq, decide_eq_true_eq]
+    exact ((fold m l hl).2.append_right _).nodup_iff.2 hn
+
+/-- The bridge with the other parts' claims first: `noDup(h(…) F(M))`. -/
+theorem claimsOK_iff_of' (hD : ∀ l, D l = some (decide (toList l).Nodup))
+    (fold : ∀ m l, F m = some l → ClaimsDef T g m ∧ (toList l).Perm (claimsOf g m))
+    (wf : ∀ m l, F m = some l → WF m)
+    (isSome : ∀ m, WF m → ClaimsDef T g m → (F m).isSome) (m : M) (o : Option L) :
+    (o.bind fun r => (F m).bind fun r₁ => D (ListHook.concat r r₁)) = some true ↔
+      WF m ∧ ClaimsOK T g m o := by
+  rw [← claimsOK_iff_of hD fold wf isSome m o]
+  cases o with
+  | none => cases F m <;> rfl
+  | some l₁ =>
+    cases hF : F m with
+    | none => rfl
+    | some l =>
+      simp only [Option.bind_some, hD, ListHook.concat, toList_ofList, Option.some.injEq,
+        decide_eq_true_eq]
+      exact List.perm_append_comm.nodup_iff
+
+/-- The bridge with no other part: `noDup(F(M))`. -/
+theorem claimsOK_iff_of_unit (hD : ∀ l, D l = some (decide (toList l).Nodup))
+    (fold : ∀ m l, F m = some l → ClaimsDef T g m ∧ (toList l).Perm (claimsOf g m))
+    (wf : ∀ m l, F m = some l → WF m)
+    (isSome : ∀ m, WF m → ClaimsDef T g m → (F m).isSome) (m : M) :
+    (F m).bind D = some true ↔ WF m ∧ ClaimsOK T g m (some ListHook.unit) := by
+  rw [← claimsOK_iff_of hD fold wf isSome m]
+  cases F m with
+  | none => rfl
+  | some l =>
+    simp only [Option.bind_some, hD, ListHook.concat, ListHook.unit, toList_ofList, List.append_nil]
+
+end Bridge
 
 end MapHook
 
@@ -485,17 +549,23 @@ syntax (name := k2lClaimsTrace) "k2l_claims_trace" " [" Lean.Parser.Tactic.simpA
   let finish := stx.getKind == ``k2lClaims
   let U : Array (TSyntax [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
     `Lean.Parser.Tactic.simpLemma]) := stx[2].getSepArgs.map (⟨·⟩)
-  let (cd, cn) := (mkIdent `k2l_cd, mkIdent `k2l_cn)
-  -- the matched map's `ClaimsOK`, whole or already split into its two parts
+  let (cd, co, cn) := (mkIdent `k2l_cd, mkIdent `k2l_co, mkIdent `k2l_cn)
+  -- the matched map's `ClaimsOK`, whole or already split into its parts
   let g ← getMainGoal
   if let some (h, _) := (← hypsWith g fun ty => ty.isAppOf ``KPrelude.MapHook.ClaimsOK).back? then
     let hn ← g.withContext h.getUserName
-    evalTactic (← `(tactic| obtain ⟨$cd, $cn⟩ := $(mkIdent hn)))
+    evalTactic (← `(tactic| obtain ⟨$cd, $co, $cn⟩ := $(mkIdent hn)))
   else
-    let isNodup (ty : Expr) := ty.isAppOfArity ``List.Nodup 2 && (ty.getArg! 1).isAppOf ``KPrelude.MapHook.claimsOf
-    let some (h, ty) := (← hypsWith g isNodup).back?
-      | throwError "k2l_claims: no hypothesis `ClaimsOK g m`"
-    let m := (ty.getArg! 1).appArg!
+    -- `(claimsOf g m ++ …).Nodup`
+    let claimsArg? (ty : Expr) : Option Expr :=
+      if ty.isAppOfArity ``List.Nodup 2 && (ty.getArg! 1).isAppOfArity ``HAppend.hAppend 6 then
+        let c := (ty.getArg! 1).getArg! 4
+        if c.isAppOf ``KPrelude.MapHook.claimsOf then some c else none
+      else none
+    let some (h, ty) := (← hypsWith g fun t => (claimsArg? t).isSome).back?
+      | throwError "k2l_claims: no hypothesis `ClaimsOK g m o`"
+    let some c := claimsArg? ty | throwError "k2l_claims: no claims"
+    let m := c.appArg!
     let some (hd, _) := (← hypsWith g fun t => t.isAppOf ``KPrelude.MapHook.EntriesOn && t.appArg! == m).back?
       | throwError "k2l_claims: no definedness fact on the matched map"
     let (hn, hdn) ← g.withContext do return (← h.getUserName, ← hd.getUserName)
@@ -503,16 +573,17 @@ syntax (name := k2lClaimsTrace) "k2l_claims_trace" " [" Lean.Parser.Tactic.simpA
   let some (hd, _) := (← hypsWith (← getMainGoal) fun ty => ty.isAppOf ``KPrelude.MapHook.EntriesOn).back?
     | throwError "k2l_claims: no definedness fact"
   partFacts hd
-  evalTactic (← `(tactic| refine ⟨?_, KPrelude.MapHook.nodup_of_count_le (fun _ => ?_) $cn⟩))
-  let [gd, gc] ← getGoals | throwError "k2l_claims: unexpected goals"
+  evalTactic (← `(tactic| refine ⟨?_, ?_, KPrelude.MapHook.nodup_of_count_le (fun _ => ?_) $cn⟩))
+  let [gd, go, gc] ← getGoals | throwError "k2l_claims: unexpected goals"
   -- definedness on the rebuilt map, along its map facts
   setGoals [gd]
   evalTactic (← `(tactic| repeat' (first | assumption | apply KPrelude.MapHook.entriesOn_element | refine KPrelude.MapHook.entriesOn_concat ‹_› ?_ ?_)))
   let gds ← getGoals
   -- the counts, through every map fact
   setGoals [gc]
+  evalTactic (← `(tactic| simp only [List.count_append]))
   countConcat
-  setGoals (gds ++ (← getGoals))
+  setGoals (gds ++ [go] ++ (← getGoals))
   evalTactic (← `(tactic| all_goals (try dsimp only)))
   let lem (n : Name) : TacticM (TSyntax [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
       `Lean.Parser.Tactic.simpLemma]) := do

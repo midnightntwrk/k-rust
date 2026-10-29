@@ -1550,16 +1550,76 @@ fn nodup_of(cx: &Ctx, d: &str) -> Option<NoDupFn> {
     })
 }
 
-/// Every call of the fold `f` in `p` is the argument of one of the `noDup` functions `ds` (K
-/// symbols), as `noDup(f(…))`: where the fold's walk order does not change the meaning.
-fn claims_uses_ok(p: &P, f: &str, ds: &[String]) -> bool {
+/// How a `noDup` reads a fold of claims: `noDup(F(M))`, or with the claims of the configuration's
+/// other parts, `noDup(F(M) h(…))` (`F` first) or `noDup(h(…) F(M))`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ClaimsUse {
+    Alone,
+    First,
+    Second,
+}
+
+/// The suffix of a bridge theorem's name for a form of use.
+fn claims_use_suffix(u: ClaimsUse) -> &'static str {
+    match u {
+        ClaimsUse::Alone => "",
+        ClaimsUse::First => "_r",
+        ClaimsUse::Second => "_l",
+    }
+}
+
+/// Every call of the fold `f` in `p` is read by one of the `noDup` functions `ds` (K symbols), as
+/// `noDup(f(…))` or `noDup(f(…) h)`, `noDup(h f(…))` with `h` a call that does not mention `f`:
+/// where the fold's walk order does not change the meaning. The forms found go to `uses`.
+fn claims_uses_ok(
+    m: &Model,
+    p: &P,
+    f: &str,
+    ds: &[String],
+    uses: &mut BTreeSet<ClaimsUse>,
+) -> bool {
+    let is_f = |q: &P| matches!(q, P::App(g, _, _) if g == f);
+    let other = |q: &P| matches!(q, P::App(..)) && !is_f(q) && !mentions(q, f, "");
     match p {
         P::App(s, _, a) if ds.contains(s) && a.len() == 1 => match &a[0] {
-            P::App(g, _, b) if g == f => b.iter().all(|q| claims_uses_ok(q, f, ds)),
-            q => claims_uses_ok(q, f, ds),
+            P::App(g, _, b) if g == f => {
+                uses.insert(ClaimsUse::Alone);
+                b.iter().all(|q| claims_uses_ok(m, q, f, ds, uses))
+            }
+            P::App(c, _, b)
+                if hook(m, c) == Some("LIST.concat")
+                    && b.len() == 2
+                    && is_f(&b[0])
+                    && other(&b[1]) =>
+            {
+                uses.insert(ClaimsUse::First);
+                b.iter().all(|q| {
+                    let inner = match q {
+                        P::App(_, _, x) if is_f(q) => x.as_slice(),
+                        _ => std::slice::from_ref(q),
+                    };
+                    inner.iter().all(|r| claims_uses_ok(m, r, f, ds, uses))
+                })
+            }
+            P::App(c, _, b)
+                if hook(m, c) == Some("LIST.concat")
+                    && b.len() == 2
+                    && is_f(&b[1])
+                    && other(&b[0]) =>
+            {
+                uses.insert(ClaimsUse::Second);
+                b.iter().all(|q| {
+                    let inner = match q {
+                        P::App(_, _, x) if is_f(q) => x.as_slice(),
+                        _ => std::slice::from_ref(q),
+                    };
+                    inner.iter().all(|r| claims_uses_ok(m, r, f, ds, uses))
+                })
+            }
+            q => claims_uses_ok(m, q, f, ds, uses),
         },
         P::App(s, _, _) if s == f => false,
-        P::App(_, _, a) => a.iter().all(|q| claims_uses_ok(q, f, ds)),
+        P::App(_, _, a) => a.iter().all(|q| claims_uses_ok(m, q, f, ds, uses)),
         _ => true,
     }
 }
@@ -2690,7 +2750,7 @@ pub fn emit(
     let mut owise_injs: Vec<OwiseInj> = Vec::new();
     let mut walks: Vec<Walk> = Vec::new();
     // folds of claims (with their K symbols) and the `noDup` functions over them
-    let mut claims: Vec<(String, ClaimsFold)> = Vec::new();
+    let mut claims: Vec<(String, ClaimsFold, BTreeSet<ClaimsUse>)> = Vec::new();
     let mut nodups: Vec<(String, NoDupFn)> = Vec::new();
     // every function the invariants call, directly or not
     let mut closure_fns: BTreeSet<String> = BTreeSet::new();
@@ -3031,8 +3091,8 @@ pub fn emit(
             if cx.recursive.contains(&gs.lean) {
                 if let Some(c) = claims_fold_of(cx, &g, &mut projections, &mut proj_names) {
                     // a fold of claims, kept only where `noDup` is all that reads it (below)
-                    if !claims.iter().any(|(x, _)| *x == g) {
-                        claims.push((g.clone(), c));
+                    if !claims.iter().any(|(x, _, _)| *x == g) {
+                        claims.push((g.clone(), c, BTreeSet::new()));
                     }
                 } else if let Some(n) = nodup_of(cx, &g) {
                     if !nodups.iter().any(|(x, _)| *x == g) {
@@ -3124,12 +3184,12 @@ pub fn emit(
 
     // a fold of claims is read only by `noDup` (its walk order is then immaterial), and needs one
     let dsyms: Vec<String> = nodups.iter().map(|(x, _)| x.clone()).collect();
-    claims.retain(|(f, c)| {
+    claims.retain_mut(|(f, _, uses)| {
         let ok = !dsyms.is_empty()
             && closure_fns.iter().all(|g| {
                 cx.eqs.get(g).is_none_or(|es| {
                     es.iter()
-                        .all(|e| g == f || claims_uses_ok(&e.rhs, f, &dsyms))
+                        .all(|e| g == f || claims_uses_ok(m, &e.rhs, f, &dsyms, uses))
                 })
             });
         if !ok {
@@ -3138,7 +3198,6 @@ pub fn emit(
                 names::demangle(f)
             ));
         }
-        let _ = c;
         ok
     });
 
@@ -3306,11 +3365,14 @@ pub fn emit(
             ));
         }
     }
-    for (_, c) in &claims {
+    for (_, c, uses) in &claims {
         for (_, n) in &nodups {
-            simp.push(format!("Invariant.{}_{}", c.base, n.base));
-            if c.cell.is_some() {
-                simp.push(format!("Invariant.{}_{}_cell", c.base, n.base));
+            for u in uses {
+                let sfx = claims_use_suffix(*u);
+                simp.push(format!("Invariant.{}_{}{sfx}", c.base, n.base));
+                if c.cell.is_some() {
+                    simp.push(format!("Invariant.{}_{}{sfx}_cell", c.base, n.base));
+                }
             }
         }
         simp.push(format!("Invariant.{}_test", c.base));
@@ -3620,7 +3682,7 @@ KPrelude.ListHook.nodup_fn {u} (fun _ _ => {c} ..) l\n\n",
             c = n.cons_eqn,
         ));
     }
-    for (_, c) in &claims {
+    for (_, c, uses) in &claims {
         let (b, l) = (&c.base, &c.lean);
         let reads: String = c.reads.iter().map(|r| format!(", {r}")).collect();
         let insts = format!("{l}.instances, {l}.inst1, {l}.inst2");
@@ -3687,34 +3749,82 @@ def Invariant.{b}_map : {cell} → {map}\n  | {wrap} x => x\n\n",
                 map = c.map,
             ));
         }
+        d.push_str(&format!(
+            "/-- A map on which the fold `{l}` is defined is well formed (its instances test it). -/\n\
+theorem Invariant.{b}_wfOf (m : {map}) (l : {list}) (h : {at_m} = some l) : KPrelude.MapHook.WF m := by\n  \
+by_cases hu : m = KPrelude.MapHook.unit\n  · subst hu; exact KPrelude.MapHook.wf_unit\n  \
+· rw [{l}.eq_instances] at h\n    \
+simp only [{insts}, hu, ite_false, List.nil_append, KPrelude.firstNonempty_singleton] at h\n    \
+split at h\n    · exact (KPrelude.MapHook.wfb_iff _).1 ‹_›\n    · simp at h\n\n",
+            map = c.map,
+            list = c.list,
+            at_m = c.at("m"),
+        ));
         for (_, n) in &nodups {
             let (db, dl) = (&n.base, &n.lean);
-            d.push_str(&format!(
-                "/-- `{dl}` of the fold `{l}`, read order-free: the map well formed, every binding matching the\n\
-patterns with its claims defined, and no claim twice (`KPrelude.MapHook.ClaimsOK`). -/\n\
-theorem Invariant.{b}_{db} (m : {map}) :\n    ({at_m}).bind {dl} = some true ↔\n      \
-KPrelude.MapHook.WF m ∧ KPrelude.MapHook.ClaimsOK Invariant.{b}_test Invariant.{b}_g m := by\n  \
-constructor\n  · intro h\n    obtain ⟨l, hl, hn⟩ := Option.bind_eq_some_iff.1 h\n    \
-rw [Invariant.{db}_eq] at hn\n    simp only [Option.some.injEq, decide_eq_true_eq] at hn\n    \
-obtain ⟨hd, hp⟩ := Invariant.{b}_fold m l hl\n    have hw : KPrelude.MapHook.WF m := by\n      \
-by_cases hu : m = KPrelude.MapHook.unit\n      · subst hu; exact KPrelude.MapHook.wf_unit\n      \
-· rw [{l}.eq_instances] at hl\n        \
-simp only [{insts}, hu, ite_false, List.nil_append,\n          KPrelude.firstNonempty_singleton] at hl\n        \
-split at hl\n        · exact (KPrelude.MapHook.wfb_iff _).1 ‹_›\n        · simp at hl\n    \
-exact ⟨hw, hd, hp.nodup hn⟩\n  · rintro ⟨hw, hd, hn⟩\n    \
-obtain ⟨l, hl⟩ := Option.isSome_iff_exists.1 (Invariant.{b}_isSome m hw hd)\n    \
-rw [hl, Option.bind_some, Invariant.{db}_eq]\n    simp [(Invariant.{b}_fold m l hl).2.symm.nodup hn]\n\n",
-                map = c.map,
-                at_m = c.at("m"),
-            ));
-            if let Some(cell) = &c.cell {
+            for u in uses {
+                let sfx = claims_use_suffix(*u);
+                let args = format!(
+                    "Invariant.{db}_eq Invariant.{b}_fold Invariant.{b}_wfOf Invariant.{b}_isSome"
+                );
+                let (lhs, lhs_w, o_bind, o_arg, rhs_o, lemma) = match u {
+                    ClaimsUse::Alone => (
+                        format!("({}).bind {dl}", c.at("m")),
+                        format!("({l} w).bind {dl}"),
+                        "",
+                        "",
+                        "(some KPrelude.ListHook.unit)",
+                        "claimsOK_iff_of_unit",
+                    ),
+                    ClaimsUse::First => (
+                        format!(
+                            "(({}).bind fun r => o.bind fun r₁ => {dl} (KPrelude.ListHook.concat r r₁))",
+                            c.at("m")
+                        ),
+                        format!(
+                            "(({l} w).bind fun r => o.bind fun r₁ => {dl} (KPrelude.ListHook.concat r r₁))"
+                        ),
+                        " (o : Option {list})",
+                        " o",
+                        "o",
+                        "claimsOK_iff_of",
+                    ),
+                    ClaimsUse::Second => (
+                        format!(
+                            "(o.bind fun r => ({}).bind fun r₁ => {dl} (KPrelude.ListHook.concat r r₁))",
+                            c.at("m")
+                        ),
+                        format!(
+                            "(o.bind fun r => ({l} w).bind fun r₁ => {dl} (KPrelude.ListHook.concat r r₁))"
+                        ),
+                        " (o : Option {list})",
+                        " o",
+                        "o",
+                        "claimsOK_iff_of'",
+                    ),
+                };
+                let o_bind = o_bind.replace("{list}", &c.list);
                 d.push_str(&format!(
-                    "/-- `Invariant.{b}_{db}` at any cell, through its map: it rewrites a rule's cell variable too. -/\n\
-theorem Invariant.{b}_{db}_cell (w : {cell}) :\n    ({l} w).bind {dl} = some true ↔\n      \
-KPrelude.MapHook.WF (Invariant.{b}_map w) ∧\n        \
-KPrelude.MapHook.ClaimsOK Invariant.{b}_test Invariant.{b}_g (Invariant.{b}_map w) := by\n  \
-k2l_cases w\n  exact Invariant.{b}_{db} _\n\n",
+                    "/-- `{dl}` of the fold `{l}`{what}, read order-free: the map well formed, every binding\n\
+matching the patterns with its claims defined, and no claim twice (`KPrelude.MapHook.ClaimsOK`). -/\n\
+theorem Invariant.{b}_{db}{sfx} (m : {map}){o_bind} :\n    {lhs} = some true ↔\n      \
+KPrelude.MapHook.WF m ∧ KPrelude.MapHook.ClaimsOK Invariant.{b}_test Invariant.{b}_g m {rhs_o} :=\n  \
+KPrelude.MapHook.{lemma} {args} m{o_arg}\n\n",
+                    what = match u {
+                        ClaimsUse::Alone => "",
+                        _ => " with the other parts' claims `o`",
+                    },
+                    map = c.map,
                 ));
+                if let Some(cell) = &c.cell {
+                    d.push_str(&format!(
+                        "/-- `Invariant.{b}_{db}{sfx}` at any cell, through its map: it rewrites a rule's cell variable too. -/\n\
+theorem Invariant.{b}_{db}{sfx}_cell (w : {cell}){o_bind} :\n    {lhs_w} = some true ↔\n      \
+KPrelude.MapHook.WF (Invariant.{b}_map w) ∧\n        \
+KPrelude.MapHook.ClaimsOK Invariant.{b}_test Invariant.{b}_g (Invariant.{b}_map w) {rhs_o} := by\n  \
+k2l_cases w\n  exact Invariant.{b}_{db}{sfx} _{o_arg}\n\n",
+                    ));
+                }
             }
         }
     }
