@@ -24,9 +24,16 @@ Every theorem k2lean states is about one or the other, and the theorems differ i
 | Every reachable state | Does P hold after every step? Is every reachable state finished or able to step? Do programs the checker accepts never go wrong? | **today**: invariants, type soundness (§3.3). No stuck states exists only inside type soundness (§2) |
 | Whole runs: safety | Does nothing bad ever happen along a run? (a continuation resumed at most once, a spend after its create, messages in protocol order) | **today** only when the configuration already records the history, as an invariant (§5) |
 | One program's runs | Does this program reach this state, on all paths or on one? Does it terminate in a value? | **today**: claims (§3.8): `AF` and `EF`, weak all-path and one-path eventually (partial correctness); `Reach` under `--induction`, total correctness |
-| Every program's runs: liveness | Does something good eventually happen, for every program? (every request to a server is answered; a long-running program keeps making progress) | nothing (§5) |
-| Two runs | Do two schedules end alike? Do secret inputs change public outputs? | **today**: `terminal_unique` (§3.6), proved with no premise for the fixtures `race` and `utxo`, with open joins as premises for SIMPLE; noninterference (§3.7) |
+| Every program's runs: liveness | Does something good eventually happen, for every program? (every run ends; every request to a server is answered; a long-running program keeps making progress) | nothing (§5) |
+| Two runs | Do two schedules end alike? Do private inputs change public outputs beyond what the program discloses? | **today**: `terminal_unique` (§3.6), proved with no premise for the fixtures `race` and `utxo`, with open joins as premises for SIMPLE; noninterference (§3.7) |
 | Two definitions | Does one definition simulate or refine another? | **today** for two definitions of one language whose constructors correspond, by symbol or by sorts and concrete syntax (§3.2, §3.5); `refine` needs an order-preserving translation and no priority ranks (REL-5). Not across languages (§4) |
+
+The rows split in two (Sebastien, 2026-10-29).
+All but the last two are properties of one object: a function, a step, a state, or one run.
+The last two compare two runs, of one definition or of two: confluence (the runs differ in the order of steps), noninterference (in private data) and `relate`/`refine` (in the definition that runs).
+A comparison has the same shape in each kind (`product.md` §4, "Comparing two runs"): what is observed, what varies, and which starting points are legal; and it ends in a theorem, a refutation by two concrete runs, or obligations left open by name.
+Comparisons are termination-insensitive: they relate runs that end.
+That every run ends is liveness, a property of one run (§5), and not part of any comparison; a theorem that needs both, such as "every order a transaction allows ends, and in the same state", is composed from the two.
 
 The run vocabulary (**today**, since RUN-1, main 498964bf4; `design.md` §3):
 - `KPrelude/Paths.lean`: infinite paths (`Paths.Inf`), termination (`Paths.Terminates`), maximal runs (a halting run repeats its last configuration) with `always_iff` and `always_of_preserved`, and `FirstReach`/`Segment` (one or more steps to the first configuration satisfying a predicate, functional under a deterministic relation);
