@@ -1,10 +1,11 @@
 import Lean
-/-! `k2l-eval`: the cost metric and the frozen check of one module of a generated library (CT-4a).
+/-! `k2l-eval`: the cost metric, the frozen check and the result of a generated library (CT-4a, CT-3, CT-4b).
 
     k2l-eval FILE MODULE [OUT.jsonl [SPEC.MODULE]]     (from the library's root: `lake env k2l-eval …`)
     k2l-eval --replay MODULE
     k2l-eval --freeze-record NS OUTDIR [SPEC.MODULE …]   (below, "The frozen part")
     k2l-eval --freeze-check NS OUTDIR
+    k2l-eval --result NS OUT.json [MODULE …]            (below, "The result of a library")
 
 The first form elaborates `FILE` as module `MODULE` against the built imports, command by command, and
 writes one JSON line per command: its line, kind, declared names, heartbeats (`hb` raw, `kHb` in the
@@ -179,8 +180,9 @@ def argNames (s : String) : List String := Id.run do
   unless cur.isEmpty do out := out.push cur
   return out.toList
 
-/-- The names a file's guard commands name, each with the namespace it is written in. -/
-def guardNames (text : String) : Array (String × String) := Id.run do
+/-- The names a file's guard commands name, each with the namespace it is written in and, for a
+refutation (`#k2l_refuted`), the statement constant it refutes (`X.statement`, or `S`). -/
+def guardLines (text : String) : Array (String × String × Option String) := Id.run do
   let mut out := #[]
   let mut nss : Array String := #[]
   for line in text.splitOn "\n" do
@@ -188,13 +190,17 @@ def guardNames (text : String) : Array (String × String) := Id.run do
     else if line.startsWith "end " then
       if nss.back? == some (line.drop 4).toString.trimAscii.toString then nss := nss.pop
     else if line.startsWith "#k2l_assert_axioms " then
-      for n in argNames (line.drop 19).toString do out := out.push (n, ".".intercalate nss.toList)
+      for n in argNames (line.drop 19).toString do out := out.push (n, ".".intercalate nss.toList, none)
     else if line.startsWith "#k2l_refuted " then
       match argNames (line.drop 13).toString with
-      | [x] => out := out.push (x ++ ".refuted", ".".intercalate nss.toList)
-      | [_, r] => out := out.push (r, ".".intercalate nss.toList)
+      | [x] => out := out.push (x ++ ".refuted", ".".intercalate nss.toList, some (x ++ ".statement"))
+      | [s, r] => out := out.push (r, ".".intercalate nss.toList, some s)
       | _ => pure ()
   return out
+
+/-- The names a file's guard commands name, each with the namespace it is written in. -/
+def guardNames (text : String) : Array (String × String) :=
+  (guardLines text).map fun (n, sp, _) => (n, sp)
 
 /-- A name as printed (`Name.toString`) or written in a source: components separated by `.`
 outside `«…»`, a quoted component taken whole. -/
@@ -222,6 +228,8 @@ structure Frozen where
   stmts : Array (Name × Array (Name × String)) := #[]
   /-- the obligations with a frozen statement `X.statement` -/
   obls : Array Name := #[]
+  /-- the refutations the guards check: (statement constant, refutation) -/
+  refutes : Array (Name × Name) := #[]
   consts : Array (Name × String × String) := #[]
   /-- the modules that define the frozen names and statements: what a check imports (not the
   guard modules, which do not build once a frozen theorem is gone) -/
@@ -305,6 +313,15 @@ def dropBlocks (text : String) (gone : Std.HashSet String) : String := Id.run do
     unless skip do out := out.push l
   return "\n".intercalate out.toList
 
+/-- The obligations with a frozen statement (`X.statement`, a definition) in the modules `own` accepts. -/
+def obligations (env : Environment) (own : Name → Bool) : Array Name := Id.run do
+  let mut obls := #[]
+  for (k, c) in env.constants.toList do
+    if k.isStr && k.getString! == "statement" && c matches .defnInfo _ then
+      if let some i := env.getModuleIdxFor? k then
+        if own env.header.moduleNames[i.toNat]! then obls := obls.push k.getPrefix
+  return obls
+
 /-- The frozen part of the library `ns` in `env`: from the guard files under `root` (record), or
 from the names of a previous record (check). -/
 def computeFrozen (env : Environment) (ns : Name) (specs : Array Name)
@@ -324,14 +341,8 @@ def computeFrozen (env : Environment) (ns : Name) (specs : Array Name)
         roots := roots ++ c.type.getUsedConstants
       | none => row := row.push (n, "-")
     stmts := stmts.push (m, row)
-  -- the obligations with a frozen statement, in the library's own modules
-  let mut obls := #[]
-  for (k, c) in env.constants.toList do
-    if k.isStr && k.getString! == "statement" && c matches .defnInfo _ then
-      if let some i := env.getModuleIdxFor? k then
-        if own env.header.moduleNames[i.toNat]! then
-          obls := obls.push k.getPrefix
-          roots := roots.push k
+  let obls := obligations env own
+  roots := roots ++ obls.map (· ++ `statement)
   for sp in specs do
     if let some i := env.getModuleIdx? sp then
       roots := roots ++ (env.header.moduleData[i.toNat]!.constants.map (·.name))
@@ -359,6 +370,7 @@ def writeFrozen (out : System.FilePath) (fz : Frozen) : IO Unit := do
     o := o ++ s!"module\t{m}\n"
     for (n, h) in ns do o := o ++ s!"stmt\t{n}\t{h}\n"
   for n in fz.obls do o := o ++ s!"obl\t{n}\n"
+  for (st, r) in fz.refutes do o := o ++ s!"refute\t{st}\t{r}\n"
   for (n, t, v) in fz.consts do o := o ++ s!"const\t{n}\t{t}\t{v}\n"
   IO.FS.writeFile (out / "k2lean.freeze") o
 
@@ -376,6 +388,7 @@ def readFrozen (out : System.FilePath) : IO Frozen := do
     | ["const", n, t, v] => fz := { fz with consts := fz.consts.push (nameOf n, t, v) }
     | ["import", m] => fz := { fz with imports := fz.imports.push (nameOf m) }
     | ["obl", n] => fz := { fz with obls := fz.obls.push (nameOf n) }
+    | ["refute", st, r] => fz := { fz with refutes := fz.refutes.push (nameOf st, nameOf r) }
     | _ => pure ()
   return fz
 
@@ -402,21 +415,35 @@ unsafe def freezeImport (ns : Name) (mods : Array Name) : IO Environment := do
   let imps := if mods.isEmpty then #[ns] else mods
   importModules (imps.map ({ module := · })) {} (trustLevel := 1024) (loadExts := true)
 
+/-- The guard files of the library under `root`: each module with its guard lines. -/
+def guardFiles (root : System.FilePath) : IO (Array (Name × Array (String × String × Option String))) := do
+  let mut out := #[]
+  for f in ← leanFiles root false do
+    let g := guardLines (← IO.FS.readFile f)
+    unless g.isEmpty do out := out.push (moduleOf root f, g)
+  return out
+
+/-- The refutations of the guards' `#k2l_refuted` lines: (statement constant, refutation), resolved. -/
+def refutations (env : Environment) (guards : Array (Name × Array (String × String × Option String))) :
+    Array (Name × Name) := Id.run do
+  let mut out := #[]
+  for (_, g) in guards do
+    for (n, sp, st?) in g do
+      if let some st := st? then out := out.push (resolve env st sp, resolve env n sp)
+  return out
+
 unsafe def freezeRecord (ns : Name) (out : System.FilePath) (specs : Array Name) : IO UInt32 := do
   let root : System.FilePath := "."
-  let mut guards : Array (Name × Array (String × String)) := #[]
-  for f in ← leanFiles root false do
-    let g := guardNames (← IO.FS.readFile f)
-    unless g.isEmpty do guards := guards.push (moduleOf root f, g)
+  let guards ← guardFiles root
   let env ← freezeImport ns (guards.map (·.1) ++ specs)
-  let stmtNames := guards.map fun (m, g) => (m, g.map fun (n, sp) => resolve env n sp)
+  let stmtNames := guards.map fun (m, g) => (m, g.map fun (n, sp, _) => resolve env n sp)
   let mut missing := #[]
   for (_, ns') in stmtNames do
     for n in ns' do unless env.contains n do missing := missing.push n
   unless missing.isEmpty do
     IO.eprintln s!"k2l-eval: guarded names not in the library: {missing}"
     return 1
-  let fz ← computeFrozen env ns specs stmtNames
+  let fz := { (← computeFrozen env ns specs stmtNames) with refutes := refutations env guards }
   IO.FS.createDirAll out
   writeFrozen out fz
   IO.FS.writeFile (out / "k2lean.frozen.md") (← readable env fz)
@@ -426,11 +453,138 @@ unsafe def freezeRecord (ns : Name) (out : System.FilePath) (specs : Array Name)
     ("obligations", toJson fz.obls.size), ("constants", toJson fz.consts.size), ("lint", toJson bad.size)]).compress
   return if bad.isEmpty then 0 else 1
 
+/-! ## The result of a library (CT-4b)
+
+    k2l-eval --result NS OUT.json [MODULE …]
+
+run from the root of the generated library `NS` (`lake env k2l-eval …`) once it is built: the status
+of every frozen name, read from the built environment rather than from the generated text, so a
+proof moved to another module, restated through its statement, or added in a new file counts as
+it is. It imports `MODULE …` (by default every guard file of the library, as `--freeze-record`
+does; a gate passes the guard it built, so that no `.olean` of a module it did not build is read).
+The entries are the names of the library's guard files (apart from refutations), and every
+obligation `X` with a statement `X.statement` in the library's own modules; a name of a guard module
+the import did not reach, absent from it, is `unbuilt` (a library built only as far as its
+`Equations`: its proved equations are there, its `step_sound` is not). A refutation
+(`#k2l_refuted X`, of `X.refuted`, or `#k2l_refuted S R`) is not an entry: it gives its statement's
+status. `--freeze-check` writes `OUTDIR/k2lean-result.json` too, of the recorded names.
+
+Each entry has its `name`, `kind`, `status`, `module` (where its theorem, else its statement, is:
+the module a loop evaluates with the first form) and `axioms`. The kind is read from the frozen name,
+the generator's naming: `equation` (`NS.Eqn.*`, `NS.Simp.*`, `NS.Lemma.*`), `divergence`
+(`*.diverges`), `total` (`*.total`), `other` (any other guarded theorem or obligation). The status
+is `proved` (a theorem, of the statement's closure or its unfolding when there is a statement, on
+Lean's three axioms), `refuted` (the refutation's type the negation of the statement's closure, as
+`#k2l_refuted` checks, on the three axioms), `open` (neither), `axioms` (another axiom), `moved` (a
+freeze check found it moved), `unbuilt`, or `not-a-theorem`. Heartbeats are not in it: they need the module
+elaborated again (the first form), at about the cost of building it. -/
+
+def allowedAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
+
+/-- The status of the refutation `rn` of the statement constant `sn`, as `#k2l_refuted` checks it:
+`refuted` (its type the negation of the statement's closure, Lean's three axioms only), `axioms`,
+`moved` (another type), or `none` when there is no such theorem. -/
+def refutationStatus (env : Environment) (sn rn : Name) : IO (Option String) := do
+  let some s := env.find? sn | return none
+  let some (.thmInfo r) := env.find? rn | return none
+  let ctx : Core.Context := { fileName := "<check>", fileMap := default }
+  let (expected, _) ← (Meta.MetaM.run' (Meta.forallTelescope s.type fun xs _ =>
+      Meta.mkForallFVars xs (mkAppN (mkConst s.name (s.levelParams.map mkLevelParam)) xs))).toIO ctx { env }
+  unless r.type == mkNot expected do return some "moved"
+  let (axs, _) ← (Lean.collectAxioms rn : CoreM _).toIO ctx { env }
+  return some (if axs.all allowedAxioms.contains then "refuted" else "axioms")
+
+/-- An entry's kind, read from its frozen name (the generator's naming). -/
+def kindOf (ns n : Name) : String :=
+  let first := ((n.replacePrefix ns .anonymous).components.head?.map toString).getD ""
+  if ns.isPrefixOf n && ["Eqn", "Simp", "Lemma"].contains first then "equation"
+  else if n.isStr && n.getString! == "diverges" then "divergence"
+  else if n.isStr && n.getString! == "total" then "total"
+  else "other"
+
+structure Entry where
+  name : Name
+  kind : String
+  status : String
+  module : String
+  axioms : Array Name := #[]
+
+def moduleName (env : Environment) (n : Name) : Option String :=
+  (env.getModuleIdxFor? n).map fun i => env.header.moduleNames[i.toNat]!.toString
+
+/-- The entries of the library `ns`: the obligations `obls` (each with `X.statement`), the
+statement constants that `refs` refute outright (claims, `#k2l_refuted S R`), and the other frozen
+theorems `thms`. A refutation of `refs` (statement constant, refutation) gives its statement's status
+instead of an entry of its own; `moved` are the names a freeze check found moved, `unreached` those of
+guard modules the import did not reach: one of them that is not in the environment is `unbuilt`
+rather than `open` (nothing is known of it). -/
+def resultEntries (env : Environment) (ns : Name) (thms obls : Array Name) (refs : Array (Name × Name))
+    (moved unreached : Std.HashSet Name) : IO (Array Entry) := do
+  let ctx : Core.Context := { fileName := "<check>", fileMap := default }
+  let refOf : Std.HashMap Name Name := refs.foldl (fun m (sn, r) => m.insert sn r) {}
+  let refNames : Std.HashSet Name := refs.foldl (fun m (_, r) => m.insert r) {}
+  let claims := refs.filterMap fun (sn, _) =>
+    if sn.isStr && sn.getString! == "statement" then none else some sn
+  let mut out := #[]
+  let mut seen : Std.HashSet Name := {}
+  for x in obls ++ claims do
+    if seen.contains x then continue
+    seen := seen.insert x
+    let sn := if claims.contains x then x else x ++ `statement
+    let (st0, axs) ← if sn == x then pure ("open", #[]) else pure ((← obligationStatus env x).getD ("open", #[]))
+    let mut st := st0
+    if st == "open" then
+      if let some r := refOf[sn]? then
+        if let some rs ← refutationStatus env sn r then st := rs
+        else if unreached.contains r then st := "unbuilt"
+    if moved.contains x then st := "moved"
+    out := out.push { name := x, kind := kindOf ns x, status := st, axioms := axs,
+                      module := (moduleName env x).getD ((moduleName env sn).getD "-") }
+  for n in thms do
+    if seen.contains n || refNames.contains n then continue
+    seen := seen.insert n
+    let (st, axs) ← match env.find? n with
+      | none => pure (if unreached.contains n then "unbuilt" else "open", #[])
+      | some (.thmInfo _) =>
+        let (axs, _) ← (Lean.collectAxioms n : CoreM _).toIO ctx { env }
+        pure (if axs.all allowedAxioms.contains then "proved" else "axioms", axs)
+      | some _ => pure ("not-a-theorem", #[])
+    out := out.push { name := n, kind := kindOf ns n, status := if moved.contains n then "moved" else st,
+                      axioms := axs, module := (moduleName env n).getD "-" }
+  return out.qsort (·.name.toString < ·.name.toString)
+
+/-- The result: the entries, and their number per kind and status. -/
+def resultJson (ns : Name) (es : Array Entry) : Json := Id.run do
+  let mut totals : Std.HashMap String (Std.HashMap String Nat) := {}
+  for e in es do
+    let k := totals.getD e.kind {}
+    totals := totals.insert e.kind (k.insert e.status (k.getD e.status 0 + 1))
+  let tj := Json.mkObj (totals.toList.map fun (k, m) => (k, Json.mkObj (m.toList.map fun (s, n) => (s, toJson n))))
+  return Json.mkObj [("ns", toJson ns.toString), ("totals", tj),
+    ("entries", Json.arr (es.map fun e => Json.mkObj [("name", toJson e.name.toString),
+      ("kind", toJson e.kind), ("status", toJson e.status), ("module", toJson e.module),
+      ("axioms", toJson (e.axioms.map toString))]))]
+
+unsafe def result (ns : Name) (out : System.FilePath) (mods : Array Name) : IO UInt32 := do
+  let guards ← guardFiles "."
+  let env ← freezeImport ns (if mods.isEmpty then guards.map (·.1) else mods)
+  let thms := guards.foldl (init := #[]) fun a (_, g) =>
+    a ++ (g.filter (·.2.2.isNone)).map fun (n, sp, _) => resolve env n sp
+  let unreached : Std.HashSet Name := guards.foldl (init := {}) fun a (m, g) =>
+    if (env.getModuleIdx? m).isSome then a else g.foldl (fun a (n, sp, _) => a.insert (resolve env n sp)) a
+  let es ← resultEntries env ns thms (obligations env (ownModule ns #[])) (refutations env guards) {} unreached
+  let j := resultJson ns es
+  IO.FS.writeFile out (j.pretty ++ "\n")
+  IO.println (Json.mkObj [("ns", toJson ns.toString), ("entries", toJson es.size),
+    ("totals", j.getObjValD "totals")]).compress
+  return 0
+
 unsafe def freezeCheck (ns : Name) (out : System.FilePath) : IO UInt32 := do
   let was ← readFrozen out
   let env ← freezeImport ns was.imports
   let now ← computeFrozen env ns was.specs (was.stmts.map fun (m, r) => (m, r.map (·.1)))
   let mut rep : Array (String × String) := #[]
+  let mut movedNames : Std.HashSet Name := {}
   for ((f, h), (_, h')) in was.files.zip now.files do
     if h != h' then rep := rep.push ("file", f)
   for ((_, r), (_, r')) in was.stmts.zip now.stmts do
@@ -441,20 +595,20 @@ unsafe def freezeCheck (ns : Name) (out : System.FilePath) : IO UInt32 := do
         -- a frozen obligation may be restated through its statement (`theorem X : X.statement`)
         let viaStatement ← if h != h' then
             pure ((← obligationStatus env n).map (·.1) == some "proved") else pure true
-        if h != h' && !viaStatement then rep := rep.push ("moved", n.toString)
+        if h != h' && !viaStatement then rep := rep.push ("moved", n.toString); movedNames := movedNames.insert n
         else
           let ctx : Core.Context := { fileName := "<check>", fileMap := default }
           let (axs, _) ← (Lean.collectAxioms n : CoreM _).toIO ctx { env }
           if axs.any (fun a => ![``propext, ``Quot.sound, ``Classical.choice].contains a) then
             rep := rep.push ("axioms", n.toString)
-      | some _ => rep := rep.push ("moved", s!"{n} (not a theorem)")
+      | some _ => rep := rep.push ("moved", s!"{n} (not a theorem)"); movedNames := movedNames.insert n
   -- the obligations with a frozen statement: proved as stated, open, moved, or on another axiom
   for n in was.obls do
     match ← obligationStatus env n with
     | some ("proved", _) => pure ()
     | some ("open", _) => rep := rep.push ("open", n.toString)
     | some ("axioms", _) => rep := rep.push ("axioms", n.toString)
-    | some (st, _) => rep := rep.push ("moved", s!"{n} ({st})")
+    | some (st, _) => rep := rep.push ("moved", s!"{n} ({st})"); movedNames := movedNames.insert n
     | none => rep := rep.push ("spec-missing", s!"{n}.statement")
   let nowC : Std.HashMap Name (String × String) :=
     now.consts.foldl (fun m (n, t, v) => m.insert n (t, v)) {}
@@ -469,6 +623,10 @@ unsafe def freezeCheck (ns : Name) (out : System.FilePath) : IO UInt32 := do
     rep := rep.push ("readable", "k2lean.frozen.md")
   for b in ← lint "." do rep := rep.push ("lint", b)
   for (k, n) in rep do IO.println (Json.mkObj [("kind", toJson k), ("name", toJson n)]).compress
+  -- the result (CT-4b) of the recorded names: what a loop's run is judged by
+  let thms := was.stmts.foldl (fun a (_, r) => a ++ r.map (·.1)) #[]
+  let es ← resultEntries env ns thms was.obls was.refutes movedNames {}
+  IO.FS.writeFile (out / "k2lean-result.json") ((resultJson ns es).pretty ++ "\n")
   let moved := rep.filter (·.1 != "open")
   IO.println (Json.mkObj [("ns", toJson ns.toString), ("open", toJson (rep.size - moved.size)),
     ("moved", toJson moved.size)]).compress
@@ -479,11 +637,12 @@ unsafe def main (args : List String) : IO UInt32 := do
   if let "--freeze-record" :: n :: o :: specs := args then
     return ← freezeRecord (nameOf n) o (specs.toArray.map nameOf)
   if let ["--freeze-check", n, o] := args then return ← freezeCheck (nameOf n) o
+  if let "--result" :: n :: o :: mods := args then return ← result (nameOf n) o (mods.toArray.map nameOf)
   let (file, modName, out?, spec?) ← match args with
     | [f, m] => pure (f, m.toName, none, none)
     | [f, m, o] => pure (f, m.toName, some o, none)
     | [f, m, o, sp] => pure (f, m.toName, some o, some sp.toName)
-    | _ => throw (IO.userError "usage: k2l-eval FILE MODULE [OUT.jsonl [SPEC.MODULE]] | k2l-eval --replay MODULE | k2l-eval --freeze-record NS OUTDIR [SPEC.MODULE …] | k2l-eval --freeze-check NS OUTDIR")
+    | _ => throw (IO.userError "usage: k2l-eval FILE MODULE [OUT.jsonl [SPEC.MODULE]] | k2l-eval --replay MODULE | k2l-eval --freeze-record NS OUTDIR [SPEC.MODULE …] | k2l-eval --freeze-check NS OUTDIR | k2l-eval --result NS OUT.json [MODULE …]")
   initSearchPath (← findSysroot)
   enableInitializersExecution
   let input ← IO.FS.readFile file

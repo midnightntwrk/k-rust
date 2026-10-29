@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The freeze fixture (CT-3): record the frozen part of this project, then check one edit at a time
-# against it, each in a copy, and compare the report with what the edit should give.
+# The freeze fixture (CT-3, CT-4b): record the frozen part of this project, then check one edit at a
+# time against it, each in a copy, and compare the report and the result (k2lean-result.json) with
+# what the edit should give.
 #   run.sh K2L_EVAL WORK      (K2L_EVAL: the built k2l-eval; WORK: an empty scratch directory)
 # Exit status 0 when every edit gives its expected report.
 set -euo pipefail
@@ -15,6 +16,20 @@ sed -i "s|require k2lean from \"../../../lean\"|require k2lean from \"$lean\"|" 
 (cd "$base" && lake build Frz FrzTest >/dev/null)
 (cd "$base" && lake env "$eval_bin" --freeze-record Frz "$rec")
 fails=0
+# RESULT NAME STATUS…: in the result file RESULT, the entry NAME has STATUS (pairs)
+statuses() {
+  python3 -I - "$@" <<'PY' || { fails=$((fails + 1)); return 0; }
+import json, sys
+f, pairs = sys.argv[1], sys.argv[2:]
+got = {e["name"]: e["status"] for e in json.load(open(f))["entries"]}
+bad = [f"{n}: {got.get(n)} (want {s})" for n, s in zip(pairs[::2], pairs[1::2]) if got.get(n) != s]
+print(f"FAIL result {f}: " + "; ".join(bad) if bad else f"ok result {len(pairs) // 2}")
+sys.exit(1 if bad else 0)
+PY
+}
+# the library's result: each status once
+(cd "$base" && lake env "$eval_bin" --result Frz "$work/result.json")
+statuses "$work/result.json" Frz.f_double proved Frz.g_id proved Frz.two proved Frz.bound open Frz.three refuted
 # EDIT NAME EXPECTED-EXIT PATTERN [FILE SED-EXPRESSION]…: check a copy of the base with the edits;
 # PATTERN must match the report (or, with an empty pattern, nothing but the summary may be reported)
 edit() {
@@ -30,20 +45,27 @@ edit() {
     echo "ok $name: exit $st"
   fi
 }
-# unchanged: only the open obligation is reported
+# unchanged: only the open obligation is reported, and the check's result is the library's
 edit unchanged 0 '"kind":"open","name":"Frz.bound"'
+cmp "$work/result.json" "$rec/k2lean-result.json" || { echo "FAIL the check's result differs"; fails=$((fails + 1)); }
 # a frozen theorem restated
 edit statement 1 '"kind":"moved","name":"Frz.f_double"' Frz/Proofs.lean 's/f n = 2 \* n/f n = n + n/'
+statuses "$rec/k2lean-result.json" Frz.f_double moved Frz.g_id proved
 # another decreasing proof: free
 edit decreasing 0 '' Frz/Spec.lean 's/^decreasing_by omega$/decreasing_by (have _h : True := trivial); omega/'
 # another measure: the definition is frozen
 edit measure 1 '"kind":"spec-moved","name":"Frz.g' Frz/Spec.lean 's/^termination_by n$/termination_by n + 1/'
 # a frozen theorem deleted: open
 edit deleted 0 '"kind":"open","name":"Frz.g_id"' Frz/Proofs.lean '/^theorem g_id/,/^  | succ/d'
+statuses "$rec/k2lean-result.json" Frz.g_id open
+# a refutation deleted: its obligation is open again
+edit unrefuted 0 '"kind":"open","name":"Frz.three.refuted"' Frz/Proofs.lean '/^theorem three.refuted/,/^  simp \[three/d'
+statuses "$rec/k2lean-result.json" Frz.three open
 # a definition changed
 edit definition 1 '"kind":"spec-moved","name":"Frz.f' Frz/Spec.lean 's/| n + 1 => f n + 2/| n + 1 => 2 + f n/'
 # a proof on another axiom
 edit axioms 1 '"kind":"axioms","name":"Frz.two"' Frz/Proofs.lean 's/^  simp \[two.statement, f\]$/  unfold two.statement; native_decide/'
+statuses "$rec/k2lean-result.json" Frz.two axioms
 # the kernel's check skipped
 edit lint 1 '"kind":"lint"' Frz/Proofs.lean 's/^end Frz$/set_option debug.skipKernelTC true in\ntheorem extra : True := trivial\n\nend Frz/'
 # the readable statements edited

@@ -32,12 +32,14 @@ includes light), and only measured and compared by a run of a tier in its compar
 What is compared:
   status    every step of the run succeeded (generation, builds, axiom guards, tests)
   unit      generator tests: none fails, and no fewer pass
-  lib.X     the open-obligation set of library X may only shrink (a new member fails, and is
-            printed); its refuted set (the entries its open list marks `| refuted`, each checked
-            under the axiom guard) may only grow from the open set: a refuted entry that is open
-            again, or proved, or a newly refuted one that was not open, fails until accepted (a
-            statement changed); a group's `F.total` refuted by derivation (TERM-1h) counts as
-            refuted; a G1 line counts stated, proved, refuted and open; fewer stated
+  lib.X     read from library X's result (`k2l-eval --result`, the statuses of its built
+            environment; its stated equations are the entries of kind equation, divergence and
+            total): the open-obligation set may only shrink (a new member fails, and is printed);
+            the refuted set (each refutation checked against its statement) may only grow from the
+            open set: a refuted entry that is open again, or proved, or a newly refuted one that was
+            not open, fails until accepted (a statement changed); an entry of another status
+            (`axioms`, `moved`, `unbuilt`, `not-a-theorem`) fails; a G1 line counts stated, proved, refuted
+            and open; fewer stated
             equations or fewer theorems under the axiom guard fail; the
             number of overlapping pairs `gen` lists (determinism along the rule index) and of
             those without a witness equal the baseline's
@@ -67,6 +69,7 @@ What is compared:
             set, in any Lean source of the work tree, and no "declaration uses 'sorry'" in a log
 """
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -156,36 +159,25 @@ def read(p):
     return p.read_text(errors="replace") if p.exists() else None
 
 
-def equations(path):
-    """(stated, open set, derived refutations) of a generated Equations.lean, with the parts it
-    imports when it is written in parts (`NS/Equations/PartK.lean`, `import NS.Equations.PartK`),
-    and the obligations of its least fixed points (NS/Diverges.lean)."""
+# the kinds of a result's entries (k2l-eval --result, CT-4b) that the stated equations count: an
+# equation, a least fixed point's divergence, and K's `total` of a group
+STATED_KINDS = ("equation", "divergence", "total")
+
+
+def results(path, ns):
+    """(stated, open, refuted, invalid) of a library's result (`k2l-eval --result`, read from its
+    built environment): the entries of the stated kinds, those open and those refuted (names
+    relative to the namespace), and every entry of another status than proved, open or refuted
+    (`axioms`, `moved`, `unbuilt`, `not-a-theorem`) as `name (status)`."""
     text = read(path)
     if text is None:
         return None
-    path = Path(path)
-    ns = path.parent.name
-    for m in re.findall(rf"^import {re.escape(ns)}\.Equations\.(Part\d+)$", text, re.M):
-        part = read(path.parent / "Equations" / f"{m}.lean")
-        if part is None:
-            return None
-        text += "\n" + part
-    opened = re.findall(r"^def (\S+)\.statement : Prop", text, re.M)
-    proved = re.findall(r"^theorem ((?:Eqn|Simp|Lemma)\.\S+)", text, re.M)
-    # the divergence obligations of the least fixed points (TERM-1): stated in NS/Diverges.lean,
-    # proved where NSTest/Diverges.lean checks a hand proof
-    div = re.findall(r"^def (\S+\.diverges)\.statement : Prop", read(path.parent / "Diverges.lean") or "", re.M)
-    checked = set(re.findall(r"^example : (\S+\.diverges)\.statement := ",
-                             read(path.parent.parent / f"{ns}Test" / "Diverges.lean") or "", re.M))
-    opened += [n for n in div if n not in checked]
-    # K's `total` of a group (TERM-1h): refuted where NSTest/Diverges.lean checks the derived
-    # refutation (`#k2l_refuted NS.F.total`), else open
-    tot = re.findall(r"^def (\S+\.total)\.statement : Prop", read(path.parent / "Diverges.lean") or "", re.M)
-    tref = set(re.findall(rf"^#k2l_refuted {re.escape(ns)}\.(\S+\.total)$",
-                          read(path.parent.parent / f"{ns}Test" / "Diverges.lean") or "", re.M))
-    opened += [n for n in tot if n not in tref]
-    return (len(opened) + len(proved) + len(checked & set(div)) + len(tref & set(tot)), sorted(opened),
-            sorted(tref & set(tot)))
+    es = [e for e in json.loads(text)["entries"] if e["kind"] in STATED_KINDS]
+    rel = lambda n: n[len(ns) + 1:] if n.startswith(ns + ".") else n
+    return (len(es), sorted(rel(e["name"]) for e in es if e["status"] == "open"),
+            sorted(rel(e["name"]) for e in es if e["status"] == "refuted"),
+            sorted(f"{rel(e['name'])} ({e['status']})" for e in es
+                   if e["status"] not in ("proved", "open", "refuted")))
 
 
 def listed_names(path):
@@ -368,16 +360,14 @@ def measure(work, tier, reg):
         t = e["tier"]
         if kind == "lib":
             ns = e["ns"]
-            eq = equations(tree / "generated" / d / ns / "Equations.lean") if f"build {d}" in status or f"build {ns}.Equations" in status else None
+            # the statuses of the built library (k2l-eval --result): a refuted entry is a statement
+            # shown false, not an open one
+            eq = results(logs / f"result-{d}.json", ns) if status.get(f"result {d}", ("",))[0] == "ok" else None
             g = guarded(logs / f"build-{d}-guard.log") if status.get(f"guard {d}", ("",))[0] == "ok" else None
             ov = overlaps(logs / f"gen-{d}.log")
-            # an entry marked refuted is a statement shown false (its refutation is under the guard),
-            # not an open one
-            marked = refuted_marks(tree / "generated" / d / "open-obligations.txt")
-            opened = [n for n in eq[1] if n not in marked] if eq else None
-            ref = [n for n in eq[1] if n in marked] + eq[2] if eq else None
-            m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": opened, "guarded": g,
-                           "refuted": ref or None, "overlaps": ov[0], "unwitnessed": ov[1]}
+            m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": eq[1] if eq else None, "guarded": g,
+                           "refuted": (eq[2] or None) if eq else None, "invalid": eq[3] if eq else None,
+                           "overlaps": ov[0], "unwitnessed": ov[1]}
         elif kind == "inv":
             src = read(tree / "generated" / d / e["ns"] / "Invariants.lean")
             if src is None:
@@ -505,7 +495,7 @@ def to_baseline(m, area, reg, old=None):
         for d, e in m[sec].items():
             if mine(kind, d) and e["tier"] in run_t:
                 # a field not measured is left out (a kept entry, parsed back, has no trace of it)
-                b[sec][d] = {k: v for k, v in e.items() if k != "first_error" and v is not None}
+                b[sec][d] = {k: v for k, v in e.items() if k not in ("first_error", "invalid") and v is not None}
     b["record"] = {}
     orec = old.get("record", {})
     names = [n for (k, n), a in owner.items() if k == "record" and a == area]
@@ -670,6 +660,8 @@ def compare(m, base, expected, accept_cmd, reg):
         if e["open"] is None:
             F(f"lib.{d}: not measured (generation or build failed)")
             continue
+        for n in e["invalid"]:
+            F(f"lib.{d}: not proved, open or refuted: {n}")
         now, was = set(e["open"]), set(b["open"])
         eref, bref = set(e.get("refuted") or []), set(b.get("refuted") or [])
         # refuted: only from open; open again, or proved, means the statement changed

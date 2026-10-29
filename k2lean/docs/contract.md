@@ -112,7 +112,8 @@ What makes a generated library a good target for the loop, and where k2lean stan
 |---|---|---|
 | the frozen part delimited, with a cheap check that it did not move | accept or reject is automatic, and an edit that changes a statement by accident is rejected | `k2l-eval --freeze-record` right after generation, `--freeze-check` after each edit (below, "The frozen part"); about a second for kterm-ar. A hand module that mixes specification with proofs (ImpTypes' `Store.lean`, until the relation moves into the checker's K) blurs the boundary |
 | small search units | one experiment should rebuild one theorem or one function, not KEVM's whole `Equations`; iteration speed decides how much the loop explores | `Equations` is split into parts by weight (`gen --equations-part-weight`), and each proof has its own heartbeat budget; other modules (`Determinism`, relate's commutation lemmas) are one unit each |
-| a metric that does not depend on the machine's load | wall time on a shared, saturated host varies too much to compare two experiments | heartbeats count allocations and do not depend on load; they are measured per module by hand (`lean -j1 -DElab.async=false`, `design.md` §2.1), not per declaration, and no harness reports them |
+| a metric that does not depend on the machine's load | wall time on a shared, saturated host varies too much to compare two experiments | heartbeats count allocations and do not depend on load; `k2l-eval FILE MODULE` reports them per command of one module, elaborating it again (CT-4a) |
+| what is proved, read from the built library | a loop's edit (a proof moved, restated through its statement, added in a new file) is counted as it is, not by the generated text | `k2l-eval --result NS OUT.json`: each frozen name's kind and status (below, "The result"); the gate counts every library's obligations by it |
 | a baseline that builds | the loop improves something that works; an open obligation is a slot to fill | every library builds with its open obligations listed (`open-obligations.txt`) |
 | a reference for each derived definition | a faster implementation is accepted by a proof that it equals the generated definition (`fast = spec`, `@[csimp]`) | the generated definitions are the references; `step` is tied to `Step` by `Adequacy` |
 
@@ -128,3 +129,11 @@ The user's own Lean specification is added by naming its modules (`--freeze-reco
 A frozen obligation may be proved through its statement (`theorem X : X.statement`), the form `#k2l_proves` accepts.
 The fixture `demos/k/freeze` shows each report, a changed decreasing proof passing; the gate records and checks kterm-ar.
 Statements are not written twice: each lives once, in the generated file that proves it, and the fingerprint is the frozen record; a separate statements module would be a second copy of every statement to keep in step with the proofs.
+
+### The result
+
+`k2l-eval --result NS OUT.json [MODULE…]` (CT-4b) lists the frozen names of a built library with their status, read from its environment: `proved` (on Lean's three axioms, through the statement when there is one), `refuted` (the refutation's type the negation of the statement's closure, as `#k2l_refuted` checks), `open`, `axioms`, `moved` (from a freeze check) or `not-a-theorem`, and with the module that holds each, which is the module a loop evaluates.
+Its kinds come from the frozen names: `equation` (`NS.Eqn.*`, `NS.Simp.*`, `NS.Lemma.*`), `divergence`, `total`, and `other`.
+`--freeze-check` writes the same file for the recorded names (`OUTDIR/k2lean-result.json`), so a loop's run is judged by its record rather than by guards it may have edited.
+Heartbeats are not in it: per declaration they need the module elaborated again, at about the cost of its build, so a loop runs the per-command form on the module it tunes.
+The gate counts each library's stated, open and refuted obligations from this file rather than from the generated text (`gate-check.py` `results`).

@@ -220,6 +220,10 @@ else bad cargo-build "$L/cargo-build.log"; phase ""; python3 -I "$CHECK" check "
 if cargo test --release --locked -p k2lean --manifest-path "$WS/Cargo.toml" --no-fail-fast > "$L/cargo-test.log" 2>&1; then ok cargo-test "$L/cargo-test.log"
 else bad cargo-test "$L/cargo-test.log"; fi
 grep -E '^test result:' "$L/cargo-test.log" | awk '{ p += $4; f += $6 } END { printf "unit_passed = %d\nunit_failed = %d\n", p, f }' >> "$MEAS/run.toml"
+# the evaluator (lean/eval/K2lEval.lean): every library's result (`lib_result`), and core's steps
+EV=$T/lean/.lake/build/bin/k2l-eval
+if (cd "$T/lean" && "$RT" lake build k2l-eval) > "$L/k2l-eval-build.log" 2>&1; then ok k2l-eval-build "$L/k2l-eval-build.log"
+else bad k2l-eval-build "$L/k2l-eval-build.log"; fi
 
 # 3. the helpers the areas' phases (gate_AREA in tests/areas/AREA.sh) are written with
 declare -A KC=()
@@ -257,7 +261,7 @@ eqns() { # DIR NAME: build NAME.Equations; on failure turn the failed proofs int
   # regenerate and retry (twice at most)
   local d=$1 n=$2 o=$GEN/$1 k
   for k in 1 2 3; do
-    lbuild "$o" "build-$d-eqns-$k" "$n.Equations" && { ok "build $n.Equations" "$L/build-$d-eqns-$k.log"; return 0; }
+    lbuild "$o" "build-$d-eqns-$k" "$n.Equations" && { ok "build $n.Equations" "$L/build-$d-eqns-$k.log"; eqns_result "$d" "$n"; return 0; }
     [ "$k" = 3 ] && break
     "$G" open-from-log "$o/$n/Equations.lean" "$L/build-$d-eqns-$k.log" "$o/open-obligations.txt" >> "$L/gen-$d.log" 2>&1
     genlib "$d" || { bad "gen $d" "$L/gen-$d.log"; return 1; }
@@ -275,11 +279,29 @@ lib() { # DIR NAME [COMMAND...]: generate (then run COMMAND), Equations, the who
   ok "build $d" "$L/build-$d.log"
   lbuild "$o" "build-$d-guard" "${n}Test.Axioms" || { bad "guard $d" "$L/build-$d-guard.log"; return 1; }
   ok "guard $d" "$L/build-$d-guard.log"
+  lib_result "$d" "$n" "${n}Test.Axioms"
   # the fuel twins (`NS/Fuel.lean`, not imported by the library's root), with their axiom guard
   if [ -f "$o/$n/Fuel.lean" ]; then
     lbuild "$o" "build-$d-fuel" "$n.Fuel" || { bad "fuel $d" "$L/build-$d-fuel.log"; return 1; }
     ok "fuel $d" "$L/build-$d-fuel.log"
   fi
+}
+lib_result() { # DIR NAME MODULE...: the statuses of the built library, read from its environment
+  # (k2l-eval --result, of what MODULEs reach): what gate-check counts its obligations by; the last
+  # step that built more of the library writes it again
+  local d=$1 n=$2; shift 2
+  if (cd "$GEN/$d" && "$RT" lake env "$EV" --result "$n" "$L/result-$d.json" "$@") > "$L/result-$d.log" 2>&1
+  then ok "result $d" "$L/result-$d.log"; else bad "result $d" "$L/result-$d.log"; fi
+}
+eqns_result() { # DIR NAME: the result of a library's Equations, with the guard of its refutations
+  # (NAMETest/Refuted.lean, built here) when it has one, so a library built only as far as its
+  # Equations (an invariant's, a progress's) has its refuted obligations checked too
+  local d=$1 n=$2 m=("$2.Equations")
+  if [ -f "$GEN/$d/${n}Test/Refuted.lean" ]; then
+    lbuild "$GEN/$d" "build-$d-refuted" "${n}Test.Refuted" || { bad "refuted $d" "$L/build-$d-refuted.log"; return 0; }
+    ok "refuted $d" "$L/build-$d-refuted.log"; m+=("${n}Test.Refuted")
+  fi
+  lib_result "$d" "$n" "${m[@]}"
 }
 partlib() { # DIR TARGET: a library generated and built only as far as TARGET (what a demo needs)
   local d=$1

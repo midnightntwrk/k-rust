@@ -1,7 +1,7 @@
 import Frz.Spec
 
 /-! The proofs of the freeze fixture: two guarded theorems, an obligation with a frozen statement
-that is proved, and one that is open. -/
+that is proved, one that is open, and one that is refuted. -/
 
 namespace Frz
 
@@ -19,5 +19,10 @@ theorem two : two.statement := by
   simp [two.statement, f]
 
 def bound.statement : Prop := ∀ n, g n ≤ n
+
+def three.statement : Prop := f 1 = 3
+
+theorem three.refuted : ¬ three.statement := by
+  simp [three.statement, f]
 
 end Frz

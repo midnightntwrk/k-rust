@@ -186,6 +186,7 @@ lib_simple() { # DIR [SUB]: generate, cases, build, guard, run the cases, accept
   ok "build $d" "$L/build-$d.log"
   lbuild "$o" "build-$d-guard" KSimpleTest.Axioms || { bad "guard $d" "$L/build-$d-guard.log"; return 1; }
   ok "guard $d" "$L/build-$d-guard.log"
+  lib_result "$d" KSimple KSimpleTest.Axioms
   # the fuel twins (as `lib` builds them), before any demo imports them
   if [ -f "$o/KSimple/Fuel.lean" ]; then
     lbuild "$o" "build-$d-fuel" KSimple.Fuel || { bad "fuel $d" "$L/build-$d-fuel.log"; return 1; }
@@ -220,10 +221,9 @@ gate_core() {
   if runs lib overload && lib overload KOverload; then
     # the evaluator (CT-4a): heartbeats per command and each theorem against its frozen statement,
     # deterministic, no error; and a kernel replay of the module
-    if (cd "$T/lean" && "$RT" lake build k2l-eval) > "$L/k2l-eval.log" 2>&1 &&
-       (cd "$GEN/overload" && "$RT" lake env "$T/lean/.lake/build/bin/k2l-eval" KOverload/Equations.lean \
+    if (cd "$GEN/overload" && "$RT" lake env "$EV" KOverload/Equations.lean \
           KOverload.Equations "$L/k2l-eval-overload.jsonl" &&
-        "$RT" lake env "$T/lean/.lake/build/bin/k2l-eval" --replay KOverload.Equations) >> "$L/k2l-eval.log" 2>&1
+        "$RT" lake env "$EV" --replay KOverload.Equations) > "$L/k2l-eval.log" 2>&1
     then ok "evaluator" "$L/k2l-eval.log"; else bad "evaluator" "$L/k2l-eval.log"; fi
   fi
   # recursive functions whose termination measures the generator synthesizes (demos/k/term);
@@ -231,13 +231,13 @@ gate_core() {
   # checked under the axiom guard (KTermTest/Diverges.lean)
   runs lib kterm-ar && kc kterm && lib kterm-ar KTerm
   # the frozen part (CT-3): kterm-ar's recorded and checked unchanged (`k2l-eval --freeze-record`,
-  # `--freeze-check`), and the freeze fixture's edits, each with its report (demos/k/freeze/run.sh)
+  # `--freeze-check`), the check's result the same as the library's (CT-4b), and the freeze
+  # fixture's edits, each with its report and result (demos/k/freeze/run.sh)
   if runs lib kterm-ar; then
-    fz=$T/lean/.lake/build/bin/k2l-eval
-    if (cd "$T/lean" && "$RT" lake build k2l-eval) > "$L/freeze.log" 2>&1 &&
-       (cd "$GEN/kterm-ar" && "$RT" lake env "$fz" --freeze-record KTerm "$L/freeze-kterm-ar" &&
-        "$RT" lake env "$fz" --freeze-check KTerm "$L/freeze-kterm-ar") >> "$L/freeze.log" 2>&1 &&
-       "$D/k/freeze/run.sh" "$fz" "$W/freeze" >> "$L/freeze.log" 2>&1
+    if (cd "$GEN/kterm-ar" && "$RT" lake env "$EV" --freeze-record KTerm "$L/freeze-kterm-ar" &&
+        "$RT" lake env "$EV" --freeze-check KTerm "$L/freeze-kterm-ar") > "$L/freeze.log" 2>&1 &&
+       cmp "$L/result-kterm-ar.json" "$L/freeze-kterm-ar/k2lean-result.json" >> "$L/freeze.log" 2>&1 &&
+       "$D/k/freeze/run.sh" "$EV" "$W/freeze" >> "$L/freeze.log" 2>&1
     then ok "freeze" "$L/freeze.log"; else bad "freeze" "$L/freeze.log"; fi
   fi
   # the checks of `#k2l_refuted` (a refutation's form, restatements, the parameters' closure, sorry)
