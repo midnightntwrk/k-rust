@@ -1,6 +1,8 @@
 //! Expression notation for builtin applications: the short-circuit Boolean
 //! connectives `a && b` and `a || b`, Rust's operators (`a + b`, `a < b`,
-//! `!a`, `-a`), and domain method calls `recv.op::<D>(args..)`.
+//! `!a`, `-a`), domain method calls `recv.op::<D>(args..)`, and the
+//! collection notation: index reads `m[k]` and collection methods without a
+//! turbofish (`m.contains_key(k)`, `s.union(t)`).
 //!
 //! Each form is notation for one builtin call and has no meaning of its own.
 //! Term validation lowers a form to the application it denotes, marked
@@ -8,13 +10,18 @@
 //! whose head is the operation's path in the `builtin` module
 //! (`bool::and_then`). An operator does not name its domain, so its head is
 //! the operator's marker (`__operator::add`), which semantic analysis replaces
-//! with the operation of the domain the operands' inferred sorts choose.
+//! with the operation of the domain the operands' inferred sorts choose. An
+//! index or a collection method does not name its collection either: its head
+//! is the method's marker (`__collection::contains`), applied to the denoted
+//! call's arguments in that call's order, and semantic analysis replaces it
+//! with the operation of the domain its receiver's inferred sort chooses
+//! ([`CollectionMethod`]).
 //! Expansion qualifies every head with the facade, so it names the facade's
 //! marker whatever the facade crate is called and whether or not the author
 //! imported the operation's module. Code that rustc checks receives the
 //! denoted calls through [`denote_notation`], with each form's own spans.
 
-use krs_ir::{BuiltinOperation, BuiltinOperator, OperatorReading};
+use krs_ir::{BuiltinOperation, BuiltinOperator, CollectionMethod, OperatorReading};
 use proc_macro2::Span;
 use quote::ToTokens;
 use syn::parse::ParseStream;
@@ -23,8 +30,8 @@ use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::visit_mut::VisitMut;
 use syn::{
-    BinOp, Expr, ExprBinary, ExprCall, ExprMethodCall, ExprPath, ExprUnary, GenericArgument, Ident,
-    Path, PathArguments, PathSegment, Token, Type, UnOp,
+    BinOp, Expr, ExprBinary, ExprCall, ExprIndex, ExprMethodCall, ExprPath, ExprUnary,
+    GenericArgument, Ident, Path, PathArguments, PathSegment, Token, Type, UnOp,
 };
 
 use crate::{SyntaxError, SyntaxErrorKind};
@@ -47,12 +54,13 @@ fn notation_error(reason: String, span: Span) -> SyntaxError {
 }
 
 /// Whether `expression` is a notation form at its root: `&&`, `||`, an
-/// operator, or a method call. A binary expression is always one, so a
-/// compound assignment such as `a += b` is reported as notation it is not.
+/// operator, an index, or a method call. A binary expression is always one,
+/// so a compound assignment such as `a += b` is reported as notation it is
+/// not.
 #[must_use]
 pub fn is_expression_notation(expression: &Expr) -> bool {
     match expression {
-        Expr::Binary(_) | Expr::MethodCall(_) => true,
+        Expr::Binary(_) | Expr::MethodCall(_) | Expr::Index(_) => true,
         Expr::Unary(unary) => unary_operator(unary).is_some(),
         _ => false,
     }
@@ -157,6 +165,7 @@ pub(crate) fn denoted_call(expression: &Expr) -> Result<Option<ExprCall>, Syntax
             .map(|operator| unary_call(unary, operator))
             .transpose(),
         Expr::MethodCall(call) => method_call(call).map(Some),
+        Expr::Index(index) => index_call(index).map(Some),
         // `[a, ..rest]` is one level of list notation.
         Expr::Array(array) => crate::list_notation::result_level(array).map(Some),
         _ => Ok(None),
@@ -268,13 +277,80 @@ fn operator_calls(operator: BuiltinOperator) -> String {
     }
 }
 
+/// `m[k]` is the index marker's call `__collection::index(m, k)`; the head
+/// spans the brackets.
+fn index_call(index: &ExprIndex) -> Result<ExprCall, SyntaxError> {
+    crate::term::reject_attributes(&index.attrs, index.span())?;
+    let (open, close) = (
+        index.bracket_token.span.open(),
+        index.bracket_token.span.close(),
+    );
+    let mut arguments = Punctuated::new();
+    arguments.push_value((*index.expr).clone());
+    arguments.push_punct(Token![,](close));
+    arguments.push_value((*index.index).clone());
+    let marker = CollectionMethod::Index.facade_marker();
+    Ok(ExprCall {
+        attrs: Vec::new(),
+        func: Box::new(generated_head(marker.module, marker.name, open, close)),
+        paren_token: syn::token::Paren(close),
+        args: arguments,
+    })
+}
+
+/// `recv.name(args..)` without a turbofish, for a collection method `name`:
+/// its marker's call with the receiver at the argument of the denoted call
+/// it fills (`s.contains(x)` is `__collection::contains(x, s)`); the head
+/// takes the method name's span.
+fn collection_method_call(
+    call: &ExprMethodCall,
+    method: CollectionMethod,
+    span: Span,
+) -> Result<ExprCall, SyntaxError> {
+    let written = call.args.len() + 1;
+    if written != method.arity() {
+        let expected = match method.arity() - 1 {
+            0 => "no argument".to_owned(),
+            1 => "one argument".to_owned(),
+            count => format!("{count} arguments"),
+        };
+        return Err(notation_error(
+            format!(
+                "`{}` takes {expected} besides its receiver",
+                method.written()
+            ),
+            span,
+        ));
+    }
+    let mut operands = call.args.iter().cloned().collect::<Vec<_>>();
+    operands.insert(method.receiver(), (*call.receiver).clone());
+    let mut arguments = Punctuated::new();
+    for operand in operands {
+        if !arguments.is_empty() {
+            arguments.push_punct(Token![,](span));
+        }
+        arguments.push_value(operand);
+    }
+    let marker = method.facade_marker();
+    Ok(ExprCall {
+        attrs: Vec::new(),
+        func: Box::new(generated_head(marker.module, marker.name, span, span)),
+        paren_token: call.paren_token,
+        args: arguments,
+    })
+}
+
 /// `recv.op::<D>(args..)` is `d::op(recv, args..)`, where `d` is the builtin
-/// module of domain `D`; the head takes the method name's span.
+/// module of domain `D`, and `recv.name(args..)` without a turbofish is the
+/// collection method `name`; the head takes the method name's span.
 fn method_call(call: &ExprMethodCall) -> Result<ExprCall, SyntaxError> {
     crate::term::reject_attributes(&call.attrs, call.span())?;
     let name = syn::ext::IdentExt::unraw(&call.method).to_string();
     let span = call.method.span();
     let Some(turbofish) = &call.turbofish else {
+        if let Some(method) = CollectionMethod::named(&name) {
+            return collection_method_call(call, method, span);
+        }
         return Err(missing_domain(&name, span));
     };
     let domain = match (turbofish.args.len(), turbofish.args.first()) {
@@ -337,13 +413,14 @@ fn method_call(call: &ExprMethodCall) -> Result<ExprCall, SyntaxError> {
     })
 }
 
-/// The error for a method call without a domain turbofish, listing the
-/// domains whose module defines the operation.
+/// The error for a method call without a domain turbofish that is no
+/// collection method, listing the domains whose module defines the
+/// operation.
 fn missing_domain(name: &str, span: Span) -> SyntaxError {
     let domains = defining_domains(name);
     let reason = if domains.is_empty() {
         format!(
-            "`.{name}(..)` is not a builtin operation of any domain; a term's only methods are builtin operations, written `receiver.operation::<Domain>(..)`"
+            "`.{name}(..)` is neither a collection method nor a builtin operation of any domain; a term's methods are the collection methods (`m.get_or(k, d)`, `s.contains(x)`, ..) and builtin operations, written `receiver.operation::<Domain>(..)`"
         )
     } else {
         format!(
@@ -407,10 +484,17 @@ pub(crate) fn notation_in_pattern(expression: &Expr) -> Option<SyntaxError> {
             if self.0.is_some() {
                 return;
             }
-            // `|` between patterns is an alternative, not the operator.
+            // `|` between patterns is an alternative, not the operator. An
+            // index or a collection method denotes an application of a
+            // collection's function, which the pattern holds as it holds the
+            // call, so semantic analysis judges it where it stands
+            // (`krs::analysis::function-in-pattern`).
             let alternative =
                 matches!(expression, Expr::Binary(binary) if matches!(binary.op, BinOp::BitOr(_)));
-            if is_expression_notation(expression) && !alternative {
+            if is_expression_notation(expression)
+                && !alternative
+                && !is_collection_notation(expression)
+            {
                 self.0 = Some(pattern_error(expression));
                 return;
             }
@@ -424,6 +508,20 @@ pub(crate) fn notation_in_pattern(expression: &Expr) -> Option<SyntaxError> {
     let mut first = First(None);
     first.visit_expr(expression);
     first.0
+}
+
+/// Whether `expression` is an index or a collection method at its root:
+/// notation for an application of a collection operation.
+pub(crate) fn is_collection_notation(expression: &Expr) -> bool {
+    match expression {
+        Expr::Index(_) => true,
+        Expr::MethodCall(call) => {
+            call.turbofish.is_none()
+                && CollectionMethod::named(&syn::ext::IdentExt::unraw(&call.method).to_string())
+                    .is_some()
+        }
+        _ => false,
+    }
 }
 
 /// `error`, the failure to parse the tokens at `input` as a pattern, or the

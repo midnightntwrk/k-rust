@@ -325,7 +325,7 @@ fn malformed_method_calls_name_the_domain_or_the_call_form() {
         ),
         (
             "a.clone()",
-            "`.clone(..)` is not a builtin operation of any domain",
+            "`.clone(..)` is neither a collection method nor a builtin operation of any domain",
         ),
         ("f(a.gt::<Int>(0) && b.lt(1))", "write `lt::<Int>`"),
     ] {
@@ -621,5 +621,121 @@ fn a_pattern_alternative_is_not_reported_as_an_operator() {
     assert!(
         reason.starts_with("a method call is not a pattern"),
         "{reason}"
+    );
+}
+
+#[test]
+fn collection_notation_denotes_its_markers_with_the_calls_argument_order() {
+    for (source, expected) in [
+        ("m[k]", "__collection::index(m, k)"),
+        ("l[-1]", "__collection::index(l, -1)"),
+        (
+            "m[k][j]",
+            "__collection::index(__collection::index(m, k), j)",
+        ),
+        ("m.get_or(k, 0)", "__collection::get_or(m, k, 0)"),
+        // The collection is the second argument of `map::in_keys(k, m)` and
+        // of `set::contains(x, s)`.
+        ("m.contains_key(k)", "__collection::contains_key(k, m)"),
+        ("s.contains(x)", "__collection::contains(x, s)"),
+        (
+            "m.update(k, v).without(j)",
+            "__collection::without(__collection::update(m, k, v), j)",
+        ),
+        ("m.without_all(s)", "__collection::without_all(m, s)"),
+        ("m.extend(n)", "__collection::extend(m, n)"),
+        ("m.keys().len()", "__collection::len(__collection::keys(m))"),
+        ("m.keys_list()", "__collection::keys_list(m)"),
+        ("m.values()", "__collection::values(m)"),
+        (
+            "s.union(t).difference(u).intersection(v)",
+            "__collection::intersection(__collection::difference(__collection::union(s, t), u), v)",
+        ),
+        ("s.is_subset(t)", "__collection::is_subset(s, t)"),
+        ("s.to_list()", "__collection::to_list(s)"),
+        ("m[k] + 1", "__operator::add(__collection::index(m, k), 1)"),
+        (
+            "m.contains_key(k) && m[k] > 0",
+            "bool::and_then(__collection::contains_key(k, m), __operator::gt(__collection::index(m, k), 0))",
+        ),
+        (
+            "m[k].add::<Int>(1)",
+            "int::add(__collection::index(m, k), 1)",
+        ),
+    ] {
+        assert_eq!(denoted_source(source), expected, "{source}");
+    }
+}
+
+#[test]
+fn collection_notation_heads_span_the_brackets_and_the_method_name() {
+    let source = "m[k].contains(x)";
+    let term = krs_syntax::TermExpression::parse_source(source).unwrap();
+    let columns = |range: krs_syntax::TokenRange| (range.start().column, range.end().column);
+    let heads = term
+        .full_provenance()
+        .unwrap()
+        .iter()
+        .filter(|anchor| anchor.role() == ProvenanceRole::TermApplicationHead)
+        .map(|anchor| columns(anchor.range()))
+        .collect::<Vec<_>>();
+    assert_eq!(heads, [(5, 13), (1, 4)]);
+}
+
+#[test]
+fn denoted_tokens_call_the_collection_markers() {
+    let term = krs_syntax::TermExpression::parse_source("Wrap(s.contains(m[k]))").unwrap();
+    let builtin: syn::Path = syn::parse_str("::renamed::builtin").unwrap();
+    assert_eq!(
+        term.denoted_tokens(&builtin).to_string(),
+        "Wrap (:: renamed :: builtin :: __collection :: contains (:: renamed :: builtin :: __collection :: index (m , k) , s))"
+    );
+}
+
+#[test]
+fn collection_methods_check_their_arguments_and_leave_other_names_to_the_domains() {
+    for (source, expected) in [
+        (
+            "m.len(1)",
+            "`.len()` takes no argument besides its receiver",
+        ),
+        (
+            "m.get_or(k)",
+            "`.get_or(..)` takes 2 arguments besides its receiver",
+        ),
+        (
+            "s.contains()",
+            "`.contains(..)` takes one argument besides its receiver",
+        ),
+        (
+            "m.size()",
+            "`.size(..)` is neither a collection method nor a builtin operation of any domain",
+        ),
+        // A turbofish names a scalar domain's operation, as before.
+        (
+            "m.len::<Int>()",
+            "the builtin module `int` has no operation `len`",
+        ),
+    ] {
+        let error = krs_syntax::TermExpression::parse_source(source).unwrap_err();
+        let SyntaxErrorKind::InvalidExpressionNotation { reason } = error.kind() else {
+            panic!("{source}: expected an expression-notation error, found {error}");
+        };
+        assert!(reason.contains(expected), "{source}: {reason}");
+    }
+}
+
+/// An index or a collection method in a pattern denotes the application of a
+/// collection's function, which semantic analysis judges where it stands, as
+/// it judges the call (`krs::analysis::function-in-pattern`).
+#[test]
+fn a_left_hand_side_holds_collection_notation_as_the_call() {
+    let rule = krs_syntax::RuleItem::parse_source(
+        "fn r(k::term![Check(m[k], s.contains(x))]: Term<Bool>) -> Term<Bool> { x }",
+    )
+    .unwrap();
+    assert_eq!(
+        denoted(rule.subject_tree()),
+        "Check(__collection::index(m, k), __collection::contains(x, s))"
     );
 }

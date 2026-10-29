@@ -285,6 +285,19 @@ fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
                 .iter()
                 .try_for_each(|field| check_ground(&field.expr, name))
         }
+        // An index or a collection method denotes the application of a collection's function,
+        // as a call does, and its value is checked as the call's: the applied head says it
+        // computes (`krs::analysis::constant-applies-function`).
+        Expr::Index(index) => {
+            check_ground(&index.expr, name)?;
+            check_ground(&index.index, name)
+        }
+        Expr::MethodCall(call) if crate::notation::is_collection_notation(expression) => {
+            check_ground(&call.receiver, name)?;
+            call.args
+                .iter()
+                .try_for_each(|argument| check_ground(argument, name))
+        }
         Expr::MethodCall(_) | Expr::Binary(_) | Expr::Unary(_) => {
             not_ground("a builtin operation", expression.span())
         }

@@ -154,3 +154,50 @@ fn check_selects_module_files_and_skips_the_configured_target_directory() {
         assert!(!stderr.contains("nested"), "{stderr}");
     }
 }
+
+/// Index reads and collection methods are Rust expressions, which a KRS body
+/// formats as written, and formatting the output again changes nothing.
+#[test]
+fn collection_notation_round_trips() {
+    let temporary = temp_dir();
+    let root = temporary.path();
+    let source = root.join("lib.rs");
+    fs::write(
+        &source,
+        "k::rules! { for Machine; use Op::*; \
+         #[k::requires(e.contains_key(n) && st.contains(n) && e[n] > 0)] \
+         bump: { k: [Bump(n), ..], env: e, stack: st } => { k: [..], env: e.update(n, e[n] + 1).without(0), stack: st.update(0, e.get_or(n, 0)) }; }\n\
+         k::equations! { for Size; size: (m, s, l) => m.len() + s.union(t).len() + l[-1]; }\n\
+         #[k::function(total)]\npub fn Keys(m: Term<Map>, s: Term<Set>) -> Term<List> { k::term![m.keys().difference(s).to_list()] }\n",
+    )
+    .unwrap();
+    let formatted = format_file(&source, &FormatOptions::default()).unwrap();
+    expect_test::expect![[r"
+        k::rules! {
+            for Machine;
+            use Op::*;
+            #[k::requires(e.contains_key(n) && st.contains(n) && e[n] > 0)]
+            bump: {
+                k: [Bump(n), ..],
+                env: e,
+                stack: st,
+            } => {
+                k: [..],
+                env: e.update(n, e[n] + 1).without(0),
+                stack: st.update(0, e.get_or(n, 0)),
+            };
+        }
+        k::equations! {
+            for Size;
+            size: (m, s, l) => m.len() + s.union(t).len() + l[-1];
+        }
+        #[k::function(total)]
+        pub fn Keys(m: Term<Map>, s: Term<Set>) -> Term<List> {
+            k::term![m.keys().difference(s).to_list()]
+        }
+    "]]
+    .assert_eq(&formatted.output);
+    fs::write(&source, &formatted.output).unwrap();
+    let again = format_file(&source, &FormatOptions::default()).unwrap();
+    assert_eq!(again.output, formatted.output);
+}
