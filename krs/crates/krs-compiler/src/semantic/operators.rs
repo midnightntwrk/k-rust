@@ -367,11 +367,13 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// The sort a binder is known to have: its declared or resolved sort, or
-    /// the one greatest sort below every constraint collected so far. A local
-    /// binder's sort is not known before its scope is lowered.
+    /// the one greatest sort below every constraint collected so far; a
+    /// `let` local's is its value's ([`StructuredTermBuilder::let_local_sort`]).
+    /// A pattern's local binder's sort is not known before its scope is
+    /// lowered.
     fn binder_sort(&self, name: &str) -> Option<SemanticSortRef> {
         if self.is_let_local_name(name) || self.is_inferring_local(name) {
-            return None;
+            return self.let_local_sort(name);
         }
         if let Some(sort) = self.binding_sorts.get(name) {
             return Some(sort.clone());

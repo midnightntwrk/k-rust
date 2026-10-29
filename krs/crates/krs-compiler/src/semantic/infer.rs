@@ -128,8 +128,9 @@ pub(super) struct LocalBinders {
     /// key; `None` is the value's sort (`let x = v`), known once lowered.
     let_sorts: BTreeMap<ProvenanceKey, BTreeMap<String, Option<SemanticSortRef>>>,
     /// The names bound by the enclosing `let` statements while inferring,
-    /// innermost last.
-    let_names: Vec<BTreeSet<String>>,
+    /// innermost last, each with its sort when it is known: an ascribed
+    /// sort, a destructured name's, or the sort its value is known to have.
+    let_names: Vec<BTreeMap<String, Option<SemanticSortRef>>>,
     /// The identity and sort of each name bound by the enclosing `let`
     /// statements while lowering, innermost last.
     let_scopes: Vec<BTreeMap<String, (SemanticId, SemanticSortRef)>>,
@@ -546,7 +547,21 @@ impl StructuredTermBuilder<'_> {
     /// Enters the scope of local binder names while inferring: a `let`
     /// body's, or an `ml::exists` closure's (KF-039).
     pub(super) fn push_let_names(&mut self, names: BTreeSet<String>) {
-        self.locals.let_names.push(names);
+        self.locals
+            .let_names
+            .push(names.into_iter().map(|name| (name, None)).collect());
+    }
+
+    /// The sort a name the innermost enclosing `let` that binds it is known
+    /// to give it while inferring, if any.
+    pub(super) fn let_local_sort(&self, name: &str) -> Option<SemanticSortRef> {
+        self.locals
+            .let_names
+            .iter()
+            .rev()
+            .find_map(|names| names.get(name))
+            .cloned()
+            .flatten()
     }
 
     /// Leaves the innermost scope [`Self::push_let_names`] entered.
@@ -707,7 +722,7 @@ impl StructuredTermBuilder<'_> {
         self.locals
             .let_names
             .iter()
-            .any(|names| names.contains(name))
+            .any(|names| names.contains_key(name))
     }
 
     /// Infers one `let pattern = value;` statement and the rest of its block
@@ -769,9 +784,23 @@ impl StructuredTermBuilder<'_> {
                 sorts.insert(name.clone(), Some(sort.clone()));
             }
         }
-        self.locals.let_sorts.insert(key.clone(), sorts);
         self.infer(value, None, false)?;
-        self.locals.let_names.push(names);
+        // A name the pattern binds whole has its value's sort, as far as it
+        // is known before the body (a later pass knows more), so that an
+        // operator or a method whose operand it is chooses as its value
+        // would; a destructured name has the sort its pattern gives it.
+        let known = names
+            .iter()
+            .map(|name| {
+                let sort = match sorts.get(name) {
+                    Some(Some(sort)) => Some(sort.clone()),
+                    _ => self.operand_sort(value),
+                };
+                (name.clone(), sort)
+            })
+            .collect();
+        self.locals.let_sorts.insert(key.clone(), sorts);
+        self.locals.let_names.push(known);
         let inferred = self.infer(body, expected_sort, false);
         self.locals.let_names.pop();
         inferred
