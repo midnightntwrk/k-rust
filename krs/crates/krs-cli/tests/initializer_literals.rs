@@ -187,7 +187,7 @@ fn initializers_hold_builtin_literals_and_lexemes() {
         <who> #token("$main","Id") </who>
         <label> #token("entry","Label") </label>
         <labels> ListItem(#token("exit","Label")) </labels>
-        <env> .Map [ #token("$x","Id") <- #token("b\"\x00\xff\"","Bytes") ] [ #token("$y","Id") <- 1 ] </env>
+        <env> #token("$x","Id") |-> #token("b\"\x00\xff\"","Bytes") #token("$y","Id") |-> 1 </env>
         <stack> ListItem(#token("b\"\"","Bytes")) ListItem(#token("b\"\x61\x62\"","Bytes")) </stack>"#]]
     .assert_eq(&configuration(&definition));
 
