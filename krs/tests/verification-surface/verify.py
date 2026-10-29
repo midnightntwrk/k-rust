@@ -324,7 +324,7 @@ IMP_SUM_FRAGMENTS = (
     "module IMP-SUM-SPEC\n  imports BOOL\n  imports ID-SYNTAX\n  imports IMP-VERIFICATION-LEMMAS\n",
     "  claim [dollar-sum-spec]:\n"
     "    <k> while ( ! ($n <= 0) ) { $s = $s + $n ; $n = $n + - 1 ; } ~> Tail:K => .K ~> Tail:K </k>\n"
-    "    <env> $n |-> N:Int $s |-> S:Int => $n |-> 0 $s |-> S:Int +Int (((N:Int +Int 1) *Int N:Int) /Int 2) </env>\n"
+    "    <env> $n |-> N:Int $s |-> S:Int => .Map [ $n <- 0 ] [ $s <- S:Int +Int (((N:Int +Int 1) *Int N:Int) /Int 2) ] </env>\n"
     "    requires N:Int >=Int 0\n"
     "    [circularity]\n",
 )

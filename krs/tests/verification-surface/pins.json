@@ -40,7 +40,7 @@
     },
     "krs-verification-surface-imp-sum": {
       "definition.k": "535077e9315d3027c32a509d905586ff14ed5b758817cbbd5322880976f41d73",
-      "spec.k": "be388bad9696ce082bd89ca4af1b07fbbe40a4a6040f14faa9b81a3602f5e180"
+      "spec.k": "27aab264067a3d2305e0bc485e759d4d0034314aae0180ddf87ee1fde3b04000"
     },
     "krs-verification-surface-l22-verification": {
       "definition.k": "6238a9bf46dae85d2b3b12b240cae3c40dbea32ee21d63998656b4f116351c63",
@@ -64,7 +64,7 @@
     "krs-verification-surface-hook-ablation": "b14c9f07e5c0ad596090d4a0a88847158de8465ffb55fc97aae17df2b44508d7",
     "krs-verification-surface-conc": "226fa4cd5281d70e6b495f04e1c65171a51abf44d96d9e6ce15368ee011160cc",
     "krs-verification-surface-conc-smt-lemma": "a5b1ed5c2ad47d424e1556154728d2919a3f5343d3359aa4da3303524ea68601",
-    "krs-verification-surface-imp-sum": "79d0a9d46ca1a177bb29b3bce38c58fca476630a402d193fdfedd472616c5d17",
+    "krs-verification-surface-imp-sum": "80b792c2b81e21fb066be18256f8fe96b2a9ea4b2fa2def7f05252e67c0554b2",
     "krs-verification-surface-l22-verification": "1688167f61d3576b87aa98cf60d3053461d0fc23310cfe7d1b78cc0f14ddcaaf",
     "krs-verification-surface-l22-lesson": "d8b100205640d26a22331ceb8d5d982442510021261c0f92ecef32d579501b6f"
   },
