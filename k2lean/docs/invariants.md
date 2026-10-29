@@ -20,6 +20,7 @@ def Preserved (S : α → α → Prop) (P : α → Prop) : Prop :=
 (`KPrelude.Preserved`, `lean/prelude/KPrelude/Invariant.lean`).
 `Preserved Step P` says: every rule, applied to any configuration that satisfies `P`, gives a configuration that satisfies `P`, whatever the program.
 With a theorem `init_holds : P (init pgm env)` about the generated initial configuration, it gives `star : Star Step (init pgm env) c → P c`: every configuration reachable from a program's start satisfies `P`.
+The same holds along runs: `always : ∀ s, s 0 = init pgm env → Paths.IsRun Step s → ∀ n, P (s n)` (`KPrelude.Paths`, where a run that halts repeats its last configuration), the form temporal statements build on.
 
 ### 1.2 What it says and what it does not
 
@@ -50,7 +51,7 @@ A claim false in general can then hold: `demos/claims/specs/imp-inv-spec.k` copi
 |---|---|---|
 | you write | a K function `f(…) -> Bool`, in the K definition or in KRS | a Lean predicate `P`, in your own Lake project |
 | you run | `k2lean gen --invariant f@CELL` | `k2lean new-invariant`, then `lake build` |
-| the statement | generated with the library: `Invariant.preserved`, `init_holds`, `star`, `stepsN` | yours, in a skeleton the command writes |
+| the statement | generated with the library: `Invariant.preserved`, `init_holds`, `star`, `stepsN`, `always` | yours, in a skeleton the command writes |
 | per-rule proofs | generated; the rules the tactic does not close are proved in a hand module | the tactic `k2l_preserve … hand NS`, and your hand cases |
 | choose it when | the property belongs to the language: K authors read it, it changes with the spec, every regenerated definition gets its own theorem | the property needs what a K function cannot express (a quantifier, a parameter, another Lean library), relates several cells, or is a proof device |
 
@@ -237,7 +238,9 @@ theorem Invariant.init_holds (pgm : SortStmt) (env : SortMap)
     (h_env : K.envKeysOk env = some true) : Invariant (init pgm env)
 theorem Invariant.star {pgm env} (h_env : …) {c} (h : Star Step (init pgm env) c) : Invariant c
 theorem Invariant.stepsN {pgm env} (h_env : …) {n c} (h : StepsN Step n (init pgm env) c) : Invariant c
-#k2l_assert_axioms Invariant.preserved Invariant.init_holds Invariant.star Invariant.stepsN
+theorem Invariant.always {pgm env} (h_env : …) :
+    ∀ s, s 0 = init pgm env → Paths.IsRun Step s → ∀ n, Invariant (s n)
+#k2l_assert_axioms Invariant.preserved Invariant.init_holds Invariant.star Invariant.stepsN Invariant.always
 ```
 
 - Each case is `by k2l_inv`, a local macro for `k2l_preserve` with the invariant's unfolding set (the parts, the projections, the K equations, the fold's `_iff`).
@@ -381,7 +384,7 @@ The command writes a Lake project; nothing in it is ever regenerated, and the co
 | `lakefile.lean` | requires `KPrelude` and `KImp` by relative path |
 | `EnvBound/Invariant.lean` | `def Invariant : KImp.SortGeneratedTopCell → Prop := fun _ => True`, a placeholder |
 | `EnvBound/Cases.lean` | `namespace hand` with a marker line, then `theorem preserved : Preserved KImp.Step Invariant := by k2l_preserve hand EnvBound.hand` |
-| `EnvBound/Run.lean` | `init_holds`, `star`, `stepsN`, and `#k2l_assert_axioms` |
+| `EnvBound/Run.lean` | `init_holds`, `star`, `stepsN` (a skeleton from `k2lean new-invariant` also has `always`), and `#k2l_assert_axioms` |
 
 The skeleton builds at once: `k2l_preserve: 79 of 79 rules closed`.
 Every command and module of this section was run as written on 2026-10-25 (Lean v4.34.0, kimp in the default arity-indexed encoding), with the results shown.

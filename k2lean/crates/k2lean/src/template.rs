@@ -11,7 +11,8 @@
 //!   `NAME.preserved : Preserved Step Invariant` by `k2l_preserve … hand NAME.hand`, which takes
 //!   the hand cases by name and closes the other rules' cases with its closers;
 //! - `NAME/Run.lean`: `init_holds` (the predicate at the generated `init`) and the corollaries
-//!   `star` and `stepsN` (every configuration reachable from `init`), under the axiom guard.
+//!   `star` and `stepsN` (every configuration reachable from `init`) and `always` (every point of every
+//!   run from it), under the axiom guard.
 //!
 //! Nothing in it is regenerated: every file is the user's once written, and the command never
 //! overwrites one. A hand case is stated by reference to the generated `Step.Case.r`, so after
@@ -200,8 +201,11 @@ fn skeleton(lib: &Lib, name: &str, lib_rel: &Path, require: &str, toolchain: &st
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "import {name}.Cases\nimport {ns}.Init\nimport KPrelude.InvSteps\nimport KPrelude.Tactic\n\n/-!\n# Every run keeps `Invariant` (kind 2 layout: `Run.lean`)\n\nHAND-WRITTEN, stable under edits of the K rules (it depends on the configuration declaration\nonly, through the generated `{ns}.init`). `init_holds` is `Invariant` at the initial configuration\nfor the configuration variables {vars}; add the hypotheses on them that it needs (krust accepts any\nvalue of their sorts). `star` and `stepsN` extend it to every configuration reachable from there.\n-/\n\nnamespace {name}\n\nopen KPrelude\n\n/-- The initial configuration satisfies `Invariant`. -/\ntheorem init_holds {} : Invariant ({ns}.init {}) :=\n  trivial\n\n/-- Every configuration reachable from the initial configuration satisfies `Invariant`. -/\ntheorem star {} {{c : {top}}} (h : Star {ns}.Step ({ns}.init {}) c) : Invariant c :=\n  preserved.star h (init_holds {})\n\n/-- Every configuration reached in `n` steps from the initial configuration satisfies `Invariant`. -/\ntheorem stepsN {} {{n : Nat}} {{c : {top}}} (h : StepsN {ns}.Step n ({ns}.init {}) c) : Invariant c :=\n  preserved.stepsN h (init_holds {})\n\n#k2l_assert_axioms preserved init_holds star stepsN\n\nend {name}\n",
+                "import {name}.Cases\nimport {ns}.Init\nimport KPrelude.InvSteps\nimport KPrelude.Paths\nimport KPrelude.Tactic\n\n/-!\n# Every run keeps `Invariant` (kind 2 layout: `Run.lean`)\n\nHAND-WRITTEN, stable under edits of the K rules (it depends on the configuration declaration\nonly, through the generated `{ns}.init`). `init_holds` is `Invariant` at the initial configuration\nfor the configuration variables {vars}; add the hypotheses on them that it needs (krust accepts any\nvalue of their sorts). `star` and `stepsN` extend it to every configuration reachable from there, `always` to every point\nof every run from there.\n-/\n\nnamespace {name}\n\nopen KPrelude\n\n/-- The initial configuration satisfies `Invariant`. -/\ntheorem init_holds {} : Invariant ({ns}.init {}) :=\n  trivial\n\n/-- Every configuration reachable from the initial configuration satisfies `Invariant`. -/\ntheorem star {} {{c : {top}}} (h : Star {ns}.Step ({ns}.init {}) c) : Invariant c :=\n  preserved.star h (init_holds {})\n\n/-- Every configuration reached in `n` steps from the initial configuration satisfies `Invariant`. -/\ntheorem stepsN {} {{n : Nat}} {{c : {top}}} (h : StepsN {ns}.Step n ({ns}.init {}) c) : Invariant c :=\n  preserved.stepsN h (init_holds {})\n\n/-- Every point of every run from the initial configuration satisfies `Invariant`. -/\ntheorem always {} :\n    ∀ s, s 0 = {ns}.init {} → Paths.IsRun {ns}.Step s → ∀ n, Invariant (s n) :=\n  Paths.always_of_preserved preserved (init_holds {})\n\n#k2l_assert_axioms preserved init_holds star stepsN always\n\nend {name}\n",
                 params.join(" "),
+                args.join(" "),
+                implicit.join(" "),
+                args.join(" "),
                 args.join(" "),
                 implicit.join(" "),
                 args.join(" "),
@@ -212,7 +216,7 @@ fn skeleton(lib: &Lib, name: &str, lib_rel: &Path, require: &str, toolchain: &st
             )
         }
         None => format!(
-            "import {name}.Cases\nimport KPrelude.InvSteps\nimport KPrelude.Tactic\n\n/-!\n# Every run keeps `Invariant` (kind 2 layout: `Run.lean`)\n\nHAND-WRITTEN. `{ns}` has no generated `init` (the generator's note says why), so the corollaries\nstart from any configuration that satisfies `Invariant`.\n-/\n\nnamespace {name}\n\nopen KPrelude\n\ntheorem star {{c₀ c : {top}}} (h₀ : Invariant c₀) (h : Star {ns}.Step c₀ c) : Invariant c :=\n  preserved.star h h₀\n\ntheorem stepsN {{c₀ c : {top}}} {{n : Nat}} (h₀ : Invariant c₀) (h : StepsN {ns}.Step n c₀ c) : Invariant c :=\n  preserved.stepsN h h₀\n\n#k2l_assert_axioms preserved star stepsN\n\nend {name}\n"
+            "import {name}.Cases\nimport KPrelude.InvSteps\nimport KPrelude.Paths\nimport KPrelude.Tactic\n\n/-!\n# Every run keeps `Invariant` (kind 2 layout: `Run.lean`)\n\nHAND-WRITTEN. `{ns}` has no generated `init` (the generator's note says why), so the corollaries\nstart from any configuration that satisfies `Invariant`.\n-/\n\nnamespace {name}\n\nopen KPrelude\n\ntheorem star {{c₀ c : {top}}} (h₀ : Invariant c₀) (h : Star {ns}.Step c₀ c) : Invariant c :=\n  preserved.star h h₀\n\ntheorem stepsN {{c₀ c : {top}}} {{n : Nat}} (h₀ : Invariant c₀) (h : StepsN {ns}.Step n c₀ c) : Invariant c :=\n  preserved.stepsN h h₀\n\ntheorem always {{c₀ : {top}}} (h₀ : Invariant c₀) :\n    ∀ s, s 0 = c₀ → Paths.IsRun {ns}.Step s → ∀ n, Invariant (s n) :=\n  Paths.always_of_preserved preserved h₀\n\n#k2l_assert_axioms preserved star stepsN always\n\nend {name}\n"
         ),
     };
     files.push((PathBuf::from(format!("{name}/Run.lean")), run));

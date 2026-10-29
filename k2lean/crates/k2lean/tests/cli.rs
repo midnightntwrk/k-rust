@@ -239,6 +239,9 @@ fn invariant_inside_a_cell_map_is_lifted_to_every_element() {
     );
     assert!(thms.contains("theorem Invariant.init_holds (pgm : SortPgm) :\n    Invariant (init pgm) :=\n  (by simp only [Invariant, Invariant.cntOk,"), "{thms}");
     assert!(!thms.contains("Invariant.hand.init"), "{thms}");
+    // every point of every run from `init` (INV-11)
+    assert!(thms.contains("theorem Invariant.always {pgm : SortPgm} :\n    ∀ s, s 0 = init pgm → Paths.IsRun Step s → ∀ n, Invariant (s n) :=\n  Paths.always_of_preserved Invariant.preserved (Invariant.init_holds pgm)\n"), "{thms}");
+    assert!(thms.contains("#k2l_assert_axioms Invariant.preserved Invariant.init_holds Invariant.star Invariant.stepsN Invariant.always\n"), "{thms}");
 }
 
 /// `gen --invariant even@v` on the `nested` fixture, where `<v>` is inside the cell map of
@@ -627,7 +630,11 @@ fn new_invariant_writes_the_skeleton_once_and_adds_stubs_for_open_rules() {
         "{runf}"
     );
     assert!(
-        runf.contains("#k2l_assert_axioms preserved init_holds star stepsN"),
+        runf.contains("theorem always {pgm : Peano.SortPgm} :\n    ∀ s, s 0 = Peano.init pgm → Paths.IsRun Peano.Step s → ∀ n, Invariant (s n) :=\n  Paths.always_of_preserved preserved (init_holds pgm)\n"),
+        "{runf}"
+    );
+    assert!(
+        runf.contains("#k2l_assert_axioms preserved init_holds star stepsN always\n"),
         "{runf}"
     );
     std::fs::write(p.join("PeanoInv/Invariant.lean"), "-- mine\n").unwrap();

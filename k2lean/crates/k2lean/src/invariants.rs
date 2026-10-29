@@ -108,7 +108,8 @@
 //! part's predicate at the content, written as the term, becomes the hypothesis instead: the meaning
 //! of the init case, which the proof strengthens when it succeeds. A cell that cannot be read
 //! (`Invariant.hand.init`, listed as `init`) makes the theorem an obligation. The corollaries
-//! `Invariant.star` and `Invariant.stepsN` say that every configuration reachable from `init` satisfies `Invariant`.
+//! `Invariant.star` and `Invariant.stepsN` say that every configuration reachable from `init` satisfies `Invariant`,
+//! and `Invariant.always` that every point of every run from `init` does (`KPrelude.Paths`).
 
 use crate::funcs::Equation;
 use crate::init::InitTerm;
@@ -3813,7 +3814,7 @@ KPrelude.MapHook.entriesOn_of_range (f := fun a => {}) (key := fun a => {})\n   
     let mut t = String::new();
     t.push_str(&format!("import {ns}.InvariantDefs\n"));
     if init_ok {
-        t.push_str(&format!("import {ns}.Init\n"));
+        t.push_str(&format!("import {ns}.Init\nimport KPrelude.Paths\n"));
     }
     if any_open {
         t.push_str(&format!("import {ns}.InvariantsHand\n"));
@@ -3827,7 +3828,7 @@ theorem `Invariant.case.r : Step.Case.r Invariant` per rule `r`, each by `k2l_pr
 or, for the cases listed in `open-invariant-cases.txt`, by the hand-written `Invariant.hand.r` of\n\
 `InvariantsHand.lean`. `Invariant.init_holds` is `Invariant` at the initial configuration under hypotheses\n\
 on the configuration variables, and `Invariant.star`, `Invariant.stepsN` extend it to every configuration\n\
-reachable from `init`. -/\n\n\
+reachable from `init`, `Invariant.always` to every point of every run from it. -/\n\n\
 set_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n\n\
 /-- `k2l_preserve` with the unfolding set of `Invariant`. -/\n\
 local macro \"k2l_inv\" : tactic => `(tactic| k2l_preserve [{}])\n\nnamespace Invariant.case\n\n",
@@ -3894,7 +3895,10 @@ theorem Invariant.init_holds{ps}{hs} :\n    Invariant (init{args}) :=\n  {body}\
 /-- Every configuration reachable from an initial one satisfies `Invariant`. -/\n\
 theorem Invariant.star{psi}{hs} {{c : {top}}} (h : Star Step (init{args}) c) : Invariant c :=\n  Invariant.preserved.star h (Invariant.init_holds{args}{hargs})\n\n\
 /-- Every configuration reached in `n` steps from an initial one satisfies `Invariant`. -/\n\
-theorem Invariant.stepsN{psi}{hs} {{n : Nat}} {{c : {top}}} (h : StepsN Step n (init{args}) c) : Invariant c :=\n  Invariant.preserved.stepsN h (Invariant.init_holds{args}{hargs})\n\n",
+theorem Invariant.stepsN{psi}{hs} {{n : Nat}} {{c : {top}}} (h : StepsN Step n (init{args}) c) : Invariant c :=\n  Invariant.preserved.stepsN h (Invariant.init_holds{args}{hargs})\n\n\
+/-- Every point of every run from an initial configuration satisfies `Invariant` (a run that halts\n\
+repeats its last configuration, `Paths.IsRun`). -/\n\
+theorem Invariant.always{psi}{hs} :\n    ∀ s, s 0 = init{args} → Paths.IsRun Step s → ∀ n, Invariant (s n) :=\n  Paths.always_of_preserved Invariant.preserved (Invariant.init_holds{args}{hargs})\n\n",
             vars_doc.join(", "),
             if init_hyps.is_empty() { String::new() } else { " when the configuration variables satisfy their cells' parts".to_string() }
         ));
@@ -3902,6 +3906,7 @@ theorem Invariant.stepsN{psi}{hs} {{n : Nat}} {{c : {top}}} (h : StepsN Step n (
             "Invariant.init_holds".to_string(),
             "Invariant.star".into(),
             "Invariant.stepsN".into(),
+            "Invariant.always".into(),
         ]);
     }
     t.push_str(&format!(
