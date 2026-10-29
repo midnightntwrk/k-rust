@@ -19,6 +19,7 @@ step-indexed approximation, guarded circularities, and tactics for generated K s
 @[default_target]
 lean_lib KClaims where
   srcDir := "claims"
+  roots := #[`KClaims, `KClaims.Paths]
 
 /-- Checks of the library's interface for importers (`KClaimsTest.Keywords`). -/
 lean_lib KClaimsTest where

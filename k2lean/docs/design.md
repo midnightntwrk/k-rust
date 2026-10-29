@@ -254,6 +254,12 @@ An option named after one definition's shape (`soundness --store-cell`, `--env-i
 A definition outside what a generator reads is refused with a message, and the generator's section says why.
 For example, `soundness` reads a checker written as functions, not one written as rewrite rules.
 
+**Paths and runs** (`KPrelude/Paths.lean`, RUN-1). The theorem kinds share one vocabulary of paths of a step relation `R`: `Star` and `StepsN` (finite), `Paths.Inf R a` (an infinite path from `a`) and `Paths.Terminates R a` (none, as `Acc` of the converse), with `terminates_or_inf` and `Terminates.not_inf`.
+A maximal run is an infinite sequence of `Paths.Complete R` steps, `R` with a configuration that has no successor stepping to itself (`Paths.IsRun`), so a run that halts repeats its last configuration and "every run" includes it; "P at every point of every run from `a`" is "P at every configuration reachable from `a`" (`always_iff`), and a preserved invariant holds along every run (`always_of_preserved`).
+`Paths.Segment R Y a b` is one or more steps from `a` to the first configuration that satisfies `Y`, such as a coroutine's run from a resume to its next yield; under a deterministic `R` it is functional (`Segment.deterministic`, from a hypothesis in `Step.deterministic`'s form).
+`Pending.Chain p` (§2, TERM-1) is `Inf` of `p`'s graph and `Pending.Ends p` is `Terminates` of it (`ends_iff_terminates`).
+The claims modalities keep their own constants, which their tactics match by name; `KClaims/Paths.lean` relates them (`Reach.iff_star`, `Terminates.iff_paths`).
+
 ### 3.1 Determinism along the rule index
 
 One `cases h₁ <;> cases h₂` proves determinism over every pair of rules, quadratic in their number (KEVM's 597 rules of one rank: 356,409 inversions); `gen --det-pairs` kept that proof for the per-sort encoding until its retirement (§2.1).

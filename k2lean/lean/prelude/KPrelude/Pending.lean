@@ -1,3 +1,5 @@
+import KPrelude.Paths
+
 /-!
 # Pending calls: divergence of a least fixed point (TERM-1)
 
@@ -12,7 +14,10 @@ is where the evaluation waits (`pendCall`), and `none` where it ends without one
 * `Chain p a`: the pending calls from `a` go on forever; the obligation `F.diverges.statement` is
   `∃ c, Chain F.pending c`, which no termination measure of the group survives.
 * `Ends p a`: they stop; with `F.pending_sound`, `none` there is undefinedness.
-* `not_ends_and_chain`, `ends_or_chain`: never both, always one. -/
+* `not_ends_and_chain`, `ends_or_chain`: never both, always one.
+
+`Chain p` is `Paths.Inf` of `p`'s graph, and `Ends p` is `Paths.Terminates` of it
+(`ends_iff_terminates`). -/
 
 namespace KPrelude
 
@@ -40,9 +45,26 @@ inductive Ends {α : Type} (p : α → Option α) : α → Prop where
   | stop {a} : p a = none → Ends p a
   | next {a b} : p a = some b → Ends p b → Ends p a
 
-/-- The pending calls from `a` go on forever. -/
+/-- The pending calls from `a` go on forever: an infinite path of `p`'s graph,
+`∃ s : Nat → α, s 0 = a ∧ ∀ n, p (s n) = some (s (n + 1))`. -/
 def Chain {α : Type} (p : α → Option α) (a : α) : Prop :=
-  ∃ s : Nat → α, s 0 = a ∧ ∀ n, p (s n) = some (s (n + 1))
+  Paths.Inf (fun x y => p x = some y) a
+
+/-- `Ends` is termination of `p`'s graph. -/
+theorem ends_iff_terminates {α : Type} (p : α → Option α) (a : α) :
+    Ends p a ↔ Paths.Terminates (fun x y => p x = some y) a := by
+  constructor
+  · intro h
+    induction h with
+    | stop hp => exact Acc.intro _ fun y (hy : p _ = some y) => by rw [hp] at hy; cases hy
+    | @next a b hab _ ih =>
+      exact Acc.intro _ fun y (hy : p _ = some y) => by rw [hab] at hy; cases hy; exact ih
+  · intro h
+    induction h with
+    | intro x _ ih =>
+      cases hp : p x with
+      | none => exact Ends.stop hp
+      | some y => exact Ends.next hp (ih y hp)
 
 /-- A call that is its own pending call. -/
 theorem chain_of_fixed {α : Type} (p : α → Option α) (c : α) (h : p c = some c) : Chain p c :=
@@ -59,34 +81,12 @@ theorem chain_of_cycle {α : Type} (p : α → Option α) (l : List α) (hl : 0 
   exact h _ (Nat.mod_lt _ hl)
 
 /-- Never both. -/
-theorem not_ends_and_chain {α : Type} (p : α → Option α) (a : α) : Ends p a → ¬ Chain p a := by
-  intro h
-  induction h with
-  | stop hp =>
-    rintro ⟨s, h0, hs⟩
-    have := hs 0; rw [h0, hp] at this; cases this
-  | @next a b hab _ ih =>
-    rintro ⟨s, h0, hs⟩
-    have h1 : s 1 = b := by
-      have := hs 0; rw [h0, hab] at this; exact (Option.some.inj this).symm
-    exact ih ⟨fun n => s (n + 1), h1, fun n => hs (n + 1)⟩
+theorem not_ends_and_chain {α : Type} (p : α → Option α) (a : α) : Ends p a → ¬ Chain p a :=
+  fun h => ((ends_iff_terminates p a).1 h).not_inf
 
 /-- Always one (classical: the chain is chosen through the calls that do not end). -/
-theorem ends_or_chain {α : Type} (p : α → Option α) (a : α) : Ends p a ∨ Chain p a := by
-  classical
-  by_cases h : Ends p a
-  · exact Or.inl h
-  · right
-    have step : ∀ x, ¬ Ends p x → ∃ y, p x = some y ∧ ¬ Ends p y := by
-      intro x hx
-      cases hpx : p x with
-      | none => exact absurd (Ends.stop hpx) hx
-      | some y => exact ⟨y, rfl, fun hy => hx (Ends.next hpx hy)⟩
-    let T := {x // ¬ Ends p x}
-    let nx : T → T := fun x => ⟨(step x.1 x.2).choose, (step x.1 x.2).choose_spec.2⟩
-    let s : Nat → T := fun n => Nat.rec (motive := fun _ => T) ⟨a, h⟩ (fun _ x => nx x) n
-    refine ⟨fun n => (s n).1, rfl, fun n => ?_⟩
-    exact (step (s n).1 (s n).2).choose_spec.1
+theorem ends_or_chain {α : Type} (p : α → Option α) (a : α) : Ends p a ∨ Chain p a :=
+  (Paths.terminates_or_inf a).imp_left (ends_iff_terminates p a).2
 
 end Pending
 
