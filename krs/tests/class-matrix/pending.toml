@@ -4423,7 +4423,8 @@ deviation = "krs::analysis::invalid-term @ item"
 # product reports an unbound name before an open record's remainder in an initializer or a constant,
 # and alternatives that bind other names before a sort test, `k::matches!`, alternatives in a `let`
 # pattern, in a subject rewritten as one term, or in a local rule's or a simplification's subject,
-# where alternatives are refused (`x | 1` there). Probe:
+# or in an alias clause's subject, which is also built when a result is printed (NT-8), where
+# alternatives are refused (`x | 1` there). Probe:
 # `terms/init/item/Cmd::Pair { a: x, .. }`. Plan: new.
 # NT-3: an expression's record now keeps its `..`, so a constant and an initializer refuse the open
 # record by its placement, before its names, and their cases conform.
@@ -4439,6 +4440,10 @@ deviation = "krs::syntax::invalid-pattern-or @ entry"
 ["terms/rule/subject/or-branch/k::project!(Int, x)"]
 finding = "NT-2-25"
 deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["terms/alias/subject/x | 1"]
+finding = "NT-2-25"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
 
 ["terms/cells-local/subject/x | 1"]
 finding = "NT-2-25"

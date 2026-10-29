@@ -172,6 +172,14 @@ impl Form {
         )
     }
 
+    /// Whether the form's subject is also built: an alias clause runs backwards when a result is
+    /// printed, and each term its result matches prints as its subject, built from what the
+    /// match bound. A desugar clause runs one way.
+    #[must_use]
+    pub const fn builds_subject_backwards(self) -> bool {
+        matches!(self, Self::Alias)
+    }
+
     /// Whether the root of the form's subject is the production the clause expands: a static
     /// clause's, a production marked as the clause is.
     #[must_use]

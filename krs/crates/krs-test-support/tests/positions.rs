@@ -343,9 +343,10 @@ const fn product_construct(construct: model::Construct) -> Option<Construct> {
         | M::Notation(Notation::CollectionValue) => return None,
         M::Turbofish => Construct::Turbofish,
         M::Literal => Construct::Literal,
-        M::FunctionApplication | M::BuiltinApplication | M::Notation(_) | M::Rest => {
+        M::FunctionApplication | M::BuiltinApplication | M::Notation(_) => {
             Construct::FunctionApplication
         }
+        M::Rest => Construct::Rest,
         M::Wildcard => Construct::Wildcard,
         M::As => Construct::As,
         M::Or => Construct::Or,
@@ -369,8 +370,6 @@ const fn product_construct(construct: model::Construct) -> Option<Construct> {
 enum Read {
     /// The reader refuses the construct with the class.
     Refuses(&'static str),
-    /// The reader admits the construct.
-    Admits,
     /// The table decides.
     Table,
 }
@@ -387,7 +386,7 @@ enum Read {
 ///   collection method or a collection literal as the calls it denotes;
 /// - the term reader reads a collection literal (`map![..]`, `set![..]`) as the calls it denotes,
 ///   at every term position;
-/// - list notation: an anonymous `..` keeps a rest only in a pattern;
+/// - list notation: an anonymous `..` keeps a rest only in a pattern, where the table judges it;
 /// - a readable map read's value is a binder or `_`.
 fn reader(construct: model::Construct, position: model::Position) -> Read {
     use model::Construct as M;
@@ -416,7 +415,7 @@ fn reader(construct: model::Construct, position: model::Position) -> Read {
         M::Notation(notation) if notation.is_collection() => Read::Table,
         M::Notation(_) if parsed_as_pattern => Read::Refuses("notation-in-pattern"),
         M::Notation(_) | M::Rest if constant => Read::Refuses("constant-not-ground"),
-        M::Rest if pattern => Read::Admits,
+        M::Rest if pattern => Read::Table,
         M::Rest => Read::Refuses("rest-outside-pattern"),
         _ => Read::Table,
     }
@@ -462,7 +461,6 @@ fn product(hole: model::Position, path: &[Opening], nodes: &[model::Node]) -> An
                 answer.refused = Some(refused);
                 break;
             }
-            Read::Admits => continue,
             Read::Table => {}
         }
         // Where a pattern is parsed, `x | 1` is alternatives, the table's `|` row.

@@ -1428,7 +1428,11 @@ fn slots() -> Vec<Slot> {
         .parsed_by_rustc()
         .arity(0),
         // The static clauses, whose command is the production a subject's clause expands. A root
-        // case's clause names a construct of its own, and its command is no production.
+        // case's clause names a construct of its own, and its command is no production. An alias
+        // clause also runs backwards when a result is printed, so its bases read both ways: the
+        // subject holds no `_`, and the result uses every name the subject binds (`x`), which a
+        // result-root construct that does not read `x` leaves unused. A desugar clause runs one
+        // way.
         slot(
             "desugar",
             "subject",
@@ -1482,18 +1486,20 @@ fn slots() -> Vec<Slot> {
             "result-root",
             Side::Result,
             (Alias, Part::Result, &[]),
-            "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x, _)]: Term<Stmt>) -> Term<KItem> {\n    HOLE\n}\n",
+            "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x)]: Term<Stmt>) -> Term<KItem> {\n    HOLE\n}\n",
         )
         .parsed_by_rustc()
+        .arity(1)
         .marked("#[k::alias]"),
         slot(
             "alias",
             "result",
             Side::Result,
             (Alias, Part::Result, &[Argument]),
-            "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x, _)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Hold(HOLE)\n}\n",
+            "#[k::alias]\nfn case_TAG(k::term![Cmd::NAME(x)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Pair(x, HOLE)\n}\n",
         )
         .parsed_by_rustc()
+        .arity(1)
         .marked("#[k::alias]"),
         // A `for Sort` clause: the subject's root bare and in its optional `k::term!` wrapper,
         // which reads it alike, over `KItem`, whose clause a value of any sort may root.

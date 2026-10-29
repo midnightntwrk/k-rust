@@ -10,7 +10,10 @@
 //! construct) or a guard (a Bool to compute). From it, and from what each construct denotes:
 //!
 //! - a pattern-only construct (`_`, `name @ P`, `A | B` as alternatives, an open record, a list's
-//!   anonymous rest) means something only where a term is matched;
+//!   anonymous rest) means something only where a term is matched, and not where it is also
+//!   built: an alias clause's subject is both, since the clause runs backwards when a result is
+//!   printed, each term its result matches printed as its subject built from the match's
+//!   bindings, and printing builds no test, choice or hole;
 //! - a computed construct (a function application, a notation form, a `let` block,
 //!   `k::matches!`, a sort test, a record update) means something only where a term is computed:
 //!   in a matched position over evaluated terms it describes a term that never occurs; a
@@ -78,8 +81,10 @@ macro_rules! classes {
 
 classes! {
     AliasAtSubjectRoot => "alias-at-subject-root",
+    AliasInAliasSubject => "alias-in-alias-subject",
     AliasInLetPattern => "alias-in-let-pattern",
     AliasOutsidePattern => "alias-outside-pattern",
+    AlternativesInAliasSubject => "alternatives-in-alias-subject",
     AlternativesInLetPattern => "alternatives-in-let-pattern",
     AlternativesInOneTermRewrite => "alternatives-in-one-term-rewrite",
     AlternativesOutsidePattern => "alternatives-outside-pattern",
@@ -98,10 +103,12 @@ classes! {
     MlInInitializer => "ml-in-initializer",
     MlPredicateAsTerm => "ml-predicate-as-term",
     NotationInPattern => "notation-in-pattern",
+    OpenRecordInAliasSubject => "open-record-in-alias-subject",
     OpenRecordOutsidePattern => "open-record-outside-pattern",
     RecordRemainderInCellsTerm => "record-remainder-in-cells-term",
     RecordRemainderInInitializer => "record-remainder-in-initializer",
     RecordUpdateInPattern => "record-update-in-pattern",
+    RestInAliasSubject => "rest-in-alias-subject",
     RestOutsidePattern => "rest-outside-pattern",
     RewriteInMapKey => "rewrite-in-map-key",
     RewriteOutsideLocalRule => "rewrite-outside-local-rule",
@@ -109,6 +116,7 @@ classes! {
     SortTestInPattern => "sort-test-in-pattern",
     StaticClauseRootNotMarked => "static-clause-root-not-marked",
     WildcardAtSubjectRoot => "wildcard-at-subject-root",
+    WildcardInAliasSubject => "wildcard-in-alias-subject",
     WildcardOutsidePattern => "wildcard-outside-pattern",
 }
 
@@ -287,6 +295,17 @@ const fn in_cells_value(position: Position) -> bool {
     position.form.writes_cells() && matches!(position.slot, Slot::Subject | Slot::Result)
 }
 
+/// Whether `position` is matched and also built: in an alias clause's subject, outside a local
+/// pattern, which printing builds from the bindings of what the clause's result matched in a
+/// printed term. A construct that only matches there (a test, a choice, a hole) is no term
+/// printing can build: the printed alias would not denote the printed value.
+const fn built_backwards(position: Position) -> bool {
+    position.form.builds_subject_backwards()
+        && matches!(position.slot, Slot::Subject)
+        && matches!(position.kind, Kind::Matched | Kind::Evaluated)
+        && position.nesting.local.is_none()
+}
+
 /// Whether `position` is the whole subject of a fn, a table row, a context or a static clause.
 const fn at_subject_root(position: Position) -> bool {
     matches!(position.root, Some(PatternRoot::Subject))
@@ -435,12 +454,15 @@ const fn application(construct: Construct, position: Position) -> Option<Refusal
 /// matching as well as by lookup, so `_` there is any entry; a built term or a condition is
 /// computed, and `_` names no term. A desugar's result is written into the rules that use the
 /// production as well as into programs, so `_` there is the anonymous variable of the rule it
-/// lands in, which the clause's `unbound_variables` declares (a names rule).
+/// lands in, which the clause's `unbound_variables` declares (a names rule). An alias's subject is
+/// also built, and `_` there would print as a variable where a value stood.
 const fn wildcard(position: Position) -> Option<Refusal> {
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
     } else if at_subject_root(position) {
         Some(placement(Class::WildcardAtSubjectRoot))
+    } else if built_backwards(position) {
+        Some(placement(Class::WildcardInAliasSubject))
     } else if matches!(position.kind, Kind::Matched | Kind::Evaluated)
         || matches!(
             (position.form, position.slot),
@@ -457,13 +479,16 @@ const fn wildcard(position: Position) -> Option<Refusal> {
 /// names no production (D3). A `let` reads one value, which a bare name already names whole. A
 /// `k::matches!` in a condition matches as part of the sentence; in a built term it is a test
 /// whose names nothing uses. Outside its rewrite islands a single-body rule's subject is also
-/// what it keeps, where `@` builds nothing.
+/// what it keeps, where `@` builds nothing. An alias clause's subject is also built, where `@`'s
+/// test of the term's shape would print as a conjunction, no term.
 const fn alias(position: Position) -> Option<Refusal> {
     let nesting = position.nesting;
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
     } else if at_subject_root(position) {
         Some(placement(Class::AliasAtSubjectRoot))
+    } else if built_backwards(position) {
+        Some(placement(Class::AliasInAliasSubject))
     } else if matches!(nesting.local, Some(LocalPattern::Let)) {
         Some(placement(Class::AliasInLetPattern))
     } else if matches!(nesting.local, Some(LocalPattern::Matches)) {
@@ -486,14 +511,19 @@ const fn alias(position: Position) -> Option<Refusal> {
     }
 }
 
-/// `A | B` matches one of several terms. A `let` reads its value by one shape, and a subject
-/// rewritten in place as one term stands for the one term it matched. Where a term is computed,
+/// `A | B` matches one of several terms. A `let` reads its value by one shape, a subject
+/// rewritten in place as one term stands for the one term it matched, and an alias clause's
+/// subject is also built as one term, where `A | B` would print as a disjunction. Where a term is
+/// computed,
 /// `|` is the bitwise operator, whose domain its operands' sorts choose: alternatives of
 /// constructor patterns choose none (`x | 1`, over operands a domain takes, is
 /// [`Notation::BitwiseOr`], the operator's application).
 const fn alternatives(position: Position) -> Option<Refusal> {
     if in_constant(position) {
         return Some(placement(Class::ConstantNotGround));
+    }
+    if built_backwards(position) {
+        return Some(placement(Class::AlternativesInAliasSubject));
     }
     match position.kind {
         Kind::Matched if matches!(position.nesting.local, Some(LocalPattern::Let)) => {
@@ -635,8 +665,9 @@ const fn island(construct: Construct, position: Position) -> Option<Refusal> {
 /// matched record's unlisted fields open. A `cells!` term names every field. A pattern denotes
 /// no record by `..base`; a built term or a condition, an initializer's included (whose base is a
 /// value: a configuration variable or a constant), denotes that record; and a built term has no
-/// value for a field `..` leaves open, an initializer's (its own class) as any other. An open
-/// record is a constructor's pattern, read at a root as a constructor is.
+/// value for a field `..` leaves open, an initializer's (its own class) as any other, and neither
+/// has an alias clause's subject, built from what its result matched. An open record is a
+/// constructor's pattern, read at a root as a constructor is.
 const fn record(construct: Construct, position: Position) -> Option<Refusal> {
     let update = matches!(construct, Construct::RecordUpdate);
     if in_constant(position) {
@@ -654,6 +685,8 @@ const fn record(construct: Construct, position: Position) -> Option<Refusal> {
         } else {
             None
         }
+    } else if built_backwards(position) {
+        Some(placement(Class::OpenRecordInAliasSubject))
     } else if matches!(position.kind, Kind::Matched | Kind::Evaluated) {
         value_at_root(position)
     } else {
@@ -663,13 +696,16 @@ const fn record(construct: Construct, position: Position) -> Option<Refusal> {
 
 /// List brackets denote a list wherever the position's sort is one, which the compiler judges. A
 /// list's anonymous rest `..` stands for the elements a pattern leaves unnamed: a built term or a
-/// condition has nothing it keeps, and a constant's value is ground.
+/// condition has nothing it keeps, an alias clause's subject, built from what its result matched,
+/// has no value for them, and a constant's value is ground.
 const fn collection(construct: Construct, position: Position) -> Option<Refusal> {
     match construct {
         Construct::ListBrackets => value_at_root(position),
         _ => {
             if in_constant(position) {
                 Some(placement(Class::ConstantNotGround))
+            } else if built_backwards(position) {
+                Some(placement(Class::RestInAliasSubject))
             } else if matches!(position.kind, Kind::Matched | Kind::Evaluated) {
                 None
             } else {

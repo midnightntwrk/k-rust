@@ -270,7 +270,11 @@ fn a_computation_subject_case_is_never_batched() {
 /// notation and the calls it denotes) that reads `x` and applies a function
 /// ([`reads_x_and_applies`]), as `k::builtin::int::add(x, 1)` does at the term family's same
 /// positions ([`OVERRIDDEN`]).
-const OVERRIDDEN_POSITIONS: [(&str, &str); 6] = [
+const OVERRIDDEN_POSITIONS: [(&str, &str); 7] = [
+    (
+        "notation/alias/subject-root",
+        "static-clause-root-not-marked",
+    ),
     ("notation/constant/value", "constant-applies-function"),
     ("notation/constant/value-root", "constant-applies-function"),
     ("notation/local-rule/subject-root", "function-in-pattern"),
@@ -305,17 +309,69 @@ fn reads_x_and_applies(case: &Case) -> bool {
     reads_x && !value
 }
 
-const OVERRIDDEN: [(&str, &str); 61] = [
+const OVERRIDDEN: [(&str, &str); 70] = [
     (
-        "terms/alias/subject-root/[x, ..]",
+        "import/alias/subject-root/Hold(x)",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "notation/alias/subject-root/k::builtin::set::item(x)",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "notation/alias/subject-root/set![x]",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "notation/context/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "notation/context/subject-root/map![0 -> 1]",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/map![0 -> 1]",
+        "function-in-pattern",
+    ),
+    (
+        "terms/alias/result-root/k::ml::exists(|v: Int| k::ml::equals(v, 0))",
+        "ml-predicate-as-term",
+    ),
+    (
+        "terms/alias/subject-root/Cmd::Hold(x)",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/alias/subject-root/Size(x)",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/alias/subject-root/Wrap::<dyn k::KItemSort>(x)",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/alias/subject-root/k::builtin::int::add(x, 1)",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/alias/subject-root/k::builtin::set::item(x)",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/alias/subject-root/k::map![x -> 1]",
+        "static-clause-root-not-marked",
+    ),
+    (
+        "terms/alias/subject-root/map![x -> 1]",
         "static-clause-root-not-marked",
     ),
     (
         "terms/alias/subject-root/x",
-        "static-clause-root-not-marked",
-    ),
-    (
-        "terms/alias/subject-root/x | 1",
         "static-clause-root-not-marked",
     ),
     (
@@ -386,9 +442,25 @@ const OVERRIDDEN: [(&str, &str); 61] = [
         "terms/constant/value-root/k::builtin::int::add(x, 1)",
         "constant-applies-function",
     ),
+    (
+        "terms/constant/value-root/k::map![x -> 1]",
+        "constant-applies-function",
+    ),
+    (
+        "terms/constant/value-root/map![x -> 1]",
+        "constant-applies-function",
+    ),
     ("terms/constant/value/Size(x)", "constant-applies-function"),
     (
         "terms/constant/value/k::builtin::int::add(x, 1)",
+        "constant-applies-function",
+    ),
+    (
+        "terms/constant/value/k::map![x -> 1]",
+        "constant-applies-function",
+    ),
+    (
+        "terms/constant/value/map![x -> 1]",
         "constant-applies-function",
     ),
     (
@@ -424,22 +496,6 @@ const OVERRIDDEN: [(&str, &str); 61] = [
         "static-clause-root-not-marked",
     ),
     (
-        "terms/constant/value/k::map![x -> 1]",
-        "constant-applies-function",
-    ),
-    (
-        "terms/constant/value/map![x -> 1]",
-        "constant-applies-function",
-    ),
-    (
-        "terms/constant/value-root/k::map![x -> 1]",
-        "constant-applies-function",
-    ),
-    (
-        "terms/constant/value-root/map![x -> 1]",
-        "constant-applies-function",
-    ),
-    (
         "terms/equation/subject-root/[x, ..]",
         "equation-root-not-function",
     ),
@@ -452,31 +508,7 @@ const OVERRIDDEN: [(&str, &str); 61] = [
         "equation-root-not-function",
     ),
     (
-        "notation/context/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)",
-        "function-in-pattern",
-    ),
-    (
-        "notation/context/subject-root/map![0 -> 1]",
-        "function-in-pattern",
-    ),
-    (
-        "notation/local-rule/subject-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)",
-        "function-in-pattern",
-    ),
-    (
-        "notation/local-rule/subject-root/map![0 -> 1]",
-        "function-in-pattern",
-    ),
-    (
         "terms/local-rule/subject-root/Size(x)",
-        "function-in-pattern",
-    ),
-    (
-        "terms/local-rule/subject-root/k::map![x -> 1]",
-        "function-in-pattern",
-    ),
-    (
-        "terms/local-rule/subject-root/map![x -> 1]",
         "function-in-pattern",
     ),
     (
@@ -485,6 +517,14 @@ const OVERRIDDEN: [(&str, &str); 61] = [
     ),
     (
         "terms/local-rule/subject-root/k::builtin::int::add(x, 1)",
+        "function-in-pattern",
+    ),
+    (
+        "terms/local-rule/subject-root/k::map![x -> 1]",
+        "function-in-pattern",
+    ),
+    (
+        "terms/local-rule/subject-root/map![x -> 1]",
         "function-in-pattern",
     ),
     (
@@ -570,7 +610,8 @@ fn the_shipped_table_and_red_list_parse() {
     // sort mistake, which is met first: an unbound `x` (in a constant, at a root, where a bare
     // name names a unit constructor), a `k::matches!` pattern that rebinds `x`, alternatives that
     // bind other names, a `KItem` binder an operand sorts as `Int`, `_` in a desugar result
-    // without `unbound_variables`, a record update's base, brackets at a `KItem` root.
+    // without `unbound_variables`, a record update's base, brackets at a `KItem` root, a name an
+    // alias clause's subject binds and its result does not use.
     let positions = cases.iter().filter_map(|case| {
         let position = case.id.strip_suffix(&format!("/{}", case.construct))?;
         if case.family != Family::Notation || !reads_x_and_applies(case) {
