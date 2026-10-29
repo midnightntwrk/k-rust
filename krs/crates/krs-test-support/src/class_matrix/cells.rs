@@ -50,8 +50,9 @@ const SUBJECT_SPELLINGS: [(&str, Binders); 13] = [
 
 /// The result spellings, over the command's `Int` binders `x` and `y`: the wrappers, the
 /// optional spellings, a bare binder, a group fragment, a List collection instance that keeps
-/// the subject's other instances, a one-entry map, and a two-element list.
-const RESULT_SPELLINGS: [&str; 11] = [
+/// the subject's other instances, a one-entry map and the call it denotes, and a two-element
+/// list.
+const RESULT_SPELLINGS: [&str; 12] = [
     "k::configuration::Cell(x)",
     "k::configuration::Cell(0)",
     "k::configuration::KCell(x)",
@@ -62,6 +63,7 @@ const RESULT_SPELLINGS: [&str; 11] = [
     "k::fragment![crate::Frame { ret: x }]",
     "[k::fragment![crate::Job { payload: x, ..old }], ..instances0]",
     "k::configuration::Cell(k::map![x -> y])",
+    "k::configuration::Cell(k::builtin::map::update(k::builtin::map::empty(), x, y))",
     "k::configuration::Cell([x, y])",
 ];
 
@@ -132,7 +134,7 @@ fn old(kind: CellKind) -> (&'static str, Vec<(&'static str, &'static str)>) {
     }
 }
 
-/// `cells!` rules: 7 kinds × (13 subject spellings + 11 result spellings).
+/// `cells!` rules: 7 kinds × (13 subject spellings + 12 result spellings).
 ///
 /// - Subject: `CELL: S` after the command, `KCell(C(), tail @ ..)`; the result restores the
 ///   computation and leaves the cell unchanged.

@@ -191,7 +191,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => go |-> 1 </env>
+<env> _ => .Map [ go <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -200,7 +200,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => hold ( V0:KItem ) |-> 1 </env>
+<env> _ => .Map [ hold ( V0:KItem ) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -209,7 +209,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> go </env>
+<env> _ => .Map [ V0:KItem <- go ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -218,7 +218,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> hold ( V0:KItem ) </env>
+<env> _ => .Map [ V0:KItem <- hold ( V0:KItem ) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3190,7 +3190,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => #token("\"s\"","String") |-> 1 </env>
+<env> _ => .Map [ #token("\"s\"","String") <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3199,7 +3199,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => -1 |-> 1 </env>
+<env> _ => .Map [ -1 <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3208,7 +3208,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => 1 |-> 1 </env>
+<env> _ => .Map [ 1 <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3217,7 +3217,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => 1.5 |-> 1 </env>
+<env> _ => .Map [ 1.5 <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3226,7 +3226,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => go |-> 1 </env>
+<env> _ => .Map [ go <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3235,7 +3235,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => go |-> 1 </env>
+<env> _ => .Map [ go <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3244,7 +3244,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => hold ( V0:KItem ) |-> 1 </env>
+<env> _ => .Map [ hold ( V0:KItem ) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3253,7 +3253,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => size ( V0:KItem ) |-> 1 </env>
+<env> _ => .Map [ size ( V0:KItem ) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3262,7 +3262,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => wrap ( V0:KItem ) |-> 1 </env>
+<env> _ => .Map [ wrap ( V0:KItem ) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3271,7 +3271,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => 1 +Int 2 |-> 1 </env>
+<env> _ => .Map [ 1 +Int 2 <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3280,7 +3280,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => SetItem(V0:KItem) |-> 1 </env>
+<env> _ => .Map [ SetItem(V0:KItem) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3289,7 +3289,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => #token("b\"\x61\x62\"","Bytes") |-> 1 </env>
+<env> _ => .Map [ #token("b\"\x61\x62\"","Bytes") <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3298,7 +3298,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => <frame> <ret> 1 </ret> </frame> |-> 1 </env>
+<env> _ => .Map [ <frame> <ret> 1 </ret> </frame> <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3307,7 +3307,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => #token("$x","Id") |-> 1 </env>
+<env> _ => .Map [ #token("$x","Id") <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3316,7 +3316,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => isInt(V0:KItem) |-> 1 </env>
+<env> _ => .Map [ isInt(V0:KItem) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3325,7 +3325,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => #token("word","Word") |-> 1 </env>
+<env> _ => .Map [ #token("word","Word") <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3334,7 +3334,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => {V0:KItem}:>Int |-> 1 </env>
+<env> _ => .Map [ {V0:KItem}:>Int <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3343,7 +3343,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => true |-> 1 </env>
+<env> _ => .Map [ true <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3352,7 +3352,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> 1 </env>
+<env> _ => .Map [ V0:KItem <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3361,7 +3361,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> #token("\"s\"","String") </env>
+<env> _ => .Map [ V0:KItem <- #token("\"s\"","String") ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3370,7 +3370,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> -1 </env>
+<env> _ => .Map [ V0:KItem <- -1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3379,7 +3379,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> 1 </env>
+<env> _ => .Map [ V0:KItem <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3388,7 +3388,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> 1.5 </env>
+<env> _ => .Map [ V0:KItem <- 1.5 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3397,7 +3397,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> go </env>
+<env> _ => .Map [ V0:KItem <- go ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3406,7 +3406,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> go </env>
+<env> _ => .Map [ V0:KItem <- go ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3415,7 +3415,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> hold ( V0:KItem ) </env>
+<env> _ => .Map [ V0:KItem <- hold ( V0:KItem ) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3424,7 +3424,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> size ( V0:KItem ) </env>
+<env> _ => .Map [ V0:KItem <- size ( V0:KItem ) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3433,7 +3433,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> wrap ( V0:KItem ) </env>
+<env> _ => .Map [ V0:KItem <- wrap ( V0:KItem ) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3442,7 +3442,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> 1 +Int 2 </env>
+<env> _ => .Map [ V0:KItem <- 1 +Int 2 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3451,7 +3451,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> SetItem(V0:KItem) </env>
+<env> _ => .Map [ V0:KItem <- SetItem(V0:KItem) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3460,7 +3460,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = '''
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> #token("b\"\x61\x62\"","Bytes") </env>
+<env> _ => .Map [ V0:KItem <- #token("b\"\x61\x62\"","Bytes") ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
@@ -3469,7 +3469,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> #token("$x","Id") </env>
+<env> _ => .Map [ V0:KItem <- #token("$x","Id") ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3478,7 +3478,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> isInt(V0:KItem) </env>
+<env> _ => .Map [ V0:KItem <- isInt(V0:KItem) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3487,7 +3487,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> #token("word","Word") </env>
+<env> _ => .Map [ V0:KItem <- #token("word","Word") ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3496,7 +3496,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> {V0:KItem}:>Int </env>
+<env> _ => .Map [ V0:KItem <- {V0:KItem}:>Int ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3505,7 +3505,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> true </env>
+<env> _ => .Map [ V0:KItem <- true ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -3514,7 +3514,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> V0:KItem </env>
+<env> _ => .Map [ V0:KItem <- V0:KItem ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -16815,7 +16815,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> <frame> <ret> 1 </ret> </frame> </env>
+<env> _ => .Map [ V0:KItem <- <frame> <ret> 1 </ret> </frame> ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18636,7 +18636,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => {ListItem(V0:KItem) [ 0 ]}:>KItem |-> 1 </env>
+<env> _ => .Map [ {ListItem(V0:KItem) [ 0 ]}:>KItem <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18646,7 +18646,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::list::size(k::builtin::l
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => size(ListItem(V0:KItem)) |-> 1 </env>
+<env> _ => .Map [ size(ListItem(V0:KItem)) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18656,7 +18656,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::list::get(k::builtin::li
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => {ListItem(V0:KItem) [ 0 ]}:>KItem |-> 1 </env>
+<env> _ => .Map [ {ListItem(V0:KItem) [ 0 ]}:>KItem <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18665,7 +18665,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => size(ListItem(V0:KItem)) |-> 1 </env>
+<env> _ => .Map [ size(ListItem(V0:KItem)) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18675,7 +18675,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::map::in_keys(x, k::built
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem in_keys(.Map) |-> 1 </env>
+<env> _ => .Map [ V0:KItem in_keys(.Map) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18685,7 +18685,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::map::update(k::builtin::
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map [ V0:KItem <- 1 ] |-> 1 </env>
+<env> _ => .Map [ .Map [ V0:KItem <- 1 ] <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18695,7 +18695,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::map::get(k::builtin::map
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => {.Map [ V0:KItem ]}:>KItem |-> 1 </env>
+<env> _ => .Map [ {.Map [ V0:KItem ]}:>KItem <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18704,7 +18704,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => {.Map [ V0:KItem ]}:>KItem |-> 1 </env>
+<env> _ => .Map [ {.Map [ V0:KItem ]}:>KItem <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18713,7 +18713,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem in_keys(.Map) |-> 1 </env>
+<env> _ => .Map [ V0:KItem in_keys(.Map) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18722,7 +18722,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map [ V0:KItem <- 1 ] |-> 1 </env>
+<env> _ => .Map [ .Map [ V0:KItem <- 1 ] <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18732,7 +18732,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::set::to_list(k::builtin:
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => Set2List(SetItem(V0:KItem)) |-> 1 </env>
+<env> _ => .Map [ Set2List(SetItem(V0:KItem)) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18741,7 +18741,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => Set2List(SetItem(V0:KItem)) |-> 1 </env>
+<env> _ => .Map [ Set2List(SetItem(V0:KItem)) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18750,7 +18750,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> {ListItem(V0:KItem) [ 0 ]}:>KItem </env>
+<env> _ => .Map [ V0:KItem <- {ListItem(V0:KItem) [ 0 ]}:>KItem ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18760,7 +18760,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::list::size(k::builtin:
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> size(ListItem(V0:KItem)) </env>
+<env> _ => .Map [ V0:KItem <- size(ListItem(V0:KItem)) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18770,7 +18770,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::list::get(k::builtin::
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> {ListItem(V0:KItem) [ 0 ]}:>KItem </env>
+<env> _ => .Map [ V0:KItem <- {ListItem(V0:KItem) [ 0 ]}:>KItem ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18779,7 +18779,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> size(ListItem(V0:KItem)) </env>
+<env> _ => .Map [ V0:KItem <- size(ListItem(V0:KItem)) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18789,7 +18789,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::map::in_keys(x, k::bui
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (V0:KItem in_keys(.Map)) </env>
+<env> _ => .Map [ V0:KItem <- V0:KItem in_keys(.Map) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18799,7 +18799,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::map::update(k::builtin
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Map [ V0:KItem <- 1 ]) </env>
+<env> _ => .Map [ V0:KItem <- .Map [ V0:KItem <- 1 ] ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18809,7 +18809,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::map::get(k::builtin::m
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> {.Map [ V0:KItem ]}:>KItem </env>
+<env> _ => .Map [ V0:KItem <- {.Map [ V0:KItem ]}:>KItem ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18818,7 +18818,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> {.Map [ V0:KItem ]}:>KItem </env>
+<env> _ => .Map [ V0:KItem <- {.Map [ V0:KItem ]}:>KItem ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18827,7 +18827,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (V0:KItem in_keys(.Map)) </env>
+<env> _ => .Map [ V0:KItem <- V0:KItem in_keys(.Map) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18836,7 +18836,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Map [ V0:KItem <- 1 ]) </env>
+<env> _ => .Map [ V0:KItem <- .Map [ V0:KItem <- 1 ] ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18846,7 +18846,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::set::to_list(k::builti
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> Set2List(SetItem(V0:KItem)) </env>
+<env> _ => .Map [ V0:KItem <- Set2List(SetItem(V0:KItem)) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -18855,7 +18855,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> Set2List(SetItem(V0:KItem)) </env>
+<env> _ => .Map [ V0:KItem <- Set2List(SetItem(V0:KItem)) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23192,7 +23192,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map |-> 1 </env>
+<env> _ => .Map [ .Map <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23201,7 +23201,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] |-> 1 </env>
+<env> _ => .Map [ .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23210,7 +23210,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Set |-> 1 </env>
+<env> _ => .Map [ .Set <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23219,7 +23219,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => (.Set |Set SetItem(V0:KItem)) |-> 1 </env>
+<env> _ => .Map [ .Set |Set SetItem(V0:KItem) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23228,7 +23228,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => (SetItem(V0:KItem) |Set SetItem(1)) |-> 1 </env>
+<env> _ => .Map [ SetItem(V0:KItem) |Set SetItem(1) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23238,7 +23238,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::map::empty()"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map |-> 1 </env>
+<env> _ => .Map [ .Map <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23248,7 +23248,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::map::update(k::builtin::
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map [ V0:KItem <- 1 ] |-> 1 </env>
+<env> _ => .Map [ .Map [ V0:KItem <- 1 ] <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23258,7 +23258,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::map::update(k::builtin::
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] |-> 1 </env>
+<env> _ => .Map [ .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23268,7 +23268,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::set::empty()"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Set |-> 1 </env>
+<env> _ => .Map [ .Set <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23278,7 +23278,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::set::union(k::builtin::s
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => (.Set |Set SetItem(V0:KItem)) |-> 1 </env>
+<env> _ => .Map [ .Set |Set SetItem(V0:KItem) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23288,7 +23288,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::set::union(k::builtin::s
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => (SetItem(V0:KItem) |Set SetItem(1)) |-> 1 </env>
+<env> _ => .Map [ SetItem(V0:KItem) |Set SetItem(1) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23297,7 +23297,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> .Map </env>
+<env> _ => .Map [ V0:KItem <- .Map ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23306,7 +23306,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Map [ V0:KItem <- 1 ] [ 2 <- 3 ]) </env>
+<env> _ => .Map [ V0:KItem <- .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23315,7 +23315,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> .Set </env>
+<env> _ => .Map [ V0:KItem <- .Set ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23324,7 +23324,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Set |Set SetItem(V0:KItem)) </env>
+<env> _ => .Map [ V0:KItem <- .Set |Set SetItem(V0:KItem) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23333,7 +23333,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (SetItem(V0:KItem) |Set SetItem(1)) </env>
+<env> _ => .Map [ V0:KItem <- SetItem(V0:KItem) |Set SetItem(1) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23343,7 +23343,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::map::empty()"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> .Map </env>
+<env> _ => .Map [ V0:KItem <- .Map ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23353,7 +23353,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::map::update(k::builtin
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Map [ V0:KItem <- 1 ]) </env>
+<env> _ => .Map [ V0:KItem <- .Map [ V0:KItem <- 1 ] ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23363,7 +23363,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::map::update(k::builtin
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Map [ V0:KItem <- 1 ] [ 2 <- 3 ]) </env>
+<env> _ => .Map [ V0:KItem <- .Map [ V0:KItem <- 1 ] [ 2 <- 3 ] ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23373,7 +23373,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::set::empty()"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> .Set </env>
+<env> _ => .Map [ V0:KItem <- .Set ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23383,7 +23383,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::set::union(k::builtin:
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Set |Set SetItem(V0:KItem)) </env>
+<env> _ => .Map [ V0:KItem <- .Set |Set SetItem(V0:KItem) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -23393,7 +23393,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::set::union(k::builtin:
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (SetItem(V0:KItem) |Set SetItem(1)) </env>
+<env> _ => .Map [ V0:KItem <- SetItem(V0:KItem) |Set SetItem(1) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -27965,7 +27965,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::map::update(k::builtin::
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map [ V0:KItem <- 1 ] |-> 1 </env>
+<env> _ => .Map [ .Map [ V0:KItem <- 1 ] <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -27975,7 +27975,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::map::update(k::builtin::
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map [ V0:KItem <- 1 ] |-> 1 </env>
+<env> _ => .Map [ .Map [ V0:KItem <- 1 ] <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -27985,7 +27985,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::map::update(k::builtin
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Map [ V0:KItem <- 1 ]) </env>
+<env> _ => .Map [ V0:KItem <- .Map [ V0:KItem <- 1 ] ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -27995,7 +27995,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::map::update(k::builtin
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Map [ V0:KItem <- 1 ]) </env>
+<env> _ => .Map [ V0:KItem <- .Map [ V0:KItem <- 1 ] ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -28905,7 +28905,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map [ 0 <- 1 ] |-> 1 </env>
+<env> _ => .Map [ .Map [ 0 <- 1 ] <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -28914,7 +28914,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => SetItem(V0:KItem) |-> 1 </env>
+<env> _ => .Map [ SetItem(V0:KItem) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -28924,7 +28924,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::map::update(k::builtin::
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => .Map [ 0 <- 1 ] |-> 1 </env>
+<env> _ => .Map [ .Map [ 0 <- 1 ] <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -28934,7 +28934,7 @@ same_k_as = ["notation/cells/result-map-key/k::builtin::set::item(x)"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => SetItem(V0:KItem) |-> 1 </env>
+<env> _ => .Map [ SetItem(V0:KItem) <- 1 ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -28943,7 +28943,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Map [ 0 <- 1 ]) </env>
+<env> _ => .Map [ V0:KItem <- .Map [ 0 <- 1 ] ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -28952,7 +28952,7 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> SetItem(V0:KItem) </env>
+<env> _ => .Map [ V0:KItem <- SetItem(V0:KItem) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -28962,7 +28962,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::map::update(k::builtin
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> (.Map [ 0 <- 1 ]) </env>
+<env> _ => .Map [ V0:KItem <- .Map [ 0 <- 1 ] ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -28972,7 +28972,7 @@ same_k_as = ["notation/cells/result-map-value/k::builtin::set::item(x)"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> _ => V0:KItem |-> SetItem(V0:KItem) </env>
+<env> _ => .Map [ V0:KItem <- SetItem(V0:KItem) ] </env>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """

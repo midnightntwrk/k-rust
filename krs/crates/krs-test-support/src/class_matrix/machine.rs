@@ -315,9 +315,10 @@ fn record_case(spec: CaseSpec, kind: CellKind, side: Side) -> Case {
 }
 
 /// The initializer values: a literal, the configuration variable, the computation-cell
-/// spellings, bracket lists, the builtin empty-collection operations, `map!` spellings, the
-/// optional spellings, and a group record and a collection instance.
-const INITIALIZER_VALUES: [&str; 16] = [
+/// spellings, bracket lists, the builtin empty-collection operations, `map!` spellings and the
+/// call a map with an entry denotes, the optional spellings, and a group record and a
+/// collection instance.
+const INITIALIZER_VALUES: [&str; 17] = [
     "0",
     "pgm",
     "k::k![]",
@@ -329,6 +330,7 @@ const INITIALIZER_VALUES: [&str; 16] = [
     "list::empty()",
     "k::map![]",
     "k::map![0 -> 1]",
+    "k::builtin::map::update(k::builtin::map::empty(), 0, 1)",
     "k::builtin::map::empty()",
     "Some(0)",
     "None",
@@ -341,7 +343,7 @@ const INITIALIZER_VALUES: [&str; 16] = [
 /// stands in the computation cell alone.
 const COMPUTATION_REMAINDER: &str = "k::k![Cmd::Go(), ..pgm]";
 
-/// Initializers: 7 kinds × 16 values, each value in place of the base's value of that kind's
+/// Initializers: 7 kinds × 17 values, each value in place of the base's value of that kind's
 /// cell (for the collection, in place of its parent's instance template), the computation
 /// cell's remainder, and the field-order axis: the base's initializer with its fields
 /// reordered.
