@@ -1344,7 +1344,7 @@ impl<'a> TermBuilder<'a> {
         let suggestion = did_you_mean(name, self.names_in_scope());
         let message = if matches!(self.form, Form::Initializer) {
             format!(
-                "`{name}` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters{suggestion}"
+                "`{name}` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters or a name an enclosing `let` binds{suggestion}"
             )
         } else {
             format!(

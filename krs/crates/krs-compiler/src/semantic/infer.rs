@@ -327,9 +327,18 @@ impl StructuredTermBuilder<'_> {
                         .or_insert_with(|| key.clone());
                 }
                 if let Some(sort) = self.configuration_variables.get(name) {
+                    let sort_parents = self.sort_parents;
                     self.admit_term(term, sort, expected_sort, |expected| {
+                        // The read is the start value at its declared sort; a narrower sort is
+                        // the projection's, which has a value where the start value has it.
+                        let wanted = super::overload::sort_name(expected);
+                        let narrow = if semantic_is_subsort(expected, sort, sort_parents) {
+                            format!(", or narrow the read with `k::project!({wanted}, {name})`")
+                        } else {
+                            String::new()
+                        };
                         format!(
-                            "configuration variable `{name}` of sort {sort} is not admissible at sort {expected}"
+                            "configuration variable `{name}` of sort {sort} is not admissible at sort {expected}: it stands for the value given at start, a term of its declared sort; declare the parameter at that sort (`{name}: {wanted}`){narrow}"
                         )
                     })?;
                 }
@@ -943,7 +952,7 @@ impl StructuredTermBuilder<'_> {
                 return Err(self.invalid_matches(
                     occurrence,
                     format!(
-                        "`{name}` in k::matches! binds a new variable; it does not compare with the rule's `{name}`. Use int::eq/bool::eq, or write `_`"
+                        "`{name}` in k::matches! binds a new variable; it does not compare with the `{name}` the sentence or the initializer already names. Use int::eq/bool::eq, or write `_`"
                     ),
                 ));
             }
@@ -2727,6 +2736,23 @@ impl StructuredTermBuilder<'_> {
         );
         let taken = std::mem::replace(&mut self.record_updates.taken, outer);
         let body = body?;
+        // As a `let`'s pattern and value, the record and its base must share a sort, or the base
+        // is never such a record and the update never has a value.
+        if most_specific_common_descendants(
+            &BTreeSet::from([value.sort().clone(), body.sort().clone()]),
+            self.sort_parents,
+        )
+        .is_empty()
+        {
+            return Err(self.invalid_record_update(
+                key,
+                format!(
+                    "the base has sort `{}` and the record has sort `{}`, which share no subsort, so the base is never a record of the update's constructor and the update never has a value",
+                    super::overload::sort_name(value.sort()),
+                    super::overload::sort_name(body.sort())
+                ),
+            ));
+        }
         let krs_ir_levels::IrTermKind::Application {
             application,
             arguments: lowered,

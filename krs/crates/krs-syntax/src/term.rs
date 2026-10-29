@@ -4054,7 +4054,7 @@ fn record_update_base(record: &ExprStruct) -> Result<Option<&ExprPath>, SyntaxEr
             Ok(Some(path))
         }
         _ => Err(invalid(
-            "the base of a record update is one binder, the alias `t` of a record matched as `t @ Ctor { .. }`",
+            "the base of a record update is one name: in a sentence the alias `t` of a record matched as `t @ Ctor { .. }`, in an initializer a configuration variable, a name a `let` binds, or a constant",
             rest.span(),
         )),
     }

@@ -875,7 +875,9 @@ fn lower_initializer_term(
         k_item_sort: super::rules::framework_k_item_sort(declarations)?,
         sort_parents,
         binding_names: &binding_names,
-        pattern_key: None,
+        // A local pattern's open record matches its other fields with generated wildcards, each
+        // keyed after the term it stands in, as a rule's are after its pattern.
+        pattern_key: Some(StructuredTermBuilder::term_key(term)),
         binding_sorts: BTreeMap::new(),
         binding_constraints: initial_binding_constraints(binding_sorts),
         constraint_sites: BTreeMap::new(),

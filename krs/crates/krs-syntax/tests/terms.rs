@@ -133,11 +133,11 @@ fn a_record_update_has_one_binder_as_its_base_and_lists_each_field_once() {
     for (source, expected) in [
         (
             "Ctor { field: value, ..base.inner }",
-            "the base of a record update is one binder",
+            "the base of a record update is one name",
         ),
         (
             "Ctor { field: value, ..int::add(a, b) }",
-            "the base of a record update is one binder",
+            "the base of a record update is one name",
         ),
         (
             "Ctor { field: 1, field: 2, ..base }",

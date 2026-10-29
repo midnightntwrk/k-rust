@@ -290,8 +290,8 @@ fn an_initializer_typo_is_a_krs_error_at_the_name() {
     found.extend(typo("cell-typo", "Self { k: k::k![pgm], acc: accc }"));
     expect_test::expect![[r#"
         [
-            "error[krs::expand::unbound-name]: `pgmm` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters; did you mean `pgm`? at `pgmm`",
-            "error[krs::expand::unbound-name]: `accc` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters; did you mean `acc`? at `accc`",
+            "error[krs::expand::unbound-name]: `pgmm` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters or a name an enclosing `let` binds; did you mean `pgm`? at `pgmm`",
+            "error[krs::expand::unbound-name]: `accc` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters or a name an enclosing `let` binds; did you mean `acc`? at `accc`",
         ]
     "#]]
     .assert_debug_eq(&found);

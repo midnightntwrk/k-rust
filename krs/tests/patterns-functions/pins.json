@@ -370,7 +370,7 @@
       "error[krs::analysis::invalid-pattern-or]: `A | B` (K's #Or) matches one of several terms, and a subject rewritten as one term in place stands for the one term it matched: write one sentence per alternative; here it stands in the subject of a `#[k::simplification]` fn"
     ],
     "matches-shadow": [
-      "error[krs::analysis::invalid-matches]: `e` in k::matches! binds a new variable; it does not compare with the rule's `e`. Use int::eq/bool::eq, or write `_`"
+      "error[krs::analysis::invalid-matches]: `e` in k::matches! binds a new variable; it does not compare with the `e` the sentence or the initializer already names. Use int::eq/bool::eq, or write `_`"
     ],
     "matches-unread": [
       "error[krs::analysis::invalid-matches]: `x` is never read; write `_`"
@@ -382,7 +382,7 @@
       "error[krs::syntax::invalid-matches]: did you mean `k::matches!`? std's matches! tests a host value"
     ],
     "matches-lhs": [
-      "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test alone, which no term holds, so it stands where a term is built or a condition computed, never in a pattern, which matches terms as they are; a pattern's map key computes its value, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the test in a readable rule, a `#[k::rule]` fn's result or a condition; here it stands in the subject of a `k::rules!` sort rule"
+      "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed; a pattern's map key computes its value, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the test in a rule's or an equation's result or condition, a fn body, or an initializer; here it stands in the subject of a `k::rules!` sort rule"
     ],
     "matches-alias-result": [
       "error[krs::syntax::invalid-pattern-as]: `name @ pattern` (K's #as) names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, and a result only builds; here it stands in a `k::matches!` pattern in the result of a `k::rules!` sort rule"
@@ -403,7 +403,7 @@
       "error[krs::syntax::invalid-let]: a `let` pattern destructures one value, which a bare name already names whole: write `let p = e; let P = p;` for `p @ P`; here it stands in a `let` pattern in the result of an equation"
     ],
     "let-pattern": [
-      "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block alone, which no term holds, so it stands where a term is built or a condition computed, never in a pattern, which matches terms as they are; a pattern's map key computes its value, but `#let` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a readable rule, a `#[k::rule]` fn's result or a condition; here it stands in the subject of an equation"
+      "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed; a pattern's map key computes its value, but `#let` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a rule's or an equation's result or condition, a fn body, or an initializer; here it stands in the subject of an equation"
     ],
     "let-scope": [
       "error[krs::expand::unbound-name]: `x` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one; did you mean `e`?"

@@ -1190,7 +1190,7 @@ fn parse_initializer_cell(
 fn unsorted_cell_value(expression: &Expr) -> Option<&'static str> {
     match expression {
         Expr::Block(_) => Some(
-            "a `let` block is an initializer term, but no K frontend reads a cell's sort from it: K takes a cell's sort from its initial content, and neither Java K's kompile (`#let` gets no sort there) nor the native frontend (no production heads `#let` as it reads the configuration) finds one; write the block below a constructor or as an item of a `k::k![..]` cell",
+            "a `let` block is an initializer term, but no K frontend reads a cell's sort from it: K takes a cell's sort from its initial content, and neither Java K's kompile (`#let` gets no sort there) nor the native frontend (no production heads `#let` as it reads the configuration) finds one; write the block below a constructor or an operation of the cell's sort, as in `{ .. } && true` for a `Bool` cell",
         ),
         Expr::Macro(ExprMacro { mac, .. })
             if mac
@@ -1201,7 +1201,7 @@ fn unsorted_cell_value(expression: &Expr) -> Option<&'static str> {
                 && !crate::term::is_std_matches(&mac.path) =>
         {
             Some(
-                "`k::matches!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and no production heads K's `:=K` as the native frontend reads the configuration; write the test below a constructor or as an item of a `k::k![..]` cell",
+                "`k::matches!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and no production heads K's `:=K` as the native frontend reads the configuration; write `k::matches!(..) && true` for the `Bool` cell, or the test below a constructor",
             )
         }
         Expr::Macro(ExprMacro { mac, .. })
@@ -1212,7 +1212,7 @@ fn unsorted_cell_value(expression: &Expr) -> Option<&'static str> {
                 .is_some_and(|segment| segment.ident == "is") =>
         {
             Some(
-                "`k::is!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and the sort predicate it applies is generated after the native frontend reads the configuration; write the test below a constructor or as an item of a `k::k![..]` cell",
+                "`k::is!` is an initializer term, but the native frontend reads no cell's sort from it: K takes a cell's sort from its initial content, and the sort predicate it applies is generated after the native frontend reads the configuration; write `k::is!(..) && true` for the `Bool` cell, or the test below a constructor",
             )
         }
         _ => None,

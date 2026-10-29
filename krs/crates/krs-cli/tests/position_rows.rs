@@ -299,7 +299,7 @@ fn a_single_body_rule_tells_a_misplaced_root_before_its_missing_rewrite() {
                 (
                     false,
                     [
-                        "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block alone, which no term holds, so it stands where a term is built or a condition computed, never in a pattern, which matches terms as they are; a pattern's map key computes its value, but `#let` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a readable rule, a `#[k::rule]` fn's result or a condition; here it stands in the subject of a single-body `#[k::rule]` fn",
+                        "error[krs::expand::let-outside-term]: a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed; a pattern's map key computes its value, but `#let` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a rule's or an equation's result or condition, a fn body, or an initializer; here it stands in the subject of a single-body `#[k::rule]` fn",
                         "--> src/lib.rs:42:20",
                     ],
                 ),
