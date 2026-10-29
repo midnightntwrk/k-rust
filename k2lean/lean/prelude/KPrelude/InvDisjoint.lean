@@ -101,8 +101,10 @@ def claimsL (g : K → V → Option L) (ps : List (K × V)) : List E :=
 order. -/
 def claimsOf (g : K → V → Option L) (m : M) : List E := claimsL g (toList m)
 
-/-- Every binding of `m` has its claims defined. -/
-def ClaimsDef (g : K → V → Option L) (m : M) : Prop := ∀ p ∈ toList m, (g p.1 p.2).isSome
+/-- Every binding of `m` matches the fold's patterns (`T`: what they read twice is equal) and has
+its claims defined. -/
+def ClaimsDef (T : K → V → Prop) (g : K → V → Option L) (m : M) : Prop :=
+  ∀ p ∈ toList m, T p.1 p.2 ∧ (g p.1 p.2).isSome
 
 theorem claimsL_perm {g : K → V → Option L} {ps qs : List (K × V)} (h : ps.Perm qs) :
     (claimsL g ps).Perm (claimsL g qs) :=
@@ -131,19 +133,19 @@ theorem claimsOf_unit (g : K → V → Option L) : claimsOf g (unit : M) = [] :=
   unfold claimsOf claimsL unit
   rw [toList_ofList, List.flatMap_nil]
 
-theorem claimsDef_concat {g : K → V → Option L} {a b m : M} (h : concat a b = some m) :
-    ClaimsDef g m ↔ ClaimsDef g a ∧ ClaimsDef g b := by
+theorem claimsDef_concat {T : K → V → Prop} {g : K → V → Option L} {a b m : M} (h : concat a b = some m) :
+    ClaimsDef T g m ↔ ClaimsDef T g a ∧ ClaimsDef T g b := by
   unfold ClaimsDef
   simp only [mem_toList_of_concat h]
   exact ⟨fun hm => ⟨fun p hp => hm p (.inl hp), fun p hp => hm p (.inr hp)⟩,
     fun ⟨ha, hb⟩ p hp => hp.elim (ha p) (hb p)⟩
 
-theorem claimsDef_element {g : K → V → Option L} {k : K} {v : V} :
-    ClaimsDef g (element k v : M) ↔ (g k v).isSome := by
+theorem claimsDef_element {T : K → V → Prop} {g : K → V → Option L} {k : K} {v : V} :
+    ClaimsDef T g (element k v : M) ↔ T k v ∧ (g k v).isSome := by
   unfold ClaimsDef element
   simp [toList_ofList]
 
-theorem claimsDef_unit {g : K → V → Option L} : ClaimsDef g (unit : M) := by
+theorem claimsDef_unit {T : K → V → Prop} {g : K → V → Option L} : ClaimsDef T g (unit : M) := by
   unfold ClaimsDef unit
   simp [toList_ofList]
 
@@ -152,13 +154,13 @@ theorem claimsDef_unit {g : K → V → Option L} : ClaimsDef g (unit : M) := by
 and `F`'s value one of `a r` or `r a`. Its value is then the claims of every binding, up to the
 order of the walk, and each binding's claims are defined. By induction on the number of bindings,
 the rest at a binding having one fewer. -/
-theorem fold_claims {F : M → Option L} {g : K → V → Option L}
+theorem fold_claims {F : M → Option L} {T : K → V → Prop} {g : K → V → Option L}
     (h1 : F unit = some (ListHook.unit : L))
-    (h2 : ∀ m l, m ≠ unit → F m = some l → WF m ∧ ∃ k v a r, (k, v) ∈ toList m ∧
+    (h2 : ∀ m l, m ≠ unit → F m = some l → WF m ∧ ∃ k v a r, (k, v) ∈ toList m ∧ T k v ∧
       g k v = some a ∧ F (remove m k) = some r ∧ (toList l).Perm (toList a ++ toList r))
-    (m : M) (l : L) (h : F m = some l) : ClaimsDef g m ∧ (toList l).Perm (claimsOf g m) := by
+    (m : M) (l : L) (h : F m = some l) : ClaimsDef T g m ∧ (toList l).Perm (claimsOf g m) := by
   suffices H : ∀ n (m : M) (l : L), (toList m).length = n → F m = some l →
-      ClaimsDef g m ∧ (toList l).Perm (claimsOf g m) from H _ m l rfl h
+      ClaimsDef T g m ∧ (toList l).Perm (claimsOf g m) from H _ m l rfl h
   intro n
   induction n using Nat.strongRecOn with
   | ind n ih =>
@@ -171,7 +173,7 @@ theorem fold_claims {F : M → Option L} {g : K → V → Option L}
       rw [claimsOf_unit]
       unfold ListHook.unit
       rw [toList_ofList]
-    obtain ⟨hw, k, v, a, r, hk, hg, hr, hp⟩ := h2 m l hu h
+    obtain ⟨hw, k, v, a, r, hk, ht, hg, hr, hp⟩ := h2 m l hu h
     have hlt : (toList (remove m k)).length < n := by
       rw [← hn, (perm_toList_remove hw hk).length_eq, List.length_cons]
       exact Nat.lt_succ_self _
@@ -181,7 +183,7 @@ theorem fold_claims {F : M → Option L} {g : K → V → Option L}
     rw [List.flatMap_cons] at hm
     refine ⟨fun p hp => ?_, ?_⟩
     · rcases List.mem_cons.1 ((perm_toList_remove hw hk).mem_iff.1 hp) with rfl | hp
-      · rw [hg]; rfl
+      · rw [hg]; exact ⟨ht, rfl⟩
       · exact hd p hp
     · refine hp.trans (List.Perm.trans ?_ hm.symm)
       rw [hg]
@@ -189,12 +191,12 @@ theorem fold_claims {F : M → Option L} {g : K → V → Option L}
 
 /-- The fold is defined wherever every binding's claims are: from its instances, at a nonempty
 well-formed map whose every binding has defined claims and a defined rest, the fold is defined. -/
-theorem fold_isSome {F : M → Option L} {g : K → V → Option L}
+theorem fold_isSome {F : M → Option L} {T : K → V → Prop} {g : K → V → Option L}
     (h1 : F unit = some (ListHook.unit : L))
-    (h3 : ∀ m, m ≠ unit → WF m → (∀ k v, (k, v) ∈ toList m → (g k v).isSome ∧ (F (remove m k)).isSome) →
-      (F m).isSome)
-    (m : M) (hw : WF m) (hd : ClaimsDef g m) : (F m).isSome := by
-  suffices H : ∀ n (m : M), (toList m).length = n → WF m → ClaimsDef g m → (F m).isSome from
+    (h3 : ∀ m, m ≠ unit → WF m → (∀ k v, (k, v) ∈ toList m → (T k v ∧ (g k v).isSome) ∧
+      (F (remove m k)).isSome) → (F m).isSome)
+    (m : M) (hw : WF m) (hd : ClaimsDef T g m) : (F m).isSome := by
+  suffices H : ∀ n (m : M), (toList m).length = n → WF m → ClaimsDef T g m → (F m).isSome from
     H _ m rfl hw hd
   intro n
   induction n using Nat.strongRecOn with
@@ -325,9 +327,9 @@ open ListIso
 variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V]
   [Std.TransOrd K] [Std.LawfulEqOrd K] {L E : Type} [ListIso L E]
 
-/-- Every binding's claims defined, and no claim twice. -/
-def ClaimsOK (g : K → V → Option L) (m : M) : Prop :=
-  EntriesOn (fun p => (g p.1 p.2).isSome = true) m ∧ (claimsOf g m).Nodup
+/-- Every binding matching the fold's patterns (`T`) with its claims defined, and no claim twice. -/
+def ClaimsOK (T : K → V → Prop) (g : K → V → Option L) (m : M) : Prop :=
+  EntriesOn (fun p => T p.1 p.2 ∧ (g p.1 p.2).isSome = true) m ∧ (claimsOf g m).Nodup
 
 end MapHook
 
