@@ -10,7 +10,7 @@ use krs_ir::wire::{
 use krs_ir::{
     CellWrapper, DescriptorKSequenceNotation, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
-    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody,
+    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::positions::Form;
@@ -546,10 +546,30 @@ impl<'a> InitializerBuilder<'a> {
             MapBody::Empty { explicit_dot } => ProtocolMapBody::Empty {
                 explicit_dot: *explicit_dot,
             },
-            // A cell's own `map![..]` that writes entries or a rest is a collection literal, a
-            // term (`krs_syntax`'s initializer reading).
-            MapBody::Items { .. } => {
-                unreachable!("an initializer's map with entries is read as a collection literal")
+            MapBody::Items { items, remainder } => {
+                // A cell's own `map![..]` with a rest is read as a collection literal, a term
+                // (`krs_syntax`'s initializer reading), so no remainder reaches this point.
+                if let Some(range) = remainder.range() {
+                    return Err(ExpandError::at_range(
+                        codes::expand::UNCONSUMED_PROVENANCE_KEY,
+                        range,
+                        "internal error (a KRS bug): an initializer cell's `map!` with a remainder is read as a collection literal, so its remainder must not reach expansion as the cell's map",
+                    ));
+                }
+                let mut output = Vec::new();
+                for item in items {
+                    let key_key = ledger.define(item.key().keys().payload())?;
+                    let value_key = ledger.define(item.value().keys().payload())?;
+                    let key = self.expand_term(item.key())?;
+                    let value = self.expand_term(item.value())?;
+                    output.push(ProtocolMapItem {
+                        key_key,
+                        key,
+                        value_key,
+                        value,
+                    });
+                }
+                ProtocolMapBody::Items { items: output }
             }
             MapBody::Update { base, key, value } => {
                 let base_key = ledger.define(base.keys().payload())?;

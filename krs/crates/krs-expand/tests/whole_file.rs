@@ -656,9 +656,17 @@ fn an_initializer_map_remainder_is_the_base_its_entries_are_written_over() {
     let source = "impl Machine {\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"ENV\")] env: Map) -> Self {\n        Self { env: k::map![0 -> 1, ..env] }\n    }\n}\n";
     let expansion = expand(source).expect("the rest is the literal's base");
     let text = &expansion.generated.text;
-    assert!(
-        text.contains(r#"\"value\":{\"state_term_kind\":\"term\""#)
-            && !text.contains("map_payload"),
-        "the cell's value is a term, not the cell's map:\n{text}"
-    );
+    // The cell's value is the call `map::update(env, 0, 1)`: the rest `env` is its first
+    // argument, the base the entry is written over, and no map payload is on the wire.
+    let update = text
+        .find(r#"\"authored_path\":\"map :: update\""#)
+        .expect("the value is the call `map::update`");
+    let base = text[update..]
+        .find(r#"\"name\":\"env\""#)
+        .expect("the call reads `env`");
+    let entry = text[update..]
+        .find(r#"\"literal_kind\":\"int\",\"value\":\"0\""#)
+        .expect("the call writes the key `0`");
+    assert!(base < entry, "the rest is the first argument:\n{text}");
+    assert!(!text.contains("map_payload"), "no map payload:\n{text}");
 }
