@@ -112,6 +112,18 @@ fn the_case_count_per_family_is_pinned_and_capped() {
     }
 }
 
+/// The fast tier's shards partition the families: each family's cases run in exactly one test.
+#[test]
+fn every_family_is_in_exactly_one_shard_of_the_fast_tier() {
+    for family in Family::ALL {
+        let shards = class_matrix::FRONT_SHARDS
+            .iter()
+            .filter(|shard| shard.contains(&family))
+            .count();
+        assert_eq!(shards, 1, "{family:?} is in {shards} shards");
+    }
+}
+
 #[test]
 fn ids_are_spelled_from_the_axes_and_commands_are_unique() {
     let cases = class_matrix::cases();

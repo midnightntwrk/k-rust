@@ -4393,6 +4393,8 @@ deviation = "krs::syntax::invalid-expression-notation @ spelling"
 # carry (renamed apart from the rule's variables, as a result's `let` binders are), then admit both
 # in a key; a differential run of the Java frontend and k-rust's native frontend over the emitted
 # rule would support it. Plan: new (stop rule of NT-3).
+# NT-5: its six `notation/readable/map-key/let-body/..` notation cases and their calls are the
+# accepted pairs `accepted-terms.toml` relates by `same_k_as`, which K3 compares once both are accepted.
 
 ["terms/readable/map-key/k::matches!(x, Cmd::Hold(_))"]
 finding = "NT-3-2"
@@ -4962,6 +4964,8 @@ deviation = "krs::expand::matches-outside-condition @ entry"
 # the instance written as an element the lowering looks up, which is new design. Proposal: lower a
 # Set collection's computed instance as the element of the collection's set, or keep the refusal and
 # say so in the class message. Plan: new (stop rule of the NT-3 review).
+# NT-5: its six `notation/readable/set-instance-child/..` notation cases and their calls are the
+# accepted pairs `accepted-terms.toml` relates by `same_k_as`, which K3 compares once both are accepted.
 
 ["terms/readable/set-instance-child/!(x < 1)"]
 finding = "NT-3-3"
@@ -5117,6 +5121,8 @@ deviation = "krs::analysis::ambiguous-operator @ entry"
 # Proposal: let a simplification's root be a collection operation's term (its K is `M [ K ]`,
 # `size(L)`, ..), or refuse it at the root with the class value-rooted simplifications have
 # (`simplification-root-not-function`, NT-2-12's), with a message naming the collection function.
+# Its six notation cases and their calls are the accepted pairs `accepted-terms.toml` relates by
+# `same_k_as`, which K3 compares once both are accepted.
 
 ["notation/simplification/subject-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
 finding = "NT-5-2"
