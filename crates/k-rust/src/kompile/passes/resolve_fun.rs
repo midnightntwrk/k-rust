@@ -1096,8 +1096,8 @@ pub(crate) struct ClosureVariable {
 }
 
 impl ClosureVariable {
-    /// The variable as the lowering passes it: with the sort of its innermost semantic cast, or
-    /// its own sort.
+    /// The variable as the lowering passes it: with its own sort, or the sort of its innermost
+    /// semantic cast.
     pub(crate) fn term(self) -> Term {
         Term::Variable {
             name: self.name,
@@ -1107,8 +1107,16 @@ impl ClosureVariable {
 }
 
 /// The closure variables of the local function whose equation is `body`: the variables its body
-/// reads from the term enclosing it, once each in the order of their first occurrence, with the
-/// sort of the innermost semantic cast around that occurrence or else its own sort.
+/// reads from the term enclosing it, once each in the order of their first occurrence, with that
+/// occurrence's own sort or else the sort of the innermost semantic cast around it.
+///
+/// An occurrence's own sort is the variable's: a cast around it sorts the term the cast wraps,
+/// which is the variable only when nothing stands between them (`X:Int` read as a cast of an
+/// unsorted `X`). Where a larger term stands between them, as in a configuration initializer's
+/// `{project:Exp(unbox(Init:Map["$P"]))}:Exp`, the cast's sort is that term's, not the
+/// variable's, and the generated equation would bind `Init` at `Exp` while its body reads it at
+/// `Map`. An occurrence whose own sort and innermost cast agree, or that has only one of them,
+/// takes the same sort either way.
 ///
 /// They come from the walk the definition check applies to the same construct
 /// (`definition::checks::local_function_free_variables`), so the variables a generated equation
@@ -1123,7 +1131,7 @@ pub(crate) fn closure_variables(body: &Term) -> Vec<ClosureVariable> {
         .filter(|variable| seen.insert(variable.name))
         .map(|FreeVariable { name, sort, cast }| ClosureVariable {
             name: name.to_owned(),
-            sort: cast.map(Sort::new).or_else(|| sort.cloned()),
+            sort: sort.cloned().or_else(|| cast.map(Sort::new)),
         })
         .collect()
 }
@@ -1513,5 +1521,64 @@ endmodule
         expected.sort_unstable();
         assert_eq!(added, expected);
         assert_eq!(removed.len(), 1, "only the rule is rewritten: {removed:#?}");
+    }
+}
+
+#[cfg(test)]
+mod closure_tests {
+    use super::*;
+
+    fn variable(name: &str, sort: Option<&str>) -> Term {
+        Term::Variable {
+            name: name.into(),
+            sort: sort.map(Sort::new),
+        }
+    }
+
+    fn cast(sort: &str, term: Term) -> Term {
+        Term::Apply {
+            label: Label::semantic_cast(&Sort::new(sort)),
+            arguments: vec![term],
+        }
+    }
+
+    /// A configuration's `#let` reading `$P:Exp` reads `Init`'s entry below the cast to `Exp`:
+    /// `Init` is captured at its own sort, `Map`, and an unsorted variable the cast wraps
+    /// directly at the cast's sort.
+    #[test]
+    fn a_closure_variable_takes_its_own_sort_before_an_enclosing_cast() {
+        let lookup = Term::apply(
+            "Map:lookup",
+            vec![
+                variable("Init", Some("Map")),
+                Term::Token {
+                    token: "$P".into(),
+                    sort: Sort::new("KConfigVar"),
+                },
+            ],
+        );
+        let body = Term::Rewrite {
+            left: Box::new(variable("Q", Some("Int"))),
+            right: Box::new(Term::apply(
+                "pair",
+                vec![
+                    cast("Exp", Term::apply("project:Exp", vec![lookup])),
+                    cast("Int", variable("Y", None)),
+                ],
+            )),
+        };
+        assert_eq!(
+            closure_variables(&body),
+            vec![
+                ClosureVariable {
+                    name: "Init".into(),
+                    sort: Some(Sort::new("Map")),
+                },
+                ClosureVariable {
+                    name: "Y".into(),
+                    sort: Some(Sort::new("Int")),
+                },
+            ]
+        );
     }
 }
