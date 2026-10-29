@@ -378,6 +378,75 @@ fn map_walks_by_free_key_patterns_get_their_element_wise_form() {
     assert!(thms.contains("Invariant.allIn_walk, Invariant.allIn_test, Invariant.idsOk_walk, Invariant.idsOk_test, Invariant.idsOk_walk_cell, Invariant.idsOk_map, Invariant.workersIn_walk, Invariant.workersIn_test, Invariant.workersIn_walk_cell, Invariant.workersIn_map"), "{thms}");
 }
 
+/// `gen --invariant drfOk@T` on the `drf` fixture and `gen --invariant wf@T` on `handoff`, whose
+/// invariants are `noDup` of a fold of claims over a cell map (`wclaims`, `mclaims`, a free-key walk
+/// that concatenates each element's claims), with the program's claims beside it for drf
+/// (`noDup(wclaims(WS) kclaims(K))`): each fold gets its test and claims of one binding
+/// (`F_test`, `F_g`), its value up to order from its instances (`F_fold`, `F_isSome`), and the
+/// order-free bridge (`F_noDup`, `_r` with the other parts' claims, `_cell` at a cell variable),
+/// which join the unfolding set; `noDup` gets its meaning (`noDup_eq`); and neither is noted as a
+/// recursion of no known shape.
+#[test]
+fn folds_of_claims_read_by_nodup_get_their_order_free_form() {
+    let d = tmp("cli-claims");
+    let generate = |fx: &str, ns: &str, inv: &str| {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures")
+            .join(fx);
+        let out = d.join(fx);
+        std::fs::create_dir_all(&out).unwrap();
+        let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("gen")
+            .arg("--kore")
+            .arg(dir.join("definition.kore"))
+            .arg("--runtime")
+            .arg(dir.join("runtime.json"))
+            .arg("--out")
+            .arg(&out)
+            .args([
+                "--name",
+                ns,
+                "--prelude",
+                "../../prelude",
+                "--invariant",
+                inv,
+            ])
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let err = String::from_utf8_lossy(&o.stderr).to_string();
+        assert!(!err.contains("is neither a map walk"), "{err}");
+        let defs = std::fs::read_to_string(out.join(format!("{ns}/InvariantDefs.lean"))).unwrap();
+        let thms = std::fs::read_to_string(out.join(format!("{ns}/Invariants.lean"))).unwrap();
+        (defs, thms)
+    };
+    let (defs, thms) = generate("drf", "Drf", "drfOk@T");
+    assert!(defs.contains("def Invariant.wclaims_g (k : SortWidCell) (v : SortWorkerCell) : Option SortList :=\n  some (K.«todoClaims(_)_DRF_List_Int» (Invariant.content_todo (Invariant.cell_todo v)))"), "{defs}");
+    assert!(
+        defs.contains("theorem Invariant.noDup_eq (l : SortList) :"),
+        "{defs}"
+    );
+    assert!(
+        defs.contains(
+            "theorem Invariant.wclaims_noDup_r (m : SortWorkerCellMap) (o : Option SortList) :"
+        ),
+        "{defs}"
+    );
+    assert!(defs.contains("  KPrelude.MapHook.claimsOK_iff_of Invariant.noDup_eq Invariant.wclaims_fold Invariant.wclaims_wfOf Invariant.wclaims_isSome m o"), "{defs}");
+    assert!(
+        defs.contains(
+            "theorem Invariant.wclaims_noDup_r_cell (w : SortWorkersCell) (o : Option SortList) :"
+        ),
+        "{defs}"
+    );
+    assert!(thms.contains("Invariant.wclaims_noDup_r, Invariant.wclaims_noDup_r_cell, Invariant.wclaims_test, Invariant.wclaims_g, Invariant.wclaims_map"), "{thms}");
+    let (defs, thms) = generate("handoff", "Handoff", "wf@T");
+    assert!(defs.contains("def Invariant.mclaims_test (k : SortTidCell) (v : SortTaskCell) : Prop :=\n  (Invariant.content_tid (Invariant.cell_tid v)) = (Invariant.content_tid k)"), "{defs}");
+    assert!(defs.contains("  KPrelude.MapHook.claimsOK_iff_of_unit Invariant.noDup_eq Invariant.mclaims_fold Invariant.mclaims_wfOf Invariant.mclaims_isSome m"), "{defs}");
+    assert!(!defs.contains("mclaims_noDup_r"), "{defs}");
+    assert!(thms.contains("Invariant.mclaims_noDup, Invariant.mclaims_noDup_cell, Invariant.mclaims_test, Invariant.mclaims_g, Invariant.mclaims_map"), "{thms}");
+}
+
 /// `gen --invariant ok` on the `kfold` fixture, whose invariant folds `<k>` with `kOk` and a
 /// partial test of one item `itemOk`, which calls `kOk` back on the continuation a `later(K)`
 /// holds: the fold gets `Invariant.kAll` and its element-wise form `Invariant.kOk_iff`, by

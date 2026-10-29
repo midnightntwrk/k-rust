@@ -1,10 +1,11 @@
 import HandoffConf.Views
+import HandoffConf.Claims
 
 /-! The slots of `HandoffConf.Slots` that the generic attempts leave, proved by hand: two steps of
 two tasks at one binding of `<procs>` or `<vals>`, two creations of one process or two of its
 resumes at one turn. The generic attempt's steps (`k2l_keyed`) leave the two tasks claiming one
-thing, which the script's well-formedness `Wf` (`HandoffConf.Inv`) excludes (`one_task`); one task
-takes one step (`k2l_det`). -/
+thing, which the script's well-formedness excludes (`one_task`: `wf` in K, the generated
+`Handoff.Invariant`, read order-free by `HandoffConf.Claims`); one task takes one step (`k2l_det`). -/
 
 set_option maxHeartbeats 0
 set_option linter.unusedVariables false
@@ -16,12 +17,13 @@ variable [Handoff.Hooks]
 
 open KPrelude
 
-/-- Two tasks of one configuration that claim the same, at least one thing, are one task (`Wf`). -/
-theorem one_task {c : Handoff.SortGeneratedTopCell} (w : Wf c) {k₁ k₂ : Handoff.SortTidCell}
+/-- Two tasks of one configuration that claim the same, at least one thing, are one task (`wf`). -/
+theorem one_task {c : Handoff.SortGeneratedTopCell} (hinv : Handoff.Invariant c) {k₁ k₂ : Handoff.SortTidCell}
     {t₁ t₂ : Handoff.SortTaskCell} {D₁ D₂ : Handoff.SortTaskCellMap}
     (h₁ : MapHook.concat (MapHook.element k₁ t₁) D₁ = some (tasks c))
     (h₂ : MapHook.concat (MapHook.element k₂ t₂) D₂ = some (tasks c)) {l : List Claim}
     (e₁ : claims t₁ = l) (e₂ : claims t₂ = l) (hl : l ≠ []) : k₁ = k₂ := by
+  have w := wf_of_invariant hinv
   refine Classical.byContradiction fun hne => ?_
   obtain ⟨x, xs, rfl⟩ := List.exists_cons_of_ne_nil hl
   exact w.2 _ _ _ _ hne (MapHook.lookup_of_concat_element h₁) (MapHook.lookup_of_concat_element h₂) x

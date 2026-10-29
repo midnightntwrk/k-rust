@@ -7,9 +7,10 @@ import HandoffSeq.Init
 /-! The script's result is the one every ready order gives: a run of `handoffseq` that ends the
 script is matched by a run of `handoff` that leaves no task (`run_sim`), and every run of `handoff`
 to a terminal configuration ends there (`HandoffConf.terminal_unique`, under the script's
-well-formedness `HandoffConf.Wf`).
+well-formedness: `wf` in K, the generated `Handoff.Invariant`).
 
-`Wf` is not assumed: a script that runs to its end in order is well-formed (`claims_of_run`). A
+The well-formedness is not assumed: a script that runs to its end in order names no claim twice
+(`claims_of_run`), so its initial configuration satisfies `wf` (`HandoffConf.invariant_init`). A
 creation needs its process to be absent, and a resume needs its process at the turn it names and
 moves it to the next, so no process is created twice and no turn is resumed twice. -/
 
@@ -127,20 +128,6 @@ theorem claims_of_run {s t : HandoffSeq.SortGeneratedTopCell} (h : Star HandoffS
         (ih ht ⟨sp', sv', c, rfl, rep_rebind pkS_inj hp hm hr_9, rep_insert2 (a := (Q, N)) vkS_inj hv hm_6 hr_13 hr_15⟩)
     | nil => simp [trPgm_nil, pclaims]
 
-/-- The initial configuration of a script without a repeated claim is well-formed. -/
-theorem wf_init {P : Handoff.SortPgm} (h : (pclaims P).Nodup) : Wf (Handoff.init P) := by
-  have one : ∀ k t, lookup (element t0 (root 0 P) : Handoff.SortTaskCellMap) k = some t →
-      k = t0 ∧ t = root 0 P := by
-    intro k t hk
-    have e := key_of_lookup_element (by rw [hk]; simp)
-    subst e
-    rw [lookup_element_self] at hk
-    exact ⟨rfl, (Option.some.inj hk).symm⟩
-  refine ⟨fun k t hk => ?_, fun k₁ k₂ t₁ t₂ hne h₁ h₂ => ?_⟩
-  · obtain ⟨-, rfl⟩ := one k t hk
-    simpa [claims] using h
-  · exact (hne ((one _ _ h₁).1.trans (one _ _ h₂).1.symm)).elim
-
 /-- Both definitions start from the script `P` with no process and no value. -/
 theorem sim_init (P : HandoffSeq.SortPgm) : Sim (HandoffSeq.init P) (Handoff.init (trPgm P)) :=
   ⟨P, fun _ => none, fun _ => none, ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩,
@@ -164,8 +151,8 @@ theorem result_unique {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopC
     {r : Handoff.SortGeneratedTopCell} (hs : Star HandoffSeq.Step (HandoffSeq.init P) s) (hd : Done s)
     (hr : Star Handoff.Step (Handoff.init (trPgm P)) r) (ht : Terminal Handoff.Step r) : Fin s r := by
   obtain ⟨r₀, h₀, t₀, hf⟩ := run_exists hs hd
-  have hw : Wf (Handoff.init (trPgm P)) :=
-    wf_init (claims_of_run hs hd ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩).1
+  have hw : Handoff.Invariant (Handoff.init (trPgm P)) :=
+    HandoffConf.invariant_init (claims_of_run hs hd ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩).1
   rw [terminal_unique hw hr ht h₀ t₀]
   exact hf
 

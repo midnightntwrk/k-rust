@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
-# kimptop, kimpboth, nested, range, walk, kfold, anyfold, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
+# kimptop, kimpboth, nested, range, walk, kfold, anyfold, drfinv, and SIMPLE's simpleinv, simplestore, simplet, simpleenvs), KRS IMP's sidecar invariant, the
 # negative check, the kind 2 demos (ImpWrites, KrsImpTyping, InvBudget) and template. Registry:
 # invariants.py.
 
@@ -17,7 +17,7 @@ kore_invariants() {
 
 name_invariants() {
   case $1 in
-    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;;
+    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;; kfold) echo KKFold ;; anyfold) echo KAnyFold ;; drfinv) echo Drf ;;
     simpleinv|simplestore|simplet|simpleenvs) echo KSimpleInv ;;
     *) return 1 ;;
   esac
@@ -62,6 +62,11 @@ gen_invariants() {
     range) GEN_ARGS=(--kore "$FIXTURES/range/definition.kore" --runtime "$FIXTURES/range/runtime.json"
             --out "$o" --name KRange --prelude ../../lean --open-obligations "$o/open-obligations.txt"
             --invariant storeNat@store) ;;
+    # claims disjoint across a cell map's elements and the program (tests/fixtures/drf's `drfOk`:
+    # at most one write to <acc> pending), the K function's preservation with no hand case
+    drfinv) GEN_ARGS=(--kore "$FIXTURES/drf/definition.kore" --runtime "$FIXTURES/drf/runtime.json"
+            --out "$o" --name Drf --prelude ../../lean --open-obligations "$o/open-obligations.txt"
+            --invariant drfOk@T) ;;
     # walks over a cell map and over maps by free-key patterns (tests/fixtures/walk)
     walk) GEN_ARGS=(--kore "$FIXTURES/walk/definition.kore" --runtime "$FIXTURES/walk/runtime.json"
             --out "$o" --name KWalk --prelude ../../lean --open-obligations "$o/open-obligations.txt"
@@ -275,6 +280,8 @@ gate_invariants() {
   runs lib anyfold && inv_lib anyfold KAnyFold
   # walks by free-key patterns over a cell map and over maps (tests/fixtures/walk)
   runs lib walk && inv_lib walk KWalk
+  # claims disjoint across a cell map's elements, read by `noDup` (tests/fixtures/drf's `drfOk`)
+  runs lib drfinv && inv_lib drfinv Drf
   runs negative krsimp-ill-typed && negative_ill_typed
   # SIMPLE with the K function `holdsOk` (demos/k/simple-inv), as for kimpinv; "every store value
   # is a Val or undefined" as a cell function (simplestore) and as a function of SIMPLE's top cell

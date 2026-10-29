@@ -24,8 +24,9 @@ gen_confluence() {
     race) libs_fixture_args "$1" ;;
     # coroutines in a cell map over a UTXO ledger (tests/fixtures/utxo)
     utxo) libs_fixture_args "$1" ;;
-    # a coordination script's tasks over processes resumed segment by segment (tests/fixtures/handoff)
-    handoff) libs_fixture_args "$1" ;;
+    # a coordination script's tasks over processes resumed segment by segment (tests/fixtures/handoff),
+    # with its script's well-formedness `wf` as a kind 1 invariant (no claim named twice)
+    handoff) libs_fixture_args "$1"; GEN_ARGS+=(--invariant wf@T) ;;
     # the same script run in its order (tests/fixtures/handoffseq)
     handoffseq) libs_fixture_args "$1" ;;
     # workers writing one cell, the last write winning (tests/fixtures/drf)
@@ -53,7 +54,7 @@ libs_confluence() {
         --open-joins "$DEMOS/UtxoConf/open-joins.txt" \
         --out "$DEMOS/UtxoConf/UtxoConf/Views.lean" --report "$DEMOS/UtxoConf/confluence.toml" ;;
     HandoffConf) "$G" confluence --kore "$(libs_fixture handoff)/definition.kore" --name Handoff --ns HandoffConf \
-        --threads tasks --obs vals --assume-invariant HandoffConf.Wf --invariant-module HandoffConf.Inv \
+        --threads tasks --obs vals --assume-invariant Handoff.Invariant \
         --slots "$DEMOS/HandoffConf/HandoffConf/Slots.lean" --hand-module HandoffConf.Hand \
         --open-joins "$DEMOS/HandoffConf/open-joins.txt" \
         --out "$DEMOS/HandoffConf/HandoffConf/Views.lean" --report "$DEMOS/HandoffConf/confluence.toml" ;;
@@ -106,12 +107,13 @@ gate_confluence() {
     dbuild_slots UtxoConf
   fi
   # the views by task of the fixture handoff (`confluence --threads tasks`): readiness in the rules,
-  # a resume's whole segment one step; under the script's well-formedness (no step of a process
-  # named twice), which the hand module `HandoffConf/Inv.lean` states and `Hand.lean` uses for the
-  # slots the generic attempts leave
+  # a resume's whole segment one step; under the script's well-formedness `wf` (no step of a process
+  # named twice), a K function of the fixture whose preservation `gen --invariant` proves
+  # (`Handoff.Invariant`), read order-free by `HandoffConf/Claims.lean` for the slots the generic
+  # attempts leave (`Hand.lean`)
   if runs demo HandoffConf; then
     phase "scaffold HandoffConf"
-    partlib handoff Handoff.Preserves
+    partlib handoff Handoff.Invariants
     scaffold confluence-HandoffConf libs_confluence HandoffConf
     dbuild_slots HandoffConf
   fi

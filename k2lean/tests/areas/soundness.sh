@@ -101,7 +101,8 @@ prog_reset() { # DIR: GATE_RETRY_OPEN also retries the open progress cases (refu
 gen_handoff_prog() {
   local o=$GEN/handoff c=$D/HandoffConf GEN_ARGS=()
   libs_fixture_args handoff
-  "$G" gen "${GEN_ARGS[@]}" --progress --assume-invariant HandoffConf.Live \
+  # the library's kind 1 invariant `wf` (the confluence area's), which `Live` reads
+  "$G" gen "${GEN_ARGS[@]}" --invariant wf@T --progress --assume-invariant HandoffConf.Live \
     --invariant-module HandoffConf.Live --invariant-preserved HandoffConf.Live.preserved \
     --invariant-unfold "$c/live-unfold.txt" --element-fact HandoffConf.Live.taskOk \
     --rank HandoffConf.taskRank --progress-out "$c" --progress-prefix HandoffConf

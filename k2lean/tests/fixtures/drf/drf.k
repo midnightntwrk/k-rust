@@ -14,6 +14,7 @@ module DRF
   imports INT
   imports MAP
   imports BOOL
+  imports LIST
   configuration <T>
       <k> $PGM:Pgm </k>
       <workers> <worker multiplicity="*" type="Map"> <wid> 0 </wid> <todo> 0 </todo> </worker> </workers>
@@ -28,4 +29,29 @@ module DRF
        <workers> (.Bag => <worker> <wid> I </wid> <todo> N </todo> </worker>) ... </workers>
        <next> I => I +Int 1 </next> [label(spawn)]
   rule <k> done => .K ... </k> [label(stop)]
+
+  // Data-race freedom, `drfOk` (`gen --invariant drfOk@T`, k2lean/docs/invariants.md): at most one
+  // write to `<acc>` is pending. A worker whose `todo` is positive claims the accumulator (the
+  // claim `0`), and so does each `spawn(N)` with a positive `N` left in the program; no claim is
+  // made twice. `wclaims` lists the workers' claims; the order K's map pattern takes the workers in
+  // is not fixed, and `noDup` does not depend on it.
+  syntax List ::= todoClaims(Int) [function, total]
+                | pclaims(Pgm) [function, total]
+                | kclaims(K) [function, total]
+                | wclaims(WorkersCell) [function, total]
+  syntax Bool ::= drfOk(TCell) [function, total]
+                | noDup(List) [function, total]
+  rule todoClaims(0) => .List
+  rule todoClaims(_) => ListItem(0) [owise]
+  rule pclaims(spawn(N); P) => todoClaims(N) pclaims(P)
+  rule pclaims(done) => .List
+  rule kclaims(.K) => .List
+  rule kclaims(P:Pgm ~> K) => pclaims(P) kclaims(K)
+  rule wclaims(<workers> .Bag </workers>) => .List
+  rule wclaims(<workers> <worker> <wid> _ </wid> <todo> C </todo> </worker> Ws </workers>)
+    => todoClaims(C) wclaims(<workers> Ws </workers>)
+  rule noDup(.List) => true
+  rule noDup(ListItem(X) L) => notBool (X in L) andBool noDup(L)
+  rule drfOk(<T> <k> K </k> WS:WorkersCell <acc> _ </acc> <next> _ </next> </T>)
+    => noDup(wclaims(WS) kclaims(K))
 endmodule

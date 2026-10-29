@@ -1,10 +1,11 @@
-import HandoffConf.Inv
+import HandoffConf.Claims
 import KPrelude.InvColl
 import KPrelude.Progress
 
 /-! The script's closure: every pending instruction's inputs and earlier turns are done or
-claimed by a pending instruction, along an acyclic order (`Closed`). With `Wf` and the shapes of the
-configurations K builds (`Live`), every configuration that is not an ending has a rule that applies
+claimed by a pending instruction, along an acyclic order (`Closed`). With the script's
+well-formedness (`wf` in K, the generated `Handoff.Invariant`, read order-free by
+`HandoffConf.Claims`) and the shapes of the configurations K builds (`Live`), every configuration that is not an ending has a rule that applies
 (its left-hand side matches, `App`): what `progress` states. It does not say that a step exists:
 that would also need `fork`'s new key and the output `o(Q, N)` unbound where they are written, and
 the lower layer's `next` and `out` defined. -/
@@ -107,9 +108,10 @@ def TaskOk : SortTaskCell → Prop
   | .«<task>» j _ (.«<k>» K) => K = .dotk ∨ (∃ i, K = .kseq (.inj_Instr i) .dotk) ∨
       (∃ P, K = .kseq (.inj_Pgm P) .dotk ∧ j = .«<tid>» 0)
 
-/-- The invariant: `Wf`, the shapes K's configurations have, the ledger of outputs, and `Closed`. -/
+/-- The invariant: the script's well-formedness (`wf` in K, `Handoff.Invariant`), the shapes K's
+configurations have, the ledger of outputs, and `Closed`. -/
 structure Live (c : SortGeneratedTopCell) : Prop where
-  wf : Wf c
+  inv : Handoff.Invariant c
   tasks_ok : ∀ k t, MapHook.lookup (tasks c) k = some t → TaskOk t
   procs_wf : MapHook.WF (procs c)
   procs_ok : ∀ k v, MapHook.lookup (procs c) k = some v → ∃ M S, v = st M S ∧ 0 ≤ M
@@ -231,27 +233,27 @@ theorem pendI_fork {k₀ kN : SortTidCell} {root root' task : SortTaskCell}
     (hm : MapHook.concat (MapHook.element k₀ root) D = some m)
     (hr : MapHook.concat (MapHook.element k₀ root') (MapHook.element kN task) = some r)
     (hr₂ : MapHook.concat r D = some r₂)
-    (split : ∀ i, i ∈ instrs root ↔ i ∈ instrs task ∨ i ∈ instrs root') :
+    (hsplit : ∀ i, i ∈ instrs root ↔ i ∈ instrs task ∨ i ∈ instrs root') :
     ∀ i, PendI r₂ i ↔ PendI m i := by
   intro i
   constructor
   · rintro ⟨j, u, hu, hi⟩
     rcases lookup_fork hm hr hr₂ hu with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨e, -⟩
-    · exact ⟨_, _, MapHook.lookup_of_concat_element hm, (split i).2 (Or.inr hi)⟩
-    · exact ⟨_, _, MapHook.lookup_of_concat_element hm, (split i).2 (Or.inl hi)⟩
+    · exact ⟨_, _, MapHook.lookup_of_concat_element hm, (hsplit i).2 (Or.inr hi)⟩
+    · exact ⟨_, _, MapHook.lookup_of_concat_element hm, (hsplit i).2 (Or.inl hi)⟩
     · exact ⟨_, _, e, hi⟩
   · rintro ⟨j, u, hu, hi⟩
     by_cases hj : j = k₀
     · subst hj
       rw [MapHook.lookup_of_concat_element hm] at hu; cases hu
-      rcases (split i).1 hi with h | h
+      rcases (hsplit i).1 hi with h | h
       · exact ⟨_, _, MapHook.lookup_of_concat hr₂ (MapHook.lookup_of_concat_element_right hr), h⟩
       · exact ⟨_, _, MapHook.lookup_of_concat hr₂ (MapHook.lookup_of_concat_element hr), h⟩
     · rw [MapHook.lookup_concat_right hm (MapHook.lookup_element_ne hj)] at hu
       exact ⟨_, _, MapHook.lookup_of_concat_right hr₂ hu, hi⟩
 
 /-- After a task's instruction ran (the task now has nothing to run), no task claims what it
-claimed (`Wf`). -/
+claimed (`WfM`, `HandoffConf.Claims`). -/
 theorem not_pend_of_ran {k : SortTidCell} {t t' : SortTaskCell} {D m m' : SortTaskCellMap}
     (hm : MapHook.concat (MapHook.element k t) D = some m)
     (hr : MapHook.concat (MapHook.element k t') D = some m') (e : instrs t' = []) (w : WfM m)
@@ -371,12 +373,12 @@ theorem Live.preserved : Preserved Handoff.Step Live := by
   · -- fork
     intro m G3 G4 D0 D2 y N I P r r2 hm hlit hr hr3 w
     subst hlit
-    have split : ∀ i, i ∈ instrs (.«<task>» (.«<tid>» 0) (.«<n>» N) (.«<k>» (.kseq (.inj_Pgm (.«_;_» I P)) .dotk))) ↔
+    have hsplit : ∀ i, i ∈ instrs (.«<task>» (.«<tid>» 0) (.«<n>» N) (.«<k>» (.kseq (.inj_Pgm (.«_;_» I P)) .dotk))) ↔
         i ∈ instrs (.«<task>» (.«<tid>» (KPrelude.IntHook.add N 1)) (.«<n>» 0) (.«<k>» (.kseq (.inj_Instr I) .dotk))) ∨
         i ∈ instrs (.«<task>» (.«<tid>» 0) (.«<n>» (KPrelude.IntHook.add N 1)) (.«<k>» (.kseq (.inj_Pgm P) .dotk))) := by
       intro i; simp [instrs, iinstrs]
-    have pf := pendI_fork hm hr hr3 split
-    refine ⟨fork_wf hm hr hr3 (by simp [claims, pclaims]) w.wf, fun j u hu => ?_, w.procs_wf, w.procs_ok,
+    have pf := pendI_fork hm hr hr3 hsplit
+    refine ⟨(Handoff.Invariant.case.fork m G3 G4 D0 D2 0 N I P r r2 hm rfl hr hr3 w.inv), fun j u hu => ?_, w.procs_wf, w.procs_ok,
       w.vals_wf, w.ledger, Closed.step (fun i h => (pf i).1 h) (fun _ h => h) (fun _ _ h => h)
         (fun x ⟨i, hi, hx⟩ => Or.inl ⟨i, (pf i).2 hi, hx⟩) w.closed⟩
     rcases lookup_fork hm hr hr3 hu with ⟨-, rfl⟩ | ⟨-, rfl⟩ | ⟨e, -⟩
@@ -386,7 +388,7 @@ theorem Live.preserved : Preserved Handoff.Step Live := by
   · -- nil
     intro m G4 G5 D0 k D2 G6 r hm hr w
     have pr := pendI_replace hm hr rfl
-    refine ⟨wfM_mono (replace_sub hm hr rfl) w.wf, fun j u hu => ?_, w.procs_wf, w.procs_ok,
+    refine ⟨(Handoff.Invariant.case.nil m G4 G5 D0 k D2 G6 r hm hr w.inv), fun j u hu => ?_, w.procs_wf, w.procs_ok,
       w.vals_wf, w.ledger, Closed.step pr.1 (fun _ h => h) (fun _ _ h => h)
         (fun x ⟨i, hi, hx⟩ => (pr.2 i hi).elim (fun h => Or.inl ⟨i, h, hx⟩)
           (fun h => by simp [instrs, iinstrs] at h)) w.closed⟩
@@ -397,7 +399,7 @@ theorem Live.preserved : Preserved Handoff.Step Live := by
     intro m D2 D1 D0 k D3 G5 Q S r r2 hm hr hr3 w
     have pr := pendI_replace hm hr rfl
     have sn := sat_new hr3
-    refine ⟨wfM_mono (replace_sub hm hr rfl) w.wf, fun j u hu => ?_, MapHook.wf_of_concat hr3,
+    refine ⟨(Handoff.Invariant.case.new m D2 D1 D0 k D3 G5 Q S r r2 hm hr hr3 w.inv), fun j u hu => ?_, MapHook.wf_of_concat hr3,
       procs_ok_bind (Int.le_refl 0) hr3 w.procs_ok, w.vals_wf,
       fun Q' N hd => w.ledger Q' N (sn.2 (.inl (Q', N)) hd (by simp)), Closed.step pr.1 sn.1 ?_ ?_ w.closed⟩
     · rcases lookup_replace hm hr hu with ⟨-, rfl⟩ | e
@@ -405,7 +407,7 @@ theorem Live.preserved : Preserved Handoff.Step Live := by
       · exact w.tasks_ok j u e
     · intro x hp hs
       by_cases hx : x = .inr Q
-      · subst hx; exact absurd hp (not_pend_of_ran hm hr rfl w.wf (by simp [claims, iclaims]))
+      · subst hx; exact absurd hp (not_pend_of_ran hm hr rfl (wf_of_invariant w.inv) (by simp [claims, iclaims]))
       · exact sn.2 x hs hx
     · rintro x ⟨i, hi, hx⟩
       rcases pr.2 i hi with h | h
@@ -419,7 +421,7 @@ theorem Live.preserved : Preserved Handoff.Step Live := by
     obtain ⟨M, S₀, e, h0⟩ := w.procs_ok _ _ (MapHook.lookup_of_concat_element hm5)
     obtain ⟨rfl, -⟩ := st_inj e
     have sr := sat_resume hm5 hr10
-    refine ⟨wfM_mono (replace_sub hm hr rfl) w.wf, fun j u hu => ?_, MapHook.wf_of_concat hr10,
+    refine ⟨(Handoff.Invariant.case.«resume-lit» m m2 D3 D0 k D4 G6 Q N V D2 S r x9 r9 y13 r11 hm hm5 hr fn10 hr10 fo14 hr12 w.inv), fun j u hu => ?_, MapHook.wf_of_concat hr10,
       procs_ok_bind (by simp only [IntHook.add]; omega) hr10 (procs_ok_rest hm5 w.procs_ok), MapHook.wf_of_concat hr12, ?_,
       Closed.step pr.1 sr.1 ?_ ?_ w.closed⟩
     · rcases lookup_replace hm hr hu with ⟨-, rfl⟩ | e
@@ -433,7 +435,7 @@ theorem Live.preserved : Preserved Handoff.Step Live := by
         exact ⟨W, MapHook.lookup_of_concat_right hr12 hW⟩
     · intro x hp hs
       by_cases hx : x = .inl (Q, N)
-      · subst hx; exact absurd hp (not_pend_of_ran hm hr rfl w.wf (by simp [claims, iclaims]))
+      · subst hx; exact absurd hp (not_pend_of_ran hm hr rfl (wf_of_invariant w.inv) (by simp [claims, iclaims]))
       · exact sr.2 x hs hx
     · rintro x ⟨i, hi, hx⟩
       rcases pr.2 i hi with h | h
@@ -448,7 +450,7 @@ theorem Live.preserved : Preserved Handoff.Step Live := by
     obtain ⟨rfl, -⟩ := st_inj e
     have sr := sat_resume hm6 hr16
     have vo := vals_oid hm13 hr18 hr20
-    refine ⟨wfM_mono (replace_sub hm hr rfl) w.wf, fun j u hu => ?_, MapHook.wf_of_concat hr16,
+    refine ⟨(Handoff.Invariant.case.«resume-oid» m m2 m3 D0 k D4 G6 Q N I D2 S D3 V r x15 r15 y19 r17 r19 hm hm6 hm13 hr fn16 hr16 fo20 hr18 hr20 w.inv), fun j u hu => ?_, MapHook.wf_of_concat hr16,
       procs_ok_bind (by simp only [IntHook.add]; omega) hr16 (procs_ok_rest hm6 w.procs_ok), MapHook.wf_of_concat hr20, ?_,
       Closed.step pr.1 sr.1 ?_ ?_ w.closed⟩
     · rcases lookup_replace hm hr hu with ⟨-, rfl⟩ | e
@@ -462,7 +464,7 @@ theorem Live.preserved : Preserved Handoff.Step Live := by
         exact ⟨W, vo.1 _ _ hW⟩
     · intro x hp hs
       by_cases hx : x = .inl (Q, N)
-      · subst hx; exact absurd hp (not_pend_of_ran hm hr rfl w.wf (by simp [claims, iclaims]))
+      · subst hx; exact absurd hp (not_pend_of_ran hm hr rfl (wf_of_invariant w.inv) (by simp [claims, iclaims]))
       · exact sr.2 x hs hx
     · rintro x ⟨i, hi, hx⟩
       rcases pr.2 i hi with h | h
@@ -473,7 +475,7 @@ theorem Live.preserved : Preserved Handoff.Step Live := by
   · -- done
     intro m G4 G5 D0 D2 G0 D3 hm w
     have pr := pendI_remove hm rfl
-    refine ⟨wfM_mono (remove_sub hm) w.wf, fun j u hu => w.tasks_ok j u (lookup_remove hm hu),
+    refine ⟨(Handoff.Invariant.case.done m G4 G5 D0 D2 G0 D3 hm w.inv), fun j u hu => w.tasks_ok j u (lookup_remove hm hu),
       w.procs_wf, w.procs_ok, w.vals_wf, w.ledger,
       Closed.step (fun i h => (pr i).1 h) (fun _ h => h) (fun _ _ h => h)
         (fun x ⟨i, hi, hx⟩ => Or.inl ⟨i, (pr i).2 hi, hx⟩) w.closed⟩

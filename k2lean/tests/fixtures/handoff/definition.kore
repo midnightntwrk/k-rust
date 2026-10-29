@@ -1289,7 +1289,7 @@ module HANDOFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,20,25,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,20,27,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -1297,7 +1297,7 @@ module HANDOFF
   symbol Lblnext'LParUndsCommUndsRParUnds'HANDOFF'Unds'Int'Unds'Int'Unds'Int{}(SortInt{}, SortInt{}) : SortInt{}
   [
     function{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,18,28,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,18,30,43)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -1305,10 +1305,70 @@ module HANDOFF
   symbol Lblout'LParUndsCommUndsRParUnds'HANDOFF'Unds'Int'Unds'Int'Unds'Int{}(SortInt{}, SortInt{}) : SortInt{}
   [
     function{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,18,29,42)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,18,31,42)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
+  ]
+  symbol Lbliclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Instr{}(SortInstr{}) : SortList{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,19,56,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblpclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Pgm{}(SortPgm{}) : SortList{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(57,19,57,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblkclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'K{}(SortK{}) : SortList{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(58,19,58,47)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblmclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'TasksCell{}(SortTasksCell{}) : SortList{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,19,59,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblwf'LParUndsRParUnds'HANDOFF'Unds'Bool'Unds'TCell{}(SortTCell{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,19,60,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+    ),
+    total{}()
+  ]
+  symbol LblnoDup'LParUndsRParUnds'HANDOFF'Unds'Bool'Unds'List{}(SortList{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,19,61,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+    ),
+    total{}()
   ]
   symbol Lbl'-LT-'tid'-GT-'{}(SortInt{}) : SortTidCell{}
   [
@@ -1316,7 +1376,7 @@ module HANDOFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,36,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,38,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -1328,7 +1388,7 @@ module HANDOFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,36,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,38,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -1340,7 +1400,7 @@ module HANDOFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,36,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,38,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -1352,7 +1412,7 @@ module HANDOFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,36,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,38,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -1383,7 +1443,7 @@ module HANDOFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,36,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,38,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -1397,7 +1457,7 @@ module HANDOFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,36,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,38,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -1409,7 +1469,7 @@ module HANDOFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,36,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,38,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -1421,7 +1481,7 @@ module HANDOFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,36,9)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,38,9)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
     )
@@ -2272,6 +2332,60 @@ module HANDOFF
       )
     )
     [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortList{},
+      \equals{SortList{}, R}(
+        Val:SortList{},
+        Lbliclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Instr{}(K0:SortInstr{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortList{},
+      \equals{SortList{}, R}(
+        Val:SortList{},
+        Lblpclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Pgm{}(K0:SortPgm{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortList{},
+      \equals{SortList{}, R}(
+        Val:SortList{},
+        Lblkclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'K{}(K0:SortK{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortList{},
+      \equals{SortList{}, R}(
+        Val:SortList{},
+        Lblmclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'TasksCell{}(K0:SortTasksCell{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        Lblwf'LParUndsRParUnds'HANDOFF'Unds'Bool'Unds'TCell{}(K0:SortTCell{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblnoDup'LParUndsRParUnds'HANDOFF'Unds'Bool'Unds'List{}(K0:SortList{})
+      )
+    )
+    [functional{}()]
   axiom{R}
     \exists{R}(
       Val:SortTidCell{},
@@ -6633,7 +6747,7 @@ module HANDOFF
     [
       UNIQUE'Unds'ID{}("86f4c6a37790ababa4ad3faaf7b31f2c5029b40969e5d73188b1d2cd87c9e772"),
       label{}("fork"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,39,105)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,41,105)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/handoff/handoff.k)"
       )
@@ -6697,7 +6811,7 @@ module HANDOFF
     [
       UNIQUE'Unds'ID{}("54777a1f82b1666558acb84b06fe0bcbdb404c5cd8a6eb982283aa9aec530be8"),
       label{}("nil"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,40,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,3,42,40)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/handoff/handoff.k)"
       )
@@ -6775,7 +6889,7 @@ module HANDOFF
     [
       UNIQUE'Unds'ID{}("f6d0ac13c88a52f64557539c4cd57840923eca43b5ff782a13c5e1f7d638b91a"),
       label{}("new"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,41,93)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,43,93)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/handoff/handoff.k)"
       )
@@ -6886,7 +7000,7 @@ module HANDOFF
     [
       UNIQUE'Unds'ID{}("962b9fa97222e83031ffae8c97b1e55bc936e84ee671019689834b55c8b0b201"),
       label{}("resume-lit"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,3,43,80)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,45,80)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/handoff/handoff.k)"
       )
@@ -7011,7 +7125,7 @@ module HANDOFF
     [
       UNIQUE'Unds'ID{}("12a1ee4d3fac772365947470743def0bb5538dbf94657ef6b6878ccb37412cb6"),
       label{}("resume-oid"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,45,94)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,47,94)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/handoff/handoff.k)"
       )
@@ -7056,7 +7170,380 @@ module HANDOFF
     [
       UNIQUE'Unds'ID{}("42eccaa9f55905ed8b46d0c65d538dbc4fb14ebed56834467d93a639fc64c40c"),
       label{}("done"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,98)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,98)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortInstr{}, R}(
+            X0:SortInstr{},
+            Lblnew'LParUndsCommUndsRParUnds'HANDOFF-SYNTAX'Unds'Instr'Unds'Int'Unds'Int{}(
+              VarQ:SortInt{},
+              Var'Unds'Gen0:SortInt{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        Lbliclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Instr{}(X0:SortInstr{}),
+        \and{SortList{}}(
+          LblListItem{}(inj{SortInt{}, SortKItem{}}(VarQ:SortInt{})),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("4b7b957774ea8d586700207342c69378983928b0ae671861be0e0857ef63bd43"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(62,3,62,41)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortInstr{}, R}(
+            X0:SortInstr{},
+            Lblresume'LParUndsCommUndsCommUndsRParUnds'HANDOFF-SYNTAX'Unds'Instr'Unds'Int'Unds'Int'Unds'Inp{}(
+              VarQ:SortInt{},
+              VarN:SortInt{},
+              Var'Unds'Gen0:SortInp{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        Lbliclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Instr{}(X0:SortInstr{}),
+        \and{SortList{}}(
+          LblListItem{}(
+            inj{SortOid{}, SortKItem{}}(
+              Lblo'LParUndsCommUndsRParUnds'HANDOFF-SYNTAX'Unds'Oid'Unds'Int'Unds'Int{}(
+                VarQ:SortInt{},
+                VarN:SortInt{}
+              )
+            )
+          ),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("6b559ec6286a1a87b35159d8e397bf5c5d81e4c6beb0ac29e4281e7349bdc0b3"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(63,3,63,53)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortPgm{}, R}(
+            X0:SortPgm{},
+            Lbl'UndsSClnUndsUnds'HANDOFF-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm{}(
+              VarI:SortInstr{},
+              VarP:SortPgm{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        Lblpclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Pgm{}(X0:SortPgm{}),
+        \and{SortList{}}(
+          Lbl'Unds'List'Unds'{}(
+            Lbliclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Instr{}(VarI:SortInstr{}),
+            Lblpclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Pgm{}(VarP:SortPgm{})
+          ),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("407933b274081a1d2726d6417759401760efb0a32120b6d935908c4d029e5714"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(64,3,64,47)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortPgm{}, R}(
+            X0:SortPgm{},
+            Lbl'Stop'List'LBraQuotUndsSClnUndsUnds'HANDOFF-SYNTAX'Unds'Pgm'Unds'Instr'Unds'Pgm'QuotRBraUnds'Pgm{}()
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        Lblpclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Pgm{}(X0:SortPgm{}),
+        \and{SortList{}}(Lbl'Stop'List{}(), \top{SortList{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("ed1101c2337e4b76c1dcfb6bf520fb6034dc88a15e8a6c339d101f55920d22ef"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(65,3,65,30)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(inj{SortInstr{}, SortKItem{}}(VarI:SortInstr{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        Lblkclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'K{}(X0:SortK{}),
+        \and{SortList{}}(
+          Lbliclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Instr{}(VarI:SortInstr{}),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("d903ce045e7978e2c20ea511bfd5451f7dd76f7dff3e7a99e1d4afb8f8de5476"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(66,3,66,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortPgm{}, SortKItem{}}(VarP:SortPgm{}), dotk{}())),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        Lblkclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'K{}(X0:SortK{}),
+        \and{SortList{}}(
+          Lblpclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'Pgm{}(VarP:SortPgm{}),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("8c696cdc1aba6978429f044b9c928b13c02b1e8d3e93946e404ed353c204b0f2"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(67,3,67,36)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen1:SortInstr{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortK{}, R}(
+                    X0:SortK{},
+                    kseq{}(inj{SortInstr{}, SortKItem{}}(Var'Unds'Gen1:SortInstr{}), dotk{}())
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \or{R}(
+              \exists{R}(
+                Var'Unds'Gen2:SortPgm{},
+                \and{R}(
+                  \top{R}(),
+                  \and{R}(
+                    \in{SortK{}, R}(
+                      X0:SortK{},
+                      kseq{}(inj{SortPgm{}, SortKItem{}}(Var'Unds'Gen2:SortPgm{}), dotk{}())
+                    ),
+                    \top{R}()
+                  )
+                )
+              ),
+              \bottom{R}()
+            )
+          )
+        ),
+        \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, Var'Unds'Gen0:SortK{}), \top{R}()))
+      ),
+      \equals{SortList{}, R}(
+        Lblkclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'K{}(X0:SortK{}),
+        \and{SortList{}}(Lbl'Stop'List{}(), \top{SortList{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("99a1d84a49e202d9213dff354a430afda14ac9b29907bd3d191f68269f81ebcb"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(68,3,68,35)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      ),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortTasksCell{}, R}(
+            X0:SortTasksCell{},
+            Lbl'-LT-'tasks'-GT-'{}(Lbl'Stop'TaskCellMap{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        Lblmclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'TasksCell{}(X0:SortTasksCell{}),
+        \and{SortList{}}(Lbl'Stop'List{}(), \top{SortList{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("d5f24976cd405a303671fc574a426e4777348be7050f00506af571968b3bb151"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(69,3,69,47)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortTasksCell{}, R}(
+            X0:SortTasksCell{},
+            Lbl'-LT-'tasks'-GT-'{}(
+              Lbl'Unds'TaskCellMap'Unds'{}(
+                LblTaskCellMapItem{}(
+                  Lbl'-LT-'tid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                  Lbl'-LT-'task'-GT-'{}(
+                    Lbl'-LT-'tid'-GT-'{}(Var'Unds'Gen0:SortInt{}),
+                    Lbl'-LT-'n'-GT-'{}(Var'Unds'Gen1:SortInt{}),
+                    Lbl'-LT-'k'-GT-'{}(VarK:SortK{})
+                  )
+                ),
+                VarTs:SortTaskCellMap{}
+              )
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortList{}, R}(
+        Lblmclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'TasksCell{}(X0:SortTasksCell{}),
+        \and{SortList{}}(
+          Lbl'Unds'List'Unds'{}(
+            Lblkclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'K{}(VarK:SortK{}),
+            Lblmclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'TasksCell{}(
+              Lbl'-LT-'tasks'-GT-'{}(VarTs:SortTaskCellMap{})
+            )
+          ),
+          \top{SortList{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("0bfd69a58a9ad3a4d00c046f70d5565cd7880720691a62e3bad4c83a4f9a638f"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(70,3,71,47)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortList{}, R}(X0:SortList{}, Lbl'Stop'List{}()), \top{R}())),
+      \equals{SortBool{}, R}(
+        LblnoDup'LParUndsRParUnds'HANDOFF'Unds'Bool'Unds'List{}(X0:SortList{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("498698a9960de6d1f3fc01f9f281aeab18adda95d8e6d5781ac03a0c6ffcdf72"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(72,3,72,28)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortList{}, R}(
+            X0:SortList{},
+            Lbl'Unds'List'Unds'{}(LblListItem{}(VarX:SortKItem{}), VarL:SortList{})
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblnoDup'LParUndsRParUnds'HANDOFF'Unds'Bool'Unds'List{}(X0:SortList{}),
+        \and{SortBool{}}(
+          Lbl'Unds'andBool'Unds'{}(
+            LblnotBool'Unds'{}(Lbl'Unds'inList'Unds'{}(VarX:SortKItem{}, VarL:SortList{})),
+            LblnoDup'LParUndsRParUnds'HANDOFF'Unds'Bool'Unds'List{}(VarL:SortList{})
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("d5c5d49210e9a573fae40cf36b2a4fedab6714b238739eed4b97c2175ed42736"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(73,3,73,65)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortTCell{}, R}(
+            X0:SortTCell{},
+            Lbl'-LT-'T'-GT-'{}(
+              VarTS:SortTasksCell{},
+              Lbl'-LT-'procs'-GT-'{}(Var'Unds'Gen0:SortMap{}),
+              Lbl'-LT-'vals'-GT-'{}(Var'Unds'Gen1:SortMap{})
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        Lblwf'LParUndsRParUnds'HANDOFF'Unds'Bool'Unds'TCell{}(X0:SortTCell{}),
+        \and{SortBool{}}(
+          LblnoDup'LParUndsRParUnds'HANDOFF'Unds'Bool'Unds'List{}(
+            Lblmclaims'LParUndsRParUnds'HANDOFF'Unds'List'Unds'TasksCell{}(VarTS:SortTasksCell{})
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("7079892b64ec6d82d0e5552dc42dc2dd8e3570463e1c5e1e345db2bbfa7d90f9"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(74,3,74,91)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/handoff/handoff.k)"
       )
@@ -9841,7 +10328,7 @@ module HANDOFF
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,1,47,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,1,75,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/handoff/handoff.k)"
   )

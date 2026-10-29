@@ -22,6 +22,8 @@ module HANDOFF
   imports HANDOFF-SYNTAX
   imports INT
   imports MAP
+  imports LIST
+  imports BOOL
   syntax KItem ::= st(Int, Int)
   // the lower layer: a segment's next state and output, parameters of the definition (no equations,
   // so fields of the generated `class Hooks`): what is proved holds for every coroutine language
@@ -44,4 +46,30 @@ module HANDOFF
   rule <k> resume(Q, N, I:Oid) => .K </k> <procs> ... Q |-> (st(N, S) => st(N +Int 1, next(S, V))) ... </procs>
        <vals> ... I |-> V:Int (.Map => o(Q, N) |-> out(S, V)) ... </vals> [label(resume-oid)]
   rule <tasks> (<task> <tid> _ </tid> <k> .K </k> ... </task> => .Bag) ... </tasks> [label(done)]
+
+  // The script's well-formedness, `wf` (`gen --invariant wf@T`, k2lean/docs/invariants.md): no
+  // claim is named twice, within one task or across tasks. A task claims what its instruction or
+  // program names: `new(Q, _)` the creation of `Q` (the claim `Q`), `resume(Q, N, _)` the `N`-th
+  // resume of `Q` (the claim `o(Q, N)`, the id of its output). A task whose `<k>` is done claims
+  // nothing. `mclaims` lists the claims of every task; the order K's map pattern takes the tasks
+  // in is not fixed, and `noDup` does not depend on it.
+  syntax List ::= iclaims(Instr) [function, total]
+                | pclaims(Pgm) [function, total]
+                | kclaims(K) [function, total]
+                | mclaims(TasksCell) [function, total]
+  syntax Bool ::= wf(TCell) [function, total]
+                | noDup(List) [function, total]
+  rule iclaims(new(Q, _)) => ListItem(Q)
+  rule iclaims(resume(Q, N, _)) => ListItem(o(Q, N))
+  rule pclaims(I ; P) => iclaims(I) pclaims(P)
+  rule pclaims(.Pgm) => .List
+  rule kclaims(I:Instr) => iclaims(I)
+  rule kclaims(P:Pgm) => pclaims(P)
+  rule kclaims(_) => .List [owise]
+  rule mclaims(<tasks> .Bag </tasks>) => .List
+  rule mclaims(<tasks> <task> <tid> _ </tid> <n> _ </n> <k> K </k> </task> Ts </tasks>)
+    => kclaims(K) mclaims(<tasks> Ts </tasks>)
+  rule noDup(.List) => true
+  rule noDup(ListItem(X) L) => notBool (X in L) andBool noDup(L)
+  rule wf(<T> TS:TasksCell <procs> _ </procs> <vals> _ </vals> </T>) => noDup(mclaims(TS))
 endmodule
