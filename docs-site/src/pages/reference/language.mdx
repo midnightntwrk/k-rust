@@ -464,7 +464,7 @@ A context matches the computation the configuration holds as a rule does, so its
 So is a collection's value or element in a pattern, which is compared with the values the collection holds: a `cells!` `map![..]` value (`map![k -> Size(x), ..]`), an element of a List cell or of a cons list (`stack: [Size(x), ..]`), and a child of a cell collection's instance: a List collection's instance is its element, and a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, so a function in the key cell never matches either.
 A Set collection is looked up by its instances as a set by its elements, but KRS writes a Set collection's instance as the cells it holds, which match as they stand, so a function there is refused too until the instance is written as an element.
 A `let` pattern and a `k::matches!` pattern match the value their term computed, whose functions are evaluated as well, wherever they stand: `let Size(y) = e;` and `k::matches!(e, Size(_))` never match.
-KRS refuses it at the application (`krs::analysis::function-in-pattern`): a user function, a builtin operation such as `int::add(a, 1)`, and a collection's lookups and sizes alike.
+KRS refuses it at the application (`krs::analysis::function-in-pattern`): a user function, a builtin operation such as `int::add(a, 1)`, and a collection's lookups and sizes alike, written as calls or as an [index or a collection method](#index-reads-and-collection-methods) (`m[k]`, `m.len()`).
 That a head is a function is a fact of what it resolves to, so the refusal is told after the term's names and sorts: where a binder declared `KItem` is the operand, `int::add(x, 1)` in a pattern is first `krs::analysis::incompatible-binder`, since the term does not resolve until its operand has a sort the operation takes; a construct refused by its spelling and position alone, `_` in a result or `x + 1` in a pattern, is told before both.
 Match a variable there and relate it to the application in a `#[k::requires]` guard, or state a fact about the unevaluated application as a `#[k::simplification]`.
 A rule whose whole subject applies a function, `fn twist(k::term![Size(x)]: Term<Int>) -> Term<Int>`, would otherwise read as a definition of that function, not a step of the computation; to define the function, write the sentence as an equation, a `#[k::equation]` fn or a `k::equations!` row.
@@ -1304,6 +1304,7 @@ K's `String` sort is `string::String`: write `use k::builtin::string;` and `stri
 Operation paths below are tuple-struct constructor aliases.
 Calling them constructs a typed symbolic application; it does not run a Rust implementation.
 An operation of `int`, `bool`, `string`, `float`, `bytes`, or `kequal` may also be written as a method of its first operand, `bool::and_then` and `bool::or_else` as `&&` and `||`, and the arithmetic, bitwise, and comparison operations of `Int`, `Bool`, `String`, and `Float` as Rust's operators ([Operator and method notation](#operator-and-method-notation)).
+A lookup of a `Map` or a `List` may be written as an index, `m[k]`, and most `Map`, `List`, and `Set` operations as a method of their collection, `m.contains_key(k)` ([Index reads and collection methods](#index-reads-and-collection-methods)).
 
 | Module | Operations |
 | --- | --- |
@@ -1403,6 +1404,53 @@ No form is a Rust pattern, so a pattern rejects each, naming the form and the ca
 The call itself stands in a pattern only where an application may: in a simplification's or a claim's subject, and in a collection's key, value, or element; at any other position a rule's or an equation's pattern matches, its root included, it is evaluated in every term the sentence is applied to, so it is refused there ([functions in patterns](#functions-in-patterns)).
 An operand of a compiler-owned macro such as `k::or_bool!` is a term even on a left-hand side, and takes the forms exactly as it takes the call.
 A method call without a domain turbofish (``write `lt::<Int>`, `lt::<String>`, or `lt::<Float>` ``), with a turbofish that holds anything but one domain name, with a domain outside the table, with an operation its module does not define, or with an operation that takes no operand (``write the call `bytes::empty()` ``) is an error (`krs::syntax::invalid-expression-notation`).
+
+### Index reads and collection methods
+
+Two more forms are notation for a collection operation.
+`m[k]` is `map::get(m, k)` on a `Map` and `l[i]` is `list::get(l, i)` on a `List`.
+An index is exactly the call: it is partial wherever the call is, so a key the map lacks or an index outside the list leaves the term undefined, as K's `M [ K ]` and `L [ I ]` do, and a guard that must hold first writes it first, `m.contains_key(k) && m[k] > 0`, since `&&` short-circuits.
+A negative index counts from the end, as K's does: `l[-1]` is the last element, where Rust would refuse the index.
+Its result is the element, projected to the sort its position expects, as the call's is.
+
+A method without a domain turbofish is a collection method when its name is in this table, and denotes the call in the right column:
+
+| Collection | Method | Denotes |
+| --- | --- | --- |
+| `Map` | `m[k]` | `map::get(m, k)` |
+| `Map` | `m.get_or(k, d)` | `map::get_or_default(m, k, d)` |
+| `Map` | `m.contains_key(k)` | `map::in_keys(k, m)` |
+| `Map` | `m.update(k, v)` | `map::update(m, k, v)` |
+| `Map` | `m.without(k)`, `m.without_all(s)` | `map::remove(m, k)`, `map::remove_all(m, s)` |
+| `Map` | `m.extend(n)` | `map::update_all(m, n)` |
+| `Map` | `m.keys()`, `m.keys_list()`, `m.values()` | `map::keys(m)`, `map::keys_list(m)`, `map::values(m)` |
+| `Map` | `m.len()` | `map::size(m)` |
+| `List` | `l[i]` | `list::get(l, i)` |
+| `List` | `l.update(i, x)` | `list::update(l, i, x)` |
+| `List` | `l.contains(x)` | `list::contains(x, l)` |
+| `List` | `l.len()` | `list::size(l)` |
+| `Set` | `s.contains(x)` | `set::contains(x, s)` |
+| `Set` | `s.union(t)`, `s.difference(t)`, `s.intersection(t)` | `set::union(s, t)`, `set::difference(s, t)`, `set::intersect(s, t)` |
+| `Set` | `s.is_subset(t)` | `set::is_subset(s, t)` |
+| `Set` | `s.len()`, `s.to_list()` | `set::size(s)`, `set::to_list(s)` |
+
+The receiver fills the argument its row names, which is the first but in `contains_key` and `contains`: K writes key and element membership `K in_keys(M)` and `K in S`, so `s.contains(x)` is `set::contains(x, s)`.
+Every method builds a new collection or reads one, as a persistent collection's does; none changes its receiver, and `without` and `extend` say so where Rust's `remove` and `insert` would suggest mutation.
+There is no `get` that returns an `Option`, since K's lookup is partial and has no option sort: `m[k]` is the partial lookup and `m.get_or(k, d)` the total one.
+A constructor has no receiver, so `empty`, `item`, `list::make`, and `set::from_list` have no method form, and neither do `list::concat`, `set::concat` (defined only on disjoint operands), `list::range(l, i, j)` (which trims `i` elements from the front and `j` from the back, unlike the slice `i..j`), and `list::update_all`: each keeps its call as its only form.
+The table is the builtin catalog's own (`CollectionMethod`), which the parser, sort inference, and the facade all read.
+
+An index or a method does not name its collection either: KRS chooses the row after sort inference, from the receiver's sort, `Map`, `List`, or `Set`, typed or not, as an operator's operands choose its domain.
+From then on it is the call: sort inference, typed collections, arity, the coverage lint, the overlap check, and the emitted K are the call's, and `krs expand` prints the call with the collection inference chose (`k::builtin::map::in_keys(k, m)`).
+A receiver that no occurrence sorts more precisely than `KItem`, or `K`, is an error (`krs::analysis::ambiguous-operator`) that names the receiver, the narrowing (`where m: Map` in a readable rule, `m: Term<Map>` elsewhere), and the calls; so is a receiver of a sort that is no collection, which also names a scalar domain's operation of the same name (`update::<Bytes>`).
+A method its receiver's collection lacks, such as `m.union(n)` on a `Map`, is an error (`krs::syntax::invalid-expression-notation`) that names the collections that have it and the receiver's own methods; so is a method with the wrong number of arguments (`` `.len()` takes no argument besides its receiver ``).
+A name in no table keeps the error of a method without a turbofish, which lists the scalar `::<D>` forms (``write `lt::<Int>` ``), and a collection method with a turbofish, `m.len::<Int>()`, names a scalar domain's operation as any turbofish does.
+
+An index or a method stands wherever its call does: in a result, a condition, an initializer, a claim, a fn body, the checked islands, and a computed map key or set element, which is looked up (`{ st.len() -> v, .. }` reads the entry whose key is the stack's length).
+Rust parses `m[k]` and `m.f(k)` as expressions, so they hold at the positions rustc parses too, a rule fn's or an equation's result and a `#[k::function]` body included.
+Where a pattern matches a term it applies a function, which never matches, so it is a [function in a pattern](#functions-in-patterns) (`krs::analysis::function-in-pattern`), with its own advice: an index points to `{ k -> v, .. }` to read an entry, and a method to reading the value into a name and comparing it in a guard.
+In a key that selects an entry by matching, or in a computed key that reads a name bound only by a later key, the rules of a map's keys apply to it exactly as to `map::get(m, k)`.
+Writing a map's entry has no index form: `m[k] = v` and `+=` assign, and a term has nothing to assign to; `m.update(k, v)` is the value with the entry written.
 
 Function hooks bind a production to backend code, and are a separate typed catalog selected in `#[k::function(total, ..., hook = krypto::sha256_raw)]`: a checked Rust path whose signature KRS checks against the hook.
 
