@@ -247,7 +247,7 @@ Inside a `cells!` entry, `k::map![..]` is the same map as `map![..]`, as it is i
 
 A leaf cell of a builtin collection sort is emptied, or matched only when empty, with the term for the empty collection: `functions: map::empty()`, `seen: set::empty()`, and `stack: []` (or `list::empty()`) are K's `.Map`, `.Set`, and `.List`, on either side of a readable rule or claim and in every other term.
 A claim that starts from empty maps therefore writes `functions: map::empty()` where the reference spelling writes `functions: k::configuration::Cell(map![.Map])`, and both emit `<functions> .Map </functions>`.
-A `cells!` entry's and an initializer cell's whole `map![..]` is that cell's own map, where `map![]` and `map![.Map]` are the empty map and only `map![k -> v, ..]` is framed; everywhere else, a readable record included, `map![..]` and `set![..]` are [collection literals](#collection-literals), the calls that build the collection, so `functions: map![]` is `map::empty()`.
+A `cells!` entry's and an initializer cell's whole `map![..]` is that cell's own map, where `map![]` and `map![.Map]` are the empty map and only `map![k -> v, ..]` is framed; in a result or an initializer it is K's join of its entries, which is undefined where two keys evaluate equal, unlike a collection literal, whose later entry wins. Everywhere else, a readable record included, `map![..]` and `set![..]` are [collection literals](#collection-literals), the calls that build the collection, so `functions: map![]` is `map::empty()`.
 Braces on a leaf cell are no empty map: `{ .. }` names a Set or Map collection's instances, and `cell: { k -> v, .. }` reads a Map's entries.
 
 A leaf cell holds any term of its declared sort or of a subsort, on either side of a readable rule or claim and in a `cells!` rule, as an argument position does: with `Value: Stmt` and `impl Value for Int`, `acc: 2` fills a `Value` cell, `acc: vv` still matches one where a guard (`#[k::requires(vv == 1)]`) or an operator (`acc: vv + 10`) narrows `vv` to `Int`, `prog: Unit()` fills a `Stmt` cell with a `Value`, and a `KItem` cell holds a term of any sort.
@@ -1464,18 +1464,20 @@ A built map is therefore total, as a Rust map literal is: two keys that evaluate
 Two keys written as the same term are one key whose earlier value could never be read, so `map![a -> 1, a -> 2]` is an error at the second (`krs::syntax::invalid-expression-notation`), as the pattern `{ a -> x, a -> y, .. }` is.
 
 `set![x1, .., xn]` is `set::union(..set::union(set::item(x1), set::item(x2)).., set::item(xn))`, so elements that evaluate equal are one element; `set::concat`, which is defined only on disjoint sets, would leave the set undefined.
-An element written twice is the same error as a key written twice.
+An element written twice is one element, so `set![a, a]` is the set `set![a]`: the union loses nothing, and it is no error.
 `map![]` and `set![]` are `map::empty()` and `set::empty()`, and `set![x]` is the singleton `set::item(x)`.
 
 A literal may end in a rest, the collection its entries are written over: `map![k -> v, ..m]` is `map::update(m, k, v)`, the map `m` with the entry written, as `Ctor { f: e, ..t }` is the record `t` with the field written, and `set![x, ..s]` is `set::union(s, set![x])`.
-The rest comes last, since the entries are applied over it, and it names a collection: an anonymous `..` keeps the entries a pattern leaves unnamed, and a built map has none, so `map![k -> v, ..]` is an error, as are `map![..m, k -> v]` and `map![..m]`, which is `m` itself.
-A malformed entry is the same error at its token: an entry without `->`, `=>` in an entry, and K's `.Map` or `.Set` where `map![]` or `set![]` is meant.
+The rest comes last, since the entries are applied over it, and it names a collection: an anonymous `..` names none, so `map![k -> v, ..]` is an error wherever it stands, a pattern included, where `{ k -> v, .. }` reads a map's entries; so are `map![..m, k -> v]` and `map![..m]`, which is `m` itself.
+A malformed entry is the same error at its token: an entry without `->` (a key's own comma, as in a turbofish `Wrap::<A, B>(x)`, is the key's), `=>` in an entry, and K's `.Map` or `.Set` where `map![]` or `set![]` is meant.
 
 The macro's last path segment names it, so `k::map![..]` and `k::set![..]` are the same literals and neither needs an import; `krs expand` prints a sentence's literal as its calls (`k::builtin::map::update(k::builtin::map::empty(), a, 1)`), and a `#[k::function]` body as written.
 A literal stands where its calls stand.
 Where a pattern matches a term, a map with an entry and a union of sets apply functions, which never match, so `env: map![n -> v]` in a subject is a [function in a pattern](#functions-in-patterns) (`krs::analysis::function-in-pattern`), whose advice names the forms that read entries; `map![]`, `set![]`, and `set![x]` are values, so `seen: set![n]` matches the set whose one element is `n`.
-A constant's value holds no builtin operation's application, the empty collection's included (`krs::analysis::invalid-constant`, as for `map::empty()`).
-A `cells!` entry's and an initializer cell's whole `map![..]` is no literal: it is that surface's map, read as K's join of its entries, `A |-> X B |-> Y`, whose items in a pattern are distinct entries of the map; a literal below the cell, `Cell(Wrap(map![a -> x]))`, is a term, and so is a cell's whole `set![..]`, which those surfaces read no other way.
+A constant's value holds no builtin operation's application, the empty collection's included, so no literal is a constant's value (`krs::analysis::invalid-constant`, as for `map::empty()` and `map::update(..)`).
+A `cells!` entry's and an initializer cell's whole `map![..]` is no literal: it is that surface's map, read as K's join of its entries, `A |-> X B |-> Y`, whose items in a pattern are distinct entries of the map and which, in a result or an initializer, is undefined where two keys are equal.
+So one spelling builds two different maps where its keys can be equal: `regs: map![a -> x, b -> y]` in a readable result writes `b`'s entry over `a`'s, while `regs: k::configuration::Cell(map![a -> x, b -> y])` in a `cells!` result, and `regs: map![a -> x, b -> y]` as an initializer cell's value, join the two entries; for keys that are distinct values both are the same map.
+A literal below the cell, `Cell(Wrap(map![a -> x]))`, is a term, and so is a cell's whole `set![..]`, which those surfaces read no other way.
 
 Function hooks bind a production to backend code, and are a separate typed catalog selected in `#[k::function(total, ..., hook = krypto::sha256_raw)]`: a checked Rust path whose signature KRS checks against the hook.
 
