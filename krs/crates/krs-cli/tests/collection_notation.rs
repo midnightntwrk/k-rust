@@ -936,22 +936,53 @@ fn a_later_key_wins_and_equal_elements_collapse_at_run_time() {
     "#]].assert_debug_eq(&cells);
 }
 
-/// A malformed literal is an error at its token: a key or an element written
-/// twice, an anonymous or misplaced rest, a rest alone, an entry without
-/// `->`, K's `.Map`; a literal that applies a function where a pattern
-/// matches a term is a function in a pattern, as its call is.
+/// The first `error[..]` headline of `krs check` on a package whose last
+/// item is `item`, and the column and width its location underlines.
+fn check_error_at(target: &Path, item: &str) -> (String, String) {
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "collections", &(spelled(true) + item));
+    let (success, _, stderr) = krs(target, &manifest, "check", &[]);
+    assert!(!success, "{item} was accepted");
+    let mut lines = stderr
+        .lines()
+        .skip_while(|line| !line.starts_with("error["));
+    let headline = lines
+        .next()
+        .unwrap_or_else(|| panic!("no error headline:\n{stderr}"))
+        .to_owned();
+    let column = lines
+        .find_map(|line| line.trim_start().strip_prefix("--> "))
+        .and_then(|location| location.rsplit(':').next())
+        .unwrap_or_else(|| panic!("no location:\n{stderr}"))
+        .to_owned();
+    let width = lines
+        .find(|line| line.contains('^'))
+        .map_or(0, |line| line.matches('^').count());
+    (headline, format!("column {column}, width {width}"))
+}
+
+/// A malformed literal is an error at its token: a key written twice, an
+/// anonymous or misplaced rest, a rest alone, an entry without `->`, K's
+/// `.Map`; a literal that applies a function where a pattern matches a term is
+/// a function in a pattern, as its call is, told over the whole literal, and
+/// so is a constant's map.
 #[test]
 fn malformed_collection_literals_and_literals_in_a_pattern_are_errors() {
     let target = shared_fixture_target();
     let function = |body: &str| {
         format!(
             "#[k::function(total, internal)]
-             pub fn Build(a: Term<Int>, m: Term<Map>, s: Term<Set>) -> Term<Map> {{ k::term![{body}] }}"
+pub fn Build(a: Term<Int>, m: Term<Map>, s: Term<Set>) -> Term<Map> {{ k::term![{body}] }}"
         )
     };
-    let mut errors = [
+    let rule = |cells: &str| {
+        format!(
+            "k::rules! {{ for Machine; use ExpSyntax::*;
+read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
+        )
+    };
+    let items = [
         "map![a -> 1, a -> 2]",
-        "map![a -> set![a, 1, a]]",
         "map![a -> 1, ..]",
         "map![..m, a -> 1]",
         "map![..m]",
@@ -959,35 +990,170 @@ fn malformed_collection_literals_and_literals_in_a_pattern_are_errors() {
         "map![a, 1]",
         "map![.Map]",
     ]
-    .map(|body| check_error(target.path(), &function(body)))
-    .to_vec();
-    errors.extend(
+    .map(function)
+    .into_iter()
+    .chain(
         [
-            "k::rules! {
-                 for Machine;
-                 use ExpSyntax::*;
-                 read: { k: [Visit(n), ..], env: map![n -> 1] } => { k: [..] };
-             }",
-            "k::rules! {
-                 for Machine;
-                 use ExpSyntax::*;
-                 read: { k: [Visit(n), ..], seen: set![n, 1] } => { k: [..] };
-             }",
+            "env: map![n -> 1, 2 -> 3]",
+            "seen: set![n, 1]",
+            "env: map![n -> v, ..]",
+            "seen: set![n, ..]",
         ]
-        .map(|item| check_error(target.path(), item)),
-    );
+        .map(rule),
+    )
+    .chain(["#[k::constant]\nconst ONE: Map = map![1 -> 2];".to_owned()]);
+    let errors = items
+        .map(|item| check_error_at(target.path(), &item))
+        .collect::<Vec<_>>();
     expect_test::expect![[r#"
         [
-            "error[krs::syntax::invalid-expression-notation]: the key `a` is written twice; two keys written as the same term are one key, so the earlier entry's value would never be read: write the key once, with the value it maps to",
-            "error[krs::syntax::invalid-expression-notation]: the element `a` is written twice; two elements written as the same term are one element: write it once",
-            "error[krs::syntax::invalid-expression-notation]: an anonymous `..` keeps the entries a pattern leaves unnamed, and a built map has none to keep: name the map the entries are written over, `..m`",
-            "error[krs::syntax::invalid-expression-notation]: the base `..rest` of a `map![..]` comes last: the written entries are applied over it, as `Ctor { f: e, ..base }` writes its fields over `base`",
-            "error[krs::syntax::invalid-expression-notation]: `map![..m]` has no entry: it is the map `m` itself, so write `m`",
-            "error[krs::syntax::invalid-expression-notation]: `=>` is a rewrite; a map's entry is written `key -> value`",
-            "error[krs::syntax::invalid-expression-notation]: a map's entry is written `key -> value`",
-            "error[krs::syntax::invalid-expression-notation]: `.Map` is K's empty map; a term writes the empty map `map![]`",
-            "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::map::update` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: a pattern reads a map's entries (`{ k -> v, .. }` in a readable record, `map![k -> v, ..]` in a `cells!` entry), or match a variable here and relate it to the map in a guard (`requires`)",
-            "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::set::union` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match the elements with `set::concat(set::item(x), rest)`, whose operands are disjoint, or match a variable here and relate it to the set in a guard (`requires`)",
+            (
+                "error[krs::syntax::invalid-expression-notation]: the key `a` is written twice; two keys written as the same term are one key, so the earlier entry's value would never be read: write the key once, with the value it maps to",
+                "column 93, width 1",
+            ),
+            (
+                "error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` entry",
+                "column 93, width 1",
+            ),
+            (
+                "error[krs::syntax::invalid-expression-notation]: the base `..rest` of a `map![..]` comes last: the written entries are applied over it, as `Ctor { f: e, ..base }` writes its fields over `base`",
+                "column 85, width 1",
+            ),
+            (
+                "error[krs::syntax::invalid-expression-notation]: `map![..m]` has no entry: it is the map `m` itself, so write `m`",
+                "column 85, width 1",
+            ),
+            (
+                "error[krs::syntax::invalid-expression-notation]: `=>` is a rewrite; a map's entry is written `key -> value`",
+                "column 87, width 1",
+            ),
+            (
+                "error[krs::syntax::invalid-expression-notation]: a map's entry is written `key -> value`",
+                "column 86, width 1",
+            ),
+            (
+                "error[krs::syntax::invalid-expression-notation]: `.Map` is K's empty map; a term writes the empty map `map![]`",
+                "column 85, width 1",
+            ),
+            (
+                "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::map::update` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: a pattern reads a map's entries (`{ k -> v, .. }` in a readable record, `map![k -> v, ..]` in a `cells!` entry), or match a variable here and relate it to the map in a guard (`requires`)",
+                "column 33, width 20",
+            ),
+            (
+                "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::set::union` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: match the elements with `set::concat(set::item(x), rest)`, whose operands are disjoint, or match a variable here and relate it to the set in a guard (`requires`)",
+                "column 34, width 10",
+            ),
+            (
+                "error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` entry",
+                "column 46, width 1",
+            ),
+            (
+                "error[krs::syntax::invalid-expression-notation]: in a term, `set![..]` is a literal, and its rest is the set its elements join, `set![x, ..s]`; an anonymous `..` names no set. A pattern matches a set's elements with `set::concat(set::item(x), rest)`",
+                "column 42, width 1",
+            ),
+            (
+                "error[krs::analysis::invalid-constant]: the value of constant `ONE` applies a builtin operation; a constant names a ground constructor term, which every use can match, and a function application is evaluated, not matched",
+                "column 18, width 12",
+            ),
         ]
     "#]].assert_debug_eq(&errors);
+}
+
+/// A package whose builtin imports name no `map` and no `set`, with
+/// `{IMPORT}` and `{MAP_CELL}` to fill.
+const IMPORT_SOURCE: &str = r#"#![allow(unused_imports)]
+use k::builtin::{Int, KSequence, List, Map};
+use k::{KItem, KResult, Term};
+{IMPORT}
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("look({n})")]
+    Look { n: Int },
+    #[k::syntax("wrap({m})")]
+    Wrap { m: Map },
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub ret: Exp,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map,
+    #[k::cell]
+    pub stack: List,
+    #[k::cell]
+    pub boxed: Exp,
+    #[k::cell(nested)]
+    pub frame: Frame,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            env: {MAP_CELL},
+            stack: k::builtin::list::item(map![1 -> 2]),
+            boxed: ExpSyntax::Wrap(map![1 -> 2]),
+            frame: Frame { ret: ExpSyntax::Look(0) },
+        }
+    }
+}
+
+#[k::rule(label = "box")]
+fn boxing(
+    n: Term<Int>,
+    b: Term<Exp>,
+    f: Term<Frame>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Look(n), tail @ ..),
+        boxed: k::configuration::Cell(b),
+        frame: f,
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        boxed: k::configuration::Cell(ExpSyntax::Wrap { m: map![n -> 1] }),
+        frame: k::fragment![Frame { ret: ExpSyntax::Wrap { m: map![n -> 2] } }],
+        ..state
+    }
+}
+"#;
+
+/// A collection literal is notation for calls, which rustc receives, so it
+/// needs no import of `map`, below a cell of an initializer (a call's
+/// argument, a constructor's) or of a `cells!` result (a record's field, a
+/// fragment's); a cell's own `map![..]`, which the enclosing macro consumes,
+/// still credits the import that names it.
+#[test]
+fn a_literal_needs_no_import_and_a_cells_own_map_credits_its_import() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let check = |name: &str, import: &str, map_cell: &str| {
+        let manifest = package(temporary.path(), name, "");
+        fs::write(
+            manifest.with_file_name("src").join("lib.rs"),
+            IMPORT_SOURCE
+                .replace("{IMPORT}", import)
+                .replace("{MAP_CELL}", map_cell),
+        )
+        .unwrap();
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{name}:\n{stderr}");
+    };
+    check("literals", "", "k::builtin::map::empty()");
+    // The import is denied if unused: a cell's own map must credit it.
+    check("own-map", "#[deny(unused_imports)]\nuse k::map;", "map![]");
 }

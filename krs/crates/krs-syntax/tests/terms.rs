@@ -808,9 +808,22 @@ fn collection_literal_heads_start_at_their_own_tokens() {
         .filter(|anchor| anchor.role() == ProvenanceRole::TermApplicationHead)
         .map(|anchor| anchor.range().start().column)
         .collect::<Vec<_>>();
-    // The rest's union at `..`, the elements' union at the comma before `y`,
-    // and each singleton at its element.
-    assert_eq!(heads, [11, 6, 5, 8]);
+    // The authored literal's level spans it whole, from its path; what
+    // remains of it starts at the token of the entry each level adds: the
+    // elements' union at the comma before `y`, each singleton at its element.
+    assert_eq!(heads, [0, 6, 5, 8]);
+    let ranges = |source: &str| {
+        krs_syntax::TermExpression::parse_source(source)
+            .unwrap()
+            .full_provenance()
+            .unwrap()
+            .iter()
+            .filter(|anchor| anchor.role() == ProvenanceRole::TermApplicationHead)
+            .map(|anchor| (anchor.range().start().column, anchor.range().end().column))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ranges("map![a -> 1, 2 -> 3]"), [(0, 20), (5, 20), (4, 20)]);
+    assert_eq!(ranges("k::set![n, 1]"), [(0, 13), (8, 13), (11, 13)]);
 }
 
 #[test]
@@ -828,17 +841,17 @@ fn denoted_tokens_call_the_builtin_collection_operations() {
 fn malformed_collection_literals_are_notation_errors_at_their_token() {
     for (source, expected, at) in [
         ("map![a -> 1, a -> 2]", "the key `a` is written twice", 13),
-        ("set![x, 1, x]", "the element `x` is written twice", 11),
-        (
-            "map![a -> 1, ..]",
-            "an anonymous `..` keeps the entries",
-            13,
-        ),
-        ("set![x, ..]", "a built set has none to keep", 8),
-        ("map![..m, a -> 1]", "comes last", 10),
+        ("map![a -> 1, ..]", "an anonymous `..` names no map", 13),
+        ("set![x, ..]", "an anonymous `..` names no set", 8),
+        ("map![..m, a -> 1]", "comes last", 5),
         ("map![..m]", "it is the map `m` itself", 5),
         ("map![a => 1]", "`=>` is a rewrite", 7),
-        ("map![a, 1]", "a map's entry is written `key -> value`", 5),
+        ("map![a, 1]", "a map's entry is written `key -> value`", 6),
+        (
+            "map![a, b -> 1]",
+            "a map's entry is written `key -> value`",
+            6,
+        ),
         ("map![.Map]", "`.Map` is K's empty map", 5),
         ("set![.Set]", "`.Set` is K's empty set", 5),
     ] {
@@ -863,4 +876,29 @@ fn a_left_hand_side_holds_a_collection_literal_as_its_calls() {
         denoted(rule.subject_tree()),
         "Check(map::empty(), set::item(x), map::update(map::empty(), k, v))"
     );
+}
+
+/// A set's element written twice is the one element, which the union holds
+/// once; a key's comma, as in a turbofish, is the key's.
+#[test]
+fn a_repeated_element_and_a_turbofish_key_are_read_as_written() {
+    assert_eq!(
+        denoted_source("set![a, a]"),
+        "set::union(set::item(a), set::item(a))"
+    );
+    let term = krs_syntax::TermExpression::parse_source("map![Wrap::<A, B>(x) -> 1]").unwrap();
+    let TermTree::Application(update) = term.tree() else {
+        panic!("a call");
+    };
+    let TermArguments::Positional(arguments) = update.arguments() else {
+        panic!("positional arguments");
+    };
+    let TermTree::Application(key) = &arguments[1] else {
+        panic!("the key is an application");
+    };
+    assert_eq!(
+        quote::ToTokens::to_token_stream(key.head()).to_string(),
+        "Wrap"
+    );
+    assert_eq!(key.instance().len(), 2);
 }

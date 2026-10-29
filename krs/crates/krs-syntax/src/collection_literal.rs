@@ -19,10 +19,10 @@
 //! - `set![x, ..s]` is `set::union(s, set![x])`;
 //! - `map![]` and `set![]` are `map::empty()` and `set::empty()`.
 //!
-//! Two keys, or two elements, written as the same term could never differ, so
-//! the later one says nothing the earlier did not, and a map's earlier value is
-//! never read: a literal that writes one twice is an error, as a pattern that
-//! reads one key twice is.
+//! Two keys written as the same term could never differ, so a map's earlier
+//! value would never be read: a literal that writes a key twice is an error, as
+//! a pattern that reads one key twice is. Two elements written as the same term
+//! are one element, and `set![a, a]` is exactly the set `set![a]`.
 //!
 //! A `cells!` entry's and an initializer's `map![..]` are those surfaces' own
 //! spelling of a cell's map, which they read before any term is (as K's
@@ -142,10 +142,17 @@ pub(crate) fn literal_level(literal: &ExprMacro) -> Result<ExprCall, SyntaxError
         literal_collection(&literal.mac.path).expect("only a collection literal has a level");
     let close = delimiter_span(&literal.mac.delimiter);
     let parts = parse_parts(collection, literal.mac.tokens.clone())?;
-    reject_repeats(collection, &parts.entries)?;
+    if collection == Collection::Map {
+        reject_repeated_keys(&parts.entries)?;
+    }
     let module = collection.module();
     let remaining =
         |entries: &[Entry], rest: Option<&Rest>| remaining_literal(literal, close, entries, rest);
+    // The authored literal's level spans the whole literal, from its path to
+    // its brackets, where a mistake of the whole term is told; each remaining
+    // level starts at the token of the entry it adds.
+    let whole =
+        (!is_remainder(&literal.mac.path)).then(|| first_span(&literal.mac.path.to_token_stream()));
     let Some((last, init)) = parts.entries.split_last() else {
         if let Some(rest) = &parts.rest {
             return Err(literal_error(
@@ -156,29 +163,43 @@ pub(crate) fn literal_level(literal: &ExprMacro) -> Result<ExprCall, SyntaxError
                 rest.dots.spans[0],
             ));
         }
-        return Ok(call(head(module, "empty", close, close), close, []));
+        return Ok(call(
+            head(module, "empty", whole.unwrap_or(close), close),
+            close,
+            [],
+        ));
     };
     match collection {
         Collection::Map => {
             let value = last.value.clone().expect("a map entry has a value");
-            let head = head(module, "update", first_span(&last.tokens), close);
+            let head = head(
+                module,
+                "update",
+                whole.unwrap_or_else(|| first_span(&last.tokens)),
+                close,
+            );
             let base = remaining(init, parts.rest.as_ref());
             Ok(call(head, close, [base, last.key.clone(), value]))
         }
         Collection::Set => {
             if let Some(rest) = &parts.rest {
-                let head = head(module, "union", rest.dots.spans[0], close);
+                let head = head(module, "union", whole.unwrap_or(rest.dots.spans[0]), close);
                 let elements = remaining(&parts.entries, None);
                 return Ok(call(head, close, [rest.base.clone(), elements]));
             }
             let Some(before) = init.last() else {
-                let head = head(module, "item", first_span(&last.tokens), close);
+                let head = head(
+                    module,
+                    "item",
+                    whole.unwrap_or_else(|| first_span(&last.tokens)),
+                    close,
+                );
                 return Ok(call(head, close, [last.key.clone()]));
             };
             let comma = before
                 .comma
                 .expect("an element that another follows ends in a comma");
-            let head = head(module, "union", comma.span, close);
+            let head = head(module, "union", whole.unwrap_or(comma.span), close);
             let element = remaining(std::slice::from_ref(last), None);
             Ok(call(head, close, [remaining(init, None), element]))
         }
@@ -196,8 +217,8 @@ fn delimiter_span(delimiter: &MacroDelimiter) -> Span {
 }
 
 /// What remains of a literal after one level: `rest` alone is the base
-/// itself, and anything else a literal of the same macro, in brackets that
-/// span the authored literal.
+/// itself, and anything else a literal of the same collection, in brackets
+/// that span the authored literal, under a path no author writes.
 fn remaining_literal(
     literal: &ExprMacro,
     close: Span,
@@ -222,15 +243,34 @@ fn remaining_literal(
     }
     let mut group = proc_macro2::Group::new(proc_macro2::Delimiter::Bracket, TokenStream::new());
     group.set_span(close);
+    let name = literal
+        .mac
+        .path
+        .segments
+        .last()
+        .expect("a literal's path names it")
+        .ident
+        .clone();
+    let mut path = Path::from(Ident::new(REMAINDER, name.span()));
+    path.segments.push(PathSegment::from(name));
     Expr::Macro(ExprMacro {
         attrs: Vec::new(),
         mac: Macro {
-            path: literal.mac.path.clone(),
+            path,
             bang_token: literal.mac.bang_token,
             delimiter: MacroDelimiter::Bracket(syn::token::Bracket(group.delim_span())),
             tokens,
         },
     })
+}
+
+/// The first segment of the path of what remains of a literal after a level,
+/// which no author writes.
+const REMAINDER: &str = "__krs_literal_remainder";
+
+/// Whether `path` names what remains of a literal after a level.
+fn is_remainder(path: &Path) -> bool {
+    path.segments.len() == 2 && path.segments[0].ident == REMAINDER
 }
 
 /// Reads a literal's entries and its rest.
@@ -299,7 +339,9 @@ fn read_parts(collection: Collection, input: ParseStream<'_>) -> Result<Parts, S
     Ok(Parts { entries, rest })
 }
 
-/// Reads `key -> value`.
+/// Reads `key -> value`. The key runs to its arrow, so a comma inside it, as
+/// in a turbofish `Wrap::<A, B>(x)`, is the key's; a comma that separates
+/// what no arrow follows, or what is no term, ends an entry without one.
 fn parse_map_entry(input: ParseStream<'_>) -> Result<(Expr, Expr), SyntaxError> {
     let start = input.span();
     if input.peek(Token![.]) && !input.peek(Token![..]) {
@@ -308,12 +350,13 @@ fn parse_map_entry(input: ParseStream<'_>) -> Result<(Expr, Expr), SyntaxError> 
             start,
         ));
     }
+    let without_arrow = |span| literal_error("a map's entry is written `key -> value`", span);
     let mut key = TokenStream::new();
-    while !input.is_empty()
-        && !input.peek(Token![->])
-        && !input.peek(Token![=>])
-        && !input.peek(Token![,])
-    {
+    let mut comma = None;
+    while !input.is_empty() && !input.peek(Token![->]) && !input.peek(Token![=>]) {
+        if comma.is_none() && input.peek(Token![,]) {
+            comma = Some(input.span());
+        }
         key.extend([input
             .parse::<proc_macro2::TokenTree>()
             .map_err(SyntaxError::from)?]);
@@ -324,16 +367,18 @@ fn parse_map_entry(input: ParseStream<'_>) -> Result<(Expr, Expr), SyntaxError> 
             input.span(),
         ));
     }
-    if key.is_empty() || !input.peek(Token![->]) {
-        return Err(literal_error(
-            "a map's entry is written `key -> value`",
-            if key.is_empty() { input.span() } else { start },
-        ));
+    if key.is_empty() {
+        return Err(without_arrow(input.span()));
+    }
+    if !input.peek(Token![->]) {
+        return Err(without_arrow(comma.unwrap_or(start)));
     }
     input.parse::<Token![->]>().map_err(SyntaxError::from)?;
+    // A key that is no term past a comma is entries the comma separates, the
+    // last of which has the arrow.
     let key = crate::term::parse_term_expression
         .parse2(key)
-        .map_err(SyntaxError::from)?;
+        .map_err(|error| comma.map_or_else(|| error.into(), without_arrow))?;
     let value = parse_part(input)?;
     Ok((key, value))
 }
@@ -351,16 +396,15 @@ fn parse_rest(collection: Collection, input: ParseStream<'_>) -> Result<Rest, Sy
     let start = input.cursor();
     let dots = input.parse::<Token![..]>().map_err(SyntaxError::from)?;
     if input.is_empty() || input.peek(Token![,]) {
-        return Err(literal_error(
-            format!(
-                "an anonymous `..` keeps the entries a pattern leaves unnamed, and a built {module} has none to keep: name the {module} the entries are written over, `..{}`",
-                match collection {
-                    Collection::Map => "m",
-                    Collection::Set => "s",
-                }
-            ),
-            dots.spans[0],
-        ));
+        let reason = match collection {
+            Collection::Map => {
+                "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` entry"
+            }
+            Collection::Set => {
+                "in a term, `set![..]` is a literal, and its rest is the set its elements join, `set![x, ..s]`; an anonymous `..` names no set. A pattern matches a set's elements with `set::concat(set::item(x), rest)`"
+            }
+        };
+        return Err(literal_error(reason, dots.spans[0]));
     }
     if input.peek(Token![=]) {
         return Err(literal_error(
@@ -385,29 +429,27 @@ fn parse_rest(collection: Collection, input: ParseStream<'_>) -> Result<Rest, Sy
                     Collection::Set => "elements",
                 }
             ),
-            input.span(),
+            dots.spans[0].join(base.span()).unwrap_or(dots.spans[0]),
         ));
     }
     Ok(Rest { tokens, dots, base })
 }
 
-/// Rejects a key, or a set's element, written twice: the two could never
-/// differ, so the later says nothing the earlier did not, and a map's earlier
-/// value would never be read.
-fn reject_repeats(collection: Collection, entries: &[Entry]) -> Result<(), SyntaxError> {
+/// Rejects a map's key written twice: the two could never differ, so the
+/// earlier entry's value would never be read. A set's element written twice is
+/// the same element, and the union denotes the set exactly, so it is no
+/// mistake.
+fn reject_repeated_keys(entries: &[Entry]) -> Result<(), SyntaxError> {
     let mut seen = Vec::with_capacity(entries.len());
     for entry in entries {
         let text = entry.key.to_token_stream().to_string();
         if seen.contains(&text) {
-            let reason = match collection {
-                Collection::Map => format!(
+            return Err(literal_error(
+                format!(
                     "the key `{text}` is written twice; two keys written as the same term are one key, so the earlier entry's value would never be read: write the key once, with the value it maps to"
                 ),
-                Collection::Set => format!(
-                    "the element `{text}` is written twice; two elements written as the same term are one element: write it once"
-                ),
-            };
-            return Err(literal_error(reason, entry.key.span()));
+                entry.key.span(),
+            ));
         }
         seen.push(text);
     }
