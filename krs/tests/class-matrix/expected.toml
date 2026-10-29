@@ -421,12 +421,12 @@ at = "spelling"
 
 # cell-wrapper
 [[refuse]]
-match = 'cells/result/frame/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::empty()\, x\, y)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x)}'
+match = 'cells/result/frame/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x)}'
 class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = 'cells/result/k/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::empty()\, x\, y)),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+match = 'cells/result/k/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
 class = "cell-wrapper"
 at = "entry"
 
@@ -451,7 +451,7 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = 'init/k/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),k::map![0 -> 1],list::empty(),pgm}'
+match = 'init/k/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),list::empty(),pgm}'
 class = "cell-wrapper"
 at = "entry"
 
@@ -483,7 +483,7 @@ at = "spelling"
 
 # collection-without-instances
 [[refuse]]
-match = 'cells/result/job/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::empty()\, x\, y)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+match = 'cells/result/job/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
 class = "collection-without-instances"
 at = "entry"
 
@@ -516,7 +516,7 @@ at = "spelling"
 
 # content-sort
 [[refuse]]
-match = 'cells/result/{pc,stack}/k::configuration::Cell(k::builtin::map::update(k::builtin::map::empty()\, x\, y))'
+match = 'cells/result/{pc,stack}/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2))'
 class = "content-sort"
 at = "spelling"
 
@@ -532,22 +532,22 @@ class = "content-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'init/frame/{0,Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),k::map![0 -> 1],list::empty(),pgm}'
+match = 'init/frame/{0,Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),list::empty(),pgm}'
 class = "content-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'init/job/{0,Frame \{ ret: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),k::map![0 -> 1],list::empty(),pgm}'
+match = 'init/job/{0,Frame \{ ret: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),list::empty(),pgm}'
 class = "content-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'init/pc/{Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),k::map![0 -> 1],list::empty(),pgm}'
+match = 'init/pc/{Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),list::empty(),pgm}'
 class = "content-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'init/stack/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),k::map![0 -> 1],pgm}'
+match = 'init/stack/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),pgm}'
 class = "content-sort"
 at = "spelling"
 
@@ -623,7 +623,7 @@ at = "entry"
 
 # map-notation-at-non-map
 [[refuse]]
-match = 'cells/result/{pc,stack}/k::configuration::Cell(k::map![x -> y])'
+match = 'cells/result/{pc,stack}/{k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2])}'
 class = "map-notation-at-non-map"
 at = "spelling"
 
@@ -633,7 +633,7 @@ class = "map-notation-at-non-map"
 at = "spelling"
 
 [[refuse]]
-match = 'init/{counter,frame,job,k,pc,stack}/k::map![]'
+match = 'init/{counter,frame,job,k,pc,stack}/{k::map![0 -> 1],k::map![pgm -> 1\, 0 -> 2],k::map![]}'
 class = "map-notation-at-non-map"
 at = "spelling"
 
@@ -673,7 +673,7 @@ at = "spelling"
 
 # optional-without-presence
 [[refuse]]
-match = 'cells/result/counter/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::empty()\, x\, y)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+match = 'cells/result/counter/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::configuration::KCell(),k::configuration::KCell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
 class = "optional-without-presence"
 at = "entry"
 
@@ -683,7 +683,7 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'init/counter/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},[0],[],[pgm],k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),k::map![0 -> 1],list::empty(),pgm}'
+match = 'init/counter/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},[0],[],[pgm],k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),list::empty(),pgm}'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1193,16 +1193,11 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
-same_k_as = ["cells/result/env/k::configuration::Cell(k::builtin::map::update(k::builtin::map::empty(), x, y))"]
 
-[accept."cells/result/env/k::configuration::Cell(k::builtin::map::update(k::builtin::map::empty(), x, y))"]
-k = """
-rule [case-TAG]:
-<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-<env> V2:Map => .Map [ V0:Int <- V1:Int ] </env>
+[accept."cells/result/env/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
 
-syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
+[accept."cells/result/env/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
+same_k_as = ["cells/result/env/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
 
 [accept."cells/result/frame/k::fragment![crate::Frame { ret: x }]"]
 k = """
@@ -2214,25 +2209,11 @@ configuration
 </job>
 </queue>
 """
-same_k_as = ["init/env/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
 
-[accept."init/env/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
-k = """
-configuration
-<k> $PGM:Stmt </k>
-<pc> 0 </pc>
-<stack> .List </stack>
-<env> .Map [ 0 <- 1 ] </env>
-<frame>
-<ret> 0 </ret>
-</frame>
-<counter multiplicity="?"> 0 </counter>
-<queue>
-<job multiplicity="*" type="List">
-<payload> 0 </payload>
-</job>
-</queue>
-"""
+[accept."init/env/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
+
+[accept."init/env/k::map![pgm -> 1, 0 -> 2]"]
+same_k_as = ["init/env/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)"]
 
 [accept."init/env/k::map![]"]
 k = """

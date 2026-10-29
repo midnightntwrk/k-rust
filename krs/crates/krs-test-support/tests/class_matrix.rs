@@ -90,11 +90,11 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 13 spellings × 2 sides, and 8 typed cells × 4 contents × 2 sides.
             (Family::Readable, 182 + 64),
             (Family::Claim, 182 + 64),
-            // 7 kinds × (13 subject + 12 result spellings).
-            (Family::Cells, 175),
-            // 7 kinds × 17 values, the computation cell's remainder, 3 field orders and the
+            // 7 kinds × (13 subject + 13 result spellings).
+            (Family::Cells, 182),
+            // 7 kinds × 18 values, the computation cell's remainder, 3 field orders and the
             // nested group's, and 8 typed cells × 4 contents.
-            (Family::Init, 119 + 1 + 3 + 1 + 32),
+            (Family::Init, 126 + 1 + 3 + 1 + 32),
             // (81 positions of depth 1 + 25 positions constructs open) × 47 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
             // read `x`, and 3 elements in an alias subject's set concatenation.
