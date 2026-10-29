@@ -1,5 +1,6 @@
 //! Descriptor-bundle lowering into target-neutral semantic IR.
 
+mod built_maps;
 mod catalog;
 mod cell_alternatives;
 mod cell_states;

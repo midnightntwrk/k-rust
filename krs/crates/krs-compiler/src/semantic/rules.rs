@@ -1465,6 +1465,17 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
         }
     }
 
+    /// A readable state holds no `map![..]`, so a result's is lowered as any result state.
+    fn lower_result(
+        &mut self,
+        state: &krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,
+        sort: &SemanticSortRef,
+        entry_key: &ProvenanceKey,
+        _base: &super::built_maps::MapBase<'_>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        self.lower_state(state, sort, entry_key, false)
+    }
+
     fn same(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool {
         same_term(left, right)
     }

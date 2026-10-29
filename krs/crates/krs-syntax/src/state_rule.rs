@@ -1871,10 +1871,15 @@ fn validate_remainder_reuse(
     expected: StateRuleBindingKind,
     bindings: &[StateRuleBinding],
 ) -> Result<(), SyntaxError> {
+    // A built map's rest may also be a map the subject binds whole (`env: Cell(m)` and
+    // `map![k -> v, ..m]`), which its entries are written over; the compiler checks its sort.
     if let StateMacroRemainder::Reuse { binding, range } = remainder
-        && !bindings
-            .iter()
-            .any(|existing| existing.name == *binding && existing.kind == expected)
+        && !bindings.iter().any(|existing| {
+            existing.name == *binding
+                && (existing.kind == expected
+                    || (expected == StateRuleBindingKind::MapFrame
+                        && existing.kind == StateRuleBindingKind::Term))
+        })
     {
         return Err(body_error(
             "a result remainder must reuse a subject frame of the same kind",

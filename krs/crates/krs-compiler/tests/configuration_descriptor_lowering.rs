@@ -159,31 +159,19 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
         krs_ir_levels::semantic::SemanticTermKind::Map(operands)
             if matches!(operands.as_ref(), krs_ir_levels::MapOperands::Empty)
     ));
-    // The result's whole map is built: its entry is written over the empty map.
     assert!(matches!(
         env.after(),
         krs_ir::CellPost::Replace { term }
             if matches!(
                 term.kind(),
                 krs_ir_levels::semantic::SemanticTermKind::Map(operands)
-                    if matches!(
-                        operands.as_ref(),
-                        krs_ir_levels::MapOperands::Update { map, .. }
-                            if matches!(
-                                map.kind(),
-                                krs_ir_levels::semantic::SemanticTermKind::Map(base)
-                                    if matches!(base.as_ref(), krs_ir_levels::MapOperands::Empty)
-                            )
-                    )
+                    if matches!(operands.as_ref(), krs_ir_levels::MapOperands::Items(entries) if entries.len() == 1)
             )
     ));
 
     let (_, emitted) = assert_lowering_contract(&semantic);
-    assert!(
-        emitted.source().contains(".Map => .Map [ X"),
-        "{}",
-        emitted.source()
-    );
+    assert!(emitted.source().contains(".Map =>"));
+    assert!(emitted.source().contains("|->"));
 }
 
 /// `env: Cell(k::map![])` on a cell declared `Int` is refused at the empty

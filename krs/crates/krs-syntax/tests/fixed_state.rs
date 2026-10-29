@@ -415,12 +415,12 @@ fn maps_freeze_empty_items_remainders_and_functional_update() {
             "X -> V, Y ->",
             SyntaxErrorKind::RustSyntax("unexpected end of input, expected an expression".into()),
         ),
-        // A built map writes each entry over the one before, so a key written twice is refused.
+        // A built map writes each entry over the one before, so a key written twice is refused,
+        // as a collection literal refuses it.
         (
             "X -> V, X -> W",
-            SyntaxErrorKind::InvalidStateMacro {
-                macro_name: "map",
-                reason: "a map writes one key twice; each entry is written over the map before it, so the earlier value could never be read: write the key once",
+            SyntaxErrorKind::InvalidExpressionNotation {
+                reason: "the key `X` is written twice; two keys written as the same term are one key, so the earlier entry's value would never be read: write the key once, with the value it maps to".into(),
             },
         ),
         (

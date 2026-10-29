@@ -16,6 +16,7 @@ use krs_ir::{
 };
 use krs_ir_levels::{SemanticSortRef, SemanticTerm};
 
+use super::built_maps::{MapBase, writes_over_whole_map};
 use super::catalog::semantic_sort_ref;
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
@@ -38,6 +39,16 @@ pub(super) trait StateLowering {
         sort: &SemanticSortRef,
         entry_key: &ProvenanceKey,
         subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError>;
+
+    /// Lowers a result's state, whose whole map is built over `base`
+    /// ([`super::built_maps`]).
+    fn lower_result(
+        &mut self,
+        state: &DescriptorState,
+        sort: &SemanticSortRef,
+        entry_key: &ProvenanceKey,
+        base: &MapBase<'_>,
     ) -> Result<SemanticTerm, DescriptorLoweringError>;
 
     /// Whether two lowered terms are the same term, ignoring origins.
@@ -163,6 +174,8 @@ fn state_frame(
         _ => ("term", &ProtocolRuleFrame::Exact),
     };
     let result_frame = after.map(|after| match after {
+        // `map![k -> v, ..m]` over a map the subject bound whole is the cell's whole content.
+        after if writes_over_whole_map(before, after) => &ProtocolRuleFrame::Exact,
         ProtocolRuleStateTerm::KSequence(sequence) => &sequence.tail,
         ProtocolRuleStateTerm::Map(map) => match &map.body {
             krs_ir::ProtocolRuleMapBody::Items { remainder, .. } => remainder,
@@ -248,10 +261,6 @@ fn present_content(state: &DescriptorState) -> Option<&DescriptorState> {
 
 /// Lowers an optional (`?`) cell's entry (KF-023, R7): read, update, create
 /// (`None => Some(..)`), or delete (`Some(..) => None`).
-#[expect(
-    clippy::too_many_lines,
-    reason = "The presence checks, both states and the frame are paired in one ordered pass."
-)]
 pub(super) fn lower_optional_clause(
     lowering: &mut impl StateLowering,
     declarations: &DescriptorIndex<'_>,
@@ -312,40 +321,36 @@ pub(super) fn lower_optional_clause(
             ),
         ));
     }
-    let lower_presence =
-        |lowering: &mut dyn FnMut(
-            &DescriptorState,
-            bool,
-        ) -> Result<SemanticTerm, DescriptorLoweringError>,
-         state: Option<&DescriptorState>,
-         subject: bool| {
-            state.map_or(Ok(Presence::Absent), |state| {
-                lowering(state, subject).map(|term| Presence::Present { term })
-            })
-        };
-    let mut lower = |state: &DescriptorState, subject: bool| {
-        lowering.lower_state(
-            state,
-            &sort,
-            if subject {
-                &cell.key
-            } else {
-                result_key.unwrap_or(&cell.key)
-            },
-            subject,
-        )
+    let before_presence = match before_inner {
+        Some(state) => Presence::Present {
+            term: lowering.lower_state(state, &sort, &cell.key, true)?,
+        },
+        None => Presence::Absent,
     };
-    let before_presence = lower_presence(&mut lower, before_inner, true)?;
-    let after_presence = after_inner
-        .map(|state| lower_presence(&mut lower, state, false))
-        .transpose()?;
-    let after_presence = built_presence(
-        &descriptor,
+    // A present result's whole `map![..]` is built over what the subject leaves of the map.
+    let base = MapBase::of(
+        match &before_presence {
+            Presence::Present { term } => Some(term),
+            Presence::Absent => None,
+        },
         before_inner,
-        &before_presence,
-        after_inner.flatten(),
-        after_presence,
-    )?;
+        name,
+    );
+    let after_presence = after_inner
+        .map(|state| -> Result<_, DescriptorLoweringError> {
+            Ok(match state {
+                Some(state) => Presence::Present {
+                    term: lowering.lower_result(
+                        state,
+                        &sort,
+                        result_key.unwrap_or(&cell.key),
+                        &base,
+                    )?,
+                },
+                None => Presence::Absent,
+            })
+        })
+        .transpose()?;
     let frame = match before_inner {
         Some(state) => state_frame(&descriptor, state, after_inner.flatten())?,
         None => CellContentFrame::Exact,
@@ -367,33 +372,6 @@ pub(super) fn lower_optional_clause(
         after_presence,
         frame,
     )))
-}
-
-/// A present result's whole `map![..]`, built over what the subject leaves of
-/// the map (`configuration_rules::built_result_map`).
-fn built_presence(
-    descriptor: &Descriptor,
-    before: Option<&DescriptorState>,
-    before_presence: &Presence<SemanticTerm>,
-    after: Option<&DescriptorState>,
-    after_presence: Option<Presence<SemanticTerm>>,
-) -> Result<Option<Presence<SemanticTerm>>, DescriptorLoweringError> {
-    let (Some(Presence::Present { term }), Some(state)) = (&after_presence, after) else {
-        return Ok(after_presence);
-    };
-    let before_term = match before_presence {
-        Presence::Present { term } => Some(term),
-        Presence::Absent => None,
-    };
-    Ok(Some(Presence::Present {
-        term: super::configuration_rules::built_result_map(
-            descriptor,
-            before,
-            before_term,
-            state,
-            term.clone(),
-        )?,
-    }))
 }
 
 /// One collection instance's resolved children: the declaration's fields by
@@ -820,18 +798,13 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
             let after = match result_field {
                 None => CellPost::Preserve,
                 Some(result_field) => {
-                    let after = self.lowering.lower_state(
+                    // A child's whole `map![..]` is built over what the subject leaves of it.
+                    let base = MapBase::of(Some(&before), Some(&field.value), &field.field);
+                    let after = self.lowering.lower_result(
                         &result_field.value,
                         &sort,
                         &result_field.key,
-                        false,
-                    )?;
-                    let after = super::configuration_rules::built_result_map(
-                        descriptor,
-                        Some(&field.value),
-                        Some(&before),
-                        &result_field.value,
-                        after,
+                        &base,
                     )?;
                     if self.lowering.same(&before, &after) {
                         CellPost::Preserve
@@ -882,20 +855,13 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                 .child(&field.field)
                 .expect("children are checked before lowering");
             let (kind, sort) = cell_kind_sort(declared);
-            let term = self
-                .lowering
-                .lower_state(&field.value, &sort, &field.key, subject)?;
             // A new instance's whole `map![..]` is built over the empty map.
             let term = if subject {
-                term
+                self.lowering
+                    .lower_state(&field.value, &sort, &field.key, true)?
             } else {
-                super::configuration_rules::built_result_map(
-                    descriptor,
-                    None,
-                    None,
-                    &field.value,
-                    term,
-                )?
+                self.lowering
+                    .lower_result(&field.value, &sort, &field.key, &MapBase::Unmatched)?
             };
             let frame = if subject {
                 state_frame(descriptor, &field.value, None)?

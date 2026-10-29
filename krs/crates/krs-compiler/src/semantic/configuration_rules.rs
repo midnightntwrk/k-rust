@@ -14,6 +14,7 @@ use krs_ir_levels::{
 };
 use krs_syntax::ProvenanceRole;
 
+use super::built_maps::{BuiltMap, MapBase, WrittenEntry, writes_over_whole_map};
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
 use super::collection_types::{CollectionTyping, Root, Walker};
 use super::configuration::{check_stdin_reads, stdin_cells};
@@ -190,7 +191,46 @@ impl StateRuleTerms<'_> {
         binding_sorts: &BTreeMap<String, SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        self.entry_state_term(state, declared_sort, binding_sorts, subject)
+        self.located_state_term(
+            state,
+            declared_sort,
+            entry_key,
+            binding_sorts,
+            subject,
+            None,
+        )
+    }
+
+    /// Lowers one entry's result state, whose whole map is built over `base`
+    /// ([`super::built_maps`]).
+    fn result_state_term(
+        &mut self,
+        state: &ProtocolRuleStateTerm<DescriptorTerm>,
+        declared_sort: &SemanticSortRef,
+        entry_key: &ProvenanceKey,
+        binding_sorts: &BTreeMap<String, SemanticSortRef>,
+        base: &MapBase<'_>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        self.located_state_term(
+            state,
+            declared_sort,
+            entry_key,
+            binding_sorts,
+            false,
+            Some(base),
+        )
+    }
+
+    fn located_state_term(
+        &mut self,
+        state: &ProtocolRuleStateTerm<DescriptorTerm>,
+        declared_sort: &SemanticSortRef,
+        entry_key: &ProvenanceKey,
+        binding_sorts: &BTreeMap<String, SemanticSortRef>,
+        subject: bool,
+        base: Option<&MapBase<'_>>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        self.entry_state_term(state, declared_sort, binding_sorts, subject, base)
             .map_err(|error| {
                 error.within(
                     self.descriptor.id(),
@@ -206,6 +246,7 @@ impl StateRuleTerms<'_> {
         declared_sort: &SemanticSortRef,
         binding_sorts: &BTreeMap<String, SemanticSortRef>,
         subject: bool,
+        base: Option<&MapBase<'_>>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let descriptor = self.descriptor;
         match state {
@@ -258,50 +299,73 @@ impl StateRuleTerms<'_> {
                 ))
             }
             ProtocolRuleStateTerm::Map(map) => {
-                let key = &map.payload_key;
-                if *declared_sort != SemanticSortRef::map() {
-                    return Err(DescriptorLoweringError::invalid_term(
-                        descriptor.id(),
-                        "map occurs in a non-Map rule cell",
-                    )
-                    .within(descriptor.id(), key_range(descriptor, key).as_ref()));
-                }
-                let operands = match &map.body {
-                    ProtocolRuleMapBody::Empty { .. } => MapOperands::Empty,
-                    ProtocolRuleMapBody::Items { items, .. } => {
-                        let mut entries = Vec::with_capacity(items.len());
-                        for item in items {
-                            entries.push(MapEntry {
-                                key: self.key(&item.key, binding_sorts, subject)?,
-                                value: self.element(&item.value, binding_sorts, subject)?,
-                            });
-                        }
-                        MapOperands::items(entries).map_err(|error| {
-                            DescriptorLoweringError::invalid_term(
-                                descriptor.id(),
-                                error.to_string(),
-                            )
-                        })?
-                    }
-                    ProtocolRuleMapBody::Update {
-                        base, key, value, ..
-                    } => MapOperands::Update {
-                        map: self.term(
-                            base,
-                            Some(&SemanticSortRef::map()),
-                            binding_sorts,
-                            subject,
-                        )?,
-                        key: self.element(key, binding_sorts, subject)?,
-                        value: self.element(value, binding_sorts, subject)?,
-                    },
-                };
-                Ok(SemanticTerm::map(
-                    semantic_origin(descriptor, key.clone(), "rule-map")?,
-                    operands,
-                ))
+                self.map_state_term(map, declared_sort, binding_sorts, subject, base)
             }
         }
+    }
+
+    /// Lowers a cell's `map![..]` state; a result's whole map is built over `base`.
+    fn map_state_term(
+        &mut self,
+        map: &krs_ir::ProtocolRuleMap<DescriptorTerm>,
+        declared_sort: &SemanticSortRef,
+        binding_sorts: &BTreeMap<String, SemanticSortRef>,
+        subject: bool,
+        base: Option<&MapBase<'_>>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let descriptor = self.descriptor;
+        let key = &map.payload_key;
+        if *declared_sort != SemanticSortRef::map() {
+            return Err(DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                "map occurs in a non-Map rule cell",
+            )
+            .within(descriptor.id(), key_range(descriptor, key).as_ref()));
+        }
+        let operands = match &map.body {
+            ProtocolRuleMapBody::Empty { .. } => MapOperands::Empty,
+            ProtocolRuleMapBody::Items { items, remainder } => {
+                let mut entries = Vec::with_capacity(items.len());
+                for item in items {
+                    entries.push(WrittenEntry {
+                        key_key: item.key_key.clone(),
+                        entry: MapEntry {
+                            key: self.key(&item.key, binding_sorts, subject)?,
+                            value: self.element(&item.value, binding_sorts, subject)?,
+                        },
+                    });
+                }
+                // A result's whole map is built over what the subject leaves of it.
+                if let Some(base) = base {
+                    let over = whole_map_base(descriptor, remainder, base, binding_sorts)?;
+                    return super::built_maps::build(
+                        descriptor,
+                        BuiltMap {
+                            payload_key: key.clone(),
+                            role: "rule-map",
+                            entries,
+                            over,
+                        },
+                        base,
+                    );
+                }
+                MapOperands::items(entries.into_iter().map(|written| written.entry).collect())
+                    .map_err(|error| {
+                        DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
+                    })?
+            }
+            ProtocolRuleMapBody::Update {
+                base, key, value, ..
+            } => MapOperands::Update {
+                map: self.term(base, Some(&SemanticSortRef::map()), binding_sorts, subject)?,
+                key: self.element(key, binding_sorts, subject)?,
+                value: self.element(value, binding_sorts, subject)?,
+            },
+        };
+        Ok(SemanticTerm::map(
+            semantic_origin(descriptor, key.clone(), "rule-map")?,
+            operands,
+        ))
     }
 }
 
@@ -809,6 +873,20 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
             .state_term(state, sort, entry_key, binding_sorts, subject)
     }
 
+    fn lower_result(
+        &mut self,
+        state: &ProtocolRuleStateTerm<DescriptorTerm>,
+        sort: &SemanticSortRef,
+        entry_key: &ProvenanceKey,
+        base: &MapBase<'_>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        if matches!(sort, SemanticSortRef::Cell(_)) {
+            return self.lower_state(state, sort, entry_key, false);
+        }
+        self.terms
+            .result_state_term(state, sort, entry_key, self.result_sorts, base)
+    }
+
     fn same(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool {
         semantic_terms_equivalent(left, right)
     }
@@ -894,21 +972,19 @@ fn lower_configuration_rule_clause(
     let subject_frame = rule_state_frame(&subject.value);
     let mut frame = lower_subject_cell_frame(descriptor, &subject.value)?;
     let post = if let Some(result) = result {
-        let after = terms.state_term(
+        let base = MapBase::of(
+            Some(&before),
+            Some(&subject.value),
+            &subject.field.cell.field,
+        );
+        let after = terms.result_state_term(
             &result.value,
             &declared_sort,
             &result.field.key,
             result_sorts,
-            false,
+            &base,
         )?;
-        let after = built_result_map(
-            descriptor,
-            Some(&subject.value),
-            Some(&before),
-            &result.value,
-            after,
-        )?;
-        let result_frame = rule_state_frame(&result.value);
+        let result_frame = result_state_frame(&subject.value, &result.value);
         if let Some(moved) = pair_cell_frames(
             terms,
             &subject.field.cell.field,
@@ -1490,6 +1566,19 @@ fn rule_state_frame(state: &ProtocolRuleStateTerm<DescriptorTerm>) -> RuleStateF
     }
 }
 
+/// A result's frame: its map's or sequence's own, but none for a whole map written over a map
+/// the subject bound whole (`map![k -> v, ..m]` over `Cell(m)`), the cell's whole new content.
+fn result_state_frame<'a>(
+    subject: &ProtocolRuleStateTerm<DescriptorTerm>,
+    result: &'a ProtocolRuleStateTerm<DescriptorTerm>,
+) -> RuleStateFrame<'a> {
+    if writes_over_whole_map(subject, result) {
+        RuleStateFrame::Exact
+    } else {
+        rule_state_frame(result)
+    }
+}
+
 fn lower_subject_cell_frame(
     descriptor: &Descriptor,
     state: &ProtocolRuleStateTerm<DescriptorTerm>,
@@ -1615,98 +1704,35 @@ fn moved_map_remainder<'a>(
     }
 }
 
-/// A result's whole `map![k1 -> v1, .., kn -> vn]` is built as a collection
-/// literal is: each entry is written over the map before it, `map::update`, so
-/// the map is total and of two keys that evaluate equal the later one wins.
-///
-/// Where the subject reads the cell's whole map, or the result writes a new
-/// instance's, the map before the first entry is the empty map, and the result
-/// is the calls `.Map [ k1 <- v1 ] .. [ kn <- vn ]`. Where the subject leaves a
-/// remainder (`..`, `rest @ ..`), the map before is that remainder, which K's
-/// cell frame keeps by joining it with the result's entries. The join is the
-/// remainder with the entries written over it exactly when no written key is in
-/// the remainder and no two are equal, and that holds for keys the subject
-/// matched: its entries are distinct entries of the map and the remainder is
-/// what they leave, so the result keeps its entries there. A key the subject
-/// did not match may already be in the remainder, where the join has no value
-/// and the calls have one, and the frame writes nothing over the remainder, so
-/// such a key is refused.
-pub(super) fn built_result_map(
+/// The whole map a result's `map![k -> v, ..m]` is written over: `m`, a map the subject bound
+/// whole (`env: Cell(m)`), when the subject leaves no remainder of its own; `None` for a result
+/// written over the empty map or over the subject's remainder.
+fn whole_map_base(
     descriptor: &Descriptor,
-    subject: Option<&ProtocolRuleStateTerm<DescriptorTerm>>,
-    before: Option<&SemanticTerm>,
-    result: &ProtocolRuleStateTerm<DescriptorTerm>,
-    after: SemanticTerm,
-) -> Result<SemanticTerm, DescriptorLoweringError> {
-    let ProtocolRuleStateTerm::Map(map) = result else {
-        return Ok(after);
+    remainder: &ProtocolRuleFrame,
+    base: &MapBase<'_>,
+    binding_sorts: &BTreeMap<String, SemanticSortRef>,
+) -> Result<Option<SemanticTerm>, DescriptorLoweringError> {
+    let ProtocolRuleFrame::Reuse { key, binding } = remainder else {
+        return Ok(None);
     };
-    let ProtocolRuleMapBody::Items { items, remainder } = &map.body else {
-        return Ok(after);
-    };
-    let IrTermKind::Map(operands) = after.kind() else {
-        return Ok(after);
-    };
-    let MapOperands::Items(entries) = &**operands else {
-        return Ok(after);
-    };
-    let subject_frame = match subject {
-        Some(ProtocolRuleStateTerm::Map(subject)) => match &subject.body {
-            ProtocolRuleMapBody::Items { remainder, .. } => remainder,
-            _ => &ProtocolRuleFrame::Exact,
-        },
-        _ => &ProtocolRuleFrame::Exact,
-    };
-    match (subject_frame, remainder) {
-        (ProtocolRuleFrame::Exact, ProtocolRuleFrame::Exact) => {
-            let mut built = SemanticTerm::map(
-                semantic_origin(descriptor, map.payload_key.clone(), "rule-map-empty")?,
-                MapOperands::Empty,
-            );
-            let last = entries.len() - 1;
-            for (index, (entry, item)) in entries.iter().zip(items).enumerate() {
-                let origin = if index == last {
-                    after.origin().clone()
-                } else {
-                    semantic_origin(descriptor, item.key_key.clone(), "rule-map-update")?
-                };
-                built = SemanticTerm::map(
-                    origin,
-                    MapOperands::Update {
-                        map: built,
-                        key: entry.key.clone(),
-                        value: entry.value.clone(),
-                    },
-                );
-            }
-            Ok(built)
-        }
-        (ProtocolRuleFrame::Anonymous { .. }, ProtocolRuleFrame::Exact)
-        | (ProtocolRuleFrame::Bind { .. }, ProtocolRuleFrame::Reuse { .. }) => {
-            let matched = match before.map(SemanticTerm::kind) {
-                Some(IrTermKind::Map(operands)) => match &**operands {
-                    MapOperands::Items(matched) => matched.iter().map(|entry| &entry.key).collect(),
-                    _ => Vec::new(),
-                },
-                _ => Vec::new(),
-            };
-            for (entry, item) in entries.iter().zip(items) {
-                if !matched
-                    .iter()
-                    .any(|key| semantic_terms_equivalent(key, &entry.key))
-                {
-                    return Err(DescriptorLoweringError::invalid_term(
-                        descriptor.id(),
-                        "the result writes an entry over the map the subject leaves unread (`..` or `rest @ ..`) at a key the subject does not match, and that map may already hold the key: a result's whole `map![..]` writes each entry over the map before it, here that remainder, but K's cell frame only joins the remainder with the result's entries, which has no value where the two share a key, so KRS cannot write it yet; match the key in the subject, or read the whole map (`env: Cell(m)`) and write `map![k -> v, ..m]`",
-                    )
-                    .within(descriptor.id(), key_range(descriptor, &item.key_key).as_ref()));
-                }
-            }
-            Ok(after)
-        }
-        // A result frame the subject's does not pair with is that pairing's error.
-        _ => Ok(after),
+    if base.is_framed() {
+        return Ok(None);
     }
+    if binding_sorts.get(binding) != Some(&SemanticSortRef::map()) {
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            format!(
+                "`..{binding}` writes the result's entries over `{binding}`, which must be a map the subject binds whole (`Cell({binding})`) or a map remainder it binds (`{binding} @ ..`)"
+            ),
+        )
+        .within(descriptor.id(), key_range(descriptor, key).as_ref()));
+    }
+    Ok(Some(SemanticTerm::variable(
+        semantic_origin(descriptor, key.clone(), "rule-map-base")?,
+        SemanticSortRef::map(),
+        SemanticId::new(binding)?,
+    )))
 }
 
 /// The computation pattern `items` followed by `item`.

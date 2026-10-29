@@ -1018,8 +1018,8 @@ fn parse_initializer_cell(
     }
     let readable_term = match &field.expr {
         Expr::Lit(_) | Expr::Unary(_) => true,
-        // A collection literal is the term its calls build; the empty `map![]` and a map's
-        // functional update are the cell's own map, below.
+        // A collection literal is the term its calls build; a cell's own map without a rest is
+        // the cell's own map, below.
         Expr::Macro(ExprMacro { mac, .. }) => is_term_macro(mac),
         expression if crate::notation::is_expression_notation(expression) => true,
         Expr::Call(ExprCall { func, .. }) => {
@@ -1254,13 +1254,10 @@ fn is_option_none(expression: &Expr) -> bool {
 /// Whether the macro `mac`, a leaf cell's whole value or its `Cell::new` argument, is a term: a
 /// compiler-owned island (`k::id!(..)`), a set literal, or a map literal.
 ///
-/// A cell's own `map![..]` that writes entries or a rest is built as every collection literal is,
-/// `map![k1 -> v1, .., kn -> vn]` the calls `map::update(..map::update(map::empty(), k1, v1)..,
-/// kn, vn)` and `map![k -> v, ..m]` the call `map::update(m, k, v)`: the map is total, and of two
-/// keys that evaluate equal (configuration variables started with one value) the later one wins,
-/// where K's join of the entries would leave the configuration undefined. The empty map
-/// (`map![]`, `map![.Map]`) and a functional update (`map![m; k <- v]`) keep the cell's own
-/// reading, which is already the value they build.
+/// A cell's own `map![..]` with a rest, `map![k -> v, ..m]`, is the collection literal, the call
+/// `map::update(m, k, v)`: its entries are written over the rest. Without a rest the cell's own
+/// map is kept, and the compiler builds its entries as the literal's value, each written over the
+/// map before it, so of two keys that evaluate equal the later one wins.
 fn is_term_macro(mac: &syn::Macro) -> bool {
     crate::term::is_island_macro(&mac.path)
         || match crate::collection_literal::literal_collection(&mac.path) {
@@ -1289,8 +1286,8 @@ fn parse_initializer_state_term(
     expression: &Expr,
     computation: bool,
 ) -> Result<StateTerm, SyntaxError> {
-    // An island and a collection literal are terms; `k!`, the empty `map![]` and a map's
-    // functional update are the cell's own content.
+    // An island and a collection literal are terms; `k!` and a cell's own map without a rest
+    // are the cell's own content.
     if let Expr::Macro(ExprMacro { attrs, mac }) = expression
         && !(attrs.is_empty() && !computation && is_term_macro(mac))
     {

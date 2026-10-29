@@ -14,6 +14,7 @@ use krs_ir_levels::{
     SemanticTerm,
 };
 
+use super::built_maps::{BuiltMap, MapBase, WrittenEntry};
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
 use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::{DescriptorLoweringError, ImplicitPresentCell};
@@ -820,20 +821,32 @@ fn lower_initializer_state(
             }
             let operands = match &map.body {
                 ProtocolMapBody::Empty { .. } => MapOperands::Empty,
+                // An initializer cell's whole map is built over the empty map
+                // ([`super::built_maps`]).
                 ProtocolMapBody::Items { items } => {
                     let mut entries = Vec::with_capacity(items.len());
                     for item in items {
-                        entries.push(MapEntry {
-                            key: lower_term(&item.key.term, element(&item.key.term).as_ref())?,
-                            value: lower_term(
-                                &item.value.term,
-                                element(&item.value.term).as_ref(),
-                            )?,
+                        entries.push(WrittenEntry {
+                            key_key: item.key_key.clone(),
+                            entry: MapEntry {
+                                key: lower_term(&item.key.term, element(&item.key.term).as_ref())?,
+                                value: lower_term(
+                                    &item.value.term,
+                                    element(&item.value.term).as_ref(),
+                                )?,
+                            },
                         });
                     }
-                    MapOperands::items(entries).map_err(|error| {
-                        DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
-                    })?
+                    return super::built_maps::build(
+                        descriptor,
+                        BuiltMap {
+                            payload_key: key.clone(),
+                            role: "initializer-map",
+                            entries,
+                            over: None,
+                        },
+                        &MapBase::Unmatched,
+                    );
                 }
                 ProtocolMapBody::Update {
                     base, key, value, ..

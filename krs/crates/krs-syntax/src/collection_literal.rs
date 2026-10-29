@@ -444,16 +444,22 @@ fn reject_repeated_keys(entries: &[Entry]) -> Result<(), SyntaxError> {
     for entry in entries {
         let text = entry.key.to_token_stream().to_string();
         if seen.contains(&text) {
-            return Err(literal_error(
-                format!(
-                    "the key `{text}` is written twice; two keys written as the same term are one key, so the earlier entry's value would never be read: write the key once, with the value it maps to"
-                ),
-                entry.key.span(),
-            ));
+            return Err(repeated_key(&text, entry.key.span()));
         }
         seen.push(text);
     }
     Ok(())
+}
+
+/// A built map's key `text` written twice, at the second spelling: the
+/// collection literal's error, and a built cell's whole `map![..]`'s.
+pub(crate) fn repeated_key(text: &str, span: Span) -> SyntaxError {
+    literal_error(
+        format!(
+            "the key `{text}` is written twice; two keys written as the same term are one key, so the earlier entry's value would never be read: write the key once, with the value it maps to"
+        ),
+        span,
+    )
 }
 
 /// The first span of a term's tokens.

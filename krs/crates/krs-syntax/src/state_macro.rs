@@ -1410,14 +1410,20 @@ fn parse_unkeyed_k_sequence(
     )
 }
 
-/// Whether a built cell's own `map![..]` payload is a collection literal: one that writes entries,
-/// a rest, or that the cell's own map does not read at all, whose error the literal reports. The
-/// empty map (`map![]`, `map![.Map]`) and a functional update (`map![m; k <- v]`,
-/// `map![m [ k <- v ]]`) keep the cell's own reading, which is already the value they build.
+/// Whether an initializer cell's own `map![..]` payload is read as a collection literal: one with
+/// a rest (`map![k -> v, ..m]`, the update chain over `m`), or one the cell's own map does not
+/// read at all, whose error the literal reports. The empty map, a functional update
+/// (`map![m; k <- v]`) and the entries alone keep the cell's own reading, whose entries the
+/// compiler builds as the literal's value (`krs_compiler`'s built maps).
 pub(crate) fn built_map_is_literal(payload: TokenStream) -> bool {
     !matches!(
         parse_unkeyed_map(payload, StateMacroContext::Expression).map(|map| map.body),
-        Ok(MapBody::Empty { .. } | MapBody::Update { .. })
+        Ok(MapBody::Empty { .. }
+            | MapBody::Update { .. }
+            | MapBody::Items {
+                remainder: StateMacroRemainder::Exact,
+                ..
+            })
     )
 }
 
@@ -1537,17 +1543,16 @@ fn parse_unkeyed_map(
                 // same term the earlier value could never be read.
                 let text = key.to_string();
                 if text != "_" && keys.contains(&text) {
-                    return Err(state_error(
-                        "map",
-                        if context == StateMacroContext::Pattern {
+                    return Err(if context == StateMacroContext::Pattern {
+                        state_error(
+                            "map",
                             "a map pattern names one key twice; \
-                             its items are distinct entries of the map, so no map matches it"
-                        } else {
-                            "a map writes one key twice; \
-                             each entry is written over the map before it, so the earlier value could never be read: write the key once"
-                        },
-                        key.span(),
-                    ));
+                             its items are distinct entries of the map, so no map matches it",
+                            key.span(),
+                        )
+                    } else {
+                        crate::collection_literal::repeated_key(&text, key.span())
+                    });
                 }
                 keys.push(text);
                 parse_map_item_arrow(input)?;
