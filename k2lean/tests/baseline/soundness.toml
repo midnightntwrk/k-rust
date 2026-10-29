@@ -177,7 +177,7 @@ cases = 37
 auto = 36
 open = ["Progress.case.«Instr.resume(_,_,_)»"]
 refuted = []
-guarded = 3
+guarded = 8
 
 [prog.imptypes]
 tier = "light"
