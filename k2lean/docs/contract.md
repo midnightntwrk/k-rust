@@ -24,6 +24,9 @@ So k2lean emits two things:
 
 Performance after that is the loop's.
 
+Code that is the same for every library (the prelude's tactics and lemmas, and per-library text that does not depend on the K definition) is optimized once, by k2lean's own loop measured on the gate, KEVM and KMIR (the named simp set `k2l_eq` was such a change: kimp's equation proofs from 114M to 35M heartbeats), and a user's library gets it with the release.
+Such an optimization is measured on k2lean's benchmarks, which may not be a user's: so nothing upstream is the only way to a proof, and a user's loop can replace a prelude tactic at any use in its library.
+
 So when a choice trades generality or faithfulness against cost, take the general, faithful construction if the cost lies in a layer that can be optimized later (§2, the checked and derived layers).
 Weigh the cost only when it lies in the specification layer, which cannot be optimized after generation.
 
@@ -31,8 +34,8 @@ Weigh the cost only when it lies in the specification layer, which cannot be opt
 
 | layer | what it holds | why it can be relied on | who may change it, and how |
 |---|---|---|---|
-| **Specification** | the term types (`Terms`); the functions (`Functions`); the hook models of `KPrelude` (`Int`, `Bytes`, the `Map`/`Set` carriers and their hooks, …); the parameters `class Hooks`; `Step` and `App` (`Rules`); `init`; and the statement of every generated theorem, its premises included (an open obligation's `def ….statement : Prop` too) | it is what the generator writes from the KORE: faithful to K by the argument of `design.md` §2 and by the differential tests against krust and K's LLVM backend (goldens, traces, case results); no Lean proof can check that it is the user's K | by regenerating from the K definition: a hand edit would make it something other than the user's K; in k2lean, a change to what the generator writes is a design decision recorded in `design.md` |
-| **Checked** | every proof: the generated ones, the tactics and lemmas of `KPrelude`, termination proofs and measures, heartbeat budgets, the split of a module into parts | the kernel checks each proof against its statement; the axiom guard (`#k2l_assert_axioms`) admits only `propext`, `Classical.choice` and `Quot.sound`, which rules out `sorry` and `native_decide` | anyone, freely, including a user editing the generated proofs in their own project: the worst outcome is a proof that does not build |
+| **Specification** | the term types (`Terms`); the functions (`Functions`); the hook models of `KPrelude` (`Int`, `Bytes`, the `Map`/`Set` carriers and their hooks, …); the parameters `class Hooks`; `Step` and `App` (`Rules`); `init`; the statement of every theorem the generator puts under the axiom guard (the main theorems and the obligations, `#k2l_assert_axioms` and `#k2l_refuted` in the generated files), its premises included, and of every obligation with a `def ….statement : Prop`, open or proved; and every definition those statements reach (§5, "The frozen part") | it is what the generator writes from the KORE: faithful to K by the argument of `design.md` §2 and by the differential tests against krust and K's LLVM backend (goldens, traces, case results); no Lean proof can check that it is the user's K | by regenerating from the K definition: a hand edit would make it something other than the user's K; in k2lean, a change to what the generator writes is a design decision recorded in `design.md` |
+| **Checked** | every proof: the generated ones, the tactics and lemmas of `KPrelude`, termination proofs, heartbeat budgets, the split of a module into parts; and every other generated theorem, its statement included (an internal lemma, such as one rule's determinism lemma or one of KEVM's Adequacy lemmas: a loop may delete, merge or restate it, since the kernel still checks the frozen theorems built on it) | the kernel checks each proof against its statement; the axiom guard (`#k2l_assert_axioms`) admits only `propext`, `Classical.choice` and `Quot.sound`, which rules out `sorry` and `native_decide` | anyone, freely, including a user editing the generated proofs in their own project: the worst outcome is a proof that does not build |
 | **Derived** | definitions tied to the specification by a proved theorem: the executable `step`, `successors` and `run` (tied to `Step` by `Adequacy`); a faster function proved equal to a generated one (`@[csimp]`); views over the term family | the tying theorem, checked like any proof | anyone, provided the tying theorem is proved again |
 
 Specification the user writes is frozen too, like what the generator writes; like an instance of `class Hooks`, it is the user's assumption:
@@ -40,7 +43,7 @@ Specification the user writes is frozen too, like what the generator writes; lik
 - Lean the user writes to state a property, such as a kind 2 invariant's `P` (`invariants.md`), kept in its own module apart from its proofs;
 - the options that select which theorem is stated (`claims --assume-invariant`, `--induction`, `--transfer`, …): each states a different theorem, and where that theorem is weaker than the K original (a claim under `--assume-invariant`), the design notes say so (`product.md` §3.2).
 
-The second kind is the one frozen part that no regeneration reproduces, so the loop has to pin it on its own (§5).
+The second kind is the one frozen part that no regeneration reproduces, so it is pinned by naming its modules when the frozen part is recorded (§5, "The frozen part").
 
 ## 3. What follows
 
@@ -94,9 +97,9 @@ The second kind is the one frozen part that no regeneration reproduces, so the l
 | hypotheses that bundle what is not proved yet (confluence's `OpenJoins` and `SameThreadJoins`, refine's hand cases) | specification: premises of the theorem | a generator change that implies the old premises from new ones strengthens the theorem and is allowed; a loop cannot fill one case of a bundle, so each case should become a statement of its own, from which the bundle is derived (C's CNF-4) |
 | witnesses a theorem's statement names but its corollaries do not use (refine's `X`, `μ`, `ν` in `bisim`) | specification, while they appear in the statement | stating the theorem with them existentially quantified moves them into the checked layer |
 | tactics, heartbeat budgets, module parts | checked | tune freely; the gate's counts say whether a change loses a proof |
-| termination | the function is specification; its measure and proof are checked | a hand proof only where K itself diverges, and then a divergence theorem, which is a statement |
+| termination | the function and its measure are specification (the measure is part of the definition's value); its decreasing proof is checked (Lean abstracts it into a theorem `f._proof_k`), free to change | a hand proof only where K itself diverges, and then a divergence theorem, which is a statement; freeing the measure too (comparing `f.eq_def`) is later work |
 | determinism and its overlap list | the list is part of the statement; the witnesses and disjointness proofs are checked | a witnessed overlap is a fact about K, not a gap |
-| `step`, `run`, a fast interpreter | derived | welcome when proved equal; not a goal of the generator |
+| `step`, `run`, a fast interpreter | derived | welcome when proved equal; not a goal of the generator. `step` and `run` are named by frozen statements (Adequacy's), so they are frozen with them: a faster one is a new definition proved equal (`@[csimp]`), not an edit of theirs |
 | goal printing (`KPrelude.Delab`, `#k2l_check_delab`) | presentation of the specification | the check proves that what is printed is the definition, which keeps the specification reviewable |
 | differential tests | evidence for the specification | the only check that the specification is the user's K |
 | the gate's hashes of generated files | guard on the specification and on the generated proofs | a moved hash is a change to explain |
@@ -107,8 +110,21 @@ What makes a generated library a good target for the loop, and where k2lean stan
 
 | need | why the loop needs it | today |
 |---|---|---|
-| the frozen part delimited, with a cheap check that it did not move | accept or reject is automatic, and an edit that changes a statement by accident is rejected | statements sit next to their proofs in the same generated files; only an open obligation has a separate `def ….statement : Prop`. A statements module compared with a fresh regeneration (hash), with proof modules free, would give the check; specification written in Lean by the user (a kind 2 invariant's `P`) is reproduced by no regeneration and needs a pin of its own, and a hand module that mixes specification with proofs (ImpTypes' `Store.lean`, until the relation moves into the checker's K) blurs the boundary |
+| the frozen part delimited, with a cheap check that it did not move | accept or reject is automatic, and an edit that changes a statement by accident is rejected | `k2l-eval --freeze-record` right after generation, `--freeze-check` after each edit (below, "The frozen part"); about a second for kterm-ar. A hand module that mixes specification with proofs (ImpTypes' `Store.lean`, until the relation moves into the checker's K) blurs the boundary |
 | small search units | one experiment should rebuild one theorem or one function, not KEVM's whole `Equations`; iteration speed decides how much the loop explores | `Equations` is split into parts by weight (`gen --equations-part-weight`), and each proof has its own heartbeat budget; other modules (`Determinism`, relate's commutation lemmas) are one unit each |
 | a metric that does not depend on the machine's load | wall time on a shared, saturated host varies too much to compare two experiments | heartbeats count allocations and do not depend on load; they are measured per module by hand (`lean -j1 -DElab.async=false`, `design.md` §2.1), not per declaration, and no harness reports them |
 | a baseline that builds | the loop improves something that works; an open obligation is a slot to fill | every library builds with its open obligations listed (`open-obligations.txt`) |
 | a reference for each derived definition | a faster implementation is accepted by a proof that it equals the generated definition (`fast = spec`, `@[csimp]`) | the generated definitions are the references; `step` is tied to `Step` by `Adequacy` |
+
+### The frozen part
+
+The frozen names are the theorems a generated library's axiom guards name (`#k2l_assert_axioms`, and the refutation of `#k2l_refuted`) in its Lean files, apart from hand modules (`*Hand.lean`): what the generator states, read back from what it writes, the same rule for every area. With them, every obligation with a `X.statement`.
+The specification they mean is the closure of their statements through definitions: each constant of the library's own modules that a frozen statement mentions, and each that a definition's value mentions in turn, stopping at theorems, whose statements count and whose proofs do not.
+So no module list is kept, a definition in a module that also holds proofs (`Step.Case.*` in `Preserves.lean`) is frozen, and a proof is free.
+The user's own Lean specification is added by naming its modules (`--freeze-record NS OUTDIR SPEC.MODULE…`); the prelude and Lean are pinned by the lake manifest and the toolchain, whose files are hashed.
+
+`k2l-eval --freeze-record NS OUTDIR` (from the library's root, `lake env`) writes `k2lean.freeze`, a 128-bit structural fingerprint of each frozen statement and of each closure constant's type and value (binder names aside), and `k2lean.frozen.md`, the frozen statements as Lean prints them, for people to read.
+`k2l-eval --freeze-check NS OUTDIR` recomputes both from the names recorded and reports `moved`, `open`, `axioms`, `spec-moved`, `spec-missing`, `file`, `readable` and `lint` (`debug.skipKernelTC`, `implemented_by`, `@[extern` in a source); it fails on all but `open`.
+A frozen obligation may be proved through its statement (`theorem X : X.statement`), the form `#k2l_proves` accepts.
+The fixture `demos/k/freeze` shows each report, a changed decreasing proof passing; the gate records and checks kterm-ar.
+Statements are not written twice: each lives once, in the generated file that proves it, and the fingerprint is the frozen record; a separate statements module would be a second copy of every statement to keep in step with the proofs.

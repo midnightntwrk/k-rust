@@ -230,6 +230,16 @@ gate_core() {
   # its least fixed points diverge, proved in the hand module KTerm/DivergesHand.lean and
   # checked under the axiom guard (KTermTest/Diverges.lean)
   runs lib kterm-ar && kc kterm && lib kterm-ar KTerm
+  # the frozen part (CT-3): kterm-ar's recorded and checked unchanged (`k2l-eval --freeze-record`,
+  # `--freeze-check`), and the freeze fixture's edits, each with its report (demos/k/freeze/run.sh)
+  if runs lib kterm-ar; then
+    fz=$T/lean/.lake/build/bin/k2l-eval
+    if (cd "$T/lean" && "$RT" lake build k2l-eval) > "$L/freeze.log" 2>&1 &&
+       (cd "$GEN/kterm-ar" && "$RT" lake env "$fz" --freeze-record KTerm "$L/freeze-kterm-ar" &&
+        "$RT" lake env "$fz" --freeze-check KTerm "$L/freeze-kterm-ar") >> "$L/freeze.log" 2>&1 &&
+       "$D/k/freeze/run.sh" "$fz" "$W/freeze" >> "$L/freeze.log" 2>&1
+    then ok "freeze" "$L/freeze.log"; else bad "freeze" "$L/freeze.log"; fi
+  fi
   # the checks of `#k2l_refuted` (a refutation's form, restatements, the parameters' closure, sorry)
   if (cd "$T/lean" && "$RT" lake env lean "$D/k/refuted/refuted-check.lean") > "$L/refuted-check.log" 2>&1
   then ok "refuted check" "$L/refuted-check.log"; else bad "refuted check" "$L/refuted-check.log"; fi

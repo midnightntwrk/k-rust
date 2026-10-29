@@ -27,7 +27,9 @@ lean_lib KClaimsTest where
   roots := #[`KClaimsTest.Keywords]
 
 /-- `k2l-eval FILE MODULE [OUT.jsonl [SPEC.MODULE]]`: heartbeats per command of one module and each
-theorem's status against its frozen statement; `k2l-eval --replay MODULE`: a kernel replay (CT-4a).
+theorem's status against its frozen statement; `k2l-eval --replay MODULE`: a kernel replay (CT-4a);
+`k2l-eval --freeze-record NS OUTDIR [SPEC.MODULE …]` and `--freeze-check NS OUTDIR`: the
+fingerprints of a library's frozen part, and the check that it did not move (CT-3).
 Compiled: interpreted, it needs twice the memory. -/
 lean_exe «k2l-eval» where
   srcDir := "eval"
