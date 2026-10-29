@@ -8,8 +8,11 @@ the other creates, which cannot be. -/
 
 set_option maxHeartbeats 0
 set_option linter.unusedVariables false
+set_option linter.unusedSectionVars false
 
 namespace HandoffConf
+
+variable [Handoff.Hooks]
 
 open KPrelude
 
@@ -40,8 +43,8 @@ theorem elim_lit {c c₁ : Handoff.SortGeneratedTopCell} (h : StepBy .«resume-l
 theorem elim_oid {c c₁ : Handoff.SortGeneratedTopCell} (h : StepBy .«resume-oid» c c₁) {G : Prop}
     (k : Handoff.Step.Rel.«resume-oid» (fun d d₁ => d = c → d₁ = c₁ → G)) : G :=
   h (fun d d₁ => ∀ G : Prop, Handoff.Step.Rel.«resume-oid» (fun e e₁ => e = d → e₁ = d₁ → G) → G)
-    (fun m m2 m3 D0 k D4 G6 Q N I D2 S D3 V r r15 r17 r19 hm hm6 hm13 hr hr16 hr18 hr20 _ k' =>
-      k' m m2 m3 D0 k D4 G6 Q N I D2 S D3 V r r15 r17 r19 hm hm6 hm13 hr hr16 hr18 hr20 rfl rfl) G k
+    (fun m m2 m3 D0 k D4 G6 Q N I D2 S D3 V r x15 r17 y19 r21 r23 hm hm6 hm13 hr fn16 hr18 fo20 hr22 hr24 _ k' =>
+      k' m m2 m3 D0 k D4 G6 Q N I D2 S D3 V r x15 r17 y19 r21 r23 hm hm6 hm13 hr fn16 hr18 fo20 hr22 hr24 rfl rfl) G k
 
 theorem elim_done {c c₁ : Handoff.SortGeneratedTopCell} (h : StepBy .done c c₁) {G : Prop}
     (k : Handoff.Step.Rel.done (fun d d₁ => d = c → d₁ = c₁ → G)) : G :=
@@ -144,19 +147,21 @@ theorem sameThreadJoins : SameThreadJoins := by
     cases Option.some.inj (hr3.symm.trans hr3')
     exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩
   case «resume-lit».«resume-lit» =>
-    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r r9 r11 hm hm5 hr hr10 hr12 e e'
-    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' r9' r11' hm' hm5' hr' hr10' hr12' f f'
+    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r x9 r9 y13 r11 hm hm5 hr fn10 hr10 fo14 hr12 e e'
+    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' x9' r9' y13' r11' hm' hm5' hr' fn10' hr10' fo14' hr12' f f'
     subst e e'; cases f; subst f'
     k2l_one_thread hm hm' (MapHook.lookup_of_concat_element hr) (MapHook.lookup_of_concat_element hr')
     k2l_same_rest hm hm' hr hr'
     cases (MapHook.lookup_of_concat_element hm5).symm.trans (MapHook.lookup_of_concat_element hm5')
     cases MapHook.concat_rest_unique hm5 hm5'
+    cases Option.some.inj (fn10.symm.trans fn10')
     cases Option.some.inj (hr10.symm.trans hr10')
+    cases Option.some.inj (fo14.symm.trans fo14')
     cases Option.some.inj (hr12.symm.trans hr12')
     exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩
   case «resume-oid».«resume-oid» =>
-    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r r15 r17 r19 hm hm6 hm13 hr hr16 hr18 hr20 e e'
-    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' r15' r17' r19' hm' hm6' hm13' hr' hr16' hr18' hr20' f f'
+    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r x15 r15 y19 r17 r19 hm hm6 hm13 hr fn16 hr16 fo20 hr18 hr20 e e'
+    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' x15' r15' y19' r17' r19' hm' hm6' hm13' hr' fn16' hr16' fo20' hr18' hr20' f f'
     subst e e'; cases f; subst f'
     k2l_one_thread hm hm' (MapHook.lookup_of_concat_element hr) (MapHook.lookup_of_concat_element hr')
     k2l_same_rest hm hm' hr hr'
@@ -164,18 +169,20 @@ theorem sameThreadJoins : SameThreadJoins := by
     cases MapHook.concat_rest_unique hm6 hm6'
     cases (MapHook.lookup_of_concat_element hm13).symm.trans (MapHook.lookup_of_concat_element hm13')
     cases MapHook.concat_rest_unique hm13 hm13'
+    cases Option.some.inj (fn16.symm.trans fn16')
     cases Option.some.inj (hr16.symm.trans hr16')
+    cases Option.some.inj (fo20.symm.trans fo20')
     cases Option.some.inj (hr18.symm.trans hr18')
     cases Option.some.inj (hr20.symm.trans hr20')
     exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩
   case «resume-lit».«resume-oid» =>
-    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r r9 r11 hm hm5 hr hr10 hr12 e e'
-    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' r15' r17' r19' hm' hm6' hm13' hr' hr16' hr18' hr20' f f'
+    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r x9 r9 y13 r11 hm hm5 hr fn10 hr10 fo14 hr12 e e'
+    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' x15' r15' y19' r17' r19' hm' hm6' hm13' hr' fn16' hr16' fo20' hr18' hr20' f f'
     subst e e'; cases f; subst f'
     k2l_one_thread hm hm' (MapHook.lookup_of_concat_element hr) (MapHook.lookup_of_concat_element hr')
   case «resume-oid».«resume-lit» =>
-    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r r15 r17 r19 hm hm6 hm13 hr hr16 hr18 hr20 e e'
-    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' r9' r11' hm' hm5' hr' hr10' hr12' f f'
+    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r x15 r15 y19 r17 r19 hm hm6 hm13 hr fn16 hr16 fo20 hr18 hr20 e e'
+    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' x9' r9' y13' r11' hm' hm5' hr' fn10' hr10' fo14' hr12' f f'
     subst e e'; cases f; subst f'
     k2l_one_thread hm hm' (MapHook.lookup_of_concat_element hr) (MapHook.lookup_of_concat_element hr')
   case done.done =>
@@ -458,17 +465,16 @@ theorem eff_new {m D3 r : Handoff.SortTaskCellMap} {k : Handoff.SortTidCell} {G 
     (mch_keys sm.1 pp pa (by rw [f.1, f.2.1]; simp) f.2.2 (by rw [f.1]; simp)) i.1
 
 theorem eff_lit {m D4 r : Handoff.SortTaskCellMap} {k : Handoff.SortTidCell} {G : Handoff.SortNCell}
-    {Q N V S : Int} {m2 D2 r9 D3 r11 : Handoff.SortMap} {g : Handoff.SortGeneratedCounterCell} {ch : Change}
+    {Q N V S x y : Int} {m2 D2 r9 D3 r11 : Handoff.SortMap} {g : Handoff.SortGeneratedCounterCell} {ch : Change}
     (hm : MapHook.concat (MapHook.element k (Handoff.SortTaskCell.«<task>» k G (Handoff.SortKCell.«<k>»
       (Handoff.SortK.kseq (Handoff.SortKItem.inj_Instr (Handoff.SortInstr.«resume(_,_,_)» Q N (Handoff.SortInp.inj_Int V)))
         Handoff.SortK.dotk)))) D4 = some m)
     (hm5 : MapHook.concat (MapHook.element (Handoff.SortKItem.inj_Int Q)
       (Handoff.SortKItem.inj_KItem (Handoff.SortKItem.Own.«st(_,_)» N S))) D2 = some m2)
     (hr10 : MapHook.concat (MapHook.element (Handoff.SortKItem.inj_Int Q)
-      (Handoff.SortKItem.inj_KItem (Handoff.SortKItem.Own.«st(_,_)» (IntHook.add N 1)
-        (Handoff.K.«next(_,_)_HANDOFF_Int_Int_Int» S V)))) D2 = some r9)
+      (Handoff.SortKItem.inj_KItem (Handoff.SortKItem.Own.«st(_,_)» (IntHook.add N 1) x))) D2 = some r9)
     (hr12 : MapHook.concat (MapHook.element (Handoff.SortKItem.inj_Oid (Handoff.SortOid.«o(_,_)» Q N))
-      (Handoff.SortKItem.inj_Int (Handoff.K.«out(_,_)_HANDOFF_Int_Int_Int» S V))) D3 = some r11)
+      (Handoff.SortKItem.inj_Int y)) D3 = some r11)
     (o : (∃ a b, MStep a b ch (cfg m (.«<procs>» m2) (.«<vals>» D3) g) (cfg r (.«<procs>» r9) (.«<vals>» r11) g)) ∨
       SStep ch (cfg m (.«<procs>» m2) (.«<vals>» D3) g) (cfg r (.«<procs>» r9) (.«<vals>» r11) g))
     (sm : ch.Small) :
@@ -485,7 +491,7 @@ theorem eff_lit {m D4 r : Handoff.SortTaskCellMap} {k : Handoff.SortTidCell} {G 
     (mch_shape (L := D3) vp va (by rw [h.1, h.2.1]; simp) h.2.2)
 
 theorem eff_oid {m D4 r : Handoff.SortTaskCellMap} {k : Handoff.SortTidCell} {G : Handoff.SortNCell}
-    {Q N V S : Int} {I : Handoff.SortOid} {m2 D2 r15 m3 D3 r17 r19 : Handoff.SortMap}
+    {Q N V S x y : Int} {I : Handoff.SortOid} {m2 D2 r15 m3 D3 r17 r19 : Handoff.SortMap}
     {g : Handoff.SortGeneratedCounterCell} {ch : Change}
     (hm : MapHook.concat (MapHook.element k (Handoff.SortTaskCell.«<task>» k G (Handoff.SortKCell.«<k>»
       (Handoff.SortK.kseq (Handoff.SortKItem.inj_Instr (Handoff.SortInstr.«resume(_,_,_)» Q N (Handoff.SortInp.inj_Oid I)))
@@ -493,12 +499,11 @@ theorem eff_oid {m D4 r : Handoff.SortTaskCellMap} {k : Handoff.SortTidCell} {G 
     (hm6 : MapHook.concat (MapHook.element (Handoff.SortKItem.inj_Int Q)
       (Handoff.SortKItem.inj_KItem (Handoff.SortKItem.Own.«st(_,_)» N S))) D2 = some m2)
     (hr16 : MapHook.concat (MapHook.element (Handoff.SortKItem.inj_Int Q)
-      (Handoff.SortKItem.inj_KItem (Handoff.SortKItem.Own.«st(_,_)» (IntHook.add N 1)
-        (Handoff.K.«next(_,_)_HANDOFF_Int_Int_Int» S V)))) D2 = some r15)
+      (Handoff.SortKItem.inj_KItem (Handoff.SortKItem.Own.«st(_,_)» (IntHook.add N 1) x))) D2 = some r15)
     (hm13 : MapHook.concat (MapHook.element (Handoff.SortKItem.inj_Oid I) (Handoff.SortKItem.inj_Int V)) D3 = some m3)
     (hr18 : MapHook.concat (MapHook.element (Handoff.SortKItem.inj_Oid I) (Handoff.SortKItem.inj_Int V))
       (MapHook.element (Handoff.SortKItem.inj_Oid (Handoff.SortOid.«o(_,_)» Q N))
-        (Handoff.SortKItem.inj_Int (Handoff.K.«out(_,_)_HANDOFF_Int_Int_Int» S V))) = some r17)
+        (Handoff.SortKItem.inj_Int y)) = some r17)
     (hr20 : MapHook.concat r17 D3 = some r19)
     (o : (∃ a b, MStep a b ch (cfg m (.«<procs>» m2) (.«<vals>» m3) g) (cfg r (.«<procs>» r15) (.«<vals>» r19) g)) ∨
       SStep ch (cfg m (.«<procs>» m2) (.«<vals>» m3) g) (cfg r (.«<procs>» r15) (.«<vals>» r19) g))
@@ -538,7 +543,7 @@ theorem keyJoins : KeyJoins := by
     · exact (hk (eff_compat hinv hkk (eff_new hm hr3 o₁ k₁ i₁) (eff_new hm' hr3' o₂ k₂ i₂))).elim
   case new.«resume-lit» =>
     apply elim_new s₁; intro m D2 D1 D0 kk D3 G5 Q S r r2 hm hr hr3 e e'
-    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' r9' r11' hm' hm5' hr' hr10' hr12' f f'
+    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' x9' r9' y13' r11' hm' hm5' hr' fn10' hr10' fo14' hr12' f f'
     subst e e'; cases f; subst f'
     by_cases hkk : kk = kk'
     · subst hkk
@@ -546,14 +551,14 @@ theorem keyJoins : KeyJoins := by
     · exact (hk (eff_compat hinv hkk (eff_new hm hr3 o₁ k₁ i₁) (eff_lit hm' hm5' hr10' hr12' o₂ k₂))).elim
   case new.«resume-oid» =>
     apply elim_new s₁; intro m D2 D1 D0 kk D3 G5 Q S r r2 hm hr hr3 e e'
-    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' r15' r17' r19' hm' hm6' hm13' hr' hr16' hr18' hr20' f f'
+    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' x15' r15' y19' r17' r19' hm' hm6' hm13' hr' fn16' hr16' fo20' hr18' hr20' f f'
     subst e e'; cases f; subst f'
     by_cases hkk : kk = kk'
     · subst hkk
       cases (MapHook.lookup_of_concat_element hm).symm.trans (MapHook.lookup_of_concat_element hm')
     · exact (hk (eff_compat hinv hkk (eff_new hm hr3 o₁ k₁ i₁) (eff_oid hm' hm6' hr16' hm13' hr18' hr20' o₂ k₂))).elim
   case «resume-lit».new =>
-    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r r9 r11 hm hm5 hr hr10 hr12 e e'
+    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r x9 r9 y13 r11 hm hm5 hr fn10 hr10 fo14 hr12 e e'
     apply elim_new s₂; intro m' D2' D1' D0' kk' D3' G5' Q' S' r' r2' hm' hr' hr3' f f'
     subst e e'; cases f; subst f'
     by_cases hkk : kk = kk'
@@ -561,7 +566,7 @@ theorem keyJoins : KeyJoins := by
       cases (MapHook.lookup_of_concat_element hm).symm.trans (MapHook.lookup_of_concat_element hm')
     · exact (hk (eff_compat hinv hkk (eff_lit hm hm5 hr10 hr12 o₁ k₁) (eff_new hm' hr3' o₂ k₂ i₂))).elim
   case «resume-oid».new =>
-    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r r15 r17 r19 hm hm6 hm13 hr hr16 hr18 hr20 e e'
+    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r x15 r15 y19 r17 r19 hm hm6 hm13 hr fn16 hr16 fo20 hr18 hr20 e e'
     apply elim_new s₂; intro m' D2' D1' D0' kk' D3' G5' Q' S' r' r2' hm' hr' hr3' f f'
     subst e e'; cases f; subst f'
     by_cases hkk : kk = kk'
@@ -569,8 +574,8 @@ theorem keyJoins : KeyJoins := by
       cases (MapHook.lookup_of_concat_element hm).symm.trans (MapHook.lookup_of_concat_element hm')
     · exact (hk (eff_compat hinv hkk (eff_oid hm hm6 hr16 hm13 hr18 hr20 o₁ k₁) (eff_new hm' hr3' o₂ k₂ i₂))).elim
   case «resume-lit».«resume-lit» =>
-    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r r9 r11 hm hm5 hr hr10 hr12 e e'
-    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' r9' r11' hm' hm5' hr' hr10' hr12' f f'
+    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r x9 r9 y13 r11 hm hm5 hr fn10 hr10 fo14 hr12 e e'
+    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' x9' r9' y13' r11' hm' hm5' hr' fn10' hr10' fo14' hr12' f f'
     subst e e'; cases f; subst f'
     by_cases hkk : kk = kk'
     · subst hkk
@@ -579,29 +584,31 @@ theorem keyJoins : KeyJoins := by
       cases Option.some.inj (hr.symm.trans hr')
       cases (MapHook.lookup_of_concat_element hm5).symm.trans (MapHook.lookup_of_concat_element hm5')
       cases MapHook.concat_rest_unique hm5 hm5'
+      cases Option.some.inj (fn10.symm.trans fn10')
       cases Option.some.inj (hr10.symm.trans hr10')
+      cases Option.some.inj (fo14.symm.trans fo14')
       cases Option.some.inj (hr12.symm.trans hr12')
       exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩
     · exact (hk (eff_compat hinv hkk (eff_lit hm hm5 hr10 hr12 o₁ k₁) (eff_lit hm' hm5' hr10' hr12' o₂ k₂))).elim
   case «resume-lit».«resume-oid» =>
-    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r r9 r11 hm hm5 hr hr10 hr12 e e'
-    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' r15' r17' r19' hm' hm6' hm13' hr' hr16' hr18' hr20' f f'
+    apply elim_lit s₁; intro m m2 D3 D0 kk D4 G6 Q N V D2 S r x9 r9 y13 r11 hm hm5 hr fn10 hr10 fo14 hr12 e e'
+    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' x15' r15' y19' r17' r19' hm' hm6' hm13' hr' fn16' hr16' fo20' hr18' hr20' f f'
     subst e e'; cases f; subst f'
     by_cases hkk : kk = kk'
     · subst hkk
       cases (MapHook.lookup_of_concat_element hm).symm.trans (MapHook.lookup_of_concat_element hm')
     · exact (hk (eff_compat hinv hkk (eff_lit hm hm5 hr10 hr12 o₁ k₁) (eff_oid hm' hm6' hr16' hm13' hr18' hr20' o₂ k₂))).elim
   case «resume-oid».«resume-lit» =>
-    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r r15 r17 r19 hm hm6 hm13 hr hr16 hr18 hr20 e e'
-    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' r9' r11' hm' hm5' hr' hr10' hr12' f f'
+    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r x15 r15 y19 r17 r19 hm hm6 hm13 hr fn16 hr16 fo20 hr18 hr20 e e'
+    apply elim_lit s₂; intro m' m2' D3' D0' kk' D4' G6' Q' N' V' D2' S' r' x9' r9' y13' r11' hm' hm5' hr' fn10' hr10' fo14' hr12' f f'
     subst e e'; cases f; subst f'
     by_cases hkk : kk = kk'
     · subst hkk
       cases (MapHook.lookup_of_concat_element hm).symm.trans (MapHook.lookup_of_concat_element hm')
     · exact (hk (eff_compat hinv hkk (eff_oid hm hm6 hr16 hm13 hr18 hr20 o₁ k₁) (eff_lit hm' hm5' hr10' hr12' o₂ k₂))).elim
   case «resume-oid».«resume-oid» =>
-    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r r15 r17 r19 hm hm6 hm13 hr hr16 hr18 hr20 e e'
-    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' r15' r17' r19' hm' hm6' hm13' hr' hr16' hr18' hr20' f f'
+    apply elim_oid s₁; intro m m2 m3 D0 kk D4 G6 Q N I D2 S D3 V r x15 r15 y19 r17 r19 hm hm6 hm13 hr fn16 hr16 fo20 hr18 hr20 e e'
+    apply elim_oid s₂; intro m' m2' m3' D0' kk' D4' G6' Q' N' I' D2' S' D3' V' r' x15' r15' y19' r17' r19' hm' hm6' hm13' hr' fn16' hr16' fo20' hr18' hr20' f f'
     subst e e'; cases f; subst f'
     by_cases hkk : kk = kk'
     · subst hkk
@@ -612,7 +619,9 @@ theorem keyJoins : KeyJoins := by
       cases MapHook.concat_rest_unique hm6 hm6'
       cases (MapHook.lookup_of_concat_element hm13).symm.trans (MapHook.lookup_of_concat_element hm13')
       cases MapHook.concat_rest_unique hm13 hm13'
+      cases Option.some.inj (fn16.symm.trans fn16')
       cases Option.some.inj (hr16.symm.trans hr16')
+      cases Option.some.inj (fo20.symm.trans fo20')
       cases Option.some.inj (hr18.symm.trans hr18')
       cases Option.some.inj (hr20.symm.trans hr20')
       exact ⟨_, _, Or.inl rfl, Or.inl rfl, rfl⟩

@@ -941,7 +941,12 @@ fn confluence_threads_views_a_read_with_an_insertion_as_keyed() {
     let v = std::fs::read_to_string(&out).unwrap();
     assert!(v.contains("  vals : MCh Handoff.SortMap := none\n"), "{v}");
     assert!(v.contains("c.procs.Small ∧ c.vals.SmallR"), "{v}");
-    assert!(v.contains("MCh.smallR_extend hr_18"), "{v}");
+    assert!(v.contains("MCh.smallR_extend hr_22"), "{v}");
+    // `next` and `out` are parameters: everything is stated for every instance
+    assert!(
+        v.contains("namespace HV\n\nvariable [Handoff.Hooks]\n"),
+        "{v}"
+    );
 }
 
 /// `confluence --threads --assume-invariant NAME`: every premise holds at the configurations

@@ -54,6 +54,8 @@ pub(crate) struct Lib {
     pub prios: Vec<i64>,
     pub ranked: bool,
     pub top: String,
+    /// The library has parameters (`class Hooks`): its `Step` takes the instance.
+    pub hooks: bool,
 }
 
 pub(crate) fn load(kore: &str) -> Lib {
@@ -81,6 +83,7 @@ pub(crate) fn load(kore: &str) -> Lib {
         prios,
         ranked,
         top,
+        hooks: !fgen.params.is_empty(),
     }
 }
 
@@ -842,6 +845,18 @@ fn intro(xs: &[String]) -> String {
     }
 }
 
+/// A module over a library with parameters (`class Hooks`) states everything for every instance:
+/// `variable [NAME.Hooks]` after its namespace, as the library's own modules have.
+fn with_hooks(o: &str, ns: &str, name: &str) -> String {
+    o.replacen(
+        &format!("\nnamespace {ns}\n"),
+        &format!(
+            "\nnamespace {ns}\n\nvariable [{name}.Hooks]\n\nset_option linter.unusedSectionVars false\n"
+        ),
+        1,
+    )
+}
+
 /// The views' module under a program hypothesis `inv` (`--assume-invariant`): each premise holds
 /// at the configurations satisfying `inv`, `joins_of` and `join_static` take it, and
 /// `terminal_unique_of` (and `obs_confluent_of`) hold from a configuration satisfying it, by
@@ -1106,6 +1121,9 @@ pub fn main(args: &[String]) {
             &feet,
             &rank,
         );
+        if lib.hooks {
+            out = with_hooks(&out, &ns, &name);
+        }
         // a program hypothesis: a preserved invariant, as `claims --assume-invariant` takes one
         if let Some(inv) = opt.get("assume-invariant") {
             let pres = opt
@@ -1377,6 +1395,11 @@ theorem obs_confluent {{c n₁ n₂ : {top}}} (hc : {h} c) (h₁ : Star {name}.S
         "obs_confluent".into(),
     ]);
     writeln!(o, "#k2l_assert_axioms {}\n\nend {ns}", guard.join(" ")).unwrap();
+    let o = if lib.hooks {
+        with_hooks(&o, &ns, &name)
+    } else {
+        o
+    };
     write_file(&get("out"), &o);
     writeln!(
         rep,

@@ -9,8 +9,11 @@ step keeps it: `fork` moves the first claim of the root to a new task at a key n
 other rules leave a task with nothing to claim or remove it. -/
 
 set_option linter.unusedVariables false
+set_option linter.unusedSectionVars false
 
 namespace HandoffConf
+
+variable [Handoff.Hooks]
 
 open KPrelude
 
@@ -142,9 +145,9 @@ theorem Wf.preserved : Preserved Handoff.Step Wf := by
     exact wfM_mono (replace_sub hm hr rfl) w
   · intro m D2 D1 D0 k D3 G5 Q S r r2 hm hr hr3 w
     exact wfM_mono (replace_sub hm hr rfl) w
-  · intro m m2 D3 D0 k D4 G6 Q N V D2 S r r9 r11 hm hm5 hr hr10 hr12 w
+  · intro m m2 D3 D0 k D4 G6 Q N V D2 S r x9 r9 y13 r11 hm hm5 hr fn10 hr10 fo14 hr12 w
     exact wfM_mono (replace_sub hm hr rfl) w
-  · intro m m2 m3 D0 k D4 G6 Q N I D2 S D3 V r r15 r17 r19 hm hm6 hm13 hr hr16 hr18 hr20 w
+  · intro m m2 m3 D0 k D4 G6 Q N I D2 S D3 V r x15 r15 y19 r17 r19 hm hm6 hm13 hr fn16 hr16 fo20 hr18 hr20 w
     exact wfM_mono (replace_sub hm hr rfl) w
   · intro m G4 G5 D0 D2 G0 D3 hm w
     exact wfM_mono (remove_sub hm) w

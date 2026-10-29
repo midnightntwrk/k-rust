@@ -1297,22 +1297,18 @@ module HANDOFF
   symbol Lblnext'LParUndsCommUndsRParUnds'HANDOFF'Unds'Int'Unds'Int'Unds'Int{}(SortInt{}, SortInt{}) : SortInt{}
   [
     function{}(),
-    functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,18,26,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,18,28,43)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
-    ),
-    total{}()
+    )
   ]
   symbol Lblout'LParUndsCommUndsRParUnds'HANDOFF'Unds'Int'Unds'Int'Unds'Int{}(SortInt{}, SortInt{}) : SortInt{}
   [
     function{}(),
-    functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,18,27,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,18,29,42)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/handoff/handoff.k)"
-    ),
-    total{}()
+    )
   ]
   symbol Lbl'-LT-'tid'-GT-'{}(SortInt{}) : SortTidCell{}
   [
@@ -2276,30 +2272,6 @@ module HANDOFF
       )
     )
     [constructor{}()]
-  axiom{R}
-    \exists{R}(
-      Val:SortInt{},
-      \equals{SortInt{}, R}(
-        Val:SortInt{},
-        Lblnext'LParUndsCommUndsRParUnds'HANDOFF'Unds'Int'Unds'Int'Unds'Int{}(
-          K0:SortInt{},
-          K1:SortInt{}
-        )
-      )
-    )
-    [functional{}()]
-  axiom{R}
-    \exists{R}(
-      Val:SortInt{},
-      \equals{SortInt{}, R}(
-        Val:SortInt{},
-        Lblout'LParUndsCommUndsRParUnds'HANDOFF'Unds'Int'Unds'Int'Unds'Int{}(
-          K0:SortInt{},
-          K1:SortInt{}
-        )
-      )
-    )
-    [functional{}()]
   axiom{R}
     \exists{R}(
       Val:SortTidCell{},
@@ -6578,54 +6550,6 @@ module HANDOFF
     [
       UNIQUE'Unds'ID{}("6f30a2087d0b19640df005437bc3f4665f41282666a72821b17b16c99ed5afee"),
       owise{}()
-    ]
-  axiom{R}
-    \implies{R}(
-      \and{R}(
-        \top{R}(),
-        \and{R}(
-          \in{SortInt{}, R}(X0:SortInt{}, VarS:SortInt{}),
-          \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarV:SortInt{}), \top{R}())
-        )
-      ),
-      \equals{SortInt{}, R}(
-        Lblnext'LParUndsCommUndsRParUnds'HANDOFF'Unds'Int'Unds'Int'Unds'Int{}(
-          X0:SortInt{},
-          X1:SortInt{}
-        ),
-        \and{SortInt{}}(Lbl'UndsPlus'Int'Unds'{}(VarS:SortInt{}, VarV:SortInt{}), \top{SortInt{}}())
-      )
-    )
-    [
-      UNIQUE'Unds'ID{}("ca705d8d5993a0b9ec8e6b15dbb194427b83b076b2707a18c2cb363540867cc0"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,30)"),
-      org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
-      )
-    ]
-  axiom{R}
-    \implies{R}(
-      \and{R}(
-        \top{R}(),
-        \and{R}(
-          \in{SortInt{}, R}(X0:SortInt{}, VarS:SortInt{}),
-          \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarV:SortInt{}), \top{R}())
-        )
-      ),
-      \equals{SortInt{}, R}(
-        Lblout'LParUndsCommUndsRParUnds'HANDOFF'Unds'Int'Unds'Int'Unds'Int{}(
-          X0:SortInt{},
-          X1:SortInt{}
-        ),
-        \and{SortInt{}}(Lbl'UndsStar'Int'Unds'{}(VarS:SortInt{}, VarV:SortInt{}), \top{SortInt{}}())
-      )
-    )
-    [
-      UNIQUE'Unds'ID{}("cf9cf89f95b399487d1cbf92353f85b687a90cb3537eeef16af1a68308fe2a3a"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,29,29)"),
-      org'Stop'kframework'Stop'attributes'Stop'Source{}(
-        "Source(k2lean/tests/fixtures/handoff/handoff.k)"
-      )
     ]
   axiom{}
     \rewrites{SortGeneratedTopCell{}}(

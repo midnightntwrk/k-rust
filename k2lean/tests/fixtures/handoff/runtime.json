@@ -6,15 +6,15 @@
   "syntax_module": "HANDOFF-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "85a858d1336425278539b1344b4f67b93865cf47fec94ddcc6bdf2b102142e56"
+    "sha256": "5878143170c1c6376cdf89d7876372cfa118d2d7e04ae303de0cef89a4baf618"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "0f22846e15279a20886b70f4ade3581748aaa13cd6b5a41c5858f17a87b5b1dd"
+    "sha256": "4d02dfd1e0ba967d69cddd17062bca56148126f4c3ea660ac61733404ab13755"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "cd305b9af71f4a32fcb78c0c5a0a4eee3d52167fc0f623f55605964ee51efa30"
+    "sha256": "f6cd39f3827a8e958d751b58b285e816d877e584ac625650efd470e16682926c"
   },
   "configuration_variables": {
     "PGM": "Pgm"
@@ -146,8 +146,6 @@
     "4879c0fcf6b7d7f3d6b751e4f460f8dced005a44ae5ff600cffcea784cf58795",
     "6f30a2087d0b19640df005437bc3f4665f41282666a72821b17b16c99ed5afee",
     "e7b9d58ded4afa95e6ed6b85751bcda979d4658204e7ae28a4644881101a04d6",
-    "ca705d8d5993a0b9ec8e6b15dbb194427b83b076b2707a18c2cb363540867cc0",
-    "cf9cf89f95b399487d1cbf92353f85b687a90cb3537eeef16af1a68308fe2a3a",
     "86f4c6a37790ababa4ad3faaf7b31f2c5029b40969e5d73188b1d2cd87c9e772",
     "54777a1f82b1666558acb84b06fe0bcbdb404c5cd8a6eb982283aa9aec530be8",
     "f6d0ac13c88a52f64557539c4cd57840923eca43b5ff782a13c5e1f7d638b91a",
