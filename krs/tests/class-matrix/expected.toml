@@ -128,6 +128,10 @@ doc = "a `#[k::constant]` value that applies a function"
 code = "krs::syntax::invalid-constant"
 doc = "a `#[k::constant]` value that is no ground constructor term"
 
+[class.configuration-variable-sort]
+code = "krs::analysis::invalid-term"
+doc = "a configuration variable, which stands for the value given at startup as a term of its declared sort and is never narrowed, where a sort it is not below is needed (an operator's or a builtin's `Int` or `Bool` operand)"
+
 [class.content-sort]
 code = "krs::analysis::invalid-term"
 doc = "a term whose sort is not below the sort of the cell or position it fills"
@@ -172,9 +176,16 @@ doc = "an instance list (`{ .. }`, `[.., Job { .. }]` read as instances) on a ce
 code = "krs::syntax::unsupported-rule-pattern"
 doc = "a compiler-owned island (`k::fragment!`, `k::bytes!`, `k::is!`, `k::matches!`, ..) for the whole subject of a fn, a context or a static clause, whose root names the production the sentence is written for, which the island does not (decision D3)"
 
+# A class of the position table that no generated case is expected to make: a `let` block in a
+# claim means what it means in a rule, which the oracle admits; the product's refusal, for want of a
+# prover that takes it, is finding NT-7-1's.
+[class.let-in-claim]
+code = "krs::expand::let-outside-term"
+doc = "a `let` block (K's `#let`) in a claim's state or condition, which no prover takes there: the native prover and Java K's kprove lower `#let` only in a definition's sentences (finding NT-7-1)"
+
 [class.let-outside-term]
 code = "krs::expand::let-outside-term"
-doc = "a `let` block (K's `#let`) in a matched position, an initializer or a claim"
+doc = "a `let` block (K's `#let`) in a pattern, a pattern's map key or a `cells!` cell value: it applies a function generated for it alone, which no matched term holds"
 
 [class.let-sort]
 code = "krs::analysis::invalid-let"
@@ -200,9 +211,16 @@ doc = "a readable map read whose value is not a fresh binder: the value names wh
 code = "krs::syntax::rust-syntax"
 doc = "a readable map read whose value names a binder the record binds elsewhere: the read introduces its value's name"
 
+# A class of the position table that no generated case is expected to make: `k::matches!` in a
+# claim means what it means in a rule, which the oracle admits; the product's refusal, for want of a
+# prover that takes it, is finding NT-7-1's.
+[class.matches-in-claim]
+code = "krs::expand::matches-outside-condition"
+doc = "`k::matches!` (K's `:=K`) in a claim's state or condition, which no prover takes there: the native prover and Java K's kprove lower `:=K` only in a definition's sentences (finding NT-7-1)"
+
 [class.matches-outside-condition]
 code = "krs::expand::matches-outside-condition"
-doc = "`k::matches!` (K's `:=K`) in a matched position, an initializer or a claim"
+doc = "`k::matches!` (K's `:=K`) in a pattern, a pattern's map key or a `cells!` cell value: it applies a function generated for it alone, which no matched term holds"
 
 [class.matches-pattern-binder]
 code = "krs::analysis::invalid-matches"
@@ -254,7 +272,7 @@ doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .
 
 [class.record-remainder-in-initializer]
 code = "krs::expand::initializer-record-update"
-doc = "a record update or an open record in an initializer, which matches no record to take fields from or leave open"
+doc = "an open record (`Ctor { f: e, .. }`) in an initializer, which builds its record and has no value for the fields `..` leaves open"
 
 [class.record-update-base]
 code = "krs::analysis::invalid-record-update"
@@ -282,10 +300,6 @@ doc = "`k::rewrite!` in a map key of a single-body rule's subject: a key is what
 code = "krs::syntax::invalid-local-rewrite"
 doc = "`k::rewrite!` outside the subject of a single-body `#[k::rule]` fn"
 
-[class.rule-term-in-initializer]
-code = "krs::expand::claim-only-term"
-doc = "`k::is!`/`k::project!`, which are rule and claim terms, in an initializer"
-
 [class.simplification-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor or a literal at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify"
@@ -301,10 +315,6 @@ doc = "`k::is!`/`k::project!`, which apply a generated function, in a matched po
 [class.static-clause-root-not-marked]
 code = "krs::analysis::invalid-static-clause"
 doc = "a desugar or alias clause whose subject's root is no production marked as the clause is (a constructor of an unmarked production, a function, a value): the root is the production the clause expands"
-
-[class.turbofish-in-initializer]
-code = "krs::expand::turbofish-placement"
-doc = "a turbofish instance (`Choose::<Int> { .. }`) in an initializer, which builds concrete values"
 
 [class.turbofish-instance-sort]
 code = "krs::analysis::parametric-instance"
@@ -706,6 +716,21 @@ match = 'terms/init/{item,item-depth-2}/{Cmd::Hold(x),Size(x),x}'
 class = "unbound-name"
 at = "spelling"
 
+# configuration-variable-sort (NT-7): the `variable-item` initializer's `x` is a configuration
+# variable of declared sort `KItem`, never narrowed, so an operator or a builtin that needs an `Int`
+# or a `Bool` operand refuses it, where a sentence's binder `x` would be narrowed
+[[refuse]]
+match = 'terms/init/variable-item/{!(x < 1),-(x + 1),k::builtin::int::add(x\, 1),x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x | 1,x || true,x.add::<Int>(1)}'
+class = "configuration-variable-sort"
+at = "spelling"
+
+# unbound-name (NT-7): a `let` block, `k::matches!`, a sort test, a turbofish and a record update
+# read `x`, which the initializer of these slots does not bind (`init/variable-item` binds it)
+[[refuse]]
+match = 'terms/init/{item,item-depth-2,item-root}/{Cmd::Pair \{ a: x\, ..x \},Wrap::<dyn k::KItemSort>(x),k::is!(Int\, x),k::matches!(x\, Cmd::Hold(_)),k::project!(Int\, x),\{ let y = x; y \}}'
+class = "unbound-name"
+at = "spelling"
+
 # unused-configuration-variable
 [[refuse]]
 match = 'init/k/{[0],[],k::k![0],k::k![]}'
@@ -820,7 +845,7 @@ at = "spelling"
 
 # object-term-as-predicate (NT-2): an object term as a quantifier's body
 [[refuse]]
-match = 'terms/cells-claim/guard/closure-body/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<dyn k::KItemSort>(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::or_bool!(true\, false),k::project!(Int\, x),true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1)}'
+match = 'terms/cells-claim/guard/closure-body/{!(x < 1),"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd::Hold(x),Cmd::Pair \{ a: x\, ..x \},Size(x),Wrap::<dyn k::KItemSort>(x),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::builtin::set::item(x),k::bytes!(b"ab"),k::fragment![crate::Frame \{ ret: 1 \}],k::id!("$x"),k::is!(Int\, x),k::lexeme!(Word\, "word"),k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),true,x,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x || true,x.add::<Int>(1),\{ let y = x; y \}}'
 class = "object-term-as-predicate"
 at = "spelling"
 
@@ -1026,6 +1051,13 @@ at = "spelling"
 # let-sort (NT-2 review): a `let` block whose result is no Bool in a condition, at a sibling whose product refuses it for another reason first, and at the review's new positions
 [[refuse]]
 match = 'terms/simplification/guard/\{ let y = x; y \}'
+class = "let-sort"
+at = "spelling"
+
+# let-sort (NT-7): a `let` block whose result is no Bool in a claim's condition, which holds one as
+# a rule's does
+[[refuse]]
+match = 'terms/cells-claim/guard/\{ let y = x; y \}'
 class = "let-sort"
 at = "spelling"
 

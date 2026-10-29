@@ -29,7 +29,14 @@ use krs_test_support::class_matrix::{self, Case, Family};
 
 /// The cases on which the product's table and the oracle disagree, as globs over case IDs, and
 /// the finding of each.
-const KNOWN: [(&str, &str); 21] = [
+const KNOWN: [(&str, &str); 22] = [
+    // A claim's states and conditions hold `let` blocks and `k::matches!` as a rule's do, but no
+    // prover lowers them in a claim, so the product refuses them there (NT-7-1); a `cells!`
+    // claim's cell values are S0-17's.
+    (
+        r"terms/{claim/subject,claim/item-root,claim/result,claim/result-item-root,cells-claim/guard,cells-claim/guard/closure-body}/{k::matches!(x\, Cmd::Hold(_)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}",
+        "NT-7-1",
+    ),
     // A pattern's key holds no `let` block or `k::matches!` (NT-3-2's boundary), so a construct in
     // one's body, pattern or matched pattern there is refused with it; the collection notation and
     // its calls are such constructs. Where a `let` or `k::matches!` pattern holds the notation, no
@@ -198,6 +205,11 @@ fn every_class_of_the_table_is_a_spec_class_with_its_code() {
     assert!(drift.is_empty(), "{drift:#?}");
 }
 
+/// The table's classes that state what no tool reading the emitted K takes, where the construct
+/// means something, so the oracle admits it and has no such class: each with its finding, under
+/// which its cases are pending.
+const TOOL_LIMITS: [(&str, &str); 2] = [("let-in-claim", "NT-7-1"), ("matches-in-claim", "NT-7-1")];
+
 #[test]
 fn every_class_of_the_oracle_is_a_spec_class_and_covers_the_table() {
     let spec = spec();
@@ -212,9 +224,16 @@ fn every_class_of_the_oracle_is_a_spec_class_and_covers_the_table() {
     assert!(undeclared.is_empty(), "{undeclared:#?}");
     let uncovered = table_class_names()
         .into_iter()
-        .filter(|class| !oracle.contains(class))
+        .filter(|class| {
+            !oracle.contains(class) && !TOOL_LIMITS.iter().any(|(limit, _)| limit == class)
+        })
         .collect::<Vec<_>>();
     assert!(uncovered.is_empty(), "{uncovered:#?}");
+    let stale = TOOL_LIMITS
+        .iter()
+        .filter(|(limit, _)| oracle.contains(limit) || !table_class_names().contains(limit))
+        .collect::<Vec<_>>();
+    assert!(stale.is_empty(), "{stale:#?}");
 }
 
 /// The product's form of a model form: the two enums name the same forms.
@@ -629,7 +648,7 @@ const ROOTS_NOT_GENERATED: [(model::Form, model::Slot, &str); 3] = {
 
 /// The conditions no case is generated in, and the condition that reads alike, whose cases
 /// stand for them: a condition is a guard in every form, and differs only by whether the form
-/// admits a predicate, whether it is a claim (`k::or_bool!` and, as boundary NT-Q1, `let` and
+/// admits a predicate, whether it is a claim (`k::or_bool!` and, under finding NT-7-1, `let` and
 /// `k::matches!` depend on it) and whether it is a `cells!` value's; each listed form shares all
 /// three with the form named. A simplification's condition shares none with a claim's but the
 /// first, so it is generated.

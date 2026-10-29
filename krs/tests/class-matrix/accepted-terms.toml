@@ -30905,3 +30905,1493 @@ rule probe ( cTAG , SetItem(V0:KItem) ) => 0 [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
+
+[accept."import/init/variable-item/Go()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( go ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."import/init/variable-item/Hold(x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( hold ( $X:KItem ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( {ListItem($X:KItem) [ 0 ]}:>KItem ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::list::item(x).len()"]
+same_k_as = ["notation/init/variable-item/k::builtin::list::size(k::builtin::list::item(x))"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( size(ListItem($X:KItem)) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::list::item(x)[0]"]
+same_k_as = ["notation/init/variable-item/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( {ListItem($X:KItem) [ 0 ]}:>KItem ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::list::size(k::builtin::list::item(x))"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( size(ListItem($X:KItem)) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::map::empty()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::map::empty().contains_key(x)"]
+same_k_as = ["notation/init/variable-item/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( $X:KItem in_keys(.Map) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::map::empty().update(x, 1)"]
+same_k_as = ["notation/init/variable-item/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map [ $X:KItem <- 1 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::map::empty()[x]"]
+same_k_as = ["notation/init/variable-item/k::builtin::map::get(k::builtin::map::empty(), x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( {.Map [ $X:KItem ]}:>KItem ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::map::get(k::builtin::map::empty(), x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( {.Map [ $X:KItem ]}:>KItem ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( $X:KItem in_keys(.Map) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map [ 0 <- 1 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map [ $X:KItem <- 1 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map [ $X:KItem <- 1 ] [ 2 <- 3 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::set::empty()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Set ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::set::item(x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( SetItem($X:KItem) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::set::item(x).to_list()"]
+same_k_as = ["notation/init/variable-item/k::builtin::set::to_list(k::builtin::set::item(x))"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( Set2List(SetItem($X:KItem)) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::set::to_list(k::builtin::set::item(x))"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( Set2List(SetItem($X:KItem)) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Set |Set SetItem($X:KItem) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( SetItem($X:KItem) |Set SetItem(1) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/map![0 -> 1]"]
+same_k_as = ["notation/init/variable-item/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map [ 0 <- 1 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/map![]"]
+same_k_as = ["notation/init/variable-item/k::builtin::map::empty()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/map![x -> 1, ..k::builtin::map::empty()]"]
+same_k_as = ["notation/init/variable-item/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map [ $X:KItem <- 1 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/map![x -> 1, 2 -> 3]"]
+same_k_as = ["notation/init/variable-item/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map [ $X:KItem <- 1 ] [ 2 <- 3 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/set![]"]
+same_k_as = ["notation/init/variable-item/k::builtin::set::empty()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Set ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/set![x, ..k::builtin::set::empty()]"]
+same_k_as = ["notation/init/variable-item/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Set |Set SetItem($X:KItem) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/set![x, 1]"]
+same_k_as = ["notation/init/variable-item/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( SetItem($X:KItem) |Set SetItem(1) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."notation/init/variable-item/set![x]"]
+same_k_as = ["notation/init/variable-item/k::builtin::set::item(x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( SetItem($X:KItem) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/cells-claim/guard/k::matches!(x, Cmd::Hold(_))"]
+
+[accept."terms/claim/item-root/k::matches!(x, Cmd::Hold(_))"]
+
+[accept."terms/claim/item-root/{ let y = x; y }"]
+
+[accept."terms/claim/result-item-root/k::matches!(x, Cmd::Hold(_))"]
+
+[accept."terms/claim/result-item-root/{ let y = x; y }"]
+
+[accept."terms/claim/result/k::matches!(x, Cmd::Hold(_))"]
+
+[accept."terms/claim/result/{ let y = x; y }"]
+
+[accept."terms/claim/subject/k::matches!(x, Cmd::Hold(_))"]
+
+[accept."terms/claim/subject/{ let y = x; y }"]
+
+[accept.'terms/init/variable-item/"s"']
+k = '''
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( #token("\"s\"","String") ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+'''
+
+[accept."terms/init/variable-item/-1"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( -1 ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/1"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( 1 ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/1.5"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( 1.5 ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/Cmd::Go"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( go ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/Cmd::Go()"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( go ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/Cmd::Hold(x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( hold ( $X:KItem ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/Cmd::Pair { a: x, ..x }"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( ( #let pair ( _ , V0:KItem ) = $X:KItem #in pair ( $X:KItem , V0:KItem ) ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/Size(x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( size ( $X:KItem ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/Wrap::<dyn k::KItemSort>(x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( wrap ( $X:KItem ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/k::builtin::int::add(1, 2)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( 1 +Int 2 ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/k::builtin::set::item(x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( SetItem($X:KItem) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept.'terms/init/variable-item/k::bytes!(b"ab")']
+k = '''
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( #token("b\"\x61\x62\"","Bytes") ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+'''
+
+[accept.'terms/init/variable-item/k::id!("$x")']
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( #token("$x","Id") ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/k::is!(Int, x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( isInt($X:KItem) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept.'terms/init/variable-item/k::lexeme!(Word, "word")']
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( #token("word","Word") ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/k::map![x -> 1]"]
+same_k_as = ["notation/init/variable-item/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map [ $X:KItem <- 1 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/k::matches!(x, Cmd::Hold(_))"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( ( hold ( _ ) :=K $X:KItem ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/k::project!(Int, x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( {$X:KItem}:>Int ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/map![x -> 1]"]
+same_k_as = ["notation/init/variable-item/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( .Map [ $X:KItem <- 1 ] ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/true"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( true ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/x"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( $X:KItem ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/{ let y = x; y }"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( ( #let V0:KItem = $X:KItem #in V0:KItem ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""

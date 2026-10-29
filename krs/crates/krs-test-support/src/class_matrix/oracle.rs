@@ -25,11 +25,12 @@
 //! - a construct with a home (`k::rewrite!` in a single-body rule's subject, a matching-logic
 //!   predicate in a condition, `k::anonymous!` in a claim's start state, ..) is stated with it.
 //!
-//! **Product boundaries.** Four entries keep a refusal that no meaning of the construct
-//! supports, as boundaries of the product kept pending a decision, each marked with its id:
-//! `let` and `k::matches!` in a claim (NT-Q1) and in an initializer (NT-Q2), a sort test in an
-//! initializer (NT-Q3), and a turbofish in an initializer (NT-Q4). The `cells!` cell value's
-//! boundary for `let` and `k::matches!` is finding S0-17's, owned by S6.
+//! **Meaning, not tools.** An entry states what the construct means where it stands, not
+//! whether every tool that reads the emitted K takes it: `let` and `k::matches!` in a claim mean
+//! what they mean in a rule, and the product refuses them there because no prover lowers them in
+//! a claim (finding NT-7-1), so those cases are pending under that finding. The `cells!` cell
+//! value's boundary for `let` and `k::matches!` is finding S0-17's, owned by S6, and is kept
+//! here as a refusal.
 //!
 //! **Stages.** A refusal's [`Stage`] says what the mistake is told by. A [`Stage::Placement`]
 //! refusal is told by the spelling and its position alone, before any name is resolved. A
@@ -104,11 +105,9 @@ classes! {
     RestOutsidePattern => "rest-outside-pattern",
     RewriteInMapKey => "rewrite-in-map-key",
     RewriteOutsideLocalRule => "rewrite-outside-local-rule",
-    RuleTermInInitializer => "rule-term-in-initializer",
     SimplificationRootNotFunction => "simplification-root-not-function",
     SortTestInPattern => "sort-test-in-pattern",
     StaticClauseRootNotMarked => "static-clause-root-not-marked",
-    TurbofishInInitializer => "turbofish-in-initializer",
     WildcardAtSubjectRoot => "wildcard-at-subject-root",
     WildcardOutsidePattern => "wildcard-outside-pattern",
 }
@@ -345,7 +344,8 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         // A value denotes itself wherever a term stands, but at a root that is a function's
         // application or a static clause's production ([`value_at_root`]); a collection literal
         // that denotes a value, the empty collection or a set's singleton, is one, as its call
-        // `map::empty()` or `set::item(x)` is.
+        // `map::empty()` or `set::item(x)` is; and a turbofish names the instance of a parametric
+        // constructor's application, a value as any constructor's, an initializer's too.
         Construct::Reference
         | Construct::Fresh
         | Construct::Constructor
@@ -353,17 +353,8 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         | Construct::IdToken
         | Construct::BytesToken
         | Construct::Lexeme
+        | Construct::Turbofish
         | Construct::Notation(Notation::CollectionValue) => value_at_root(position),
-        // A turbofish names the instance of a parametric constructor's application, a value as
-        // any constructor's. An initializer refuses it as a product boundary kept pending a
-        // decision (NT-Q4): no meaning of an instance's name excludes it from a value built once.
-        Construct::Turbofish => {
-            if matches!(position.form, Form::Initializer) {
-                Some(placement(Class::TurbofishInInitializer))
-            } else {
-                value_at_root(position)
-            }
-        }
         Construct::FunctionApplication | Construct::BuiltinApplication => {
             application(construct, position)
         }
@@ -520,24 +511,24 @@ const fn alternatives(position: Position) -> Option<Refusal> {
     }
 }
 
-/// `k::matches!` is a Bool computed by matching a term a rule or equation bound, and a `let`
-/// block a term computed from them (K's `:=K` and `#let`). Neither describes a matched term. A
-/// claim (NT-Q1) and an initializer (NT-Q2) refuse them as product boundaries kept pending a
-/// decision: both lower to `:=K` and `#let` nodes as in a rule, and no meaning excludes them
-/// there. A `cells!` cell value's boundary is S0-17's (S6).
+/// `k::matches!` is a Bool computed by matching a term, and a `let` block a term computed from
+/// others (K's `:=K` and `#let`), each the application of a function generated for it alone,
+/// which no term holds: a pattern never meets one. Where a term is built or a condition computed
+/// they mean their value: a result, a condition, an initializer (from its configuration
+/// variables and constants, evaluated when the configuration is built), and a claim's states
+/// and conditions, which are terms over the claim's variables as a rule's are; a claim's start
+/// state holds applications, which denote their values there. A `cells!` cell value's boundary
+/// is S0-17's (S6).
 const fn local_term(construct: Construct, position: Position) -> Option<Refusal> {
     let class = if matches!(construct, Construct::Matches) {
         Class::MatchesOutsideCondition
     } else {
         Class::LetOutsideTerm
     };
+    let claim_state = position.form.is_claim() && position.nesting.local.is_none();
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
-    } else if matches!(position.kind, Kind::Matched)
-        || position.form.is_claim()
-        || matches!(position.form, Form::Initializer)
-        || in_cells_value(position)
-    {
+    } else if (matches!(position.kind, Kind::Matched) && !claim_state) || in_cells_value(position) {
         Some(placement(class))
     } else {
         None
@@ -590,15 +581,13 @@ const fn rewrite(position: Position) -> Option<Refusal> {
 
 /// `k::is!` and `k::project!` apply the sort's generated predicate or projection, so they mean
 /// what an application does: a pattern over evaluated terms never meets one, and a
-/// simplification's or a claim's subject may hold one. An initializer refuses them as a product
-/// boundary kept pending a decision (NT-Q3), though it admits an application.
+/// simplification's or a claim's subject may hold one, as a built term, an initializer's
+/// included, does.
 const fn sort_test(position: Position) -> Option<Refusal> {
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
     } else if matches!(position.kind, Kind::Matched) && meets_evaluated_terms(position) {
         Some(placement(Class::SortTestInPattern))
-    } else if matches!(position.form, Form::Initializer) {
-        Some(placement(Class::RuleTermInInitializer))
     } else {
         None
     }
@@ -642,18 +631,22 @@ const fn island(construct: Construct, position: Position) -> Option<Refusal> {
     }
 }
 
-/// `..base` builds a record whose unlisted fields are those of the record `base` matched, and
-/// `..` alone leaves a matched record's unlisted fields open. A `cells!` term names every field,
-/// and an initializer matches no record to take fields from or leave open. A pattern denotes no
-/// record by `..base`; a built term or a condition has no value for a field `..` leaves open. An
-/// open record is a constructor's pattern, read at a root as a constructor is.
+/// `..base` builds the record `base` with the listed fields replaced, and `..` alone leaves a
+/// matched record's unlisted fields open. A `cells!` term names every field. A pattern denotes
+/// no record by `..base`; a built term or a condition, an initializer's included (whose base is a
+/// value: a configuration variable or a constant), denotes that record; and a built term has no
+/// value for a field `..` leaves open, an initializer's (its own class) as any other. An open
+/// record is a constructor's pattern, read at a root as a constructor is.
 const fn record(construct: Construct, position: Position) -> Option<Refusal> {
     let update = matches!(construct, Construct::RecordUpdate);
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
     } else if in_cells_value(position) {
         Some(placement(Class::RecordRemainderInCellsTerm))
-    } else if matches!(position.form, Form::Initializer) {
+    } else if !update
+        && matches!(position.form, Form::Initializer)
+        && position.nesting.local.is_none()
+    {
         Some(placement(Class::RecordRemainderInInitializer))
     } else if update {
         if matches!(position.kind, Kind::Matched) {

@@ -1703,6 +1703,15 @@ fn slots() -> Vec<Slot> {
             (Initializer, Part::Value, &[ComputationItem, Argument, Argument]),
             "",
         ),
+        // An initializer whose parameter `x` is a configuration variable, which its computation
+        // cell reads, so a spelling that reads `x` reads a value there, as in a sentence.
+        slot(
+            "init",
+            "variable-item",
+            Side::Initializer,
+            (Initializer, Part::Value, &[ComputationItem, Argument]),
+            "",
+        ),
         slot(
             "constant",
             "value",
@@ -1779,6 +1788,7 @@ fn slots() -> Vec<Slot> {
                 ),
                 &[X],
             ),
+            ("init", "variable-item") => (variable_initializer("Cmd::Hold(HOLE)"), &[]),
             ("init", position) => (
                 initializer(match position {
                     "item" => "Cmd::Hold(HOLE)",
@@ -1808,6 +1818,14 @@ fn slots() -> Vec<Slot> {
 fn initializer(item: &str) -> String {
     format!(
         "impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {{\n        Self {{\n            k: k::k![pgm, {item}],\n            env: k::map![],\n            stack: list::empty(),\n            frame: Frame {{ ret: 0 }},\n            seq: Seq::Nil(),\n            pool: Pool {{ member: Member {{ item: Cmd::Go() }} }},\n            tray: Tray {{ token: Token {{ mark: Cmd::Go() }} }},\n            table: Table {{ row: Row {{ id: Cmd::Go(), value: Cmd::Go() }} }},\n        }}\n    }}\n}}\n"
+    )
+}
+
+/// An initializer whose computation cell holds `pgm`, its configuration variable `x` of sort
+/// `KItem`, and `item`.
+fn variable_initializer(item: &str) -> String {
+    format!(
+        "impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt, x: KItem) -> Self {{\n        Self {{\n            k: k::k![pgm, x, {item}],\n            env: k::map![],\n            stack: list::empty(),\n            frame: Frame {{ ret: 0 }},\n            seq: Seq::Nil(),\n            pool: Pool {{ member: Member {{ item: Cmd::Go() }} }},\n            tray: Tray {{ token: Token {{ mark: Cmd::Go() }} }},\n            table: Table {{ row: Row {{ id: Cmd::Go(), value: Cmd::Go() }} }},\n        }}\n    }}\n}}\n"
     )
 }
 

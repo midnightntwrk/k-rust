@@ -95,13 +95,13 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 16 values, the computation cell's remainder, 3 field orders and the
             // nested group's, and 8 typed cells × 4 contents.
             (Family::Init, 112 + 1 + 3 + 1 + 32),
-            // (80 positions of depth 1 + 25 positions constructs open) × 47 constructs.
-            (Family::Terms, 105 * 47),
-            // 80 positions of depth 1 × 2 bare variants.
-            (Family::Import, 80 * 2),
-            // The term family's 105 positions × (6 collection notation forms and their calls, and
+            // (81 positions of depth 1 + 25 positions constructs open) × 47 constructs.
+            (Family::Terms, 106 * 47),
+            // 81 positions of depth 1 × 2 bare variants.
+            (Family::Import, 81 * 2),
+            // The term family's 106 positions × (6 collection notation forms and their calls, and
             // 8 collection literals and the 7 calls they denote apart from the method's).
-            (Family::Notation, 105 * (12 + 15)),
+            (Family::Notation, 106 * (12 + 15)),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
@@ -1070,13 +1070,15 @@ const FN_SUBJECTS: [&str; 7] = [
 /// siblings. `None` for a case the class's mistake does not compare across.
 fn sibling_scope(class: &str, id: &str) -> Option<&'static str> {
     let (form, position, opener, _) = id_parts(id)?;
-    let free = matches!(form, "constant" | "init");
+    let free = matches!(form, "constant" | "init") && position != "variable-item";
     match class {
-        // `x` names the command's field and is never a record's alias; brackets at a `KItem`
-        // position name no list.
-        "record-update-base" | "list-notation-sort" if !free => Some("bound"),
-        // `x` is no initializer's parameter nor a constant's; a bare name at a fn subject's root
-        // names a unit constructor.
+        // A sentence's `x` names the command's field and is never a record's alias, while an
+        // initializer's update takes its base's fields by value; brackets at a `KItem` position
+        // name no list.
+        "record-update-base" if form != "init" && !free => Some("bound"),
+        "list-notation-sort" if !free => Some("bound"),
+        // `x` is no initializer's parameter (but the `variable-item` initializer's) nor a
+        // constant's; a bare name at a fn subject's root names a unit constructor.
         "unbound-name" if free => Some("free"),
         "unbound-name" if position == "subject-root" && FN_SUBJECTS.contains(&form) => {
             Some("fn-root")

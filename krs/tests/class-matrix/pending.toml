@@ -5804,3 +5804,115 @@ deviation = "krs::analysis::invalid-constant @ spelling"
 finding = "NT-6-1"
 deviation = "krs::analysis::invalid-constant @ spelling"
 
+# NT-7-1: no prover takes a `let` block or `k::matches!` in a claim
+# A claim's start and end states are terms over its variables, as a rule's sides are, and its
+# conditions Bools: a `let` block denotes the term it computes and `k::matches!` a Bool, so the
+# oracle admits both in a readable claim's states and in a claim's conditions (a `cells!` claim's
+# cell values keep S0-17's boundary). They lower as in a rule, to `#let` and `:=K`, and no tool that
+# reads a claim takes them: the native prover (`krs prove`) refuses `#let` in a claim's condition and
+# end state at k-rust's definition check ("a claim's local function is lowered to no function its
+# proof can apply") and fails on `:=K` ("cannot find a production for KLabel _:=K_"); Java K's
+# `kprove` refuses both in a claim's start state, end state, `requires` and `ensures` ("Could not
+# find productions for KApply with label #let" / "_:=K_"; "Found #fun expression in a pattern
+# location" for `#let` in the start state). Both lower `#let`, `#fun` and `:=K` to generated
+# functions only in a definition's sentences, never in a claim. So the product refuses them in a
+# claim, by the classes `let-in-claim` and `matches-in-claim`, whose message says so. The `let`
+# cases whose pattern holds `@` or `|` are pending too: the product refuses the block before its
+# pattern. Plan: lower a claim's local functions where the provers read the claim (k-rust's
+# `resolve_fun` over claims, or KRS generating the functions into the definition), then admit them.
+
+["terms/cells-claim/guard/closure-body/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-7-1"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/cells-claim/guard/closure-body/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/cells-claim/guard/closure-body/{ let y = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/cells-claim/guard/closure-body/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/cells-claim/guard/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-7-1"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/cells-claim/guard/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/cells-claim/guard/{ let y = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/cells-claim/guard/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/item-root/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-7-1"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/claim/item-root/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/item-root/{ let y = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/item-root/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/result-item-root/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-7-1"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/claim/result-item-root/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/result-item-root/{ let y = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/result-item-root/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/result/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-7-1"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/claim/result/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/result/{ let y = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/result/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-7-1"
+deviation = "krs::expand::matches-outside-condition @ spelling"
+
+["terms/claim/subject/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/subject/{ let y = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
+
+["terms/claim/subject/{ let y @ Cmd::Hold(_) = x; y }"]
+finding = "NT-7-1"
+deviation = "krs::expand::let-outside-term @ spelling"
