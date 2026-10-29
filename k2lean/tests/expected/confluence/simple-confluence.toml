@@ -28,6 +28,11 @@ cells = { slots = 92, generic = 0, hand = 0, open = 92, refuted = 0 }
 priority = { slots = 328, generic = 0, hand = 0, open = 328, refuted = 0 }
 insert = { slots = 0, generic = 0, hand = 0, open = 0, refuted = 0 }
 
+[witnesses]  # programs two of whose runs end with different observations (`witness.NAME.refutes`),
+# which refute the open slots together (`Open.refuted`)
+names = ["div-nondet"]
+open_refuted_by = "div-nondet"
+
 [diagnostic]  # untrusted: the pairs of rules as the classifier reads them; no proof uses this
 critical = 678
 

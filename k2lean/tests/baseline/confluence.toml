@@ -31,7 +31,7 @@ preserve = []
 
 [demo.SimpleConf]
 tier = "heavy"
-guarded = 284
+guarded = 283
 preserve = []
 
 [demo.SimpleConf.slots]
@@ -1216,7 +1216,7 @@ preserve = []
 
 [demo.DrfConf]
 tier = "light"
-guarded = 20
+guarded = 23
 preserve = []
 
 [demo.DrfConf.slots]
@@ -1235,9 +1235,9 @@ preserve = []
 [sources]
 
 [sources.sha256]
-"demos/DrfConf/DrfConf/Slots.lean" = { tier = "light", sha256 = "3878e24720b3e961fe8261ce0f1841a5d8f61f9b1512b7ba2970def960ddfe2d" }
+"demos/DrfConf/DrfConf/Slots.lean" = { tier = "light", sha256 = "9e4056ef60b5795613fff3ad816fa6b5743e7c57dc232b5a7ff4943b5fa19766" }
 "demos/DrfConf/DrfConf/Views.lean" = { tier = "light", sha256 = "c0a365e9e33f09691cec99f06676d52490cf4ff6e0db76aba0c0256cdd6b6bd9" }
-"demos/DrfConf/confluence.toml" = { tier = "light", sha256 = "51628504b8e98061d4bf13295d883201120323a08f5fcd48e4197428339285d7" }
+"demos/DrfConf/confluence.toml" = { tier = "light", sha256 = "3fda15f4e999c9f5eb23779b166257d8fa3c3bdb9b6eac6d98656bad3497cfde" }
 "demos/HandoffConf/HandoffConf/Slots.lean" = { tier = "light", sha256 = "3156c6ede1ef47d2f8e9fd2b68105985ba4eaf315f3559c3527d014c9f78976d" }
 "demos/HandoffConf/HandoffConf/Views.lean" = { tier = "light", sha256 = "1ec04076ac4c55636d29a044c45299b5ff1e6ecec72f00d3f3db8afab7f639d0" }
 "demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "80c9b3eac2ea452a5b6e50ba68cff6e90cb2a4500a2d4116a3361631962b6245" }
@@ -1247,7 +1247,7 @@ preserve = []
 "demos/RaceConf/RaceConf/Views.lean" = { tier = "light", sha256 = "49fb93d5934fb1c5b3c12d2da5907db2839bb65f9a732b7f944e8536fcc32bb9" }
 "demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "2255c4bbcf17fb3291a50116472959301e19343d9fd4a973320794200d7cc292" }
 "demos/RaceConf/pairs.toml" = { tier = "light", sha256 = "893187b2c1638854d1a62231bdfff88f5d2b650d7c3247e1659d61ea5372a2c1" }
-"demos/SimpleConf/SimpleConf/Slots.lean" = { tier = "heavy", sha256 = "4d98b11a9102df8d86aa55ef2124ebebc28f6c8d57e69ef8f8419de640d9c1dc" }
+"demos/SimpleConf/SimpleConf/Slots.lean" = { tier = "heavy", sha256 = "b1e99c3343fd66490cf82949e244f4aeb3231e4361e67f572c9f9352d1c7584d" }
 "demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "ff5ae580c5c3a8cfed51f230d25931e8af69f54e3895b38e517cc83cd878bdab" }
 "demos/UtxoConf/UtxoConf/Slots.lean" = { tier = "light", sha256 = "b241112e7eacdff3e4f11b2eff6e18eb66e09b340b70cd17c5a2eb95dcc8f69d" }
 "demos/UtxoConf/UtxoConf/Views.lean" = { tier = "light", sha256 = "20f7bb57a07adfecbbe05e37cfa8b187fc6e1a5856f2e08ceffcd0a53c234ca8" }
