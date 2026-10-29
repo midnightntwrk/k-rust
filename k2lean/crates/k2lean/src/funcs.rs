@@ -364,6 +364,9 @@ pub struct Generated {
     /// Per group of least fixed points, `NS/Diverges.lean`'s part: its calls, its pending-call
     /// function and the divergence statement (TERM-1), with the statement's name.
     pub diverges: Vec<(String, String)>,
+    /// Per group of least fixed points, the derived proof that its pending-call function is sound
+    /// (`NS/DivergesSound.lean`, TERM-1c), with the theorem's name.
+    pub pending_sound: Vec<(String, String)>,
     pub notes: Vec<String>,
 }
 
@@ -850,6 +853,7 @@ fn gen_recursive(
     measures: &mut BTreeMap<String, Measure>,
     free_key: &mut Vec<crate::agree::FreeKeyFn>,
     diverges: &mut Vec<(String, String)>,
+    pending_sound: &mut Vec<(String, String)>,
 ) -> Result<String, String> {
     let mut o = String::new();
     // declarations before the group: the file's `before` texts, rank functions of the measures
@@ -994,6 +998,8 @@ fn gen_recursive(
         .collect();
     let mut pending_arms = String::new();
     let mut call_ctors = String::new();
+    let mut undef_arms = String::new();
+    let mut sound_arms = String::new();
     for (mi, mb) in members.iter().enumerate() {
         let f = mb.f;
         let sig = &mb.sig;
@@ -1023,6 +1029,19 @@ fn gen_recursive(
             let pbody = render_fixpoint(m, f, params, lowered, &group, Some(&calls))
                 .map_err(|e| format!("{label}: {e}"))?;
             call_ctors.push_str(&format!("  | {} {}\n", call_of(f), ps.join(" ")));
+            sound_arms.push_str(&format!(
+                "  | {} {} =>\n    unfold {group_name}.pending at h\n    k2l_pending_arm h {group_name}.Call.undef {}.eq_def\n",
+                call_of(f),
+                params.join(" "),
+                fn_name(f)
+            ));
+            undef_arms.push_str(&format!(
+                "  | .{} {} => {} {} = none\n",
+                call_of(f),
+                params.join(" "),
+                fn_name(f),
+                params.join(" ")
+            ));
             pending_arms.push_str(&format!(
                 "  | .{} {} =>\n{pbody}",
                 call_of(f),
@@ -1249,8 +1268,23 @@ their functions (`KPrelude.pendCall`); `none` where the evaluation ends without 
 def {g}.pending : {g}.Call → Option {g}.Call\n{pending_arms}\n\
 /-- K's rewriting of the group does not terminate: an infinite chain of pending calls, which no\n\
 termination measure of the group survives (TERM-1). -/\n\
-def {g}.diverges.statement : Prop := ∃ c, KPrelude.Pending.Chain {g}.pending c\n\n",
+def {g}.diverges.statement : Prop := ∃ c, KPrelude.Pending.Chain {g}.pending c\n\n\
+/-- A call whose function has no value. -/\n\
+def {g}.Call.undef : {g}.Call → Prop\n{undef_arms}\n\
+/-- `pending` is sound for the group's functions: a call waits only where it and the call it waits\n\
+for have no value (TERM-1c), so a divergent call has no value and a call with a value ends\n\
+(`KPrelude.Pending.Sound.undef_of_chain`, `ends_of_defined`). It holds by construction (a\n\
+requires never calls the group, and both cascades bind the same calls in the same order); its\n\
+proof is derived, in `DivergesSound.lean`. -/\n\
+def {g}.pending_sound.statement : Prop := KPrelude.Pending.Sound {g}.pending {g}.Call.undef\n\n",
                 labels.join(", ")
+            ),
+        ));
+        pending_sound.push((
+            format!("{g}.pending_sound"),
+            format!(
+                "set_option maxHeartbeats 400000 in\n\
+theorem {g}.pending_sound : {g}.pending_sound.statement := by\n  intro c c' h\n  cases c with\n{sound_arms}\n"
             ),
         ));
     }
@@ -1648,6 +1682,7 @@ pub fn generate_with(
     let mut choose_fns = BTreeSet::new();
     let mut free_key: Vec<crate::agree::FreeKeyFn> = Vec::new();
     let mut diverges: Vec<(String, String)> = Vec::new();
+    let mut pending_sound: Vec<(String, String)> = Vec::new();
     let is_choose = |st: &[crate::lower::Step]| {
         st.iter()
             .any(|x| matches!(x, crate::lower::Step::MapChoose { .. }))
@@ -1677,6 +1712,7 @@ pub fn generate_with(
                 &mut measures,
                 &mut free_key,
                 &mut diverges,
+                &mut pending_sound,
             )?;
             lean.push_str(&text);
             for f in scc {
@@ -1875,6 +1911,7 @@ pub fn generate_with(
         choose_fns,
         agree_thms,
         diverges,
+        pending_sound,
         notes,
     })
 }

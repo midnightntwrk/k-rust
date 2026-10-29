@@ -412,7 +412,7 @@ fn main() {
                     if fgen.diverges.is_empty() {
                         String::new()
                     } else {
-                        format!("import {ns}.Diverges\n")
+                        format!("import {ns}.Diverges\nimport {ns}.DivergesSound\n")
                     },
                     v = env!("CARGO_PKG_VERSION")
                 ),
@@ -885,9 +885,11 @@ fn main() {
             // the divergence obligations of the least fixed points (TERM-1)
             let div_file = out.join(ns).join("Diverges.lean");
             let div_check = out.join(format!("{ns}Test")).join("Diverges.lean");
+            let div_sound = out.join(ns).join("DivergesSound.lean");
             if fgen.diverges.is_empty() {
                 let _ = std::fs::remove_file(&div_file);
                 let _ = std::fs::remove_file(&div_check);
+                let _ = std::fs::remove_file(&div_sound);
             } else {
                 write(
                     &div_file,
@@ -923,9 +925,30 @@ fn main() {
                         eprintln!("note: {n}: open (no proof in {})", hand_file.display());
                     }
                 }
+                // the derived soundness of the pending-call functions (TERM-1c): open where the
+                // tactic did not close it
+                let sound: Vec<&(String, String)> = fgen
+                    .pending_sound
+                    .iter()
+                    .filter(|(n, _)| !open.contains(n))
+                    .collect();
+                for (n, _) in &fgen.pending_sound {
+                    if open.contains(n) {
+                        eprintln!("note: {n}: open (the generic proof did not close it)");
+                    }
+                }
+                write(
+                    &div_sound,
+                    &with_hooks(diverges::emit_sound(ns, &sound), ns, &fgen.params),
+                );
+                let sound_names: Vec<&String> = sound.iter().map(|(n, _)| n).collect();
                 write(
                     &div_check,
-                    &with_hooks(diverges::emit_check(ns, &proved), ns, &fgen.params),
+                    &with_hooks(
+                        diverges::emit_check(ns, &proved, &sound_names),
+                        ns,
+                        &fgen.params,
+                    ),
                 );
                 guard = format!("import {ns}Test.Diverges\n{guard}");
             }

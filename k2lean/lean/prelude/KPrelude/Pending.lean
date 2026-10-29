@@ -88,6 +88,22 @@ theorem not_ends_and_chain {α : Type} (p : α → Option α) (a : α) : Ends p 
 theorem ends_or_chain {α : Type} (p : α → Option α) (a : α) : Ends p a ∨ Chain p a :=
   (Paths.terminates_or_inf a).imp_left (ends_iff_terminates p a).2
 
+/-- `p` is sound for `undef` (a group's `F.pending_sound`, with `undef` "the function's value is
+`none`"): a call waits only where it and the call it waits for are undefined. -/
+def Sound {α : Type} (p : α → Option α) (undef : α → Prop) : Prop :=
+  ∀ c c', p c = some c' → undef c ∧ undef c'
+
+/-- Under a sound `p`, a call whose pending calls go on forever has no value. -/
+theorem Sound.undef_of_chain {α : Type} {p : α → Option α} {undef : α → Prop}
+    (hs : Sound p undef) {a : α} (h : Chain p a) : undef a := by
+  obtain ⟨s, h0, hsn⟩ := h
+  exact h0 ▸ (hs _ _ (hsn 0)).1
+
+/-- Under a sound `p`, a call with a value has pending calls that stop. -/
+theorem Sound.ends_of_defined {α : Type} {p : α → Option α} {undef : α → Prop}
+    (hs : Sound p undef) {a : α} (hd : ¬ undef a) : Ends p a :=
+  (ends_or_chain p a).resolve_right fun h => hd (hs.undef_of_chain h)
+
 end Pending
 
 end KPrelude

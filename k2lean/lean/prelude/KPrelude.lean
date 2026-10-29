@@ -23,6 +23,7 @@ import KPrelude.Logic
 import KPrelude.Termination
 import KPrelude.Paths
 import KPrelude.Pending
+import KPrelude.PendingTactic
 import KPrelude.Version
 import KPrelude.Determinism
 import KPrelude.Soundness

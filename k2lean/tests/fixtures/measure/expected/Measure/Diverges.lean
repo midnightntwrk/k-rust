@@ -36,4 +36,15 @@ def K.norm.pending : K.norm.Call → Option K.norm.Call
 termination measure of the group survives (TERM-1). -/
 def K.norm.diverges.statement : Prop := ∃ c, KPrelude.Pending.Chain K.norm.pending c
 
+/-- A call whose function has no value. -/
+def K.norm.Call.undef : K.norm.Call → Prop
+  | .norm x0 => K.norm x0 = none
+
+/-- `pending` is sound for the group's functions: a call waits only where it and the call it waits
+for have no value (TERM-1c), so a divergent call has no value and a call with a value ends
+(`KPrelude.Pending.Sound.undef_of_chain`, `ends_of_defined`). It holds by construction (a
+requires never calls the group, and both cascades bind the same calls in the same order); its
+proof is derived, in `DivergesSound.lean`. -/
+def K.norm.pending_sound.statement : Prop := KPrelude.Pending.Sound K.norm.pending K.norm.Call.undef
+
 end Measure
