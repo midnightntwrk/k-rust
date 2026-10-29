@@ -447,7 +447,8 @@ def ownHyps (g : MVarId) : MetaM (Array Ident) := g.withContext do
   for d in (← getLCtx) do
     if d.isImplementationDetail then continue
     let n := d.userName.eraseMacroScopes.toString
-    if (n.startsWith "k2l_part_" || n.startsWith "k2l_opt") && !d.userName.hasMacroScopes then
+    if (n.startsWith "k2l_part_" || n.startsWith "k2l_opt" || n == "k2l_cd" || n == "k2l_co"
+        || n == "k2l_cn") && !d.userName.hasMacroScopes then
       acc := acc.push (mkIdent d.userName)
   return acc
 
@@ -476,8 +477,10 @@ partial def optionCases (n : Nat) : TacticM Unit := do
     let atom ← g.withContext do
       let mut found := optionAtom? (← instantiateMVars (← g.getType))
       if found.isNone then
-        for (_, ty) in ← hypsWith g fun _ => true do
-          if let some a := optionAtom? ty then
+        let own := (← ownHyps g).map (·.getId)
+        for d in (← getLCtx) do
+          if d.isImplementationDetail || !own.contains d.userName then continue
+          if let some a := optionAtom? (← instantiateMVars d.type) then
             found := some a
             break
       return found
