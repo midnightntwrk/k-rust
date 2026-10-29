@@ -9,6 +9,20 @@ LIBS = {
     # IMP++ (K's tutorial) and its checker, for ImpPlusTypes (below)
     "impplus": {"ns": "KImpPlus", "tier": "light"},
     "impplustypes": {"ns": "KImpPlusTypes", "tier": "light"},
+    # no stuck states (`gen --progress`): a stack machine, and its variant without a rule; built as
+    # far as their invariant and `progress` (no `…Test.Axioms`; the modules assert their axioms)
+    "vm": {"ns": "KVm", "tier": "light", "guard": False},
+    "vmstuck": {"ns": "KVmStuck", "tier": "light", "guard": False},
+}
+
+INVS = {
+    "vm": {"ns": "KVm", "tier": "light"},
+    "vmstuck": {"ns": "KVmStuck", "tier": "light"},
+}
+
+PROGS = {
+    "vm": {"ns": "KVm", "tier": "light"},
+    "vmstuck": {"ns": "KVmStuck", "tier": "light"},
 }
 
 DEMOS = {

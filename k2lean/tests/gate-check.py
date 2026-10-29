@@ -18,6 +18,7 @@ directory), for the areas of LIBS_AREAS in tests/libs.sh beside them. A registry
             its invariant, no `…Test.Axioms`), not_regenerated (files of generated/name that the gate
             does not regenerate)}; generated/name is hashed
   INVS      name -> {ns, tier}: the kind 1 invariant of library name
+  PROGS     name -> {ns, tier}: the no-stuck-states theorem `progress` of library name (`gen --progress`)
   DEMOS     name -> {tier, sources (files or directories under k2lean/ that the demo's phase
             generates, hashed)}
   NEGATIVE  name -> {tier}: an entry of measured/negative.toml
@@ -47,6 +48,11 @@ What is compared:
   inv.X     the kind 1 invariant of library X (`X/NS/Invariants.lean`) builds; its open rule cases
             (open-invariant-cases.txt) may only shrink, the cases proved by `k2l_preserve` may not
             decrease, nor the theorems under its axiom guard
+  prog.X    `progress` of library X (`X/NS/Progress.lean`) builds; its open cases
+            (open-progress-cases.txt, unmarked) may only shrink; its refuted cases (marked
+            `| refuted hand`, each checked by `#k2l_refuted`) may only grow from the open ones; the
+            cases proved by `k2l_progress` may not decrease, the number of cases (heads of `<k>`) is
+            the baseline's, and the theorems under its axiom guard may not decrease
   negative  KRS IMP with an ill-typed `assign`: the generated proof of the declared cell type must
             still fail, with exactly the baseline's open cases, and an error line naming each
   records   every field equal to the baseline (kimp's goldens and traces, SIMPLE's cases, the claims)
@@ -54,7 +60,7 @@ What is compared:
             (search times, replay seconds and the order of logged lines are not compared)
   sources   the sha256 of every regenerated source equals the baseline's (the last accepted
             generation); a difference fails until accepted. The hand inputs of a library (its
-            open lists and kind 1 hand module `InvariantsHand.lean`) are not hashed: the build
+            open lists and hand modules `InvariantsHand.lean`, `ProgressHand.lean`) are not hashed: the build
             that uses them checks them
   banned    no `sorry` or `admit` token, and no `axiom` declaration outside the baseline's allowed
             set, in any Lean source of the work tree, and no "declaration uses 'sorry'" in a log
@@ -69,12 +75,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 TIERS = ("light", "heavy")
-KINDS = ("lib", "inv", "demo", "negative", "record", "output")
+KINDS = ("lib", "inv", "prog", "demo", "negative", "record", "output")
 # the tracked inputs of a generated library, which a person writes and the generator only reads
 # (the open lists, and the kind 1 hand module that `gen` writes once and never overwrites): not
 # hashed, so an edit to them is checked by the build that uses them, not by the sources check
 HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean", "RefutedHand.lean",
-               "DivergesHand.lean")
+               "DivergesHand.lean", "open-progress-cases.txt", "ProgressHand.lean")
 
 
 def tiers(tier):
@@ -96,7 +102,7 @@ def load_registry(adir=None):
     for a in order:
         ns = {"re": re, "read": read, "guarded": guarded, "Path": Path}
         exec(compile((adir / f"{a}.py").read_text(), str(adir / f"{a}.py"), "exec"), ns)
-        r = {k: dict(ns.get(k, {})) for k in ("LIBS", "INVS", "DEMOS", "NEGATIVE", "RECORDS", "OUTPUTS")}
+        r = {k: dict(ns.get(k, {})) for k in ("LIBS", "INVS", "PROGS", "DEMOS", "NEGATIVE", "RECORDS", "OUTPUTS")}
         for k, d in r.items():
             for name, e in d.items():
                 if e.get("tier") not in TIERS or any(t not in TIERS for t in e.get("compare_in", [])):
@@ -123,7 +129,8 @@ def same_as(reg, name):
 
 def entries(reg):
     """(area, kind, name, entry) of every registered entry."""
-    kind = {"LIBS": "lib", "INVS": "inv", "DEMOS": "demo", "NEGATIVE": "negative", "RECORDS": "record", "OUTPUTS": "output"}
+    kind = {"LIBS": "lib", "INVS": "inv", "PROGS": "prog", "DEMOS": "demo", "NEGATIVE": "negative", "RECORDS": "record",
+            "OUTPUTS": "output"}
     for a, r in reg.items():
         for k, d in r.items():
             for name, e in d.items():
@@ -172,10 +179,10 @@ def equations(path):
     return len(opened) + len(proved) + len(checked & set(div)), sorted(opened)
 
 
-def refuted_marks(path):
-    """The names an open list marks `| refuted` or `| refuted hand` (the name is the first token,
-    `«…»`-aware: a name may hold `#` and `|`; the marker follows it, before any `#` comment)."""
-    out = set()
+def listed_names(path):
+    """(name, rest of the line) of each entry of an open list: the name is the first token,
+    `«…»`-aware (a name may hold `#` and `|`); comment and blank lines are skipped."""
+    out = []
     for line in (read(path) or "").splitlines():
         l = line.strip()
         if not l or l.startswith("#"):
@@ -189,7 +196,16 @@ def refuted_marks(path):
             elif ch.isspace() and not quoted:
                 break
             name += ch
-        rest = l[len(name):].split("#")[0]
+        out.append((name, l[len(name):]))
+    return out
+
+
+def refuted_marks(path):
+    """The names an open list marks `| refuted` or `| refuted hand` (the marker follows the name,
+    before any `#` comment)."""
+    out = set()
+    for name, rest in listed_names(path):
+        rest = rest.split("#")[0]
         if "|" in rest and rest.split("|", 1)[1].split()[:1] == ["refuted"]:
             out.add(name)
     return out
@@ -335,7 +351,7 @@ def measure(work, tier, reg):
         status[step] = (result, log)
     m["status"] = status
     ctx = SimpleNamespace(tier=tier, run=run, status=status, tree=tree, logs=logs, meas=meas)
-    m["lib"], m["inv"], m["demo"], m["negative"], m["record"], m["outputs"] = {}, {}, {}, {}, {}, {}
+    m["lib"], m["inv"], m["prog"], m["demo"], m["negative"], m["record"], m["outputs"] = {}, {}, {}, {}, {}, {}, {}
     neg_doc = tomllib.loads(read(meas / "negative.toml") or "")
     for a, kind, d, e in entries(reg):
         if not measured_in(e, tier):
@@ -367,6 +383,10 @@ def measure(work, tier, reg):
                     opened.append(l.split(" | ")[0])
             m["inv"][d] = {"tier": t, "cases": auto + hand, "auto": auto, "open": sorted(opened),
                            "guarded": guarded(logs / f"build-{d}-inv.log") if built else None}
+        elif kind == "prog":
+            pm = prog_measure(tree, logs, status, d, e)
+            if pm is not None:
+                m["prog"][d] = pm
         elif kind == "demo":
             ok = status.get(f"build {d}", ("",))[0] == "ok"
             # the `k2l_preserve` counts are logged before a failing proof's error, so a failed build
@@ -407,6 +427,60 @@ def tk(k):
     return k if re.fullmatch(r"[A-Za-z0-9_-]+", k) else tv(k)
 
 
+def prog_measure(tree, logs, status, d, e):
+    """The measurements of `progress` of library d (`gen --progress`): its cases (one per head of
+    `<k>`), those proved by `k2l_progress`, by hand, refuted, open, and the theorems under its guard;
+    None when the library has no Progress.lean."""
+    src = read(tree / "generated" / d / e["ns"] / "Progress.lean")
+    if src is None:
+        return None
+    built = status.get(f"progress {d}", ("",))[0] == "ok"
+    auto = len(re.findall(r"^theorem Progress\.case\.\S+ : \S+ := by$", src, re.M))
+    hand = len(re.findall(r"^theorem Progress\.case\.\S+ : \S+ := Progress\.hand\.", src, re.M))
+    lst = tree / "generated" / d / "open-progress-cases.txt"
+    marked = refuted_marks(lst)
+    names = [n for n, _ in listed_names(lst)]
+    opened = sorted(n for n in names if n not in marked)
+    ref = sorted(n for n in names if n in marked)
+    return {"tier": e["tier"], "cases": auto + hand + len(ref), "auto": auto, "open": opened, "refuted": ref,
+            "guarded": guarded(logs / f"build-{d}-prog.log") if built else None}
+
+
+def prog_compare(m, base, F, N, P, lower):
+    """Compare the `progress` measurements m["prog"] with the baseline's (see the module documentation,
+    prog.X); a regression is reported through F."""
+    for d, e in m["prog"].items():
+        b = base.get("prog", {}).get(d)
+        if b is None:
+            N(f"prog.{d}: not in the baseline")
+            continue
+        now, was = set(e["open"]), set(b["open"])
+        rnow, rwas = set(e["refuted"]), set(b.get("refuted", []))
+        new, gone = sorted(now - was), sorted(was - now)
+        bad = []
+        if e["guarded"] is None:
+            bad.append(f"prog.{d}: Progress.lean does not build")
+        elif e["guarded"] < b["guarded"]:
+            bad.append(f"prog.{d}: theorems under the axiom guard {b['guarded']} -> {e['guarded']}")
+        if e["cases"] != b["cases"]:
+            bad.append(f"prog.{d}: cases (heads of <k>) {b['cases']} -> {e['cases']}")
+        if new:
+            bad.append(f"prog.{d}: open progress cases {len(was)} -> {len(now)}; new open: {', '.join(new)}")
+        if sorted(rnow - rwas - was):
+            bad.append(f"prog.{d}: newly refuted cases that were not open: {', '.join(sorted(rnow - rwas - was))}")
+        if sorted(rwas - rnow):
+            bad.append(f"prog.{d}: refuted cases no longer refuted: {', '.join(sorted(rwas - rnow))}")
+        if e["auto"] < b["auto"]:
+            bad.append(f"prog.{d}: cases proved by k2l_progress {b['auto']} -> {e['auto']} (of {e['cases']})")
+        for f in bad:
+            F(f)
+        if not bad:
+            P(f"prog.{d}: {e['auto']} of {e['cases']} cases by k2l_progress, open {sorted(now) or 'none'}, "
+              f"refuted {sorted(rnow) or 'none'}, {e['guarded']} under the guard")
+            if gone or e["auto"] > b["auto"]:
+                N(f"prog.{d}: fewer open cases or more automatic ones; {lower}")
+
+
 def to_baseline(m, area, reg, old=None):
     """Area AREA's baseline document for measurements m: the entries of the tiers m's run accepts,
     and old's entries of the other tiers (an entry only compared by the run keeps old's). An old
@@ -417,7 +491,7 @@ def to_baseline(m, area, reg, old=None):
     owner = {(k, n): a for a, k, n, _ in entries(reg)}
     mine = lambda kind, n: owner.get((kind, n)) == area
     b = {}
-    for sec, kind in (("lib", "lib"), ("inv", "inv"), ("demo", "demo"), ("negative", "negative")):
+    for sec, kind in (("lib", "lib"), ("inv", "inv"), ("prog", "prog"), ("demo", "demo"), ("negative", "negative")):
         b[sec] = {k: v for k, v in old.get(sec, {}).items() if keep(v)}
         for d, e in m[sec].items():
             if mine(kind, d) and e["tier"] in run_t:
@@ -440,7 +514,7 @@ def to_baseline(m, area, reg, old=None):
     order = {}
     for i, (_, k, n, _) in enumerate(entries(reg)):
         order.setdefault(k, {})[n] = i
-    for sec, kind in (("lib", "lib"), ("inv", "inv"), ("demo", "demo"), ("negative", "negative"),
+    for sec, kind in (("lib", "lib"), ("inv", "inv"), ("prog", "prog"), ("demo", "demo"), ("negative", "negative"),
                       ("record", "record"), ("outputs", "output")):
         o = order.get(kind, {})
         b[sec] = dict(sorted(b[sec].items(), key=lambda kv: o.get(kv[0], len(o))))
@@ -453,7 +527,7 @@ def to_baseline(m, area, reg, old=None):
 
 
 # the top-level tables of a baseline document that are not records
-RESERVED = ("lib", "inv", "demo", "negative", "outputs", "sources", "tier")
+RESERVED = ("lib", "inv", "prog", "demo", "negative", "outputs", "sources", "tier")
 
 
 def dump(b, header):
@@ -477,6 +551,8 @@ def dump(b, header):
         table(f"demo.{p}", e)
     for d, e in b["inv"].items():
         table(f"inv.{d}", e)
+    for d, e in b["prog"].items():
+        table(f"prog.{d}", e)
     for d, e in b["negative"].items():
         table(f"negative.{tk(d)}", e)
     if b["outputs"]:
@@ -493,7 +569,7 @@ def dump(b, header):
 def as_doc(text):
     """A baseline document parsed into to_baseline's shape (records under "record")."""
     raw = tomllib.loads(text)
-    return {"lib": raw.get("lib", {}), "inv": raw.get("inv", {}), "demo": raw.get("demo", {}),
+    return {"lib": raw.get("lib", {}), "inv": raw.get("inv", {}), "prog": raw.get("prog", {}), "demo": raw.get("demo", {}),
             "negative": raw.get("negative", {}), "outputs": raw.get("outputs", {}),
             "record": {k: v for k, v in raw.items() if k not in RESERVED},
             "sources": raw.get("sources", {})}
@@ -519,9 +595,10 @@ def load_baseline(bdir, reg):
 
 def merged(docs):
     """One document of every area's entries, for the comparison; each output knows its area."""
-    b = {"lib": {}, "inv": {}, "demo": {}, "negative": {}, "record": {}, "outputs": {}, "sha256": {}, "allowed_axioms": []}
+    b = {"lib": {}, "inv": {}, "prog": {}, "demo": {}, "negative": {}, "record": {}, "outputs": {}, "sha256": {},
+         "allowed_axioms": []}
     for a, d in docs.items():
-        for sec in ("lib", "inv", "demo", "negative", "record"):
+        for sec in ("lib", "inv", "prog", "demo", "negative", "record"):
             b[sec].update(d[sec])
         b["outputs"].update({k: dict(v, area=a) for k, v in d["outputs"].items()})
         b["sha256"].update(d["sources"].get("sha256", {}))
@@ -680,6 +757,7 @@ def compare(m, base, expected, accept_cmd, reg):
             P(f"inv.{d}: {e['auto']} of {e['cases']} rule cases by k2l_preserve, open {sorted(now) or 'none'}, {e['guarded']} under the guard")
             if gone or e["auto"] > b["auto"]:
                 N(f"inv.{d}: fewer open cases or more automatic ones; {lower}")
+    prog_compare(m, base, F, N, P, lower)
     for d, b in base.get("negative", {}).items():
         if b.get("tier") not in run_t:
             continue
@@ -803,7 +881,7 @@ def check(work, baseline, tier):
 def doc_diff(old, new):
     """The entries in which two documents of one area differ, as `section.name` labels."""
     out = []
-    for sec in ("lib", "inv", "demo", "negative", "record", "outputs"):
+    for sec in ("lib", "inv", "prog", "demo", "negative", "record", "outputs"):
         for k in sorted(set(old[sec]) | set(new[sec])):
             if old[sec].get(k) != new[sec].get(k):
                 out.append(f"{'' if sec == 'record' else sec + '.'}{k}")

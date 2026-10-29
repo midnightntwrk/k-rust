@@ -632,15 +632,52 @@ Measured on 2026-10-24 (Lean v4.30.0, shared 32-CPU host, load 15 to 35, each mo
 kimpinv's invariant now also conjoins `storeNoIds` (no store value is an `Id`), so the two claims assume both parts, though their truth needs only `envOk`.
 On Lean v4.34.0, with that invariant, the heavy gate of 2026-10-24 proved both generically in the same 10 and 47 configurations.
 
+### 3.9 No stuck states (`gen --progress`)
+
+`gen --progress` adds to a library the theorem that a configuration satisfying the well-formedness property is an acceptable ending or can step (`direction.md` §2, SND-13):
+
+```lean
+theorem progress (c : Top) (hI : Invariant c) : Ending c ∨ App c
+theorem no_stuck {c0 c} (h0 : Invariant c0) (h : Star Step c0 c) : Ending c ∨ App c
+theorem always {c0} (h0 : Invariant c0) : ∀ s, s 0 = c0 → Paths.IsRun Step s → ∀ n, Ending (s n) ∨ App (s n)
+```
+
+- `Invariant` is the library's kind 1 invariant (`--invariant`, `invariants.md`), whose preservation `no_stuck` and `always` cite; with no invariant it is `True`.
+- `Ending` is the author's acceptable endings: with `--ending NAME@CELL`, the K function `NAME` (`Bool`-valued, generated as a root) is `true` of the cell's content; without it, `<k>` is empty.
+  An ending may be waiting on the environment (an input, a contract's next transaction); waiting on another process of the configuration is a deadlock and should not be one (`direction.md` §2). The generator cannot check that intent; the K function says it.
+- `App c` is the library's own: some rule's left-hand side matches and its `requires` is true. A rule whose right-hand side is undefined applies, so the theorem excludes stuck configurations, not undefined results, as type soundness does (§8.1). A rule that cannot apply because a function of its `requires` is undefined or diverges counts as not applying, so a case that fails only for that reason stays open; TERM-1c's `pending_sound` (§2.2) tells divergence from undefinedness where a case needs it.
+
+**The cases.** The statement is split by the head of `<k>`, K's computation: `.K`, each constructor of a sort injected into `KItem` (freezers included), and each builtin sort's values as one head.
+`ProgressDefs.lean` states each case, `Progress.case.h.statement`: every configuration with that head (the head's arguments, the rest of `<k>` and the other cells variables) that satisfies `Invariant` and is not an ending has a rule that applies.
+A case's name is its head's K symbol, so an edit to one head's rules reopens that case only, and each case is its own declaration.
+`Progress.lean` proves each case by `k2l_progress` (`KPrelude.Progress`) among the rules whose left-hand side has that head (or a variable there):
+
+1. it applies each rule's `App` constructor in turn and closes what is left (the `requires`, the collection facts) by unification, an assumption, or `simp_all` with the hooks, the sort injections and projections and the proved equations of the functions the rules' conditions call;
+2. where no rule closes, it cases on the first `Bool`-valued application of a remaining condition that no hypothesis decides (`isKResult(HOLE)`, `B =/=Int 0`), and searches both branches;
+3. where still no rule closes, it first tries the case's closer (below), then cases on a variable of the configuration at a position where some rule's left-hand side has a constructor (an operand a rule needs to be an `Int`, a stack a rule needs to be non-empty), and loops;
+4. a configuration no rule matches is closed from the invariant or the ending: `simp_all` with `Invariant`, its unfolding set (`invariant-unfold.txt`), `Ending` and the ending function's equations derives `False`.
+
+Every step is an `apply`, a `by_cases` or a `cases`, so the tactic proves only true goals; a case it does not close fails with "no rule of this head applies, and the invariant and the ending do not exclude it", and the remaining goal shows the configuration.
+`open-from-log NS/Progress.lean BUILD.log open-progress-cases.txt` lists the failed cases; the next `gen` takes each from the hand module `NS/ProgressHand.lean` (written once, never overwritten), as `Progress.hand.h`.
+A case marked `| refuted hand` is false: a stuck configuration the invariant allows. Its refutation `Progress.case.h.refuted : ¬ Progress.case.h.statement`, in the hand module, is a witness configuration that satisfies the invariant, is no ending, and has no rule (`step_stuck` of its computed step); `#k2l_refuted` checks it, and `progress`, `no_stuck` and `always` gain a third outcome, `Progress.Refuted c` (the configuration has a refuted case's head, `Progress.case.h.at c`), so they still say that every configuration with another head is an ending or steps.
+
+**Measured** (2026-10-29, Lean v4.34.0, the shared 32-CPU host):
+- `tests/fixtures/vm`, a stack machine whose instructions halt with a status where they cannot run (underflow, division by zero), with `kOk` (only instructions, programs and halts on `<k>`) as the invariant and `halted` as the ending: 31 cases, all by `k2l_progress`; `Progress.lean` builds in about 2 s. The invariant's initial case is by hand (its cell holds a configuration variable).
+- `tests/fixtures/vmstuck`, the same without the rule that halts `pop` on an empty stack: 30 cases close, and `pop`'s is refuted with `<k> pop </k> <stack> .Stack </stack>`; `progress` then reads `Ending c ∨ App c ∨ Progress.Refuted c`.
+- kimp with its kind 1 invariant (`envOk`, `storeNoIds`; outside the gate): 3 of 63 cases close, 60 fail, in 18 to 20 minutes of CPU (1.5 min wall). kimp is untyped: `true + 1` and an unbound variable are stuck, and the invariant says nothing about `<k>`. What closes them is a typing of `<k>`, the part of type soundness's `WTc` its checker provides (§3.3); a failing case costs most, because it splits the rest of `<k>` toward the cooling rules' patterns.
+
+Not supported yet (the generator stops with a message): `<k>` inside a cell collection (threads; slice 2), rules with several matches (free-key map patterns), priority ranks (slice 3).
+
 ## 4. Commands
 
 | command | does |
 |---|---|
 | `gen` | the library (§1) |
-| `open-from-log EQUATIONS.lean BUILD.log OPEN.txt` | adds the failed theorems of a build log to an open list (equations, or the cases of a kind 1 invariant) |
+| `open-from-log EQUATIONS.lean BUILD.log OPEN.txt` | adds the failed theorems of a build log to an open list (equations, the cases of a kind 1 invariant, or the cases of `progress`) |
 | `goldens`, `cases`, `configs` | test and benchmark data from krust runs |
 | `survey` | which constructs of a definition the generator supports, without writing a library |
 | `relate` | the correspondence of two definitions, and its Lean translation |
+| `gen --progress [--ending NAME@CELL]` | no stuck states: every configuration satisfying the invariant is an acceptable ending or has a rule that applies, one case per head of `<k>` (§3.9) |
 | `soundness` | the runtime typing, preservation, progress and type soundness of a semantics for a K type checker, around a hand module (§3.3) |
 | `refine` | a stuttering bisimulation between two definitions whose steps do not correspond one to one, from `relate --per-rule` and a hand module (§3.5) |
 | `confluence` | the determinism of observations modulo scheduling, one join per ordered pair of rules, and a classification of the pairs (§3.6) |
@@ -718,6 +755,7 @@ A theorem the generator states is either K's own statement, or a different theor
 Where K states no original (noninterference, confluence), the comparison is with the property's usual form.
 The weaker ones, each with where it is stated:
 - **Type soundness** (§3.3) excludes stuck configurations, not undefined results: `Applies c` holds where a rule applies and its result is undefined (`x / 0` in kimp).
+- **No stuck states** (§3.9) excludes stuck configurations, not undefined results, in the same way, and holds only of configurations that satisfy the author's invariant; a head whose case is refuted by hand is a third outcome of `progress`, `no_stuck` and `always` (`Progress.Refuted`), which say nothing more of the configurations with it.
   With threads, a thread whose head is that of a rule needing another thread (`join T;`) counts as done (`Waits`) whether thread `T` is running or does not exist, so a deadlock is a `Final` configuration.
 - **A claim under `--assume-invariant NAME`** (§3.8) says nothing of a left-hand side outside `NAME`, so it is weaker than the K claim. The K claim itself may be false (kimp's `copy` and `copy-loop`, refuted by hand).
 - **A claim carried along a stuttering bisimulation** (`--transfer-kind stutter`, §3.8) without `--transfer-det` carries an all-path claim as one-path (`EF`, through `AF.toEF`). An all-path claim does not carry in general.

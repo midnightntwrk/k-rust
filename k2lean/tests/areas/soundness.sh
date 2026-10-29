@@ -2,7 +2,10 @@
 # The soundness area: `soundness` (ImpTypes: kimp against the type checker demos/k/imp-typing.k,
 # library imptypes; ExprTypes: kimp's expression language EXPR against demos/k/expr-typing.k,
 # libraries kexpr and exprtypes; ImpPlusTypes: IMP++ of K's tutorial, whose threads are a cell map,
-# against demos/k/impplus-typing.k, libraries impplus and impplustypes). Registry: soundness.py.
+# against demos/k/impplus-typing.k, libraries impplus and impplustypes), and no stuck states
+# (`gen --progress`: the stack machine tests/fixtures/vm, library vm, and its variant without a rule,
+# tests/fixtures/vmstuck, library vmstuck, whose one stuck case is refuted by hand). Registry:
+# soundness.py.
 
 # IMP++ (K's tutorial, beside SIMPLE's sources)
 IMPPP=${IMPPP:-$SD/../../../1_k/4_imp++/lesson_7}
@@ -26,6 +29,8 @@ name_soundness() {
     exprtypes) echo KExprTypes ;;
     impplus) echo KImpPlus ;;
     impplustypes) echo KImpPlusTypes ;;
+    vm) echo KVm ;;
+    vmstuck) echo KVmStuck ;;
     *) return 1 ;;
   esac
 }
@@ -49,9 +54,47 @@ gen_soundness() {
     impplustypes) GEN_ARGS=(--kore "$(kore_dir impplus-typing)/definition.kore" --runtime "$(kore_dir impplus-typing)/runtime.json"
             --out "$o" --name KImpPlusTypes --prelude ../../lean
             --open-obligations "$o/open-obligations.txt" --extra-fns "typeOf,typeOfB,wt,wts,printable") ;;
+    # no stuck states: the machine's well-formedness `kOk` (only instructions, programs and halts on
+    # `<k>`), its acceptable endings `halted`
+    vm|vmstuck) libs_fixture_args "$1"; GEN_ARGS+=(--invariant kOk@k --progress --ending halted@k) ;;
     *) return 1 ;;
   esac
   return 0
+}
+
+# no stuck states: `{ns}/Progress.lean`. A case that `k2l_progress` does not close becomes an open
+# case (`open-from-log` into open-progress-cases.txt) and the library is regenerated, so the case is
+# then taken from the hand module (proved, or refuted: a third outcome of `progress`, `Progress.Refuted`),
+# as for invariants.
+progcases() { # DIR NAME: build NAME.Progress, at most three attempts; the last log is build-DIR-prog.log
+  local d=$1 n=$2 o=$GEN/$1 k
+  for k in 1 2 3; do
+    if lbuild "$o" "build-$d-prog-$k" "$n.Progress"; then
+      cp "$L/build-$d-prog-$k.log" "$L/build-$d-prog.log"; ok "progress $d" "$L/build-$d-prog.log"; return 0
+    fi
+    cp "$L/build-$d-prog-$k.log" "$L/build-$d-prog.log"
+    [ "$k" = 3 ] && break
+    "$G" open-from-log "$o/$n/Progress.lean" "$L/build-$d-prog-$k.log" "$o/open-progress-cases.txt" >> "$L/gen-$d.log" 2>&1
+    genlib "$d" >> "$L/gen-$d.log" 2>&1 || { bad "gen $d" "$L/gen-$d.log"; return 1; }
+  done
+  bad "progress $d" "$L/build-$d-prog.log"; unbuilt "$o" "$L/build-$d-prog.log" "$n.Progress"; return 1
+}
+prog_reset() { # DIR: GATE_RETRY_OPEN also retries the open progress cases (refuted ones are kept)
+  if [ "${GATE_RETRY_OPEN:-0}" = 1 ] && [ -f "$GEN/$1/open-progress-cases.txt" ]; then
+    grep -E '^#| \| refuted( hand)?( *#.*)?$' "$GEN/$1/open-progress-cases.txt" > "$GEN/$1/open-progress-cases.txt.keep" || true
+    mv -f "$GEN/$1/open-progress-cases.txt.keep" "$GEN/$1/open-progress-cases.txt"
+  fi
+  return 0
+}
+prog_lib() { # DIR NAME: a library built as far as `progress` needs: Equations, Invariants, Progress
+  local d=$1 n=$2
+  phase "lib $d"
+  lib_open "$d"
+  inv_reset "$d"
+  prog_reset "$d"
+  if genlib "$d"; then
+    eqns "$d" "$n" && invcases "$d" "$n" && progcases "$d" "$n"
+  else bad "gen $d" "$L/gen-$d.log"; fi
 }
 
 # ImpTypes: `Tr.lean`, kimp to the type checker, translating programs (`--roots`)
@@ -124,6 +167,10 @@ gate_soundness() {
     scaffold soundness-ImpPlusTypes libs_soundness ImpPlusTypes
     dbuild ImpPlusTypes
   fi
+  # no stuck states (design.md §3.9): the stack machine, every case automatic; its variant without
+  # `pop`'s underflow rule, whose one case is refuted by hand
+  runs lib vm && prog_lib vm KVm
+  runs lib vmstuck && prog_lib vmstuck KVmStuck
   phase "diff soundness"
-  diffs imptypes kexpr exprtypes impplus impplustypes
+  diffs imptypes kexpr exprtypes impplus impplustypes vm vmstuck
 }

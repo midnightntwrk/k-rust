@@ -1058,3 +1058,73 @@ fn relate_proves_the_commutation_of_non_recursive_free_key_functions() {
     );
     assert!(lean.contains("theorem bisim : Bisimulation A.Step B.Step R"));
 }
+
+fn gen_progress(fx: &str, out: &Path, ns: &str, extra: &[&str]) -> std::process::Output {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures")
+        .join(fx);
+    Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("gen")
+        .arg("--kore")
+        .arg(dir.join("definition.kore"))
+        .arg("--runtime")
+        .arg(dir.join("runtime.json"))
+        .arg("--out")
+        .arg(out)
+        .args(["--name", ns, "--prelude", "../../prelude"])
+        .args(extra)
+        .output()
+        .unwrap()
+}
+
+/// `gen --progress` (design.md §3.9) on the stack machine `vm`: one case per head of `<k>`, each
+/// proved among the rules of its head only; a case marked `| refuted hand` becomes the third
+/// outcome `Progress.Refuted` with its refutation checked, and the hand skeleton is written once; a
+/// generation without `--progress` removes the modules; `<k>` in a cell collection is refused.
+#[test]
+fn progress_states_one_case_per_head_and_a_refuted_head_is_a_third_outcome() {
+    let d = tmp("cli-progress");
+    let args = ["--invariant", "kOk@k", "--progress", "--ending", "halted@k"];
+    let o = gen_progress("vm", &d, "KVm", &args);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("progress: 31 cases, 0 open"));
+    let defs = std::fs::read_to_string(d.join("KVm/ProgressDefs.lean")).unwrap();
+    assert_eq!(defs.matches("def Progress.case.").count(), 31);
+    assert!(defs.contains("K.«halted(_)_VM_Bool_K» (Ending.content c) = true"));
+    let thms = std::fs::read_to_string(d.join("KVm/Progress.lean")).unwrap();
+    assert!(thms.contains(
+        "k2l_progress [App.add, App.«add-underflow0», App.«add-underflow1»] => prog_close else prog_stuck"
+    ));
+    assert!(thms.contains("(hI : Invariant c) : Ending c ∨ App c := by"));
+    assert!(!thms.contains("Progress.Refuted"));
+
+    std::fs::write(
+        d.join("open-progress-cases.txt"),
+        "Progress.case.«Instr.pop» | refuted hand\n",
+    )
+    .unwrap();
+    let o = gen_progress("vm", &d, "KVm", &args);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let thms = std::fs::read_to_string(d.join("KVm/Progress.lean")).unwrap();
+    assert!(thms.contains("Ending c ∨ App c ∨ Progress.Refuted c := by"));
+    assert!(thms.contains("#k2l_refuted Progress.case.«Instr.pop»"));
+    assert!(!thms.contains("theorem Progress.case.«Instr.pop» :"));
+    let hand = std::fs::read_to_string(d.join("KVm/ProgressHand.lean")).unwrap();
+    assert!(hand.contains("-- theorem Progress.case.«Instr.pop».refuted"));
+    std::fs::write(d.join("KVm/ProgressHand.lean"), "-- edited\n").unwrap();
+    let o = gen_progress("vm", &d, "KVm", &args);
+    assert!(o.status.success());
+    assert_eq!(
+        std::fs::read_to_string(d.join("KVm/ProgressHand.lean")).unwrap(),
+        "-- edited\n"
+    );
+
+    let o = gen_progress("vm", &d, "KVm", &["--invariant", "kOk@k"]);
+    assert!(o.status.success());
+    assert!(!d.join("KVm/Progress.lean").exists() && !d.join("KVm/ProgressDefs.lean").exists());
+
+    let u = tmp("cli-progress-utxo");
+    let o = gen_progress("utxo", &u, "Utxo", &["--progress"]);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("inside a cell collection"));
+}

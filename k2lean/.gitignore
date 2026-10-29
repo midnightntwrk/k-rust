@@ -9,15 +9,18 @@ lake-manifest.json
 # A library's open-obligation lists and its hand-written invariant module are inputs of the
 # generation and are tracked: open-obligations.txt (the K equations stated without a proof),
 # open-invariant-cases.txt (the rule cases of a kind 1 invariant proved by hand) and
-# NS/InvariantsHand.lean (those proofs), and NS/DivergesHand.lean (the divergence proofs of the
-# least fixed points), which `k2lean gen` writes once and never overwrites.
+# NS/InvariantsHand.lean (those proofs), NS/DivergesHand.lean (the divergence proofs of the
+# least fixed points), and open-progress-cases.txt with NS/ProgressHand.lean (the cases of
+# `progress` proved or refuted by hand), which `k2lean gen` writes once and never overwrites.
 /generated/*/*
 !/generated/*/open-obligations.txt
 !/generated/*/open-invariant-cases.txt
+!/generated/*/open-progress-cases.txt
 !/generated/*/*/
 /generated/*/*/*
 !/generated/*/*/InvariantsHand.lean
 !/generated/*/*/DivergesHand.lean
+!/generated/*/*/ProgressHand.lean
 /generated/*/.lake/
 
 # What `k2lean relate` writes into the demos (demos/regen.sh and tests/gate.sh regenerate it).

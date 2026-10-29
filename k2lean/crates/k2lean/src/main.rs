@@ -31,6 +31,7 @@ mod normal;
 mod overload;
 mod pairs;
 mod preserves;
+mod progress;
 mod ranked;
 mod refine;
 mod refuted;
@@ -323,6 +324,22 @@ fn main() {
                 .collect();
             for s in &specs {
                 roots.insert(invariants::resolve(&def, &s.name).unwrap_or_else(|e| panic!("{e}")));
+            }
+            // no stuck states (`progress.rs`): the ending's function is generated too
+            let progress_on = a.rest.iter().any(|x| x == "--progress");
+            let ending: Option<(String, String)> =
+                a.rest.iter().position(|x| x == "--ending").map(|i| {
+                    let sp = invariants::parse_spec(&a.rest[i + 1]);
+                    let sym = invariants::resolve(&def, &sp.name)
+                        .unwrap_or_else(|e| panic!("--ending: {e}"));
+                    (
+                        sym,
+                        sp.cell
+                            .unwrap_or_else(|| panic!("--ending NAME@CELL: the cell is required")),
+                    )
+                });
+            if let Some((sym, _)) = &ending {
+                roots.insert(sym.clone());
             }
             // the functions the claims of a specification apply (`claims.rs`): `--spec FILE`,
             // repeatable, the spec's compiled `definition.kore` as `claims --spec` reads it
@@ -731,6 +748,7 @@ fn main() {
             );
             // kind 1 invariants: `InvariantDefs.lean`, `Invariants.lean`, `open-invariant-cases.txt`,
             // `invariant-unfold.txt`
+            let mut inv_unfold: Option<Vec<String>> = None;
             if specs.is_empty() && declared.is_empty() {
                 for f in ["InvariantDefs.lean", "Invariants.lean"] {
                     let _ = std::fs::remove_file(out.join(ns).join(f));
@@ -775,6 +793,13 @@ fn main() {
                 );
                 write(&open_path, &o.open_list);
                 write(&out.join("invariant-unfold.txt"), &o.unfold_list);
+                inv_unfold = Some(
+                    o.unfold_list
+                        .lines()
+                        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+                        .map(|l| l.trim().to_string())
+                        .collect(),
+                );
                 if let Some(sk) = &o.hand_skeleton {
                     write(&hand, sk);
                     eprintln!(
@@ -789,6 +814,89 @@ fn main() {
                         .filter(|l| invariants::case_token(l).is_some())
                         .count()
                 );
+            }
+            // no stuck states: `ProgressDefs.lean`, `Progress.lean`, `open-progress-cases.txt`
+            if progress_on {
+                let open_path = match a.rest.iter().position(|x| x == "--open-progress-cases") {
+                    Some(i) => PathBuf::from(&a.rest[i + 1]),
+                    None => out.join("open-progress-cases.txt"),
+                };
+                let open_text = std::fs::read_to_string(&open_path).unwrap_or_default();
+                let stated_names: std::collections::BTreeSet<String> =
+                    stated.iter().map(|s| s.name.clone()).collect();
+                let mut eqns: std::collections::BTreeMap<String, Vec<String>> =
+                    std::collections::BTreeMap::new();
+                for (f, es) in &eqs {
+                    let names: Vec<String> = (0..es.len())
+                        .map(|i| {
+                            format!(
+                                "Eqn.{}",
+                                names::ident(&format!("{}_{}", names::demangle(f), i + 1))
+                            )
+                        })
+                        .filter(|n| stated_names.contains(n) && !open.contains(n))
+                        .collect();
+                    eqns.insert(f.clone(), names);
+                }
+                let mut punfold: Vec<String> = hooks::unfold_names()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                for (x, y) in terms::inj_pairs(&m) {
+                    punfold.push(format!(
+                        "proj_{}_{}",
+                        names::short_sort(&y),
+                        names::short_sort(&x)
+                    ));
+                    punfold.push(format!(
+                        "inj_{}_{}",
+                        names::short_sort(&x),
+                        names::short_sort(&y)
+                    ));
+                }
+                let hand = out.join(ns).join("ProgressHand.lean");
+                let cx = progress::Ctx {
+                    m: &m,
+                    rules: &rs,
+                    fns: &fgen.fns,
+                    top: &top,
+                    ns,
+                    invariant: inv_unfold.clone(),
+                    ending: ending.clone(),
+                    ranked,
+                    eqns,
+                    unfold: punfold,
+                };
+                let o = progress::emit(&cx, &open_text, hand.exists())
+                    .unwrap_or_else(|e| panic!("{e}"));
+                write(
+                    &out.join(ns).join("ProgressDefs.lean"),
+                    &with_hooks(o.defs, ns, &fgen.params),
+                );
+                write(
+                    &out.join(ns).join("Progress.lean"),
+                    &with_hooks(o.theorems, ns, &fgen.params),
+                );
+                write(&open_path, &o.open_list);
+                if let Some(sk) = &o.hand_skeleton {
+                    write(&hand, sk);
+                    eprintln!(
+                        "note: wrote the hand-proof skeleton {} (it is never overwritten)",
+                        hand.display()
+                    );
+                }
+                eprintln!(
+                    "progress: {} cases, {} open",
+                    o.cases,
+                    o.open_list
+                        .lines()
+                        .filter(|l| refuted::name_of(l).is_some())
+                        .count()
+                );
+            } else {
+                for f in ["ProgressDefs.lean", "Progress.lean"] {
+                    let _ = std::fs::remove_file(out.join(ns).join(f));
+                }
             }
             if multi {
                 write(
