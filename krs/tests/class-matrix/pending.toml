@@ -5816,9 +5816,12 @@ deviation = "krs::analysis::invalid-constant @ spelling"
 # find productions for KApply with label #let" / "_:=K_"; "Found #fun expression in a pattern
 # location" for `#let` in the start state). Both lower `#let`, `#fun` and `:=K` to generated
 # functions only in a definition's sentences, never in a claim. So the product refuses them in a
-# claim, by the classes `let-in-claim` and `matches-in-claim`, whose message says so. The `let`
-# cases whose pattern holds `@` or `|` are pending too: the product refuses the block before its
-# pattern. Plan: lower a claim's local functions where the provers read the claim (k-rust's
+# claim, by the classes `let-in-claim` and `matches-in-claim`, whose message says so. The entries
+# include cases the oracle refuses for another reason, the `let` whose pattern holds `@` or `|`
+# (`alias-in-let-pattern`, `alternatives-in-let-pattern`), the closure body's `let` and
+# `k::matches!` (`object-term-as-predicate`) and the guard's `let` whose value is no Bool
+# (`let-sort`): the product refuses the block in a claim before it reads its pattern, its sort or
+# the predicate it stands in. Plan: lower a claim's local functions where the provers read the claim (k-rust's
 # `resolve_fun` over claims, or KRS generating the functions into the definition), then admit them.
 
 ["terms/cells-claim/guard/closure-body/k::matches!(x, Cmd::Hold(_))"]

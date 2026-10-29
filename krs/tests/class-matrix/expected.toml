@@ -130,7 +130,7 @@ doc = "a `#[k::constant]` value that is no ground constructor term"
 
 [class.configuration-variable-sort]
 code = "krs::analysis::invalid-term"
-doc = "a configuration variable, which stands for the value given at startup as a term of its declared sort and is never narrowed, where a sort it is not below is needed (an operator's or a builtin's `Int` or `Bool` operand)"
+doc = "a configuration variable, which stands for the value given at startup as a term of its declared sort and is never narrowed, where a sort it is not below is needed (an operator's or a builtin's `Int` or `Bool` operand): declare the parameter at that sort (`x: Int`), or narrow the read with `k::project!(Int, x)`"
 
 [class.content-sort]
 code = "krs::analysis::invalid-term"
