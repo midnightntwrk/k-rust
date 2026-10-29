@@ -1,8 +1,8 @@
 import Lake
 open Lake DSL
 
-/-- The fixture `drf` (workers writing one cell): the slot of two writes is refuted, so
-`OpenJoins` is false. -/
+/-- The fixture `drf` (workers writing one cell): the slot of two writes is refuted by two runs of a
+program that end with different `<acc>`. -/
 package «DrfConf» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 

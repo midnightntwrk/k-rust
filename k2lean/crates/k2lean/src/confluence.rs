@@ -20,6 +20,13 @@
 //! `--open-joins` are the hand module's (`hand.NAME`), those listed alone are open (premises of
 //! `terminal_unique`).
 //!
+//! Refutations by two runs (`--witnesses DIR`): each `NAME.kore` in `DIR` is the initial
+//! configuration of a program (krust's `krun --depth 0`), and `witness.NAME.refutes` states that
+//! two of its runs end with different observations (`KPrelude.TwoRuns.UniqueFrom`), found by a
+//! search in the elaborator and checked by the kernel (`k2l_two_runs`). Then the open slots are
+//! not all true (`Open.refuted`, through `terminal_unique`), and a slot listed
+//! `NAME | refuted WITNESS` is refuted when it is the only one not proved.
+//!
 //! The report (`--report`) classifies the pairs without Lean: by the pair classifier of
 //! `pairs.rs` with two free-key matches taken as one binding (`clash`, `exclusive`, `joinable`,
 //! `overlap`), and, for two rules that match one cell map at free keys, by their footprints on
@@ -944,7 +951,7 @@ fn with_hooks(o: &str, ns: &str, name: &str) -> String {
 /// `terminal_unique_of` (and `obs_confluent_of`) hold from a configuration satisfying it, by
 /// `terminal_unique_of_diamond` with `H := inv` and its preservation `pres`.
 /// How the open-joins list has a slot.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum Mark {
     /// left open: a premise of `terminal_unique`
     Open,
@@ -952,11 +959,14 @@ enum Mark {
     Hand,
     /// refuted by the hand module (`hand.NAME.refuted : ¬ NAME.statement`)
     Refuted,
+    /// refuted by the two runs of a witness (`--witnesses`): a field of `Open`, the only one
+    RefutedBy(String),
 }
 
 /// The slots of an open-joins list (`open-joins.txt`, `--open-joins`): a name alone is open (a
 /// premise), `NAME | hand` is the hand module's (`hand.NAME`), `NAME | refuted` is refuted by the
-/// hand module (`hand.NAME.refuted`); `#` starts a comment.
+/// hand module (`hand.NAME.refuted`), `NAME | refuted WITNESS` by the two runs of the witness
+/// `WITNESS` (`--witnesses`); `#` starts a comment.
 fn read_open_joins(path: &str) -> BTreeMap<String, Mark> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| fail(&format!("{path}: {e}")));
     let mut out = BTreeMap::new();
@@ -969,12 +979,74 @@ fn read_open_joins(path: &str) -> BTreeMap<String, Mark> {
             "" => Mark::Open,
             "| hand" => Mark::Hand,
             "| refuted" => Mark::Refuted,
+            _ if rest.starts_with("| refuted ") => {
+                Mark::RefutedBy(rest["| refuted ".len()..].trim().to_string())
+            }
             _ => fail(&format!(
-                "{path}: `{}`: expected NAME, NAME | hand or NAME | refuted",
+                "{path}: `{}`: expected NAME, NAME | hand, NAME | refuted or NAME | refuted WITNESS",
                 l.trim()
             )),
         };
         out.insert(n, mark);
+    }
+    out
+}
+
+/// A witness program (`--witnesses DIR`): its name (the file's stem), its initial configuration
+/// as a Lean term (`NAME.kore` in `DIR`: krust's `krun --depth 0`, KORE), and the program's text
+/// when a file `NAME.*` beside it holds it.
+pub(crate) struct Witness {
+    pub name: String,
+    pub value: String,
+    pub program: Option<String>,
+}
+
+fn read_witnesses(dir: &str, lib: &Lib) -> Vec<Witness> {
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|e| fail(&format!("{dir}: {e}")));
+    let mut files: BTreeMap<String, (Option<std::path::PathBuf>, Option<std::path::PathBuf>)> =
+        BTreeMap::new();
+    for e in entries {
+        let path = e.unwrap_or_else(|e| fail(&format!("{dir}: {e}"))).path();
+        let (Some(stem), ext) = (
+            path.file_stem()
+                .and_then(|s| s.to_str())
+                .map(str::to_string),
+            path.extension().and_then(|s| s.to_str()),
+        ) else {
+            continue;
+        };
+        let slot = files.entry(stem).or_default();
+        if ext == Some("kore") {
+            slot.0 = Some(path);
+        } else {
+            slot.1 = Some(path);
+        }
+    }
+    let conv = crate::convert::Conv::new(&lib.m, &lib.def);
+    let read = |p: &std::path::Path| {
+        std::fs::read_to_string(p).unwrap_or_else(|e| fail(&format!("{}: {e}", p.display())))
+    };
+    let mut out = vec![];
+    for (name, (kore, program)) in files {
+        let Some(kore) = kore else {
+            fail(&format!(
+                "--witnesses {dir}: `{name}` has no `{name}.kore` (its initial configuration, krust's `krun --depth 0`)"
+            ));
+        };
+        let pat = k_rust_kore::kore::parser::parse_pattern(read(&kore).trim())
+            .unwrap_or_else(|e| fail(&format!("{}: {e:?}", kore.display())));
+        let value = conv
+            .value(&ir::pat(&pat), &lib.top)
+            .unwrap_or_else(|e| fail(&format!("{}: {e}", kore.display())))
+            .render();
+        out.push(Witness {
+            name,
+            value,
+            program: program.map(|p| read(&p).trim_end().to_string()),
+        });
+    }
+    if out.is_empty() {
+        fail(&format!("--witnesses {dir}: no `NAME.kore`"));
     }
     out
 }
@@ -1250,7 +1322,7 @@ pub fn main(args: &[String]) {
             fail(&format!("--{k} is retired: {instead}"));
         }
     }
-    for k in ["hand-module", "open-joins"] {
+    for k in ["hand-module", "open-joins", "witnesses", "witness-fuel"] {
         if opt.contains_key(k) && !opt.contains_key("slots") {
             fail(&format!("--{k} needs --slots"));
         }
@@ -1259,8 +1331,29 @@ pub fn main(args: &[String]) {
     let obs: Option<Vec<String>> = opt
         .get("obs")
         .map(|o| o.split(',').map(|s| s.to_string()).collect());
+    if opt.contains_key("witnesses") {
+        // a library with parameters states its slots for every instance, so a refutation fixes
+        // one; under a program hypothesis, the witness must be shown to satisfy it
+        if lib.hooks {
+            fail(
+                "--witnesses: the library has parameters (`class Hooks`): two runs need an instance, which is not supported yet",
+            );
+        }
+        if opt.contains_key("assume-invariant") {
+            fail(
+                "--witnesses with --assume-invariant: the witness would have to satisfy the invariant, which is not supported yet",
+            );
+        }
+    } else if opt.contains_key("witness-fuel") {
+        fail("--witness-fuel needs --witnesses");
+    }
     let slot_opts = opt.get("slots").map(|_| views::SlotOpts {
         inv: opt.get("assume-invariant").cloned(),
+        witnesses: opt
+            .get("witnesses")
+            .map(|d| read_witnesses(d, &lib))
+            .unwrap_or_default(),
+        fuel: opt.get("witness-fuel").cloned(),
         hand: opt.get("hand-module").cloned(),
         list: match opt.get("open-joins") {
             Some(p) => read_open_joins(p),
@@ -1340,7 +1433,16 @@ pub fn main(args: &[String]) {
     }
     write_file(&get("out"), &out);
     if let Some(p) = opt.get("report") {
-        let prem = premises_report(rs, &premises, status.as_deref());
+        let mut prem = premises_report(rs, &premises, status.as_deref());
+        if let Some(so) = slot_opts.as_ref().filter(|so| !so.witnesses.is_empty()) {
+            let names: Vec<&str> = so.witnesses.iter().map(|w| w.name.as_str()).collect();
+            write!(
+                prem,
+                "\n[witnesses]  # programs two of whose runs end with different observations (`witness.NAME.refutes`),\n# which refute the open slots together (`Open.refuted`)\nnames = {names:?}\nopen_refuted_by = {:?}\n",
+                views::open_witness(so)
+            )
+            .unwrap();
+        }
         write_file(p, &(head + &counts_report + &prem + &rep));
     }
     eprintln!("confluence: {summary}");
@@ -1647,6 +1749,10 @@ mod views {
     pub(super) struct SlotOpts {
         /// the program hypothesis (`--assume-invariant`)
         pub inv: Option<String>,
+        /// the witness programs (`--witnesses`)
+        pub witnesses: Vec<super::Witness>,
+        /// the fuel of `successorsF` the witnesses' runs take (`--witness-fuel`), else `successors`
+        pub fuel: Option<String>,
         /// the module of the hand proofs (`hand.join.K.r₁.r₂`)
         pub hand: Option<String>,
         /// the open-joins list: a slot left open, proved by the hand module, or refuted by it
@@ -3447,16 +3553,27 @@ def SameThreadJoins : Prop :=
             .unwrap();
         }
         let hinv = if so.inv.is_some() { "hinv " } else { "" };
-        let hand_any = so.list.values().any(|h| *h != super::Mark::Open);
+        let hand_any = so
+            .list
+            .values()
+            .any(|h| matches!(h, super::Mark::Hand | super::Mark::Refuted));
         let mut m = String::new();
         writeln!(m, "import {}", so.views).unwrap();
         if hand_any {
             let hand = so.hand.clone().unwrap_or(format!("{ns}.Hand"));
             writeln!(m, "import {hand}").unwrap();
         }
+        if !so.witnesses.is_empty() {
+            writeln!(m, "import KPrelude.TwoRuns\nimport {name}.Adequacy").unwrap();
+            if so.fuel.is_some() {
+                writeln!(m, "import {name}.Fuel").unwrap();
+            }
+        }
         let mut status: Vec<Status> = vec![];
         let mut open_slots: Vec<(usize, usize, usize)> = vec![];
         let mut refuted: Vec<(usize, usize, usize)> = vec![];
+        // the slots refuted by a witness's two runs: fields of `Open`
+        let mut by_runs: Vec<(usize, usize, usize)> = vec![];
         let mut body = String::new();
         let mut guard: Vec<String> = vec![];
         let us = |i: usize| vec!["_"; ctors[i].args.len()].join(", ");
@@ -3466,6 +3583,17 @@ def SameThreadJoins : Prop :=
                 Some(super::Mark::Open) => {
                     status.push(Status::Open);
                     open_slots.push((k, i, j));
+                    continue;
+                }
+                Some(super::Mark::RefutedBy(w)) => {
+                    if !so.witnesses.iter().any(|x| &x.name == w) {
+                        super::fail(&format!(
+                            "--open-joins: {sn} | refuted {w}: no witness `{w}` (--witnesses)"
+                        ));
+                    }
+                    status.push(Status::Refuted);
+                    open_slots.push((k, i, j));
+                    by_runs.push((k, i, j));
                     continue;
                 }
                 Some(super::Mark::Refuted) => {
@@ -3659,6 +3787,22 @@ def SameThreadJoins : Prop :=
                 guard.push("obs_confluent".into());
             }
         }
+        if !so.witnesses.is_empty() {
+            emit_witnesses(
+                &mut body,
+                &mut guard,
+                so,
+                name,
+                topt,
+                obs.is_some(),
+                &open_slots,
+                &refuted,
+                &by_runs,
+                &|s| slot_name(s),
+            );
+        } else if !by_runs.is_empty() {
+            super::fail("--open-joins: `NAME | refuted WITNESS` needs --witnesses");
+        }
         let total: Vec<usize> = (0..3)
             .map(|k| slots.iter().filter(|s| s.0 == k).count())
             .collect();
@@ -3692,10 +3836,12 @@ def SameThreadJoins : Prop :=
                     .to_string(),
             )
         };
-        let refutes = if refuted.is_empty() {
-            ""
-        } else {
+        let refutes = if !refuted.is_empty() {
             "\nA slot listed `| refuted` is refuted by the hand module (`hand.join.K.r₁.r₂.refuted`), and refutes its\npremise (`P_refuted`); `terminal_unique` is then not stated. The premises are sufficient, not\nnecessary: a refuted premise says nothing of whether the definition is confluent."
+        } else if !so.witnesses.is_empty() {
+            "\nEach witness program (`--witnesses`) has two runs that end with different observations\n(`witness.NAME.refutes`, checked by the kernel), so the definition is not confluent from it, and\nthe open slots are not all true (`Open.refuted`). A slot listed `| refuted NAME` is refuted, as the\nonly field of `Open`."
+        } else {
+            ""
         };
         writeln!(
             m,
@@ -3705,6 +3851,102 @@ def SameThreadJoins : Prop :=
         m.push_str(&body);
         writeln!(m, "#k2l_assert_axioms {}\n\nend {ns}", guard.join(" ")).unwrap();
         (m, status)
+    }
+
+    /// The witness whose runs refute `Open`: the one a slot names (`| refuted NAME`), else the
+    /// first.
+    pub(super) fn open_witness(so: &SlotOpts) -> &str {
+        so.list
+            .values()
+            .find_map(|m| match m {
+                super::Mark::RefutedBy(w) => Some(w.as_str()),
+                _ => None,
+            })
+            .unwrap_or(&so.witnesses[0].name)
+    }
+
+    /// The witnesses (`--witnesses`): each program's initial configuration, its two runs that end
+    /// with different observations (`witness.NAME.refutes`), and from them `Open.refuted`, through
+    /// `terminal_unique`, whose premise is `Open`; with a slot listed `| refuted NAME`, the only
+    /// field of `Open`, that slot's refutation.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_witnesses(
+        body: &mut String,
+        guard: &mut Vec<String>,
+        so: &SlotOpts,
+        name: &str,
+        topt: &str,
+        obs: bool,
+        open_slots: &[(usize, usize, usize)],
+        refuted: &[(usize, usize, usize)],
+        by_runs: &[(usize, usize, usize)],
+        slot_name: &dyn Fn((usize, usize, usize)) -> String,
+    ) {
+        if !refuted.is_empty() {
+            super::fail(
+                "--witnesses: a slot is refuted by the hand module, so `terminal_unique` is not stated for the witnesses' runs to refute",
+            );
+        }
+        if open_slots.is_empty() {
+            super::fail(
+                "--witnesses: every slot is proved, so `terminal_unique` holds and no two runs end apart",
+            );
+        }
+        if !by_runs.is_empty() && open_slots.len() > 1 {
+            let open: Vec<String> = open_slots.iter().map(|s| slot_name(*s)).collect();
+            super::fail(&format!(
+                "--open-joins: `| refuted WITNESS` refutes a slot only when it is the only one not proved; two runs refute the open slots together (`Open.refuted`): {}",
+                open.join(", ")
+            ));
+        }
+        let (obsf, seen) = if obs {
+            ("obs", "observations (`obs`)")
+        } else {
+            ("id", "configurations")
+        };
+        let runs = match &so.fuel {
+            Some(n) => format!(
+                "{name}.successorsF {n}, {name}.successorsF_sound, {name}.successors, {name}.successors_iff.mpr"
+            ),
+            None => format!("{name}.successors, {name}.successors_iff"),
+        };
+        for w in &so.witnesses {
+            let id = crate::names::ident(&w.name);
+            let program = match &w.program {
+                Some(p) if p.lines().count() <= 12 && !p.contains("-/") => {
+                    format!(", the program\n```\n{p}\n```")
+                }
+                _ => String::new(),
+            };
+            writeln!(
+                body,
+                "open {name} in\n/-- The witness `{}`: the initial configuration of krust's `krun --depth 0`{program} -/\ndef witness.{id} : {topt} :=\n  {}\n",
+                w.name, w.value
+            )
+            .unwrap();
+            writeln!(
+                body,
+                "set_option maxRecDepth 100000 in\n/-- Two runs of `{}` end in terminal configurations with different {seen}: the\ndefinition is not confluent from it. -/\ntheorem witness.{id}.refutes :\n    ¬ KPrelude.TwoRuns.UniqueFrom {name}.Step {obsf} witness.{id} := by\n  k2l_two_runs {runs}\n",
+                w.name
+            )
+            .unwrap();
+            guard.push(format!("witness.{id}.refutes"));
+        }
+        let w = crate::names::ident(open_witness(so));
+        writeln!(
+            body,
+            "/-- The open slots are not all true: with them, the two runs of `witness.{w}` would end alike\n(`terminal_unique`). -/\ntheorem Open.refuted : ¬ Open := fun P =>\n  witness.{w}.refutes fun h₁ t₁ h₂ t₂ => congrArg {obsf} (terminal_unique P h₁ t₁ h₂ t₂)\n"
+        )
+        .unwrap();
+        guard.push("Open.refuted".into());
+        for s in by_runs {
+            let sn = slot_name(*s);
+            writeln!(
+                body,
+                "/-- `{sn}` is refuted: it is the only field of `Open`. -/\ntheorem {sn}.refuted : ¬ {sn}.statement := fun h => Open.refuted ⟨h⟩\n\n#k2l_refuted {sn}\n"
+            )
+            .unwrap();
+        }
     }
 
     #[cfg(test)]

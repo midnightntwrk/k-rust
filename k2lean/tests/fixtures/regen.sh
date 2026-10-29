@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Recompile the generator's K fixtures with krust and rewrite the snapshot files.
 # Each fixture is a directory NAME/ with NAME.k (main module NAME in upper case, syntax module
-# NAME-SYNTAX), the compiled definition.kore and runtime.json, and, for the snapshot fixtures,
+# NAME-SYNTAX), the compiled definition.kore and runtime.json, the initial configurations of its
+# witness programs (witnesses/NAME.kore beside each program), and, for the snapshot fixtures,
 # expected/, the Lean project that `k2lean gen` writes for it
 # (k2lean/crates/k2lean/tests/snapshots.rs compares a fresh generation with it).
 # diff/ is the fixture of `k2lean diff`: old.k and new.k, two versions of one definition, compiled
@@ -27,6 +28,14 @@ kc() { # FILE.k MODULE OUTDIR: krust's definition.kore and runtime.json of FILE.
   mkdir -p "$3"
   "$KRUST" kcompile "$1" --main-module "$2" --syntax-module "$2-SYNTAX" \
     --output-directory "$3/out" --builtin-directory "$K_BUILTIN"
+  # each witness program OUTDIR/witnesses/NAME.EXT (`k2lean confluence --witnesses`): its initial
+  # configuration, NAME.kore (krust's `krun --depth 0`, parsed at the sort of `$PGM`)
+  local p sort
+  for p in "$3"/witnesses/*; do
+    case $p in *.kore | *'*') continue ;; esac
+    sort=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["configuration_variables"]["PGM"])' "$3/out/runtime.json")
+    "$KRUST" krun --definition "$3/out" --depth 0 --sort "$sort" "$p" > "${p%.*}.kore"
+  done
   mv "$3/out/definition.kore" "$3/out/runtime.json" "$3/"
   rm -rf "$3/out"
   sed -i "s|Source($F/|Source(k2lean/tests/fixtures/|g" "$3/definition.kore" "$3/runtime.json"

@@ -1,0 +1,22 @@
+Lbl'-LT-'generatedTop'-GT-'{}(
+  Lbl'-LT-'T'-GT-'{}(
+    Lbl'-LT-'k'-GT-'{}(
+      kseq{}(
+        inj{SortPgm{}, SortKItem{}}(
+          Lblspawn'LParUndsRParSClnUndsUnds'DRF-SYNTAX'Unds'Pgm'Unds'Int'Unds'Pgm{}(
+            \dv{SortInt{}}("1"),
+            Lblspawn'LParUndsRParSClnUndsUnds'DRF-SYNTAX'Unds'Pgm'Unds'Int'Unds'Pgm{}(
+              \dv{SortInt{}}("2"),
+              Lbldone'Unds'DRF-SYNTAX'Unds'Pgm{}()
+            )
+          )
+        ),
+        dotk{}()
+      )
+    ),
+    Lbl'-LT-'workers'-GT-'{}(Lbl'Stop'WorkerCellMap{}()),
+    Lbl'-LT-'acc'-GT-'{}(\dv{SortInt{}}("0")),
+    Lbl'-LT-'next'-GT-'{}(\dv{SortInt{}}("0"))
+  ),
+  Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+)

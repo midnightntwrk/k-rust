@@ -32,7 +32,7 @@ DEMOS = {
     # the same script run in its order into it, by hand (`HandoffSeqRel.result_unique`); built
     # against HandoffConf's phase
     "HandoffSeqRel": {"tier": "light", "sources": ["generated/handoffseq"]},
-    # workers writing one cell: the slot of two writes refuted by hand, so `OpenJoins` is false
+    # workers writing one cell: the slot of two writes refuted by two runs of a program
     "DrfConf": {"tier": "light", "sources": ["generated/drf",
                                              "demos/DrfConf/DrfConf/Views.lean", "demos/DrfConf/DrfConf/Slots.lean",
                                              "demos/DrfConf/confluence.toml"],

@@ -1,5 +1,5 @@
 # The slots of SimpleConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
-# each is a field of `Open`, the premise of `terminal_unique`; `Refute.lean` shows they are false together.
+# each is a field of `Open`, the premise of `terminal_unique`; two runs of `div-nondet` (`--witnesses`) show they are false together (`Open.refuted`).
 join.same.«var X[N];».«var _[HOLE];»
 join.same.«var X[N1, N2, Vs];».«var _[HOLE];»
 join.same.«X:Id».«SIMPLE-UNTYPED-SYNTAX._[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps1-cool»

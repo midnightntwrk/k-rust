@@ -1442,7 +1442,107 @@ fn confluence_slots_refuted_refute_their_premise() {
     let o = run("join.open.put.put | false\n");
     assert!(!o.status.success());
     assert!(
-        String::from_utf8_lossy(&o.stderr).contains("expected NAME, NAME | hand or NAME | refuted")
+        String::from_utf8_lossy(&o.stderr)
+            .contains("expected NAME, NAME | hand, NAME | refuted or NAME | refuted WITNESS")
+    );
+}
+
+#[test]
+fn confluence_witnesses_refute_by_two_runs() {
+    let d = tmp("cli-confluence-witnesses");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    let run = |kore: &str, list: &str| {
+        std::fs::write(d.join("open.txt"), list).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_k2lean"))
+            .arg("confluence")
+            .arg("--kore")
+            .arg(fx.join(kore).join("definition.kore"))
+            .args([
+                "--name",
+                "Drf",
+                "--ns",
+                "DW",
+                "--threads",
+                "workers",
+                "--obs",
+                "acc",
+            ])
+            .arg("--witnesses")
+            .arg(fx.join("drf/witnesses"))
+            .arg("--slots")
+            .arg(d.join("Slots.lean"))
+            .arg("--open-joins")
+            .arg(d.join("open.txt"))
+            .arg("--out")
+            .arg(d.join("Views.lean"))
+            .arg("--report")
+            .arg(d.join("c.toml"))
+            .output()
+            .unwrap()
+    };
+    let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).to_string();
+    // the only slot not proved, refuted by the two runs of `two-workers`, without a hand module
+    let o = run("drf", "join.open.put.put | refuted two-workers\n");
+    assert!(o.status.success(), "{}", err(&o));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    let r = std::fs::read_to_string(d.join("c.toml")).unwrap();
+    for x in [
+        "import KPrelude.TwoRuns\nimport Drf.Adequacy\n",
+        "open Drf in\n/-- The witness `two-workers`: the initial configuration of krust's `krun --depth 0`, the program\n```\nspawn(1); spawn(2); done\n``` -/\ndef witness.«two-workers» : Drf.SortGeneratedTopCell :=\n  SortGeneratedTopCell.«<generatedTop>»",
+        "theorem witness.«two-workers».refutes :\n    ¬ KPrelude.TwoRuns.UniqueFrom Drf.Step obs witness.«two-workers» := by\n  k2l_two_runs Drf.successors, Drf.successors_iff\n",
+        "structure Open : Prop where\n  «open.put.put» : join.open.put.put.statement\n",
+        "theorem Open.refuted : ¬ Open := fun P =>\n  witness.«two-workers».refutes fun h₁ t₁ h₂ t₂ => congrArg obs (terminal_unique P h₁ t₁ h₂ t₂)\n",
+        "theorem join.open.put.put.refuted : ¬ join.open.put.put.statement := fun h => Open.refuted ⟨h⟩\n\n#k2l_refuted join.open.put.put\n",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    assert!(
+        !m.contains("Hand") && !m.contains("openJoins_refuted"),
+        "{m}"
+    );
+    assert!(
+        r.contains("refuted_slots = [\"join.open.put.put\"]")
+            && r.contains("names = [\"two-workers\"]\nopen_refuted_by = \"two-workers\""),
+        "{r}"
+    );
+    // a slot left open: the open slots refuted together, the slot not on its own
+    let o = run("drf", "join.open.put.put\n");
+    assert!(o.status.success(), "{}", err(&o));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    assert!(
+        m.contains("theorem Open.refuted : ¬ Open") && !m.contains("join.open.put.put.refuted"),
+        "{m}"
+    );
+    // one slot refuted by runs while another is open: only their conjunction is refuted
+    let o = run(
+        "drf",
+        "join.open.put.put | refuted two-workers\njoin.same.put.put\n",
+    );
+    assert!(!o.status.success());
+    assert!(
+        err(&o).contains("refutes a slot only when it is the only one not proved"),
+        "{}",
+        err(&o)
+    );
+    // an unknown witness; no slot left: `terminal_unique` holds, so nothing refutes it
+    let o = run("drf", "join.open.put.put | refuted nobody\n");
+    assert!(
+        !o.status.success() && err(&o).contains("no witness `nobody`"),
+        "{}",
+        err(&o)
+    );
+    let o = run("drf", "");
+    assert!(
+        !o.status.success() && err(&o).contains("every slot is proved"),
+        "{}",
+        err(&o)
+    );
+    // a library with parameters: two runs need an instance
+    let o = run("handoff", "");
+    assert!(
+        !o.status.success() && err(&o).contains("parameters"),
+        "{}",
+        err(&o)
     );
 }
 
