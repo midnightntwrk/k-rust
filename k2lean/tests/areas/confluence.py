@@ -6,12 +6,15 @@ DEMOS = {
                                               "demos/RaceConf/RaceConf/Confluence.lean", "demos/RaceConf/confluence.toml"]},
     # SIMPLE's steps of two threads joined generically, the rest as hypotheses (`confluence --threads`)
     "SimpleConf": {"tier": "heavy", "sources": ["demos/SimpleConf/SimpleConf/Views.lean"]},
-    # coroutines over a UTXO ledger, the same views (`confluence --threads procs`)
+    # coroutines over a UTXO ledger, the same views with the joins they leave as slots
+    # (`confluence --threads procs --slots`)
     "UtxoConf": {"tier": "light", "sources": ["generated/utxo",
-                                              "demos/UtxoConf/UtxoConf/Views.lean", "demos/UtxoConf/confluence.toml"]},
+                                              "demos/UtxoConf/UtxoConf/Views.lean", "demos/UtxoConf/UtxoConf/Slots.lean",
+                                              "demos/UtxoConf/confluence.toml"]},
     # a coordination script's tasks run when their inputs are ready, a resume's segment one step
     "HandoffConf": {"tier": "light", "sources": ["generated/handoff",
                                                  "demos/HandoffConf/HandoffConf/Views.lean",
+                                                 "demos/HandoffConf/HandoffConf/Slots.lean",
                                                  "demos/HandoffConf/confluence.toml"]},
 }
 

@@ -1,3 +1,4 @@
+import Lean
 import KPrelude.Invariant
 import KPrelude.Coll
 import KPrelude.Hooks
@@ -1088,6 +1089,35 @@ theorem small_remove {a b R L L' : M} {k : K} {v : V} (ha : Small a) (hb : Small
     · rfl
   · exact absurd (by rw [lookup_def]; unfold unit; rw [toList_ofList]; rfl) ak
 
+/-- A binding of the rest of a match is one of the map. -/
+theorem lookup_of_concat_right {a R m : M} (h : concat a R = some m) {k : K} {v : V}
+    (hl : lookup R k = some v) : lookup m k = some v := by
+  rw [lookup_concat_right h (lookup_left_none_of_concat h (by rw [hl]; simp)), hl]
+
+/-- A map of one binding binds its key. -/
+theorem lookup_element_self {k : K} {v : V} : lookup (element k v : M) k = some v :=
+  (binds_element (M := M) k v).2 (List.mem_singleton_self _)
+
+/-- A match `a (k ↦ v)` puts the binding of `k` in its map. -/
+theorem lookup_of_concat_element_right {a m : M} {k : K} {v : V} (h : concat a (element k v) = some m) :
+    lookup m k = some v :=
+  lookup_of_concat_right h lookup_element_self
+
+/-- A key a map of one binding binds is that binding's. -/
+theorem key_of_lookup_element {k j : K} {v : V} (h : lookup (element k v : M) j ≠ none) : j = k :=
+  Classical.byContradiction fun e => h (lookup_element_ne e)
+
+/-- A key a map of two bindings binds is one of theirs. -/
+theorem key_of_lookup_pair {k₁ k₂ j : K} {v₁ v₂ : V} {a : M}
+    (h : concat (element k₁ v₁) (element k₂ v₂) = some a) (hj : lookup a j ≠ none) :
+    j = k₁ ∨ j = k₂ := by
+  obtain ⟨u, hu⟩ := Option.ne_none_iff_exists'.1 hj
+  have := ((binds_pair h) j u).1 hu
+  simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at this
+  rcases this with ⟨e, -⟩ | ⟨e, -⟩
+  · exact Or.inl e
+  · exact Or.inr e
+
 end MapHook
 
 end KPrelude
@@ -1534,5 +1564,112 @@ theorem or_of_not_both {x y : Bool} {P Q : Prop} (h₁ : x = false → P) (h₂ 
   · cases y
     · exact Or.inr (h₂ rfl)
     · cases h
+
+end KPrelude
+
+namespace KPrelude
+
+open Lean Meta Elab Tactic
+
+/-! ## `k2l_det`: what two instances at one configuration determine twice
+
+Two steps from one configuration whose rules match it alike, with the same values of the same
+calls, are one step: their instances agree. `k2l_det` unifies, until nothing changes, the values
+of two hypotheses `e = some x` and `e = some y` (one call at the same arguments, or one key of one
+map), and the rests of two matches `concat a R = some m` and `concat a R' = some m` of one part of
+one map; it first states, for each match, the bindings it puts in the map (`lookup m k = some v`).
+It is the determinism of one process, the same-thread joins of `confluence --threads --slots`. -/
+
+/-- The sides `e` and `x` of a hypothesis `e = some x`. -/
+def detSome? (t : Expr) : MetaM (Option (Expr × Expr)) := do
+  let t ← instantiateMVars t
+  let some (_, l, r) := t.eq? | return none
+  if r.isAppOfArity ``Option.some 2 then return some (l, r.appArg!) else return none
+
+/-- The last two arguments of an application of `c`. -/
+def detArgs2? (c : Name) (e : Expr) : Option (Expr × Expr) :=
+  if e.getAppFn.constName? == some c && e.getAppNumArgs ≥ 2 then
+    let as := e.getAppArgs
+    some (as[as.size - 2]!, as[as.size - 1]!)
+  else none
+
+/-- Add the hypothesis `p` unless one of its type is there. -/
+def detAdd (g : MVarId) (p : Expr) : MetaM (Option MVarId) := g.withContext do
+  let ty ← instantiateMVars (← inferType p)
+  for d in ← getLCtx do
+    if !d.isImplementationDetail && (← instantiateMVars d.type) == ty then return none
+  let g ← g.assert `k2l_lk ty p
+  let (_, g) ← g.intro1
+  return some g
+
+/-- One binding a match puts in its map: `lookup m k = some v` from `concat a R = some m`, with
+`a` a binding `element k v` or binding `k` (`lookup a k = some v`), or `R` binding it. -/
+def detLookup (g : MVarId) : MetaM (Option MVarId) := g.withContext do
+  let mut cs : Array (Expr × Expr × Expr) := #[]
+  let mut ls : Array (Expr × Expr × Expr) := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    if let some (e, _) ← detSome? d.type then
+      if let some (a, r) := detArgs2? ``MapHook.concat e then cs := cs.push (d.toExpr, a, r)
+      if let some (m, _) := detArgs2? ``MapHook.lookup e then ls := ls.push (d.toExpr, m, e)
+  for (h, a, r) in cs do
+    if (detArgs2? ``MapHook.element a).isSome then
+      if let some g' ← detAdd g (← mkAppM ``MapHook.lookup_of_concat_element #[h]) then return some g'
+    if (detArgs2? ``MapHook.element r).isSome then
+      if let some g' ← detAdd g (← mkAppM ``MapHook.lookup_of_concat_element_right #[h]) then
+        return some g'
+    for (hl, x, _) in ls do
+      if x == a then
+        if let some g' ← detAdd g (← mkAppM ``MapHook.lookup_of_concat #[h, hl]) then return some g'
+      if x == r then
+        if let some g' ← detAdd g (← mkAppM ``MapHook.lookup_of_concat_right #[h, hl]) then return some g'
+  return none
+
+/-- Case on the equation `p` in `g`; `none` when its sides do not unify by `cases`. -/
+def detCases (g : MVarId) (p : Expr) : MetaM (Option (Array MVarId)) := do
+  let s ← saveState
+  try
+    let g ← g.assert `k2l_det (← inferType p) p
+    let (h, g) ← g.intro1
+    let gs ← g.cases h
+    return some (gs.map (·.mvarId))
+  catch _ =>
+    s.restore
+    return none
+
+/-- One unification: two hypotheses `e = some x` and `e = some y` give `x = y`; two matches
+`concat a R = some m` and `concat a R' = some m` give `R = R'`. -/
+def detStep (g : MVarId) : MetaM (Option (Array MVarId)) := g.withContext do
+  let mut facts : Array (Expr × Expr × Expr) := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    if let some (e, x) ← detSome? d.type then
+      facts := facts.push (d.toExpr, e, x)
+  for i in [0:facts.size] do
+    for j in [i+1:facts.size] do
+      let (h₁, e₁, x₁) := facts[i]!
+      let (h₂, e₂, x₂) := facts[j]!
+      if x₁ != x₂ && (← withReducible (isDefEq e₁ e₂)) then
+        let p ← mkAppM ``Option.some.inj #[← mkEqTrans (← mkEqSymm h₁) h₂]
+        if let some gs ← detCases g p then return some gs
+      if x₁ == x₂ then
+        if let (some (a₁, r₁), some (a₂, r₂)) := (detArgs2? ``MapHook.concat e₁, detArgs2? ``MapHook.concat e₂) then
+          if r₁ != r₂ && a₁ == a₂ then
+            if let some gs ← detCases g (← mkAppM ``MapHook.concat_rest_unique #[h₁, h₂]) then
+              return some gs
+  return none
+
+/-- Unify what two instances at one configuration determine twice (see above), until nothing
+changes. -/
+elab "k2l_det" : tactic => do
+  for _ in [0:2000] do
+    match ← getGoals with
+    | [] => return
+    | g :: rest =>
+      if let some g' ← detLookup g then
+        setGoals (g' :: rest)
+      else match ← detStep g with
+        | some gs => setGoals (gs.toList ++ rest)
+        | none => return
 
 end KPrelude

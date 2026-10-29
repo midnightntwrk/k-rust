@@ -1,2 +1,1 @@
-import UtxoConf.Views
-import UtxoConf.Joins
+import UtxoConf.Slots

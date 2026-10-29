@@ -1007,11 +1007,12 @@ fn confluence_threads_refuses_per_pair_options() {
     let d = tmp("cli-confluence-refuse");
     let fx =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/utxo/definition.kore");
-    for (k, v) in [
-        ("--hyp", "H"),
-        ("--hand-module", "M"),
-        ("--join", "local"),
-        ("--open", "open.txt"),
+    for (k, v, msg) in [
+        ("--hyp", "H", "--threads does not take --hyp yet"),
+        ("--hand-module", "M", "--hand-module needs --slots"),
+        ("--open-joins", "open.txt", "--open-joins needs --slots"),
+        ("--join", "local", "--threads does not take --join yet"),
+        ("--open", "open.txt", "--threads does not take --open yet"),
     ] {
         let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
             .arg("confluence")
@@ -1033,11 +1034,100 @@ fn confluence_threads_refuses_per_pair_options() {
             .unwrap();
         let e = String::from_utf8_lossy(&o.stderr);
         assert!(!o.status.success(), "{k}");
-        assert!(
-            e.contains(&format!("--threads does not take {k} yet")),
-            "{k}: {e}"
-        );
+        assert!(e.contains(msg), "{k}: {e}");
     }
+}
+
+/// `confluence --threads --slots`: one obligation per pair of rules in a premise, its statement
+/// in the views; a slot is attempted generically, proved by the hand module (`NAME | hand` in the
+/// open-joins list) or open (a field of `Open`, the premise of `terminal_unique`). The views'
+/// thread steps record their instance at the bindings they match (`StepAt`).
+#[test]
+fn confluence_threads_slots_split_the_premises() {
+    let d = tmp("cli-confluence-slots");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/utxo/definition.kore");
+    let run = |list: Option<&str>| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_k2lean"));
+        c.arg("confluence")
+            .arg("--kore")
+            .arg(&fx)
+            .args([
+                "--name",
+                "Utxo",
+                "--ns",
+                "UV",
+                "--threads",
+                "procs",
+                "--slots",
+            ])
+            .arg(d.join("Slots.lean"))
+            .arg("--out")
+            .arg(d.join("Views.lean"))
+            .arg("--report")
+            .arg(d.join("c.toml"));
+        if let Some(l) = list {
+            std::fs::write(d.join("open.txt"), l).unwrap();
+            c.args(["--hand-module", "UV.Hand", "--open-joins"])
+                .arg(d.join("open.txt"));
+        }
+        c.output().unwrap()
+    };
+    let o = run(None);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let v = std::fs::read_to_string(d.join("Views.lean")).unwrap();
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    for x in [
+        "def StepAt : Rule →",
+        "∧ StepAt r a c c'",
+        "have hat : StepAt .resume _ _ _ :=",
+        "def SameSlot (r₁ r₂ : Rule) : Prop :=",
+        "KeyPat.pdisj r₁.pats r₂.pats = false →\n    SameSlot r₁ r₂",
+        "∀ r₁ r₂, r₁.rank = r₂.rank → staticOK r₁ r₂ = true → KeySlot r₁ r₂",
+        "∀ r₁ r₂, staticOK r₁ r₂ = false → OpenSlot r₁ r₂",
+        "theorem kcompat_of",
+        "def join.same.resume.resume.statement : Prop := SameSlot .resume .resume",
+        "def join.open.spawn.spawn.statement : Prop := OpenSlot .spawn .spawn",
+    ] {
+        assert!(v.contains(x), "{x}\n{v}");
+    }
+    // the two bindings of a rule that matches two processes
+    assert!(
+        m.contains("obtain e₁ | e₁ := MapHook.key_of_lookup_pair hp₁ l₁"),
+        "{m}"
+    );
+    assert!(
+        m.contains("theorem join.key.spend.spend : join.key.spend.spend.statement := by")
+            && m.contains("theorem terminal_unique {c n₁ n₂")
+            && !m.contains("structure Open"),
+        "{m}"
+    );
+    // one slot by hand, one open
+    let o = run(Some(
+        "# a comment\njoin.key.spend.spend | hand\njoin.open.spawn.spawn\n",
+    ));
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let m = std::fs::read_to_string(d.join("Slots.lean")).unwrap();
+    let r = std::fs::read_to_string(d.join("c.toml")).unwrap();
+    for x in [
+        "import UV.Hand",
+        "theorem join.key.spend.spend : join.key.spend.spend.statement := hand.join.key.spend.spend",
+        "#k2l_proves join.key.spend.spend.statement hand.join.key.spend.spend",
+        "structure Open : Prop where\n  «open.spawn.spawn» : join.open.spawn.spawn.statement",
+        "case spawn.spawn => exact P.«open.spawn.spawn»",
+        "theorem terminal_unique (P : Open) {c n₁ n₂",
+    ] {
+        assert!(m.contains(x), "{x}\n{m}");
+    }
+    assert!(
+        r.contains("open = { slots = 1, generic = 0, hand = 0, open = 1 }")
+            && r.contains("open_slots = [\"join.open.spawn.spawn\"]"),
+        "{r}"
+    );
+    // a name that is no slot
+    let o = run(Some("join.open.seq.seq\n"));
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("join.open.seq.seq is not a slot"));
 }
 
 #[test]

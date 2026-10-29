@@ -1,0 +1,11 @@
+# The slots of HandoffConf that the generic attempts do not prove (`k2lean confluence --slots`, `--open-joins`):
+# `NAME | hand` is proved in HandoffConf/Hand.lean as `hand.NAME`, a name alone is a premise of `terminal_unique`.
+join.key.new.new | hand
+join.key.new.«resume-lit» | hand
+join.key.new.«resume-oid» | hand
+join.key.«resume-lit».new | hand
+join.key.«resume-lit».«resume-lit» | hand
+join.key.«resume-lit».«resume-oid» | hand
+join.key.«resume-oid».new | hand
+join.key.«resume-oid».«resume-lit» | hand
+join.key.«resume-oid».«resume-oid» | hand

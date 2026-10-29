@@ -36,9 +36,13 @@ libs_confluence() {
     RaceConf) "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf --obs acc \
         --out "$DEMOS/RaceConf/RaceConf/Confluence.lean" --report "$DEMOS/RaceConf/confluence.toml" ;;
     UtxoConf) "$G" confluence --kore "$(libs_fixture utxo)/definition.kore" --name Utxo --ns UtxoConf \
-        --threads procs --obs ledger --out "$DEMOS/UtxoConf/UtxoConf/Views.lean" --report "$DEMOS/UtxoConf/confluence.toml" ;;
+        --threads procs --obs ledger --slots "$DEMOS/UtxoConf/UtxoConf/Slots.lean" --hand-module UtxoConf.Hand \
+        --open-joins "$DEMOS/UtxoConf/open-joins.txt" \
+        --out "$DEMOS/UtxoConf/UtxoConf/Views.lean" --report "$DEMOS/UtxoConf/confluence.toml" ;;
     HandoffConf) "$G" confluence --kore "$(libs_fixture handoff)/definition.kore" --name Handoff --ns HandoffConf \
         --threads tasks --obs vals --assume-invariant HandoffConf.Wf --invariant-module HandoffConf.Inv \
+        --slots "$DEMOS/HandoffConf/HandoffConf/Slots.lean" --hand-module HandoffConf.Hand \
+        --open-joins "$DEMOS/HandoffConf/open-joins.txt" \
         --out "$DEMOS/HandoffConf/HandoffConf/Views.lean" --report "$DEMOS/HandoffConf/confluence.toml" ;;
     SimpleConf) "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --ns SimpleConf \
         --threads threads --obs output --out "$DEMOS/SimpleConf/SimpleConf/Views.lean" --report "$2" ;;
@@ -64,7 +68,8 @@ gate_confluence() {
     scaffold confluence-RaceConf libs_confluence RaceConf
     dbuild RaceConf
   fi
-  # the views by process of the fixture utxo (`confluence --threads procs`), as SimpleConf's
+  # the views by process of the fixture utxo (`confluence --threads procs`), as SimpleConf's, and
+  # the joins they leave as slots (`--slots`): generic, or proved in `UtxoConf/Hand.lean`
   if runs demo UtxoConf; then
     phase "scaffold UtxoConf"
     partlib utxo Utxo.Preserves
@@ -73,7 +78,8 @@ gate_confluence() {
   fi
   # the views by task of the fixture handoff (`confluence --threads tasks`): readiness in the rules,
   # a resume's whole segment one step; under the script's well-formedness (no step of a process
-  # named twice), which the hand module `HandoffConf/Inv.lean` states and `Joins.lean` uses
+  # named twice), which the hand module `HandoffConf/Inv.lean` states and `Hand.lean` uses for the
+  # slots the generic attempts leave
   if runs demo HandoffConf; then
     phase "scaffold HandoffConf"
     partlib handoff Handoff.Preserves

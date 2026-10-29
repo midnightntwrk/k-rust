@@ -1,2 +1,1 @@
-import HandoffConf.Views
-import HandoffConf.Joins
+import HandoffConf.Slots
