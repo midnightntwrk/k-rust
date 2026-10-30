@@ -1165,15 +1165,17 @@ handoff = "KINK-24"
 id = "search-match-instance"
 title = "A search match does not say whether its state is known to exist"
 kind = "soundness-signal"
-status = "open"
-status_basis = "carried from draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md (sha256 11262914…, frozen on 2026-10-19 and not yet given to k-rust, judged against k-rust's code at 501f18b9 and main f6196ee28 when written), not requalified"
+status = "fixed"
+status_basis = "test run on branch kink27/R2-SEARCH-EXISTS (on 3ebd1f8f6) on 2026-10-30: k-rust-backend search::tests::a_search_match_states_the_undecided_definedness_of_its_state, k-rust tests/execution_semantics.rs a_search_match_has_an_empty_condition_only_when_its_state_has_an_instance and tests/cli.rs krun_search_states_the_undecided_definedness_of_a_reached_state, in both profiles"
+fixed_in = "kink27 R2-SEARCH-EXISTS (branch kink27/R2-SEARCH-EXISTS, 3f030a1e9 and its fix round 1)"
 blocking = false
 needed_by = ["kink-flow query (F-18): a hit only on a state that exists"]
-summary = "search.rs:2621-2625 keeps an undecided definedness fact of the subject out of the match condition, so a state holding an irreducible call to a non-total function is a condition-free match (F-18 review 1 critical, repro in draft/tasks/flow/scratch-F-18-review/repro-partial2)."
+summary = "A search match (SearchMatch, PathSearchMatch, krun --search with or without --pattern) states in its condition each definedness fact of its state that it leaves undecided, so a state holding an irreducible call to a non-total function is matched under its \\ceil, and a match whose condition and own diagnostics are empty has an instance (docs/compatibility.md, 'Search results'). Before kink27 R2-SEARCH-EXISTS, search.rs kept such a fact out of the condition, so that state was a condition-free match (F-18 review 1 critical, repro in draft/tasks/flow/scratch-F-18-review/repro-partial2). match_disjunction (Backend::match_patterns, krun --pattern without --search) still reads its condition relative to the subject's instances."
 reproducer = "ADDENDUM-4 KINK-25 acceptance: a state with a partial function applied where no equation covers it is reported as not established; constructors and total functions over defined arguments, a map with keys of several shapes included, as established."
-local_workaround = "kink-flow pattern.rs defined_state: internalize the witness state and require ceil_free, refuse any term-level and; otherwise unknown (undefined-state). Costs a second internalization per hit and refuses some defined maps."
+local_workaround = "kink-flow pattern.rs defined_state: internalize the witness state and require ceil_free, refuse any term-level and; otherwise unknown (undefined-state). Costs a second internalization per hit and refuses some defined maps. Still run after the fix: kink-flow reads the condition first (an undecided fact now gives its unknown cause) and keeps defined_state until the orchestrator decides to drop it."
 requested_action = "Handoff KINK-25 (medium). Per SearchMatch and PathSearchMatch, whether the matched state is known to have an instance, or the undecided residual facts listed as the match's condition."
 sources = ["draft/tasks/k-rust-handoff-2026-10-15/ADDENDUM-4.md KINK-25", "draft/tasks/flow/handoffs/F-18-review-1.json", "draft/tasks/flow/handoffs/F-18-fix-1.toml"]
+update_2026_10_30 = "kink27 R2-SEARCH-EXISTS: fixed as requested_action's second form (the undecided residual facts listed as the match's condition). Status moved from open to fixed; the former status_basis was the ADDENDUM-4 carry, not requalified."
 handoff = "KINK-25"
 
 [[request]]

@@ -3262,8 +3262,9 @@ enum SubjectFacts {
     /// undecided are assumed, not stated (`match_disjunction`).
     Assumed,
     /// The facts the match leaves undecided are also conjoined to the reported condition (a
-    /// search match), so an empty condition says every fact is established and the subject has
-    /// an instance ([`SearchMatch::constraints`]).
+    /// search match), so an empty condition says the subject has an instance
+    /// ([`SearchMatch::constraints`]). A fact that an equality of the target's constraints
+    /// instantiates is decided with the condition instead, so it says no more than that.
     Reported,
 }
 
@@ -3287,7 +3288,10 @@ fn match_condition(
     // holds it, so the match condition excludes the instances on which a target atom denotes
     // `\bottom`: the solver reads a partial function as a total one and would give it a value.
     // A reported condition cannot leave a fact of the term out, so a term whose definedness
-    // cannot be stated leaves the match undecided.
+    // cannot be stated leaves the match undecided. A search normalizes each state before it
+    // matches it, and that simplification already stops with this outcome on the states tried
+    // (`a_state_whose_definedness_rests_on_an_impure_application_is_no_solution`); the arm keeps
+    // any state it misses from being reported as a solution.
     let subject_knowledge = match subject_facts {
         SubjectFacts::Assumed => pattern_knowledge(definition, subject),
         SubjectFacts::Reported => match stated_pattern_knowledge(definition, subject) {
@@ -3323,8 +3327,9 @@ fn match_condition(
     // subject has no instance, so none of its instances matches. Only the decided residual is
     // assumed: `F' ∧ simplify(C | F')` is `F' ∧ C` on the subject's instances. A search match
     // also states it (`SubjectFacts::Reported`): the subject denotes nothing where a fact fails,
-    // so `state ∧ F' ∧ C` is `state ∧ C`, and an empty condition then says every fact is
-    // established. `match_disjunction` only assumes it.
+    // so `state ∧ F' ∧ C` is `state ∧ C`, and an empty condition then says an instance exists
+    // (a variable an equality of `C` was solved for takes its solved value, so not every
+    // valuation of the subject need be one). `match_disjunction` only assumes it.
     let facts = match facts.decide(definition, options, solver)? {
         FactsVerdict::Refuted => return Ok(Ok(None)),
         FactsVerdict::NotRefuted(facts) => facts,
@@ -6567,13 +6572,200 @@ mod tests {
         };
         assert_eq!(witness.constraints, undecided, "{witness:#?}");
 
-        let relative = match_disjunction(&definition, &target, &[witness.witness.pattern.clone()])
-            .unwrap()
-            .unwrap();
+        let relative = match_disjunction(
+            &definition,
+            &target,
+            std::slice::from_ref(&witness.witness.pattern),
+        )
+        .unwrap()
+        .unwrap();
         let [relative] = relative.as_slice() else {
             panic!("expected one relative match, found {relative:?}");
         };
         assert!(relative.constraints.is_empty(), "{relative:?}");
+    }
+
+    /// The target `pair(A, B) ∧ A = 3` instantiates its equality to `X = 3` on the state
+    /// `pair(X, 10 /Int X)`, whose fact `⌈10 /Int X⌉` no equation decides. That equality holds
+    /// on some instances of the state only, so the condition is solved for `X`: the fact that
+    /// mentions `X` becomes a conjunct of the condition, instantiated to `⌈10 /Int 3⌉` and
+    /// decided with it (here to `\top`), and `X`, no variable of the target, leaves the bindings.
+    /// The condition is then empty although the valuation `X = 0` of the state is no instance:
+    /// an empty condition says an instance exists (`X = 3`, which `A ↦ 3` shows), not that every
+    /// valuation is one.
+    #[test]
+    fn a_fact_that_a_target_binding_instantiates_is_decided_with_the_condition() {
+        let definition = partial_target_definition();
+        let target = Pattern {
+            term: pattern(&definition, r#"pair{}(A:SortInt{}, B:SortInt{})"#).term,
+            constraints: vec![Predicate::Equals(
+                pattern(&definition, "A:SortInt{}").term,
+                pattern(&definition, r#"\dv{SortInt{}}("3")"#).term,
+            )],
+        };
+        let initial = pattern(
+            &definition,
+            r#"pair{}(X:SortInt{}, divInt{}(\dv{SortInt{}}("10"), X:SortInt{}))"#,
+        );
+        let found = search_pattern(
+            &definition,
+            initial,
+            &target,
+            SearchOptions {
+                search_type: SearchType::Star,
+                ..SearchOptions::default()
+            },
+        );
+        assert!(found.incomplete.is_empty(), "{:?}", found.incomplete);
+        let [m] = found.matches.as_slice() else {
+            panic!("expected one match, found {:?}", found.matches);
+        };
+        assert!(m.constraints.is_empty(), "{m:#?}");
+        assert!(m.diagnostics.is_empty(), "{m:#?}");
+        let bound = m
+            .substitution
+            .iter()
+            .find(|(variable, _)| variable.name.to_string() == "A")
+            .map(|(_, value)| value);
+        assert_eq!(
+            bound,
+            Some(&pattern(&definition, r#"\dv{SortInt{}}("3")"#).term),
+            "{m:#?}"
+        );
+        assert!(
+            m.state
+                .pattern
+                .term
+                .attributes()
+                .variables
+                .iter()
+                .any(|v| v.name.to_string() == "X"),
+            "{m:#?}"
+        );
+    }
+
+    /// A term-level `\and` denotes its sides' common value, so its definedness is the equality
+    /// of its sides: ground distinct sides leave the state no instance, and otherwise a search
+    /// match states the equality. Equal sides owe nothing.
+    #[test]
+    fn a_search_match_states_the_equality_of_a_term_level_conjunction() {
+        let definition = discarded_operand_definition();
+        let options = SearchOptions {
+            search_type: SearchType::Star,
+            ..SearchOptions::default()
+        };
+        let target = pattern(&definition, "R:SortC{}");
+        let term = |source: &str| pattern(&definition, source).term;
+        let search = |initial: &str| {
+            search_pattern(
+                &definition,
+                pattern(&definition, initial),
+                &target,
+                options.clone(),
+            )
+        };
+
+        let distinct = search(r#"wrap{}(\and{SortS{}}(\dv{SortS{}}("v"), \dv{SortS{}}("w")))"#);
+        assert!(distinct.matches.is_empty(), "{distinct:#?}");
+        assert!(distinct.initial_bottom, "{distinct:#?}");
+
+        let partial = term(r#"partial{}(\dv{SortS{}}("v"))"#);
+        for (initial, condition) in [
+            (
+                r#"wrap{}(\and{SortS{}}(\dv{SortS{}}("v"), \dv{SortS{}}("v")))"#,
+                vec![],
+            ),
+            (
+                r#"wrap{}(\and{SortS{}}(X:SortS{}, \dv{SortS{}}("v")))"#,
+                vec![Predicate::Equals(
+                    term("X:SortS{}"),
+                    term(r#"\dv{SortS{}}("v")"#),
+                )],
+            ),
+            (
+                r#"wrap{}(\and{SortS{}}(partial{}(\dv{SortS{}}("v")), \dv{SortS{}}("w")))"#,
+                vec![
+                    Predicate::Ceil(partial.clone()),
+                    Predicate::Equals(partial.clone(), term(r#"\dv{SortS{}}("w")"#)),
+                ],
+            ),
+        ] {
+            let found = search(initial);
+            assert!(
+                found.incomplete.is_empty(),
+                "{initial}: {:?}",
+                found.incomplete
+            );
+            let [m] = found.matches.as_slice() else {
+                panic!("{initial}: expected one match, found {:?}", found.matches);
+            };
+            assert!(m.state.pattern.constraints.is_empty(), "{initial}: {m:#?}");
+            assert_eq!(m.constraints, condition, "{initial}: {m:#?}");
+            assert!(m.diagnostics.is_empty(), "{initial}: {m:#?}");
+        }
+    }
+
+    /// `hold(#if X ==Int 0 #then 1 #else 1 /Int imp() #fi)`, `imp` impure: the definedness of
+    /// the operand the conditional does not evaluate rests on an effect, so no predicate states
+    /// it. Such a state is an incomplete entry, never a solution, whether it is the initial
+    /// state (with no rule to apply) or a step's result: the state's normalization stops with
+    /// the unsupported-hook outcome before any match is tried, so `match_condition`'s own arm for
+    /// it is not reached here.
+    #[test]
+    fn a_state_whose_definedness_rests_on_an_impure_application_is_no_solution() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol tdiv{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+                hooked-symbol ite{}(SortBool{}, SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ite")]
+                hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+                symbol imp{}() : SortInt{} [function{}(), total{}(), impure{}()]
+                sort SortState{} []
+                symbol hold{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol start{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(start{}(), \top{SortState{}}()),
+                    hold{}(ite{}(eqInt{}(Y:SortInt{}, \dv{SortInt{}}("0")), \dv{SortInt{}}("1"), tdiv{}(\dv{SortInt{}}("1"), imp{}())))
+                ) [label{}("step")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let target = pattern(&definition, "R:SortState{}");
+        let held = r#"hold{}(ite{}(eqInt{}(X:SortInt{}, \dv{SortInt{}}("0")), \dv{SortInt{}}("1"), tdiv{}(\dv{SortInt{}}("1"), imp{}())))"#;
+        for initial in [held, "start{}()"] {
+            let found = search_pattern(
+                &definition,
+                pattern(&definition, initial),
+                &target,
+                SearchOptions {
+                    search_type: SearchType::Star,
+                    ..SearchOptions::default()
+                },
+            );
+            assert!(
+                found
+                    .matches
+                    .iter()
+                    .all(|m| m.state.pattern == pattern(&definition, "start{}()")),
+                "{initial}: {found:#?}"
+            );
+            let [
+                IncompleteSearch::Simplification {
+                    error: SimplificationError::UnsupportedHook { hook, .. },
+                    ..
+                },
+            ] = found.incomplete.as_slice()
+            else {
+                panic!("{initial}: expected one unsupported-hook entry, found {found:#?}");
+            };
+            assert_eq!(hook, "imp", "{initial}");
+        }
     }
 
     /// A definition with a partial `divInt` (no `total` attribute, no ceil equation) and a

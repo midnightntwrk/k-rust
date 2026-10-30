@@ -228,7 +228,11 @@ fn a_search_match_has_an_empty_condition_only_when_its_state_has_an_instance() {
     ))
     .unwrap();
     let read_back = search(stated);
-    assert_eq!(conditions(&read_back), [condition.clone()], "{read_back:?}");
+    assert_eq!(
+        conditions(&read_back),
+        std::slice::from_ref(condition),
+        "{read_back:?}"
+    );
 }
 
 /// A function the initial configuration applies that equals `#Bottom` makes the initial

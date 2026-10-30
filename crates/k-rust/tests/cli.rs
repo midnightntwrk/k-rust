@@ -23995,6 +23995,10 @@ fn krun_success(source: &str, arguments: &[&str]) -> String {
 /// A `krun --search` solution states the definedness of its state that the match leaves
 /// undecided: `g(f(3))`, `f` partial with no equation for `3`, is a solution under
 /// `\ceil(f(3))`; `g(h(3))`, `h` total, under no condition.
+/// The fact `\ceil(f(3))` of a state holding `f(3)`, as `krun` prints it in a condition.
+const CEIL_OF_F_OF_3: &str =
+    r#"\ceil{SortInt{}, SortGeneratedTopCell{}}(Lblf{}(\dv{SortInt{}}("3")))"#;
+
 #[test]
 fn krun_search_states_the_undecided_definedness_of_a_reached_state() {
     let search = |program: &str| {
@@ -24014,12 +24018,40 @@ fn krun_search_states_the_undecided_definedness_of_a_reached_state() {
         )
     };
     let undefined = search("p(3)");
-    assert!(
-        undefined.contains(r"\ceil{") && undefined.contains(r#"Lblf{}(\dv{SortInt{}}("3"))"#),
-        "{undefined}"
-    );
+    assert!(undefined.contains(CEIL_OF_F_OF_3), "{undefined}");
     let total = search("t(3)");
     assert!(!total.contains(r"\ceil{"), "{total}");
+}
+
+#[test]
+fn krun_pattern_states_the_undecided_definedness_only_under_a_search() {
+    let run = |extra: &[&str]| {
+        let mut arguments = vec![
+            "--main-module",
+            "EXISTS",
+            "--syntax-module",
+            "EXISTS-SYNTAX",
+            "--sort",
+            "Pgm",
+            "--expression",
+            "p(3)",
+            "--pattern",
+            "<k> g(R:Int) </k>",
+        ];
+        arguments.extend_from_slice(extra);
+        krun_success(SEARCH_EXISTS, &arguments)
+    };
+    // Under a search, the surface pattern is the search target, so its match states the
+    // reached state's undecided fact; on an execution leaf it is matched by `match_disjunction`,
+    // whose condition is relative to the leaf's instances and assumes the fact.
+    let searched = run(&["--search-final"]);
+    assert!(searched.contains(CEIL_OF_F_OF_3), "{searched}");
+    let executed = run(&[]);
+    assert!(
+        executed.contains(r#"\equals{SortInt{}, SortGeneratedTopCell{}}(VarR:SortInt{}, Lblf{}(\dv{SortInt{}}("3")))"#),
+        "{executed}"
+    );
+    assert!(!executed.contains(r"\ceil{"), "{executed}");
 }
 
 #[test]
