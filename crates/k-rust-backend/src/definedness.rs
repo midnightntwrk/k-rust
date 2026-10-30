@@ -1293,8 +1293,10 @@ fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<
                 // of performing it, which no predicate over the instance states: the condition
                 // would be a predicate over a value only the effect's performance gives, as
                 // `\ceil(project:Int(#getc(N)))` would become `\exists V. #getc(N) = inj(V)`.
-                // The ceil of such an application stays its own atom, as for an operand that
-                // is not evaluated (`crate::deferred`, `IMPURE_UNDER_OBLIGATION`); simplifying
+                // In these obligations the ceil of such an application stays its own atom, as
+                // for an operand that is not evaluated (`crate::deferred`,
+                // `IMPURE_UNDER_OBLIGATION`); the simplifier's own reading of a `\ceil` it meets
+                // still uses the instance, a true equality. Simplifying
                 // the condition would also meet the effect's application unevaluated where no
                 // run needs its value (the load's discharge of a rule's right-hand side).
                 if substitution
