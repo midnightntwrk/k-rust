@@ -100,13 +100,17 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // read `x`, 3 elements in an alias subject's set concatenation, and 2 spellings
             // reading an initializer's configuration variable in a `let` body; the 2 static
             // productions' applications at the 35 matched slots of depth 1 below a subject's
-            // root; and the 2 values a framed `cells!` result map writes at one key twice.
-            (Family::Terms, 106 * 47 + 3 + 2 + 35 * 2 + 2),
-            // 84 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
-            (Family::Import, 84 * 2),
+            // root; the 2 values a framed `cells!` result map writes at one key twice, the 2 it
+            // writes over a map the subject binds whole, and the 2 keys it writes over a framed
+            // map's remainder.
+            (Family::Terms, 106 * 47 + 3 + 2 + 35 * 2 + 2 + 2 + 2),
+            // 86 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
+            (Family::Import, 86 * 2),
             // The term family's 106 positions × (6 collection notation forms and their calls, and
             // 8 collection literals and the 7 calls they denote apart from the method's).
             (Family::Notation, 106 * (12 + 15)),
+            // 18 forms × 22 attributes, and 26 malformed attributes.
+            (Family::Attributes, 18 * 22 + 26),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
@@ -166,8 +170,9 @@ fn ids_are_spelled_from_the_axes_and_commands_are_unique() {
 }
 
 /// Check a placed case's ranges: they nest, the item is the case's item, and the spelling is
-/// the construct, except for a field-order case, whose construct names the order and whose
-/// spelling is the whole field list, or the nested group's.
+/// the construct (an attribute's `TAG` written as the case's tag), except for a field-order case,
+/// whose construct names the order and whose spelling is the whole field list, or the nested
+/// group's.
 fn assert_placed(source: &str, placed: &Placed<'_>) {
     let case = placed.case;
     assert_eq!(&source[placed.item.clone()], case.item(), "{}", case.id);
@@ -195,6 +200,13 @@ fn assert_placed(source: &str, placed: &Placed<'_>) {
             .collect::<Vec<_>>();
         cells.sort_unstable();
         assert_eq!(cells, declared, "{}", case.id);
+    } else if case.family == Family::Attributes {
+        assert_eq!(
+            written,
+            case.construct.replace("TAG", &case.tag()),
+            "{}",
+            case.id
+        );
     } else {
         assert_eq!(written, case.construct, "{}", case.id);
     }
@@ -1613,6 +1625,7 @@ fn error(code: Option<&str>, range: Option<Range<usize>>, message: &str) -> Obse
         range,
         labels: Vec::new(),
         message: message.to_owned(),
+        help: Vec::new(),
     }
 }
 
@@ -1860,6 +1873,7 @@ fn the_table_free_invariants_judge_a_refusal_without_the_table() {
                 range: None,
                 labels: Vec::new(),
                 message: "unused import".to_owned(),
+                help: Vec::new(),
             },
         ],
         panic: None,

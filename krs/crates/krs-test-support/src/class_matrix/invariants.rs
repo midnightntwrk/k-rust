@@ -72,6 +72,8 @@ pub struct ObservedDiagnostic {
     pub labels: Vec<Range<usize>>,
     /// The message.
     pub message: String,
+    /// The help lines the diagnostic shows after its message.
+    pub help: Vec<String>,
 }
 
 impl ObservedDiagnostic {

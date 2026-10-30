@@ -144,12 +144,13 @@ fn every_cases_k7_status_is_counted() {
 }
 
 const STATUSES: &[&str] = &[
-    "766 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
-    "152 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
-    "156 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
-    "382 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
+    "810 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
+    "174 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
+    "178 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
+    "26 no driver: a malformed attribute is refused",
+    "404 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
     "75 no driver: the base applies no function but Probe and Size from a rule",
-    "152 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
+    "174 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "674 no driver: the readable, claim and `cells!` families read cells the machine and typed bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
     "5 no value: Size is partial and the base gives it no equation, so the definition names no value of its application",
     "33 no value: a cell fragment, which no term of a KItem position is",
@@ -190,11 +191,12 @@ const STATUSES: &[&str] = &[
     "1 no witness: a program writes set{1, Cmd::Hold(1)} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "14 no witness: a program writes set{1} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "8 no witness: a program writes set{} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "76 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "3 no witness: the program would hold a value the generator does not state",
-    "1002 runs a counter-witness",
-    "1252 runs, liveness",
-    "2425 runs, value",
+    "1022 runs a counter-witness",
+    "1446 runs, liveness",
+    "2491 runs, value",
 ];
 
 /// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern

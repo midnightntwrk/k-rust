@@ -547,6 +547,46 @@ impl Driver<'_> {
                     value.status,
                 )
             }
+            // `map![x -> HOLE, ..m]` over the whole map `m`, `{1 ↦ 0, 2 ↦ 0}`: the entry is written
+            // over it.
+            ("cells", "result-map-whole") => {
+                let value = self.value()?;
+                Self::set_up(
+                    setup(
+                        "SetEnv",
+                        vec![Ground::map(vec![(one(), int(0)), (int(2), int(0))])],
+                    ),
+                    reading(),
+                    vec![
+                        k(empty_items()),
+                        (
+                            "env",
+                            Ground::map(vec![(one(), value.term), (int(2), int(0))]),
+                        ),
+                    ],
+                    value.status,
+                )
+            }
+            // `map![HOLE -> 1, ..rest]` over the remainder `{2 ↦ 0}` the subject's `x -> v` leaves
+            // of `{1 ↦ 0, 2 ↦ 0}`: the entry is written over the remainder.
+            ("cells", "result-map-framed-key") => {
+                let key = self.value()?;
+                Self::set_up(
+                    setup(
+                        "SetEnv",
+                        vec![Ground::map(vec![(one(), int(0)), (int(2), int(0))])],
+                    ),
+                    reading(),
+                    vec![
+                        k(empty_items()),
+                        (
+                            "env",
+                            Ground::map(vec![(int(2), int(0)), (key.term, one())]),
+                        ),
+                    ],
+                    key.status,
+                )
+            }
             ("readable", "list-element") => {
                 let witness = self.witness()?;
                 let list = setup("SetStack", vec![Ground::List(vec![witness.term])]);

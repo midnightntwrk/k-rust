@@ -32,7 +32,10 @@
 //!   `terms/equation/guard/k::is!(Int, x)`, `terms/rule/subject-root/_`,
 //!   `terms/sort-rule/result/let-body/Size(x)`;
 //! - the import axis: two bare variants at every position of depth 1 under a module-level
-//!   `use Cmd::*;`, `import/table/subject/Go()`.
+//!   `use Cmd::*;`, `import/table/subject/Go()`;
+//! - the attribute axis ([`attributes`]): every attribute an author writes on a sentence (a key of
+//!   its marker, a helper beside it) on every sentence form, on the form's term slot template,
+//!   judged by the attribute oracle, `attrs/rule/owise`, `attrs/alias/#[k::requires(..)]`.
 //!
 //! A case's ID is spelled from its axes, as above, so the expected-outcome table ([`table`])
 //! can match IDs with globs and an ID stays stable when other cases are added. A construct
@@ -68,6 +71,8 @@
 //! budget: the fast tier runs every case in-process, and the cap, not a timed assertion, keeps it
 //! inside its budget.
 
+pub mod advice;
+pub mod attributes;
 mod cells;
 pub mod entry_points;
 pub mod invariants;
@@ -100,6 +105,7 @@ pub const FRONT_SHARDS: [&[Family]; 3] = [
         Family::Cells,
         Family::Init,
         Family::Import,
+        Family::Attributes,
     ],
     &[Family::Notation],
     &[Family::Terms],
@@ -125,11 +131,14 @@ pub enum Family {
     /// at a term position: the term family's positions, templates and oracle, kept apart so that
     /// each shard of the fast tier stays within its budget ([`FRONT_SHARDS`]).
     Notation,
+    /// An attribute on a sentence form ([`attributes`]), written on the form's term slot
+    /// template.
+    Attributes,
 }
 
 impl Family {
     /// Every family, in ID order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Readable,
         Self::Claim,
         Self::Cells,
@@ -137,6 +146,7 @@ impl Family {
         Self::Terms,
         Self::Import,
         Self::Notation,
+        Self::Attributes,
     ];
 
     /// The first segment of the IDs of this family's cases.
@@ -150,6 +160,7 @@ impl Family {
             Self::Terms => "terms",
             Self::Import => "import",
             Self::Notation => "notation",
+            Self::Attributes => "attrs",
         }
     }
 }
@@ -451,6 +462,9 @@ pub struct Case {
     /// what another case's program holds, so K7 runs it, and the cases beside it, on definitions
     /// apart.
     pub unkeyed: bool,
+    /// An attribute case's form and attribute, which the attribute axis's oracle reads
+    /// ([`Case::oracle`]); `None` outside the attribute family.
+    pub attribute: Option<attributes::Pair>,
     item: String,
     spelling: Range<usize>,
     entry: Range<usize>,
@@ -479,12 +493,14 @@ impl Case {
         }
     }
 
-    /// The oracle's outcome for a term case, `None` for a case of another family.
+    /// The oracle's outcome for a term case or an attribute case, `None` for a case of another
+    /// family.
     #[must_use]
     pub fn oracle(&self) -> Option<oracle::Outcome> {
         self.term
             .as_ref()
             .map(|term| oracle::expected(term.position, &term.nodes))
+            .or_else(|| self.attribute.map(attributes::Pair::expected))
     }
 
     /// Whether the case replaces its base's initializer.
@@ -777,6 +793,7 @@ impl CaseSpec {
             ),
             k7_counter: None,
             unkeyed: false,
+            attribute: None,
             item: item.text.clone(),
             spelling,
             entry,

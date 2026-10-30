@@ -23,6 +23,7 @@
 //! Each spelling ([`spellings`]) declares its [`Node`]s, which the oracle ([`super::oracle`])
 //! reads with the slot's position.
 
+mod attributes;
 mod drivers;
 
 use std::fmt::Write as _;
@@ -1223,6 +1224,8 @@ enum Binder {
     /// `z`, a name the pattern binds in a key only.
     Fresh,
     Value,
+    /// `m`, a whole map cell's content.
+    WholeMap,
 }
 
 /// One term position of one form: its template, in which `HOLE` is the construct, `TAG` the
@@ -1420,14 +1423,17 @@ impl Slot {
     fn binders(&self, construct: &str) -> String {
         let mut binders = String::new();
         for binder in self.binders {
-            let name = match binder {
-                Binder::X => "x",
-                Binder::Value => "v",
-                Binder::Fresh => "z",
-                Binder::Alias if self.side == Side::Subject && construct.starts_with("y @ ") => "y",
+            let (name, sort) = match binder {
+                Binder::X => ("x", "KItem"),
+                Binder::Value => ("v", "KItem"),
+                Binder::Fresh => ("z", "KItem"),
+                Binder::WholeMap => ("m", "Map"),
+                Binder::Alias if self.side == Side::Subject && construct.starts_with("y @ ") => {
+                    ("y", "KItem")
+                }
                 Binder::Alias => continue,
             };
-            writeln!(binders, "    {name}: KItem,").expect("writing to a String cannot fail");
+            writeln!(binders, "    {name}: {sort},").expect("writing to a String cannot fail");
         }
         binders
     }
@@ -1497,7 +1503,7 @@ const CELLS_TAIL: &str = "k: k::configuration::KCell(..tail)";
     reason = "One list of the closed slot set; each entry is one position."
 )]
 fn slots() -> Vec<Slot> {
-    use Binder::{Alias as Y, Value as V, X};
+    use Binder::{Alias as Y, Value as V, WholeMap as M, X};
     let mut slots = vec![
         // A `#[k::rule]` fn.
         slot(
@@ -1650,6 +1656,27 @@ fn slots() -> Vec<Slot> {
             "",
         )
         .holding(Holds::Only(&["Cmd::Go()", "Cmd::Hold(x)"])),
+        // The form NT-9-1's refusal advises: entries written over a map the subject binds whole,
+        // `map![x -> HOLE, ..m]` over `Cell(m)`.
+        slot(
+            "cells",
+            "result-map-whole",
+            Side::Result,
+            (CellsRule, Part::Result, &[MapValue]),
+            "",
+        )
+        .holding(Holds::Only(&["Cmd::Go()", "Cmd::Hold(x)"])),
+        // A key the framed subject does not match, written over the remainder it leaves:
+        // `map![HOLE -> 1, ..rest]` over `map![x -> v, rest @ ..]` (finding NT-9-1 for a key other
+        // than `x`).
+        slot(
+            "cells",
+            "result-map-framed-key",
+            Side::Result,
+            (CellsRule, Part::Result, &[MapKey]),
+            "",
+        )
+        .holding(Holds::Only(&["x", "1"])),
         // A single-body `cells!` rule, a `cells!` claim and a context alias.
         slot(
             "cells-local",
@@ -2341,6 +2368,24 @@ fn slots() -> Vec<Slot> {
                 ),
                 &[X, V],
             ),
+            ("cells", "result-map-whole") => (
+                cells_rule(
+                    &format!("{CELLS_COMMAND}, env: k::configuration::Cell(m)"),
+                    &format!("{CELLS_TAIL}, env: k::configuration::Cell(k::map![x -> HOLE, ..m])"),
+                ),
+                &[X, M],
+            ),
+            ("cells", "result-map-framed-key") => (
+                cells_rule(
+                    &format!(
+                        "{CELLS_COMMAND}, env: k::configuration::Cell(k::map![x -> v, rest @ ..])"
+                    ),
+                    &format!(
+                        "{CELLS_TAIL}, env: k::configuration::Cell(k::map![HOLE -> 1, ..rest])"
+                    ),
+                ),
+                &[X, V],
+            ),
             ("init", "variable-item") => (variable_initializer("Cmd::Hold(HOLE)"), &[]),
             ("init", position) => (
                 initializer(match position {
@@ -2686,6 +2731,7 @@ pub(super) fn cases(cases: &mut Vec<Case>) {
             }
         }
     }
+    attributes::cases(cases);
 }
 
 fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {

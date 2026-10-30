@@ -54,7 +54,8 @@ use super::positions::{
     Slot,
 };
 
-/// Declares [`Class`]: each variant with its name in `expected.toml`.
+/// Declares [`Class`]: each variant with its name in `expected.toml`. The attribute axis's oracle
+/// ([`super::attributes`]) answers with the classes listed last.
 macro_rules! classes {
     ($($variant:ident => $name:literal,)*) => {
         /// A mistake class the oracle answers with: a `[class]` entry of `expected.toml`, which
@@ -119,6 +120,34 @@ classes! {
     WildcardAtSubjectRoot => "wildcard-at-subject-root",
     WildcardInAliasSubject => "wildcard-in-alias-subject",
     WildcardOutsidePattern => "wildcard-outside-pattern",
+    // The attribute axis's classes (`super::attributes`).
+    AnywhereOutsideTermRule => "anywhere-outside-term-rule",
+    ConditionOnStaticClause => "condition-on-static-clause",
+    DuplicateKey => "duplicate-key",
+    EvaluationKeyWithoutEvaluation => "evaluation-key-without-evaluation",
+    ExistentialOutsideStep => "existential-outside-step",
+    FreshOutsideStep => "fresh-outside-step",
+    HelperOnConstant => "helper-on-constant",
+    HelperOnContextAlias => "helper-on-context-alias",
+    HelperOnInitializer => "helper-on-initializer",
+    HelperOnShorthand => "helper-on-shorthand",
+    HelperOnTableRow => "helper-on-table-row",
+    KeyValueShape => "key-value-shape",
+    KeysTogether => "keys-together",
+    MissingKey => "missing-key",
+    NondetOnFunction => "nondet-on-function",
+    OrderOnUnorderedSentence => "order-on-unordered-sentence",
+    PayloadOnBareMarker => "payload-on-bare-marker",
+    PriorityRange => "priority-range",
+    RecursiveOnClause => "recursive-on-clause",
+    RestrictionBinder => "restriction-binder",
+    RestrictionOutsideFunction => "restriction-outside-function",
+    RestrictionShape => "restriction-shape",
+    RetiredAttribute => "retired-attribute",
+    SmtLemmaUntranslatable => "smt-lemma-untranslatable",
+    UnboundVariablesOutsideDesugar => "unbound-variables-outside-desugar",
+    UnboundVariablesShape => "unbound-variables-shape",
+    UnknownKey => "unknown-key",
 }
 
 /// What a refusal is told by.

@@ -24,4 +24,4 @@ toml_edit = { workspace = true, features = ["parse"] }
 krs-expand = { path = "../krs-expand" }
 krs-ir = { path = "../krs-ir" }
 krs-syntax = { path = "../krs-syntax" }
-syn.workspace = true
+syn = { workspace = true, features = ["full", "visit"] }
