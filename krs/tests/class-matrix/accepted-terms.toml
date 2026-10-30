@@ -5,11 +5,27 @@
 # --shard import --shard notation --shard attrs`) and reviewed as a diff, never by hand; an entry
 # without `k` is a case the oracle accepts and the product refuses today.
 
+[accept."attrs/alias/recursive production"]
+k = """
+rule cTAG ( V0:KItem , 1 ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), alias-rec, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/cells-claim/#[k::ensures(k::is!(Int, x))]"]
 k = """
 claim [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 ensures isInt(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/cells-claim/#[k::ensures(k::is!(Word, x))]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+ensures isWord(V0:KItem)
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -77,6 +93,8 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."attrs/cells-local/#[k::ensures(k::is!(Int, x))]"]
 
+[accept."attrs/cells-local/#[k::ensures(k::is!(Word, x))]"]
+
 [accept."attrs/cells-local/#[k::exists(n: Int)]"]
 
 [accept."attrs/cells-local/#[k::fresh(l: Int)]"]
@@ -113,6 +131,15 @@ k = """
 rule [case_TAG]:
 <k> cTAG ( (V0:KItem => go) , _ ) ... </k>
 [heat]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/cells-local/heat, hole = x, result = Word"]
+k = """
+rule [case_TAG]:
+<k> cTAG ( (V0:KItem => go) , _ ) ... </k>
+[heat, result(Word)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -162,11 +189,33 @@ rule [sib_TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/cells-local/priority = 40"]
+k = """
+rule [case_TAG]:
+<k> cTAG ( (V0:KItem => go) , _ ) ... </k>
+[priority(40)]
+
+rule [sib_TAG]:
+<k> cTAG ( (2 => 3) , _ ) ... </k>
+[priority(30)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/cells/#[k::ensures(k::is!(Int, x))]"]
 k = """
 rule [case_TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 ensures isInt(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/cells/#[k::ensures(k::is!(Word, x))]"]
+k = """
+rule [case_TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+ensures isWord(V0:KItem)
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -225,6 +274,15 @@ rule [case_TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/cells/heat, hole = x, result = Word"]
+k = """
+rule [case_TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+[heat, result(Word)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept.'attrs/cells/label = "named-TAG"']
 k = """
 rule [named-TAG]:
@@ -270,11 +328,33 @@ rule [sib_TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/cells/priority = 40"]
+k = """
+rule [case_TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+[priority(40)]
+
+rule [sib_TAG]:
+<k> cTAG ( 2 , _ ) => go ... </k>
+[priority(30)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/claim/#[k::ensures(k::is!(Int, x))]"]
 k = """
 claim [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 ensures isInt(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/claim/#[k::ensures(k::is!(Word, x))]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+ensures isWord(V0:KItem)
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -374,6 +454,13 @@ context [case-TAG]: cTAG ( V0:KItem , V1:KItem , _ )
 syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
 """
 
+[accept."attrs/desugar/recursive production"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro-rec, format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/desugar/unbound_variables = [y]"]
 k = """
 rule cTAG ( V0:KItem , _ ) => pair ( V0:KItem , V1:KItem ) [unboundVariables(V1), label(krsRule_DIGEST)]
@@ -404,6 +491,8 @@ rule probe ( cTAG , V0:KItem ) => 0 [concrete, label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."attrs/equation/concrete(x)"]
+
 [accept.'attrs/equation/label = "named-TAG"']
 
 [accept."attrs/equation/owise"]
@@ -424,6 +513,36 @@ rule probe ( cTAG , V0:KItem ) => 0 [priority(20), label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."attrs/equation/priority = 40"]
+k = """
+rule probe ( cTAG , 2 ) => 2 [priority(30), label(krsRule_DIGEST)]
+
+rule probe ( cTAG , V0:KItem ) => 0 [priority(40), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."attrs/equation/requires before the marker"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0
+requires isWord(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."attrs/equation/requires twice"]
+
+[accept."attrs/equation/smt_lemma of an smtlib function"]
+k = """
+// A function the solver has a symbol for.
+
+rule twinTAG ( V0:Int , 1 ) => V0:Int [smt-lemma, label(krsRule_DIGEST)]
+
+syntax Int ::= "twinTAG" "(" Int "," Int ")" [symbol(twinTAG), function, smtlib(twinTAG)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."attrs/equation/symbolic"]
 k = """
 rule probe ( cTAG , V0:KItem ) => 0 [symbolic, label(krsRule_DIGEST)]
@@ -432,6 +551,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."attrs/local-rule/#[k::ensures(k::is!(Int, x))]"]
+
+[accept."attrs/local-rule/#[k::ensures(k::is!(Word, x))]"]
 
 [accept."attrs/local-rule/#[k::exists(n: Int)]"]
 
@@ -465,6 +586,13 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 [accept."attrs/local-rule/heat, hole = x"]
 k = """
 rule cTAG ( (V0:KItem => go) , _ ) [heat, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/local-rule/heat, hole = x, result = Word"]
+k = """
+rule cTAG ( (V0:KItem => go) , _ ) [heat, result(Word), label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -503,11 +631,29 @@ rule cTAG ( (V0:KItem => go) , _ ) [priority(20), label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/local-rule/priority = 40"]
+k = """
+rule cTAG ( (2 => 3) , _ ) [priority(30), label(krsRule_DIGEST)]
+
+rule cTAG ( (V0:KItem => go) , _ ) [priority(40), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/readable/#[k::ensures(k::is!(Int, x))]"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 ensures isInt(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/readable/#[k::ensures(k::is!(Word, x))]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+ensures isWord(V0:KItem)
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -548,6 +694,19 @@ requires isWord(V0:KItem)
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/readable/cfg that does not hold"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/readable/cfg that holds"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/readable/cool, hole = x"]
 k = """
 rule [case-TAG]:
@@ -557,11 +716,28 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/readable/doc"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/readable/heat, hole = x"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
 [heat]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/readable/heat, hole = x, result = Word"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+[heat, result(Word)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -611,10 +787,33 @@ rule [sib-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/readable/priority = 40"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => .K ... </k>
+[priority(40)]
+
+rule [sib-TAG]:
+<k> cTAG ( 2 , _ ) => go ... </k>
+[priority(30)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/readable/requires twice"]
+
 [accept."attrs/rule/#[k::ensures(k::is!(Int, x))]"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
 ensures isInt(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/rule/#[k::ensures(k::is!(Word, x))]"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+ensures isWord(V0:KItem) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -667,9 +866,24 @@ rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [cool, label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/rule/ensures before the marker"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
+ensures isWord(V0:KItem) [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/rule/heat, hole = x"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [heat, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/rule/heat, hole = x, result = Word"]
+k = """
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [heat, result(Word), label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -708,6 +922,19 @@ rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [priority(20), label(krsRule_DIG
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/rule/priority = 40"]
+k = """
+rule cTAG ( 2 , _ ) => go [priority(30), label(krsRule_DIGEST)]
+
+rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) [priority(40), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/rule/requires before the marker"]
+
+[accept."attrs/rule/requires twice"]
+
 [accept."attrs/shorthand/#[k::requires(k::is!(Int, x))]"]
 k = """
 rule fTAG ( V0:KItem ) => size ( V0:KItem )
@@ -727,6 +954,8 @@ syntax Int ::= "fTAG" "(" KItem ")" [symbol(fTAG), function]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+
+[accept.'attrs/shorthand/label = "named-TAG"']
 
 [accept."attrs/simplification/#[k::requires(k::is!(Int, x))]"]
 k = """
@@ -751,11 +980,36 @@ rule probe ( cTAG , V0:KItem ) => 0 [simplification, concrete, label(krsRule_DIG
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."attrs/simplification/concrete(x)"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [simplification, concrete(V0), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept.'attrs/simplification/label = "named-TAG"']
 
 [accept."attrs/simplification/priority = 20"]
 k = """
 rule probe ( cTAG , V0:KItem ) => 0 [simplification(20), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."attrs/simplification/priority = 40"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [simplification(40), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."attrs/simplification/smt_lemma of an smtlib function"]
+k = """
+// A function the solver has a symbol for.
+
+rule twinTAG ( V0:Int , 1 ) => V0:Int [simplification, smt-lemma, label(krsRule_DIGEST)]
+
+syntax Int ::= "twinTAG" "(" Int "," Int ")" [symbol(twinTAG), function, smtlib(twinTAG)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -772,6 +1026,15 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
 ensures isInt(V0:KItem)
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/sort-rule/#[k::ensures(k::is!(Word, x))]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+ensures isWord(V0:KItem)
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -814,6 +1077,19 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 
 [accept."attrs/sort-rule/anywhere"]
 
+[accept."attrs/sort-rule/cfg that does not hold"]
+k = """
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/sort-rule/cfg that holds"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/sort-rule/cool, hole = x"]
 k = """
 rule [case-TAG]:
@@ -823,11 +1099,28 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/sort-rule/doc"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/sort-rule/heat, hole = x"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
 [heat]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."attrs/sort-rule/heat, hole = x, result = Word"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+[heat, result(Word)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -877,6 +1170,19 @@ rule [sib-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."attrs/sort-rule/priority = 40"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => hold ( V0:KItem ) ... </k>
+[priority(40)]
+
+rule [sib-TAG]:
+<k> cTAG ( 2 , _ ) => go ... </k>
+[priority(30)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."attrs/table/#[k::requires(k::is!(Int, x))]"]
 k = """
 rule probe ( cTAG , V0:KItem ) => 0
@@ -893,9 +1199,30 @@ requires isWord(V0:KItem) [label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."attrs/table/cfg that does not hold"]
+k = """
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."attrs/table/cfg that holds"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."attrs/table/concrete"]
 k = """
 rule probe ( cTAG , V0:KItem ) => 0 [concrete, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."attrs/table/concrete(x)"]
+
+[accept."attrs/table/doc"]
+k = """
+rule probe ( cTAG , V0:KItem ) => 0 [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -916,6 +1243,26 @@ k = """
 rule probe ( cTAG , 2 ) => 2 [priority(30), label(krsRule_DIGEST)]
 
 rule probe ( cTAG , V0:KItem ) => 0 [priority(20), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."attrs/table/priority = 40"]
+k = """
+rule probe ( cTAG , 2 ) => 2 [priority(30), label(krsRule_DIGEST)]
+
+rule probe ( cTAG , V0:KItem ) => 0 [priority(40), label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."attrs/table/smt_lemma of an smtlib function"]
+k = """
+// A function the solver has a symbol for.
+
+rule twinTAG ( V0:Int , 1 ) => V0:Int [smt-lemma, label(krsRule_DIGEST)]
+
+syntax Int ::= "twinTAG" "(" Int "," Int ")" [symbol(twinTAG), function, smtlib(twinTAG)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """

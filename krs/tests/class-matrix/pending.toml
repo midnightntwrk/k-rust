@@ -6753,8 +6753,113 @@ finding = "NT-12-7"
 deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = k[map{0 -> 2, Cmd::Go() -> 1}], frame.ret = 0, where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 2, Cmd::Go() -> 1}, frame.ret = 0"
 
 
-# K8 (NT-13): the attribute axis's cases (`attrs/..`), the terms slot writing NT-9-1's key, and the
-# advice check's verdicts (`k8/..`), grouped by finding. First run on main `580dca4a2`.
+# K8 (NT-13): the attribute axis's cases (`attrs/..`), the terms slots writing NT-9-1's key, and
+# the advice check's verdicts (`k8/..`), grouped by finding. A `k8/` entry of a case whose K2
+# entry is pending above belongs to that entry's finding (the refusal it reads is that finding's).
+# First run on main `580dca4a2`; regenerated after the NT-13 review.
+
+# NT-2-4 (K8): the advice check on cases pending above under NT-2-4, whose refusal it reads.
+
+["k8/terms/rule/guard/closure-body/Cmd::Pair { a: x, .. }"]
+finding = "NT-2-4"
+deviation = "open-record-outside-pattern advises none, and its refusal advises `int::eq`"
+
+
+# NT-2-14 (K8): the advice check on cases pending above under NT-2-14, whose refusal it reads.
+
+["k8/terms/alias/result-root-ground/y @ Cmd::Hold(_)"]
+finding = "NT-2-14"
+deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
+
+["k8/terms/alias/result/y @ Cmd::Hold(_)"]
+finding = "NT-2-14"
+deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
+
+["k8/terms/desugar/result-root/y @ Cmd::Hold(_)"]
+finding = "NT-2-14"
+deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
+
+["k8/terms/desugar/result/y @ Cmd::Hold(_)"]
+finding = "NT-2-14"
+deviation = "alias-outside-pattern advises none, and its refusal advises `#[k::constructor(...)]`"
+
+
+# NT-2-27 (K8): the advice check on cases pending above under NT-2-27, whose refusal it reads.
+
+["k8/terms/context-alias/item-root/k::builtin::int::add(x, 1)"]
+finding = "NT-2-27"
+deviation = "binder-sort's refusal advises `#[k::simplification]`, which cells/subject/pc/k::configuration::Cell(x) does not write (attrs/simplification/#[k::requires(k::is!(Int, x))] does)"
+
+["k8/terms/context-alias/subject/k::builtin::int::add(x, 1)"]
+finding = "NT-2-27"
+deviation = "binder-sort's refusal advises `#[k::simplification]`, which cells/subject/pc/k::configuration::Cell(x) does not write (attrs/simplification/#[k::requires(k::is!(Int, x))] does)"
+
+
+# NT-3-1 (K8): the advice check on cases pending above under NT-3-1, whose refusal it reads.
+
+["k8/terms/rule/subject/set-element/!(x < 1)"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `int::bit_not(..)`"
+
+["k8/terms/rule/subject/set-element/-(x + 1)"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `int::sub(0, ..)`"
+
+["k8/terms/rule/subject/set-element/k::is!(Int, x)"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `where x: Sort`"
+
+["k8/terms/rule/subject/set-element/k::project!(Int, x)"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `where x: Sort`"
+
+["k8/terms/rule/subject/set-element/x & 1"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `int::bit_and(..)`"
+
+["k8/terms/rule/subject/set-element/x && true"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `bool::and_then(..)`"
+
+["k8/terms/rule/subject/set-element/x + 1"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `int::add(..)`"
+
+["k8/terms/rule/subject/set-element/x < 1"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `int::lt(..)`"
+
+["k8/terms/rule/subject/set-element/x << 1"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `int::shift_left(..)`"
+
+["k8/terms/rule/subject/set-element/x == 1"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `int::eq(..)`"
+
+["k8/terms/rule/subject/set-element/x || true"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `bool::or_else(..)`"
+
+["k8/terms/rule/subject/set-element/x.add::<Int>(1)"]
+finding = "NT-3-1"
+deviation = "refused where the table accepts, advising `int::add(..)`"
+
+
+# NT-5-1 (K8): the advice check on cases pending above under NT-5-1, whose refusal it reads.
+
+["k8/notation/rule/subject/or-branch/k::builtin::list::item(x)[0]"]
+finding = "NT-5-1"
+deviation = "alternatives-bind-unequally advises none, and its refusal advises `a.bit_or::<Int>(b)`"
+
+["k8/notation/rule/subject/or-branch/k::builtin::map::empty().contains_key(x)"]
+finding = "NT-5-1"
+deviation = "alternatives-bind-unequally advises none, and its refusal advises `a || b`"
+
+["k8/notation/rule/subject/or-branch/k::builtin::map::empty()[x]"]
+finding = "NT-5-1"
+deviation = "alternatives-bind-unequally advises none, and its refusal advises `a.bit_or::<Int>(b)`"
+
 
 # NT-8-3 (K8): `#[k::requires]` on an alias clause, which has no meaning there (an alias rewrites
 # every application of its production as a term is read, and prints back, unconditionally), is
@@ -6771,6 +6876,17 @@ finding = "NT-8-3"
 deviation = "krs::collect::provenance-mismatch @ item"
 
 
+# NT-8-4 (K8): the advice check on cases pending above under NT-8-4, whose refusal it reads.
+
+["k8/terms/alias/subject/Cmd::Az()"]
+finding = "NT-8-4"
+deviation = "refused where the table accepts, advising `Cmd::Az`"
+
+["k8/terms/alias/subject/Cmd::Dz()"]
+finding = "NT-8-4"
+deviation = "refused where the table accepts, advising `Cmd::Dz`"
+
+
 # NT-9-1 (K8's generated case): a framed `cells!` result writing a key the subject did not match,
 # over the remainder: `map![HOLE -> 1, ..rest]` over `map![x -> v, rest @ ..]` at a key other than
 # `x`, refused at the key (`krs::analysis::invalid-term`) advising `map![k -> v, ..m]` over
@@ -6783,6 +6899,18 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["import/cells/result-map-framed-key/Hold(x)"]
 finding = "NT-9-1"
 deviation = "krs::analysis::invalid-term @ spelling"
+
+["k8/import/cells/result-map-framed-key/Go()"]
+finding = "NT-9-1"
+deviation = "refused where the table accepts, advising `env: Cell(m)`, `map![k -> v, ..m]`"
+
+["k8/import/cells/result-map-framed-key/Hold(x)"]
+finding = "NT-9-1"
+deviation = "refused where the table accepts, advising `env: Cell(m)`, `map![k -> v, ..m]`"
+
+["k8/terms/cells/result-map-framed-key/1"]
+finding = "NT-9-1"
+deviation = "refused where the table accepts, advising `env: Cell(m)`, `map![k -> v, ..m]`"
 
 ["terms/cells/result-map-framed-key/1"]
 finding = "NT-9-1"
@@ -6797,17 +6925,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["k8/terms/desugar/subject/Cmd::Go() | Cmd::Hold(_)"]
 finding = "NT-12-5"
 deviation = "advice of alternatives-in-alias-subject: K7: failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdC54ff3ba4' survived expansion"
-
-
-# NT-12-6 (K8, advice): `none-in-initializer`'s advice is "write Some(<template>) and add
-# `initial` if the cell starts present"; its advised case, `init/counter/Some(0)`, writes `Some(0)` on
-# the machine base's `counter`, declared `multiplicity = "?"` without `initial`, and K7 states the
-# cell present, NT-12-6's deviation. By the message, the cell starts absent without `initial`: a
-# datum for NT-12-6's triage (the oracle's statement or the product), which NT-18 decides.
-
-["k8/init/counter/Some(0)"]
-finding = "NT-12-6"
-deviation = "advice of none-in-initializer: K7: another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = <the state holds no cell `counter`>, where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0"
 
 
 # NT-13-1 (K8): a key a claim's `#[k::claim(..)]` does not take (`owise`, `heat`, `concrete`, an
@@ -6829,11 +6946,19 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
+["attrs/cells-claim/concrete(x)"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
 ["attrs/cells-claim/cool, hole = x"]
 finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["attrs/cells-claim/heat, hole = x"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/heat, hole = x, result = Word"]
 finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
@@ -6850,6 +6975,10 @@ finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["attrs/cells-claim/priority = 20"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/priority = 40"]
 finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
@@ -6885,11 +7014,19 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
+["attrs/claim/concrete(x)"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
 ["attrs/claim/cool, hole = x"]
 finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["attrs/claim/heat, hole = x"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/heat, hole = x, result = Word"]
 finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
@@ -6902,6 +7039,10 @@ finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["attrs/claim/priority = 20"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/priority = 40"]
 finding = "NT-13-1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
@@ -6923,7 +7064,8 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 
 # NT-13-2 (K8): a label is refused on an equation, a simplification, a table row
-# (`#[k::equation(label = ..)]`, `#[k::simplification(label = ..)]`: unknown argument) and a
+# (`#[k::equation(label = ..)]`, `#[k::simplification(label = ..)]`: unknown argument), a function
+# shorthand's one equation (`#[k::function(.., label = ..)]`: unknown argument) and a
 # `k::claims!` clause ("labelled by its name: rename the clause"), where a rule fn, a single-body
 # rule, a `k::rules!` clause, a `cells!` rule and claim and a context take one; a label names a
 # sentence whatever its kind, overriding the name its syntax gives it by default. Probe:
@@ -6937,6 +7079,10 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "NT-13-2"
 deviation = "krs::syntax::unknown-argument @ spelling"
 
+["attrs/shorthand/label = \"named-TAG\""]
+finding = "NT-13-2"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
 ["attrs/simplification/label = \"named-TAG\""]
 finding = "NT-13-2"
 deviation = "krs::syntax::unknown-argument @ spelling"
@@ -6946,13 +7092,20 @@ finding = "NT-13-2"
 deviation = "krs::syntax::unknown-argument @ spelling"
 
 
-# NT-13-3 (K8): a single-body rule refuses `#[k::ensures]` ("write a rule with a result"), and
-# `#[k::exists(n: Int)]`/`#[k::fresh(l: Int)]` whose name a `k::rewrite!` writes are refused at
-# that use ("`n` on the right of `k::rewrite!` is not bound by the rule's left image"), outside the
-# attribute: a single-body rule is a transition step, whose after-state these state. Probe:
+# NT-13-3 (K8): a single-body rule takes no `#[k::exists]`, `#[k::ensures]` or `#[k::fresh]`, a
+# documented boundary (docs-site boundaries.mdx:66, "local rewrites": "with no `#[k::exists]`,
+# `#[k::ensures]`, or `#[k::fresh]`"; the oracle, which reads a single-body rule as the transition
+# it is, accepts them, so the cases stay red against the boundary). What is wrong beyond it is the
+# error's site: `#[k::exists(n: Int)]` and `#[k::fresh(l: Int)]` whose name the rewrite writes are
+# refused at that use in `k::rewrite!` ("`n` on the right of `k::rewrite!` is not bound by the
+# rule's left image"), outside the attribute the boundary is about. Probe:
 # `#[k::fresh(l: Int)] fn r(k::term![Cmd::C(k::rewrite!(x => Cmd::Hold(l)), _)]: Term<Stmt>) {}`.
 
 ["attrs/cells-local/#[k::ensures(k::is!(Int, x))]"]
+finding = "NT-13-3"
+deviation = "krs::syntax::invalid-local-rewrite @ spelling"
+
+["attrs/cells-local/#[k::ensures(k::is!(Word, x))]"]
 finding = "NT-13-3"
 deviation = "krs::syntax::invalid-local-rewrite @ spelling"
 
@@ -6968,6 +7121,10 @@ deviation = "krs::syntax::invalid-local-rewrite @ item"
 finding = "NT-13-3"
 deviation = "krs::syntax::invalid-local-rewrite @ spelling"
 
+["attrs/local-rule/#[k::ensures(k::is!(Word, x))]"]
+finding = "NT-13-3"
+deviation = "krs::syntax::invalid-local-rewrite @ spelling"
+
 ["attrs/local-rule/#[k::exists(n: Int)]"]
 finding = "NT-13-3"
 deviation = "krs::syntax::invalid-local-rewrite @ item"
@@ -6977,10 +7134,13 @@ finding = "NT-13-3"
 deviation = "krs::syntax::invalid-local-rewrite @ item"
 
 
-# NT-13-4 (K8): `anywhere` is refused on a `for Sort` clause, which is term-shaped ("write it
-# term-shaped with #[k::rule(anywhere)] fn"), and on a single-body rule ("never an anywhere rule"),
-# whose error lies outside the attribute; both rewrite their subject's root application, which an
-# anywhere rule rewrites wherever it occurs. Probe: `#[k::rule(anywhere)] r: Cmd::C(x, _) => Cmd::Hold(x);` in `for Stmt`.
+# NT-13-4 (K8): `anywhere` on a single-body rule is a documented boundary (boundaries.mdx:66:
+# "a transition (not an anywhere rule)"), but its error lies outside the attribute (at the
+# rewrite); and on a `for Sort` clause, a term-shaped transition, `anywhere` is refused advising
+# "write it term-shaped with #[k::rule(anywhere)] fn": the clause is term-shaped already, so the
+# advice does not apply to what is written (in prose, without a code span, so K8's detector
+# reads no form in it; a single-body rule's "return the result instead" is prose too). Probe:
+# `#[k::rule(anywhere)] r: Cmd::C(x, _) => Cmd::Hold(x);` in `k::rules! { for Stmt; .. }`.
 
 ["attrs/local-rule/anywhere"]
 finding = "NT-13-4"
@@ -7006,6 +7166,10 @@ deviation = "krs::syntax::unsupported-rule-signature @ spelling"
 finding = "NT-13-5"
 deviation = "krs::syntax::invalid-local-rewrite @ spelling"
 
+["attrs/context/#[k::ensures(k::is!(Word, x))]"]
+finding = "NT-13-5"
+deviation = "krs::syntax::invalid-local-rewrite @ spelling"
+
 ["attrs/context/#[k::exists(n: Int)]"]
 finding = "NT-13-5"
 deviation = "krs::syntax::invalid-local-rewrite @ spelling"
@@ -7017,6 +7181,10 @@ deviation = "krs::syntax::invalid-local-rewrite @ spelling"
 # no helper. Probe: `#[k::constant] #[k::requires(true)] pub const K: Stmt = Cmd::Hold(1);`.
 
 ["attrs/constant/#[k::ensures(k::is!(Int, x))]"]
+finding = "NT-13-6"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["attrs/constant/#[k::ensures(k::is!(Word, x))]"]
 finding = "NT-13-6"
 deviation = "krs::syntax::rust-syntax @ item"
 
@@ -7037,13 +7205,18 @@ finding = "NT-13-6"
 deviation = "krs::syntax::rust-syntax @ item"
 
 
-# NT-13-7 (K8): `#[k::exists]` on a transition is accepted and emitted with an existential result;
-# the `native-llvm` route refuses it with a capability error ("rules that introduce symbolic
-# values"), which is the route's honest limit, but `krs check` without `--backend`, K6's
-# judgement, then fails, so no accepted case of it runs (K7). Not a product bug by the lenses
-# (a route that cannot carry it refuses with a capability error); the question is K6's: whether a
-# case some native route builds and the others refuse by capability passes. Proposal: K6 accepts
-# where every refusal is a capability code and one route builds it, and K7 runs on that route.
+# NT-13-7 (K6): `#[k::exists]` on a transition is accepted and emitted with an existential result;
+# the `native-llvm` route refuses it by capability (`RuleExistential`), and `krs check` without
+# `--backend`, which judges every native route and is K6's judgement, fails although
+# `native-rust` builds and runs it. A construct the docs record as route-limited should not fail
+# `krs check` without `--backend` when another route builds it. How `krs check` treats the other
+# route-limited constructs, by the capability table (`krs-k-rust` `ROUTE_CAPABILITIES`): an
+# `anywhere` rule (limited on `java-haskell-reference`, no native route) and console IO
+# (`browser`) pass it; a parametric function's equations (`native-llvm`) and the direct console
+# write hooks (`native-rust`) fail it as `#[k::exists]` does, each built by the other native route;
+# ground Float folding and Float formats beyond binary64 fail it on both native routes. For NT-18.
+# Probe: a `cells!` rule with `#[k::exists(m: Int)]` writing `m`: `krs check` exits 1
+# (`krs::capability::unavailable`, route `native-llvm`), `krs check --backend haskell` passes.
 
 ["k6/attrs/cells/#[k::exists(n: Int)]"]
 finding = "NT-13-7"
@@ -7065,20 +7238,709 @@ deviation = "native-llvm krs::capability::unavailable"
 # NT-13-8 (K8, advice): a function shorthand's `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]` and
 # `#[k::priority]` are refused advising "write the struct and `#[k::equation]` fns instead", a
 # form that is refused for the same helper (`existential-outside-step`, `fresh-outside-step`,
-# `retired-attribute`): no accepted case writes the advice, so the class names none.
+# `retired-attribute`): `helper-on-shorthand` advises none, and the backstop reads the advice.
+# Probe: `#[k::function(partial)] #[k::ensures(c)] fn f(x: Term<Int>) -> Term<Int> { x }`.
 
 ["k8/attrs/shorthand/#[k::ensures(k::is!(Int, x))]"]
 finding = "NT-13-8"
-deviation = "helper-on-shorthand advises `#[k::equation]` and names no advised case"
+deviation = "helper-on-shorthand advises none, and its refusal advises `#[k::equation]`"
+
+["k8/attrs/shorthand/#[k::ensures(k::is!(Word, x))]"]
+finding = "NT-13-8"
+deviation = "helper-on-shorthand advises none, and its refusal advises `#[k::equation]`"
 
 ["k8/attrs/shorthand/#[k::exists(n: Int)]"]
 finding = "NT-13-8"
-deviation = "helper-on-shorthand advises `#[k::equation]` and names no advised case"
+deviation = "helper-on-shorthand advises none, and its refusal advises `#[k::equation]`"
 
 ["k8/attrs/shorthand/#[k::fresh(l: Int)]"]
 finding = "NT-13-8"
-deviation = "helper-on-shorthand advises `#[k::equation]` and names no advised case"
+deviation = "helper-on-shorthand advises none, and its refusal advises `#[k::equation]`"
 
 ["k8/attrs/shorthand/#[k::priority(20)]"]
 finding = "NT-13-8"
-deviation = "helper-on-shorthand advises `#[k::equation]` and names no advised case"
+deviation = "helper-on-shorthand advises none, and its refusal advises `#[k::equation]`"
+
+
+# NT-13-9 (K8, advice): the retired `#[k::priority(N)]` is refused advising
+# "write `#[k::equation(priority = N)]`" on every sentence (krs-syntax attribute/sort.rs, the
+# retired attribute's replacement is fixed): on a rule fn, a `cells!` rule, a single-body rule, a
+# readable or `for Sort` clause the replacement is `#[k::rule(priority = N)]`, on a simplification
+# `#[k::simplification(priority = N)]`, and a claim, a context, a context alias, a static clause
+# and a constant take no priority at all (`retired-attribute` advises `attrs/{form}/priority = 20`,
+# the form's own key). Probe: `#[k::rule] #[k::priority(20)] fn r(..)`.
+
+["k8/attrs/alias/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute advises attrs/alias/priority = 20, which the table refuses (order-on-unordered-sentence)"
+
+["k8/attrs/cells-claim/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute advises attrs/cells-claim/priority = 20, which the table refuses (order-on-unordered-sentence)"
+
+["k8/attrs/cells-local/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute's refusal advises `#[k::equation(priority = 20)]`, which attrs/cells-local/priority = 20 does not write (attrs/equation/priority = 20 does)"
+
+["k8/attrs/cells/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute's refusal advises `#[k::equation(priority = 20)]`, which attrs/cells/priority = 20 does not write (attrs/equation/priority = 20 does)"
+
+["k8/attrs/claim/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute advises attrs/claim/priority = 20, which the table refuses (order-on-unordered-sentence)"
+
+["k8/attrs/constant/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute advises attrs/constant/priority = 20, which the table refuses (unknown-key)"
+
+["k8/attrs/context-alias/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute advises attrs/context-alias/priority = 20, which the table refuses (order-on-unordered-sentence)"
+
+["k8/attrs/context/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute advises attrs/context/priority = 20, which the table refuses (order-on-unordered-sentence)"
+
+["k8/attrs/desugar/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute advises attrs/desugar/priority = 20, which the table refuses (order-on-unordered-sentence)"
+
+["k8/attrs/local-rule/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute's refusal advises `#[k::equation(priority = 20)]`, which attrs/local-rule/priority = 20 does not write (attrs/equation/priority = 20 does)"
+
+["k8/attrs/readable/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute's refusal advises `#[k::equation(priority = 20)]`, which attrs/readable/priority = 20 does not write (attrs/equation/priority = 20 does)"
+
+["k8/attrs/rule/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute's refusal advises `#[k::equation(priority = 20)]`, which attrs/rule/priority = 20 does not write (attrs/equation/priority = 20 does)"
+
+["k8/attrs/simplification/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute's refusal advises `#[k::equation(priority = 20)]`, which attrs/simplification/priority = 20 does not write (attrs/equation/priority = 20 does)"
+
+["k8/attrs/sort-rule/#[k::priority(20)]"]
+finding = "NT-13-9"
+deviation = "retired-attribute's refusal advises `#[k::equation(priority = 20)]`, which attrs/sort-rule/priority = 20 does not write (attrs/equation/priority = 20 does)"
+
+
+# NT-13-10 (K8, advice): a `#[k::requires]`, `#[k::ensures]` or `#[k::exists]` on a
+# `#[k::context_alias]` is refused as an orphan helper advising "place `#[k::rule]` before it"
+# (krs-expand expand/rules.rs, the orphan helper's message): a context alias names the
+# configuration around a strict argument and applies to nothing, so no marker before the helper
+# makes it mean something there; `helper-on-context-alias` advises none. Probe:
+# `#[k::context_alias(name = c, here = site)] #[k::requires(true)] fn c(..)`.
+
+["k8/attrs/context-alias/#[k::ensures(k::is!(Int, x))]"]
+finding = "NT-13-10"
+deviation = "helper-on-context-alias advises none, and its refusal advises `#[k::rule(...)]`"
+
+["k8/attrs/context-alias/#[k::ensures(k::is!(Word, x))]"]
+finding = "NT-13-10"
+deviation = "helper-on-context-alias advises none, and its refusal advises `#[k::rule(...)]`"
+
+["k8/attrs/context-alias/#[k::exists(n: Int)]"]
+finding = "NT-13-10"
+deviation = "helper-on-context-alias advises none, and its refusal advises `#[k::rule(...)]`"
+
+["k8/attrs/context-alias/#[k::requires(k::is!(Int, x))]"]
+finding = "NT-13-10"
+deviation = "helper-on-context-alias advises none, and its refusal advises `#[k::rule]`"
+
+["k8/attrs/context-alias/#[k::requires(k::is!(Word, x))]"]
+finding = "NT-13-10"
+deviation = "helper-on-context-alias advises none, and its refusal advises `#[k::rule]`"
+
+
+# NT-13-11 (K2): a sentence key on a static clause's, an initializer's or a constant's marker
+# (`#[k::alias(owise)]`, `#[k::desugar(label = ..)]`, `#[k::init(priority = 20)]`,
+# `#[k::constant(concrete)]`, ..) is refused as `krs::syntax::unexpected-attribute-payload`
+# ("`alias` takes no arguments"), where the same mistake on another marker answers its own class
+# (`unknown-argument` for a key the marker does not take, `invalid-rule-key` for an order, a
+# restriction, `anywhere`, `recursive` or `result` where it means nothing): the class names the
+# mistake, not the marker it is made on. Probe: `#[k::alias(owise)]` on an alias clause.
+
+["attrs/alias/anywhere"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/circularity"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/concrete"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/concrete(x)"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/cool, hole = x"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/heat, hole = x"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/heat, hole = x, result = Word"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/label = \"named-TAG\""]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/one_path"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/result = KResult"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/smt_lemma"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/symbolic"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/alias/trusted"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/anywhere"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/circularity"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/concrete"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/concrete(x)"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/cool, hole = x"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/heat, hole = x"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/heat, hole = x, result = Word"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/label = \"named-TAG\""]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/nondet = gTAG"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/one_path"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/owise"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/priority = 20"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/priority = 40"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/recursive"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/result = KResult"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/smt_lemma"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/symbolic"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/trusted"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/constant/unbound_variables = [y]"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/anywhere"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/circularity"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/concrete"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/concrete(x)"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/cool, hole = x"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/heat, hole = x"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/heat, hole = x, result = Word"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/label = \"named-TAG\""]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/one_path"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/result = KResult"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/smt_lemma"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/symbolic"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/desugar/trusted"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/anywhere"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/circularity"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/concrete"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/concrete(x)"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/cool, hole = x"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/heat, hole = x"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/heat, hole = x, result = Word"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/label = \"named-TAG\""]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/nondet = gTAG"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/one_path"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/owise"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/priority = 20"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/priority = 40"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/recursive"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/result = KResult"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/smt_lemma"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/symbolic"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/trusted"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+["attrs/init/unbound_variables = [y]"]
+finding = "NT-13-11"
+deviation = "krs::syntax::unexpected-attribute-payload @ spelling"
+
+
+# NT-13-12 (K2): a key that means something on other sentences (an order, a restriction,
+# `anywhere`, `recursive`, `result`) is refused as `krs::syntax::unknown-argument` on a context, a
+# context alias, an equation or a simplification, where a rule's and a static clause's markers
+# answer the mistake as `invalid-rule-key` ("static rules have no priority", "restrictions apply to
+# equations and simplifications"): the mistake is the key's meaning on the sentence, not that the
+# marker's parser does not know it. Probe: `#[k::context(hole = h, owise)]`.
+
+["attrs/cells-local/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/cells/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/anywhere"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/concrete"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/concrete(x)"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/nondet = gTAG"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/owise"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/priority = 20"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/priority = 40"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/smt_lemma"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context-alias/symbolic"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/anywhere"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/concrete"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/concrete(x)"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/nondet = gTAG"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/owise"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/priority = 20"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/priority = 40"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/smt_lemma"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/context/symbolic"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/equation/anywhere"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/equation/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/equation/result = KResult"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/local-rule/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/readable/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/rule/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/simplification/anywhere"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/simplification/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/simplification/result = KResult"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/sort-rule/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/table/anywhere"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/table/recursive"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/table/result = KResult"]
+finding = "NT-13-12"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+
+# NT-13-13 (K2): two `#[k::requires]` on one sentence (a rule fn, a readable clause, an
+# equation) are refused ("unsupported rule signature: a rule may declare only one
+# `#[k::requires(...)]` condition"); two conditions on one sentence state that it applies where
+# both hold, their conjunction, which one condition `a && b` writes. Probe:
+# `#[k::rule] #[k::requires(a)] #[k::requires(b)] fn r(..)`.
+
+["attrs/equation/requires twice"]
+finding = "NT-13-13"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+
+["attrs/readable/requires twice"]
+finding = "NT-13-13"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+
+["attrs/rule/requires twice"]
+finding = "NT-13-13"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+
+
+# NT-13-14 (K2, K8): a `#[k::requires]` written before its rule fn's `#[k::rule]` is refused
+# as an orphan helper advising "place `#[k::rule]` before it", where the same condition before an
+# `#[k::equation]` (and `#[k::exists]`, `#[k::ensures]`, `#[k::fresh]` before a `#[k::rule]`, as
+# language.mdx documents) is handed to the sentence: the attributes of one item state one sentence
+# whatever their order. Probe: `#[k::requires(true)] #[k::rule] fn r(..)`.
+
+["attrs/rule/requires before the marker"]
+finding = "NT-13-14"
+deviation = "krs::expand::orphan-helper @ spelling"
+
+["k8/attrs/rule/requires before the marker"]
+finding = "NT-13-14"
+deviation = "refused where the table accepts, advising `#[k::rule]`"
+
+
+# NT-13-15 (K2, K8): `concrete(x)` on an equation and a table row is refused ("restricts only some
+# binders with `concrete(..)`: K requires a function's equations to be bare `concrete` when one of
+# them is restricted"), and the message advises bare `concrete`, which restricts every binder,
+# where the reference (boundaries.mdx, "Concrete, symbolic, and SMT lemmas") lists `concrete(x,
+# ..)` as a key `#[k::equation(..)]` takes and `concrete(x)` states that the equation applies where
+# `x` is concrete. Probe: `#[k::equation(concrete(x))] fn f(k::term![Probe(Cmd::C(), x)]: Term<Int>) -> Term<Int> { 0 }`.
+
+["attrs/equation/concrete(x)"]
+finding = "NT-13-15"
+deviation = "krs::analysis::invalid-match-restriction @ spelling"
+
+["attrs/table/concrete(x)"]
+finding = "NT-13-15"
+deviation = "krs::analysis::invalid-match-restriction @ spelling"
+
+["k8/attrs/equation/concrete(x)"]
+finding = "NT-13-15"
+deviation = "refused where the table accepts, advising `concrete`"
+
+["k8/attrs/table/concrete(x)"]
+finding = "NT-13-15"
+deviation = "refused where the table accepts, advising `concrete`"
+
+
+# NT-13-16 (K3): a `k::rules!` clause or a `k::equations!` row under `#[cfg(any())]`, a
+# configuration that does not hold, is accepted and left out of the definition (K7: the sentence
+# does not apply), but `krs expand` of the package fails with the internal
+# `krs::reference::rule-coverage` ("a readable rule does not map to exactly one collected head
+# rule", unlocated): the reference expansion meets the clause the configuration left out, which
+# no collected rule is. Probe: `#[cfg(any())] r: Cmd::C(x, _) => Cmd::Hold(x);` in
+# `k::rules! { for Stmt; .. }`, then `krs expand`.
+
+["k3/attrs/readable/cfg that does not hold"]
+finding = "NT-13-16"
+deviation = "printed surface refused: krs expand: krs::reference::rule-coverage @ unlocated"
+
+["k3/attrs/sort-rule/cfg that does not hold"]
+finding = "NT-13-16"
+deviation = "printed surface refused: krs expand: krs::reference::rule-coverage @ unlocated"
+
+["k3/attrs/table/cfg that does not hold"]
+finding = "NT-13-16"
+deviation = "printed surface refused: krs expand: krs::reference::rule-coverage @ unlocated"
+
+
+# S0-9 (K8): the advice check on cases pending above under S0-9, whose refusal it reads.
+
+["k8/cells/result/job/k::configuration::Cell(0)"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/job/k::configuration::Cell([x, y])"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/job/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/job/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/job/k::configuration::Cell(k::map![x -> y])"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/job/k::configuration::Cell(x)"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/job/k::configuration::KCell()"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/job/k::configuration::KCell(x)"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+
+# S0-14 (K8): the advice check on cases pending above under S0-14, whose refusal it reads.
+
+["k8/notation/readable/map-key/or-branch/k::builtin::map::empty().contains_key(x)"]
+finding = "S0-14"
+deviation = "function-in-pattern's refusal advises `a || b`, which notation/rule/guard/k::builtin::map::empty()[x], terms/simplification/subject/k::builtin::int::add(x, 1), terms/equation/subject/x, readable/subject/env/{ y -> x, .. } does not write (terms/alias/result/x || true does)"
+
+["k8/notation/readable/map-key/or-branch/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+finding = "S0-14"
+deviation = "function-in-pattern's refusal advises `a || b`, which notation/rule/guard/k::builtin::map::empty()[x], terms/simplification/subject/k::builtin::int::add(x, 1), terms/equation/subject/x, readable/subject/env/{ y -> x, .. } does not write (terms/alias/result/x || true does)"
+
+["k8/terms/readable/map-key/beside-fresh/x | 1"]
+finding = "S0-14"
+deviation = "refused where the table accepts, advising `requires`"
+
+["k8/terms/readable/map-key/or-branch/!(x < 1)"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `a || b`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (terms/alias/result/x || true does)"
+
+["k8/terms/readable/map-key/or-branch/Cmd::Go"]
+finding = "S0-14"
+deviation = "refused where the table accepts, advising `a.bit_or::<Int>(b)`"
+
+["k8/terms/readable/map-key/or-branch/Cmd::Go()"]
+finding = "S0-14"
+deviation = "refused where the table accepts, advising `a.bit_or::<Int>(b)`"
+
+["k8/terms/readable/map-key/or-branch/Cmd::Hold(x)"]
+finding = "S0-14"
+deviation = "refused where the table accepts, advising `a.bit_or::<Int>(b)`"
+
+["k8/terms/readable/map-key/or-branch/Wrap::<KItem>(x)"]
+finding = "S0-14"
+deviation = "refused where the table accepts, advising `a.bit_or::<Int>(b)`"
+
+["k8/terms/readable/map-key/or-branch/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-14"
+deviation = "refused where the table accepts, advising `a.bit_or::<Int>(b)`"
+
+["k8/terms/readable/map-key/or-branch/k::is!(Int, x)"]
+finding = "S0-14"
+deviation = "sort-test-in-pattern's refusal advises `a || b`, which cells/subject/pc/k::configuration::Cell(x), terms/rule/guard/k::is!(Int, x) does not write (terms/alias/result/x || true does)"
+
+["k8/terms/readable/map-key/or-branch/k::lexeme!(Word, \"word\")"]
+finding = "S0-14"
+deviation = "refused where the table accepts, advising `a.bit_or::<Int>(b)`"
+
+["k8/terms/readable/map-key/or-branch/true"]
+finding = "S0-14"
+deviation = "refused where the table accepts, advising `a || b`"
+
+["k8/terms/readable/map-key/or-branch/x"]
+finding = "S0-14"
+deviation = "refused where the table accepts, advising `where x: Int`, `a.bit_or::<Int>(b)`"
+
+["k8/terms/readable/map-key/or-branch/x && true"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `a || b`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (terms/alias/result/x || true does)"
+
+["k8/terms/readable/map-key/or-branch/x || true"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `a || b`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (terms/alias/result/x || true does)"
+

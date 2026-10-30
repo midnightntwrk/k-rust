@@ -47,6 +47,7 @@
 [class.absence-test-without-creation]
 code = "krs::analysis::optional-presence"
 doc = "a subject tests an optional cell's absence (`None`) and the result does not create it: K tests absence only by creating the cell"
+advice = "none"
 
 [class.alias-at-subject-root]
 code = "krs::syntax::invalid-pattern-as"
@@ -71,16 +72,20 @@ advice = "terms/rule/guard/let-pattern/Cmd::Hold(x)"
 [class.alias-outside-pattern]
 code = "krs::syntax::invalid-pattern-as"
 doc = "`name @ pattern` (K's `#as`) outside a left-hand side"
+advice = "none"
 
 # A compiler class no generated case makes: the term families place their constructs below a
 # subject's root, never as alternatives of a whole equation subject.
+
 [class.alternatives-across-equations]
 code = "krs::analysis::invalid-pattern-or"
 doc = "`A | B` joining whole equation subjects that no one equation matches: alternatives that apply different functions, or that differ in more than one argument, which one equation matches each on its own"
+advice = "none"
 
 [class.alternatives-bind-unequally]
 code = "krs::syntax::invalid-pattern-or"
 doc = "alternatives that do not bind the same names, so a name one binds is unbound when another matches"
+advice = "none"
 
 [class.alternatives-in-alias-subject]
 code = "krs::expand::irreversible-alias"
@@ -90,24 +95,30 @@ advice = "terms/desugar/subject/Cmd::Go() | Cmd::Hold(_)"
 [class.alternatives-in-let-pattern]
 code = "krs::syntax::invalid-let"
 doc = "`A | B` in a `let` pattern, which reads its value by one shape"
+advice = "none"
 
 [class.alternatives-in-one-term-rewrite]
 code = "krs::analysis::invalid-pattern-or"
 doc = "`A | B` in a simplification's or single-body rule's subject, which is rewritten as one term"
+advice = "none"
 
 # No generated case makes this mistake alone: outside a pattern, the term family's only `|`
 # construct, `Cmd::Go() | Cmd::Hold(_)`, holds a `_`, whose placement is decided first.
+
 [class.alternatives-outside-pattern]
 code = "krs::analysis::ambiguous-operator"
 doc = "`A | B` in a result, a condition or an initializer, where `|` is the bitwise operator"
+advice = "none"
 
 [class.anywhere-outside-term-rule]
 code = "krs::syntax::invalid-rule-key"
 doc = "`anywhere` on a sentence that is no term-shaped transition: it makes a transition rewrite its subject's root application wherever it occurs, which a configuration-shaped rule (it matches cells, which occur only at their place), a function's equation (which applies wherever its application occurs already) and the other forms do not have"
+advice = "none"
 
 [class.binder-bound-twice]
 code = "krs::syntax::invalid-pattern-as"
 doc = "a name bound twice in one pattern: an alias inside its own subpattern"
+advice = "none"
 
 [class.binder-sort]
 code = "krs::analysis::incompatible-binder"
@@ -117,30 +128,37 @@ advice = "cells/subject/pc/k::configuration::Cell(x)"
 [class.bracket-reading]
 code = "krs::analysis::invalid-list-notation"
 doc = "brackets on a cell they denote nothing in: no list, computation or List collection, or elements that are none of its items, elements or instances"
+advice = "none"
 
 [class.cell-wrapper]
 code = "krs::analysis::cell-wrapper"
 doc = "an entry whose wrapper is not its cell's: `KCell(..)`/`k::k![..]`/brackets for the computation cell, `Cell(..)` for a leaf, none for a group, used on another kind of cell"
+advice = "none"
 
 [class.claim-only-term]
 code = "krs::expand::claim-only-term"
 doc = "a claim-only island (`k::or_bool!`) outside a claim"
+advice = "none"
 
 [class.claim-subject-only-term]
 code = "krs::expand::claim-subject-only-term"
 doc = "`k::anonymous!` outside a claim's subject"
+advice = "none"
 
 [class.collection-element-sort]
 code = "krs::analysis::collection-element-sort"
 doc = "an element, key or value of a typed collection whose sort is not below the declared one"
+advice = "none"
 
 [class.collection-without-instances]
 code = "krs::analysis::collection-entry"
 doc = "a `*` collection written as one value (a binder, `_`, a literal, a record, `Some`/`None`, a wrapper) instead of an instance list"
+advice = "none"
 
 [class.computation-back-item]
 code = "krs::collect::invalid-configuration"
 doc = "an item after the rest of the computation cell, which is matched from its front"
+advice = "none"
 
 [class.concatenation-in-alias-subject]
 code = "krs::analysis::irreversible-alias"
@@ -150,18 +168,22 @@ advice = "terms/desugar/subject/k::builtin::set::item(x)"
 [class.condition-on-static-clause]
 code = "krs::syntax::invalid-rule-key"
 doc = "`#[k::requires]` on a static clause, which rewrites every application of its production as a term is read, unconditionally: no condition is tested there"
+advice = "none"
 
 [class.condition-sort]
 code = "krs::analysis::invalid-term"
 doc = "a `#[k::requires]` condition that is not a Bool term"
+advice = "none"
 
 [class.constant-applies-function]
 code = "krs::analysis::invalid-constant"
 doc = "a `#[k::constant]` value that applies a function"
+advice = "none"
 
 [class.constant-not-ground]
 code = "krs::syntax::invalid-constant"
 doc = "a `#[k::constant]` value that is no ground constructor term"
+advice = "none"
 
 [class.configuration-variable-sort]
 code = "krs::analysis::invalid-term"
@@ -176,36 +198,42 @@ advice = "terms/init/variable-item/k::project!(Int, x)"
 [class.context-hole-unbound]
 code = "krs::analysis::invalid-context"
 doc = "a context whose pattern does not bind the hole its `hole = x` names: K requires exactly one HOLE"
+advice = "none"
 
 [class.context-rewrite-not-hole]
 code = "krs::analysis::invalid-context"
 doc = "a context's `k::rewrite!` of anything but its hole: K requires HOLE => a term containing HOLE"
+advice = "none"
 
 [class.desugar-wildcard-undeclared]
 code = "krs::syntax::unsupported-term-expression"
 doc = "`_` in a desugar clause's result that its `unbound_variables` does not list"
+advice = "none"
 
 [class.duplicate-key]
 code = "krs::syntax::duplicate-argument"
 doc = "a key written twice in one attribute"
+advice = "none"
 
 [class.equation-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor, a literal or a builtin operation at the root of an equation's subject, which is the application of the function the equation defines: a value defines no function"
-advice = "terms/simplification/subject-root/k::builtin::int::add(1, 2)"
+advice = ["terms/simplification/subject-root/k::builtin::int::add(1, 2)", "terms/rule/subject-root/Cmd::Go()"]
 
 [class.evaluation-key-without-evaluation]
 code = "krs::syntax::invalid-rule-key"
 doc = "`result = S`, the sort a heated hole's evaluation ends in, on a sentence that heats nothing: no heating or cooling rule, context or context alias"
-advice = "attrs/rule/heat, hole = x"
+advice = "attrs/{form}/heat, hole = x, result = Word"
 
 [class.existential-outside-step]
 code = "krs::expand::existential-placement"
 doc = "`#[k::ensures]` or `#[k::exists]`, which state what a step's result satisfies and which of its values are existential, on a sentence that reaches no result state: an equation, a simplification, a static clause, a context"
+advice = "none"
 
 [class.fragment-in-initializer]
 code = "krs::expand::initializer-fragment"
 doc = "`k::fragment!` in an initializer, which builds nested cells with their structs"
+advice = "none"
 
 # A class no generated case is expected to make: a framed `cells!` result's entry at a key the
 # subject does not match (`map![HOLE -> 1, ..rest]` over `map![x -> v, rest @ ..]`) means the
@@ -213,6 +241,7 @@ doc = "`k::fragment!` in an initializer, which builds nested cells with their st
 # of a remainder frame bound on the left only (a schema step), finding NT-9-1's
 # (`terms/cells/result-map-framed-key/..`, pending). Its message advises binding the whole map and
 # writing over it, the advised case.
+
 [class.framed-map-unmatched-key]
 code = "krs::analysis::invalid-term"
 doc = "a framed `cells!` result's whole `map![..]` writing an entry at a key the subject does not match over the remainder the subject leaves unread (finding NT-9-1)"
@@ -221,32 +250,37 @@ advice = "terms/cells/result-map-whole/Cmd::Hold(x)"
 [class.fresh-outside-step]
 code = "krs::expand::fresh-placement"
 doc = "`#[k::fresh]`, a value a transition step draws, on a sentence that is no transition: a claim, an equation, a simplification, a static clause, a context, a context alias"
+advice = "none"
 
 [class.function-in-pattern]
 code = "krs::analysis::function-in-pattern"
 doc = "a function application at a matched position of a rewrite rule's, an equation's or a context's pattern, or of a `let` or `k::matches!` pattern, a slot's root as below it, a collection's value or element included, other than an equation's subject root (the function it defines) and a map key or a set element, which is computed and looked up: a pattern matches terms as written, and an application is evaluated"
-advice = "notation/rule/guard/k::builtin::map::empty()[x]"
+advice = ["notation/rule/guard/k::builtin::map::empty()[x]", "terms/simplification/subject/k::builtin::int::add(x, 1)", "terms/equation/subject/x", "readable/subject/env/{ y -> x, .. }"]
 
 [class.helper-on-constant]
 code = "krs::syntax::invalid-constant"
 doc = "a sentence's helper attribute (`#[k::requires]`, `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]`) on a `#[k::constant]`, which declares a value and applies to nothing"
+advice = "none"
 
 [class.helper-on-context-alias]
 code = "krs::expand::orphan-helper"
 doc = "a rule's or a claim's helper (`#[k::requires]`, `#[k::ensures]`, `#[k::exists]`) on a `#[k::context_alias]`, which names the configuration around a strict argument and applies to nothing"
-advice = "attrs/rule/#[k::requires(k::is!(Int, x))]"
+advice = "none"
 
 [class.helper-on-initializer]
 code = "krs::syntax::unsupported-initializer-signature"
 doc = "a sentence's helper attribute on a `#[k::init]` initializer, which declares the initial configuration and applies to nothing"
+advice = "none"
 
 [class.helper-on-shorthand]
 code = "krs::syntax::invalid-function-shorthand"
 doc = "`#[k::ensures]`, `#[k::exists]`, `#[k::fresh]` or `#[k::priority]` on a function shorthand, whose one equation reaches no result state, draws no value and is ordered by no such key"
+advice = "none"
 
 [class.helper-on-table-row]
 code = "krs::syntax::invalid-equation-table"
 doc = "`#[k::ensures]`, `#[k::exists]`, `#[k::fresh]` or `#[k::priority]` on a `k::equations!` row, an equation, which reaches no result state, draws no value and is ordered by `#[k::equation(..)]`"
+advice = "none"
 
 [class.initializer-remainder]
 code = "krs::syntax::unsupported-initializer-body"
@@ -261,6 +295,7 @@ advice = "readable/subject/job/[Job { payload: x, .. }, ..]"
 [class.instances-on-plain-cell]
 code = "krs::analysis::collection-entry"
 doc = "an instance list (`{ .. }`, `[.., Job { .. }]` read as instances) on a cell that is no `*` collection"
+advice = "none"
 
 [class.island-at-subject-root]
 code = "krs::syntax::unsupported-rule-pattern"
@@ -270,6 +305,7 @@ advice = "terms/sort-rule/subject-root/k::bytes!(b\"ab\")"
 [class.key-value-shape]
 code = "krs::syntax::invalid-argument-value"
 doc = "a key whose value has another shape than the key takes: a string where an integer is, an integer where a string or a name is, a value on a bare flag, an empty list"
+advice = "attrs/cells-claim/trusted"
 
 [class.keys-together]
 code = "krs::syntax::invalid-rule-key"
@@ -282,45 +318,56 @@ advice = "attrs/rule/heat, hole = x"
 [class.let-in-claim]
 code = "krs::expand::let-outside-term"
 doc = "a `let` block (K's `#let`) in a claim's state or condition, which no prover takes there: the native prover and Java K's kprove lower `#let` only in a definition's sentences (finding NT-7-1)"
+advice = "none"
 
 [class.let-outside-term]
 code = "krs::expand::let-outside-term"
 doc = "a `let` block (K's `#let`) in a pattern, a pattern's map key or a `cells!` cell value: it applies a function generated for it alone, which no matched term holds"
+advice = "none"
 
 [class.let-sort]
 code = "krs::analysis::invalid-let"
 doc = "a `let` block whose names or result have no sort its position admits"
+advice = "none"
 
 [class.list-notation-sort]
 code = "krs::analysis::invalid-list-notation"
 doc = "list brackets at a position whose sort is no list (a `KItem` hole), so they name no list"
+advice = "none"
 
 [class.map-notation-at-non-map]
 code = "krs::analysis::invalid-term"
 doc = "map notation (`{ k -> v, .. }`, `k::map![..]`) on a cell that is no Map"
+advice = "none"
 
 [class.map-read-in-result]
 code = "krs::syntax::rust-syntax"
 doc = "a map read `{ k -> v, .. }`, which is a pattern, written in a result"
+advice = "none"
 
 [class.map-read-value-binder]
 code = "krs::syntax::rust-syntax"
 doc = "a readable map read whose value is not a fresh binder: the value names what the entry maps to"
+advice = "none"
 
 [class.map-read-value-bound]
 code = "krs::syntax::rust-syntax"
 doc = "a readable map read whose value names a binder the record binds elsewhere: the read introduces its value's name"
+advice = "none"
 
 # A class of the position table that no generated case is expected to make: `k::matches!` in a
 # claim means what it means in a rule, which the oracle admits; the product's refusal, for want of a
 # prover that takes it, is finding NT-7-1's.
+
 [class.matches-in-claim]
 code = "krs::expand::matches-outside-condition"
 doc = "`k::matches!` (K's `:=K`) in a claim's state or condition, which no prover takes there: the native prover and Java K's kprove lower `:=K` only in a definition's sentences (finding NT-7-1)"
+advice = "none"
 
 [class.matches-outside-condition]
 code = "krs::expand::matches-outside-condition"
 doc = "`k::matches!` (K's `:=K`) in a pattern, a pattern's map key or a `cells!` cell value: it applies a function generated for it alone, which no matched term holds"
+advice = "none"
 
 [class.matches-pattern-binder]
 code = "krs::analysis::invalid-matches"
@@ -340,23 +387,27 @@ advice = "terms/rule/guard/x == 1"
 [class.ml-in-initializer]
 code = "krs::expand::ml-placement"
 doc = "a matching-logic predicate in an initializer"
+advice = "none"
 
 [class.ml-predicate-as-term]
 code = "krs::analysis::invalid-ml-predicate"
 doc = "a matching-logic predicate as an operand of an object constructor or function"
+advice = "none"
 
 [class.no-effect-entry]
 code = "krs::syntax::rust-syntax"
 doc = "a subject entry that matches any content of a cell the result leaves out (`_`, `[..]`), so the rule is the same without it"
+advice = "none"
 
 [class.nondet-on-function]
 code = "krs::syntax::invalid-rule-key"
 doc = "`nondet = g` on a function's equation or a simplification: a function is deterministic, so its equations are never chosen among"
+advice = "none"
 
 [class.none-in-initializer]
 code = "krs::syntax::unsupported-initializer-body"
 doc = "`None` as an initial value: K needs a template for every cell"
-advice = "init/counter/Some(0)"
+advice = "init/initial/Some(0)"
 
 [class.notation-in-pattern]
 code = "krs::syntax::invalid-expression-notation"
@@ -366,6 +417,7 @@ advice = "terms/simplification/subject/k::builtin::int::add(x, 1)"
 [class.object-term-as-predicate]
 code = "krs::analysis::invalid-ml-predicate"
 doc = "an object term where a predicate is expected: a quantifier's body is a predicate, and an object Bool enters matching logic as `ml::equals(true, b)`"
+advice = "none"
 
 [class.open-record-in-alias-subject]
 code = "krs::expand::irreversible-alias"
@@ -375,6 +427,7 @@ advice = "terms/desugar/subject/Cmd::Pair { a: x, .. }"
 [class.open-record-outside-pattern]
 code = "krs::syntax::invalid-record-update"
 doc = "an open record (`Ctor { f: e, .. }`) in a built term or a condition, which has no value for the fields `..` leaves open: only a pattern leaves fields unconstrained"
+advice = "none"
 
 [class.optional-without-presence]
 code = "krs::analysis::optional-presence"
@@ -383,23 +436,28 @@ advice = "cells/result/counter/Some(k::configuration::Cell(x))"
 
 [class.order-on-unordered-sentence]
 code = "krs::syntax::invalid-rule-key"
-doc = "`owise`, `priority = N` or `nondet = g` on a static clause, which rewrites every application of its production as a term is read and is chosen against nothing; `owise` on a simplification, whose priority orders what a prover tries and where no prover decides that no other applies"
+doc = "`owise`, `priority = N` or `nondet = g` on a sentence that is chosen against no other: a claim, which is proved, a context or a context alias, ordered by its hole, and a static clause, whose production's clauses expand each application into one term and so may not overlap"
+advice = "none"
 
-[class.payload-on-bare-marker]
-code = "krs::syntax::unexpected-attribute-payload"
-doc = "a key on a marker that takes none of its kind: an alias clause's `#[k::alias]`, a desugar clause's `#[k::desugar]` (which takes only `unbound_variables`), an initializer's `#[k::init]`, a constant's `#[k::constant]`"
+[class.owise-on-simplification]
+code = "krs::syntax::invalid-rule-key"
+doc = "`owise` on a simplification: a simplification is a lemma a prover may use where it applies, and `owise` says where no other sentence applies, which no prover decides"
+advice = "none"
 
 [class.presence-on-plain-cell]
 code = "krs::analysis::optional-presence"
 doc = "`Some(..)`/`None` on a cell that is not `multiplicity = \"?\"`"
+advice = "none"
 
 [class.priority-range]
 code = "krs::syntax::invalid-rule-key"
 doc = "a priority outside the range rule priorities are ranked in, `0..=254`"
+advice = "none"
 
 [class.record-remainder-in-cells-term]
 code = "krs::analysis::invalid-record-update"
 doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field"
+advice = "none"
 
 [class.record-remainder-in-initializer]
 code = "krs::expand::initializer-record-update"
@@ -409,19 +467,22 @@ advice = "terms/init/variable-item/Cmd::Pair { a: x, ..x }"
 [class.record-update-base]
 code = "krs::analysis::invalid-record-update"
 doc = "a record update (`Ctor { f: e, ..t }`) whose base is no alias `t @ Ctor { .. }` of one record of its constructor matched by the sentence"
+advice = "none"
 
 [class.record-update-in-pattern]
 code = "krs::syntax::invalid-record-update"
 doc = "a record update (`Ctor { f: e, ..t }`) in a matched position, which denotes no record by it: `..base` is defined only in a built term, from a matched record"
+advice = "none"
 
-[class.recursive-on-clause]
+[class.recursive-outside-production]
 code = "krs::syntax::invalid-rule-key"
-doc = "`recursive`, a property of a static production, on a clause"
-advice = "terms/desugar/subject/x"
+doc = "`recursive`, a property of a static production, on a sentence: a static clause, a rule, an equation, a claim, a context"
+advice = "attrs/{form}/recursive production"
 
 [class.rest-mismatch]
 code = "krs::syntax::invalid-list-notation"
 doc = "a `..` rest on one side of a cell only: a result rest the subject's entry did not match, or a subject rest the result drops"
+advice = ["readable/result/job/[..]", "claim/result/job/[..]"]
 
 [class.rest-in-alias-subject]
 code = "krs::expand::irreversible-alias"
@@ -431,14 +492,17 @@ advice = "terms/desugar/subject/x"
 [class.rest-outside-pattern]
 code = "krs::syntax::invalid-list-notation"
 doc = "an anonymous `..` in list brackets outside a pattern (and outside a readable record cell, whose result keeps what its pattern's `..` matched): a built list has no rest it keeps"
+advice = "none"
 
 [class.restriction-binder]
 code = "krs::analysis::invalid-match-restriction"
 doc = "a `concrete(..)` or `symbolic(..)` list naming a name the equation's subject does not bind"
+advice = "none"
 
 [class.restriction-outside-function]
 code = "krs::syntax::invalid-rule-key"
 doc = "`concrete`, `symbolic` or `smt_lemma` on a sentence that is no equation or simplification: on a transition a restriction leaves the steps it applies to out of a symbolic search, which is unsound, and the other forms apply no function"
+advice = "none"
 
 [class.restriction-shape]
 code = "krs::syntax::invalid-match-restriction"
@@ -448,17 +512,19 @@ advice = "attrs/equation/concrete"
 [class.retired-attribute]
 code = "krs::syntax::retired-attribute"
 doc = "the retired `#[k::priority(N)]`, which is no attribute any more: an order is a key of the sentence's own marker"
-advice = "attrs/equation/priority = 20"
+advice = "attrs/{form}/priority = 20"
 
 # A class of the position table (`krs_syntax::positions`) and the oracle that no generated case
 # makes: the term families hold no map in a single-body rule's subject.
 [class.rewrite-in-map-key]
 code = "krs::syntax::invalid-local-rewrite"
 doc = "`k::rewrite!` in a map key of a single-body rule's subject: a key is what the map is looked up by, and re-keying an entry may meet a key the map holds"
+advice = "none"
 
 [class.rewrite-outside-local-rule]
 code = "krs::syntax::invalid-local-rewrite"
 doc = "`k::rewrite!` outside the subject of a single-body `#[k::rule]` fn"
+advice = "none"
 
 [class.simplification-root-not-function]
 code = "krs::analysis::subject-root-not-function"
@@ -473,35 +539,39 @@ advice = "terms/local-rule/subject/k::rewrite!(_ => 1)"
 [class.smt-lemma-untranslatable]
 code = "krs::analysis::smt-lemma-untranslatable"
 doc = "`smt_lemma` on an equation or a simplification of a function the solver has no symbol for (no `smtlib` or `smt_hook`), so no lemma about it can be stated to the solver"
-advice = "terms/equation/subject/x"
+advice = "attrs/{form}/smt_lemma of an smtlib function"
 
 [class.sort-test-in-pattern]
 code = "krs::analysis::invalid-sort-test"
 doc = "`k::is!`/`k::project!`, which apply a generated function, in a matched position over evaluated terms: a rule's or an equation's pattern, or a local pattern"
-advice = "cells/subject/pc/k::configuration::Cell(x)"
+advice = ["cells/subject/pc/k::configuration::Cell(x)", "terms/rule/guard/k::is!(Int, x)"]
 
 [class.static-result-sort]
 code = "krs::analysis::invalid-term"
 doc = "a desugar's or an alias's result root whose sort is not below its production's: the clause says the production's application is the result, which a term of another sort cannot be where the production's sort is required"
+advice = "none"
 
 [class.static-clause-root-not-marked]
 code = "krs::analysis::invalid-static-clause"
 doc = "a desugar or alias clause whose subject's root is no production marked as the clause is (a constructor of an unmarked production, a function, a value): the root is the production the clause expands"
-advice = "terms/alias/subject/1"
+advice = ["terms/alias/subject/1", "terms/desugar/subject/x"]
 
 # A compiler class no generated case makes: the term families' static clauses expand the case's own
 # command, and no construct of the catalog applies another alias or desugar production.
 [class.static-production-in-alias-subject]
 code = "krs::analysis::irreversible-alias"
 doc = "an application of an alias or desugar production below an alias clause's root: forward expansion replaces it before the clause can apply, so the clause never applies, and backward it would print unexpanded (NT-8)"
+advice = "none"
 
 [class.turbofish-instance-sort]
 code = "krs::analysis::parametric-instance"
 doc = "a turbofish whose instance gives the application a sort its position does not admit"
+advice = "none"
 
 [class.unbound-name]
 code = "krs::expand::unbound-name"
 doc = "a binder that nothing in the sentence or initializer binds, a name a map key or a set element reads only below a function application or another construct that computes it included"
+advice = "none"
 
 [class.unbound-variables-outside-desugar]
 code = "krs::syntax::invalid-unbound-variables"
@@ -511,14 +581,17 @@ advice = "attrs/desugar/unbound_variables = [y]"
 [class.unbound-variables-shape]
 code = "krs::syntax::invalid-unbound-variables"
 doc = "an `unbound_variables` list of another shape than names the result uses and the pattern does not bind: empty, repeated, or naming a bound name"
+advice = "none"
 
 [class.unknown-key]
 code = "krs::syntax::unknown-argument"
-doc = "a key the sentence's marker does not take: one with no meaning on the sentence (a claim's key on a rule, an order on a claim or a context, `heat` on an equation, ..), a misspelled one, or a second name (a context alias is named by its `name`)"
+doc = "a key the marker does not take, where no more specific mistake is made: a claim's key elsewhere than on a claim, `heat` or `cool` elsewhere than on a transition, a label on a sentence no label names, a misspelled key, a second name (a context alias is named by its `name`), and any sentence key on a declaration's marker (an initializer's, a constant's, a function shorthand's)"
+advice = "none"
 
 [class.unused-configuration-variable]
 code = "krs::analysis::unused-configuration-variable"
 doc = "an initializer parameter (configuration variable) that no cell reads (X2)"
+advice = "none"
 
 [class.wildcard-at-subject-root]
 code = "krs::syntax::unsupported-rule-pattern"
@@ -533,8 +606,10 @@ advice = "terms/desugar/subject/_"
 [class.wildcard-outside-pattern]
 code = "krs::syntax::unsupported-term-expression"
 doc = "`_` in a result, a condition or an initializer"
+advice = "none"
 
 # absence-test-without-creation
+
 [[refuse]]
 match = '{cells,claim,readable}/subject/counter/None'
 class = "absence-test-without-creation"
@@ -2537,6 +2612,25 @@ configuration
 </queue>
 """
 
+[accept."init/initial/Some(0)"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+<aux> 1 </aux>
+</frame>
+<counter multiplicity="?" initial=""> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
+
 [accept."init/order/nested-reversed"]
 k = """
 configuration
@@ -2548,7 +2642,7 @@ configuration
 <ret> 0 </ret>
 <aux> 1 </aux>
 </frame>
-<counter multiplicity="?"> 0 </counter>
+<counter multiplicity="?" initial=""> 0 </counter>
 <queue>
 <job multiplicity="*" type="List">
 <payload> 0 </payload>
