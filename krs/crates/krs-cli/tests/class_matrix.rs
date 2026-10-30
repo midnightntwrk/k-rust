@@ -697,7 +697,7 @@ const UNCHECKED_MARK: &str = "; unchecked: ";
 /// K8's unchecked refusals, by shard and class: refusals whose proposed form no generated case
 /// writes, which only the class's reviewed `advice` states (`class_matrix::advice::Followed`).
 /// A shard whose counts differ fails, so a new class or a message that adds unchecked advice is
-/// reviewed before it is pinned here; a shard not listed has none.
+/// reviewed before it is pinned here; a case shard listed in [`NO_UNCHECKED`] has none.
 const UNCHECKED: &[(&str, &str, usize)] = &[
     ("init", "content-sort", 8),
     ("init", "initializer-remainder", 1),
@@ -715,8 +715,18 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
     ("terms", "wildcard-at-subject-root", 2),
 ];
 
-/// Fail the shard `name` where its unchecked K8 refusals differ from [`UNCHECKED`]'s.
+/// The case shards whose refusals propose no form outside the generated cases: K8 checks all of
+/// their advice. A case shard is pinned in [`UNCHECKED`] or here.
+const NO_UNCHECKED: &[&str] = &["attrs", "cells", "import", "readable", "runs"];
+
+/// Fail the shard `name` where its unchecked K8 refusals differ from [`UNCHECKED`]'s, or where it
+/// is pinned neither there nor in [`NO_UNCHECKED`].
 fn check_unchecked(name: &str, shard: &mut Shard) {
+    if !NO_UNCHECKED.contains(&name) && !UNCHECKED.iter().any(|(pinned, ..)| *pinned == name) {
+        shard.failures.push(format!(
+            "the shard {name} pins its unchecked K8 refusals neither in UNCHECKED nor in NO_UNCHECKED"
+        ));
+    }
     let pinned = UNCHECKED
         .iter()
         .filter(|(pinned, ..)| *pinned == name)

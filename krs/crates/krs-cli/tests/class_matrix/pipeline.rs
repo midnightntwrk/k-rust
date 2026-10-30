@@ -582,7 +582,8 @@ impl Worker<'_> {
     }
 
     /// K7 over `cases`, on the definition `semantics` loaded: each case's plan, run within the time
-    /// limit, and where it conforms its counter-witness's plan, which must not apply. A panic of a
+    /// limit, and where it conforms its counter-witnesses' plans, in order, none of which may apply
+    /// (the first that does is the verdict). A panic of a
     /// run is its case's verdict, and the semantics it left is not used again: the cases after it
     /// are left to be run apart ([`Self::keep_runs`]).
     fn run_all(&self, semantics: &mut Semantics, cases: &[&Placed<'_>], runs: &Runs) {
@@ -607,13 +608,16 @@ impl Worker<'_> {
                 )
             };
             let mut verdict = once(plan);
-            if let (Ran::Conforms(_), Some(counter)) = (&verdict, &placed.case.k7_counter)
-                && let Ran::Deviates(deviation) = once(counter)
-            {
-                verdict = Ran::Deviates(format!(
-                    "counter-witness `{}`: {deviation}",
-                    counter.program
-                ));
+            for counter in &placed.case.k7_counters {
+                if !matches!(verdict, Ran::Conforms(_)) {
+                    break;
+                }
+                if let Ran::Deviates(deviation) = once(counter) {
+                    verdict = Ran::Deviates(format!(
+                        "counter-witness `{}`: {deviation}",
+                        counter.program
+                    ));
+                }
             }
             let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
             run.cost.runs.fetch_add(1, Ordering::Relaxed);
