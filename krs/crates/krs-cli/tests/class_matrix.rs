@@ -6,7 +6,8 @@
 //! `pending.toml`.
 //!
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
-//! `cells`, `init`, `terms`, `import`, `notation` (the collection notation at the term
+//! `cells`, `runs` (the readable records and `cells!` rules on the run base, which K7 runs), `init`,
+//! `terms`, `import`, `notation` (the collection notation at the term
 //! positions), and `attrs` (every sentence attribute on every sentence form), each of which also
 //! judges its accepted cases by K3
 //! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`, by K6 (the definition an accepted case emits
@@ -1109,6 +1110,12 @@ fn readable() {
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn cells() {
     shard("cells", &[Family::Cells]);
+}
+
+#[test]
+#[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
+fn runs() {
+    shard("runs", &[Family::ReadableRun, Family::CellsRun]);
 }
 
 #[test]

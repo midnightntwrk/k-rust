@@ -14,8 +14,8 @@ use std::time::Duration;
 use k_rust::backend::CancellationToken;
 use k_rust::kore::ast::Pattern;
 use krs_exec::{
-    ConfigInputs, Halt, ProgramInput, RunOptions, RunReport, Semantics, SortRef, Value, ValueIndex,
-    View,
+    CellError, ConfigInputs, Halt, ProgramInput, RunOptions, RunReport, Semantics, SortRef,
+    StateView, Value, ValueIndex, View,
 };
 use krs_test_support::class_matrix::k7::{Ground, Run, Status};
 
@@ -84,13 +84,7 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration) -> Ran {
     let observed = run
         .cells
         .iter()
-        .map(|(cell, expected)| {
-            let value = view.value(cell).map_or_else(
-                |error| Ground::Opaque(error.to_string()),
-                |value| ground(index, &value),
-            );
-            (cell, expected, value)
-        })
+        .map(|(cell, expected)| (cell, expected, read(view, index, cell)))
         .collect::<Vec<_>>();
     verdict(run, &report, &observed)
 }
@@ -181,6 +175,56 @@ fn verdict(run: &Run, report: &RunReport, observed: &[(&String, &Ground, Ground)
         Ran::Deviates(format!(
             "another value: {shown}, where the plan states {expected}"
         ))
+    }
+}
+
+/// The cell at `path` as the generator states it (`Run::cells`): a leaf's content, an optional
+/// cell the state does not hold as [`Ground::Absent`], and a repeated cell's instances by
+/// `PATH[CHILD,..]` (a List collection's, in order) or `PATH{CHILD,..}` (a Set collection's, as a
+/// set), each the constructor named after the collection of its children's contents.
+fn read(view: &StateView<'_>, index: &ValueIndex, path: &str) -> Ground {
+    let Some((cell, children, set)) = path
+        .strip_suffix(']')
+        .and_then(|path| path.split_once('['))
+        .map(|(cell, children)| (cell, children, false))
+        .or_else(|| {
+            path.strip_suffix('}')
+                .and_then(|path| path.split_once('{'))
+                .map(|(cell, children)| (cell, children, true))
+        })
+    else {
+        return leaf(view, index, path);
+    };
+    let instances = match view.instances(cell) {
+        Ok(instances) => instances,
+        Err(error) => return Ground::Opaque(error.to_string()),
+    };
+    let name = cell.rsplit('.').next().unwrap_or(cell);
+    let items = instances
+        .iter()
+        .map(|instance| {
+            Ground::ctor(
+                name,
+                children
+                    .split(',')
+                    .map(|child| leaf(instance, index, child))
+                    .collect(),
+            )
+        })
+        .collect();
+    if set {
+        Ground::set(items)
+    } else {
+        Ground::List(items)
+    }
+}
+
+/// The content of the leaf cell at `path`.
+fn leaf(view: &StateView<'_>, index: &ValueIndex, path: &str) -> Ground {
+    match view.value(path) {
+        Ok(value) => ground(index, &value),
+        Err(CellError::Absent { .. }) => Ground::Absent,
+        Err(error) => Ground::Opaque(error.to_string()),
     }
 }
 

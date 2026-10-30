@@ -7,7 +7,7 @@
 set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-all_shards=(readable cells init terms import notation attrs k4 k5)
+all_shards=(readable cells runs init terms import notation attrs k4 k5)
 
 usage() {
   cat <<EOF
