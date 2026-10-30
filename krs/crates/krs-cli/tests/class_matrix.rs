@@ -8,9 +8,11 @@
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
 //! `cells`, `init`, `terms`, `import`, and `notation` (the collection notation at the term
 //! positions), each of which also judges its accepted cases by K3
-//! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`, and by K6 (the definition an accepted case emits
+//! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`, by K6 (the definition an accepted case emits
 //! passes the judgement `krs check` makes on the native routes, [`pipeline`]) unless
-//! `KRS_CLASS_NATIVE=0`; `k5`, which checks one broken header per entry
+//! `KRS_CLASS_NATIVE=0`, and by K7 (the case's program, run on that definition, shows its
+//! sentence applied, with the value the generator states, [`runs`]) unless `KRS_CLASS_RUN=0`;
+//! `k5`, which checks one broken header per entry
 //! point ([`mutations`]); and `k4`, which compares KRS's sort judges with
 //! k-rust's lattice on each base's emitted definition ([`lattice`]). Each prints its counts and its red cases per finding
 //! and per step, and fails on a case that deviates and is not pending, a pending case that
@@ -19,7 +21,8 @@
 //! A K2 entry of `pending.toml` is keyed by the case's ID, and the fast tier reads the same entry
 //! for a case the front refuses; where the two tiers observe such a case differently, this tier
 //! reads `full/<case ID>` instead. A K1 entry of this tier, which judges keys after lowering, is
-//! keyed `k1/<case ID>`, and a K6 entry `k6/<case ID>` (`class_matrix::pending`).
+//! keyed `k1/<case ID>`, a K6 entry `k6/<case ID>`, and a K7 entry `k7/<case ID>`
+//! (`class_matrix::pending`).
 //!
 //! The run is set by the environment (the script sets every variable from measured headroom):
 //! - `KRS_CLASS_WORKERS`: concurrent workers, each with one Cargo target (default 1);
@@ -29,6 +32,8 @@
 //! - `KRS_CLASS_FILTER`: a glob over case IDs (`expected.toml`'s syntax) that narrows a shard;
 //! - `KRS_CLASS_NATIVE`: `0` skips K6, `alone` judges each accepted case alone rather than the
 //!   accepted cases of a batch together (the default, `1`), which must give the same verdicts;
+//! - `KRS_CLASS_RUN`: `0` skips K7, which runs on K6's compile and so does not run without it;
+//!   `KRS_CLASS_RUN_SECONDS` is its time limit per program (default 60);
 //! - `KRS_CLASS_OUT`: a directory for one TSV line per case and the pending entries of every
 //!   deviation not yet recorded, `<shard>.tsv` and `<shard>.pending.toml`;
 //! - `KRS_CLASS_RECORD=1`: the record mode. Each accepted case that the table does not refuse
@@ -48,6 +53,8 @@ mod lattice;
 mod mutations;
 #[path = "class_matrix/pipeline.rs"]
 mod pipeline;
+#[path = "class_matrix/runs.rs"]
+mod runs;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -58,8 +65,9 @@ use krs_compiler::testing::SortJudges;
 use krs_test_support::class_matrix::invariants::{
     Observed, registry_kind, signature, violations, without_rustc_parse_error,
 };
+use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::pending::{
-    CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, case_of,
+    CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, RUN, case_of,
 };
 use krs_test_support::class_matrix::table::{
     Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, is_term_case,
@@ -68,6 +76,7 @@ use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
 use closure::{Closure, case_k};
 use pipeline::{Judged, Native, NativeMode, Settings};
+use runs::Ran;
 
 /// Whether a case no table entry decides fails the suite: the table covers every generated case,
 /// so a new case needs its entry.
@@ -193,7 +202,22 @@ fn settings() -> (Settings, Option<tempfile::TempDir>) {
             Some(other) => panic!("KRS_CLASS_NATIVE={other:?} is not 0, 1 or alone"),
         },
         refused_by_table: BTreeSet::new(),
+        run: match variable("KRS_CLASS_RUN").as_deref() {
+            None | Some("1") => Some(std::time::Duration::from_secs(number(
+                "KRS_CLASS_RUN_SECONDS",
+                60,
+            ) as u64)),
+            Some("0") => None,
+            Some(other) => panic!("KRS_CLASS_RUN={other:?} is not 0 or 1"),
+        },
     };
+    let mut settings = settings;
+    if settings.native == NativeMode::Off && settings.run.is_some() {
+        eprintln!(
+            "[krs-class] K7 runs on the definition K6 compiles: with KRS_CLASS_NATIVE=0 it does not run"
+        );
+        settings.run = None;
+    }
     // K6 must make the judgement `krs check` makes, whose native compile infers sorts with Z3: a
     // build without the solver infers them by another engine and could judge otherwise.
     assert!(
@@ -267,7 +291,8 @@ struct Shard {
 
 impl Shard {
     /// Add `test`'s verdict on the case `id`, keyed `k1/<ID>` for K1, `k3/<ID>` for K3, `k6/<ID>`
-    /// for K6, and for K2 by the case's ID, or `full/<ID>` when `pending.toml` has that entry.
+    /// for K6, `k7/<ID>` for K7, and for K2 by the case's ID, or `full/<ID>` when `pending.toml`
+    /// has that entry.
     fn add(&mut self, test: &'static str, id: &str, signature: String, misses: Vec<String>) {
         let full = format!("{FULL}{id}");
         self.verdicts.entry(test).or_default().push(Verdict {
@@ -275,6 +300,7 @@ impl Shard {
                 "k1" => format!("{KEYS}{id}"),
                 "k3" => format!("{CLOSURE}{id}"),
                 "k6" => format!("{NATIVE}{id}"),
+                "k7" => format!("{RUN}{id}"),
                 "k5" => id.to_owned(),
                 _ if spec().pending.entries.contains_key(&full) => full,
                 _ => id.to_owned(),
@@ -444,6 +470,8 @@ fn test_of(key: &str) -> &'static str {
         "k3"
     } else if key.starts_with(NATIVE) {
         "k6"
+    } else if key.starts_with(RUN) {
+        "k7"
     } else if key.starts_with("entry/") {
         "k5"
     } else {
@@ -595,6 +623,45 @@ fn k6(shard: &mut Shard, judged: &Judged) {
     }
 }
 
+/// K7: the program of a case K6 accepted, run on the definition K6 judged, shows that the case's
+/// sentence applied, with the value the generator states. A case K7 did not run (no plan, K6
+/// refused it, or a run with `KRS_CLASS_RUN=0`) has no K7 verdict.
+fn k7(shard: &mut Shard, judged: &Judged) {
+    if let Some(ran) = &judged.ran {
+        let misses = match ran {
+            Ran::Conforms(_) => Vec::new(),
+            Ran::Deviates(_) => {
+                vec!["the run does not show what the case's sentence denotes".to_owned()]
+            }
+        };
+        shard.add("k7", &judged.id, ran.signature(), misses);
+    }
+}
+
+/// Print what K7 checked of the cases K6 accepts, when the run ran K7: a stated value, liveness
+/// only, nothing (and why: no driver, no witness, no value), or a deviation.
+fn k7_statuses(name: &str, judged: &[Judged], by_id: &BTreeMap<&str, &Case>, ran: bool) {
+    if !ran {
+        return;
+    }
+    let mut statuses = BTreeMap::<&'static str, usize>::new();
+    for judged in judged
+        .iter()
+        .filter(|judged| judged.native == Some(Native::Accepted))
+    {
+        let status = match (&by_id[judged.id.as_str()].k7, &judged.ran) {
+            (_, Some(Ran::Deviates(_))) => "deviates",
+            (K7::Run(_), None) => "not run",
+            (plan, _) => plan.status(),
+        };
+        *statuses.entry(status).or_default() += 1;
+    }
+    eprintln!(
+        "[krs-class] {name}: K7 over the {} cases K6 accepts, by what it checks: {statuses:?}",
+        statuses.values().sum::<usize>()
+    );
+}
+
 /// Each judged case's K once accepted ([`case_k`]), and in the record mode the K to record: every
 /// accepted case's that no refusal rule covers, also made known to [`RECORDED`] before any
 /// `same_k_as` is compared.
@@ -691,6 +758,7 @@ fn shard(name: &str, families: &[Family]) {
         let pairs = k.as_deref().map_or_else(Vec::new, |k| other_k(expected, k));
         k3(&mut shard, judged, pairs, &mut forms);
         k6(&mut shard, judged);
+        k7(&mut shard, judged);
     }
     if recording {
         record(&recorded);
@@ -715,6 +783,7 @@ fn shard(name: &str, families: &[Family]) {
     for (form, counts) in &forms {
         eprintln!("[krs-class] {name}: K3 {form}: {counts:?}");
     }
+    k7_statuses(name, &judged, &by_id, settings.run.is_some());
     let tally = spec.pending.tally(red.iter().map(String::as_str));
     let mut by_test = BTreeMap::<&str, usize>::new();
     for key in &red {

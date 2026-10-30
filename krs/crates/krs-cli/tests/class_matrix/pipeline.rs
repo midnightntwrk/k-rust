@@ -28,6 +28,13 @@
 //! and a refusal is bisected, as a collection failure is, down to the case whose definition alone
 //! is refused; a batch whose cases lower otherwise together is judged case by case.
 //!
+//! K7 runs on K6's compile ([`crate::runs`]): where a check loads the definition the run
+//! commands load, each accepted case's program is configured and run on it, and the verdicts are
+//! kept when the check passes. A case's command is its own, so only its sentence can take its
+//! program; a case whose sentence holds no command of its own (a subject's root,
+//! `Case::unkeyed`) could take another case's program, so where one shares a check with other
+//! cases, each such case, and the others together, are run on definitions apart.
+//!
 //! Workers run batches concurrently, each with one Cargo target directory reused across its
 //! batches; every batch package is written fresh, under a name derived from its content, so no
 //! build of an earlier batch can stand in for it.
@@ -46,13 +53,16 @@ use krs_cli::{
     DiagnosticSeverity, EmittedDefinition, FacetSelector, MessageFormat, PackageSelector,
     RegistrationMode, collect_descriptors,
 };
+use krs_exec::Semantics;
 use krs_ir::DescriptorBundle;
 use krs_test_support::class_matrix::invariants::{
     Observed, ObservedDiagnostic, Severity, signature,
 };
+use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::{Base, Case, Packaging, Placed, render};
 
 use crate::closure::{Closure, additions, compare, sentences};
+use crate::runs::{Ran, run_case};
 
 /// The source file every case is written in.
 pub const SOURCE_FILE: &str = "src/lib.rs";
@@ -93,6 +103,8 @@ pub struct Judged {
     pub closure: Option<Closure>,
     /// K6's verdict, for an accepted case the table does not refuse, when the run judges it.
     pub native: Option<Native>,
+    /// K7's verdict, for a case K6 accepted and K7 has a plan for, when the run runs it.
+    pub ran: Option<Ran>,
 }
 
 /// How a run judges its accepted cases by K6.
@@ -162,6 +174,9 @@ pub struct Settings {
     /// The cases the table refuses, which K6 leaves aside even when KRS accepts them: their K is
     /// K2's deviation, not a definition the table accepts.
     pub refused_by_table: BTreeSet<String>,
+    /// K7's time limit per program, when the run runs the accepted cases (K6 compiles what they
+    /// run on, so K7 runs only with K6).
+    pub run: Option<Duration>,
 }
 
 /// Judge every case of `cases` through the pipeline, in ID order.
@@ -185,6 +200,7 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
                     refused_by_table: &settings.refused_by_table,
                     cost: &cost,
                     alone: settings.native == NativeMode::Alone,
+                    run: settings.run,
                 }),
             };
             let jobs = &jobs;
@@ -230,18 +246,37 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
             each.as_secs_f64(),
         );
     }
+    if settings.native != NativeMode::Off
+        && let Some(limit) = settings.run
+    {
+        let runs = cost.runs.load(Ordering::Relaxed);
+        let time = Duration::from_nanos(cost.run_nanos.load(Ordering::Relaxed));
+        let apart = Duration::from_nanos(cost.apart_nanos.load(Ordering::Relaxed));
+        eprintln!(
+            "[krs-class] K7 ran {runs} programs ({} s each at most) in {:.1} s of worker time, and made {} checks apart for cases beside a subject root's sentence, {:.1} s",
+            limit.as_secs(),
+            time.as_secs_f64(),
+            cost.apart_checks.load(Ordering::Relaxed),
+            apart.as_secs_f64(),
+        );
+    }
     judged
 }
 
 /// What K6 cost a run: the checks it made, the workers' time they took, the cases judged alone
 /// because their batch lowers otherwise together, and the refusals of cases together that no
-/// case alone makes.
+/// case alone makes; and what K7 cost: the programs it ran and their time, and the checks it
+/// made to run cases apart and theirs.
 #[derive(Default)]
 struct NativeCost {
     checks: AtomicUsize,
     nanos: AtomicU64,
     apart: AtomicUsize,
     joint: AtomicUsize,
+    runs: AtomicUsize,
+    run_nanos: AtomicU64,
+    apart_checks: AtomicUsize,
+    apart_nanos: AtomicU64,
 }
 
 /// A worker's part in K6.
@@ -252,6 +287,15 @@ struct NativeRun<'a> {
     cost: &'a NativeCost,
     /// Whether each case is judged alone, never in a batch.
     alone: bool,
+    /// K7's time limit per program, when the run runs accepted cases.
+    run: Option<Duration>,
+}
+
+/// K6's and K7's verdicts on the cases of a batch, by ID.
+#[derive(Default)]
+struct Verdicts {
+    native: BTreeMap<String, Native>,
+    ran: BTreeMap<String, Ran>,
 }
 
 /// Collect `source` alone, as a package in the directory `name` of the scratch, with a target of
@@ -405,7 +449,7 @@ impl Worker<'_> {
             .iter()
             .filter(|placed| judged_cases.contains(placed.case.id.as_str()))
             .collect::<Vec<_>>();
-        let mut verdicts = BTreeMap::new();
+        let mut verdicts = Verdicts::default();
         if run.alone {
             for placed in cases {
                 self.native_bisect(collected, all, &[placed], base, judged, &mut verdicts);
@@ -414,7 +458,8 @@ impl Worker<'_> {
             self.native_bisect(collected, all, &cases, base, judged, &mut verdicts);
         }
         for judged in judged {
-            judged.native = verdicts.remove(&judged.id);
+            judged.native = verdicts.native.remove(&judged.id);
+            judged.ran = verdicts.ran.remove(&judged.id);
         }
     }
 
@@ -439,7 +484,7 @@ impl Worker<'_> {
         cases: &[&Placed<'_>],
         base: Option<&[String]>,
         judged: &[Judged],
-        out: &mut BTreeMap<String, Native>,
+        out: &mut Verdicts,
     ) {
         // No case, no verdict: the base alone is no case's definition.
         let Some(run) = self.native.filter(|_| !cases.is_empty()) else {
@@ -459,8 +504,19 @@ impl Worker<'_> {
         let bundle = sub_bundle_of(&collected.bundle, all, |placed| {
             ids.contains(placed.case.id.as_str())
         });
+        // K7 runs the cases here unless a sentence of one could take another's program.
+        let together = cases.len() == 1 || cases.iter().all(|placed| !placed.case.unkeyed);
+        let runnable = if together {
+            runnable(cases, run)
+        } else {
+            Vec::new()
+        };
+        let ran = Mutex::new(BTreeMap::new());
+        let visit = |semantics: &mut Semantics| self.run_all(semantics, &runnable, &ran);
         let started = Instant::now();
-        let checked = catch_unwind(AssertUnwindSafe(|| collected.check(bundle)));
+        let checked = catch_unwind(AssertUnwindSafe(|| {
+            collected.check_visiting(bundle, (!runnable.is_empty()).then_some(&visit))
+        }));
         let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
         run.cost.checks.fetch_add(1, Ordering::Relaxed);
         run.cost.nanos.fetch_add(elapsed, Ordering::Relaxed);
@@ -485,19 +541,27 @@ impl Worker<'_> {
         match (verdict, cases) {
             (Native::Accepted, _) => {
                 for placed in cases {
-                    out.insert(placed.case.id.clone(), Native::Accepted);
+                    out.native.insert(placed.case.id.clone(), Native::Accepted);
+                }
+                out.ran
+                    .extend(ran.into_inner().expect("the runs are not poisoned"));
+                if !together {
+                    self.run_apart(collected, all, cases, out);
                 }
             }
             (refused, [placed]) => {
-                out.insert(placed.case.id.clone(), refused);
+                out.native.insert(placed.case.id.clone(), refused);
             }
             (refused, _) => {
                 let (left, right) = cases.split_at(cases.len() / 2);
                 self.native_bisect(collected, all, left, base, judged, out);
                 self.native_bisect(collected, all, right, base, judged, out);
-                let alone = cases
-                    .iter()
-                    .any(|placed| matches!(out.get(&placed.case.id), Some(Native::Refused { .. })));
+                let alone = cases.iter().any(|placed| {
+                    matches!(
+                        out.native.get(&placed.case.id),
+                        Some(Native::Refused { .. })
+                    )
+                });
                 if !alone {
                     run.cost.joint.fetch_add(1, Ordering::Relaxed);
                     eprintln!(
@@ -506,6 +570,107 @@ impl Worker<'_> {
                         cases[0].case.id,
                         refused.signature()
                     );
+                }
+            }
+        }
+    }
+
+    /// K7 over `cases`, on the definition `semantics` loaded: each case's plan, run within the time
+    /// limit; a panic of a run is its verdict.
+    fn run_all(
+        &self,
+        semantics: &mut Semantics,
+        cases: &[&Placed<'_>],
+        ran: &Mutex<BTreeMap<String, Ran>>,
+    ) {
+        let Some(run) = self.native else {
+            return;
+        };
+        let Some(limit) = run.run else {
+            return;
+        };
+        for placed in cases {
+            let K7::Run(plan) = &placed.case.k7 else {
+                continue;
+            };
+            let started = Instant::now();
+            let verdict = catch_unwind(AssertUnwindSafe(|| run_case(semantics, plan, limit)))
+                .unwrap_or_else(|panic| {
+                    Ran::Deviates(format!("panic: {}", panic_message(&*panic)))
+                });
+            let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            run.cost.runs.fetch_add(1, Ordering::Relaxed);
+            run.cost.run_nanos.fetch_add(elapsed, Ordering::Relaxed);
+            ran.lock()
+                .expect("the runs are not poisoned")
+                .insert(placed.case.id.clone(), verdict);
+        }
+    }
+
+    /// K7 over accepted `cases` of which some sentence holds no command of its own: the cases
+    /// that each hold one, together, and each other case alone, each on its own definition.
+    fn run_apart(
+        &self,
+        collected: &CollectedDefinition,
+        all: &[Placed<'_>],
+        cases: &[&Placed<'_>],
+        out: &mut Verdicts,
+    ) {
+        let Some(run) = self.native else {
+            return;
+        };
+        let keyed = cases
+            .iter()
+            .filter(|placed| !placed.case.unkeyed)
+            .copied()
+            .collect::<Vec<_>>();
+        let mut sets = vec![keyed];
+        sets.extend(
+            cases
+                .iter()
+                .filter(|placed| placed.case.unkeyed)
+                .map(|placed| vec![*placed]),
+        );
+        for set in sets {
+            let runnable = runnable(&set, run);
+            if runnable.is_empty() {
+                continue;
+            }
+            let ids = set
+                .iter()
+                .map(|placed| placed.case.id.as_str())
+                .collect::<BTreeSet<_>>();
+            let bundle = sub_bundle_of(&collected.bundle, all, |placed| {
+                ids.contains(placed.case.id.as_str())
+            });
+            let ran = Mutex::new(BTreeMap::new());
+            let visit = |semantics: &mut Semantics| self.run_all(semantics, &runnable, &ran);
+            let started = Instant::now();
+            let checked = catch_unwind(AssertUnwindSafe(|| {
+                collected.check_visiting(bundle, Some(&visit))
+            }));
+            let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            run.cost.apart_checks.fetch_add(1, Ordering::Relaxed);
+            run.cost.apart_nanos.fetch_add(elapsed, Ordering::Relaxed);
+            match checked {
+                Ok(Ok(_)) => out
+                    .ran
+                    .extend(ran.into_inner().expect("the runs are not poisoned")),
+                // Accepted together, refused apart: no definition of the case's own to run on.
+                refused => {
+                    let why = match refused {
+                        Ok(Err(error)) => native_signature(&error),
+                        Err(panic) => format!("panic: {}", panic_message(&*panic)),
+                        Ok(Ok(_)) => unreachable!("an accepted check is matched above"),
+                    };
+                    for placed in &runnable {
+                        out.ran.insert(
+                            placed.case.id.clone(),
+                            Ran::Deviates(format!(
+                                "K6 accepts the case beside the others of its batch, but refuses it apart: {why}"
+                            )),
+                        );
+                    }
                 }
             }
         }
@@ -832,7 +997,20 @@ fn judged(placed: &Placed<'_>, observed: Observed, batch: usize) -> Judged {
         additions: None,
         closure: None,
         native: None,
+        ran: None,
     }
+}
+
+/// The cases of `cases` that K7 runs: those it has a plan for, when the run runs K7.
+fn runnable<'p, 'a>(cases: &[&'p Placed<'a>], run: NativeRun<'_>) -> Vec<&'p Placed<'a>> {
+    if run.run.is_none() {
+        return Vec::new();
+    }
+    cases
+        .iter()
+        .filter(|placed| matches!(placed.case.k7, K7::Run(_)))
+        .copied()
+        .collect()
 }
 
 fn refused(diagnostics: Vec<ObservedDiagnostic>) -> Observed {
