@@ -712,13 +712,26 @@ mod tests {
         definition: &BackendDefinition,
         checked: &[Predicate],
     ) -> (Vec<String>, String) {
+        let (declarations, _, checked) = seeded_domain_query(definition, checked, |_| {});
+        (declarations, checked)
+    }
+
+    /// As [`domain_query`], with `seed` applied to the prepared state before translation, and
+    /// the known part (which carries the domain facts) returned as well.
+    fn seeded_domain_query(
+        definition: &BackendDefinition,
+        checked: &[Predicate],
+        seed: impl FnOnce(&mut TranslationState),
+    ) -> (Vec<String>, Vec<String>, String) {
         let mut state = TranslationState::new();
         state.congruence = CongruencePolicy::from_definition(definition).map(Arc::new);
         prepare(definition, &mut state, &[], &Substitution::new(), checked).unwrap();
-        let (state, declarations, _, _, checked) =
+        seed(&mut state);
+        let (state, declarations, _, known, checked) =
             translate_query_in_state(&[], &Substitution::new(), checked, state).unwrap();
         assert_eq!(state.exactness(), Exactness::Approximate);
-        (declarations, checked.to_string())
+        let known = known.iter().map(ToString::to_string).collect();
+        (declarations, known, checked.to_string())
     }
 
     /// The domain function declarations of a query: functions or constants of result `Bool`.
@@ -776,6 +789,61 @@ mod tests {
             panic!("one domain declaration: {declarations:?}");
         };
         assert!(domain.ends_with(" (Int) Bool)"), "{domain}");
+    }
+
+    /// A domain function applied once keeps its rank wherever the query mentions it at
+    /// another place: inside a derived definition (whose body is not rewritten, so a constant
+    /// there would be ill-sorted), at an unapplied occurrence, or under `exists`, which, like
+    /// `forall`, denotes a point per value of the bound variable.
+    #[test]
+    fn a_domain_mentioned_elsewhere_or_under_exists_keeps_its_rank() {
+        let definition = definition();
+        let term = |source: &str| {
+            definition
+                .internalize_term(
+                    &k_rust_kore::kore::parser::parse_pattern(source).unwrap(),
+                    &[],
+                )
+                .unwrap()
+        };
+        let once = [Predicate::Ceil(term("f{}(X:SortInt{})"))];
+        // The name translation gives the domain function of `f`; it is deterministic.
+        let (declarations, _) = domain_query(&definition, &once);
+        let [constant] = domain_declarations(&declarations)[..] else {
+            panic!("one domain declaration: {declarations:?}");
+        };
+        let name = constant.split_whitespace().nth(1).unwrap().to_owned();
+        let function = format!("(declare-fun {name} (Int) Bool)");
+        let applied = format!("({name} ");
+
+        let derived = format!("(define-fun-rec D ((x Int)) Bool ({name} x))");
+        let (declarations, _, checked) = seeded_domain_query(&definition, &once, |state| {
+            state.derived_definitions.push(derived.clone());
+        });
+        assert_eq!(domain_declarations(&declarations), [function.as_str()]);
+        assert!(declarations.contains(&derived), "{declarations:?}");
+        assert!(checked.contains(&applied), "{checked}");
+
+        let fact = format!("(= {name} {name})");
+        let (declarations, known, checked) = seeded_domain_query(&definition, &once, |state| {
+            state.domain_facts.push(SExpr::parse(&fact).unwrap());
+        });
+        assert_eq!(domain_declarations(&declarations), [function.as_str()]);
+        assert_eq!(known, [fact]);
+        assert!(checked.contains(&applied), "{checked}");
+
+        let bound = Predicate::Exists(
+            crate::term::Variable::new("X", crate::term::Sort::simple("SortInt")),
+            Arc::new(Predicate::Ceil(term("f{}(X:SortInt{})"))),
+        );
+        let (declarations, checked) = domain_query(&definition, &[bound]);
+        let [domain] = domain_declarations(&declarations)[..] else {
+            panic!("one domain declaration: {declarations:?}");
+        };
+        assert!(domain.ends_with(" (Int) Bool)"), "{domain}");
+        let name = domain.split_whitespace().nth(1).unwrap();
+        assert!(checked.contains("(exists "), "{checked}");
+        assert!(checked.contains(&format!("({name} ")), "{checked}");
     }
 
     #[test]

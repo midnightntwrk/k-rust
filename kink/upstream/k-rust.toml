@@ -35,7 +35,7 @@
 # original fields) and where_requested_shape_differs (how an accepted fix differs from the request).
 
 schema = 1
-updated = "2026-10-21"
+updated = "2026-10-30"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native, kink-campaign, kink-corpus and kink-flow all depend on k-rust.
@@ -225,9 +225,10 @@ status_basis = "test run at 927b9ce6 on 2026-10-06 (kink-native z3 gate; uninter
 blocking = false
 needed_by = ["solver Sat as feasibility evidence in the Z3 profile"]
 summary = "At 347f693e translates_exactly accepted predicates with smtlib symbols, which k-rust declares as uninterpreted declare-fun (&Int, |Int, xorInt, ~Int, user functions), and ignored quantifier sorts; Z3 answers Sat for X &Int 1 ==Int 2. At 74f1356e it rejects both, in addition to abstracted terms, non-Int/Bool free variables and partial functions. get_model (KK-49) and implies (KK-50) were made consistent with it; K-in-K2 calls neither. Since ceca4fef (in 927b9ce6) the check is smt::translation_exactness, Exact only when the posed translation abstracts nothing, and Validity::{Invalid, Indeterminate} are named {Refuted, Contingent}."
-reproducer = "symnarrow.k gate(X) requires X &Int 1 ==Int 2 under Z3: unknown at 74f1356e (was a wrong match before K-in-K2's wrapper)."
+reproducer = "symnarrow.k gate(A) requires A &Int (2 *Int A) ==Int 1 under Z3: no operand is a literal, so &Int stays an uninterpreted function and the query is not exact; every instance is unknown, never a feasible match (kink-native tests/symbolic.rs uninterpreted_smt_function_does_not_make_a_path_feasible)."
 local_workaround = "retired: feasibility.rs translates_without_approximation is removed and its callers use k-rust's exactness check (smt::translates_exactly through 9494bb48; smt::translation_exactness(..) == Exactness::Exact from 927b9ce6). Kept: a solver Sat counts only on an exact query, a solver Unsat counts under the explicit definedness premise (T-UNSAT, D-B; TB-01 pins it)."
-requested_action = "Satisfied. Bitwise operators stay undecided on Sat by design (k-rust declines an SMT encoding)."
+requested_action = "Satisfied. A bitwise operator whose operands are both symbolic stays uninterpreted, so a query over it is never exact and its Sat is undecided. Since 0da031036 k-rust reads &Int, |Int and xorInt with a literal nonnegative mask, and shifts by a literal amount, exactly (crates/k-rust-backend/src/smt/literal.rs), so such a query is exact: X &Int 1 ==Int 2 is refuted, and X &Int 7 ==Int 1 is an exact Sat with a model."
+update_2026_10_30 = "Restated at kink27 R1-SOUND: the reproducer was symnarrow.k gate(X) requires X &Int 1 ==Int 2, and requested_action said bitwise operators stay undecided on Sat by design. Both are stale since 0da031036, which reads literal masks exactly: that reproducer is refuted (every instance stuck at gate), not unknown. symnarrow.k's gate now uses two symbolic operands, the form this row's premise still holds for; krust kore-get-model's control in crates/k-rust/tests/cli.rs kore_get_model_reports_unknown_for_approximate_smt_models (X &Int Y ==Int 1, Unknown) pins the same form. Status unchanged."
 sources = ["draft/tasks/symbolic-branching/README.md R19, section 12.1", "k-rust draft/k-in-k/workers/KK-48-report.md, KK-49-report.md, KK-50-report.md"]
 
 [[request]]
