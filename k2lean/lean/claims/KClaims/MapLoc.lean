@@ -31,6 +31,10 @@ theorem wf_of_concat {a b m : M} (h : concat a b = some m) : WF m :=
 theorem wf_left_of_concat {a b m : M} (h : concat a b = some m) : WF a :=
   SAL.sorted_of_concat_left (concat_toList h)
 
+/-- A literal's well-formedness by its executable check (applied against the goal `WF m`, which
+fixes the key and value types that `m` alone does not). -/
+theorem wf_of_wfb {m : M} (h : wfb m = true) : WF m := (wfb_iff m).mp h
+
 /-- The map without a key `b` does not bind, beside `b`. -/
 theorem concat_remove_left {a b m : M} {k : K} (h : concat a b = some m) (hb : lookup b k = none) :
     concat (remove a k) b = some (remove m k) := by
@@ -168,6 +172,61 @@ theorem build {k : K} {v : V} {r : M} (wr : WF r) (hk : lookup r k = none) :
 /-- A binding taken from a map that binds it: the rest is the map without it. -/
 theorem take {k : K} {v : V} {m : M} (wm : WF m) (hl : lookup m k = some v) :
     concat (element k v) (remove m k) = some m := concat_element_remove wm hl
+
+/-! A map known by its bindings: the lookups of a map built by `remove` and `update` from a
+described one, and a `concat` from the bindings of its three maps (`MapHook.ext`). -/
+
+/-- Two keys bound on the two sides of a defined `concat` differ. -/
+theorem key_ne {a b m : M} (h : concat a b = some m) {i j : K} {v w : V}
+    (ha : lookup a i = some v) (hb : lookup b j = some w) : i ≠ j := by
+  rintro rfl
+  rcases concat_disj_lookup h i with e | e <;> simp_all
+
+/-- A key bound on one side of a defined `concat` is not bound on the other. -/
+theorem none_right {a b m : M} (h : concat a b = some m) {k : K} {v : V}
+    (ha : lookup a k = some v) : lookup b k = none := lookup_right_none h (by simp [ha])
+
+theorem none_left {a b m : M} (h : concat a b = some m) {k : K} {v : V}
+    (hb : lookup b k = some v) : lookup a k = none := lookup_left_none_of_concat h (by simp [hb])
+
+/-- A key bound on neither side is not bound in `A B`. -/
+theorem none_concat {a b m : M} (h : concat a b = some m) {k : K} (ha : lookup a k = none)
+    (hb : lookup b k = none) : lookup m k = none := by
+  rw [lookup_concat h, ha, hb]; rfl
+
+theorem none_element {k k₀ : K} {v₀ : V} (h : k ≠ k₀) : lookup (element k₀ v₀ : M) k = none :=
+  lookup_element_ne h
+
+theorem none_remove_self {m : M} {k : K} (wm : WF m) : lookup (remove m k) k = none :=
+  lookup_remove_self k wm
+
+theorem none_remove {m : M} {k k₀ : K} (h : k ≠ k₀) (wm : WF m) (hm : lookup m k = none) :
+    lookup (remove m k₀) k = none := by
+  rw [lookup_remove_ne h wm, hm]
+
+theorem none_update {m : M} {k k₀ : K} {v₀ : V} (h : k ≠ k₀) (hm : lookup m k = none) :
+    lookup (update m k₀ v₀) k = none := by
+  rw [lookup_update_ne m v₀ h, hm]
+
+theorem lookup_remove {m : M} {k k₀ : K} {v : V} (h : k ≠ k₀) (wm : WF m)
+    (hm : lookup m k = some v) : lookup (remove m k₀) k = some v := by
+  rw [lookup_remove_ne h wm, hm]
+
+theorem lookup_update_same {m : M} {k : K} {v : V} : lookup (update m k v) k = some v :=
+  lookup_update_self m k v
+
+theorem lookup_update {m : M} {k k₀ : K} {v v₀ : V} (h : k ≠ k₀) (hm : lookup m k = some v) :
+    lookup (update m k₀ v₀) k = some v := by
+  rw [lookup_update_ne m v₀ h, hm]
+
+/-- `A B = m` from the bindings: `A` and `B` bind no key in common, and `m` binds `A`'s, then
+`B`'s. -/
+theorem concat_of_lookup {a b m : M} (wa : WF a) (wb : WF b) (wm : WF m)
+    (d : ∀ k, lookup a k = none ∨ lookup b k = none)
+    (h : ∀ k, lookup m k = (lookup a k).or (lookup b k)) : concat a b = some m := by
+  obtain ⟨m', hm'⟩ := concat_exists wa wb d
+  have : m' = m := ext (wf_of_concat hm') wm (fun k => by rw [lookup_concat hm', h])
+  subst this; exact hm'
 
 end KClaims.MapLoc
 

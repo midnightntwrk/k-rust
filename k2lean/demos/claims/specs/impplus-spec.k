@@ -4,7 +4,8 @@
 // either argument first. `kc_auto` steps by every successor (`KClaims.ExecSucc`), and, where the
 // successors do not reduce (a symbolic rest of `<k>`, a symbolic thread id or store location, a
 // frame of `<env>` or `<store>`), by the cases of `Step`, whose map premises are located in the
-// claim's description of each map (`KClaims.MapLoc`).
+// claim's description of each map (`KClaims.MapLoc`); a target's map is matched by its bindings,
+// key by key (`kc_map_ext`).
 // Each configuration has exactly one thread: with other threads abstracted, all-path reachability
 // would quantify over their runs too, and one that runs forever never lets this one finish. The
 // stream cells are empty or concrete: with a variable there, K's stdin/stdout rules (priorities 25,
@@ -74,4 +75,23 @@ module IMPPLUS-SPEC
     <threads><thread> <id> 0 </id> <k> n = 7; => .K </k> <env> n |-> L:Int ... </env></thread></threads>
     <store>... L |-> (_ => 7) ...</store>
     <input> .List </input> <output> .List </output>
+
+  // an assignment under the cells of sum-spec.k: the target states the written store by its two
+  // bindings over the frame, equal to the store the step built up to its bindings
+  claim [assign-sum]:
+    <threads><thread>...
+      <k> sum = 7; => .K ...</k>
+      <env>... n |-> LN:Int sum |-> LSUM:Int ...</env>
+    ...</thread></threads>
+    <input> ListItem(#buffer("\n" ~> .)) ListItem("off") ListItem(#istream(0)) </input>
+    <output> ListItem(#ostream(1)) ListItem("off") ListItem(#buffer("" ~> .)) </output>
+    <store>... LN |-> N:Int LSUM |-> (_:Int => 7) ...</store>
+    <generatedCounter> _ </generatedCounter>
+
+  // two declarations: two fresh locations, distinct by arithmetic (freshInt(C), freshInt(C + 1))
+  claim [decl-two]:
+    <threads><thread>... <k> int n, sum; => .K ...</k> <env> .Map => n |-> ?L:Int sum |-> ?M:Int </env> ...</thread></threads>
+    <input> .List </input> <output> .List </output>
+    <store> .Map => ?L |-> 0 ?M |-> 0 </store>
+    <generatedCounter> C:Int => C +Int 2 </generatedCounter>
 endmodule
