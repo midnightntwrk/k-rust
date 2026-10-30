@@ -146,7 +146,7 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution_values, tree_from_steps,
+    BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution_existing, tree_from_steps,
     validate_test_initial_state, work_bound_stuck_terminals,
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
@@ -444,8 +444,11 @@ impl RunOptions {
 /// version of it, misses or is refused, naming it (re-pin L1-2-land). Bump it whenever either
 /// function changes which slots distinguish. v1 (re-pin L1-2, L1-2-fix-1): decision 6 and
 /// finding A-15, a clean ground stuck leaf of a work-bound mutant run whose projection the
-/// baseline's complete set lacks, with contradicted claims read per path.
-pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v1";
+/// baseline's complete set lacks, with contradicted claims read per path. v2 (kink27
+/// R3-UNDEF-BRIDGE): an undefined step's leaf of the mutant run completes when its pre-step
+/// configuration is shown to exist, not only by a terminal value, so `work_bound_stuck_terminals`
+/// admits runs with such a leaf that v1 refused.
+pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v2";
 
 /// The one-sided early kill (re-pin L1-2: decision 6, finding A-15). Off by default: a state slot
 /// distinguishes only two complete sides.
@@ -3005,11 +3008,12 @@ impl Runtime {
                     sorts: &self.context.symbol_sorts,
                 };
                 let value = |term: &Pattern| decider.terminal_value(term);
-                let bridged = paths_from_execution_values(execution, &context, &value);
+                let exists = |term: &Pattern| decider.configuration_exists(term);
+                let bridged = paths_from_execution_existing(execution, &context, &value, &exists);
                 let state_exclusion = exclusions.state_exclusion(definition, &test.initial_state);
                 // Re-pin L1-2: kept below only when the run is judged into sides.
                 let one_sided = if one_sided {
-                    work_bound_stuck_terminals(execution, &context, &value)
+                    work_bound_stuck_terminals(execution, &context, &value, &exists)
                 } else {
                     Vec::new()
                 };

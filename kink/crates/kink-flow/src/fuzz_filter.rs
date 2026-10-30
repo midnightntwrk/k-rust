@@ -22,10 +22,12 @@
 //!    (`preserves-definedness`), one of a rule whose result depends on the short-circuit reading
 //!    is no evidence (`short-circuit-step`; a job never meets it, since such a rule is a
 //!    definition exclusion that refuses the job before any case);
-//! 3. TV-01 on every `stuck` or `trivial` leaf's term under its own side's definition, with that
-//!    side's collection trust and data facts (`ObservationDecider::terminal_value`; the cause is
-//!    the first failing node's test, [`cause_of`], and a String-like domain value that is not
-//!    ASCII is `domain-value-not-ascii`, the one refusal a repair of the holes can avoid);
+//! 3. TV-01 on every `stuck` leaf's term under its own side's definition, with that side's
+//!    collection trust and data facts (`ObservationDecider::terminal_value`; the cause is the
+//!    first failing node's test, [`cause_of`], and a String-like domain value that is not ASCII
+//!    is `domain-value-not-ascii`, the one refusal a repair of the holes can avoid); a `trivial`
+//!    leaf needs only existence (kink27 R3-UNDEF-BRIDGE), which the fuzz's clean-leaf rule
+//!    already requires;
 //! 4. for a kill, every `stuck` leaf's value judged under the other side's definition too, as
 //!    `judge_ends` judges each side's ends (cause `cross-<test>`): a `trivial` leaf is an undefined
 //!    step, whose pre-step configuration is reached but is no end (kink27 R1-UNDEF), so kink's
@@ -66,8 +68,8 @@
 //!   feasible and judge), leaf diagnostics (kink makes a diagnosed leaf incomplete), a halt
 //!   outside the bridge's contract, a configuration that does not parse, a side kink-native could
 //!   not reach, the mutant's single path of a one-path campaign (which is not its set of ends),
-//!   an added end under `work_factor`, and everything after a pattern's first match are left to
-//!   kink's confirmation.
+//!   an added end under `work_factor`, a `trivial` leaf kink does not show to exist, and
+//!   everything after a pattern's first match are left to kink's confirmation.
 //!
 //! **Identity.** [`KinkJudgement::id`] names [`FILTER_VERSION`] (this composition: the deciders,
 //! the leaves, the cause tokens, the repair), the `KINK_IDENTITY` components it composes or
@@ -110,8 +112,10 @@ use crate::results::non_value_text;
 /// an undefined step's pre-step term is no end (kink's `README.md`, "What a kill trusts"), so the
 /// cross judgement (4) reads the `stuck` leaves only. The ticket's fix round 1, which stopped
 /// kink's exit stop from telling sides apart by an undefined path, changed no step of the filter;
-/// TV-01 on `trivial` leaves (3) stays until R3-UNDEF-BRIDGE.
-pub const FILTER_VERSION: &str = "kink-flow/witness-filter/v2";
+/// TV-01 on `trivial` leaves (3) stays until R3-UNDEF-BRIDGE. v3 (kink27 R3-UNDEF-BRIDGE): TV-01
+/// (3) reads the `stuck` leaves only; a `trivial` leaf needs only existence, which the fuzz's
+/// clean-leaf rule already requires.
+pub const FILTER_VERSION: &str = "kink-flow/witness-filter/v3";
 
 /// The repair candidates a refused hit gets at most ([`repair_candidates`]).
 const REPAIR_CANDIDATES: usize = 2;
@@ -565,7 +569,7 @@ fn judge_side(
 ) -> Option<Vec<Pattern>> {
     undefined_steps(role, side, facts.exclusions(), refusals);
     let ends = ends(side, &facts.sorts);
-    let terms: Vec<Pattern> = ends.iter().map(|(_, term, _)| term.clone()).collect();
+    let terms: Vec<Pattern> = ends.iter().map(|(_, term)| term.clone()).collect();
     let judged = match facts.values(initial, &terms) {
         Guarded::Done(judged) => judged,
         Guarded::TooDeep => {
@@ -575,11 +579,9 @@ fn judge_side(
         Guarded::Unreached => return None,
     };
     let mut values = Vec::new();
-    for ((leaf, _, halt), judged) in ends.iter().zip(judged) {
+    for ((leaf, _), judged) in ends.iter().zip(judged) {
         match judged {
-            // An undefined step's term is no end (kink27 R1-UNDEF): TV-01 only, not judged across.
-            Judged::Value(value) if *halt == HaltClass::Stuck => values.push(value),
-            Judged::Value(_) => {}
+            Judged::Value(value) => values.push(value),
             Judged::NoValue(failure, repairable) => refusals.push(Refused {
                 repairable,
                 ..Refused::new(
@@ -597,21 +599,22 @@ fn judge_side(
     Some(values)
 }
 
-/// The `stuck` and `trivial` leaves of `side` whose state is one decided term, with their index
-/// and halt.
-fn ends(side: &WitnessSide, sorts: &SymbolSorts) -> Vec<(usize, Pattern, HaltClass)> {
+/// The `stuck` leaves of `side` whose state is one decided term, with their index. A `trivial`
+/// leaf is an undefined step, whose pre-step configuration is no end and is never compared
+/// (kink27 R1-UNDEF), so it needs no terminal value, only existence (kink27 R3-UNDEF-BRIDGE).
+fn ends(side: &WitnessSide, sorts: &SymbolSorts) -> Vec<(usize, Pattern)> {
     side.final_configurations
         .iter()
         .zip(&side.halts)
         .enumerate()
         .filter_map(|(index, (state, halt))| {
             let halt = HaltClass::from_output(*halt);
-            if !matches!(halt, HaltClass::Stuck | HaltClass::Trivial) {
+            if halt != HaltClass::Stuck {
                 return None;
             }
             let state = parse_pattern(state).ok()?;
             match leaf_term(&state, halt, sorts) {
-                Ok(LeafTerm::Term(term)) => Some((index, term, halt)),
+                Ok(LeafTerm::Term(term)) => Some((index, term)),
                 _ => None,
             }
         })
@@ -1181,7 +1184,7 @@ mod tests {
             .expect_err("b is no symbol of the mutant");
         assert_eq!(refused.cause, "cross-undeclared-symbol");
         // kink27 R1-UNDEF: an undefined step's pre-step term is no end, so it is not judged
-        // under the other side's definition (TV-01 under its own still holds).
+        // under the other side's definition.
         let undefined = kill(
             witness_side(DefinitionRole::Baseline, &[("Lblb{}()", TRIVIAL, None)], 1),
             witness_side(DefinitionRole::Mutant, &[("Lbla{}()", STUCK, None)], 1),
@@ -1193,10 +1196,8 @@ mod tests {
             witness_side(DefinitionRole::Mutant, &[("Lbla{}()", STUCK, None)], 1),
             KillKind::AddedEnd,
         );
-        assert_eq!(
-            judgement.judge(&undefined).expect_err("TV-01").cause,
-            NOT_ASCII
-        );
+        // kink27 R3-UNDEF-BRIDGE: a trivial leaf needs only existence, never TV-01.
+        assert_eq!(judgement.judge(&undefined), Ok(()));
         // A reach judges the baseline alone, under its own definition.
         let mut reach =
             KinkJudgement::new(FilterJob::Reach, side(&[]), None, WorkBudget::Unbounded);

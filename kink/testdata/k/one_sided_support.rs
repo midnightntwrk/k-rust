@@ -15,7 +15,9 @@ use k_rust::backend::{Backend, BackendError, BackendOptions};
 use k_rust::kore::{ast::Pattern, parser::parse_definition};
 use kink_campaign::{ExecutionFailureKind, OracleOutcome, TestRun};
 use kink_native::ValidatedDefinition;
-use kink_native::bridge::{BridgeContext, paths_from_execution_values, work_bound_stuck_terminals};
+use kink_native::bridge::{
+    BridgeContext, paths_from_execution_existing, work_bound_stuck_terminals,
+};
 use kink_native::exclusion::DefinitionExclusions;
 use kink_native::execution::{
     AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, ResultModality, ResultRun,
@@ -141,9 +143,10 @@ pub fn explain_one_sided_kill(
                 ObservationDecider::new(definition, solver, TestInitialState::of_test(initial))
                     .trusting_collections(collections_trusted);
             let value = |term: &Pattern| decider.terminal_value(term);
+            let exists = |term: &Pattern| decider.configuration_exists(term);
             Ok::<_, BackendError>((
-                paths_from_execution_values(&full, &context, &value),
-                work_bound_stuck_terminals(&bounded, &context, &value),
+                paths_from_execution_existing(&full, &context, &value, &exists),
+                work_bound_stuck_terminals(&bounded, &context, &value, &exists),
             ))
         })
         .map_err(|e| e.to_string())?;

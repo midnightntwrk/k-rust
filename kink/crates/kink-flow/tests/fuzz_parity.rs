@@ -20,12 +20,19 @@
 //!   that both end undefined at different pre-step configurations are killed by neither tool, an
 //!   undefined path beside the same ends is no difference, and a side whose every path takes an
 //!   undefined step has the empty set of ends, which a clean end of the other side distinguishes.
+//!   kink completes an undefined step whose configuration exists without being a value (kink27
+//!   R3-UNDEF-BRIDGE); the fuzz's comparable conditions do not yet (known divergence below).
 //!
 //! Known divergences, pinned for the final first-principles review, not desired behaviour:
 //! - cond(0): the fuzz holds no end of a definition with an unnamed critical-pair finding to be
 //!   data, while kink's `results` classifies the run by its own end check and lists its coverage;
 //! - a non-ASCII String end: k-rust's data judgement accepts it and kink's end check does not; the
-//!   witness filter closes the gap inside a kink-flow campaign, the library judgement keeps it.
+//!   witness filter closes the gap inside a kink-flow campaign, the library judgement keeps it;
+//! - an undefined step taken from a configuration that exists but is not data (an irreducible
+//!   application of a total function): kink's `results` judges the run `comparable` (kink27
+//!   R3-UNDEF-BRIDGE), while the fuzz's comparable conditions (k-rust-fuzz `end_conditions`, P3)
+//!   still require an undefined step's term to be data (`end-not-data`). The fuzz is the stricter,
+//!   so (c)'s direction (fuzz comparable, then kink comparable) still holds.
 //!
 //! The kill job's agreement of the filter and kink's confirmation on a non-ASCII end is pinned in
 //! `tests/fuzz.rs` (`a_witness_kink_refuses_is_unconfirmed_with_kinks_cause`, and `comparable_b`
@@ -1193,6 +1200,135 @@ endmodule
         );
         assert_eq!(
             slots["whole-term"]["sides"]["mutant"]["final_configurations"], 1,
+            "{slots:#}"
+        );
+    }
+
+    /// `go(N)` writes `g(N)` to `<log>` and `hgo(N)` writes `h(N)`, then `step(N)` writes
+    /// `N /Int 0` to `<out>`: an undefined step from every input, taken from a configuration whose
+    /// `<log>` holds an application no equation reduces. `g` is declared total, `h` is not.
+    const UNDEFINED_EXISTS_K: &str = "module UX-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)] | hgo(Int) [symbol(hgo)]
+endmodule
+
+module UX
+  imports UX-SYNTAX
+  imports INT
+  syntax Int   ::= g(Int) [function, total, symbol(g)]
+                 | h(Int) [function, symbol(h)]
+  syntax KItem ::= step(Int) [symbol(step)]
+  configuration <k> $PGM:Pgm </k> <log> 0 </log> <out> 0 </out>
+  rule [g-zero]: g(0) => 1
+  rule [h-zero]: h(0) => 1
+  rule [go]:   <k> go(N) => step(N) </k> <log> _ => g(N) </log>
+  rule [hgo]:  <k> hgo(N) => step(N) </k> <log> _ => h(N) </log>
+  rule [step]: <k> step(N) => .K </k> <log> _ => 0 </log> <out> _ => N /Int 0 </out>
+endmodule
+";
+
+    /// `out-defined` writes `N` to `<out>`: the step is defined, and every run ends cleanly.
+    const UNDEFINED_EXISTS_MUTATIONS: &str = "[[mutation]]\nid = \"out-defined\"\n\
+                                              [[mutation.edit]]\nrule = \"UX.step\"\nfind = \
+                                              \"N /Int 0\"\nreplace = \"N\"\n";
+
+    /// (d) An undefined step needs its configuration to exist, not to be a value, for kink (kink27
+    /// R3-UNDEF-BRIDGE). The configuration an undefined step is taken from is no end and is never
+    /// compared, so a run whose every path ends in an undefined step has the empty set of ends;
+    /// its path is real only if that configuration has an instance.
+    /// - `go(1)` takes its undefined step from `<k> step(1) </k> <log> g(1) </log> <out> 0 </out>`:
+    ///   ground, without a path condition, `g(1)` irreducible and so no value, but `g` is total, so
+    ///   the configuration exists. kink's `results` judges the run comparable, with the empty set
+    ///   of final configurations; `out-defined` gives the run a clean end, which kink's whole term
+    ///   and exit stop tell from the baseline's empty sets. Known divergence (module
+    ///   documentation): the fuzz's comparable conditions still read the undefined step's term as
+    ///   an end that must be data, and refuse the run `end-not-data`.
+    /// - `hgo(1)`'s configuration holds `h(1)`, which k-rust does not show defined: kink cannot
+    ///   tell an instance-less run from the empty set of ends, so the row stays `unknown`.
+    ///
+    /// Fails if kink requires the pre-step configuration to be a terminal value (`one` is
+    /// `unknown` and `out-defined` survives), or if it completes a leaf whose configuration is not
+    /// shown to exist (`partial` is decided).
+    #[test]
+    #[ignore = "kink"]
+    fn an_undefined_steps_configuration_need_only_exist() {
+        let dir = flow(
+            "undefined-exists",
+            "ux.k",
+            UNDEFINED_EXISTS_K,
+            "UX",
+            "",
+            &[("one", "go(1)"), ("partial", "hgo(1)")],
+            UNDEFINED_EXISTS_MUTATIONS,
+        );
+        let report = krust_fuzz(
+            &dir,
+            "t",
+            "go(1)",
+            Vec::new(),
+            "<k> step(_) </k>",
+            PatternAt::AnyState,
+            1,
+        );
+        let case = witness(&report);
+        assert_eq!(
+            case["comparable"],
+            json!({"holds": false, "reasons": ["end-not-data"]}),
+            "{case:#}"
+        );
+        assert_eq!(case["sides"][0]["halts"], json!(["trivial"]), "{case:#}");
+
+        let document = kink_results(&dir);
+        assert_eq!(row(&document, "one")["class"], "comparable", "{document:#}");
+        assert_eq!(
+            row(&document, "partial")["class"],
+            "unknown",
+            "{document:#}"
+        );
+        // The result record of `one` in the flow's result cache.
+        let record = fs::read_dir(dir.join("cache/results"))
+            .unwrap()
+            .flat_map(|spec| fs::read_dir(spec.unwrap().path()).unwrap())
+            .map(|record| {
+                let text = fs::read_to_string(record.unwrap().path()).unwrap();
+                serde_json::from_str::<Value>(&text).unwrap()
+            })
+            .find(|record| record["program_id"] == "one")
+            .expect("a result record of `one`");
+        assert_eq!(
+            record["final_configuration"],
+            json!([]),
+            "an undefined step's pre-step configuration is no final configuration: {record:#}"
+        );
+
+        // `out-defined`, kink: `one` kills by both slots; the baseline's whole term and exit stop
+        // are the empty set.
+        let mutation = kink_run(&dir, "out-defined");
+        assert_eq!(
+            (&mutation["status"], &mutation["killer"]),
+            (&json!("killed"), &json!("one")),
+            "{mutation:#}"
+        );
+        let slots = &mutation["executed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["program"] == "one")
+            .unwrap_or_else(|| panic!("{mutation:#}"))["slots"];
+        assert_eq!(slots["whole-term"]["outcome"], "distinguish", "{slots:#}");
+        assert_eq!(
+            slots["whole-term"]["sides"]["baseline"],
+            json!({"final_configurations": 0}),
+            "{slots:#}"
+        );
+        assert_eq!(
+            slots["whole-term"]["sides"]["mutant"]["final_configurations"], 1,
+            "{slots:#}"
+        );
+        assert_eq!(slots["exit-stop"]["outcome"], "distinguish", "{slots:#}");
+        assert_eq!(
+            slots["exit-stop"]["sides"]["baseline"],
+            json!([]),
             "{slots:#}"
         );
     }

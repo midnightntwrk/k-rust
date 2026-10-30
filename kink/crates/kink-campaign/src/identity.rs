@@ -86,8 +86,11 @@ use std::{path::Path, sync::OnceLock};
 /// reads ends only (a removed end distinguishes where the pre-step configuration equalled the
 /// baseline's end), an exit stop no longer distinguishes by an undefined path alone, and the
 /// single-crash and free-variable rules ignore undefined steps; so campaign reports, memos and
-/// every other store bound to the identity are refused or missed.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v7";
+/// every other store bound to the identity are refused or missed. v8 (kink27 R3-UNDEF-BRIDGE): an
+/// undefined step's leaf completes when its pre-step configuration is shown to exist, not when its
+/// term is a terminal value, so a baseline that was `unknown` for that reason may be `comparable`,
+/// a side may be a value and a pattern side decided where they were `unknown`.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v8";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

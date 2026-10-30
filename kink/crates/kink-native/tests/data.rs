@@ -352,8 +352,10 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 }
 
 /// fz26 KINK-OVERLOAD-VALUE consumes k-rust's data judgement rather than re-implementing it, so
-/// the passages its soundness rests on are pinned by digest (kink-flow's query reads the existence
-/// predicate, `definedness`'s `ground_defined`, which is pinned here too):
+/// the passages its soundness rests on are pinned by digest (kink-flow's query, and kink-native's
+/// bridge on an undefined step's pre-step configuration, read the existence predicate,
+/// `definedness`'s `ground_defined`, which is pinned here too; for the bridge, true completes the
+/// leaf and false leaves it unknown):
 /// - `data_term`'s module documentation from "The class" through "Two definitions" (what a data
 ///   term is, why two differ in each definition's initial model under A1+ and A2, and that ends
 ///   compared across two definitions must be data in both, each judged by its own);

@@ -61,7 +61,7 @@ use kink_native::{
     data::{DataFacts, data_ends},
     exclusion::{DefinitionExclusions, Exclusion},
     execution::{AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
-    feasibility::TestInitialState,
+    feasibility::{LeafFeasibility, TestInitialState},
     step_events::{EntryRole, NonValue, NonValueStep, ObservationDecider},
 };
 use kink_patch::{
@@ -519,15 +519,13 @@ impl<'a> BaselineRunner<'a> {
                 )
             })
         {
-            let lead =
-                "every path ended, but a final configuration is not a value kink can compare";
-            match self.non_value_cause(&mut backend, &parsed, test, leaves) {
-                Some(cause) => format!("{lead}: {cause}"),
-                None => format!(
-                    "{lead} (for example it holds a collection kink cannot compare, such as one \
-                     with a Bytes key, an unevaluated function or a symbolic term)"
-                ),
-            }
+            self.non_value_cause(&mut backend, &parsed, test, leaves)
+                .unwrap_or_else(|| {
+                    format!(
+                        "{NON_VALUE_LEAD} (for example it holds a collection kink cannot compare, \
+                         such as one with a Bytes key, an unevaluated function or a symbolic term)"
+                    )
+                })
         } else {
             "a path did not end".to_owned()
         };
@@ -557,15 +555,19 @@ impl<'a> BaselineRunner<'a> {
         }
     }
 
-    /// Which node of which leaf has no terminal value, for a baseline every path of which ended
-    /// but which the runner refused (fz26 KINK-CAUSE-SUBTERM): the first leaf, in the run's
-    /// order, whose state's term has no terminal value, and the first node of that term, in
-    /// pre-order, that fails its own test (kink-native `ObservationDecider::first_non_value`).
+    /// The hint for a baseline every path of which ended but which the runner refused: which
+    /// leaf is incomplete and why (fz26 KINK-CAUSE-SUBTERM). TV-01 is the end check of `stuck`
+    /// leaves: the first such leaf, in the run's order, whose state's term has no terminal value
+    /// is named with the first node of that term, in pre-order, that fails its own test
+    /// (kink-native `ObservationDecider::first_non_value`). A `trivial` leaf is an undefined step,
+    /// whose pre-step configuration needs only to exist (kink27 R3-UNDEF-BRIDGE): one the adapter
+    /// did not show feasible, whose ground term has no terminal value and that k-rust does not
+    /// show to exist (`ObservationDecider::configuration_exists`), is named in the same order.
     /// The decider is built as the campaign runner builds the baseline's (`Runtime::judge_with`):
     /// on the definition this backend selected, with its exclusions' collection trust and the
     /// data ends of the session's baseline facts. A leaf whose state is not one decided or
-    /// feasible term is named when no leaf has a term without a value. `None` when neither
-    /// exists, or no definition can be selected.
+    /// feasible term is named when no leaf is named for its term. `None` when neither exists, or
+    /// no definition can be selected.
     ///
     /// The cause is the baseline's own judgement: whether an end is data under a mutant's
     /// definition is judged by the runner for each pair (`judge_across`), never here.
@@ -605,22 +607,52 @@ impl<'a> BaselineRunner<'a> {
                 .judging_data(own, own);
                 let mut undecided = None;
                 for (leaf, term) in leaves.iter().zip(&terms) {
+                    let trivial = leaf.halt == HaltClass::Trivial;
                     match term {
+                        Ok(LeafTerm::Term(term)) if trivial => {
+                            let feasible = matches!(
+                                leaf.feasibility,
+                                LeafFeasibility::Syntactic | LeafFeasibility::Solver
+                            );
+                            if !feasible
+                                && decider.terminal_value(term).is_none()
+                                && !decider.configuration_exists(term)
+                            {
+                                return Ok::<_, k_rust::backend::BackendError>(Some(format!(
+                                    "{UNDEFINED_STEP_LEAD}: in the {}, k-rust does not show it \
+                                     defined on this definition, or kink cannot read it back \
+                                     exactly (it may hold an application of a function not \
+                                     declared total that no equation reduced, map keys or set \
+                                     elements not shown apart, or a domain value without an \
+                                     injective codec)",
+                                    leaf_name(leaf)
+                                )));
+                            }
+                        }
                         Ok(LeafTerm::Term(term)) => {
                             if let Some(failure) = decider.first_non_value(term) {
-                                return Ok::<_, k_rust::backend::BackendError>(Some(format!(
-                                    "in the {}, {}",
+                                return Ok(Some(format!(
+                                    "{NON_VALUE_LEAD}: in the {}, {}",
                                     leaf_name(leaf),
                                     non_value_text(&failure)
                                 )));
                             }
                         }
                         Ok(LeafTerm::Undecided) if undecided.is_none() => {
-                            undecided = Some(format!(
-                                "the state of the {} is not one ground term without a path \
-                                 condition",
-                                leaf_name(leaf)
-                            ));
+                            undecided = Some(if trivial {
+                                format!(
+                                    "{UNDEFINED_STEP_LEAD}: the state of the {} is not one \
+                                     ground term without a path condition, and kink did not \
+                                     show it feasible",
+                                    leaf_name(leaf)
+                                )
+                            } else {
+                                format!(
+                                    "{NON_VALUE_LEAD}: the state of the {} is not one ground \
+                                     term without a path condition",
+                                    leaf_name(leaf)
+                                )
+                            });
                         }
                         _ => {}
                     }
@@ -631,6 +663,15 @@ impl<'a> BaselineRunner<'a> {
             .flatten()
     }
 }
+
+/// The lead of a refused baseline's hint whose `stuck` leaf has no terminal value (TV-01).
+const NON_VALUE_LEAD: &str =
+    "every path ended, but a final configuration is not a value kink can compare";
+
+/// The lead of a refused baseline's hint whose undefined step's pre-step configuration is not
+/// shown to exist (kink27 R3-UNDEF-BRIDGE).
+const UNDEFINED_STEP_LEAD: &str =
+    "every path ended, but the configuration an undefined step is taken from is not shown to exist";
 
 /// A leaf, as the cause's `leaves:` list names it: its halt and depth.
 fn leaf_name(leaf: &AdaptedLeaf) -> String {

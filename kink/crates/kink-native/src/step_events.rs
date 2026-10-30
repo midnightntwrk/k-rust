@@ -15,8 +15,8 @@ use kink_pattern::{
 use crate::data::DataEnds;
 use crate::feasibility::{
     BackendRelations, Inhabitation, TestInitialState, contains_non_strict_injection,
-    domain_value_identity_safe, free_constructor, non_strict_injection_node,
-    strict_injection_sorts,
+    contains_untrusted_domain_value, domain_value_identity_safe, free_constructor,
+    non_strict_injection_node, strict_injection_sorts,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -646,6 +646,44 @@ impl<'a> ObservationDecider<'a> {
     /// With [`Self::trusting_collections`] off, no term with a collection symbol has a value.
     pub fn terminal_value(&self, term: &Pattern) -> Option<Pattern> {
         self.value_at(term, None, false).ok()
+    }
+
+    /// Whether k-rust shows that the configuration `term` exists (has an instance) on the leaf
+    /// definition: `term` is ground, holds no conjunction, kink reads it back as k-rust's term,
+    /// and k-rust's `ground_defined` holds of its internalization. One-sided: `true` says the
+    /// configuration exists, `false` says nothing. This is the existence an undefined step's
+    /// pre-step configuration needs for its path to be real (kink27 R3-UNDEF-BRIDGE); it is a
+    /// fact of the theory whose step is undefined, so it is asked of the leaf's own definition.
+    ///
+    /// The guards:
+    /// - a free variable: the existence of every instance is not one ground fact;
+    /// - a conjunction `\and(a, b)` anywhere exists only where its sides are equal, which
+    ///   `ground_defined` does not decide;
+    /// - a domain value without an injective codec, or an injection that is not strict: the
+    ///   read-back term may not be the term k-rust built, so k-rust's answer may be about
+    ///   another term.
+    ///
+    /// `ground_defined` counts an irreducible hooked `value-production` application as existing
+    /// whether or not its hook ran; every run whose k-rust lists hold an unsupported hook or an
+    /// allowance refusal is excluded before a side is formed (`run_exclusion`), so no verdict
+    /// rests on that answer. It runs in proof mode, so it never reads an implementation-chosen
+    /// value.
+    pub fn configuration_exists(&self, term: &Pattern) -> bool {
+        let definition = self.leaf_definition;
+        if !term.free_variables().is_empty() {
+            return false;
+        }
+        let mut conjunction = false;
+        k_rust::kore::walk::for_each_post_order(term, |node| {
+            conjunction |= matches!(node, Pattern::And { .. });
+        });
+        !conjunction
+            && !contains_untrusted_domain_value(definition, term)
+            && !contains_non_strict_injection(definition, term)
+            && definition
+                .admit_unverified(term, &[])
+                .internalize_term()
+                .is_ok_and(|internal| definition.ground_defined(&internal))
     }
 
     /// Why `term` has no [`Self::terminal_value`]: the first node, in pre-order, that fails its
@@ -1338,5 +1376,39 @@ mod tests {
                 })
                 .expect("definition");
         }
+    }
+
+    /// kink27 R3-UNDEF-BRIDGE: `configuration_exists` is k-rust's `ground_defined` on the leaf
+    /// definition, behind kink's guards. An irreducible application of a total function exists
+    /// though it has no terminal value; one of a partial function that no equation reduces is not
+    /// shown to exist; a conjunction and a free variable are refused before k-rust is asked.
+    #[test]
+    fn configuration_exists_is_k_rusts_existence_on_the_leaf_definition() {
+        let definition = BackendDefinition::internalize(
+            &k_rust::kore::parser::parse_definition(
+                r"[]
+                module MAIN
+                    sort SortS{} []
+                    symbol Lbla{}() : SortS{} [constructor{}()]
+                    symbol Lblg{}(SortS{}) : SortS{} [function{}(), total{}()]
+                    symbol Lblh{}(SortS{}) : SortS{} [function{}()]
+                endmodule []",
+            )
+            .expect("KORE"),
+            "MAIN",
+        )
+        .expect("definition");
+        let pattern = |text: &str| k_rust::kore::parser::parse_pattern(text).expect("pattern");
+        let total = pattern(r"Lblg{}(Lbla{}())");
+        let decider = ObservationDecider::new(
+            &definition,
+            &k_rust_backend::smt::NoSolver,
+            TestInitialState::of_test(&total),
+        );
+        assert!(decider.configuration_exists(&total));
+        assert_eq!(decider.terminal_value(&total), None);
+        assert!(!decider.configuration_exists(&pattern(r"Lblh{}(Lbla{}())")));
+        assert!(!decider.configuration_exists(&pattern(r"\and{SortS{}}(Lbla{}(), Lbla{}())")));
+        assert!(!decider.configuration_exists(&pattern(r"Lblg{}(X:SortS{})")));
     }
 }

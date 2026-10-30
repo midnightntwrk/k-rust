@@ -23,9 +23,14 @@
 //!
 //! A `Trivial` leaf is an undefined step: under its predicate, a rule applies to every instance of
 //! its pre-step state and no instance has a defined successor, because the rule's result
-//! (`ensures`, right-hand-side definedness) is `\bottom` there. It is complete on the same terms
-//! as a stuck leaf, with stop [`PathStop::UndefinedStep`] and its pre-step term as the terminal
-//! term, whose kind is [`ExecutionTerminalKind::UndefinedStep`] and is never asked of `classify`.
+//! (`ensures`, right-hand-side definedness) is `\bottom` there. It is complete when its pre-step
+//! configuration is shown to exist: its state is feasible, or it is one ground term without a
+//! path condition that has a terminal value or that k-rust shows defined on the leaf's definition
+//! ([`ObservationDecider::configuration_exists`]). No judgement reads its term as data, so it
+//! needs no terminal value; it needs an instance, because its prefix is real and an
+//! all-undefined run is the empty set of ends (kink27 R3-UNDEF-BRIDGE). Its stop is
+//! [`PathStop::UndefinedStep`] and its pre-step term (its terminal value when it has one) is
+//! the terminal term, whose kind is [`ExecutionTerminalKind::UndefinedStep`] and is never asked of `classify`.
 //! Its prefix is real: every earlier step is defined on each instance, and a ground run of an
 //! instance performs those steps and emits their events, as `stop(1)` in `symbottom.k` does.
 //! The undefined step itself commits no transition, so it adds no event; k-rust names its rule on
@@ -518,6 +523,37 @@ pub(crate) fn leaf_path(
     })
 }
 
+/// The complete term of a leaf whose state is `split`, of halt `halt`, which the adapter showed
+/// feasible when `feasible` (see the module documentation); [`leaf_path`] reads it when the state
+/// is not decided. Not one term gives `None`. A stuck leaf's term is an end, compared by its
+/// terminal value, so it needs one (`value`, TV-01) and a feasible state. A trivial leaf's term is
+/// an undefined step's pre-step configuration, which no judgement reads as data: it needs only to
+/// exist, so it is complete when its state is feasible, or when it is one ground term without a
+/// path condition that has a terminal value or that `exists` shows to exist
+/// ([`ObservationDecider::configuration_exists`]); its terminal term is its value when it has
+/// one, else the term itself (kink27 R3-UNDEF-BRIDGE). Every slot reads a leaf through this one
+/// contract.
+fn complete_term(
+    halt: HaltClass,
+    split: &SplitState,
+    feasible: bool,
+    value: &dyn Fn(&Pattern) -> Option<Pattern>,
+    exists: &dyn Fn(&Pattern) -> bool,
+) -> Option<Pattern> {
+    let [term] = split.terms.as_slice() else {
+        return None;
+    };
+    if halt != HaltClass::Trivial {
+        return feasible.then(|| value(term)).flatten();
+    }
+    let decided = split.predicates.is_empty() && term.free_variables().is_empty();
+    if !feasible && !decided {
+        return None;
+    }
+    let valued = value(term);
+    (feasible || valued.is_some() || exists(term)).then(|| valued.unwrap_or_else(|| term.clone()))
+}
+
 /// A decoded leaf state split at its sort into term and predicate conjuncts.
 struct SplitState {
     sort: Sort,
@@ -737,6 +773,7 @@ impl<'a> PathSet<'a> {
         leaf: &crate::execution::AdaptedLeaf,
         key: String,
         value: &dyn Fn(&Pattern) -> Option<Pattern>,
+        exists: &dyn Fn(&Pattern) -> bool,
     ) -> Result<(), BridgeFailure> {
         let branch = &leaf.branch;
         let halt = leaf.halt;
@@ -747,15 +784,12 @@ impl<'a> PathSet<'a> {
         }
         let split = split_state(&branch.state, self.context.sorts)?;
         let feasible = split.feasible(leaf.feasibility);
-        let complete_term = match split.terms.as_slice() {
-            [term] if feasible => value(term),
-            _ => None,
-        };
+        let completed = complete_term(halt, &split, feasible, value, exists);
         let mapped = match leaf_path(
             halt,
             split.decided_term(value),
             feasible,
-            complete_term,
+            completed,
             self.context.classify,
         )? {
             _ if diagnosed(leaf) => LeafPath::Incomplete(PathStop::BackendLimit),
@@ -859,11 +893,27 @@ pub fn paths_from_execution(
 }
 
 /// Reads an adapted execution using canonical terminal values.
-/// `value` must validate and canonicalize against this execution's own definition.
+/// `value` must validate and canonicalize against this execution's own definition. An undefined
+/// step's leaf completes here only by a terminal value or a feasible state; see
+/// [`paths_from_execution_existing`] for the existence evidence a ground one may also have.
 pub fn paths_from_execution_values(
     execution: &AdaptedExecution,
     context: &BridgeContext<'_>,
     value: &dyn Fn(&Pattern) -> Option<Pattern>,
+) -> Result<BridgedPaths, BridgeFailure> {
+    paths_from_execution_existing(execution, context, value, &|_| false)
+}
+
+/// Reads an adapted execution using canonical terminal values and existence evidence: `value` as
+/// in [`paths_from_execution_values`], and `exists` says, of a ground term, that the
+/// configuration exists on this execution's own definition
+/// ([`ObservationDecider::configuration_exists`]); an undefined step's leaf whose pre-step term it
+/// holds of is complete (see the module documentation).
+pub fn paths_from_execution_existing(
+    execution: &AdaptedExecution,
+    context: &BridgeContext<'_>,
+    value: &dyn Fn(&Pattern) -> Option<Pattern>,
+    exists: &dyn Fn(&Pattern) -> bool,
 ) -> Result<BridgedPaths, BridgeFailure> {
     if execution.timed_out {
         return Ok(BridgedPaths {
@@ -880,7 +930,7 @@ pub fn paths_from_execution_values(
     }
     let mut paths = PathSet::new(context);
     for (leaf, key) in execution.leaves.iter().zip(leaf_keys(&execution.leaves)) {
-        paths.push(leaf, key, value)?;
+        paths.push(leaf, key, value, exists)?;
     }
     Ok(paths.finish())
 }
@@ -893,7 +943,9 @@ pub fn paths_from_execution_values(
 ///   a state, so every earlier leaf is a state whose own expansion finished);
 /// - every other leaf is `Stuck`, `Trivial` or `Vacuous`, no leaf carries a diagnostic, and every
 ///   path but the work-bound leaf's is complete (a depth, breadth or undecided stop, a diagnosed
-///   leaf or a stuck term that is not a value makes the run more than work-bound);
+///   leaf or a stuck term that is not a value makes the run more than work-bound); a `Trivial`
+///   leaf completes when its pre-step configuration is shown to exist (`exists`, see
+///   [`paths_from_execution_existing`]), not only by a terminal value;
 /// - no complete terminal is a semantic crash.
 ///
 /// A terminal is one leaf's: halt `Stuck` (no rule applies to it: k-rust decides the halt after
@@ -910,6 +962,7 @@ pub fn work_bound_stuck_terminals(
     execution: &AdaptedExecution,
     context: &BridgeContext<'_>,
     value: &dyn Fn(&Pattern) -> Option<Pattern>,
+    exists: &dyn Fn(&Pattern) -> bool,
 ) -> Vec<ExecutionTerminal> {
     let leaves = &execution.leaves;
     let Some((last, explored)) = leaves.split_last() else {
@@ -928,7 +981,7 @@ pub fn work_bound_stuck_terminals(
     {
         return Vec::new();
     }
-    let Ok(bridged) = paths_from_execution_values(execution, context, value) else {
+    let Ok(bridged) = paths_from_execution_existing(execution, context, value, exists) else {
         return Vec::new();
     };
     let work_bound = format!("leaf:{}", explored.len());
@@ -1033,15 +1086,18 @@ pub fn paths_from_steps(
             LeafFeasibility::Solver => true,
             LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
         };
-        let complete_term = match split.terms.as_slice() {
-            [term] if feasible => decider.terminal_value(term),
-            _ => None,
-        };
+        let completed = complete_term(
+            leaf.halt,
+            &split,
+            feasible,
+            &|term| decider.terminal_value(term),
+            &|term| decider.configuration_exists(term),
+        );
         let mapped = match leaf_path(
             leaf.halt,
             split.decided_term(&|term| decider.terminal_value(term)),
             feasible,
-            complete_term,
+            completed,
             context.classify,
         )? {
             _ if diagnosed(leaf) => LeafPath::Incomplete(PathStop::BackendLimit),
@@ -1241,15 +1297,18 @@ pub fn tree_from_steps(
             LeafFeasibility::Solver => true,
             LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
         };
-        let complete_term = match split.terms.as_slice() {
-            [term] if feasible => decider.terminal_value(term),
-            _ => None,
-        };
+        let completed = complete_term(
+            leaf.halt,
+            &split,
+            feasible,
+            &|term| decider.terminal_value(term),
+            &|term| decider.configuration_exists(term),
+        );
         let mapped = match leaf_path(
             leaf.halt,
             split.decided_term(&|term| decider.terminal_value(term)),
             feasible,
-            complete_term,
+            completed,
             context.classify,
         )? {
             _ if diagnosed(leaf) => LeafPath::Incomplete(PathStop::BackendLimit),
@@ -1472,6 +1531,11 @@ mod tests {
     /// The state k-rust reports for an initial state whose constraints are false.
     const BARE_BOTTOM: &str = r"\bottom{SortS{}}()";
     const SYMBOLIC_CONSTRAINED: &str = r#"\and{SortS{}}(X:SortS{}, \equals{SortInt{}, SortS{}}(Y:SortInt{}, \dv{SortInt{}}("1")))"#;
+    /// A ground term without a terminal value: `Lblf` is not declared in [`independent`]'s
+    /// definition.
+    const NONVALUE: &str = r"Lblf{}(Lbla{}())";
+    /// [`CONSTRAINED`] over [`NONVALUE`].
+    const CONSTRAINED_NONVALUE: &str = r#"\and{SortS{}}(Lblf{}(Lbla{}()), \equals{SortInt{}, SortS{}}(Y:SortInt{}, \dv{SortInt{}}("1")))"#;
 
     #[test]
     fn canonical_step_paths_keep_every_semantically_distinct_field() {
@@ -1602,6 +1666,7 @@ mod tests {
         SymbolSorts::new([
             ("Lbla".to_owned(), Vec::new(), s()),
             ("Lblcrash".to_owned(), Vec::new(), s()),
+            ("Lblf".to_owned(), vec![s()], s()),
         ])
     }
 
@@ -1853,90 +1918,10 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(covered.into_iter().collect::<Vec<_>>(), HaltClass::ALL);
         let sorts = sorts();
-        for (halt, state, feasibility, depth, expected) in rows {
-            let id = format!("{halt:?} {state} {feasibility:?} depth={depth}");
-            let execution = AdaptedExecution {
-                leaves: vec![leaf(halt, state, feasibility, depth)],
-                effects: Vec::new(),
-                timed_out: false,
-                stack_stops: 0,
-                modality: crate::execution::ResultModality::PathSet,
-                work: 0,
-                coverage: None,
-                facts: crate::execution::RunFacts::default(),
-            };
-            assert_eq!(
-                discarded(&execution.leaves[0]),
-                match expected {
-                    Discarded(reason) => Some(reason),
-                    _ => None,
-                },
-                "{id}"
-            );
-            let bridged = paths_from_execution(&execution, &bridge_context(&sorts), &independent);
-            if let Violation = expected {
-                assert_eq!(bridged, Err(BridgeFailure::ContractViolation(halt)), "{id}");
-                continue;
-            }
-            let bridged = bridged.unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
-            if let Discarded(_) = expected {
-                assert!(bridged.paths.is_empty(), "{id}");
-                assert_eq!(
-                    bridged.collection,
-                    CollectionEvidence {
-                        stop: CollectionStop::SearchExhausted,
-                        pending_work: 0,
-                        empty_search_decision: Some(EmptySearchDecision),
-                    },
-                    "{id}"
-                );
-                assert_eq!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
-                assert_eq!(presence(&bridged), PatternOutcome::NoMatch, "{id}");
-                continue;
-            }
-            let [path] = bridged.paths.as_slice() else {
-                panic!("{id}: one path");
-            };
-            assert_eq!(path.path_key.as_deref(), Some("leaf:0"), "{id}");
-            assert_eq!(bridged.collection.empty_search_decision, None, "{id}");
-            match expected {
-                Complete(kind, term) => {
-                    assert!(path.complete, "{id}");
-                    let stop = if kind == UndefinedStep {
-                        P::UndefinedStep
-                    } else {
-                        P::Terminal
-                    };
-                    assert_eq!(path.stop, stop, "{id}");
-                    let terminal = path.execution_terminal.as_ref().expect("terminal");
-                    assert_eq!(terminal.kind, kind, "{id}");
-                    assert_eq!(terminal.state, parse_pattern(term).expect("term"), "{id}");
-                    assert_eq!(
-                        bridged.collection.stop,
-                        CollectionStop::SearchExhausted,
-                        "{id}"
-                    );
-                    assert_eq!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
-                    assert_eq!(presence(&bridged), PatternOutcome::Match, "{id}");
-                }
-                Incomplete(stop) => {
-                    assert!(!path.complete, "{id}");
-                    assert_eq!(path.stop, stop, "{id}");
-                    assert_eq!(bridged.collection.stop, collection_stop(stop), "{id}");
-                    assert_ne!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
-                    let real = matches!(stop, P::DepthLimit | P::BranchLimit | P::TimeLimit);
-                    assert_eq!(
-                        presence(&bridged),
-                        if real {
-                            PatternOutcome::Match
-                        } else {
-                            PatternOutcome::Unknown
-                        },
-                        "{id}"
-                    );
-                }
-                Violation | Discarded(_) => unreachable!(),
-            }
+        for row in rows {
+            check_row(row, &|execution| {
+                paths_from_execution(execution, &bridge_context(&sorts), &independent)
+            });
         }
         // The path predicate keeps the constrained leaf's condition.
         let split = split_state(&kore(CONSTRAINED), &sorts).expect("split");
@@ -1945,6 +1930,137 @@ mod tests {
             None
         );
         assert!(matches!(split.path_predicate(), Pattern::Equals { .. }));
+    }
+
+    /// Checks that `bridge` maps the one leaf of `row` as the row expects.
+    fn check_row(
+        (halt, state, feasibility, depth, expected): Row,
+        bridge: &dyn Fn(&AdaptedExecution) -> Result<BridgedPaths, BridgeFailure>,
+    ) {
+        use ExecutionTerminalKind::UndefinedStep;
+        use Expected::{Complete, Discarded, Incomplete, Violation};
+        let id = format!("{halt:?} {state} {feasibility:?} depth={depth}");
+        let execution = AdaptedExecution {
+            leaves: vec![leaf(halt, state, feasibility, depth)],
+            effects: Vec::new(),
+            timed_out: false,
+            stack_stops: 0,
+            modality: crate::execution::ResultModality::PathSet,
+            work: 0,
+            coverage: None,
+            facts: crate::execution::RunFacts::default(),
+        };
+        assert_eq!(
+            discarded(&execution.leaves[0]),
+            match expected {
+                Discarded(reason) => Some(reason),
+                _ => None,
+            },
+            "{id}"
+        );
+        let bridged = bridge(&execution);
+        if let Violation = expected {
+            assert_eq!(bridged, Err(BridgeFailure::ContractViolation(halt)), "{id}");
+            return;
+        }
+        let bridged = bridged.unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
+        if let Discarded(_) = expected {
+            assert!(bridged.paths.is_empty(), "{id}");
+            assert_eq!(
+                bridged.collection,
+                CollectionEvidence {
+                    stop: CollectionStop::SearchExhausted,
+                    pending_work: 0,
+                    empty_search_decision: Some(EmptySearchDecision),
+                },
+                "{id}"
+            );
+            assert_eq!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
+            assert_eq!(presence(&bridged), PatternOutcome::NoMatch, "{id}");
+            return;
+        }
+        let [path] = bridged.paths.as_slice() else {
+            panic!("{id}: one path");
+        };
+        assert_eq!(path.path_key.as_deref(), Some("leaf:0"), "{id}");
+        assert_eq!(bridged.collection.empty_search_decision, None, "{id}");
+        match expected {
+            Complete(kind, term) => {
+                assert!(path.complete, "{id}");
+                let stop = if kind == UndefinedStep {
+                    P::UndefinedStep
+                } else {
+                    P::Terminal
+                };
+                assert_eq!(path.stop, stop, "{id}");
+                let terminal = path.execution_terminal.as_ref().expect("terminal");
+                assert_eq!(terminal.kind, kind, "{id}");
+                assert_eq!(terminal.state, parse_pattern(term).expect("term"), "{id}");
+                assert_eq!(
+                    bridged.collection.stop,
+                    CollectionStop::SearchExhausted,
+                    "{id}"
+                );
+                assert_eq!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
+                assert_eq!(presence(&bridged), PatternOutcome::Match, "{id}");
+            }
+            Incomplete(stop) => {
+                assert!(!path.complete, "{id}");
+                assert_eq!(path.stop, stop, "{id}");
+                assert_eq!(bridged.collection.stop, collection_stop(stop), "{id}");
+                assert_ne!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
+                let real = matches!(stop, P::DepthLimit | P::BranchLimit | P::TimeLimit);
+                assert_eq!(
+                    presence(&bridged),
+                    if real {
+                        PatternOutcome::Match
+                    } else {
+                        PatternOutcome::Unknown
+                    },
+                    "{id}"
+                );
+            }
+            Violation | Discarded(_) => unreachable!(),
+        }
+    }
+
+    /// kink27 R3-UNDEF-BRIDGE: an undefined step's leaf needs its pre-step configuration to
+    /// exist, not to be a terminal value. A ground term without a path condition completes when
+    /// `exists` holds of it, keeping its own term, and its prefix witnesses a match; where
+    /// existence is not shown, or is not asked (a symbolic or constrained state), it stays
+    /// `SolverUnknown`; a feasible state or a terminal value completes it as before. A stuck or
+    /// depth-bound leaf does not read existence.
+    #[test]
+    fn an_undefined_step_completes_when_its_configuration_is_shown_to_exist() {
+        use ExecutionTerminalKind::UndefinedStep;
+        use Expected::{Complete, Incomplete};
+        use LeafFeasibility::Solver as Z;
+        #[rustfmt::skip]
+        let rows: [(HaltClass, &str, LeafFeasibility, bool, Expected); 8] = [
+            // The relaxation: a ground configuration shown to exist; its prefix is real.
+            (H::Trivial, NONVALUE, U, true, Complete(UndefinedStep, NONVALUE)),
+            // Existence not shown: the leaf stays unknown.
+            (H::Trivial, NONVALUE, U, false, Incomplete(P::SolverUnknown)),
+            // A feasible state suffices, with no value.
+            (H::Trivial, CONSTRAINED_NONVALUE, Z, false, Complete(UndefinedStep, NONVALUE)),
+            // Existence is asked only of a ground state without a path condition.
+            (H::Trivial, CONSTRAINED_NONVALUE, U, true, Incomplete(P::SolverUnknown)),
+            (H::Trivial, SYMBOLIC, U, true, Incomplete(P::SolverUnknown)),
+            // A terminal value still suffices.
+            (H::Trivial, GROUND, U, false, Complete(UndefinedStep, GROUND)),
+            // A stuck term is an end, which needs a value; depth bounds are unchanged.
+            (H::Stuck, NONVALUE, U, true, Incomplete(P::SolverUnknown)),
+            (H::DepthBound, NONVALUE, U, true, Incomplete(P::SolverUnknown)),
+        ];
+        let sorts = sorts();
+        let value = |term: &Pattern| independent(term).then(|| term.clone());
+        for (halt, state, feasibility, exists, expected) in rows {
+            check_row((halt, state, feasibility, 1, expected), &|execution| {
+                paths_from_execution_existing(execution, &bridge_context(&sorts), &value, &|_| {
+                    exists
+                })
+            });
+        }
     }
 
     /// `leaf_term` reads a leaf known by its state and halt alone (fz26 FZ-COMPARABLE-B): a
@@ -2412,7 +2528,7 @@ mod tests {
         ];
         for (id, execution, expected) in rows {
             assert_eq!(
-                work_bound_stuck_terminals(&execution, &bridge_context(&sorts), &value),
+                work_bound_stuck_terminals(&execution, &bridge_context(&sorts), &value, &|_| false),
                 expected,
                 "{id}"
             );
@@ -2420,14 +2536,14 @@ mod tests {
         let mut stopped = execution(vec![ground(), bound()]);
         stopped.stack_stops = 1;
         assert_eq!(
-            work_bound_stuck_terminals(&stopped, &bridge_context(&sorts), &value),
+            work_bound_stuck_terminals(&stopped, &bridge_context(&sorts), &value, &|_| false),
             Vec::new(),
             "a stack stop"
         );
         let mut timed_out = execution(vec![ground(), bound()]);
         timed_out.timed_out = true;
         assert_eq!(
-            work_bound_stuck_terminals(&timed_out, &bridge_context(&sorts), &value),
+            work_bound_stuck_terminals(&timed_out, &bridge_context(&sorts), &value, &|_| false),
             Vec::new(),
             "a timed-out run"
         );
@@ -2436,10 +2552,29 @@ mod tests {
             work_bound_stuck_terminals(
                 &execution(vec![ground(), bound()]),
                 &bridge_context(&sorts),
-                &|_| None
+                &|_| None,
+                &|_| false,
             ),
             Vec::new(),
             "not a value"
+        );
+        // kink27 R3-UNDEF-BRIDGE: an undefined step whose ground pre-step configuration is no
+        // value completes when it is shown to exist, and the run gives its stuck terminals; where
+        // existence is not shown, the run is more than work-bound.
+        let beside_undefined = execution(vec![leaf(H::Trivial, NONVALUE, U, 1), ground(), bound()]);
+        assert_eq!(
+            work_bound_stuck_terminals(&beside_undefined, &bridge_context(&sorts), &value, &|_| {
+                true
+            }),
+            vec![terminal(GROUND)],
+            "an undefined step whose configuration exists"
+        );
+        assert_eq!(
+            work_bound_stuck_terminals(&beside_undefined, &bridge_context(&sorts), &value, &|_| {
+                false
+            }),
+            Vec::new(),
+            "an undefined step whose configuration is not shown to exist"
         );
     }
 }
