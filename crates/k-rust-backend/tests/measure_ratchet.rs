@@ -951,6 +951,10 @@ mod smt {
         )
     }
 
+    /// Constructing a solver runs nothing, and two identical queries run the solver at most once
+    /// between them: no separate prelude check, no second run. How the repeat is answered (the
+    /// typed-input cache before preparation, or the script result cache after it) is reported,
+    /// not pinned (EB-RULE-5).
     #[test]
     fn identical_sat_queries_need_no_prelude_check() {
         let definition = definition(COUNTING);
@@ -966,10 +970,16 @@ mod smt {
                 );
             }
         });
-        assert_eq!(delta.get(Counter::SmtQueries), 2);
-        assert_eq!(delta.get(Counter::SmtSolverRuns), 1);
+        eprintln!("two identical queries: {:?}", super::nonzero(&delta));
+        assert!(
+            delta.get(Counter::SmtSolverRuns) <= 1,
+            "{:?}",
+            super::nonzero(&delta)
+        );
     }
 
+    /// A blow-up detector: sixteen identical queries run the solver at most once, where a solver
+    /// without a result cache would run it sixteen times.
     #[test]
     fn repeated_queries_never_run_the_solver_again() {
         let definition = definition(COUNTING);
@@ -982,8 +992,12 @@ mod smt {
             );
         }
         let delta = snapshot().delta(&before);
-        assert_eq!(delta.get(Counter::SmtQueries), 16);
-        assert_eq!(delta.get(Counter::SmtSolverRuns), 1);
+        eprintln!("sixteen identical queries: {:?}", super::nonzero(&delta));
+        assert!(
+            delta.get(Counter::SmtSolverRuns) <= 1,
+            "{:?}",
+            super::nonzero(&delta)
+        );
     }
 }
 

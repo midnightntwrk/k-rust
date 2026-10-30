@@ -2370,9 +2370,18 @@ fn a_state_set_with_converging_undefined_leaves_is_excluded_as_its_path_set() {
 }
 
 /// fz26 KINK-PATHSET-FALLBACK, the `Vacuous` guard (`testdata/k/stateset/remainder.k` with the
-/// initial condition on `g`): a remainder below the merged `p(X)` that its normalization refutes with no
-/// undefined term is a `Vacuous` leaf, one in the state set and one per path in the path set; the
-/// bridge discards it, and neither run is excluded. Z3-only, as the remainder needs a solver.
+/// initial condition `f(X) =/=Int 3` for a total `f` that is 3 at 0): `pr`'s remainder below the
+/// merged `p(X)` is `X ==Int 0` beside that condition, which the definition refutes; neither run
+/// is excluded, whichever stage refutes it.
+/// - `g`, whose equation `g0` is `concrete`: no solver summary reads it, so the solver finds the
+///   remainder satisfiable and its normalization refutes it with no undefined term. It is a
+///   `Vacuous` leaf, one in the state set and one per path in the path set, beside the `Stuck`
+///   `q(X)`; the bridge discards it.
+/// - `gs`, the same function with an unconstrained equation: the solver's summary of `gs` reads
+///   `gs0` as `gs(X) = 3` where `X = 0` (and `gs`'s own value elsewhere), so the remainder is
+///   unsatisfiable and is no leaf: only the `Stuck` `q(X)` is left, once per run.
+///
+/// Z3-only, as the remainder needs a solver.
 #[cfg(feature = "z3")]
 #[test]
 fn a_vacuous_remainder_below_a_merged_state_excludes_neither_run() {
@@ -2387,25 +2396,31 @@ fn a_vacuous_remainder_below_a_merged_state_excludes_neither_run() {
             .unwrap();
         let module = k_rust::kast::identifier::encode("REMAINDER");
         let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        let condition = parse_pattern(
-            r#"\equals{SortBool{}, SortGeneratedTopCell{}}(\dv{SortBool{}}("true"), Lbl'UndsEqlsSlshEqls'Int'Unds'{}(Lblg{}(VarX:SortInt{}), \dv{SortInt{}}("3")))"#,
-        )
-        .unwrap();
-        let state = Pattern::And {
-            sort: k_rust::kore::ast::Sort::Application {
-                name: "SortGeneratedTopCell".into(),
-                arguments: Vec::new(),
-            },
-            arguments: vec![
-                support::initial_state(
-                    support::app("Lblx", vec![support::var("VarX", "SortInt")]),
-                    "SortProg",
-                ),
-                condition,
-            ],
-        };
         let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
-        for (modality, vacuous) in [(ResultModality::StateSet, 1), (ResultModality::PathSet, 2)] {
+        // (function, modality, Vacuous leaves, Stuck leaves)
+        for (function, modality, vacuous, stuck) in [
+            ("Lblg", ResultModality::StateSet, 1, 1),
+            ("Lblg", ResultModality::PathSet, 2, 2),
+            ("Lblgs", ResultModality::StateSet, 0, 1),
+            ("Lblgs", ResultModality::PathSet, 0, 2),
+        ] {
+            let condition = parse_pattern(&format!(
+                r#"\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(\dv{{SortBool{{}}}}("true"), Lbl'UndsEqlsSlshEqls'Int'Unds'{{}}({function}{{}}(VarX:SortInt{{}}), \dv{{SortInt{{}}}}("3")))"#,
+            ))
+            .unwrap();
+            let state = Pattern::And {
+                sort: k_rust::kore::ast::Sort::Application {
+                    name: "SortGeneratedTopCell".into(),
+                    arguments: Vec::new(),
+                },
+                arguments: vec![
+                    support::initial_state(
+                        support::app("Lblx", vec![support::var("VarX", "SortInt")]),
+                        "SortProg",
+                    ),
+                    condition,
+                ],
+            };
             let execution = adapter
                 .execute_result(
                     &mut backend(&side, &module),
@@ -2417,17 +2432,29 @@ fn a_vacuous_remainder_below_a_merged_state_excludes_neither_run() {
                     },
                 )
                 .unwrap();
-            assert_eq!(
+            let count = |halt| {
                 execution
                     .leaves()
                     .iter()
-                    .filter(|leaf| leaf.halt == HaltClass::Vacuous)
-                    .count(),
-                vacuous,
-                "{modality:?}"
+                    .filter(|leaf| leaf.halt == halt)
+                    .count()
+            };
+            assert_eq!(
+                (count(HaltClass::Vacuous), count(HaltClass::Stuck)),
+                (vacuous, stuck),
+                "{function} {modality:?}"
+            );
+            assert_eq!(
+                execution.leaves().len(),
+                vacuous + stuck,
+                "{function} {modality:?}"
             );
             assert!(!exclusions.contradiction_on_a_leaf(&execution));
-            assert_eq!(exclusions.run_exclusion(&execution), None, "{modality:?}");
+            assert_eq!(
+                exclusions.run_exclusion(&execution),
+                None,
+                "{function} {modality:?}"
+            );
         }
     });
 }

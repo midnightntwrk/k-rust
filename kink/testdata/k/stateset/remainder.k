@@ -9,7 +9,9 @@
 //
 // With `g`, a total function that is 3 at 0, in the initial condition instead of `h`, the
 // remainder's normalization refutes `g(0) =/=Int 3`, so it is a `Vacuous` leaf, which names the
-// producing rule the same way.
+// producing rule the same way. `g0` is `concrete` so that no solver summary reads it: with `gs`,
+// the same function with an unconstrained equation, the solver's summary of `gs` refutes the
+// remainder itself (`gs(X) = 3` where `X = 0`), and no remainder leaf is left.
 //
 // REMAINDER-RECORD adds a step after `q` whose candidate `qz` contradicts `tz`'s `total` claim and
 // is covered by its defined sibling `qr`: a record on the run's list that no leaf carries.
@@ -23,6 +25,7 @@ module REMAINDER-SYNTAX
                 | r(Int) [symbol(r)]
   syntax Int ::= h(Int) [function, symbol(h)]
                | g(Int) [function, total, symbol(g)]
+               | gs(Int) [function, total, symbol(gs)]
                | tz(Int) [function, total, symbol(tz)]
 endmodule
 
@@ -31,7 +34,8 @@ module REMAINDER
   imports INT
   configuration <k> $PGM:Prog </k>
   rule [h0]: h(0) => 1 /Int 0
-  rule [g0]: g(0) => 3
+  rule [g0]: g(0) => 3 [concrete]
+  rule [gs0]: gs(0) => 3
   rule [xa]: <k> x(X) => a(X) </k>
   rule [xb]: <k> x(X) => b(X) </k>
   rule [g1]: <k> a(X) => p(X) </k>
