@@ -8,6 +8,9 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
+#[path = "../../../testdata/k/passage.rs"]
+mod passage;
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -255,42 +258,58 @@ fn every_adapted_run_carries_the_run_level_facts() {
 ///   README route 3 rests on.
 ///
 /// kink27 INT1: the passages are byte-identical (same digests) and only moved, compatibility.md down 15 lines between 552 and 2367 (R1-PINS 1 line after 418, R1-BRACKET 14 lines of bracket exemption at 547-565), 17 from 2368 (R1-PINS 2 lines after 2367) and 18 after 2977 (R1-SOUND 1 line); re-pinned at their new lines.
-const A1_PASSAGES: [(usize, usize, &str); 7] = [
-    (
-        92,
-        92,
-        "72de04feec0bbb7c220d11713ecf4ce5c2acf01464c5a948448fdd73f7bdced8",
-    ),
-    (
-        879,
-        879,
-        "8398220da3f64af5a820407732a493f31703b3c5821d1323aa8101011a864c52",
-    ),
-    (
-        1710,
-        1718,
-        "61a132b02858ecd84dba10c1341bd64effab638b78bc5857102340a016d2edc0",
-    ),
-    (
-        1961,
-        1985,
-        "95a011afcd589c8552438021f5104e582e9997f1e66d5d714af6aee6a6a67c28",
-    ),
-    (
-        2602,
-        2602,
-        "7447a2082d4fdcd5cdfac1143465021b97160d5520cd5c10c84272a371253bc4",
-    ),
-    (
-        2459,
-        2462,
-        "cdafee84ebdbccd1180f763b8b672650f6c6fa1319981c9b47b38cfcc3bdbf66",
-    ),
-    (
-        2190,
-        2195,
-        "b7ea1c2b5ca5d494cd4245286fafe9a068b0ad4f9f6f18cef4a5a505cb73795e",
-    ),
+///
+/// Re-pin kink27 R2-PIN-BY-ANCHOR: each passage is located by its anchor and opening (`testdata/k/passage.rs`), not by line; every digest is unchanged, each passage found at 3ebd1f8f6 at the lines it was pinned at. Line numbers in the history above are those of the revisions it names.
+const A1_PASSAGES: [passage::Passage; 7] = [
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Backend scope",
+        opening: "The run-level record keeps what the diagnostic channel",
+        lines: 1,
+        digest: "72de04feec0bbb7c220d11713ecf4ce5c2acf01464c5a948448fdd73f7bdced8",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Resource bounds",
+        opening: "The allowance is read once per process (`allowance.rs`",
+        lines: 1,
+        digest: "8398220da3f64af5a820407732a493f31703b3c5821d1323aa8101011a864c52",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## A contradicted `total` attribute is named, not repaired",
+        opening: "A record is a path fact, as an",
+        lines: 9,
+        digest: "61a132b02858ecd84dba10c1341bd64effab638b78bc5857102340a016d2edc0",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "### Marks in executions",
+        opening: "A mark is noted where the evaluator takes",
+        lines: 25,
+        digest: "95a011afcd589c8552438021f5104e582e9997f1e66d5d714af6aee6a6a67c28",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "### Execute",
+        opening: "- a run compared with a run of",
+        lines: 1,
+        digest: "7447a2082d4fdcd5cdfac1143465021b97160d5520cd5c10c84272a371253bc4",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "### Work budget",
+        opening: "Every leaf finished before the `work-bound` leaf is",
+        lines: 4,
+        digest: "cdafee84ebdbccd1180f763b8b672650f6c6fa1319981c9b47b38cfcc3bdbf66",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Search results",
+        opening: "A leaf's halt can mean more than its",
+        lines: 6,
+        digest: "b7ea1c2b5ca5d494cd4245286fafe9a068b0ad4f9f6f18cef4a5a505cb73795e",
+    },
 ];
 
 /// A re-pin that moves one of these passages fails here, and A-1's exclusions are read again
@@ -305,16 +324,7 @@ fn the_passages_a1_rests_on_are_pinned() {
             .as_str()
             .expect("k-rust-backend is a path dependency"),
     );
-    let text = std::fs::read_to_string(backend.join("../../docs/compatibility.md")).unwrap();
-    let lines = text.split('\n').collect::<Vec<_>>();
-    for (first, last, digest) in A1_PASSAGES {
-        let passage = lines[first - 1..last].join("\n");
-        assert_eq!(
-            kink_patch::sha256(passage.as_bytes()).to_string(),
-            digest,
-            "compatibility.md {first}-{last}"
-        );
-    }
+    passage::assert_pinned(&backend.join("../.."), &A1_PASSAGES);
 }
 
 mod kink_tier {

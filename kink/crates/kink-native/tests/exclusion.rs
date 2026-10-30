@@ -5,6 +5,9 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
+#[path = "../../../testdata/k/passage.rs"]
+mod passage;
+
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -918,7 +921,8 @@ fn unsupported_hook_cases(source: &str) -> Vec<String> {
 /// unsupported, as `substMany`'s). What stays in the census is exactly k-rust's
 /// `chosen_value` hooks, the `String2Bytes`/`Bytes2String` pair and the hooks no builtin file
 /// documents. Every run-list hook is a case of k-rust's `unsupported_hook_positions.rs`, which
-/// checks the contract the list rests on in each position (compatibility.md 117, pinned below);
+/// checks the contract the list rests on in each position (compatibility.md "Backend scope", the
+/// console paragraph, pinned below);
 /// `IO.read` is a case there too, and stays in the census for its class.
 #[test]
 fn the_run_list_hooks_are_k_rusts_unevaluated_open_hooks() {
@@ -1045,23 +1049,27 @@ fn the_run_list_hooks_are_k_rusts_unevaluated_open_hooks() {
 }
 
 /// KINK-CENSUS-RUNLIST (fz26): the k-rust passage `RUN_LIST_HOOKS` rests on,
-/// `docs/compatibility.md` line 117 ("Backend scope", the console paragraph, added by
+/// `docs/compatibility.md` "Backend scope", the console paragraph (added by
 /// K-RUST-CONSOLE-PIN): an execute request has no console, evaluates no console operation and no
 /// hook without an evaluator, and lists an application of one whose value the run needs on
 /// `unsupportedHooks`, wherever it sits. Pinned by the digest of the line without its newline; a
-/// re-pin that moves or changes it fails here, and the run list is read again against it.
+/// re-pin that changes it, or moves it out of its section, fails here, and the run list is read
+/// again against it.
+///
+/// Re-pin kink27 R2-PIN-BY-ANCHOR: the passage is located by its anchor and opening
+/// (`testdata/k/passage.rs`), not by line; its digest is unchanged, the passage found at 3ebd1f8f6
+/// at line 117, where it was pinned.
 #[test]
 fn the_console_passage_the_run_list_rests_on_is_pinned() {
-    let text =
-        std::fs::read_to_string(k_rust_backend().join("../../docs/compatibility.md")).unwrap();
-    let line = text.split('\n').nth(116).expect("line 117");
-    assert!(
-        line.starts_with("Given the console of the request, `#getc`, `#putc` and `#write` are"),
-        "{line}"
-    );
-    assert_eq!(
-        kink_patch::sha256(line.as_bytes()).to_string(),
-        "0e21af4d52506fe9e9cdfae85637b1613bc289ac3859c2b4a86dad061e2ee85b"
+    passage::assert_pinned(
+        &k_rust_backend().join("../.."),
+        &[passage::Passage {
+            file: "docs/compatibility.md",
+            anchor: "## Backend scope",
+            opening: "Given the console of the request, `#getc`, `#putc` and `#write` are",
+            lines: 1,
+            digest: "0e21af4d52506fe9e9cdfae85637b1613bc289ac3859c2b4a86dad061e2ee85b",
+        }],
     );
 }
 

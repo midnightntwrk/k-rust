@@ -7,6 +7,9 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
+#[path = "../../../testdata/k/passage.rs"]
+mod passage;
+
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -410,31 +413,37 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// only admit a mutant whose guards share no integer.
 ///
 /// kink27 INT1: the passages are byte-identical (same digests) and only moved, compatibility.md down 15 lines between 552 and 2367 (R1-PINS 1 line after 418, R1-BRACKET 14 lines of bracket exemption at 547-565), 17 from 2368 (R1-PINS 2 lines after 2367) and 18 after 2977 (R1-SOUND 1 line); re-pinned at their new lines.
-const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
-    (
-        "docs/compatibility.md",
-        1097,
-        1099,
-        "a350602f04b9a4d28ae88fa10bfe57340bcfe3f0f19a9260c9e926ac80f00e25",
-    ),
-    (
-        "docs/compatibility.md",
-        1128,
-        1135,
-        "16798fc021e1c3b22eee935971f2c7fcbfdddb5af1771ee22bdd0929d7d58bf1",
-    ),
-    (
-        "docs/compatibility.md",
-        1151,
-        1164,
-        "64b22da342b8e31eb42497885315d42af3fba138e6315797d46870ab2a47d202",
-    ),
-    (
-        "crates/k-rust-backend/src/definition.rs",
-        2947,
-        2977,
-        "3b5205091a3683ba0d694b1a136cef303abb250984fce1be15d3710769e4ffbe",
-    ),
+///
+/// Re-pin kink27 R2-PIN-BY-ANCHOR: each passage is located by its anchor and opening (`testdata/k/passage.rs`), not by line; every digest is unchanged, each passage found at 3ebd1f8f6 at the lines it was pinned at. Line numbers in the history above are those of the revisions it names.
+const PREMISE_PASSAGES: [passage::Passage; 4] = [
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Anywhere rules",
+        opening: "Read with the priority antecedent above (an equation",
+        lines: 3,
+        digest: "a350602f04b9a4d28ae88fa10bfe57340bcfe3f0f19a9260c9e926ac80f00e25",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Anywhere rules",
+        opening: "When a definition is loaded the backend checks",
+        lines: 8,
+        digest: "16798fc021e1c3b22eee935971f2c7fcbfdddb5af1771ee22bdd0929d7d58bf1",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Anywhere rules",
+        opening: "A total `injective` symbol into a hooked sort,",
+        lines: 14,
+        digest: "64b22da342b8e31eb42497885315d42af3fba138e6315797d46870ab2a47d202",
+    },
+    passage::Passage {
+        file: "crates/k-rust-backend/src/definition.rs",
+        anchor: "pub fn discharge_counts(",
+        opening: "pub fn discharge_counts(&self) -> DischargeCounts {",
+        lines: 31,
+        digest: "3b5205091a3683ba0d694b1a136cef303abb250984fce1be15d3710769e4ffbe",
+    },
 ];
 
 /// The check's driver (`confluence.rs`: the stages, `executable_equations`, the early return of
@@ -580,16 +589,7 @@ fn the_premise_k_rust_documents_is_pinned() {
             .expect("k-rust-backend is a path dependency"),
     );
     let k_rust = backend.join("../..");
-    for (file, first, last, digest) in PREMISE_PASSAGES {
-        let text = std::fs::read_to_string(k_rust.join(file)).unwrap();
-        let lines = text.split('\n').collect::<Vec<_>>();
-        let passage = lines[first - 1..last].join("\n");
-        assert_eq!(
-            kink_patch::sha256(passage.as_bytes()).to_string(),
-            digest,
-            "{file} {first}-{last}"
-        );
-    }
+    passage::assert_pinned(&k_rust, &PREMISE_PASSAGES);
     let source = std::fs::read(backend.join("src/confluence.rs")).unwrap();
     assert_eq!(kink_patch::sha256(&source).to_string(), CONFLUENCE_RS);
     let closure = std::fs::read(backend.join("src/confluence/closure.rs")).unwrap();

@@ -115,70 +115,73 @@ pub enum ClaimRemoval {
 /// reads a `#Bottom` or refuted-`ensures` successor as an undefined step rather than a vacuous
 /// state, re-pin P-1 of repin-0068938b). Not claims:
 /// `constructor` (kompile drops a source `constructor` and derives freeness itself,
-/// `k-rust/src/kompile/module_to_kore.rs` 1512-1523 and 1539-1545), a value production's
-/// `functional` (derived from its equations, `compatibility.md` 1188-1191), `trusted` (on
-/// reachability claims, which execution never reads, `compatibility.md` 2313), the `assoc`,
-/// `unit` and `idem` axioms of a function (emitted but never used by the backend, which
-/// evaluates it by its equations, `compatibility.md` 1566; `comm` is not emitted on a function)
+/// `k-rust/src/kompile/module_to_kore.rs` `symbol_attributes`), a value production's
+/// `functional` (derived from its equations, `compatibility.md` "Anywhere rules"), `trusted` (on
+/// reachability claims, which execution never reads, `compatibility.md` "Undefined instances of
+/// the initial configuration"), the `assoc`, `unit` and `idem` axioms of a function (emitted but
+/// never used by the backend, which evaluates it by its equations, `compatibility.md` "User
+/// productions with `assoc`, `comm`, `idem` or `unit`"; `comm` is not emitted on a function)
 /// and kompile's generated lambdas (KK-71). A rewrite rule's `ensures` is the rule's meaning,
 /// and `freshGenerator`, `impure`, `memo` and `no-evaluators` are not consistency axioms.
 /// Termination and the SMT prelude stay premises. kink-patch's test `trusted_claims_are_pinned`
 /// pins this list against the constants the removal uses and the cited passages' digests.
+/// Citations name a file and the heading (or item) that holds the passage, which is how the test
+/// locates each pinned passage (kink27 R2-PIN-BY-ANCHOR).
 pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "total",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1171, 1686-1696; backend-port.md 323",
+        citation: "compatibility.md \"Anywhere rules\", \"A contradicted `total` attribute is named, not repaired\"; backend-port.md \"Final search depth cuts\"",
     },
     TrustedClaim {
         claim: "functional",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1208, 1688; backend-port.md 323",
+        citation: "compatibility.md \"Anywhere rules\", \"A contradicted `total` attribute is named, not repaired\"; backend-port.md \"Final search depth cuts\"",
     },
     TrustedClaim {
         claim: "injective",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1221 (a user-written injective is an axiom)",
+        citation: "compatibility.md \"Anywhere rules\" (a user-written injective is an axiom)",
     },
     TrustedClaim {
         claim: "smt-hook",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2992; backend-port.md 316; k-rust-backend/src/smt.rs 230",
+        citation: "compatibility.md \"Solver decisions over partial operations\"; backend-port.md \"Final search depth cuts\"; k-rust-backend/src/smt.rs Exactness",
     },
     TrustedClaim {
         claim: "smtlib",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2991-2993; k-rust-backend/src/smt.rs 230",
+        citation: "compatibility.md \"Solver decisions over partial operations\"; k-rust-backend/src/smt.rs Exactness",
     },
     TrustedClaim {
         claim: "preserves-definedness",
         removal: ClaimRemoval::Attribute,
-        citation: "backend-port.md 323",
+        citation: "backend-port.md \"Final search depth cuts\"",
     },
     TrustedClaim {
         claim: "smt-lemma",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2992; backend-port.md 316; k-rust-backend/src/smt.rs 230, 1867-1878",
+        citation: "compatibility.md \"Solver decisions over partial operations\"; backend-port.md \"Final search depth cuts\"; k-rust-backend/src/smt.rs Exactness, smt_lemmas",
     },
     TrustedClaim {
         claim: "simplification",
         removal: ClaimRemoval::Sentence,
-        citation: "compatibility.md 1171, 1427, 1606",
+        citation: "compatibility.md \"Anywhere rules\", \"Function applications on a left-hand side\", \"User productions with `assoc`, `comm`, `idem` or `unit`\"",
     },
     TrustedClaim {
         claim: "ensures",
         removal: ClaimRemoval::Refused,
-        citation: "backend-port.md 342; compatibility.md 1093 (a false ensures makes the application bottom)",
+        citation: "backend-port.md \"Final search depth cuts\"; compatibility.md \"Anywhere rules\" (a false ensures makes the application bottom)",
     },
     TrustedClaim {
         claim: "concrete-equation",
         removal: ClaimRemoval::Refused,
-        citation: "compatibility.md 1171 (concrete or symbolic equations are theorems of the executable equations)",
+        citation: "compatibility.md \"Anywhere rules\" (concrete or symbolic equations are theorems of the executable equations)",
     },
     TrustedClaim {
         claim: "hooked-equation",
         removal: ClaimRemoval::Refused,
-        citation: "compatibility.md 1173 (a hooked symbol's equations are paired with the builtin it denotes)",
+        citation: "compatibility.md \"Anywhere rules\" (a hooked symbol's equations are paired with the builtin it denotes)",
     },
 ];
 

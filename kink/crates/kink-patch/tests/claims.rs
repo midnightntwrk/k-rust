@@ -3,6 +3,9 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
+#[path = "../../../testdata/k/passage.rs"]
+mod passage;
+
 use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::{Sort, Term};
 use kink_patch::{
@@ -488,17 +491,7 @@ fn trusted_claims_are_pinned() {
 
     // The k-rust passages the rows cite (and the "not claims" of the TRUSTED_CLAIMS docs), by
     // digest at the pin: a re-pin that changes one needs the contract read again.
-    let k_rust = k_rust_tree();
-    for (file, first, last, digest) in TRUSTED_CLAIM_PASSAGES {
-        let text = std::fs::read_to_string(k_rust.join(file)).expect("a k-rust file");
-        let lines = text.split('\n').collect::<Vec<_>>();
-        let passage = lines[first - 1..last].join("\n");
-        assert_eq!(
-            kink_patch::sha256(passage.as_bytes()).to_string(),
-            digest,
-            "{file} {first}-{last} changed: read the k-rust contract again"
-        );
-    }
+    passage::assert_pinned(&k_rust_tree(), &TRUSTED_CLAIM_PASSAGES);
 }
 
 /// Each passage `TRUSTED_CLAIMS` cites (file relative to the k-rust tree, first and last line,
@@ -647,116 +640,204 @@ fn trusted_claims_are_pinned() {
 // of admitted source equations, not new user smt-lemma assumptions. Re-pin only their lines.
 // kink27 INT1: the passages are byte-identical (same digests) and only moved, compatibility.md down 15 lines between 552 and 2367 (R1-PINS 1 line after 418, R1-BRACKET 14 lines of bracket exemption at 547-565), 17 from 2368 (R1-PINS 2 lines after 2367) and 18 after 2977 (R1-SOUND 1 line); re-pinned at their new lines. smt.rs 1852-1863 moved byte-identical to 1867-1878 (R1-SOUND's single-point domain
 // state above it). TRUSTED_CLAIMS' citations (src/claims.rs) follow the pins.
-const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
-    (
-        "docs/compatibility.md",
-        1093,
-        1093,
-        "bcee9ac9986b1b5c90868e046c36afc8da3dc45638790a4926d7ef624b18e8b7",
-    ),
-    (
-        "docs/compatibility.md",
-        1171,
-        1171,
-        "9fa7fb1ee4fde986bdc71fd04e907f47fe0d37e800774563526ce8a8bfaaeef3",
-    ),
-    (
-        "docs/compatibility.md",
-        1173,
-        1173,
-        "6ac61e27f16d7f63164621e446aa193f3d769bd4ce09ba332bf23b95c7c6fd13",
-    ),
-    (
-        "docs/compatibility.md",
-        1203,
-        1208,
-        "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
-    ),
-    (
-        "docs/compatibility.md",
-        1221,
-        1221,
-        "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
-    ),
-    (
-        "docs/compatibility.md",
-        1427,
-        1427,
-        "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
-    ),
-    (
-        "docs/compatibility.md",
-        1581,
-        1581,
-        "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
-    ),
-    (
-        "docs/compatibility.md",
-        1606,
-        1606,
-        "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
-    ),
-    (
-        "docs/compatibility.md",
-        1686,
-        1696,
-        "1c61218ca52c52d4e182fd7c3b475ebd3129ff57d44c41bb280f022eff21fb32",
-    ),
-    (
-        "docs/compatibility.md",
-        2328,
-        2328,
-        "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
-    ),
-    (
-        "docs/compatibility.md",
-        2991,
-        2993,
-        "06f1bdd33226940c3a77f600bf937ac94fe8601e4099065edee67ce69d9a612a",
-    ),
-    (
-        "docs/backend-port.md",
-        316,
-        316,
-        "3cb01101c1550a2cde4fb062444584d6a81cddbb1191285a8e4a30d2f9404a83",
-    ),
-    (
-        "docs/backend-port.md",
-        323,
-        323,
-        "6b6bfb6c4e2d37a4467c7b236e637cfe25cb60ba07e253a7eede5a48398e5178",
-    ),
-    (
-        "docs/backend-port.md",
-        342,
-        342,
-        "7cbfd603d6854b8c5f39175bfa1cf41c1a6a0a8d9712ea5e8811693e724b1e30",
-    ),
-    (
-        "crates/k-rust-backend/src/smt.rs",
-        230,
-        230,
-        "1caeb7f3044a3c36838e03391db8bd8d4a3d57a57c386b6479dd73af441d909c",
-    ),
-    (
-        "crates/k-rust-backend/src/smt.rs",
-        1867,
-        1878,
-        "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
-    ),
-    (
-        "crates/k-rust/src/kompile/module_to_kore.rs",
-        1520,
-        1531,
-        "57fb9f4beb1240e4987bfa6175dbfcc3b4ce218b3b8cd24147c85628b3ec740d",
-    ),
-    (
-        "crates/k-rust/src/kompile/module_to_kore.rs",
-        1547,
-        1553,
-        "f8374d89dd45e5237e10cba035a7513c592452cb734a31bac411d7fe4a1dda08",
-    ),
+// Re-pin kink27 R2-PIN-BY-ANCHOR: each passage is located by its anchor and opening (`testdata/k/passage.rs`), not by line; every digest is unchanged, each passage found at 3ebd1f8f6 at the lines it was pinned at. Line numbers in the history above are those of the revisions it names.
+const TRUSTED_CLAIM_PASSAGES: [passage::Passage; 18] = [
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Anywhere rules",
+        opening: "Among the equations offered at the application, the",
+        lines: 1,
+        digest: "bcee9ac9986b1b5c90868e046c36afc8da3dc45638790a4926d7ef624b18e8b7",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Anywhere rules",
+        opening: "The contract states, and does not check, that",
+        lines: 1,
+        digest: "9fa7fb1ee4fde986bdc71fd04e907f47fe0d37e800774563526ce8a8bfaaeef3",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Anywhere rules",
+        opening: "The check pairs every executable equation at a",
+        lines: 1,
+        digest: "6ac61e27f16d7f63164621e446aa193f3d769bd4ce09ba332bf23b95c7c6fd13",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Anywhere rules",
+        opening: "A non-function value production carries compiler-added `functional` and",
+        lines: 6,
+        digest: "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Anywhere rules",
+        opening: "Rust's kompile does not add `injective` to the",
+        lines: 1,
+        digest: "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Function applications on a left-hand side",
+        opening: "A simplification lemma is not checked: it is",
+        lines: 1,
+        digest: "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## User productions with `assoc`, `comm`, `idem` or `unit`",
+        opening: "A `function` production with these attributes is a",
+        lines: 1,
+        digest: "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## User productions with `assoc`, `comm`, `idem` or `unit`",
+        opening: "Simplification lemmas over such terms are trusted as",
+        lines: 1,
+        digest: "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## A contradicted `total` attribute is named, not repaired",
+        opening: "## A contradicted `total` attribute is named, not repaired",
+        lines: 11,
+        digest: "1c61218ca52c52d4e182fd7c3b475ebd3129ff57d44c41bb280f022eff21fb32",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "### Undefined instances of the initial configuration",
+        opening: "A refused claim is neither trusted nor used",
+        lines: 1,
+        digest: "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "## Solver decisions over partial operations",
+        opening: "A predicate is definedness-faithful when every K valuation",
+        lines: 3,
+        digest: "06f1bdd33226940c3a77f600bf937ac94fe8601e4099065edee67ce69d9a612a",
+    },
+    passage::Passage {
+        file: "docs/backend-port.md",
+        anchor: "## Final search depth cuts",
+        opening: "That form implies that every K valuation satisfying",
+        lines: 1,
+        digest: "3cb01101c1550a2cde4fb062444584d6a81cddbb1191285a8e4a30d2f9404a83",
+    },
+    passage::Passage {
+        file: "docs/backend-port.md",
+        anchor: "## Final search depth cuts",
+        opening: "The contract interprets `total`, `functional`, and `preserves-definedness` attributes",
+        lines: 1,
+        digest: "6b6bfb6c4e2d37a4467c7b236e637cfe25cb60ba07e253a7eede5a48398e5178",
+    },
+    passage::Passage {
+        file: "docs/backend-port.md",
+        anchor: "## Final search depth cuts",
+        opening: "An `ensures` of a `[simplification]` or function equation",
+        lines: 1,
+        digest: "7cbfd603d6854b8c5f39175bfa1cf41c1a6a0a8d9712ea5e8811693e724b1e30",
+    },
+    passage::Passage {
+        file: "crates/k-rust-backend/src/smt.rs",
+        anchor: "pub enum Exactness {",
+        opening: "/// SMT hook translations, SMT lemma axioms and the user prelude are trusted",
+        lines: 1,
+        digest: "1caeb7f3044a3c36838e03391db8bd8d4a3d57a57c386b6479dd73af441d909c",
+    },
+    passage::Passage {
+        file: "crates/k-rust-backend/src/smt.rs",
+        anchor: "fn smt_lemmas(",
+        opening: "fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {",
+        lines: 12,
+        digest: "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/kompile/module_to_kore.rs",
+        anchor: "fn symbol_attributes(",
+        opening: "for key in [\n        AttributeKey::Constructor,",
+        lines: 12,
+        digest: "57fb9f4beb1240e4987bfa6175dbfcc3b4ce218b3b8cd24147c85628b3ec740d",
+    },
+    passage::Passage {
+        file: "crates/k-rust/src/kompile/module_to_kore.rs",
+        anchor: "fn symbol_attributes(",
+        opening: "let freeness = claims.freeness();",
+        lines: 7,
+        digest: "f8374d89dd45e5237e10cba035a7513c592452cb734a31bac411d7fe4a1dda08",
+    },
 ];
+
+/// kink27 R2-PIN-BY-ANCHOR: a passage pin is located by its anchor and opening, so a line inserted
+/// above the passage, in the file or in its section, moves the lines it is found at and keeps the
+/// pin.
+#[test]
+fn a_passage_pin_holds_when_a_line_is_inserted_above_it() {
+    let pin = &TRUSTED_CLAIM_PASSAGES[0];
+    let text = std::fs::read_to_string(k_rust_tree().join(pin.file)).expect("a k-rust file");
+    let base = passage::check(&text, pin).expect("the pin holds");
+    let moved = format!(
+        "A new first line.\n{}",
+        text.replacen(
+            "## Anywhere rules\n",
+            "## Anywhere rules\n\nAn unrelated sentence.\n",
+            1
+        )
+    );
+    assert_eq!(passage::check(&moved, pin), Ok((base.0 + 3, base.1 + 3)));
+}
+
+/// kink27 R2-PIN-BY-ANCHOR: a word of a pinned passage after its opening changing fails the pin,
+/// naming the passage.
+#[test]
+fn a_passage_pin_fails_when_a_word_of_it_changes() {
+    let pin = &TRUSTED_CLAIM_PASSAGES[0];
+    let text = std::fs::read_to_string(k_rust_tree().join(pin.file)).expect("a k-rust file");
+    let changed = text.replacen(
+        "offered at the application, the highest",
+        "offered at the application, the lowest",
+        1,
+    );
+    assert_ne!(changed, text);
+    let failure = passage::check(&changed, pin).expect_err("the pin fails");
+    assert!(
+        failure.contains("changed: read the k-rust contract again"),
+        "{failure}"
+    );
+    assert!(failure.contains("Among the equations offered"), "{failure}");
+}
+
+/// kink27 R2-PIN-BY-ANCHOR: a location is unique or refused: a fenced `#` line ends no section, an
+/// opening two lines begin with is refused, as are a missing heading, an opening found only under
+/// another heading, and a heading that is there twice.
+#[test]
+fn a_passage_pin_refuses_a_missing_or_ambiguous_location() {
+    const DOC: &str = "# Top\n\n## One\n\nAlpha beta gamma.\nAlpha beta delta.\n\n```sh\n# not a heading\n```\nEpsilon.\n\n## Two\n\nGamma once.\n";
+    let pin = |anchor, opening| passage::Passage {
+        file: "t.md",
+        anchor,
+        opening,
+        lines: 1,
+        digest: "dd26cfa07435a48ea27629bec24f3bd44c16c70c25ea00257170c9abcf2c8066",
+    };
+    let failure = |text: &str, anchor, opening| {
+        passage::check(text, &pin(anchor, opening)).expect_err("the location is refused")
+    };
+    assert_eq!(
+        passage::check(DOC, &pin("## One", "Epsilon.")),
+        Ok((11, 11))
+    );
+    let ambiguous = failure(DOC, "## One", "Alpha beta");
+    assert!(ambiguous.contains("lengthen the opening"), "{ambiguous}");
+    let missing = failure(DOC, "## Three", "Epsilon.");
+    assert!(missing.contains("no heading"), "{missing}");
+    let elsewhere = failure(DOC, "## One", "Gamma once.");
+    assert!(elsewhere.contains("under \"## Two\""), "{elsewhere}");
+    let twice = failure(&format!("{DOC}## One\n"), "## One", "Epsilon.");
+    assert!(twice.contains("is at lines 3, 16"), "{twice}");
+}
 
 /// The k-rust tree the workspace builds against: the parent of the `k-rust-backend` path
 /// dependency's `crates/` directory, read from k-rust's root manifest (kink is a part of k-rust's
