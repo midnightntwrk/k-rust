@@ -534,8 +534,11 @@ pub(super) fn domain_plan(
     if *remaining == 0 || !state.eligible_operand(term) {
         return Ok(None);
     }
-    let mut plan = match term.kind() {
-        TermKind::Application { symbol, .. } if state.functional_head(term).is_some() => {
+    // The ceil conditions are read as stated: the reading applies no equation to the query's
+    // terms, whose evaluation, as of an operand a conditional discards, need not end
+    // (`crate::definedness::with_stated_ceil_conditions`).
+    let plan = crate::definedness::with_stated_ceil_conditions(|| match term.kind() {
+        TermKind::Application { symbol, .. } if state.functional_head(term).is_some() => Some(
             if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
                 match apply_ceil_equation(definition, term) {
                     Some(conditions) if admit_conditions(state, &conditions, remaining) => {
@@ -546,30 +549,29 @@ pub(super) fn domain_plan(
                 }
             } else {
                 Vec::new()
-            }
-        }
+            },
+        ),
         TermKind::Variable(_) | TermKind::DomainValue { .. } | TermKind::Injection { .. } => {
-            Vec::new()
+            Some(Vec::new())
         }
         TermKind::Map { entries, .. }
             if definition.map_operations(&term.sort()).is_some()
                 && entries.len().saturating_mul(entries.len()) <= *remaining =>
         {
-            let Ok(conditions) = crate::definedness::collection_head_domain(definition, term)
-            else {
-                return Ok(None);
-            };
-            if !admit_conditions(state, &conditions, remaining) {
-                return Ok(None);
-            }
-            conditions
+            let conditions = crate::definedness::collection_head_domain(definition, term).ok()?;
+            admit_conditions(state, &conditions, remaining).then_some(conditions)
         }
-        TermKind::List { .. } if definition.list_operations(&term.sort()).is_some() => Vec::new(),
+        TermKind::List { .. } if definition.list_operations(&term.sort()).is_some() => {
+            Some(Vec::new())
+        }
         TermKind::Application { .. }
         | TermKind::Map { .. }
         | TermKind::List { .. }
         | TermKind::Set { .. }
-        | TermKind::And(..) => return Ok(None),
+        | TermKind::And(..) => None,
+    });
+    let Some(mut plan) = plan else {
+        return Ok(None);
     };
     // One head at a time: a full ceil walk here would repeatedly traverse shared
     // operands and can expand a small partial-function DAG exponentially. These

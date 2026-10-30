@@ -18,10 +18,15 @@
 //! literal arguments whose right-hand side those hooks fold to a literal; ceil equations whose
 //! instantiated condition that folding decides, or whose instance is stated in the atom's place
 //! over hook arithmetic; the key condition of a collection of literal keys; one equation step
-//! selected by matching alone) and by a known fact or the solver, which reads it as the opaque
-//! atom of `\ceil(t)`. Each of these steps is bounded by the size of the atom's subject or by one
-//! selection scan per application, and none repeats on its own result, so deciding an atom
-//! terminates whatever the definition's equations do.
+//! selected by matching alone) and by a known fact or the solver. The solver reads `\ceil(t)`
+//! through its domain reading (`smt::functional`): the stated condition of the ceil equation of
+//! each partial head, never simplified (`definedness::with_stated_ceil_conditions`), the domains
+//! of the strict children, and the finite summaries of pure, non-recursive functions
+//! (`smt::summary`), whose construction is explicitly bounded; where that reading does not reach,
+//! `\ceil(t)` is an opaque atom. It applies no equation to `t`. Each of these steps is bounded by
+//! the size of the atom's subject, by one selection scan per application, or by the summary
+//! limits, and none repeats on its own result, so deciding an atom terminates whatever the
+//! definition's equations do.
 //!
 //! An operand whose definedness depends on an impure application (a console read, or a function
 //! whose equations perform an effect) cannot be decided without performing it, and a constraint

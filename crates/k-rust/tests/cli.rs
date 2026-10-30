@@ -5347,7 +5347,10 @@ endmodule
 fn a_discarded_diverging_operand_is_not_evaluated() {
     // No equation of the definition is applied to a discarded operand, its definedness
     // conditions included: each run ends at once under the open obligations, where evaluating
-    // `loopi()` or `loopb()` would not end.
+    // `loopi()` or `loopb()` would not end (`run_coverage.rs`, `discarded`, counts the
+    // applications). Every application is strict, so the `\ceil` of `1 /Int loopi()`, of
+    // `1 %Int loopi()` and of the map entails that of `loopi()`: the solver reads those strict
+    // domains, and a result may state `\ceil(loopi())` beside them or leave it implied.
     let (root, _) = fixture();
     let leak = compiled_for_execution(&root, "leak", DISCARDED_DIVERGENCE, "LEAK", "LEAK");
     let one = r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#;
@@ -5368,20 +5371,17 @@ fn a_discarded_diverging_operand_is_not_evaluated() {
         assert_value_under(
             &output,
             one,
-            &[
-                &ceil_of(
-                    "SortInt",
-                    &format!(r#"{label}{{}}(\dv{{SortInt{{}}}}("1"), Lblloopi{{}}())"#),
-                ),
-                &loopi,
-            ],
+            &[&ceil_of(
+                "SortInt",
+                &format!(r#"{label}{{}}(\dv{{SortInt{{}}}}("1"), Lblloopi{{}}())"#),
+            )],
         );
     }
     let output = bounded_krun(&leak, "Exp", "mapLoop()", &["-w", "all"]);
     assert_value_under(
         &output,
         one,
-        &["\\ceil{SortMap{}, SortGeneratedTopCell{}}(", &loopi],
+        &["\\ceil{SortMap{}, SortGeneratedTopCell{}}("],
     );
     fs::remove_dir_all(root).unwrap();
 }
@@ -5437,8 +5437,11 @@ fn a_discarded_operand_takes_the_value_of_one_ground_equation_step() {
     // `f(-1) = -1 +Int 1` is one equation step on a literal argument whose right-hand side
     // builtin hooks fold to `0`, so the discarded `1 /Int f(-1)` is `1 /Int 0`, undefined, and
     // `fdivz()` is `\bottom`; with `f(1)` the operand is defined and `fdivok()` is a bare `1`.
-    // `g(-1) = f(-1)` would need a second step, which a discarded operand never gets: `gdivz()` is
-    // `1` under the open `\ceil(1 /Int g(-1))`.
+    // `g(-1) = f(-1)` would need a second step, which a discarded operand never gets; the solver
+    // decides it instead, applying no equation to the operand: its domain reading of
+    // `1 /Int g(-1)` is the stated condition `g(-1) =/=Int 0` of the ceil equation of `/Int`, and
+    // it reads `g(-1)` through the finite summaries of the pure, non-recursive `g` and `f`, where
+    // it is `-1 +Int 1`, so the discarded operand is undefined and `gdivz()` is `\bottom` too.
     let (root, _) = fixture();
     let ground = compiled_for_execution(&root, "ground", DISCARDED_GROUND, "GROUND", "GROUND");
     let output = bounded_krun(&ground, "Exp", "fdivz()", &[]);
@@ -5451,12 +5454,16 @@ fn a_discarded_operand_takes_the_value_of_one_ground_equation_step() {
             r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#
         ))
     );
-    let output = bounded_krun(&ground, "Exp", "gdivz()", &["-w", "all"]);
+    let output = bounded_krun(&ground, "Exp", "gdivz()", &[]);
+    assert_undefined_step(&output, 1);
     let quotient = r#"Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"), Lblg{}(\dv{SortInt{}}("-1")))"#;
-    assert_value_under(
-        &output,
-        r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#,
-        &[&ceil_of("SortInt", quotient)],
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!(
+            "refuted obligation \\and{{SortGeneratedTopCell{{}}}}({}",
+            ceil_of("SortInt", quotient)
+        )),
+        "{stderr}"
     );
     fs::remove_dir_all(root).unwrap();
 }

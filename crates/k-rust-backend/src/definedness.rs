@@ -1034,7 +1034,36 @@ pub(crate) fn elements_are_apart(
         )
 }
 
-/// The instantiated right-hand side `predicates` of a ceil equation, simplified.
+thread_local! {
+    /// Whether this thread's definedness analysis takes ceil conditions as stated
+    /// ([`with_stated_ceil_conditions`]).
+    static STATED_CEIL_CONDITIONS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `body` with this thread's definedness analysis taking every ceil condition as stated:
+/// the instantiated right-hand side of a ceil equation, and the instantiated `requires` that
+/// [`value_production_ceil_equations`] decides, are used as they are instead of simplified, so
+/// that within `body` the analysis applies no equation of the definition to the terms it reads.
+///
+/// A stated right-hand side is the same condition as its simplified form (simplifying only
+/// refines it, [`simplified_ceil_condition`]), so the analysis states the same definedness; a
+/// `requires` that only simplification would decide leaves the opaque `\ceil`, which is weaker
+/// and still exact. The solver's domain reading runs in this scope (`smt::functional`): preparing
+/// a query reads the query's terms and must not evaluate them, since among them may be an operand
+/// a conditional discards (`crate::deferred`), whose evaluation need not end.
+pub(crate) fn with_stated_ceil_conditions<R>(body: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            STATED_CEIL_CONDITIONS.with(|stated| stated.set(self.0));
+        }
+    }
+    let _restore = Restore(STATED_CEIL_CONDITIONS.with(|stated| stated.replace(true)));
+    body()
+}
+
+/// The instantiated right-hand side `predicates` of a ceil equation, simplified; as they are
+/// within [`with_stated_ceil_conditions`].
 ///
 /// Simplifying the right-hand side only refines it: the unsimplified predicates are the same
 /// condition, so a failure keeps them.
@@ -1046,6 +1075,9 @@ fn simplified_ceil_condition(
     definition: &BackendDefinition,
     predicates: Vec<Predicate>,
 ) -> Vec<Predicate> {
+    if STATED_CEIL_CONDITIONS.with(std::cell::Cell::get) {
+        return predicates;
+    }
     match simplify_predicates_with_solver(
         definition,
         &predicates,

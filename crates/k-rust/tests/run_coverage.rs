@@ -1183,3 +1183,68 @@ endmodule
         );
     }
 }
+
+/// Discarded operands whose evaluation does not end (`k_rust_backend::deferred`): the equation of
+/// `loopi()` is never applied, wherever the definedness of the operand a conditional discards is
+/// decided, in the simplifier or in preparing a solver query that reads it (its domain reading,
+/// `docs/compatibility.md`). No bounded step that decides a deferred atom applies it either: its
+/// right-hand side is an application of `loopi` again, which decides nothing. A count above zero
+/// is the start of the evaluation that does not end, cut off only by a budget.
+mod discarded {
+    use super::*;
+
+    const LEAK: &str = r#"
+module LEAK
+  imports INT
+  imports BOOL
+  imports MAP
+  imports K-EQUAL
+  syntax Exp ::= Int
+               | "iteLoop" "(" ")" [symbol(iteLoop)]
+               | "divLoop" "(" ")" [symbol(divLoop)]
+               | "modLoop" "(" ")" [symbol(modLoop)]
+               | "mapLoop" "(" ")" [symbol(mapLoop)]
+  syntax Int ::= loopi() [function, symbol(loopi)]
+  rule [loop]: loopi() => loopi() +Int 1
+  configuration <k> $PGM:Exp </k>
+  rule iteLoop() => #if true #then 1 #else loopi() #fi
+  rule divLoop() => #if true #then 1 #else 1 /Int loopi() #fi
+  rule modLoop() => #if true #then 1 #else 1 %Int loopi() #fi
+  rule mapLoop() => #if true #then 1 #else size(loopi() |-> 1 2 |-> 2) #fi
+endmodule
+"#;
+
+    #[test]
+    fn no_equation_of_a_discarded_operand_is_applied_or_begun() {
+        let kore = compile_source("leak.k", LEAK, "LEAK");
+        let mut backend = Backend::new(&kore, "LEAK", BackendOptions::default()).unwrap();
+        let catalog = catalog(&backend);
+        let loop_id = &catalog
+            .iter()
+            .find(|(label, _)| label == "LEAK.loop")
+            .expect("the labelled equation of loopi")
+            .1;
+        for program in ["iteLoop", "divLoop", "modLoop", "mapLoop"] {
+            let state = format!(
+                "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortExp{{}}, SortKItem{{}}}}(Lbl{program}{{}}()), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}({}))",
+                int(0)
+            );
+            let result = backend
+                .execute(ExecuteRequest {
+                    collect_coverage: true,
+                    collect_counts: true,
+                    ..ExecuteRequest::new(parse_pattern(&state).unwrap())
+                })
+                .unwrap();
+            let coverage = result.coverage.as_ref().expect("coverage was requested");
+            let applied = coverage
+                .applied_counts
+                .as_ref()
+                .expect("counts were requested")
+                .get(loop_id)
+                .copied()
+                .unwrap_or(0);
+            assert_eq!(applied, 0, "{program}");
+        }
+    }
+}
