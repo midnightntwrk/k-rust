@@ -9,7 +9,7 @@
 #
 # A pending case that conforms, or deviates differently, fails until this file records it; see
 # `class_matrix::pending`. Keys: a case ID (K2, read by both tiers), `full/ID` (K2 where the full
-# tier observes a case otherwise than the front), `k1/ID`, `k3/ID`, `k6/ID`, `lattice/..` (K4)
+# tier observes a case otherwise than the front), `k1/ID`, `k3/ID`, `k6/ID`, `k7/ID`, `lattice/..` (K4)
 # and `entry/..` (K5).
 
 # S0-8: the coverage lint's sort graph lacks the implicit `S ≤ KItem` edges. The count of the
@@ -6223,3 +6223,453 @@ deviation = "every native route InvalidRewrite"
 ["k6/terms/rule/result-root/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "NT-11-4"
 deviation = "every native route InvalidCellConcretization"
+
+
+# NT-8-1 (K7): a program writing an alias or a desugar production whose clause result holds `let`
+# or `k::matches!`: the program's expansion writes the result's `#let` or `:=K`, which k-rust lowers
+# only in a definition's sentences, and `krs run` fails ("cannot find a production for KLabel"). The
+# same terms in a rule's result run as stated. NT-15 decides it.
+
+["k7/terms/alias/result-root/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-8-1"
+deviation = "failed: cannot find a production for KLabel \"_:=K_\""
+
+["k7/terms/alias/result-root/{ let y = x; y }"]
+finding = "NT-8-1"
+deviation = "failed: cannot find a production for KLabel \"#let\""
+
+["k7/terms/alias/result/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-8-1"
+deviation = "failed: cannot find a production for KLabel \"_:=K_\""
+
+["k7/terms/alias/result/{ let y = x; y }"]
+finding = "NT-8-1"
+deviation = "failed: cannot find a production for KLabel \"#let\""
+
+["k7/terms/desugar/result-root/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-8-1"
+deviation = "failed: cannot find a production for KLabel \"_:=K_\""
+
+["k7/terms/desugar/result-root/{ let y = x; y }"]
+finding = "NT-8-1"
+deviation = "failed: cannot find a production for KLabel \"#let\""
+
+["k7/terms/desugar/result/k::matches!(x, Cmd::Hold(_))"]
+finding = "NT-8-1"
+deviation = "failed: cannot find a production for KLabel \"_:=K_\""
+
+["k7/terms/desugar/result/{ let y = x; y }"]
+finding = "NT-8-1"
+deviation = "failed: cannot find a production for KLabel \"#let\""
+
+# NT-8-4 (K7, K2): an application of a static production below a desugar's or an alias's subject
+# root, `Cmd::Dz()` (marked `#[k::desugar]`, expanding to `pair(2, 3)`) and `Cmd::Az()` (marked
+# `#[k::alias]`, expanding to `pair(4, 5)`), the construct NT-12 adds. In a desugar's subject KRS
+# accepts the clause and emits `rule cTAG(X, dz) => hold(X)`, whose left side holds the unexpanded
+# application, and a program writing the expansion is not expanded ("survived expansion"): dead. In
+# an alias's subject KRS refuses it (NT-8 M2's `static-production-in-alias-subject`), where the
+# oracle admits it by the NT-14 decision: a ground application expands without values. NT-14
+# expands both.
+
+["terms/alias/subject/Cmd::Az()"]
+finding = "NT-8-4"
+deviation = "krs::analysis::irreversible-alias @ spelling"
+
+["terms/alias/subject/Cmd::Dz()"]
+finding = "NT-8-4"
+deviation = "krs::analysis::irreversible-alias @ spelling"
+
+["k7/terms/desugar/subject/Cmd::Az()"]
+finding = "NT-8-4"
+deviation = "failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdCabfab058' survived expansion"
+
+["k7/terms/desugar/subject/Cmd::Dz()"]
+finding = "NT-8-4"
+deviation = "failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdCdbb7d63d' survived expansion"
+
+# NT-12-1 (K7): the failure of NT-8-1 for a sort test or a projection in an alias's or a desugar's
+# result: `k::is!(Int, x)`, `k::project!(Int, x)`, and the projection KRS writes for a list's index
+# read (`l[0]`, `list::get`). The program's expansion writes `isInt`, `project:Int` or
+# `project:KItem`, which the definition a program is read with has no production for; in a rule's
+# result the same terms run as stated. The mechanism is NT-8-1's: a symbol only a definition's
+# lowering knows, written into a program by its expansion.
+
+["k7/notation/alias/result-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:KItem\""
+
+["k7/notation/alias/result-root/k::builtin::list::item(x)[0]"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:KItem\""
+
+["k7/notation/alias/result/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:KItem\""
+
+["k7/notation/alias/result/k::builtin::list::item(x)[0]"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:KItem\""
+
+["k7/notation/desugar/result-root/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:KItem\""
+
+["k7/notation/desugar/result-root/k::builtin::list::item(x)[0]"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:KItem\""
+
+["k7/notation/desugar/result/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:KItem\""
+
+["k7/notation/desugar/result/k::builtin::list::item(x)[0]"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:KItem\""
+
+["k7/terms/alias/result-root/k::is!(Int, x)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"isInt\""
+
+["k7/terms/alias/result-root/k::project!(Int, x)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:Int\""
+
+["k7/terms/alias/result/k::is!(Int, x)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"isInt\""
+
+["k7/terms/alias/result/k::project!(Int, x)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:Int\""
+
+["k7/terms/desugar/result-root/k::is!(Int, x)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"isInt\""
+
+["k7/terms/desugar/result-root/k::project!(Int, x)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:Int\""
+
+["k7/terms/desugar/result/k::is!(Int, x)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"isInt\""
+
+["k7/terms/desugar/result/k::project!(Int, x)"]
+finding = "NT-12-1"
+deviation = "failed: cannot find a production for KLabel \"project:Int\""
+
+# NT-12-2 (K7): a parametric constructor at an explicit instance, `Wrap::<KItem>(x)`, in an alias's
+# or a desugar's result: the program's expansion writes `wrap(1)` without its instance, and the run
+# refuses it ("the instance of `wrap` .. is at sort Int"); in a rule's result the same term runs as
+# stated, so the static clause's expansion of a program drops the turbofish's instance.
+
+["k7/terms/alias/result-root/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-12-2"
+deviation = "failed: the instance of `wrap` in `wrap(#token(\"1\",\"Int\"))` is at sort Int, whose values its hook or its domain values fix; the result sort of `wrap` is its own sort parameter, so its applications are values with their own root at the instance sort, and none is a value of Int"
+
+["k7/terms/alias/result/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-12-2"
+deviation = "failed: the instance of `wrap` in `wrap(#token(\"1\",\"Int\"))` is at sort Int, whose values its hook or its domain values fix; the result sort of `wrap` is its own sort parameter, so its applications are values with their own root at the instance sort, and none is a value of Int"
+
+["k7/terms/desugar/result-root/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-12-2"
+deviation = "failed: the instance of `wrap` in `wrap(#token(\"1\",\"Int\"))` is at sort Int, whose values its hook or its domain values fix; the result sort of `wrap` is its own sort parameter, so its applications are values with their own root at the instance sort, and none is a value of Int"
+
+["k7/terms/desugar/result/Wrap::<dyn k::KItemSort>(x)"]
+finding = "NT-12-2"
+deviation = "failed: the instance of `wrap` in `wrap(#token(\"1\",\"Int\"))` is at sort Int, whose values its hook or its domain values fix; the result sort of `wrap` is its own sort parameter, so its applications are values with their own root at the instance sort, and none is a value of Int"
+
+# NT-12-3 (K7): an alias's or a desugar's result root of a sort the production's sort is not above
+# (the production `cTAG(..)` is a `Stmt`, the result `"s"`, `true`, `1.5`, a token, a map, a set or
+# a list): KRS accepts the clause and emits `rule cTAG(..) => "s"`, and a program's expansion of the
+# production is the projection `{"s"}:>Stmt` (`project:Stmt`), which has no value. A static clause
+# says its production's application is its result, which a term of another sort cannot be (an
+# `Int` result, a `Value`, runs as stated): a KRS acceptance gap, for KRS to refuse at the result.
+
+["k7/notation/alias/result-root-ground/k::builtin::map::empty()"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{}])], where the plan states k = k[map{}]"
+
+["k7/notation/alias/result-root-ground/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{0 -> 1}])], where the plan states k = k[map{0 -> 1}]"
+
+["k7/notation/alias/result-root-ground/k::builtin::set::empty()"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{}])], where the plan states k = k[set{}]"
+
+["k7/notation/alias/result-root-ground/map![0 -> 1]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{0 -> 1}])], where the plan states k = k[map{0 -> 1}]"
+
+["k7/notation/alias/result-root-ground/map![]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{}])], where the plan states k = k[map{}]"
+
+["k7/notation/alias/result-root-ground/set![]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{}])], where the plan states k = k[set{}]"
+
+["k7/notation/alias/result-root/k::builtin::map::empty().contains_key(x)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[false])], where the plan states k = k[false]"
+
+["k7/notation/alias/result-root/k::builtin::map::empty().update(x, 1)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/notation/alias/result-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[false])], where the plan states k = k[false]"
+
+["k7/notation/alias/result-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/notation/alias/result-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1, 2 -> 3}])], where the plan states k = k[map{1 -> 1, 2 -> 3}]"
+
+["k7/notation/alias/result-root/k::builtin::set::item(x)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/alias/result-root/k::builtin::set::item(x).to_list()"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[[1]])], where the plan states k = k[[1]]"
+
+["k7/notation/alias/result-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[[1]])], where the plan states k = k[[1]]"
+
+["k7/notation/alias/result-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/alias/result-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/alias/result-root/map![x -> 1, ..k::builtin::map::empty()]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/notation/alias/result-root/map![x -> 1, 2 -> 3]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1, 2 -> 3}])], where the plan states k = k[map{1 -> 1, 2 -> 3}]"
+
+["k7/notation/alias/result-root/set![x, ..k::builtin::set::empty()]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/alias/result-root/set![x, 1]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/alias/result-root/set![x]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/desugar/result-root/k::builtin::map::empty()"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{}])], where the plan states k = k[map{}]"
+
+["k7/notation/desugar/result-root/k::builtin::map::empty().contains_key(x)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[false])], where the plan states k = k[false]"
+
+["k7/notation/desugar/result-root/k::builtin::map::empty().update(x, 1)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/notation/desugar/result-root/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[false])], where the plan states k = k[false]"
+
+["k7/notation/desugar/result-root/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{0 -> 1}])], where the plan states k = k[map{0 -> 1}]"
+
+["k7/notation/desugar/result-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/notation/desugar/result-root/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1, 2 -> 3}])], where the plan states k = k[map{1 -> 1, 2 -> 3}]"
+
+["k7/notation/desugar/result-root/k::builtin::set::empty()"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{}])], where the plan states k = k[set{}]"
+
+["k7/notation/desugar/result-root/k::builtin::set::item(x)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/desugar/result-root/k::builtin::set::item(x).to_list()"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[[1]])], where the plan states k = k[[1]]"
+
+["k7/notation/desugar/result-root/k::builtin::set::to_list(k::builtin::set::item(x))"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[[1]])], where the plan states k = k[[1]]"
+
+["k7/notation/desugar/result-root/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/desugar/result-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/desugar/result-root/map![0 -> 1]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{0 -> 1}])], where the plan states k = k[map{0 -> 1}]"
+
+["k7/notation/desugar/result-root/map![]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{}])], where the plan states k = k[map{}]"
+
+["k7/notation/desugar/result-root/map![x -> 1, ..k::builtin::map::empty()]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/notation/desugar/result-root/map![x -> 1, 2 -> 3]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1, 2 -> 3}])], where the plan states k = k[map{1 -> 1, 2 -> 3}]"
+
+["k7/notation/desugar/result-root/set![]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{}])], where the plan states k = k[set{}]"
+
+["k7/notation/desugar/result-root/set![x, ..k::builtin::set::empty()]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/desugar/result-root/set![x, 1]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/notation/desugar/result-root/set![x]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/terms/alias/result-root-ground/\"s\""]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[\"s\"])], where the plan states k = k[\"s\"]"
+
+["k7/terms/alias/result-root-ground/1.5"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[1.5])], where the plan states k = k[1.5]"
+
+["k7/terms/alias/result-root-ground/k::bytes!(b\"ab\")"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[b\"ab\"])], where the plan states k = k[b\"ab\"]"
+
+["k7/terms/alias/result-root-ground/k::id!(\"$x\")"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[$x])], where the plan states k = k[$x]"
+
+["k7/terms/alias/result-root-ground/k::lexeme!(Word, \"word\")"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[word])], where the plan states k = k[word]"
+
+["k7/terms/alias/result-root-ground/true"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[true])], where the plan states k = k[true]"
+
+["k7/terms/alias/result-root/!(x < 1)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[true])], where the plan states k = k[true]"
+
+["k7/terms/alias/result-root/k::builtin::set::item(x)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/terms/alias/result-root/k::map![x -> 1]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/terms/alias/result-root/map![x -> 1]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/terms/alias/result-root/x < 1"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[false])], where the plan states k = k[false]"
+
+["k7/terms/alias/result-root/x == 1"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[true])], where the plan states k = k[true]"
+
+["k7/terms/desugar/result-root/!(x < 1)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[true])], where the plan states k = k[true]"
+
+["k7/terms/desugar/result-root/\"s\""]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[\"s\"])], where the plan states k = k[\"s\"]"
+
+["k7/terms/desugar/result-root/1.5"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[1.5])], where the plan states k = k[1.5]"
+
+["k7/terms/desugar/result-root/k::builtin::set::item(x)"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[set{1}])], where the plan states k = k[set{1}]"
+
+["k7/terms/desugar/result-root/k::bytes!(b\"ab\")"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[b\"ab\"])], where the plan states k = k[b\"ab\"]"
+
+["k7/terms/desugar/result-root/k::id!(\"$x\")"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[$x])], where the plan states k = k[$x]"
+
+["k7/terms/desugar/result-root/k::lexeme!(Word, \"word\")"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[word])], where the plan states k = k[word]"
+
+["k7/terms/desugar/result-root/k::map![x -> 1]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/terms/desugar/result-root/map![x -> 1]"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[map{1 -> 1}])], where the plan states k = k[map{1 -> 1}]"
+
+["k7/terms/desugar/result-root/true"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[true])], where the plan states k = k[true]"
+
+["k7/terms/desugar/result-root/x < 1"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[false])], where the plan states k = k[false]"
+
+["k7/terms/desugar/result-root/x == 1"]
+finding = "NT-12-3"
+deviation = "another value: k = k[project'Coln'Stmt(k[true])], where the plan states k = k[true]"
+
+# NT-12-4 (K7): a bytes literal in a desugar's or an alias's subject, `k::bytes!(b"ab")`: KRS emits
+# the token as `#token("b\"\x61\x62\"","Bytes")`, and a program writing the same bytes, `b"ab"`, is
+# not expanded ("macro or alias symbol .. survived expansion"): the static expansion compares the
+# tokens' texts, not their values. A `String` literal there expands, and the bytes literal in a
+# rule's subject matches. Probe: `#[k::desugar] Ck(x, k::bytes!(b"ab"))` and `ck(1, b"ab")`.
+
+["k7/terms/alias/subject/k::bytes!(b\"ab\")"]
+finding = "NT-12-4"
+deviation = "failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdCf7f18262' survived expansion"
+
+["k7/terms/desugar/subject/k::bytes!(b\"ab\")"]
+finding = "NT-12-4"
+deviation = "failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdCde9c5e43' survived expansion"
+
+# NT-12-5 (K7): alternatives in a desugar's subject, `Cmd::NAME(x, Cmd::Go() | Cmd::Hold(_))`: KRS
+# emits `rule cTAG(X, (go #Or hold(_))) => hold(X)` [macro], and no program writing either
+# alternative is expanded ("survived expansion"): the static expansion does not match an `#Or`
+# pattern. An alias refuses alternatives in its subject; a desugar admits them, and they are dead.
+# Probe: `#[k::desugar] Cl(x, Cmd::Go() | Cmd::Hold(_))` with `cl(1, go)` and `cl(1, hold(0))`.
+
+["k7/terms/desugar/subject/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-12-5"
+deviation = "failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdC54ff3ba4' survived expansion"
