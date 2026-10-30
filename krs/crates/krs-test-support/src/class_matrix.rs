@@ -80,6 +80,7 @@ pub mod advice;
 pub mod attributes;
 mod cells;
 mod config_drivers;
+pub use config_drivers::{Extent, Part, Reading};
 pub mod entry_points;
 pub mod invariants;
 pub mod k7;
@@ -184,7 +185,7 @@ impl Family {
     }
 
     /// The family a run family's cases are twins of: the same slot templates and spellings on
-    /// the machine base ([`Base::Run`]).
+    /// [`Base::Machine`], which the run family instantiates on [`Base::Run`].
     #[must_use]
     pub const fn twin(self) -> Option<Self> {
         match self {
@@ -502,10 +503,11 @@ pub struct Case {
     /// What K7 runs the case on, and what the run must show ([`k7`]); a case of a family K7 has
     /// no drivers for says so.
     pub k7: k7::K7,
-    /// A run of the case's program on a counter-witness of its construct, a ground term the
-    /// construct must not match, which must not apply the case's sentence; `None` where the
-    /// construct has none or its slot reads no witness.
-    pub k7_counter: Option<k7::Run>,
+    /// The runs of the case's program on counter-witnesses of its construct, ground terms the
+    /// construct must not match (another value, and for an exact collection one with an item
+    /// more), each of which must not apply the case's sentence; empty where the construct has
+    /// none or its slot reads no witness.
+    pub k7_counters: Vec<k7::Run>,
     /// Whether the case's sentence holds no command of its own: a subject's root, which can take
     /// what another case's program holds, so K7 runs it, and the cases beside it, on definitions
     /// apart.
@@ -743,7 +745,22 @@ pub fn run_counterless(case: &Case) -> Option<&'static str> {
         Family::CellsRun => config_drivers::cells(kind, case.side, &case.construct, case.command()),
         _ => return None,
     };
-    plans.counter.err()
+    plans.counters.err()
+}
+
+/// The collections a run family's subject case reads (`Obj { key: 1, m: map![1 -> 2] }` reads the
+/// Set collection's instances, open, and the instance's map, exact), each with the items its
+/// witness and its counter-witnesses write there, or why it reads none; `None` for a case of
+/// another family, a result case, or a case K7 does not run ([`config_drivers`]).
+#[must_use]
+pub fn run_readings(case: &Case) -> Option<Result<Vec<Reading>, &'static str>> {
+    let kind = case.kind?;
+    let readable = match case.family {
+        Family::ReadableRun => true,
+        Family::CellsRun => false,
+        _ => return None,
+    };
+    config_drivers::readings(readable, kind, case.side, &case.construct)
 }
 
 /// What a spelling of the term families matches and denotes, as K7 reads it ([`k7`]).
@@ -757,8 +774,8 @@ pub struct SpellingMeaning {
     pub witness: Result<k7::Ground, &'static str>,
     /// What it denotes where it is built.
     pub value: k7::Meaning,
-    /// A ground term it must not match where a pattern reads it, or why none is stated.
-    pub counter: Result<k7::Ground, &'static str>,
+    /// Ground terms it must not match where a pattern reads it, or why none is stated.
+    pub counter: Result<Vec<k7::Ground>, &'static str>,
 }
 
 /// What every spelling of the term families matches and denotes, `x` being 1.
@@ -873,7 +890,7 @@ impl CaseSpec {
                  start at fixed values, and those bases have no driver commands to set them up \
                  (a claim needs a prover besides)",
             ),
-            k7_counter: None,
+            k7_counters: Vec::new(),
             unkeyed: false,
             attribute: None,
             item: item.text.clone(),

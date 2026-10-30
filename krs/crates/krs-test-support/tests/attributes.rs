@@ -612,8 +612,8 @@ fn k7_shows_what_each_accepted_attribute_does() {
             continue;
         };
         let counter = case
-            .k7_counter
-            .as_ref()
+            .k7_counters
+            .first()
             .map_or_else(String::new, |counter| {
                 format!(" | counter {} {}", counter.steps, counter.program)
             });

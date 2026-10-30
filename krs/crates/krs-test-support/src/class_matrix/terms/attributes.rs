@@ -186,7 +186,7 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
         Pair::Extra(_, extra) => extra_plan(form, extra, slot, spelling, &command),
     };
     case.k7 = plan;
-    case.k7_counter = counter;
+    case.k7_counters = counter.into_iter().collect();
     case
 }
 

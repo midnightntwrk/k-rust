@@ -114,10 +114,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 18 forms × 26 attributes, 26 malformed attributes, and 20 extra cases.
             (Family::Attributes, 18 * 26 + 26 + 20),
             // The readable records and the `cells!` rules on the run base, and the Set collection's
-            // spellings: 6 subject (a map literal with an anonymous rest among them) and 5 result
-            // spellings in a readable record, 5 and 5 in a `cells!` rule.
-            (Family::ReadableRun, 182 + 6 + 5),
-            (Family::CellsRun, 182 + 5 + 5),
+            // spellings: 7 subject (a map literal with an anonymous rest among them) and 5 result
+            // spellings in a readable record, 6 and 5 in a `cells!` rule.
+            (Family::ReadableRun, 182 + 7 + 5),
+            (Family::CellsRun, 182 + 6 + 5),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {

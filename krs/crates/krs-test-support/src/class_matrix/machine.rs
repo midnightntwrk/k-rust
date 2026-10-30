@@ -222,6 +222,7 @@ pub enum Cmd {
     #[k::syntax("dropcounter")] DropCounter(),
     #[k::syntax("addjob({a})")] AddJob { a: Int },
     #[k::syntax("addobj({a}, {b})")] AddObj { a: Int, b: KItem },
+    #[k::syntax("pushjob({a})")] PushJob { a: Int },
 "#;
 
 /// The run base's Set collection: its parent and one instance, which holds a map cell.
@@ -296,7 +297,9 @@ static RUN_INITIALIZER: LazyLock<String> =
 /// - `setpc(a)`, `setstack(l)`, `setenv(m)`, `setret(a)` and `setcounter(a)` replace a cell's
 ///   content (`setcounter` creates the optional cell where the state does not hold it), and
 ///   `dropcounter` removes it; `addjob(a)` puts an instance at the front of the List collection
-///   `job`, and `addobj(a, m)` adds one to the Set collection `bag`;
+///   `job`, and `addobj(a, m)` adds one to the Set collection `bag`; `pushjob(a)` puts a `Job`
+///   cell record in its own place at the front of the computation, as a readable result writes a
+///   cell record as a computation item;
 /// - `memp` and `mput(m, k, v)` build a map, `lemp`, `lone(a)` and `lcat(a, b)` a list, each
 ///   exactly the value it names.
 ///
@@ -331,6 +334,8 @@ k::rules! {
     add_job: { k: [Cmd::AddJob(a), ..], job: [..] } => { k: [..], job: [Job { payload: a }, ..] };
     #[k::rule(priority = 10)]
     add_obj: { k: [Cmd::AddObj(a, m), ..], bag: { .. } } => { k: [..], bag: { Obj { key: a, m: k::project!(Map, m) }, .. } };
+    #[k::rule(priority = 10)]
+    push_job: { k: [Cmd::PushJob(a), ..] } => { k: [Job { payload: a, .. }, ..] };
 }
 
 #[k::function(partial, syntax = "memp")]
@@ -465,15 +470,17 @@ const fn result_subject(kind: CellKind) -> &'static str {
 /// The Set collection's subject spellings on the run base, the shape NT-10's review M1 needs: an
 /// instance whose map cell is exact (`map![1 -> 2]`), one whose key is computed, two whose exact
 /// map computes its value or its key, each looked up as the set's element (decision D1a: every
-/// cell written, nothing that selects), and one whose map reads an entry and leaves the others
-/// open (`{ 1 -> 2, .. }`), which selects; and that map written as a literal with an anonymous rest
-/// (`map![1 -> 2, ..]`), which names no map in a readable record.
-const READABLE_BAG_SUBJECTS: [&str; 6] = [
+/// cell written, nothing that selects), one whose map reads an entry and leaves the others open
+/// (`{ 1 -> 2, .. }`), and an instance record with `..` (`Obj { key: 1, .. }`), which select; and
+/// that map written as a literal with an anonymous rest (`map![1 -> 2, ..]`), which names no map
+/// in a readable record.
+const READABLE_BAG_SUBJECTS: [&str; 7] = [
     "{ Obj { key: 1, m: map![1 -> 2] }, .. }",
     "{ Obj { key: k::builtin::int::add(0, 1), m: map![1 -> 2] }, .. }",
     "{ Obj { key: 1, m: map![1 -> k::builtin::int::add(1, 1)] }, .. }",
     "{ Obj { key: 1, m: map![k::builtin::int::add(0, 1) -> 2] }, .. }",
     "{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }",
+    "{ Obj { key: 1, .. }, .. }",
     "{ Obj { key: 1, m: map![1 -> 2, ..] }, .. }",
 ];
 
@@ -550,7 +557,7 @@ fn record_spelling(
     if base == Base::Run {
         let plans = config_drivers::readable(kind, side, construct, case.command());
         case.k7 = plans.k7;
-        case.k7_counter = plans.counter.ok();
+        case.k7_counters = plans.counters.unwrap_or_default();
     }
     case
 }

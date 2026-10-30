@@ -11,8 +11,14 @@
 //!   with the base's driver commands, one step each, and then applies the case's command,
 //!   `then(setpc(0), cNAME)`, three steps that leave the computation cell empty; where the start
 //!   configuration holds a witness already (a binder and `_` match every value, and the
-//!   collections start with no instance), it is the command alone. The counter run writes the
+//!   collections start with no instance), it is the command alone. Each counter run writes a
 //!   counter-witness and must stop before the command applies.
+//! - **Exact and open:** a spelling that reads a collection whole (`[]`, an instance whose map is
+//!   `map![1 -> 2]`) has, among its counter-witnesses, the collection with one item more; one whose
+//!   `..` leaves items open (`[x, ..]`, `{ y -> x, .. }`, `Obj { key: 1, .. }`) has a witness with
+//!   an item more than it writes. So a lowering that reads an exact collection as open, or an open
+//!   one as exact, does not apply as stated. Each subject plan states the collections it reads
+//!   ([`Reading`]), and `cargo test -p krs-test-support --test k7` checks the rule on the programs.
 //! - **Result:** the rule `{ k: [C(x, y), ..], CELL: OLD } => { k: [..], CELL: S }` writes `S`'s
 //!   value with the command's binders at `x` = 1 and `y` = 2 (`y` = 1 for a map whose two keys may
 //!   be equal, so that its later entry's value is the map's). The program first writes a value
@@ -41,8 +47,16 @@ const WILDCARD: &str = "`_` matches every value of the cell";
 const RECORD: &str = "a group record whose every child is a binder matches every group";
 /// A list or a map that is all `..`.
 const REST: &str = "`..` alone matches every value of the cell";
-/// A cell record as an item of the computation or of a list.
-const CELL_ITEM: &str = "a cell record as an item, which no program writes";
+/// A cell record behind the computation's first item.
+const BACK_ITEM: &str = "a cell record behind the computation's first item, which no driver command writes: a driver command acts at the front of the computation";
+/// A cell record as a List cell's element.
+const LIST_RECORD: &str = "a cell record as a List cell's element, which no driver command writes: a readable result reads `[Job { .. }, ..]` on a List cell as a collection's instances, which it refuses, and no other spelling builds a cell record";
+/// A leaf, which holds one value.
+const LEAF: &str = "a leaf holds one value, no collection";
+/// An optional cell, which holds one value or none.
+const OPTIONAL: &str = "an optional cell holds one value or none, no collection";
+/// A group record of the machine base's one-child group.
+const ONE_CHILD: &str = "the group has one child, which the record names: no child is left over";
 /// `_` in a result.
 const WILDCARD_RESULT: &str = "`_` builds no value";
 /// The binder `x`, an `Int`, as a cell's content of another sort.
@@ -55,10 +69,51 @@ const RESULT_LINE_UP: &str =
 /// An anonymous `..` in a map literal.
 const ANONYMOUS_REST: &str = "a map literal's rest is the map its entries are written over, and an anonymous `..` names none";
 
-/// What K7 runs a case on: its plan, and its counter run or why it has none.
+/// What K7 runs a case on: its plan, and its counter runs or why it has none.
 pub(super) struct Plans {
     pub(super) k7: K7,
-    pub(super) counter: Result<Run, &'static str>,
+    pub(super) counters: Result<Vec<Run>, &'static str>,
+}
+
+/// A collection a subject spelling reads, whose items a driver's program writes.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Part {
+    /// The computation's items.
+    Computation,
+    /// A List cell's elements.
+    List,
+    /// A Map cell's entries.
+    Map,
+    /// The List collection `job`'s instances.
+    Jobs,
+    /// The Set collection `bag`'s instances.
+    Objects,
+    /// The entries of the map cell of the `bag` instance the spelling reads.
+    ObjectMap,
+}
+
+/// How a spelling reads a collection: all of it, with the items it writes, or those items and,
+/// by `..`, any others.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Extent {
+    /// Exactly this many items.
+    Exact(usize),
+    /// This many items written, others left open.
+    Open(usize),
+}
+
+/// A collection a subject case's spelling reads, and how many items its witness and each of its
+/// counter-witnesses write there.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Reading {
+    /// The collection.
+    pub part: Part,
+    /// How the spelling reads it.
+    pub extent: Extent,
+    /// The items the witness writes.
+    pub witness: usize,
+    /// The items each counter-witness writes.
+    pub counters: Vec<usize>,
 }
 
 /// Why a case K7 does not run has no counter run.
@@ -158,6 +213,17 @@ fn add_job(payload: i64) -> Setup {
     Setup::command("AddJob", vec![int(payload)])
 }
 
+/// A `Job` cell record as the computation's first item, before what follows `pushjob(a)`.
+fn push_job(payload: i64) -> Setup {
+    Setup::command("PushJob", vec![int(payload)])
+}
+
+/// The object a Set collection's witness and counter-witnesses hold beside the one they read: key
+/// 9 and an empty map, which no spelling reads, so `{ .., .. }`'s `..` has an instance to leave.
+fn other_obj() -> Setup {
+    add_obj(9, &[])
+}
+
 /// An instance of the Set collection `bag`.
 fn add_obj(key: i64, entries: &[(i64, i64)]) -> Setup {
     Setup::command("AddObj", vec![int(key), map(entries)])
@@ -178,7 +244,7 @@ impl Plans {
     fn skip(kind: SkipKind, reason: &'static str) -> Self {
         Self {
             k7: K7::skip(kind, reason),
-            counter: Err(NOT_RUN),
+            counters: Err(NOT_RUN),
         }
     }
 }
@@ -187,9 +253,11 @@ impl Plans {
 struct Matched {
     /// The setup that writes a witness, or `None` where the start configuration holds one.
     witness: Option<Setup>,
-    /// The setup that writes a counter-witness, `None` for the start configuration, or why no
+    /// The setups that write counter-witnesses, `None` for the start configuration, or why no
     /// value of the cell is one.
-    counter: Result<Option<Setup>, &'static str>,
+    counters: Result<Vec<Option<Setup>>, &'static str>,
+    /// The collections the spelling reads, or why it reads none.
+    reads: Result<Vec<(Part, Extent)>, &'static str>,
 }
 
 impl Matched {
@@ -197,24 +265,45 @@ impl Matched {
     const fn every(reason: &'static str) -> Self {
         Self {
             witness: None,
-            counter: Err(reason),
+            counters: Err(reason),
+            reads: Err(reason),
         }
     }
 
-    /// A spelling that matches what `witness` writes and not what `counter` writes.
-    const fn between(witness: Setup, counter: Setup) -> Self {
+    /// A spelling that matches what `witness` writes and none of what `counters` write.
+    fn between(witness: Setup, counters: Vec<Setup>) -> Self {
         Self {
             witness: Some(witness),
-            counter: Ok(Some(counter)),
+            counters: Ok(counters.into_iter().map(Some).collect()),
+            reads: Ok(Vec::new()),
+        }
+    }
+
+    /// The spelling, which reads `part` with `extent`.
+    fn reading(self, part: Part, extent: Extent) -> Self {
+        let mut reads = self.reads.unwrap_or_default();
+        reads.push((part, extent));
+        Self {
+            reads: Ok(reads),
+            ..self
+        }
+    }
+
+    /// The spelling, which reads no collection, for `reason`.
+    fn reading_none(self, reason: &'static str) -> Self {
+        Self {
+            reads: Err(reason),
+            ..self
         }
     }
 }
 
-/// What a computation-cell spelling matches: the program that is a witness, and the one that is
-/// a counter-witness, or why there is none.
+/// What a computation-cell spelling matches: the program that is a witness, those that are
+/// counter-witnesses or why there is none, and how it reads the computation's items.
 struct Computation {
     witness: Setup,
-    counter: Result<Setup, &'static str>,
+    counters: Result<Vec<Setup>, &'static str>,
+    extent: Extent,
 }
 
 /// What a result spelling writes: the cell's value after the step, and the value of `y`.
@@ -301,6 +390,99 @@ pub(super) fn cells(
     }
 }
 
+/// The collections a run family's subject case reads, each with the items its witness and its
+/// counter-witnesses write there (as [`Reading`]s), or why it reads none; `None` for a result case,
+/// whose plan checks the value its sentence writes, and for a case K7 does not run.
+pub(super) fn readings(
+    readable: bool,
+    kind: CellKind,
+    side: Side,
+    spelling: &str,
+) -> Option<Result<Vec<Reading>, &'static str>> {
+    if side != Side::Subject {
+        return None;
+    }
+    if kind == CellKind::KSequence {
+        let computation = if readable {
+            readable_computation(spelling)
+        } else {
+            cells_computation(spelling)
+        }
+        .ok()?;
+        let counters = computation.counters.unwrap_or_default();
+        return Some(Ok(vec![Reading {
+            part: Part::Computation,
+            extent: computation.extent,
+            witness: items(Part::Computation, Some(&computation.witness)),
+            counters: counters
+                .iter()
+                .map(|counter| items(Part::Computation, Some(counter)))
+                .collect(),
+        }]));
+    }
+    let matched = if readable {
+        readable_matched(kind, spelling)
+    } else {
+        cells_matched(kind, spelling)
+    }
+    .ok()?;
+    let counters = matched.counters.unwrap_or_default();
+    Some(matched.reads.map(|reads| {
+        reads
+            .into_iter()
+            .map(|(part, extent)| Reading {
+                part,
+                extent,
+                witness: items(part, matched.witness.as_ref()),
+                counters: counters
+                    .iter()
+                    .map(|counter| items(part, counter.as_ref()))
+                    .collect(),
+            })
+            .collect()
+    }))
+}
+
+/// The commands `program` runs, in order: a `then`'s parts, flattened.
+fn commands(program: &Ground) -> Vec<&Ground> {
+    match program {
+        Ground::Ctor { path, fields } if path == "Cmd::Then" => {
+            fields.iter().flat_map(commands).collect()
+        }
+        other => vec![other],
+    }
+}
+
+/// How many items of `part` the configuration holds after `setup` (the start's, none, where it is
+/// `None`): the computation's items it leaves, a list's elements or a map's entries it writes last,
+/// the instances it adds, and the entries of the last object's map.
+fn items(part: Part, setup: Option<&Setup>) -> usize {
+    let mut count = 0;
+    for command in setup
+        .map(|setup| commands(&setup.program))
+        .unwrap_or_default()
+    {
+        let Ground::Ctor { path, fields } = command else {
+            continue;
+        };
+        let written = |index: usize| match fields.get(index) {
+            Some(Ground::List(items)) => items.len(),
+            Some(Ground::Map(entries)) => entries.len(),
+            _ => 0,
+        };
+        match (part, path.trim_start_matches("Cmd::")) {
+            (Part::Computation, "Skip") => {}
+            (Part::Computation, _) | (Part::Jobs, "AddJob") | (Part::Objects, "AddObj") => {
+                count += 1;
+            }
+            (Part::List, "SetStack") | (Part::Map, "SetEnv") => count = written(0),
+            (Part::ObjectMap, "AddObj") => count = written(1),
+            _ => {}
+        }
+    }
+    count
+}
+
 /// The case's command applied to `x` = 1 and `y`.
 fn apply(command: &Command, y: i64) -> Setup {
     Setup::command(&command.name, vec![int(1), int(y)])
@@ -327,18 +509,23 @@ fn subject(matched: Result<Matched, &'static str>, command: &Command) -> Plans {
         cells: vec![("k".to_owned(), Ground::Seq(Vec::new()))],
         status: Status::Liveness,
     });
-    let counter = matched.counter.map(|setup| {
-        let counter = then_apply(setup);
-        Run {
-            program: counter.text(),
-            variables: Vec::new(),
-            depth: counter.steps,
-            steps: counter.steps - 1,
-            cells: Vec::new(),
-            status: Status::Liveness,
-        }
+    let counters = matched.counters.map(|setups| {
+        setups
+            .into_iter()
+            .map(|setup| {
+                let counter = then_apply(setup);
+                Run {
+                    program: counter.text(),
+                    variables: Vec::new(),
+                    depth: counter.steps,
+                    steps: counter.steps - 1,
+                    cells: Vec::new(),
+                    status: Status::Liveness,
+                }
+            })
+            .collect()
     });
-    Plans { k7: plan, counter }
+    Plans { k7: plan, counters }
 }
 
 /// The plan of the computation cell's subject case, `{ k: S, pc: _ } => { pc: 1 }`: the witness
@@ -357,15 +544,20 @@ fn computation_subject(computation: Result<Computation, &'static str>) -> Plans 
         cells: vec![("pc".to_owned(), int(1))],
         status: Status::Liveness,
     });
-    let counter = computation.counter.map(|counter| Run {
-        program: counter.text(),
-        variables: Vec::new(),
-        depth: counter.steps + 1,
-        steps: counter.steps,
-        cells: Vec::new(),
-        status: Status::Liveness,
+    let counters = computation.counters.map(|counters| {
+        counters
+            .iter()
+            .map(|counter| Run {
+                program: counter.text(),
+                variables: Vec::new(),
+                depth: counter.steps + 1,
+                steps: counter.steps,
+                cells: Vec::new(),
+                status: Status::Liveness,
+            })
+            .collect()
     });
-    Plans { k7: plan, counter }
+    Plans { k7: plan, counters }
 }
 
 /// The plan of a result case: the subject's old value written, then the command, and the cell
@@ -389,7 +581,7 @@ fn result(kind: CellKind, written: Result<Written, &'static str>, command: &Comm
     });
     Plans {
         k7: plan,
-        counter: Err(BUILT),
+        counters: Err(BUILT),
     }
 }
 
@@ -410,7 +602,7 @@ fn computation_result(program: &Setup, written: Result<Written, &'static str>) -
     });
     Plans {
         k7: plan,
-        counter: Err(BUILT),
+        counters: Err(BUILT),
     }
 }
 
@@ -440,137 +632,210 @@ fn holds_any(term: &Ground) -> bool {
     }
 }
 
-/// What a readable spelling matches in the computation cell.
+/// What a readable spelling matches in the computation cell: `[]` the empty one, not one with an
+/// item; `[x, ..]` and `[Job { .. }, ..]` one whose first item `x` or the `Job` record is, the
+/// witness holding an item more (`then(go, go)`, two items when `then` has stepped).
 fn readable_computation(spelling: &str) -> Result<Computation, &'static str> {
     match spelling {
         "[..]" => Ok(Computation {
             witness: go(),
-            counter: Err(REST),
+            counters: Err(REST),
+            extent: Extent::Open(0),
         }),
         "[]" => Ok(Computation {
             witness: skip(),
-            counter: Ok(go()),
+            counters: Ok(vec![go()]),
+            extent: Extent::Exact(0),
         }),
         "[x, ..]" => Ok(Computation {
-            witness: go(),
-            counter: Ok(skip()),
+            witness: go().then(go()),
+            counters: Ok(vec![skip()]),
+            extent: Extent::Open(1),
         }),
-        "[Job { payload: x, .. }, ..]" | "[.., Job { payload: 0, .. }]" => Err(CELL_ITEM),
+        "[Job { payload: x, .. }, ..]" => Ok(Computation {
+            witness: push_job(0).then(go()),
+            counters: Ok(vec![go()]),
+            extent: Extent::Open(1),
+        }),
+        "[.., Job { payload: 0, .. }]" => Err(BACK_ITEM),
         _ => Err(NOTATION),
     }
 }
 
-/// What a `cells!` spelling matches in the computation cell.
+/// What a `cells!` spelling matches in the computation cell, as [`readable_computation`].
 fn cells_computation(spelling: &str) -> Result<Computation, &'static str> {
     match spelling {
         "k::configuration::KCell(x, ..)" => Ok(Computation {
-            witness: go(),
-            counter: Ok(skip()),
+            witness: go().then(go()),
+            counters: Ok(vec![skip()]),
+            extent: Extent::Open(1),
         }),
         "k::configuration::KCell()" => Ok(Computation {
             witness: skip(),
-            counter: Ok(go()),
+            counters: Ok(vec![go()]),
+            extent: Extent::Exact(0),
         }),
         _ => Err(NOTATION),
     }
 }
 
-/// What a readable subject spelling matches in `kind`'s cell.
+/// What a readable subject spelling matches in `kind`'s cell. An open list, map or instance list's
+/// witness holds an item more than the spelling writes; an exact one's counter-witnesses include
+/// one with an item more.
 fn readable_matched(kind: CellKind, spelling: &str) -> Result<Matched, &'static str> {
     use CellKind::{Collection, Group, Leaf, List, Map, Optional, SetCollection};
+    use Extent::{Exact, Open};
     Ok(match (kind, spelling) {
         (Leaf | List | Map | Group, "x") => Matched::every(BINDER),
         (Leaf | List | Map | Group, "_") => Matched::every(WILDCARD),
-        (Leaf, "0") => Matched::between(set_pc(0), set_pc(1)),
+        (Leaf, "0") => Matched::between(set_pc(0), vec![set_pc(1)]).reading_none(LEAF),
         (List, "[..]") => Matched {
             witness: Some(set_stack(&[0])),
-            counter: Err(REST),
+            counters: Err(REST),
+            reads: Ok(vec![(Part::List, Open(0))]),
         },
-        (List, "[]") => Matched::between(set_stack(&[]), set_stack(&[0])),
-        (List, "[x, ..]") => Matched::between(set_stack(&[0]), set_stack(&[])),
+        (List, "[]") => {
+            Matched::between(set_stack(&[]), vec![set_stack(&[0])]).reading(Part::List, Exact(0))
+        }
+        (List, "[x, ..]") => {
+            Matched::between(set_stack(&[0, 0]), vec![set_stack(&[])]).reading(Part::List, Open(1))
+        }
         (List, "[Job { payload: x, .. }, ..]" | "[.., Job { payload: 0, .. }]") => {
-            return Err(CELL_ITEM);
+            return Err(LIST_RECORD);
         }
         (Map, "{ .. }") => Matched {
             witness: Some(set_env(&[(1, 0)])),
-            counter: Err(REST),
+            counters: Err(REST),
+            reads: Ok(vec![(Part::Map, Open(0))]),
         },
-        (Map, "{ y -> x, .. }") => Matched::between(set_env(&[(1, 0)]), set_env(&[])),
-        (Group, "Frame { ret: x }") => Matched::every(RECORD),
-        (Optional, "Some(x)") => Matched::between(set_counter(0), absent()),
-        (Optional, "None") => Matched::between(absent(), set_counter(0)),
+        (Map, "{ y -> x, .. }") => Matched::between(set_env(&[(1, 0), (2, 0)]), vec![set_env(&[])])
+            .reading(Part::Map, Open(1)),
+        (Group, "Frame { ret: x }") => Matched::every(RECORD).reading_none(ONE_CHILD),
+        (Optional, "Some(x)") => {
+            Matched::between(set_counter(0), vec![absent()]).reading_none(OPTIONAL)
+        }
+        (Optional, "None") => {
+            Matched::between(absent(), vec![set_counter(0)]).reading_none(OPTIONAL)
+        }
         (Collection, "[..]") => Matched {
             witness: Some(add_job(0)),
-            counter: Err(REST),
+            counters: Err(REST),
+            reads: Ok(vec![(Part::Jobs, Open(0))]),
         },
         // The collection starts with no instance.
         (Collection, "[]") => Matched {
             witness: None,
-            counter: Ok(Some(add_job(0))),
+            counters: Ok(vec![Some(add_job(0))]),
+            reads: Ok(vec![(Part::Jobs, Exact(0))]),
         },
+        // Two jobs, 0 at the front; the counter-witness is the start, with none.
         (Collection, "[Job { payload: x, .. }, ..]") => Matched {
-            witness: Some(add_job(0)),
-            counter: Ok(None),
+            witness: Some(add_job(1).then(add_job(0))),
+            counters: Ok(vec![None]),
+            reads: Ok(vec![(Part::Jobs, Open(1))]),
         },
-        (Collection, "[.., Job { payload: 0, .. }]") => Matched::between(add_job(0), add_job(1)),
+        // Two jobs, 0 at the back; not one job whose payload is 1.
+        (Collection, "[.., Job { payload: 0, .. }]") => {
+            Matched::between(add_job(0).then(add_job(7)), vec![add_job(1)])
+                .reading(Part::Jobs, Open(1))
+        }
         (SetCollection, _) => return bag_matched(spelling),
         _ => return Err(NOTATION),
     })
 }
 
-/// What a `cells!` subject spelling matches in `kind`'s cell.
+/// What a `cells!` subject spelling matches in `kind`'s cell, as [`readable_matched`].
 fn cells_matched(kind: CellKind, spelling: &str) -> Result<Matched, &'static str> {
     use CellKind::{Collection, Group, Leaf, List, Map, Optional, SetCollection};
+    use Extent::Open;
     Ok(match (kind, spelling) {
         (Leaf | List | Map, "k::configuration::Cell(x)") | (Group, "x") => Matched::every(BINDER),
         (Leaf | List | Map, "k::configuration::Cell(_)") | (Group, "_") => Matched::every(WILDCARD),
-        (Leaf, "k::configuration::Cell(0)") => Matched::between(set_pc(0), set_pc(1)),
+        (Leaf, "k::configuration::Cell(0)") => {
+            Matched::between(set_pc(0), vec![set_pc(1)]).reading_none(LEAF)
+        }
         (List, "k::configuration::Cell([x, ..])") => {
-            Matched::between(set_stack(&[0]), set_stack(&[]))
+            Matched::between(set_stack(&[0, 0]), vec![set_stack(&[])]).reading(Part::List, Open(1))
         }
         (Map, "k::configuration::Cell(k::map![y -> x, ..])") => {
-            Matched::between(set_env(&[(1, 0)]), set_env(&[]))
+            Matched::between(set_env(&[(1, 0), (2, 0)]), vec![set_env(&[])])
+                .reading(Part::Map, Open(1))
         }
-        (Group, "k::fragment![crate::Frame { ret: x }]") => Matched::every(RECORD),
-        (Optional, "Some(k::configuration::Cell(x))") => Matched::between(set_counter(0), absent()),
-        (Optional, "None") => Matched::between(absent(), set_counter(0)),
-        // The collection starts with no instance.
+        (Group, "k::fragment![crate::Frame { ret: x }]") => {
+            Matched::every(RECORD).reading_none(ONE_CHILD)
+        }
+        (Optional, "Some(k::configuration::Cell(x))") => {
+            Matched::between(set_counter(0), vec![absent()]).reading_none(OPTIONAL)
+        }
+        (Optional, "None") => {
+            Matched::between(absent(), vec![set_counter(0)]).reading_none(OPTIONAL)
+        }
         (Collection, "[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]") => Matched {
-            witness: Some(add_job(0)),
-            counter: Ok(None),
+            witness: Some(add_job(1).then(add_job(0))),
+            counters: Ok(vec![None]),
+            reads: Ok(vec![(Part::Jobs, Open(1))]),
         },
         (SetCollection, _) => return bag_matched(spelling),
         _ => return Err(NOTATION),
     })
 }
 
-/// What a Set collection's subject spelling matches, in either family: an instance written whole
-/// is looked up, so its witness is the object it denotes, and an object whose map has one more
-/// entry, or another key or value, is no witness; an instance whose map writes `..` selects the
-/// objects whose map holds the written entry, so one with another entry beside it is a witness.
+/// What a Set collection's subject spelling matches, in either family. The collection's `..`
+/// leaves the other object (key 9) open, so every witness and counter-witness holds it. An
+/// instance written whole is looked up, so its witness is the object it denotes, and its
+/// counter-witnesses are that object with another key or value where the spelling computes one,
+/// and with an entry more in its exact map; an instance whose map writes `..` selects the objects
+/// whose map holds the written entry, so its witness has another entry beside it; an instance
+/// record with `..` (`Obj { key: 1, .. }`) leaves its map open, so its witness's map is not the
+/// template's empty one.
 fn bag_matched(spelling: &str) -> Result<Matched, &'static str> {
-    let exact = add_obj(1, &[(1, 2)]);
+    use Extent::{Exact, Open};
+    let beside = |key: i64, entries: &[(i64, i64)]| other_obj().then(add_obj(key, entries));
+    let exact = || beside(1, &[(1, 2)]);
+    let more = || beside(1, &[(1, 2), (3, 4)]);
+    let instance = |matched: Matched, map: Extent| {
+        matched
+            .reading(Part::Objects, Open(1))
+            .reading(Part::ObjectMap, map)
+    };
     Ok(match spelling {
-        // An exact map is part of the instance's value, its key computed or not: a map with another
-        // entry beside it is another value.
         "{ Obj { key: 1, m: map![1 -> 2] }, .. }"
-        | "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2] }], instances0 @ .. }"
-        | "{ Obj { key: 1, m: map![k::builtin::int::add(0, 1) -> 2] }, .. }"
-        | "{ k::fragment![crate::Obj { key: 1, m: k::map![k::builtin::int::add(0, 1) -> 2] }], instances0 @ .. }" => {
-            Matched::between(exact, add_obj(1, &[(1, 2), (3, 4)]))
+        | "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2] }], instances0 @ .. }" => {
+            instance(Matched::between(exact(), vec![more()]), Exact(1))
         }
         "{ Obj { key: k::builtin::int::add(0, 1), m: map![1 -> 2] }, .. }"
         | "{ k::fragment![crate::Obj { key: k::builtin::int::add(0, 1), m: k::map![1 -> 2] }], instances0 @ .. }" => {
-            Matched::between(exact, add_obj(2, &[(1, 2)]))
+            instance(
+                Matched::between(exact(), vec![beside(2, &[(1, 2)]), more()]),
+                Exact(1),
+            )
         }
         "{ Obj { key: 1, m: map![1 -> k::builtin::int::add(1, 1)] }, .. }"
         | "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> k::builtin::int::add(1, 1)] }], instances0 @ .. }" => {
-            Matched::between(exact, add_obj(1, &[(1, 3)]))
+            instance(
+                Matched::between(exact(), vec![beside(1, &[(1, 3)]), more()]),
+                Exact(1),
+            )
+        }
+        "{ Obj { key: 1, m: map![k::builtin::int::add(0, 1) -> 2] }, .. }"
+        | "{ k::fragment![crate::Obj { key: 1, m: k::map![k::builtin::int::add(0, 1) -> 2] }], instances0 @ .. }" => {
+            instance(
+                Matched::between(exact(), vec![beside(1, &[(2, 2)]), more()]),
+                Exact(1),
+            )
         }
         "{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"
         | "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }" => {
-            Matched::between(add_obj(1, &[(1, 2), (3, 4)]), add_obj(1, &[(1, 3)]))
+            instance(
+                Matched::between(more(), vec![beside(1, &[(1, 3)])]),
+                Open(1),
+            )
         }
+        "{ Obj { key: 1, .. }, .. }"
+        | "{ k::fragment![crate::Obj { key: 1, .. }], instances0 @ .. }" => instance(
+            Matched::between(exact(), vec![beside(2, &[(1, 2)])]),
+            Open(0),
+        ),
         // In a readable record, `map![..]` is a literal.
         "{ Obj { key: 1, m: map![1 -> 2, ..] }, .. }" => return Err(ANONYMOUS_REST),
         _ => return Err(NOTATION),

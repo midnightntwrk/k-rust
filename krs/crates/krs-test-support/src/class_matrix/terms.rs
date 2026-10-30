@@ -386,9 +386,9 @@ struct Spelling {
     witness: Result<Ground, &'static str>,
     /// What the spelling denotes where it is built.
     value: Meaning,
-    /// A ground term the spelling must not match where a pattern reads it (a counter-witness),
-    /// or why none is stated.
-    counter: Result<Ground, &'static str>,
+    /// Ground terms the spelling must not match where a pattern reads it (counter-witnesses), or
+    /// why none is stated.
+    counter: Result<Vec<Ground>, &'static str>,
     /// Whether the spelling, read as a pattern, matches 1, the value of `x`: what a `let`
     /// pattern or a `k::matches!` over `x` decides.
     matches_x: bool,
@@ -463,10 +463,13 @@ impl Spelling {
         }
     }
 
-    /// The spelling, which must not match `counter`.
+    /// The spelling, which must not match `counter` either (beside the counter-witnesses stated
+    /// before).
     fn refuting(self, counter: Ground) -> Self {
+        let mut counters = self.counter.clone().unwrap_or_default();
+        counters.push(counter);
         Self {
-            counter: Ok(counter),
+            counter: Ok(counters),
             ..self
         }
     }
@@ -844,11 +847,13 @@ fn spellings() -> Vec<Spelling> {
         .denoting(int(2)),
         // A set's singleton, K's `SetItem(x)`: the constructor of a set's elements, a value,
         // which a pattern matches as a set; a set is looked up by its elements as a map by its
-        // keys, so its element reads as a key does.
+        // keys, so its element reads as a key does. An exact set: neither the empty set nor one
+        // with an element more is it.
         spelling(
             "k::builtin::set::item(x)",
             &[node(C::Constructor, &[]), node(C::Reference, &[SetElement])],
         ).refuting(Ground::set(Vec::new()))
+        .refuting(Ground::set(vec![int(1), int(2)]))
         .value(Ground::set(vec![int(1)])),
         // `|` over operands a domain takes: the bitwise operator where a term is computed, the
         // alternatives' spelling where a pattern is read, its operands the branches.
@@ -891,7 +896,8 @@ fn spellings() -> Vec<Spelling> {
                 node(C::Rest, &[ListElement]),
             ],
         )
-        .matching(Ground::List(vec![int(1)]))
+        // An open list: its witness holds an element beyond the one written, which `..` leaves.
+        .matching(Ground::List(vec![int(1), int(2)]))
         .no_term(PATTERN_ONLY)
         .refuting(Ground::List(Vec::new())),
     );
@@ -1029,7 +1035,8 @@ fn collection_meaning(spelling: Spelling) -> Spelling {
             .refuting(Ground::map(vec![(one(), one())])),
         "set![x]" | "k::builtin::set::item(x)" => computed
             .value(Ground::set(vec![one()]))
-            .refuting(Ground::set(Vec::new())),
+            .refuting(Ground::set(Vec::new()))
+            .refuting(Ground::set(vec![one(), int(2)])),
         "set![]" | "k::builtin::set::empty()" => computed
             .value(Ground::set(Vec::new()))
             .refuting(Ground::set(vec![one()])),
@@ -2754,7 +2761,7 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     let tag = spec.tag();
     let command = Command::with_fields(&spec.id(), slot.arity, "KItem").marked(slot.marker);
     let plan = drivers::plan(slot, spelling, &command);
-    let counter = drivers::counter_plan(slot, spelling, &command);
+    let counters = drivers::counter_plans(slot, spelling, &command);
     let template = slot
         .template
         .replace("TAG", &tag)
@@ -2792,7 +2799,7 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     let mut case = spec.finish(packaging, &item);
     case.rustc_parses = slot.rustc_parses;
     case.k7 = plan;
-    case.k7_counter = counter;
+    case.k7_counters = counters;
     // A subject's root holds no command of the case's own: its sentence can take what another
     // case's program holds.
     case.unkeyed = slot.side == Side::Subject && slot.path.is_empty();

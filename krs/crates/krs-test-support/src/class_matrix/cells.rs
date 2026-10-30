@@ -73,14 +73,15 @@ const RESULT_SPELLINGS: [&str; 13] = [
 
 /// The Set collection's subject spellings on the run base, as the readable family's
 /// (`machine::READABLE_BAG_SUBJECTS`): an instance whose map cell is exact, one whose key is
-/// computed, two whose exact map computes its value or its key, and one whose map writes `..`,
-/// which selects.
-const BAG_SUBJECTS: [&str; 5] = [
+/// computed, two whose exact map computes its value or its key, one whose map writes `..` and an
+/// instance record with `..`, which select.
+const BAG_SUBJECTS: [&str; 6] = [
     "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2] }], instances0 @ .. }",
     "{ k::fragment![crate::Obj { key: k::builtin::int::add(0, 1), m: k::map![1 -> 2] }], instances0 @ .. }",
     "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> k::builtin::int::add(1, 1)] }], instances0 @ .. }",
     "{ k::fragment![crate::Obj { key: 1, m: k::map![k::builtin::int::add(0, 1) -> 2] }], instances0 @ .. }",
     "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }",
+    "{ k::fragment![crate::Obj { key: 1, .. }], instances0 @ .. }",
 ];
 
 /// The Set collection's result spellings on the run base, over the command's binders: a new
@@ -222,7 +223,7 @@ impl Placement {
         if self.base == Base::Run {
             let plans = config_drivers::cells(self.kind, side, construct, case.command());
             case.k7 = plans.k7;
-            case.k7_counter = plans.counter.ok();
+            case.k7_counters = plans.counters.unwrap_or_default();
         }
         case
     }

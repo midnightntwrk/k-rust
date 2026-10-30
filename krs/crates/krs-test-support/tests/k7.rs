@@ -2,10 +2,10 @@
 //! driver or says why not, every static production of the terms base has a spelling, and the
 //! drivers write the programs and the cells their documentation describes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use krs_test_support::class_matrix::k7::{Ground, K7, Meaning, SkipKind, Status};
-use krs_test_support::class_matrix::{self, Base, Case, Command, Family, Side};
+use krs_test_support::class_matrix::{self, Base, Case, Command, Extent, Family, Side};
 
 fn term_case(cases: &[Case], id: &str) -> Case {
     cases
@@ -131,7 +131,7 @@ fn every_cases_k7_status_is_counted() {
             K7::Skip(skip) => format!("{}: {}", skip.kind.name(), skip.reason),
         };
         *statuses.entry(status).or_default() += 1;
-        if case.k7_counter.is_some() {
+        if !case.k7_counters.is_empty() {
             *statuses
                 .entry("runs a counter-witness".to_owned())
                 .or_default() += 1;
@@ -188,7 +188,7 @@ const STATUSES: &[&str] = &[
     "43 no witness: a matching-logic predicate, which only a prover reads",
     "4 no witness: a program writes $x only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "4 no witness: a program writes Wrap(1) only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
-    "4 no witness: a program writes [1] only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "4 no witness: a program writes [1, 2] only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "8 no witness: a program writes map{} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "1 no witness: a program writes set{1, Cmd::Hold(1)} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "14 no witness: a program writes set{1} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
@@ -196,7 +196,7 @@ const STATUSES: &[&str] = &[
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "76 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "3 no witness: the program would hold a value the generator does not state",
-    "1036 runs a counter-witness",
+    "1082 runs a counter-witness",
     "1486 runs, liveness",
     "2517 runs, value",
 ];
@@ -339,7 +339,7 @@ fn the_drivers_write_their_programs_and_cells() {
     assert_eq!(
         plan("terms/readable/map-key/x + 1"),
         (
-            "then(setenv(mput(memp, 2, 0)), NAME(1, 0))".to_owned(),
+            "then(setenv(mput(mput(memp, 2, 0), 99, 0)), NAME(1, 0))".to_owned(),
             3,
             k(""),
             Status::Value
@@ -384,9 +384,9 @@ fn the_drivers_write_their_programs_and_cells() {
     assert_eq!(
         plan("terms/cells/result-map-framed/Cmd::Hold(x)"),
         (
-            "then(setenv(mput(memp, 1, 0)), NAME(1, 0))".to_owned(),
+            "then(setenv(mput(mput(memp, 1, 0), 99, 0)), NAME(1, 0))".to_owned(),
             3,
-            format!("{}, env = map{{1 -> Cmd::Hold(1)}}", k("")),
+            format!("{}, env = map{{1 -> Cmd::Hold(1), 99 -> 0}}", k("")),
             Status::Value
         )
     );
@@ -403,11 +403,27 @@ fn the_drivers_write_their_programs_and_cells() {
     assert_eq!(
         plan("terms/readable/set-instance-child/x + 1"),
         (
-            "then(addtoken(hold(2)), NAME(1, 0))".to_owned(),
-            3,
+            "then(then(addtoken(go), addtoken(hold(2))), NAME(1, 0))".to_owned(),
+            5,
             k(""),
             Status::Value
         )
+    );
+    // A set's singleton around the hole is exact: its counter run holds an element more.
+    let case = term_case(
+        &cases,
+        "terms/rule/subject/set-element/k::builtin::int::add(x, 1)",
+    );
+    let terminal = case
+        .command()
+        .expect("a rule case has a command")
+        .terminal();
+    assert_eq!(
+        case.k7_counters
+            .iter()
+            .map(|counter| (counter.program.replace(&terminal, "NAME"), counter.steps))
+            .collect::<Vec<_>>(),
+        [("NAME(1, sunion(sone(2), sone(99)))".to_owned(), 0)]
     );
     // A condition with no value at x = 1 does not hold: the rule must not apply.
     assert_eq!(
@@ -422,8 +438,8 @@ fn the_drivers_write_their_programs_and_cells() {
     // A counter-witness's run stops before the case's sentence.
     let case = term_case(&cases, "terms/rule/subject/Cmd::Hold(x)");
     let counter = case
-        .k7_counter
-        .as_ref()
+        .k7_counters
+        .first()
         .expect("Cmd::Hold(x) has a counter-witness");
     let terminal = case
         .command()
@@ -516,8 +532,8 @@ const RUN_STATUSES: &[&str] = &[
     "76 cells-run: no value: the spelling is no notation of its cell's kind, so it denotes nothing there",
     "3 cells-run: no value: x = 1 is no value of the cell's sort",
     "74 cells-run: no witness: the spelling is no notation of its cell's kind, so it denotes nothing there",
-    "13 cells-run: runs a counter-witness",
-    "22 cells-run: runs, liveness",
+    "14 cells-run: runs a counter-witness",
+    "23 cells-run: runs, liveness",
     "16 cells-run: runs, value",
     "4 readable-run: no counter-witness: `..` alone matches every value of the cell",
     "4 readable-run: no counter-witness: `_` matches every value of the cell",
@@ -529,11 +545,12 @@ const RUN_STATUSES: &[&str] = &[
     "1 readable-run: no value: the result's instance list does not line up with the subject's, which reads the front one",
     "60 readable-run: no value: the spelling is no notation of its cell's kind, so it denotes nothing there",
     "3 readable-run: no value: x = 1 is no value of the cell's sort",
-    "4 readable-run: no witness: a cell record as an item, which no program writes",
+    "2 readable-run: no witness: a cell record as a List cell's element, which no driver command writes: a readable result reads `[Job { .. }, ..]` on a List cell as a collection's instances, which it refuses, and no other spelling builds a cell record",
+    "1 readable-run: no witness: a cell record behind the computation's first item, which no driver command writes: a driver command acts at the front of the computation",
     "1 readable-run: no witness: a map literal's rest is the map its entries are written over, and an anonymous `..` names none",
     "63 readable-run: no witness: the spelling is no notation of its cell's kind, so it denotes nothing there",
-    "16 readable-run: runs a counter-witness",
-    "31 readable-run: runs, liveness",
+    "18 readable-run: runs a counter-witness",
+    "33 readable-run: runs, liveness",
     "16 readable-run: runs, value",
 ];
 
@@ -585,7 +602,8 @@ const RUN_UNSTATED: &[&str] = &[
     "no value: a map literal's rest is the map its entries are written over, and an anonymous `..` names none: cells-run result/bag/{ k::fragment![crate::Obj { key: x, m: k::map![x -> y, ..] }], ..instances0 } | readable-run result/bag/{ Obj { key: x, m: map![x -> y, ..] }, .. }",
     "no value: the result's instance list does not line up with the subject's, which reads the front one: readable-run result/job/[.., Job { payload: 0, .. }]",
     "no value: x = 1 is no value of the cell's sort: cells-run result/env/k::configuration::Cell(x) | cells-run result/frame/x | cells-run result/stack/k::configuration::Cell(x) | readable-run result/env/x | readable-run result/frame/x | readable-run result/stack/x",
-    "no witness: a cell record as an item, which no program writes: readable-run subject/k/[.., Job { payload: 0, .. }] | readable-run subject/k/[Job { payload: x, .. }, ..] | readable-run subject/stack/[.., Job { payload: 0, .. }] | readable-run subject/stack/[Job { payload: x, .. }, ..]",
+    "no witness: a cell record as a List cell's element, which no driver command writes: a readable result reads `[Job { .. }, ..]` on a List cell as a collection's instances, which it refuses, and no other spelling builds a cell record: readable-run subject/stack/[.., Job { payload: 0, .. }] | readable-run subject/stack/[Job { payload: x, .. }, ..]",
+    "no witness: a cell record behind the computation's first item, which no driver command writes: a driver command acts at the front of the computation: readable-run subject/k/[.., Job { payload: 0, .. }]",
     "no witness: a map literal's rest is the map its entries are written over, and an anonymous `..` names none: readable-run subject/bag/{ Obj { key: 1, m: map![1 -> 2, ..] }, .. }",
 ];
 
@@ -595,6 +613,10 @@ const RUN_UNSTATED: &[&str] = &[
 /// a driver writes first, a map written twice at one key, an absent optional cell, a List
 /// collection's and a Set collection's instances.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One pinned plan per kind of run plan, each a few lines."
+)]
 fn the_run_drivers_write_their_programs_and_cells() {
     let cases = class_matrix::cases();
     let plans = |id: &str| {
@@ -619,70 +641,256 @@ fn the_run_drivers_write_their_programs_and_cells() {
         let K7::Run(plan) = &case.k7 else {
             panic!("{id}: {:?}", case.k7);
         };
-        (run(plan), case.k7_counter.as_ref().map(run))
+        (
+            run(plan),
+            case.k7_counters.iter().map(run).collect::<Vec<_>>(),
+        )
     };
     let cases_of = [
         (
             "readable-run/subject/pc/0",
             "then(setpc(0), NAME) in 3 of 3 steps; k = k[]",
-            Some("then(setpc(1), NAME) in 2 of 3 steps; "),
+            &["then(setpc(1), NAME) in 2 of 3 steps; "][..],
         ),
         (
             "readable-run/subject/pc/x",
             "NAME in 1 of 1 steps; k = k[]",
-            None,
+            &[][..],
         ),
         (
             "readable-run/subject/k/[]",
             "skip in 2 of 2 steps; pc = 1",
-            Some("go in 0 of 1 steps; "),
+            &["go in 0 of 1 steps; "][..],
         ),
         (
             "cells-run/subject/k/k::configuration::KCell(x, ..)",
-            "go in 1 of 1 steps; pc = 1",
-            Some("skip in 1 of 2 steps; "),
+            "then(go, go) in 2 of 2 steps; pc = 1",
+            &["skip in 1 of 2 steps; "][..],
         ),
         (
             "readable-run/result/k/[x, ..]",
             "then(NAME(1, 2), go) in 2 of 2 steps; k = k[1, Cmd::Go()]",
-            None,
+            &[][..],
         ),
         (
             "readable-run/subject/counter/Some(x)",
             "then(setcounter(0), NAME) in 3 of 3 steps; k = k[]",
-            Some("then(then(setcounter(0), dropcounter), NAME) in 4 of 5 steps; "),
+            &["then(then(setcounter(0), dropcounter), NAME) in 4 of 5 steps; "][..],
         ),
         (
             "readable-run/result/counter/None",
             "then(setcounter(5), NAME(1, 2)) in 3 of 3 steps; k = k[], counter = absent",
-            None,
+            &[][..],
         ),
         (
             "cells-run/result/env/k::configuration::Cell(k::map![x -> 1, y -> 2])",
             "then(setenv(mput(memp, 5, 5)), NAME(1, 1)) in 3 of 3 steps; k = k[], env = map{1 -> 2}",
-            None,
+            &[][..],
         ),
         (
             "cells-run/result/job/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]",
             "then(then(addjob(6), addjob(5)), NAME(1, 2)) in 5 of 5 steps; k = k[], queue.job[payload] = [job(1), job(6)]",
-            None,
+            &[][..],
         ),
         (
             "readable-run/subject/bag/{ Obj { key: 1, m: map![1 -> 2] }, .. }",
-            "then(addobj(1, mput(memp, 1, 2)), NAME) in 3 of 3 steps; k = k[]",
-            Some("then(addobj(1, mput(mput(memp, 1, 2), 3, 4)), NAME) in 2 of 3 steps; "),
+            "then(then(addobj(9, memp), addobj(1, mput(memp, 1, 2))), NAME) in 5 of 5 steps; k = k[]",
+            &[
+                "then(then(addobj(9, memp), addobj(1, mput(mput(memp, 1, 2), 3, 4))), NAME) in 4 of 5 steps; ",
+            ][..],
+        ),
+        (
+            "cells-run/subject/bag/{ k::fragment![crate::Obj { key: k::builtin::int::add(0, 1), m: k::map![1 -> 2] }], instances0 @ .. }",
+            "then(then(addobj(9, memp), addobj(1, mput(memp, 1, 2))), NAME) in 5 of 5 steps; k = k[]",
+            &[
+                "then(then(addobj(9, memp), addobj(2, mput(memp, 1, 2))), NAME) in 4 of 5 steps; ",
+                "then(then(addobj(9, memp), addobj(1, mput(mput(memp, 1, 2), 3, 4))), NAME) in 4 of 5 steps; ",
+            ][..],
+        ),
+        (
+            "readable-run/subject/bag/{ Obj { key: 1, .. }, .. }",
+            "then(then(addobj(9, memp), addobj(1, mput(memp, 1, 2))), NAME) in 5 of 5 steps; k = k[]",
+            &["then(then(addobj(9, memp), addobj(2, mput(memp, 1, 2))), NAME) in 4 of 5 steps; "][..],
+        ),
+        (
+            "readable-run/subject/env/{ y -> x, .. }",
+            "then(setenv(mput(mput(memp, 1, 0), 2, 0)), NAME) in 3 of 3 steps; k = k[]",
+            &["then(setenv(memp), NAME) in 2 of 3 steps; "][..],
+        ),
+        (
+            "readable-run/subject/k/[Job { payload: x, .. }, ..]",
+            "then(pushjob(0), go) in 3 of 3 steps; pc = 1",
+            &["go in 0 of 1 steps; "][..],
         ),
         (
             "cells-run/result/bag/{ k::fragment![crate::Obj { key: x, m: k::map![x -> k::builtin::int::add(y, 1)] }], ..instances0 }",
             "then(addobj(5, mput(memp, 5, 5)), NAME(1, 2)) in 3 of 3 steps; k = k[], shelf.bag{key,m} = set{bag(1, map{1 -> 3}), bag(5, map{5 -> 5})}",
-            None,
+            &[][..],
         ),
     ];
     for (id, plan, counter) in cases_of {
         assert_eq!(
             plans(id),
-            (plan.to_owned(), counter.map(str::to_owned)),
+            (
+                plan.to_owned(),
+                counter
+                    .iter()
+                    .map(|counter| (*counter).to_owned())
+                    .collect::<Vec<_>>()
+            ),
             "{id}"
         );
     }
+}
+
+/// Exact and open, the rule of the run families' plans: a subject spelling that reads a
+/// collection whole (`[]`, the map of `Obj { key: 1, m: map![1 -> 2] }`) has a counter-witness
+/// with one item more than it writes, and one whose `..` leaves items open (`[x, ..]`,
+/// `{ y -> x, .. }`, the instances beside `{ Obj { .. }, .. }`, the map of `Obj { key: 1, .. }`)
+/// has a witness with more items than it writes, so a lowering that reads an exact collection as
+/// open, or an open one as exact, is caught. Checked on the items each driver program writes;
+/// the subject cases that read no collection say why.
+#[test]
+fn every_run_spelling_reads_its_collections_by_the_rule() {
+    let cases = class_matrix::cases();
+    let mut unread = BTreeMap::<String, usize>::new();
+    let mut read = BTreeMap::<String, usize>::new();
+    for case in cases.iter().filter(|case| {
+        case.family.twin().is_some() && case.side == Side::Subject && matches!(case.k7, K7::Run(_))
+    }) {
+        let readings = class_matrix::run_readings(case)
+            .unwrap_or_else(|| panic!("{} runs and states no reading", case.id));
+        match readings {
+            Err(reason) => *unread.entry(reason.to_owned()).or_default() += 1,
+            Ok(readings) => {
+                assert!(!readings.is_empty(), "{} reads nothing", case.id);
+                for reading in readings {
+                    match reading.extent {
+                        Extent::Exact(written) => {
+                            assert_eq!(reading.witness, written, "{}: {reading:?}", case.id);
+                            assert!(
+                                reading.counters.contains(&(written + 1)),
+                                "{}: no counter-witness has an item more: {reading:?}",
+                                case.id
+                            );
+                        }
+                        Extent::Open(written) => assert!(
+                            reading.witness > written,
+                            "{}: the witness has no item more: {reading:?}",
+                            case.id
+                        ),
+                    }
+                    *read
+                        .entry(format!("{:?} {:?}", reading.part, reading.extent))
+                        .or_default() += 1;
+                }
+            }
+        }
+    }
+    let listed = |counts: BTreeMap<String, usize>| {
+        counts
+            .into_iter()
+            .map(|(what, count)| format!("{count} {what}"))
+            .collect::<Vec<_>>()
+    };
+    let read = listed(read);
+    assert_eq!(read, RUN_READS, "{read:#?}");
+    let unread = listed(unread);
+    assert_eq!(unread, RUN_UNREAD, "{unread:#?}");
+}
+
+const RUN_UNREAD: &[&str] = &[
+    "8 `_` matches every value of the cell",
+    "8 a binder matches every value of the cell",
+    "2 a leaf holds one value, no collection",
+    "4 an optional cell holds one value or none, no collection",
+    "2 the group has one child, which the record names: no child is left over",
+];
+
+const RUN_READS: &[&str] = &[
+    "2 Computation Exact(0)",
+    "1 Computation Open(0)",
+    "3 Computation Open(1)",
+    "1 Jobs Exact(0)",
+    "1 Jobs Open(0)",
+    "3 Jobs Open(1)",
+    "1 List Exact(0)",
+    "1 List Open(0)",
+    "2 List Open(1)",
+    "1 Map Open(0)",
+    "2 Map Open(1)",
+    "8 ObjectMap Exact(1)",
+    "2 ObjectMap Open(0)",
+    "2 ObjectMap Open(1)",
+    "12 Objects Open(1)",
+];
+
+/// The rule on the term family's spellings: an exact collection a spelling matches (a set's
+/// singleton, the empty map and set) has a counter-witness with an item more, and an open one
+/// (`[x, ..]`) a witness with an item more than it writes; an open record (`Cmd::Pair { a: x, .. }`)
+/// has a witness whose field the record leaves holds a value. Every spelling whose witness or
+/// counter-witness is a collection is listed. The slots' own collections (a map read's `..`, a
+/// list's, a collection's instances, a set's singleton around the hole) are pinned in
+/// `the_drivers_write_their_programs_and_cells`.
+#[test]
+fn every_term_collection_spelling_follows_the_rule() {
+    // (spelling, open, the items it writes)
+    const COLLECTIONS: &[(&str, bool, usize)] = &[
+        ("[x, ..]", true, 1),
+        ("k::builtin::map::empty()", false, 0),
+        ("k::builtin::set::empty()", false, 0),
+        ("k::builtin::set::item(x)", false, 1),
+        ("map![]", false, 0),
+        ("set![]", false, 0),
+        ("set![x]", false, 1),
+    ];
+    let size = |term: &Ground| match term {
+        Ground::List(items) | Ground::Set(items) => Some(items.len()),
+        Ground::Map(entries) => Some(entries.len()),
+        _ => None,
+    };
+    let mut seen = BTreeSet::new();
+    for meaning in class_matrix::spelling_meanings() {
+        let witness = meaning.witness.as_ref().ok().and_then(size);
+        let counters = meaning
+            .counter
+            .as_ref()
+            .map(|counters| counters.iter().filter_map(size).collect::<Vec<_>>())
+            .unwrap_or_default();
+        if witness.is_none() && counters.is_empty() {
+            continue;
+        }
+        let (_, open, written) = COLLECTIONS
+            .iter()
+            .find(|(text, ..)| *text == meaning.text)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} matches a collection the rule does not list",
+                    meaning.text
+                )
+            });
+        seen.insert(meaning.text);
+        if *open {
+            assert!(witness > Some(*written), "{}: {witness:?}", meaning.text);
+        } else {
+            assert_eq!(witness, Some(*written), "{}", meaning.text);
+            assert!(
+                counters.contains(&(written + 1)),
+                "{}: {counters:?}",
+                meaning.text
+            );
+        }
+    }
+    assert_eq!(seen.len(), COLLECTIONS.len());
+    let record = class_matrix::spelling_meanings()
+        .into_iter()
+        .find(|meaning| meaning.text == "Cmd::Pair { a: x, .. }")
+        .expect("the open record is a spelling");
+    assert_eq!(
+        record.witness,
+        Ok(Ground::ctor(
+            "Cmd::Pair",
+            vec![Ground::Int(1), Ground::Int(0)]
+        ))
+    );
 }

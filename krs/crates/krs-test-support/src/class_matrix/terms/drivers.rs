@@ -10,6 +10,12 @@
 //! an alias's subject is written in the program, which `krs run`'s parse expands; an initializer
 //! is read before any step.
 //!
+//! The collection the hole stands in holds an item more than the slot writes where the slot leaves
+//! it open (a map read's `..`, a list's, a collection's other instances), and a counter run puts an
+//! item more in it where the slot reads it exactly (a set's singleton), as the spellings' own
+//! witnesses and counter-witnesses do for an open or exact collection; so a lowering that reads an
+//! open collection as exact, or an exact one as open, does not run as stated.
+//!
 //! The run is bounded by the steps the driver counts, so a sentence that applies again to what
 //! it wrote (`_ => Cmd::Go()` at a root, a local rule's `x => Cmd::Go()`) is observed after its
 //! application. Each case's command is its own, so only its sentence can take its program; the
@@ -30,13 +36,20 @@ struct Hole {
 
 type Read = Result<Hole, K7>;
 
-/// What a slot's driver reads of its case. In counter mode the hole's witness is the spelling's
-/// counter-witness, a term it must not match.
+/// A value no spelling's witness or value is, which the drivers put beside the hole's in the
+/// collection the hole stands in: an open collection's witness holds an item more than its
+/// pattern writes, and an exact one's counter-witness does.
+const EXTRA: i64 = 99;
+
+/// What a slot's driver reads of its case. In counter mode the hole's witness is one of the
+/// spelling's counter-witnesses, a term it must not match; in extra mode the exact collection the
+/// hole stands in holds an item more than the hole's witness.
 struct Driver<'a> {
     slot: &'a Slot,
     spelling: &'a Spelling,
     command: &'a Command,
-    counter: bool,
+    counter: Option<Ground>,
+    extra: bool,
     /// Whether the plan read the hole's witness, the only reading a counter-witness replaces.
     read_witness: Cell<bool>,
 }
@@ -68,45 +81,76 @@ pub(super) fn plan(slot: &Slot, spelling: &Spelling, command: &Command) -> K7 {
     if let Some(reason) = undriven(slot) {
         return K7::skip(SkipKind::Form, reason);
     }
-    Driver::new(slot, spelling, command, false)
+    Driver::new(slot, spelling, command, None, false)
         .plan()
         .unwrap_or_else(|skip| skip)
 }
 
-/// K7's counter plan for `spelling` at `slot`: the case's program on the spelling's
-/// counter-witness, where its plan reads the witness, which must not apply the case's sentence.
-/// The run takes one step fewer than the sentence's plan (it stops before the sentence), and an
-/// equation's call leaves `Probe` unevaluated. None for a static clause, whose production a program
-/// that does not match its subject is left unexpanded, an error rather than an observation.
-pub(super) fn counter_plan(slot: &Slot, spelling: &Spelling, command: &Command) -> Option<Run> {
+/// K7's counter plans for `spelling` at `slot`: the case's program on each of the spelling's
+/// counter-witnesses, where its plan reads the witness, and, where the hole stands in an exact
+/// collection (a set's singleton), on the hole's witness beside an item more, each of which must
+/// not apply the case's sentence. A run takes one step fewer than the sentence's plan (it stops
+/// before the sentence), and an equation's call leaves `Probe` unevaluated. None for a static
+/// clause, whose production a program that does not match its subject is left unexpanded, an
+/// error rather than an observation.
+pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> Vec<Run> {
     if undriven(slot).is_some() || matches!(slot.form, "desugar" | "alias") {
-        return None;
+        return Vec::new();
     }
-    let driver = Driver::new(slot, spelling, command, true);
-    let K7::Run(mut run) = driver.plan().ok()? else {
-        return None;
-    };
-    if !driver.read_witness.get() {
-        return None;
+    let mut drivers = spelling
+        .counter
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|counter| Driver::new(slot, spelling, command, Some(counter), false))
+        .collect::<Vec<_>>();
+    if matches!(
+        slot.opener,
+        Some("set-element" | "set-element-beside-fresh")
+    ) {
+        drivers.push(Driver::new(slot, spelling, command, None, true));
     }
-    if matches!(slot.form, "equation" | "table") {
-        return Some(run);
-    }
-    run.steps = run.steps.checked_sub(1)?;
-    run.cells = Vec::new();
-    run.status = Status::Liveness;
-    Some(run)
+    drivers
+        .into_iter()
+        .filter_map(|driver| {
+            let K7::Run(mut run) = driver.plan().ok()? else {
+                return None;
+            };
+            if driver.counter.is_some() && !driver.read_witness.get() {
+                return None;
+            }
+            if matches!(slot.form, "equation" | "table") {
+                return Some(run);
+            }
+            run.steps = run.steps.checked_sub(1)?;
+            run.cells = Vec::new();
+            run.status = Status::Liveness;
+            Some(run)
+        })
+        .collect()
 }
 
 impl<'a> Driver<'a> {
-    fn new(slot: &'a Slot, spelling: &'a Spelling, command: &'a Command, counter: bool) -> Self {
+    fn new(
+        slot: &'a Slot,
+        spelling: &'a Spelling,
+        command: &'a Command,
+        counter: Option<Ground>,
+        extra: bool,
+    ) -> Self {
         Self {
             slot,
             spelling,
             command,
             counter,
+            extra,
             read_witness: Cell::new(false),
         }
+    }
+
+    /// Whether the driver runs a counter-witness: one of the spelling's, or an item more.
+    const fn countering(&self) -> bool {
+        self.counter.is_some() || self.extra
     }
 }
 
@@ -119,18 +163,19 @@ impl Driver<'_> {
     /// The spelling's own witness, or in counter mode its counter-witness.
     fn own_witness(&self) -> Result<Ground, K7> {
         self.read_witness.set(true);
-        let (witness, kind) = if self.counter {
-            (&self.spelling.counter, SkipKind::Witness)
-        } else {
-            (&self.spelling.witness, SkipKind::Witness)
-        };
-        witness.clone().map_err(|reason| K7::skip(kind, reason))
+        if let Some(counter) = &self.counter {
+            return Ok(counter.clone());
+        }
+        self.spelling
+            .witness
+            .clone()
+            .map_err(|reason| K7::skip(SkipKind::Witness, reason))
     }
 
     /// A set's element where a pattern reads it, which reads as a key does (decision D2): the
     /// spelling's value, looked up, where it denotes one, and its witness otherwise.
     fn element(&self) -> Read {
-        if !self.counter
+        if self.counter.is_none()
             && let Meaning::Value(value) = &self.spelling.value
             && *value != Ground::Any
         {
@@ -148,17 +193,25 @@ impl Driver<'_> {
     /// The witness of the hole, where a pattern reads it: the spelling's, inside what the opener
     /// writes around it.
     fn witness(&self) -> Read {
+        // The set's singleton around the hole is exact: in extra mode it holds an element more.
+        let singleton = |element: Ground| {
+            let mut elements = vec![element];
+            if self.extra {
+                elements.push(int(EXTRA));
+            }
+            Ground::set(elements)
+        };
         if self.slot.opener == Some("set-element") {
             let element = self.element()?;
             return Ok(Hole {
-                term: Ground::set(vec![element.term]),
+                term: singleton(element.term),
                 status: element.status,
             });
         }
         let witness = self.own_witness()?;
         let term = match self.slot.opener {
             // A counter-witness `Cmd::Go()` would match the other alternative.
-            Some("or-branch") if self.counter && witness == go() => {
+            Some("or-branch") if self.countering() && witness == go() => {
                 return Err(K7::skip(
                     SkipKind::Witness,
                     "the counter-witness is the other alternative, Cmd::Go()",
@@ -167,7 +220,7 @@ impl Driver<'_> {
             None | Some("as-body" | "or-branch" | "rewrite-left") => witness,
             // `z`, a name nothing else binds, is any term: 0.
             Some("beside-fresh") => pair(witness, int(0)),
-            Some("set-element-beside-fresh") => Ground::set(vec![pair(witness, int(0))]),
+            Some("set-element-beside-fresh") => singleton(pair(witness, int(0))),
             Some("set-concat") => Ground::set(vec![int(1), witness]),
             Some(opener) => {
                 return Err(K7::skip(
@@ -341,6 +394,22 @@ impl Driver<'_> {
         Self::applied(&program, 3, cells, status)
     }
 
+    /// A run that adds `other` and then `setup`, one step each, and then applies the case's
+    /// sentence to `command`: `then(then(other, setup), command)`, five steps that leave the
+    /// computation cell empty.
+    fn set_up_beside(
+        other: Ground,
+        setup: Ground,
+        command: Ground,
+        status: Status,
+    ) -> Result<K7, K7> {
+        let program = Ground::ctor(
+            "Cmd::Then",
+            vec![Ground::ctor("Cmd::Then", vec![other, setup]), command],
+        );
+        Self::applied(&program, 5, vec![("k", Ground::Seq(Vec::new()))], status)
+    }
+
     /// The plan of the case.
     #[expect(
         clippy::too_many_lines,
@@ -357,8 +426,13 @@ impl Driver<'_> {
         let setup = |command: &str, arguments: Vec<Ground>| {
             Ground::ctor(&format!("Cmd::{command}"), arguments)
         };
-        let env =
-            |key: Ground, value: Ground| setup("SetEnv", vec![Ground::map(vec![(key, value)])]);
+        // A map the slot reads with `..`: the entry the case reads, and one more.
+        let env = |key: Ground, value: Ground| {
+            setup(
+                "SetEnv",
+                vec![Ground::map(vec![(key, value), (int(EXTRA), int(0))])],
+            )
+        };
         let position = self.slot.position;
         match (self.slot.form, position) {
             ("rule" | "sort-rule", "subject") => {
@@ -542,7 +616,10 @@ impl Driver<'_> {
                     reading(),
                     vec![
                         k(empty_items()),
-                        ("env", Ground::map(vec![(one(), value.term)])),
+                        (
+                            "env",
+                            Ground::map(vec![(one(), value.term), (int(EXTRA), int(0))]),
+                        ),
                     ],
                     value.status,
                 )
@@ -589,14 +666,23 @@ impl Driver<'_> {
             }
             ("readable", "list-element") => {
                 let witness = self.witness()?;
-                let list = setup("SetStack", vec![Ground::List(vec![witness.term])]);
+                let list = setup(
+                    "SetStack",
+                    vec![Ground::List(vec![witness.term, int(EXTRA)])],
+                );
                 Self::set_up(list, reading(), vec![k(empty_items())], witness.status)
             }
             ("readable", "cons-element") => {
                 let witness = self.witness()?;
                 let items = Ground::ctor(
                     "Seq::Cons",
-                    vec![witness.term, Ground::ctor("Seq::Nil", Vec::new())],
+                    vec![
+                        witness.term,
+                        Ground::ctor(
+                            "Seq::Cons",
+                            vec![int(EXTRA), Ground::ctor("Seq::Nil", Vec::new())],
+                        ),
+                    ],
                 );
                 Self::set_up(
                     setup("SetSeq", vec![items]),
@@ -607,19 +693,22 @@ impl Driver<'_> {
             }
             // A Set collection's instance is the set's element, read as a key is (D2): the
             // instance holding a computed spelling is looked up by its value.
+            // The collection holds another instance, added first (behind the case's in the List
+            // collection), which the case's `..` leaves.
             ("readable", "collection-child" | "set-instance-child") => {
                 let (witness, command) = if position == "collection-child" {
                     (self.witness()?, "AddMember")
                 } else {
                     (self.element()?, "AddToken")
                 };
-                Self::set_up(
+                Self::set_up_beside(
+                    setup(command, vec![go()]),
                     setup(command, vec![hold(witness.term)]),
                     reading(),
-                    vec![k(empty_items())],
                     witness.status,
                 )
             }
+            // Another row, keyed by `pair(99, 99)`, which no case's key is.
             ("readable", "map-key-child" | "map-value-child") => {
                 let witness = self.witness()?;
                 let row = if position == "map-key-child" {
@@ -627,20 +716,24 @@ impl Driver<'_> {
                 } else {
                     vec![go(), hold(witness.term)]
                 };
-                Self::set_up(
+                Self::set_up_beside(
+                    setup("AddRow", vec![pair(int(EXTRA), int(EXTRA)), go()]),
                     setup("AddRow", row),
                     reading(),
-                    vec![k(empty_items())],
                     witness.status,
                 )
             }
-            // `stack: [_, ..]` read and `stack: [HOLE, ..]` written: the stack starts as `[0]`.
+            // `stack: [_, ..]` read and `stack: [HOLE, ..]` written: the stack starts as `[0, 99]`,
+            // whose rest the result keeps.
             ("readable", "result-list-element") => {
                 let value = self.value()?;
                 Self::set_up(
-                    setup("SetStack", vec![Ground::List(vec![int(0)])]),
+                    setup("SetStack", vec![Ground::List(vec![int(0), int(EXTRA)])]),
                     reading(),
-                    vec![k(empty_items()), ("stack", Ground::List(vec![value.term]))],
+                    vec![
+                        k(empty_items()),
+                        ("stack", Ground::List(vec![value.term, int(EXTRA)])),
+                    ],
                     value.status,
                 )
             }
@@ -679,7 +772,7 @@ impl Driver<'_> {
                 } else {
                     hold(witness.term)
                 };
-                let result = if self.counter {
+                let result = if self.countering() {
                     Ground::unevaluated("probe", vec![self.command(Vec::new()), argument.clone()])
                 } else {
                     int(0)
