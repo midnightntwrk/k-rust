@@ -74,8 +74,11 @@
 //!   walk owes nothing; every application's symbol is a constructor, a function the definition
 //!   declares total, or a `value-production` symbol, such as SIMPLE's `_[_]`, whose application
 //!   no equation of its head can reach, which that declaration makes a value of its sort, or a
-//!   partial application k-rust's source-checked observation catalog shows defined (a compiler
-//!   sort projection on its exact image, a field of a one-constructor sort; kink27 R1-TRUST); every
+//!   partial application k-rust shows defined: by an unconditional ceil equation whose condition
+//!   simplifies to `\top`, or by its source-checked observation catalog (a compiler sort
+//!   projection on its exact image, a field of a one-constructor sort; since k-rust 68e362935 and
+//!   fdb3ac1a5, re-read at kink27 R1-TRUST); a hooked map lookup or list access it leaves
+//!   unevaluated owes its key membership or length bound, which is never discharged here; every
 //!   collection a map or set whose keys k-rust shows apart, or a list, over such subterms; it
 //!   accepts every state the stored `ceil_free` attribute, read before, accepts) and hold no
 //!   term-level `\and` anywhere (the walk owes nothing for `\and(a, a)`, but kink refuses every

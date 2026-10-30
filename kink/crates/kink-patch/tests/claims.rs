@@ -619,16 +619,23 @@ fn trusted_claims_are_pinned() {
 /// domains, k-rust-backend `smt/functional.rs` `domain_plan`), so it states what the definition
 /// already states: a ceil equation, compiler-derived from the mutant's own sorts (a sort
 /// projection's exact image, as freeness is) or an author's ceil lemma, which the
-/// `simplification` row withdraws when its support is touched; a hook's builtin domain, a hooked
-/// symbol's own equations being refused (`hooked-equation`); a field of a sole-constructor sort,
-/// from the compiler's no-junk axiom and the field's one equation, a function rule or a lemma
-/// the `simplification` row withdraws. Whether a head is partial is the `total` and `functional`
+/// `simplification` row withdraws when its support is touched; a sort projection's `\bottom` on
+/// an input off its image, from that compiler-derived image equation and the matcher's
+/// constructor clash; a hook's builtin domain (a map lookup's key membership, a list access's
+/// length bound), a hooked symbol's own equations being refused (`hooked-equation`); a field of a
+/// sole-constructor sort, from the compiler's no-junk axiom and the field's one equation, a
+/// function rule or a lemma the `simplification` row withdraws; and nothing owed for an
+/// irreducible application of a `value-production` symbol (`value_production_ceil_equations`),
+/// a marker the compiler derives for a production that is not a function (an `anywhere` or
+/// macro-like head). Each is compiler-derived, a builtin's own domain or a withdrawn lemma, none an author
+/// assertion outside the rows. Whether a head is partial is the `total` and `functional`
 /// rows' attribute, withdrawn alike, and withdrawing one only adds a domain UF to the head, which
 /// weakens the query. So every author assertion the new reading consumes is already a row. A
 /// satisfying interpretation is still no K model ("Automatic congruence is an approximation",
 /// 2959), and kink reads no solver model as evidence. Whether 6058eb6bb's code meets this
 /// passage (a domain condition stronger than the definition's, an unknown decided wrongly) is
-/// k-rust's soundness, not a claim a mutant can lose: kink27 R1-SOUND judges it, and a
+/// k-rust's soundness, not a claim a mutant can lose: kink27 R1-SOUND judges it for 6058eb6bb,
+/// kink27 R2-DOMAIN-ROUTES for the four observation routes read as domain conditions, and a
 /// restriction of the commit that rewrites this passage again needs it read again.
 // WORD-03 also reviews the SMT-03 congruence paragraph: a K valuation extends to the
 // query-local UF interpretation of a pure functional context (re-read at R1-TRUST above: value

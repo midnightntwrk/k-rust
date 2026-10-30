@@ -110,16 +110,39 @@ impl BackendDefinition {
     /// states the same walk of each binding.
     ///
     /// A ground term denotes at most one element, and exactly one when every obligation of its
-    /// walk holds: the `\ceil` of each application of a partial function, unless a ceil equation
-    /// of this definition decides it (its condition is then the obligation) or the application
-    /// is of a `value-production` symbol that no equation reduces on any instance (that
-    /// declaration makes such an application a value of its sort,
-    /// [`Self::irreducible_application_is_defined`]) and that no ceil equation decides otherwise
-    /// (`apply_ceil_equation`: one whose matching, instance or condition is left undecided keeps
-    /// the `\ceil` owed); the disequality of each pair of map keys or set elements not shown apart
+    /// walk holds: the `\ceil` of each application of a partial function, unless
+    /// `apply_ceil_equation` states it otherwise by the first of these that applies: the
+    /// source-checked observation catalog (`crate::observation`, below), whose domain is then the
+    /// obligation; an unconditional ceil equation of this definition that matches it with a usable
+    /// instance (its condition, simplified, is then the obligation); or, for an application of a
+    /// `value-production` symbol that no equation reduces on any instance (that declaration makes
+    /// such an application a value of its sort, [`Self::irreducible_application_is_defined`]),
+    /// nothing, unless a ceil equation decides otherwise (one whose matching, instance or
+    /// condition is left undecided keeps the `\ceil` owed); the disequality of each pair of map
+    /// keys or set elements not shown apart
     /// (`elements_are_apart`, which does not separate two applications of an equation head, even
     /// of one shape such as `a[4]` and `a[5]`); and, for a term-level `\and`, the equality of its
     /// sides' first conjuncts. So the term exists when every obligation is `\top`.
+    ///
+    /// The catalog reads only source axioms it has checked, at a head where no other ceil or
+    /// value row could state the domain differently, and is built once per loaded definition. It
+    /// gives a domain for four shapes:
+    /// - a sort projection `project:S(X)` whose one ceil equation is the unconditional
+    ///   image-domain `\ceil(project:S(X)) = \exists V. X = E[V]` (`E` a spine of injections and
+    ///   `kseq(_, dotk)` around `V`), with its one unconditional forward equation and its guarded
+    ///   inverse: it owes nothing on an input that matching shows an instance `E[v]` (the witness
+    ///   `v` is a subterm of the input, whose definedness the walk owes anyway), `\bot` on an
+    ///   input that matching decides off the image, and the catalog gives nothing otherwise;
+    /// - a hooked map lookup owes its key's `MAP.in_keys` membership in the map;
+    /// - a hooked list access at a fixed index `i`, or a removal of `n` items from the front,
+    ///   owes the length bound `size >= i + 1` or `size >= n`; the map and list domains are
+    ///   `Bool` terms, never `\top`, so this judgement does not discharge them;
+    /// - a field `f(p)`, with `p` of a sort whose complete no-junk axiom (no equation head can
+    ///   build the sort) lists one head, a free constructor `c` with no row of its own, owes
+    ///   nothing when `f` is a declared, unhooked, pure function whose one row at these sort
+    ///   arguments, across the function, simplification and ceil theories, is the unconditional
+    ///   `f(c(X1, ..., Xn)) = Xi` with distinct variables: every element of the sort is some
+    ///   `c(a1, ..., an)`, so `f(p)` is `ai`.
     ///
     /// The walk runs in [`EvaluationMode::Proof`](crate::evaluation::EvaluationMode::Proof)
     /// whatever scope the caller has open, so a ceil equation's condition never reads a value the
@@ -135,9 +158,12 @@ impl BackendDefinition {
     ///
     /// It accepts every ground term whose stored `ceil_free` attribute is true at once (the walk
     /// would skip it, `ceilFree_sound`: such a term owes nothing under every definition), and
-    /// beyond those a term holding an irreducible `value-production` application (SIMPLE's stored
-    /// `a[4]`) or a map or set whose keys k-rust shows apart. Solver-free, with one memo of
-    /// instance normality per call.
+    /// beyond those, among others, a term holding an irreducible `value-production` application
+    /// (SIMPLE's stored `a[4]`), a partial application whose unconditional ceil equation's
+    /// condition simplifies to `\top`, a sort projection on an instance of its exact image, a
+    /// field of a one-constructor sort as above (`f(h(3))` included, `h` a total function with no
+    /// equation at `3`), or a map or set whose keys k-rust shows apart. Solver-free, with one memo
+    /// of instance normality per call.
     #[must_use]
     pub fn ground_defined(&self, term: &Term) -> bool {
         let attributes = term.attributes();
@@ -163,8 +189,11 @@ fn only_top(obligations: &[Predicate]) -> bool {
 
 /// Whether the definedness walk ([`ceil_term`]) owes nothing at the node `term` itself, beyond
 /// what its arguments owe: `term` is not an application of a partial function, or it is one
-/// whose own obligation the walk discharges (a ceil equation whose condition is `\top`, or an
-/// application of a `value-production` symbol that no equation reduces). A client naming the
+/// whose own obligation `apply_ceil_equation` discharges (an observation-catalog domain that
+/// owes nothing, a sort projection on its exact image or a field of a one-constructor sort; an
+/// unconditional ceil equation whose condition simplifies to `\top`; or an application of a
+/// `value-production` symbol that no equation reduces and no ceil equation decides otherwise;
+/// [`BackendDefinition::ground_defined`] lists each). A client naming the
 /// first application by which a term is not shown defined reads this;
 /// [`BackendDefinition::ground_defined`] is the judgement. It runs in `Proof` mode, as that does.
 #[must_use]
@@ -1038,7 +1067,10 @@ fn simplified_ceil_condition(
 }
 
 /// The definedness of the partial application `term` beyond that of its arguments, which
-/// `ceil_term_node` adds: the condition of the first unconditional ceil equation that matches it;
+/// `ceil_term_node` adds: the domain the source-checked observation catalog gives it (a sort
+/// projection's image test, a map lookup's key membership, a field of a one-constructor sort, a
+/// list access's length bound; [`BackendDefinition::ground_defined`] states each and why it
+/// holds); otherwise the condition of the first unconditional ceil equation that matches it;
 /// otherwise, for an application of a `value-production` symbol that no equation reduces on any
 /// instance, what the other ceil equations offered at it leave
 /// ([`value_production_ceil_equations`]): nothing when none applies, since that marker makes such

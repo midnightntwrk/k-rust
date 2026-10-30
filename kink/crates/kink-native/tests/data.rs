@@ -437,6 +437,31 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// kink's reading is unchanged: some states move from `unknown` to `hit`, through k-rust's revision
 /// in kink's identity, and no kink identity constant moves. The entry functions of the four
 /// routes, and the selector and product catalogs where their `\top` is decided, are pinned too.
+///
+/// R1-TRUST fix round 1 (review should-fix 1 and 3): `ground_defined`'s documentation now names
+/// every route by which the walk discharges a partial application (the observation catalog's
+/// four shapes, of which the map and list ones only owe a `Bool` condition; an unconditional
+/// ceil equation; the `value-production` marker) and its closing list adds a ceil equation's
+/// discharge, a projection on its image and a one-constructor field. Only that comment moved,
+/// not the code: the documentation now says what the walk above already does, so `ground_defined`
+/// is re-pinned. `application_owes_nothing`'s documentation was corrected alike; its pin starts at
+/// the signature, so its digest does not move. The pin also covers the helpers the argument above
+/// rests on, each of which can make a route answer `\top` wrongly without moving a pinned entry
+/// point. `sole_constructor_heads` offers a sort only when its no-junk domain has one head;
+/// `FiniteConstructorDomain::complete` mints that domain only when no equation head can build the
+/// sort and every free-constructor instance that can is listed, scanning the symbols
+/// `FixedRootSymbols::of` indexes (`fixed_root_symbols_of`: every free constructor and equation
+/// head but `inj`); `collect_finite_sort_constructors` reads the no-junk axiom and drops it when
+/// an alternative has no constructor head (a `\top` of domain values included) or none is
+/// `\bottom`; `constructor_head` makes an injection alternative a head of its own, so a sort with a
+/// subsort is never a one-constructor sort. `Field::input_of` is the head, sort-argument and
+/// exact input-sort check that confines `field_is_defined` to an input of the product sort (a
+/// supersort input may be another constructor's value). `observation::plain` gives both catalogs
+/// rows with no `ensures`, no existential and no concreteness restriction, so each row holds of
+/// every instance. `embedding_shape` confines the image `E` to licensed injections and
+/// free-constructor `kseq(_, dotk)` spines, on which matching decides an instance by structure
+/// alone; `Selector::project` rebuilds the projection `selector_domain` compares the term with,
+/// at the selector's input sort.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -563,6 +588,50 @@ fn the_data_judgement_kink_reads_is_pinned() {
             between(LISTS, "\npub(crate) fn domain(", "\n}\n"),
             "list_domain",
         ),
+        (
+            method(DEFINITION, "pub(crate) ", "sole_constructor_heads"),
+            "sole_constructor_heads",
+        ),
+        (
+            method(DEFINITION, "", "complete"),
+            "finite_constructor_domain_complete",
+        ),
+        (
+            between(
+                DEFINITION,
+                "\n    fn of(definition: &'a BackendDefinition)",
+                "\n    }\n",
+            ),
+            "fixed_root_symbols_of",
+        ),
+        (
+            between(
+                DEFINITION,
+                "\nfn collect_finite_sort_constructors(",
+                "\n}\n",
+            ),
+            "collect_finite_sort_constructors",
+        ),
+        (
+            between(DEFINITION, "\npub(crate) fn constructor_head(", "\n}\n"),
+            "constructor_head",
+        ),
+        (
+            between(PRODUCTS, "\n    fn input_of<'a>(", "\n    }\n"),
+            "field_input_of",
+        ),
+        (
+            between(OBSERVATION, "\nfn plain(", "\n}\n"),
+            "observation_plain",
+        ),
+        (
+            between(OBSERVATION, "\nfn embedding_shape(", "\n}\n"),
+            "embedding_shape",
+        ),
+        (
+            method(OBSERVATION, "pub(crate) ", "project"),
+            "selector_project",
+        ),
     ]
     .map(|(text, name)| (name, kink_patch::sha256(text.as_bytes()).to_string()));
     assert_eq!(
@@ -606,7 +675,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "ground_defined",
-                "04e691b1989b4711ad5b48c970629af8149bc37499577f655ac15a1f26bc0dbb"
+                "96139e7e0f4ae2770d9eaf43291d02e7d9d59a9f23a2b50d01862ac1259eb572"
             ),
             (
                 "only_top",
@@ -679,6 +748,42 @@ fn the_data_judgement_kink_reads_is_pinned() {
             (
                 "list_domain",
                 "087ac753d0e9aaf6dc400bbb8c3a6865ef27f5a64ed91ba744bc2f585ad694d0"
+            ),
+            (
+                "sole_constructor_heads",
+                "df99e78fc10f1664d2d2aef8bf09b98d0fc2b1bb7381f1071eeb91ce51dc3b5d"
+            ),
+            (
+                "finite_constructor_domain_complete",
+                "16c005c08d73bfcba0d63526b993dd4923411e39ccc9bf4e23c0073502be6e4c"
+            ),
+            (
+                "fixed_root_symbols_of",
+                "906f6ca7104f9b7d1d511984cd84730fc73fb14788412d4b10e60897150982b6"
+            ),
+            (
+                "collect_finite_sort_constructors",
+                "0dcd725972887df5bb0c9aab80f88fbce263cb6ac834c7631283a58901a855ac"
+            ),
+            (
+                "constructor_head",
+                "8bf727a4992d0d20e3221ae2d8e19a501f5dcb5f8b379f58a3b9b13b41e44e74"
+            ),
+            (
+                "field_input_of",
+                "f2028e7029d6cc0c461a01c0308aa8c1b9f667e9663448f5e80e277141b4a2f4"
+            ),
+            (
+                "observation_plain",
+                "bf474fa5e06fe8c069396d737b4ec2c3ac628e5089b2b2d9aef8607bc8438328"
+            ),
+            (
+                "embedding_shape",
+                "5ad18b840e7a3b74f7b17ffda4f2a2d54ef0380411f48bb98383276c853be64e"
+            ),
+            (
+                "selector_project",
+                "ad07776891cb165c9efae9b7db8225efe1ddf806812487d367010a39b5cca88a"
             ),
         ]
         .map(|(name, digest)| (name, digest.to_owned()))
