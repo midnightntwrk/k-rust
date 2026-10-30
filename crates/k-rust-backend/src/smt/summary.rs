@@ -488,8 +488,24 @@ impl<'d> Catalog<'d> {
                 Ok(predicates) => predicates,
                 Err(_) => return Ok(Err(Rejected::Partial)),
             };
-            let mut guards = Vec::new();
+            // The condition is read as stated (`with_stated_ceil_conditions`): a partial hook's
+            // ceil condition keeps conjuncts such as `2 =/=Int 0`, `\ceil(X)` and `\ceil(2)`.
+            // A conjunct that builtin hooks alone decide true (`deferred::hooks_establish`: the
+            // `\ceil` of a term without partial symbols, a ground hook condition) holds in every
+            // state, so dropping it leaves a conjunction that denotes the same set, and no
+            // equation is applied. Every other conjunct must pass `check_guard`.
+            let mut stated = Vec::new();
             for predicate in condition {
+                if !crate::deferred::hooks_establish(
+                    self.definition,
+                    std::slice::from_ref(&predicate),
+                    &[],
+                )? {
+                    stated.push(predicate);
+                }
+            }
+            let mut guards = Vec::new();
+            for predicate in stated {
                 let predicate = admitted!(self.check_guard(
                     &predicate,
                     &parameters,
@@ -674,11 +690,17 @@ impl<'d> Catalog<'d> {
                         };
                         // The test's global definedness is decided by builtin hooks alone, with
                         // no equation of the definition: the term is the definition's, and
-                        // preparing a query must end whatever its equations do. A ground
-                        // condition such as `2 =/=Int 0` folds to `true`; a condition only an
-                        // equation would decide rejects the summary, which leaves the solver less
-                        // informed and never wrong. The arguments' own definedness is checked
-                        // below (`allow_partial` is false for them too).
+                        // preparing a query must end whatever its equations do. A guard with a
+                        // partial hook is admitted exactly when hooks fold every conjunct of the
+                        // hook's stated ceil condition to `true`, the `\ceil` of a term without
+                        // partial symbols or of a direct argument counting as holding (`compile`
+                        // drops the same conjuncts from a rule's condition): `X /Int 2` and
+                        // `X /Int (4 /Int 2)` are admitted (`2 =/=Int 0`). A conjunct only an
+                        // equation or a simplification lemma would decide (`X /Int c()` with
+                        // `c() => 2`, `X /Int (absInt(X) +Int 1)`, `X /Int (X -Int X +Int 1)`)
+                        // rejects the summary, which leaves the solver less informed and never
+                        // wrong. The arguments' own definedness is checked below (`allow_partial`
+                        // is false for them too).
                         if !obligations.is_empty()
                             && !crate::deferred::hooks_establish(
                                 self.definition,

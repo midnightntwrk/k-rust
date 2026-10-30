@@ -5400,6 +5400,7 @@ module GROUND
                | "fdivz" "(" ")" [symbol(fdivz)]
                | "fdivok" "(" ")" [symbol(fdivok)]
                | "gdivz" "(" ")" [symbol(gdivz)]
+               | "hdivz" "(" ")" [symbol(hdivz)]
                | "andDivz" "(" ")" [symbol(andDivz)]
                | "reqIte" "(" Int ")" [symbol(reqIte)]
                | "ok" [symbol(ok)]
@@ -5407,11 +5408,17 @@ module GROUND
                | g(Int) [symbol(g), function]
   rule f(N) => N +Int 1
   rule g(N) => f(N)
+  syntax Int ::= h(Int) [symbol(h), function]
+               | wh(Int) [symbol(wh), function]
+  rule h(X) => 0 requires (X /Int 2) >=Int 0
+  rule h(X) => 1 requires (X /Int 2) <Int 0
+  rule wh(X) => h(X)
   configuration <k> $PGM:Exp </k>
   rule divz() => #if true #then 1 #else 1 /Int 0 #fi
   rule fdivz() => #if true #then 1 #else 1 /Int f(-1) #fi
   rule fdivok() => #if true #then 1 #else 1 /Int f(1) #fi
   rule gdivz() => #if true #then 1 #else 1 /Int g(-1) #fi
+  rule hdivz() => #if true #then 1 #else 1 /Int wh(0) #fi
   rule andDivz() => false andThenBool (1 /Int 0 >Int 0)
   rule reqIte(N) => ok requires #if N >Int 0 #then true #else 1 /Int 0 >Int 0 #fi
 endmodule
@@ -5460,6 +5467,20 @@ fn a_discarded_operand_takes_the_value_of_one_ground_equation_step() {
     let output = bounded_krun(&ground, "Exp", "gdivz()", &[]);
     assert_undefined_step(&output, 1);
     let quotient = r#"Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"), Lblg{}(\dv{SortInt{}}("-1")))"#;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!(
+            "refuted obligation \\and{{SortGeneratedTopCell{{}}}}({}",
+            ceil_of("SortInt", quotient)
+        )),
+        "{stderr}"
+    );
+    // `h`'s guards hold the partial `X /Int 2`. The stated condition of its ceil equation is
+    // `2 =/=Int 0`, `\ceil(X)` and `\ceil(2)`, which builtin hooks alone decide true, so `h`
+    // gets a summary with no equation applied: `wh(0)` reads as `0`, and `hdivz()` is `\bottom`.
+    let output = bounded_krun(&ground, "Exp", "hdivz()", &[]);
+    assert_undefined_step(&output, 1);
+    let quotient = r#"Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("1"), Lblwh{}(\dv{SortInt{}}("0")))"#;
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains(&format!(

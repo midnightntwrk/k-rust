@@ -1052,6 +1052,7 @@ thread_local! {
 /// summaries (`smt::summary`) run in this scope: preparing a query reads the query's terms and the
 /// definition's and must not evaluate them, since among them may be an operand a conditional
 /// discards (`crate::deferred`), or a guard of a function it calls, whose evaluation need not end.
+#[cfg(any(feature = "z3", test))]
 pub(crate) fn with_stated_ceil_conditions<R>(body: impl FnOnce() -> R) -> R {
     struct Restore(bool);
     impl Drop for Restore {

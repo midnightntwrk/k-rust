@@ -1110,6 +1110,7 @@ pub(crate) fn fold_hooks_or_keep(
 /// Whether [`fold_hooks`] of their terms decides every one of `predicates` true
 /// ([`fold_predicate`]), applying no equation of the definition: the `\ceil` of one of `siblings`
 /// counts as holding, so a caller passes only terms whose definedness it establishes otherwise.
+#[cfg(any(feature = "z3", test))]
 pub(crate) fn hooks_establish(
     definition: &BackendDefinition,
     predicates: &[Predicate],
