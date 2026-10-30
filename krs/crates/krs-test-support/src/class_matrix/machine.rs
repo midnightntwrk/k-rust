@@ -146,25 +146,39 @@ const NESTED_FIELDS: [(&str, &str); 7] = [
     ("queue", "Queue { job: Job { payload: 0 } }"),
 ];
 
-/// The machine base's optional cell, and the nested base's, which starts present.
-const MACHINE_OPTIONAL: &str = "#[k::cell(multiplicity = \"?\")]\n    pub counter";
-const INITIAL_OPTIONAL: &str = "#[k::cell(multiplicity = \"?\", initial)]\n    pub counter";
-
-/// The machine base with [`NESTED_FRAME`] in place of its group, and its optional cell declared
-/// `initial`.
+/// The machine base with [`NESTED_FRAME`] in place of its group.
 static NESTED_AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
     assert!(
-        MACHINE_AFTER_COMMANDS.contains(MACHINE_FRAME)
-            && MACHINE_AFTER_COMMANDS.contains(MACHINE_OPTIONAL),
-        "the machine base declares its group and its optional cell"
+        MACHINE_AFTER_COMMANDS.contains(MACHINE_FRAME),
+        "the machine base declares its group"
     );
-    MACHINE_AFTER_COMMANDS
-        .replacen(MACHINE_FRAME, NESTED_FRAME, 1)
-        .replacen(MACHINE_OPTIONAL, INITIAL_OPTIONAL, 1)
+    MACHINE_AFTER_COMMANDS.replacen(MACHINE_FRAME, NESTED_FRAME, 1)
 });
 
 static NESTED_INITIALIZER: LazyLock<String> =
     LazyLock::new(|| base_initializer(MACHINE_HEADER, &NESTED_FIELDS));
+
+/// The machine base's optional cell, and the initial base's, which starts present.
+const MACHINE_OPTIONAL: &str = "#[k::cell(multiplicity = \"?\")]\n    pub counter";
+const INITIAL_OPTIONAL: &str = "#[k::cell(multiplicity = \"?\", initial)]\n    pub counter";
+
+/// The machine base with its optional cell declared `initial`.
+static INITIAL_AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
+    assert!(
+        MACHINE_AFTER_COMMANDS.contains(MACHINE_OPTIONAL),
+        "the machine base declares its optional cell"
+    );
+    MACHINE_AFTER_COMMANDS.replacen(MACHINE_OPTIONAL, INITIAL_OPTIONAL, 1)
+});
+
+pub(super) fn initial_base() -> BaseText {
+    BaseText {
+        before_commands: MACHINE_BEFORE_COMMANDS,
+        after_commands: INITIAL_AFTER_COMMANDS.as_str(),
+        initializer: MACHINE_INITIALIZER,
+        after_initializer: "",
+    }
+}
 
 pub(super) fn nested_base() -> BaseText {
     BaseText {
@@ -550,12 +564,12 @@ fn field_order(cases: &mut Vec<Case>) {
     cases.push(initial_present());
 }
 
-/// The nested base's initializer, whose optional cell is declared `initial`, writing that cell
+/// The initial base's initializer, its optional cell declared `initial`, writing that cell
 /// present: the form `none-in-initializer` advises. The run starts with the cell holding `0`.
 fn initial_present() -> Case {
     let spec = CaseSpec {
         family: Family::Init,
-        base: Base::Nested,
+        base: Base::Initial,
         side: Side::Initializer,
         kind: Some(CellKind::Optional),
         slot: vec!["initial".to_owned()],
@@ -565,7 +579,7 @@ fn initial_present() -> Case {
     initializer(
         &mut item,
         MACHINE_HEADER,
-        &NESTED_FIELDS,
+        &MACHINE_FIELDS,
         |item, cell, value| {
             if cell == "counter" {
                 item.entry(cell, "Some(0)");
@@ -576,7 +590,6 @@ fn initial_present() -> Case {
     );
     let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
     let mut cells = machine_cells();
-    cells.push(("frame.aux", Ground::Int(1)));
     cells.push(("counter", Ground::Int(0)));
     case.k7 = start_with(cells, &[], &[]);
     case

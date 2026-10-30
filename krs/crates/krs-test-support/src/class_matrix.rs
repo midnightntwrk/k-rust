@@ -179,21 +179,24 @@ pub enum Base {
     Terms,
     /// The term base with its constructors imported at module level.
     Imported,
-    /// The machine base with a two-child group, `Frame { ret, aux }`, and its optional cell
-    /// declared `initial`, for the initializers that need these declarations: the order of a
-    /// nested initializer's children, and an optional cell written present (`counter: Some(0)`,
-    /// which `none-in-initializer` advises). Its only cases are initializers.
+    /// The machine base with a two-child group, `Frame { ret, aux }`, for the order of a nested
+    /// initializer's children: its only case is an initializer.
     Nested,
+    /// The machine base with its optional cell declared `initial`, for an initializer that
+    /// writes it present (`counter: Some(0)`, which `none-in-initializer` advises): its only case
+    /// is that initializer.
+    Initial,
 }
 
 impl Base {
     /// Every base.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Machine,
         Self::Typed,
         Self::Terms,
         Self::Imported,
         Self::Nested,
+        Self::Initial,
     ];
 
     /// The base's own source, with no case: its default initializer and no command.
@@ -209,6 +212,7 @@ impl Base {
             Self::Terms => terms::base(false),
             Self::Imported => terms::base(true),
             Self::Nested => machine::nested_base(),
+            Self::Initial => machine::initial_base(),
         }
     }
 }
@@ -481,7 +485,7 @@ impl Case {
 
     /// The text the case writes of its own, which K8 reads for the form an advice proposes
     /// (`advice::followed_in`): its command's declaration, its item, and, on a base that changes
-    /// the machine base's declarations for its cases ([`Base::Nested`]), the declarations after
+    /// the machine base's declarations for its case ([`Base::Initial`]), the declarations after
     /// its commands.
     #[must_use]
     pub fn own_source(&self) -> String {
@@ -490,7 +494,7 @@ impl Case {
             command.declare(&mut text);
         }
         text.push_str(&self.item);
-        if self.base == Base::Nested {
+        if self.base == Base::Initial {
             text.push_str(self.base.text().after_commands);
         }
         text

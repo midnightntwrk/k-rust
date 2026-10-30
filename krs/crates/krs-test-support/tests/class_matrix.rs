@@ -240,7 +240,7 @@ fn the_shared_cases_of_a_base_render_as_one_package() {
             .iter()
             .filter(|case| case.base == base && matches!(case.packaging, Packaging::Shared(_)))
             .collect::<Vec<&Case>>();
-        if base == Base::Nested {
+        if matches!(base, Base::Nested | Base::Initial) {
             // Its only case is an initializer, rendered alone.
             assert!(shared.is_empty(), "{base:?} has no shared case");
             continue;

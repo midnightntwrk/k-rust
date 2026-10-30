@@ -27,6 +27,16 @@ finding = "S0-8"
 deviation = "0 pairs only coverage holds; 20 pairs only k-rust-subsorts holds"
 step = "S4"
 
+["lattice/class-initial/coverage~k-rust-disambiguation/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-initial/coverage~k-rust-subsorts/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
+step = "S4"
+
 ["lattice/class-machine/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"

@@ -2621,7 +2621,6 @@ configuration
 <env> .Map </env>
 <frame>
 <ret> 0 </ret>
-<aux> 1 </aux>
 </frame>
 <counter multiplicity="?" initial=""> 0 </counter>
 <queue>
@@ -2642,7 +2641,7 @@ configuration
 <ret> 0 </ret>
 <aux> 1 </aux>
 </frame>
-<counter multiplicity="?" initial=""> 0 </counter>
+<counter multiplicity="?"> 0 </counter>
 <queue>
 <job multiplicity="*" type="List">
 <payload> 0 </payload>

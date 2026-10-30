@@ -299,7 +299,10 @@ the descriptors of the base and its own. A case is judged by
   as placeholders, where some generated case writes that form (`CLASS's refusal advises `F`,
   which ID does not write`); a form no generated case writes is left to the reviewed field and
   printed `unchecked`, as is advice in prose; and a case the table accepts whose refusal advises a
-  form (`refused where the table accepts, advising ..`).
+  form (`refused where the table accepts, advising ..`). The unchecked refusals are pinned per
+  shard and class (`UNCHECKED` in `krs-cli/tests/class_matrix.rs`; 480 on 2026-10-31, 440 of
+  them in `terms`): a shard whose counts differ fails, so a new class, or a message that adds
+  advice no generated case writes, is reviewed before it is pinned.
 
   K8 costs its own shard and a scan: on 2026-10-31, under a load of about 20 to 80 from other
   work, `attrs` (514 cases, 139 accepted) took 85 s at 15 workers, K6 54 checks in 66 s of worker
@@ -308,7 +311,9 @@ the descriptors of the base and its own. A case is judged by
   shards took `init` 75 s, `readable` 66 s, `cells` 56 s, `import` 65 s, `notation` 203 s and
   `terms` 351 s at 15 workers. Of the advice verdicts, 849 refusals follow their class's advised
   case and 480 propose only forms no generated case writes (`unchecked`, 440 of them in `terms`,
-  mostly `notation-in-pattern`'s calls such as `int::bit_and(..)`).
+  mostly `notation-in-pattern`'s calls such as `int::bit_and(..)`). The optional cell written
+  present that `none-in-initializer` advises has a base of its own (`Base::Initial`, the machine
+  base with `counter` declared `initial`), so no other case's K moves.
 
 The `k4` shard compares KRS's sort judges with k-rust's subsort relations of each base's emitted
 definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, and those about

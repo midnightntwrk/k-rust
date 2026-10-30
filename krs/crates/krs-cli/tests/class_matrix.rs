@@ -290,6 +290,8 @@ struct Shard {
     failures: Vec<String>,
     lines: String,
     record: String,
+    /// K8's unchecked refusals by class: those whose proposed form no generated case writes.
+    unchecked: BTreeMap<String, usize>,
 }
 
 impl Shard {
@@ -594,7 +596,11 @@ fn k8_refusal(shard: &mut Shard, resolution: &Resolution<'_>, corpus: &Corpus, j
                 resolution,
                 corpus,
             );
+            let unchecked = signature.contains(UNCHECKED_MARK);
             verdict(signature, miss);
+            if unchecked {
+                *shard.unchecked.entry((*name).to_owned()).or_default() += 1;
+            }
         }
         Some(Expected::Accept(_)) => {
             if let Some(advice) = advice {
@@ -666,7 +672,7 @@ fn k8_against(
                 Some("the refusal advises a form its class's advised case does not write"),
             ),
             Followed::Unchecked => (
-                format!("{name} advises {cases}; unchecked: no generated case writes {follows}"),
+                format!("{name} advises {cases}{UNCHECKED_MARK}no generated case writes {follows}"),
                 None,
             ),
         }
@@ -681,6 +687,45 @@ fn write_out(name: &str, shard: &Shard) {
         std::fs::write(out.join(format!("{name}.tsv")), &shard.lines).expect("the TSV is written");
         std::fs::write(out.join(format!("{name}.pending.toml")), &shard.record)
             .expect("the pending entries are written");
+    }
+}
+
+/// What a K8 signature says of a refusal whose proposed forms no generated case writes.
+const UNCHECKED_MARK: &str = "; unchecked: ";
+
+/// K8's unchecked refusals, by shard and class: refusals whose proposed form no generated case
+/// writes, which only the class's reviewed `advice` states (`class_matrix::advice::Followed`).
+/// A shard whose counts differ fails, so a new class or a message that adds unchecked advice is
+/// reviewed before it is pinned here; a shard not listed has none.
+const UNCHECKED: &[(&str, &str, usize)] = &[
+    ("init", "content-sort", 8),
+    ("init", "initializer-remainder", 1),
+    ("notation", "function-in-pattern", 4),
+    ("notation", "ml-in-condition", 27),
+    ("terms", "alias-at-subject-root", 2),
+    ("terms", "alias-in-let-pattern", 34),
+    ("terms", "configuration-variable-sort", 2),
+    ("terms", "function-in-pattern", 8),
+    ("terms", "island-at-subject-root", 18),
+    ("terms", "ml-in-condition", 40),
+    ("terms", "notation-in-pattern", 264),
+    ("terms", "record-remainder-in-initializer", 4),
+    ("terms", "sort-test-in-pattern", 66),
+    ("terms", "wildcard-at-subject-root", 2),
+];
+
+/// Fail the shard `name` where its unchecked K8 refusals differ from [`UNCHECKED`]'s.
+fn check_unchecked(name: &str, shard: &mut Shard) {
+    let pinned = UNCHECKED
+        .iter()
+        .filter(|(pinned, ..)| *pinned == name)
+        .map(|(_, class, count)| ((*class).to_owned(), *count))
+        .collect::<BTreeMap<_, _>>();
+    if shard.unchecked != pinned {
+        shard.failures.push(format!(
+            "K8's unchecked refusals by class are {:?}, where UNCHECKED pins {pinned:?}: review the advice no generated case writes, then pin it",
+            shard.unchecked
+        ));
     }
 }
 
@@ -1021,11 +1066,11 @@ fn shard(name: &str, families: &[Family]) {
             recorded.len()
         );
     }
-    let red = shard.judge(
-        &spec.pending,
-        families,
-        variable("KRS_CLASS_FILTER").is_none(),
-    );
+    let whole = variable("KRS_CLASS_FILTER").is_none();
+    if whole {
+        check_unchecked(name, &mut shard);
+    }
+    let red = shard.judge(&spec.pending, families, whole);
     write_out(name, &shard);
 
     for (form, counts) in &forms {
