@@ -1902,6 +1902,30 @@ elab "k2l_det" : tactic => do
         | some gs => setGoals (gs.toList ++ rest)
         | none => return
 
+/-- Each hypothesis `a = some v`, `v` a variable, whose `a` computes to `some u` (a sort projection
+of an injection, `proj_KItem_Exp (inj_Id X) = some HOLE`, which a cooling rule's match states):
+`v` replaced by `u`, so that a side condition on `v` (`isKResult(HOLE)`) can compute
+(`k2l_refute_computed`). Each replacement is `subst` of `Option.some.inj`; it never fails. -/
+elab "k2l_proj_compute" : tactic => do
+  for _ in [0:2000] do
+    let g ← getMainGoal
+    let step ← g.withContext do
+      for d in ← getLCtx do
+        if d.isImplementationDetail then continue
+        let some (_, a, b) := (← instantiateMVars d.type).consumeMData.eq? | continue
+        unless b.isAppOfArity ``Option.some 2 && b.appArg!.isFVar do continue
+        let v := b.appArg!
+        let r ← withDefault <| whnf a
+        unless r.isAppOfArity ``Option.some 2 do continue
+        if r.appArg!.containsFVar v.fvarId! then continue
+        let hb ← mkExpectedTypeHint (← mkEqSymm d.toExpr) (← mkEq b r)
+        let (h, g₁) ← (← g.assert `k2l_pc (← mkEq v r.appArg!) (← mkAppM ``Option.some.inj #[hb])).intro1P
+        try return some (← subst g₁ h) catch _ => continue
+      return none
+    match step with
+    | some g' => replaceMainGoal [g']
+    | none => return
+
 namespace IntHook
 
 /-! A value a step adds a nonzero constant to changes (`k2l_ne`); stated over `Int`, they apply to
