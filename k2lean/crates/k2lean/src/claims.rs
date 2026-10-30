@@ -298,22 +298,31 @@ fn read_claims(path: &PathBuf) -> Vec<RawClaim> {
             {
                 let label = attr_string(attributes, "label")
                     .unwrap_or_else(|| format!("claim{}", out.len()));
-                out.push(RawClaim {
-                    module: m.name.clone(),
-                    label,
-                    location: attr_string(
-                        attributes,
-                        "org'Stop'kframework'Stop'attributes'Stop'Location",
-                    )
-                    .unwrap_or_default(),
-                    source: attr_string(
-                        attributes,
-                        "org'Stop'kframework'Stop'attributes'Stop'Source",
-                    )
-                    .unwrap_or_default(),
-                    trusted: attr_string(attributes, "trusted").is_some(),
-                    pattern: ir::pat(pattern),
-                });
+                // A disjunction in the left-hand side is one claim per alternative (`_ork`).
+                let alternatives = ir::claim_alternatives(&ir::pat(pattern));
+                let several = alternatives.len() > 1;
+                for (k, pattern) in alternatives.into_iter().enumerate() {
+                    out.push(RawClaim {
+                        module: m.name.clone(),
+                        label: if several {
+                            format!("{label}_or{}", k + 1)
+                        } else {
+                            label.clone()
+                        },
+                        location: attr_string(
+                            attributes,
+                            "org'Stop'kframework'Stop'attributes'Stop'Location",
+                        )
+                        .unwrap_or_default(),
+                        source: attr_string(
+                            attributes,
+                            "org'Stop'kframework'Stop'attributes'Stop'Source",
+                        )
+                        .unwrap_or_default(),
+                        trusted: attr_string(attributes, "trusted").is_some(),
+                        pattern: ir::inline_aliases(&pattern),
+                    });
+                }
             }
         }
     }
