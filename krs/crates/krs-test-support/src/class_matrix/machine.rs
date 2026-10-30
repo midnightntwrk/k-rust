@@ -146,13 +146,21 @@ const NESTED_FIELDS: [(&str, &str); 7] = [
     ("queue", "Queue { job: Job { payload: 0 } }"),
 ];
 
-/// The machine base with [`NESTED_FRAME`] in place of its group.
+/// The machine base's optional cell, and the nested base's, which starts present.
+const MACHINE_OPTIONAL: &str = "#[k::cell(multiplicity = \"?\")]\n    pub counter";
+const INITIAL_OPTIONAL: &str = "#[k::cell(multiplicity = \"?\", initial)]\n    pub counter";
+
+/// The machine base with [`NESTED_FRAME`] in place of its group, and its optional cell declared
+/// `initial`.
 static NESTED_AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
     assert!(
-        MACHINE_AFTER_COMMANDS.contains(MACHINE_FRAME),
-        "the machine base declares its group"
+        MACHINE_AFTER_COMMANDS.contains(MACHINE_FRAME)
+            && MACHINE_AFTER_COMMANDS.contains(MACHINE_OPTIONAL),
+        "the machine base declares its group and its optional cell"
     );
-    MACHINE_AFTER_COMMANDS.replacen(MACHINE_FRAME, NESTED_FRAME, 1)
+    MACHINE_AFTER_COMMANDS
+        .replacen(MACHINE_FRAME, NESTED_FRAME, 1)
+        .replacen(MACHINE_OPTIONAL, INITIAL_OPTIONAL, 1)
 });
 
 static NESTED_INITIALIZER: LazyLock<String> =
@@ -539,6 +547,39 @@ fn field_order(cases: &mut Vec<Case>) {
         cases.push(case);
     }
     cases.push(nested_reversed());
+    cases.push(initial_present());
+}
+
+/// The nested base's initializer, whose optional cell is declared `initial`, writing that cell
+/// present: the form `none-in-initializer` advises. The run starts with the cell holding `0`.
+fn initial_present() -> Case {
+    let spec = CaseSpec {
+        family: Family::Init,
+        base: Base::Nested,
+        side: Side::Initializer,
+        kind: Some(CellKind::Optional),
+        slot: vec!["initial".to_owned()],
+        construct: "Some(0)".to_owned(),
+    };
+    let mut item = ItemBuilder::new();
+    initializer(
+        &mut item,
+        MACHINE_HEADER,
+        &NESTED_FIELDS,
+        |item, cell, value| {
+            if cell == "counter" {
+                item.entry(cell, "Some(0)");
+            } else {
+                item.push(cell).push(": ").push(value);
+            }
+        },
+    );
+    let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+    let mut cells = machine_cells();
+    cells.push(("frame.aux", Ground::Int(1)));
+    cells.push(("counter", Ground::Int(0)));
+    case.k7 = start_with(cells, &[], &[]);
+    case
 }
 
 /// The nested base's initializer with its group's two children in the reverse of their

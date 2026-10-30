@@ -8,6 +8,7 @@ use std::path::Path;
 
 use krs_diagnostic::codes::CodeKind;
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
+use krs_test_support::class_matrix::attributes::Written;
 use krs_test_support::class_matrix::invariants::{
     FORWARDED_RUSTC, Observed, ObservedDiagnostic, Severity, Violation, front_stops_at_rustc_parse,
     registry_kind, signature, violations, without_rustc_parse_error,
@@ -93,8 +94,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × (13 subject + 13 result spellings).
             (Family::Cells, 182),
             // 7 kinds × 18 values, the computation cell's remainder, 3 field orders and the
-            // nested group's, and 8 typed cells × 4 contents.
-            (Family::Init, 126 + 1 + 3 + 1 + 32),
+            // nested group's, the optional cell declared `initial` written present, and 8 typed
+            // cells × 4 contents.
+            (Family::Init, 126 + 1 + 3 + 1 + 1 + 32),
             // (81 positions of depth 1 + 25 positions constructs open) × 47 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
             // read `x`, 3 elements in an alias subject's set concatenation, and 2 spellings
@@ -109,8 +111,8 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // The term family's 106 positions × (6 collection notation forms and their calls, and
             // 8 collection literals and the 7 calls they denote apart from the method's).
             (Family::Notation, 106 * (12 + 15)),
-            // 18 forms × 22 attributes, and 26 malformed attributes.
-            (Family::Attributes, 18 * 22 + 26),
+            // 18 forms × 26 attributes, 26 malformed attributes, and 20 extra cases.
+            (Family::Attributes, 18 * 26 + 26 + 20),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
@@ -200,13 +202,14 @@ fn assert_placed(source: &str, placed: &Placed<'_>) {
             .collect::<Vec<_>>();
         cells.sort_unstable();
         assert_eq!(cells, declared, "{}", case.id);
-    } else if case.family == Family::Attributes {
-        assert_eq!(
-            written,
-            case.construct.replace("TAG", &case.tag()),
-            "{}",
-            case.id
-        );
+    } else if let Some(pair) = case.attribute {
+        // A production's key is written on the case's command: its spelling is the clause's
+        // marker.
+        let spelled = match pair.written() {
+            Written::Production(_) => format!("#[k::{}]", pair.form().marker),
+            other => other.text().replace("TAG", &case.tag()),
+        };
+        assert_eq!(written, spelled, "{}", case.id);
     } else {
         assert_eq!(written, case.construct, "{}", case.id);
     }
@@ -662,10 +665,12 @@ const CLASSES: &str = r#"
 [class.wrong-shape]
 code = "krs::analysis::invalid-term"
 doc = "a shape the position does not admit"
+advice = "none"
 
 [class.presence]
 code = "krs::analysis::optional-presence"
 doc = "`Some`/`None` on a plain cell"
+advice = "none"
 "#;
 
 #[test]
@@ -773,14 +778,17 @@ fn the_oracle_decides_term_cases_before_and_after_the_rules() {
 [class.wildcard-outside-pattern]
 code = "krs::syntax::unsupported-term-expression"
 doc = "`_` outside a pattern"
+advice = "none"
 
 [class.constant-applies-function]
 code = "krs::analysis::invalid-constant"
 doc = "a constant that applies a function"
+advice = "none"
 
 [class.unbound-name]
 code = "krs::expand::unbound-name"
 doc = "a name nothing binds"
+advice = "none"
 
 [[refuse]]
 match = "terms/a/*"
@@ -1033,7 +1041,7 @@ fn a_map_key_reads_by_its_parent_and_its_construct() {
 /// no case of another family; `expected.toml` holds none of them.
 #[test]
 fn the_term_accepts_file_holds_only_term_accept_entries() {
-    let main = "[class.wildcard-outside-pattern]\ncode = \"krs::syntax::unsupported-term-expression\"\ndoc = \"`_` outside a pattern\"\n\n[accept.\"readable/result/pc/x\"]\n";
+    let main = "[class.wildcard-outside-pattern]\ncode = \"krs::syntax::unsupported-term-expression\"\ndoc = \"`_` outside a pattern\"\nadvice = \"none\"\n\n[accept.\"readable/result/pc/x\"]\n";
     let table = Table::parse_with_term_accepts(main, "[accept.\"terms/a/x\"]\nk = \"rule X\"\n")
         .expect("the two files parse as one table");
     assert_eq!(
@@ -1407,23 +1415,28 @@ fn table_defects_are_reported() {
 [class.internal]
 code = "krs::analysis::invalid-semantic-theory"
 doc = "an internal code as an answer"
+advice = "none"
 
 [class.environment]
 code = "krs::collect::host-io"
 doc = "an environment code as an answer"
+advice = "none"
 
 [class.unknown-code]
 code = "krs::nowhere::nothing"
 doc = "a code the registry lacks"
+advice = "none"
 
 [class.proposed-code]
 code = "krs::nowhere::proposed"
 doc = "a code its step will register"
+advice = "none"
 proposed = true
 
 [class.proposed-but-registered]
 code = "krs::analysis::invalid-term"
 doc = "a proposed code the registry already has"
+advice = "none"
 proposed = true
 
 [[refuse]]

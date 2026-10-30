@@ -144,13 +144,14 @@ fn every_cases_k7_status_is_counted() {
 }
 
 const STATUSES: &[&str] = &[
-    "810 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
-    "174 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
-    "178 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
+    "818 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
+    "178 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
+    "182 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
     "26 no driver: a malformed attribute is refused",
-    "404 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
+    "408 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
     "75 no driver: the base applies no function but Probe and Size from a rule",
-    "174 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
+    "178 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
+    "3 no driver: the function the case declares for the solver has no driver command",
     "674 no driver: the readable, claim and `cells!` families read cells the machine and typed bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
     "5 no value: Size is partial and the base gives it no equation, so the definition names no value of its application",
     "33 no value: a cell fragment, which no term of a KItem position is",
@@ -194,9 +195,9 @@ const STATUSES: &[&str] = &[
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "76 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "3 no witness: the program would hold a value the generator does not state",
-    "1022 runs a counter-witness",
-    "1446 runs, liveness",
-    "2491 runs, value",
+    "1036 runs a counter-witness",
+    "1486 runs, liveness",
+    "2517 runs, value",
 ];
 
 /// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern

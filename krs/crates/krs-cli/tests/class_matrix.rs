@@ -64,7 +64,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use krs_compiler::testing::SortJudges;
-use krs_test_support::class_matrix::advice::advised;
+use krs_test_support::class_matrix::advice::{Corpus, Followed, Reading, judge, read};
 use krs_test_support::class_matrix::invariants::{
     Observed, registry_kind, signature, violations, without_rustc_parse_error,
 };
@@ -73,7 +73,7 @@ use krs_test_support::class_matrix::pending::{
     ADVICE, CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, RUN, case_of,
 };
 use krs_test_support::class_matrix::table::{
-    Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, is_term_case,
+    Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, in_term_accepts,
 };
 use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
@@ -425,15 +425,16 @@ impl Shard {
 /// K2: the table-free invariants, and the table where it covers the case. `k` is the case's K
 /// for the table's comparison, `None` in the record mode. At a position rustc parses, rustc's
 /// parse error beside KRS's one error at the same spelling is left out of the judgement
-/// ([`without_rustc_parse_error`]), not out of the signature. Whether the table covers the case,
-/// and whether the case conforms.
+/// ([`without_rustc_parse_error`]), not out of the signature. Whether the table covers the case.
+/// The case's line of the TSV shows its errors' messages, the class the table expects, and their
+/// help lines.
 fn k2(
     shard: &mut Shard,
     resolution: &Resolution<'_>,
     case: &Case,
     judged: &Judged,
     k: Option<&str>,
-) -> (bool, bool) {
+) -> bool {
     let placed = judged.placed(case);
     let covered = resolution.expected.get(&judged.id);
     let site = covered.map_or(&placed.entry, |expected| expected.site(&placed));
@@ -450,37 +451,69 @@ fn k2(
         .errors()
         .map(|error| error.message.replace(['\n', '\t'], " "))
         .collect::<Vec<_>>();
+    let help = judged
+        .observed
+        .errors()
+        .flat_map(|error| error.help.iter())
+        .map(|help| help.replace(['\n', '\t'], " "))
+        .collect::<Vec<_>>();
+    let class = match covered {
+        Some(Expected::Refuse { name, .. }) => name,
+        Some(Expected::Accept(_)) => "accept",
+        None => "-",
+    };
     writeln!(
         shard.lines,
-        "case\t{}\t{}\t{}",
+        "case\t{}\t{}\t{}\t{class}\t{}",
         judged.id,
         judged.batch,
-        messages.join(" | ")
+        messages.join(" | "),
+        help.join(" | ")
     )
     .expect("writing to a String cannot fail");
-    let conforms = misses.is_empty();
     shard.add(
         "k2",
         &judged.id,
         signature(&judged.observed, &placed),
         misses,
     );
-    (covered.is_some(), conforms)
+    covered.is_some()
 }
 
-/// K8, the advice check: a class's advised case (`expected.toml`'s `advice`) is accepted, passes
-/// K6 and runs as K7 states where K6 and K7 ran; and a case its class refuses as the table
-/// expects, whose error advises a rewrite (`class_matrix::advice`), belongs to a class that names
-/// an advised case. Keyed `k8/<case ID>`.
-fn k8(shard: &mut Shard, resolution: &Resolution<'_>, judged: &Judged, conforms: bool) {
-    let classes = &spec().table.classes;
-    let advising = classes
-        .iter()
-        .filter(|(_, class)| class.advice.as_deref() == Some(judged.id.as_str()))
-        .map(|(name, _)| name.as_str())
-        .collect::<Vec<_>>();
-    if !advising.is_empty() {
-        let of = format!("advice of {}", advising.join(", "));
+/// K8, the advice check (`class_matrix::advice`), keyed `k8/<case ID>`:
+/// - a case a class advises writing in place of a case it refuses (`expected.toml`'s `advice`,
+///   resolved on the refused case's form) is accepted, passes K6 and runs as K7 states where K6
+///   and K7 ran;
+/// - each refused case's KRS errors are read for the form they advise: a class marked
+///   `advice = "none"` whose refusal advises one deviates; a class that advises a case deviates
+///   where that case is not generated or not accepted on the refused case's form, or does not
+///   write the form the refusal proposes (or writes the form it says to take away); a case the
+///   table accepts, refused, deviates where its refusal advises a form, since the case already
+///   writes what is valid.
+///
+/// Every refused case is read, whether or not its refusal conforms (a pending one included).
+fn k8(
+    shard: &mut Shard,
+    resolution: &Resolution<'_>,
+    advised_by: &BTreeMap<String, BTreeSet<&str>>,
+    corpus: &Corpus,
+    judged: &Judged,
+) {
+    if let Some(advising) = advised_by.get(&judged.id) {
+        k8_advised(shard, advising, judged);
+    }
+    if judged.observed.refused() {
+        k8_refusal(shard, resolution, corpus, judged);
+    }
+}
+
+/// K8 on a case classes advise writing: it is accepted, passes K6 and runs as K7 states.
+fn k8_advised(shard: &mut Shard, advising: &BTreeSet<&str>, judged: &Judged) {
+    {
+        let of = format!(
+            "advice of {}",
+            advising.iter().copied().collect::<Vec<_>>().join(", ")
+        );
         let deviation = if judged.observed.refused() {
             Some(format!(
                 "{of}: refused: {}",
@@ -507,19 +540,176 @@ fn k8(shard: &mut Shard, resolution: &Resolution<'_>, judged: &Judged, conforms:
         };
         shard.add("k8", &judged.id, signature, misses);
     }
-    if let Some(Expected::Refuse { name, class, .. }) = resolution.expected.get(&judged.id)
-        && conforms
-        && judged.observed.refused()
-        && class.advice.is_none()
-        && let Some(form) = judged.observed.errors().find_map(advised)
-    {
+}
+
+/// K8 on a refused case: what its KRS errors advise, against its class's advice.
+fn k8_refusal(shard: &mut Shard, resolution: &Resolution<'_>, corpus: &Corpus, judged: &Judged) {
+    let mut reading = Reading::default();
+    for error in judged.observed.errors().filter(|error| {
+        error
+            .code
+            .as_deref()
+            .is_some_and(|code| code.starts_with("krs::"))
+    }) {
+        reading.groups.extend(read(error).groups);
+    }
+    let forms = reading
+        .forms()
+        .map(|advice| {
+            let verb = if advice.removes { "drop " } else { "" };
+            format!("{verb}`{}`", advice.form)
+        })
+        .collect::<Vec<_>>();
+    let advice = (!forms.is_empty()).then(|| forms.join(", "));
+    let mut verdict = |signature: String, miss: Option<&str>| {
         shard.add(
             "k8",
             &judged.id,
-            format!("{name} advises `{form}` and names no advised case"),
-            vec!["a refusal advises a rewrite its class names no case of".to_owned()],
+            signature,
+            miss.map(str::to_owned).into_iter().collect(),
         );
+    };
+    match resolution.expected.get(&judged.id) {
+        Some(Expected::Refuse { name, class, .. }) => {
+            let advised = class.advised_cases(&judged.id);
+            if advised.is_empty() {
+                if let Some(advice) = advice {
+                    verdict(
+                        format!("{name} advises none, and its refusal advises {advice}"),
+                        Some("a refusal advises a rewrite its class does not"),
+                    );
+                }
+                return;
+            }
+            // A refusal that advises nothing here has no advice to judge: the class's advised
+            // cases are judged as cases of their own.
+            if reading.groups.is_empty() {
+                return;
+            }
+            let (signature, miss) = k8_against(
+                name,
+                &advised,
+                &reading,
+                advice.as_deref(),
+                resolution,
+                corpus,
+            );
+            verdict(signature, miss);
+        }
+        Some(Expected::Accept(_)) => {
+            if let Some(advice) = advice {
+                verdict(
+                    format!("refused where the table accepts, advising {advice}"),
+                    Some("a refusal of a case the table accepts advises a rewrite"),
+                );
+            }
+        }
+        None => {}
     }
+}
+
+/// K8's verdict on a refusal of the class `name` that reads `reading` (its forms `advice`),
+/// against the class's advised cases `advised`: the signature, and the miss where it deviates.
+fn k8_against(
+    name: &str,
+    advised: &[String],
+    reading: &Reading,
+    advice: Option<&str>,
+    resolution: &Resolution<'_>,
+    corpus: &Corpus,
+) -> (String, Option<&'static str>) {
+    // The advised cases this form has, generated and accepted, with their own text.
+    let mut missing = Vec::new();
+    let mut sources = Vec::new();
+    for case in advised {
+        match (
+            spec().cases.iter().find(|generated| generated.id == *case),
+            resolution.expected.get(case),
+        ) {
+            (None, _) => missing.push(format!("{case}, which is not generated")),
+            (Some(generated), Some(Expected::Accept(_))) => {
+                sources.push((case, generated.own_source()));
+            }
+            (Some(_), Some(Expected::Refuse { name: refused, .. })) => {
+                missing.push(format!("{case}, which the table refuses ({refused})"));
+            }
+            (Some(_), None) => {
+                missing.push(format!("{case}, which the table does not decide"));
+            }
+        }
+    }
+    if sources.is_empty() {
+        (
+            format!("{name} advises {}", missing.join("; ")),
+            Some("the form a refusal advises does not exist on its form"),
+        )
+    } else {
+        let cases = sources
+            .iter()
+            .map(|(case, _)| case.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let texts = sources
+            .into_iter()
+            .map(|(_, source)| source)
+            .collect::<Vec<_>>();
+        let follows = advice.unwrap_or("prose");
+        match judge(reading, &texts, corpus) {
+            Followed::Followed => (
+                format!("{name} advises {cases}, which follows {follows}"),
+                None,
+            ),
+            Followed::Unwritten { form, writer } => (
+                format!(
+                    "{name}'s refusal advises `{form}`, which {cases} does not write ({writer} does)"
+                ),
+                Some("the refusal advises a form its class's advised case does not write"),
+            ),
+            Followed::Unchecked => (
+                format!("{name} advises {cases}; unchecked: no generated case writes {follows}"),
+                None,
+            ),
+        }
+    }
+}
+
+/// Write the shard's TSV and its unrecorded pending entries to `KRS_CLASS_OUT`, where it is set.
+fn write_out(name: &str, shard: &Shard) {
+    if let Some(out) = variable("KRS_CLASS_OUT") {
+        let out = PathBuf::from(out);
+        std::fs::create_dir_all(&out).expect("the output directory is created");
+        std::fs::write(out.join(format!("{name}.tsv")), &shard.lines).expect("the TSV is written");
+        std::fs::write(out.join(format!("{name}.pending.toml")), &shard.record)
+            .expect("the pending entries are written");
+    }
+}
+
+/// The own text of every generated case the table accepts, for the forms K8 reads.
+fn accepted_corpus(resolution: &Resolution<'_>) -> Corpus {
+    Corpus::new(
+        spec()
+            .cases
+            .iter()
+            .filter(|case| matches!(resolution.expected.get(&case.id), Some(Expected::Accept(_))))
+            .map(|case| (case.id.clone(), case.own_source())),
+    )
+}
+
+/// The classes that advise each case: every refused case's resolution of its class's advice
+/// that the table accepts. A resolution the table refuses is the refused case's deviation, which
+/// [`k8`] reports there, where the refusal advises it.
+fn advised_by<'r>(resolution: &'r Resolution<'_>) -> BTreeMap<String, BTreeSet<&'r str>> {
+    let mut advised = BTreeMap::<String, BTreeSet<&str>>::new();
+    for (id, expected) in &resolution.expected {
+        if let Expected::Refuse { name, class, .. } = expected {
+            for case in class.advised_cases(id) {
+                if matches!(resolution.expected.get(&case), Some(Expected::Accept(_))) {
+                    advised.entry(case).or_default().insert(name);
+                }
+            }
+        }
+    }
+    advised
 }
 
 /// The test a pending key belongs to.
@@ -621,7 +811,7 @@ fn k3(
 /// the file has none, every other entry and key kept.
 fn record(recorded: &BTreeMap<String, String>) {
     let (terms, others): (BTreeMap<_, _>, BTreeMap<_, _>) =
-        recorded.iter().partition(|(id, _)| is_term_case(id));
+        recorded.iter().partition(|(id, _)| in_term_accepts(id));
     for (file, recorded) in [(TERM_ACCEPTS_FILE, terms), ("expected.toml", others)] {
         if recorded.is_empty() {
             continue;
@@ -793,6 +983,8 @@ fn shard(name: &str, families: &[Family]) {
     let mut uncovered = 0;
     let mut forms = BTreeMap::new();
     let (ks, recorded) = accepted_ks(&judged, &by_id, &resolution, recording);
+    let advised = advised_by(&resolution);
+    let corpus = accepted_corpus(&resolution);
     for (judged, k) in judged.iter().zip(ks) {
         let case = by_id[judged.id.as_str()];
         let expected = resolution.expected.get(&judged.id);
@@ -813,14 +1005,14 @@ fn shard(name: &str, families: &[Family]) {
             ));
         }
         let compared = k.as_deref().filter(|_| !recording);
-        let (covered, conforms) = k2(&mut shard, &resolution, case, judged, compared);
+        let covered = k2(&mut shard, &resolution, case, judged, compared);
         uncovered += usize::from(!covered);
         k1(&mut shard, judged);
         let pairs = k.as_deref().map_or_else(Vec::new, |k| other_k(expected, k));
         k3(&mut shard, judged, pairs, &mut forms);
         k6(&mut shard, judged);
         k7(&mut shard, judged);
-        k8(&mut shard, &resolution, judged, conforms);
+        k8(&mut shard, &resolution, &advised, &corpus, judged);
     }
     if recording {
         record(&recorded);
@@ -834,13 +1026,7 @@ fn shard(name: &str, families: &[Family]) {
         families,
         variable("KRS_CLASS_FILTER").is_none(),
     );
-    if let Some(out) = variable("KRS_CLASS_OUT") {
-        let out = PathBuf::from(out);
-        std::fs::create_dir_all(&out).expect("the output directory is created");
-        std::fs::write(out.join(format!("{name}.tsv")), &shard.lines).expect("the TSV is written");
-        std::fs::write(out.join(format!("{name}.pending.toml")), &shard.record)
-            .expect("the pending entries are written");
-    }
+    write_out(name, &shard);
 
     for (form, counts) in &forms {
         eprintln!("[krs-class] {name}: K3 {form}: {counts:?}");

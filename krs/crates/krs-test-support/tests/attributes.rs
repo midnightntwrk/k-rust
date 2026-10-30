@@ -5,95 +5,210 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use krs_test_support::class_matrix::attributes::{
-    Attribute, BASE_KEYS, CASE_PRIORITY, DECLARATION_MACROS, DRIVER_PRIORITY, FORMS, MALFORMED,
-    OWISE_SIBLING_PRIORITY, PRIORITY_SIBLING_PRIORITY, Pair, SENTENCE_MACROS, Written, pairs,
+    Attribute, BASE_KEYS, CASE_PRIORITY, DECLARATION_MACROS, DRIVER_PRIORITY, EXTRAS, FORMS,
+    LATE_CASE_PRIORITY, MALFORMED, OWISE_SIBLING_PRIORITY, PRIORITY_SIBLING_PRIORITY, Pair,
+    SENTENCE_MACROS, Written, pairs,
 };
 use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::oracle::Outcome;
 use krs_test_support::class_matrix::{self, Base, Family};
 use syn::visit::Visit;
 
-/// The parsers of a sentence's attribute keys, in `krs-syntax/src/attribute/`: each file, and in
-/// it each function (`Type::function` for a method) whose recognized keys the axis must cover.
-const PARSERS: [(&str, &[&str]); 2] = [
+/// The directory of the product's attribute parsers, `krs-syntax/src/attribute/`, every file of
+/// which the key scan reads.
+fn attribute_parsers() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs-syntax/src/attribute")
+}
+
+/// The functions of the attribute parsers whose compared literals are a declaration's keys, not
+/// a sentence's, by `file::function` (`Type::function` for a method), with the declaration: the
+/// key scan reads every other function's literals as a sentence's keys. A function the scan
+/// finds that compares literals and is in neither the axis's keys nor this list fails it.
+const DECLARATION_PARSERS: [(&str, &str); 16] = [
     (
-        "rule.rs",
-        &[
-            "parse_rule_stream",
-            "parse_context_stream",
-            "ClaimAttribute::parse_with_label",
-        ],
+        "constructor.rs::ConstructorKey::parse",
+        "a constructor's keys",
     ),
     (
-        "sort.rs",
-        &[
-            "parse_equation_stream",
-            "MatchRestriction::parse_key",
-            "parse_simplification_stream",
-            "parse_static_clause_tokens",
-            "DesugarAttribute::parse_tokens",
-            "parse_context_alias_stream",
-        ],
+        "constructor.rs::ProductionColors::parse",
+        "a production's colors",
     ),
+    (
+        "constructor.rs::VariantSyntaxKey::parse",
+        "a variant's syntax keys",
+    ),
+    (
+        "constructor.rs::parse_constructor_stream",
+        "#[k::constructor]",
+    ),
+    (
+        "constructor.rs::parse_constructors_stream",
+        "#[k::constructors]",
+    ),
+    (
+        "constructor.rs::parse_function_keys",
+        "#[k::function], a function shorthand's marker included",
+    ),
+    (
+        "constructor.rs::parse_function_smt",
+        "a function's solver keys",
+    ),
+    (
+        "constructor.rs::parse_variant_syntax_stream",
+        "a variant's syntax",
+    ),
+    ("constructor.rs::placement_flag", "a production's placement"),
+    (
+        "constructor.rs::preference_conflict",
+        "a production's preference",
+    ),
+    ("sort.rs::parse_sort_stream", "#[k::sort]"),
+    ("sort.rs::parse_subsort_stream", "#[k::subsort]"),
+    (
+        "spec_module.rs::parse_attribute_stream",
+        "#[k::spec_module]",
+    ),
+    ("state.rs::parse_cell_stream", "#[k::cell]"),
+    (
+        "state.rs::parse_configuration_stream",
+        "#[k::configuration]",
+    ),
+    ("state.rs::validate_multiplicity", "a cell's multiplicity"),
 ];
 
 /// The string literals a parser compares a key with: a match arm's pattern, an operand of `==`
-/// or `!=`.
-#[derive(Default)]
-struct Keys(BTreeSet<String>);
+/// or `!=`, a pattern of `matches!`, each directly or through a `&str` constant of the file.
+struct Keys<'c> {
+    constants: &'c BTreeMap<String, String>,
+    found: BTreeSet<String>,
+}
 
-impl<'ast> Visit<'ast> for Keys {
+impl<'ast> Visit<'ast> for Keys<'_> {
     fn visit_arm(&mut self, arm: &'ast syn::Arm) {
-        Patterns(&mut self.0).visit_pat(&arm.pat);
+        Patterns(self.constants, &mut self.found).visit_pat(&arm.pat);
         syn::visit::visit_arm(self, arm);
     }
 
     fn visit_expr_binary(&mut self, binary: &'ast syn::ExprBinary) {
         if matches!(binary.op, syn::BinOp::Eq(_) | syn::BinOp::Ne(_)) {
             for side in [&*binary.left, &*binary.right] {
-                if let syn::Expr::Lit(syn::ExprLit {
-                    lit: syn::Lit::Str(literal),
-                    ..
-                }) = side
-                {
-                    self.0.insert(literal.value());
+                let side = match side {
+                    syn::Expr::Reference(reference) => &*reference.expr,
+                    side => side,
+                };
+                match side {
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Str(literal),
+                        ..
+                    }) => {
+                        self.found.insert(literal.value());
+                    }
+                    syn::Expr::Path(path) => {
+                        if let Some(value) = path
+                            .path
+                            .get_ident()
+                            .and_then(|ident| self.constants.get(&ident.to_string()))
+                        {
+                            self.found.insert(value.clone());
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
         syn::visit::visit_expr_binary(self, binary);
     }
+
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        if mac.path.is_ident("matches") {
+            let parsed = mac.parse_body_with(|input: syn::parse::ParseStream<'_>| {
+                input.parse::<syn::Expr>()?;
+                input.parse::<syn::Token![,]>()?;
+                syn::Pat::parse_multi_with_leading_vert(input)
+            });
+            if let Ok(pattern) = parsed {
+                Patterns(self.constants, &mut self.found).visit_pat(&pattern);
+            }
+        }
+        syn::visit::visit_macro(self, mac);
+    }
 }
 
-/// The string literals of a pattern.
-struct Patterns<'a>(&'a mut BTreeSet<String>);
+/// The string literals of a pattern, and the values of the `&str` constants it names.
+struct Patterns<'a>(&'a BTreeMap<String, String>, &'a mut BTreeSet<String>);
 
 impl<'ast> Visit<'ast> for Patterns<'_> {
     fn visit_pat(&mut self, pattern: &'ast syn::Pat) {
-        if let syn::Pat::Lit(syn::ExprLit {
-            lit: syn::Lit::Str(literal),
-            ..
-        }) = pattern
-        {
-            self.0.insert(literal.value());
+        match pattern {
+            syn::Pat::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(literal),
+                ..
+            }) => {
+                self.1.insert(literal.value());
+            }
+            syn::Pat::Path(path) => {
+                if let Some(value) = path
+                    .path
+                    .get_ident()
+                    .and_then(|ident| self.0.get(&ident.to_string()))
+                {
+                    self.1.insert(value.clone());
+                }
+            }
+            _ => {}
         }
         syn::visit::visit_pat(self, pattern);
     }
 }
 
-/// The keys each parser function of [`PARSERS`] recognizes, by `file::function`.
-fn parser_keys() -> BTreeMap<String, BTreeSet<String>> {
-    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs-syntax/src/attribute");
+/// The `&str` constants of a file, by name.
+fn constants(file: &syn::File) -> BTreeMap<String, String> {
+    #[derive(Default)]
+    struct Constants(BTreeMap<String, String>);
+    impl<'ast> Visit<'ast> for Constants {
+        fn visit_item_const(&mut self, item: &'ast syn::ItemConst) {
+            if let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(literal),
+                ..
+            }) = &*item.expr
+            {
+                self.0.insert(item.ident.to_string(), literal.value());
+            }
+        }
+    }
+    let mut found = Constants::default();
+    found.visit_file(file);
+    found.0
+}
+
+/// Every function of the Rust files under `directory`, by `file::function`
+/// (`file::Type::function` for a method), with the literals it compares a key with.
+fn compared_literals(directory: &Path) -> BTreeMap<String, BTreeSet<String>> {
     let mut found = BTreeMap::new();
-    for (file, functions) in PARSERS {
-        let path = directory.join(file);
+    let mut files = std::fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("{}: {error}", directory.display()))
+        .map(|entry| entry.expect("a directory entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .collect::<Vec<_>>();
+    files.sort();
+    for path in files {
+        let file = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("a file name")
+            .to_owned();
         let text = std::fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         let parsed = syn::parse_file(&text).unwrap_or_else(|error| panic!("{file}: {error}"));
+        let constants = constants(&parsed);
         let mut take = |name: String, block: &syn::Block| {
-            if functions.contains(&name.as_str()) {
-                let mut keys = Keys::default();
-                keys.visit_block(block);
-                found.insert(format!("{file}::{name}"), keys.0);
+            let mut keys = Keys {
+                constants: &constants,
+                found: BTreeSet::new(),
+            };
+            keys.visit_block(block);
+            if !keys.found.is_empty() {
+                found.insert(format!("{file}::{name}"), keys.found);
             }
         };
         for item in &parsed.items {
@@ -123,34 +238,151 @@ fn parser_keys() -> BTreeMap<String, BTreeSet<String>> {
 }
 
 #[test]
+#[ignore = "prints every function of the attribute parsers and the literals it compares"]
+fn print_the_attribute_parsers_literals() {
+    for (function, literals) in compared_literals(&attribute_parsers()) {
+        println!("{function}\t{literals:?}");
+    }
+}
+
+#[test]
 fn every_key_the_attribute_parsers_recognize_is_an_attribute_of_the_axis() {
-    let found = parser_keys();
-    let missing = PARSERS
+    let found = compared_literals(&attribute_parsers());
+    let stale = DECLARATION_PARSERS
         .iter()
-        .flat_map(|(file, functions)| functions.iter().map(move |name| format!("{file}::{name}")))
-        .filter(|name| !found.contains_key(name))
+        .filter(|(function, _)| !found.contains_key(*function))
         .collect::<Vec<_>>();
     assert!(
-        missing.is_empty(),
-        "the attribute parsers moved; update PARSERS: {missing:?}"
+        stale.is_empty(),
+        "declaration parsers the scan no longer finds comparing literals: {stale:?}"
     );
-    let recognized = found.values().flatten().cloned().collect::<BTreeSet<_>>();
+    let recognized = found
+        .iter()
+        .filter(|(function, _)| {
+            !DECLARATION_PARSERS
+                .iter()
+                .any(|(declaration, _)| declaration == function)
+        })
+        .flat_map(|(function, keys)| {
+            keys.iter()
+                .map(move |key| (key.as_str(), function.as_str()))
+        })
+        .collect::<BTreeMap<_, _>>();
     let covered = Attribute::ALL
         .iter()
         .flat_map(|attribute| attribute.keys().iter().copied())
         .chain(BASE_KEYS.iter().flat_map(|(_, keys)| keys.iter().copied()))
-        .map(str::to_owned)
+        .chain(PRODUCTION_KEYS)
         .collect::<BTreeSet<_>>();
-    let uncovered = recognized.difference(&covered).collect::<Vec<_>>();
+    let uncovered = recognized
+        .iter()
+        .filter(|(key, _)| !covered.contains(*key))
+        .collect::<Vec<_>>();
     assert!(
         uncovered.is_empty(),
-        "keys a sentence's attribute parser recognizes that no attribute of the axis writes: {uncovered:?}"
+        "keys a sentence's attribute parser recognizes that no attribute of the axis writes, with a function that compares each: {uncovered:?}"
     );
-    let stale = covered.difference(&recognized).collect::<Vec<_>>();
+    let stale = covered
+        .iter()
+        .filter(|key| !recognized.contains_key(*key))
+        .collect::<Vec<_>>();
     assert!(
         stale.is_empty(),
         "keys the axis writes that no parser recognizes: {stale:?}"
     );
+}
+
+/// The keys of a static production's own marker the axis writes ([`EXTRAS`]).
+const PRODUCTION_KEYS: [&str; 1] = ["recursive"];
+
+/// The attribute names the function-like clause macros (`k::rules!`, `k::claims!`,
+/// `k::equations!`) recognize on a clause, read from their takers in `krs-syntax/src/rule/`: a
+/// literal compared with an attribute path's name, or an `AttributeMacro` variant matched.
+fn clause_attribute_names() -> BTreeSet<String> {
+    const TAKERS: [(&str, &str); 3] = [
+        ("block.rs", "take_rule_clause_attribute"),
+        ("block.rs", "take_claim_clause_attribute"),
+        ("equation_table.rs", "row_attributes"),
+    ];
+    #[derive(Default)]
+    struct Variants(BTreeSet<String>);
+    impl<'ast> Visit<'ast> for Variants {
+        fn visit_path(&mut self, path: &'ast syn::Path) {
+            let segments = path.segments.iter().collect::<Vec<_>>();
+            if let [.., owner, variant] = segments.as_slice()
+                && owner.ident == "AttributeMacro"
+            {
+                let mut name = String::new();
+                for (at, character) in variant.ident.to_string().char_indices() {
+                    if character.is_uppercase() && at > 0 {
+                        name.push('_');
+                    }
+                    name.push(character.to_ascii_lowercase());
+                }
+                self.0.insert(name);
+            }
+            syn::visit::visit_path(self, path);
+        }
+    }
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs-syntax/src/rule");
+    let found = compared_literals(&directory);
+    let mut names = BTreeSet::new();
+    for (file, function) in TAKERS {
+        if let Some(literals) = found.get(&format!("{file}::{function}")) {
+            names.extend(literals.iter().cloned());
+        }
+        let text = std::fs::read_to_string(directory.join(file)).expect("the taker's file");
+        let parsed = syn::parse_file(&text).expect("the taker's file parses");
+        let taker = parsed
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Fn(item) if item.sig.ident == function => Some(item),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("the clause taker {file}::{function} moved"));
+        let mut variants = Variants::default();
+        variants.visit_block(&taker.block);
+        names.extend(variants.0);
+    }
+    names
+}
+
+#[test]
+fn every_attribute_a_clause_macro_recognizes_is_a_sentence_macro_the_axis_writes_on_a_clause() {
+    let names = clause_attribute_names();
+    assert!(
+        names.contains("rule") && names.contains("claim") && names.contains("equation"),
+        "the scan reads the clause takers: {names:?}"
+    );
+    let not_sentence = names
+        .iter()
+        .filter(|name| !SENTENCE_MACROS.contains(&name.as_str()))
+        .collect::<Vec<_>>();
+    assert!(
+        not_sentence.is_empty(),
+        "attributes a clause macro recognizes that are no sentence macro: {not_sentence:?}"
+    );
+    // Each is written on a clause form: a `for Sort` clause, a readable clause, a table row or a
+    // `k::claims!` clause.
+    let cases = class_matrix::cases();
+    let clause_items = cases
+        .iter()
+        .filter(|case| case.family == Family::Attributes)
+        .filter(|case| {
+            ["sort-rule", "readable", "table", "claim"]
+                .contains(&case.id.split('/').nth(1).unwrap_or_default())
+        })
+        .map(krs_test_support::class_matrix::Case::item)
+        .collect::<Vec<_>>();
+    for name in &names {
+        assert!(
+            clause_items
+                .iter()
+                .any(|item| item.contains(&format!("#[k::{name}"))),
+            "no attribute case writes #[k::{name}] on a clause"
+        );
+    }
 }
 
 #[test]
@@ -169,32 +401,66 @@ fn every_attribute_macro_is_a_sentence_marker_a_helper_or_a_declaration() {
         entries, named,
         "every attribute macro of krs-macros is a sentence's marker or helper, or a declaration's"
     );
-    let cases = class_matrix::cases();
-    let written = cases
+    // The sentence macros are exactly the forms' markers and the axis's helpers, and the cases
+    // write each where the axis says: every case of a form with a marker writes it, and every
+    // helper is written on every form.
+    let markers = FORMS
         .iter()
-        .filter(|case| case.family == Family::Attributes)
-        .flat_map(|case| {
-            case.item()
-                .match_indices("#[k::")
-                .map(|(at, open)| {
-                    let rest = &case.item()[at + open.len()..];
-                    rest[..rest.find(['(', ']']).unwrap_or(rest.len())].to_owned()
-                })
-                .collect::<Vec<_>>()
+        .map(|form| form.marker)
+        .collect::<BTreeSet<_>>();
+    let helpers = Attribute::ALL
+        .iter()
+        .filter_map(|attribute| match attribute.written() {
+            Written::Helper(text) => text
+                .strip_prefix("#[k::")
+                .and_then(|rest| rest.split(['(', ']']).next()),
+            _ => None,
         })
         .collect::<BTreeSet<_>>();
-    for name in SENTENCE_MACROS {
-        assert!(
-            written.contains(name),
-            "no attribute case writes #[k::{name}]"
-        );
+    assert!(markers.is_disjoint(&helpers), "{markers:?} {helpers:?}");
+    assert_eq!(
+        markers.union(&helpers).copied().collect::<BTreeSet<_>>(),
+        SENTENCE_MACROS.iter().copied().collect::<BTreeSet<_>>(),
+        "the sentence macros are the forms' markers and the axis's helpers"
+    );
+    let cases = class_matrix::cases();
+    let clause_forms = ["sort-rule", "readable", "table"];
+    for case in cases
+        .iter()
+        .filter(|case| case.family == Family::Attributes)
+    {
+        let Some(pair) = case.attribute else {
+            continue;
+        };
+        let form = pair.form();
+        let item = case.item();
+        if !clause_forms.contains(&form.name) {
+            assert!(
+                item.contains(&format!("#[k::{}", form.marker)),
+                "{}: does not write its form's marker #[k::{}]",
+                case.id,
+                form.marker
+            );
+        }
+        if let Written::Helper(text) = pair.written() {
+            assert!(
+                item.contains(&text.replace("TAG", &case.tag())),
+                "{}",
+                case.id
+            );
+        }
     }
-}
-
-/// What a pair writes.
-const fn text(written: Written) -> &'static str {
-    match written {
-        Written::Key(text) | Written::Modality(text) | Written::Helper(text) => text,
+    for helper in &helpers {
+        for form in FORMS {
+            assert!(
+                cases.iter().any(|case| case.family == Family::Attributes
+                    && case
+                        .id
+                        .starts_with(&format!("attrs/{}/#[k::{helper}", form.name))),
+                "#[k::{helper}] is not written on {}",
+                form.name
+            );
+        }
     }
 }
 
@@ -217,19 +483,27 @@ fn every_term_slot_form_has_an_attribute_form_and_every_pair_a_case() {
         .collect::<Vec<_>>();
     assert_eq!(
         attribute_cases.len(),
-        FORMS.len() * Attribute::ALL.len() + MALFORMED.len()
+        FORMS.len() * Attribute::ALL.len() + MALFORMED.len() + EXTRAS.len()
     );
     assert_eq!(attribute_cases.len(), pairs().len());
     for case in &attribute_cases {
         let pair = case.attribute.expect("an attribute case carries its pair");
-        let written = text(pair.written());
-        assert_eq!(case.id, format!("attrs/{}/{written}", pair.form().name));
+        assert_eq!(
+            case.id,
+            format!("attrs/{}/{}", pair.form().name, pair.name())
+        );
         assert!(case.oracle().is_some(), "{}: the oracle judges it", case.id);
         let rendered = case.render();
         let placed = &rendered.cases[0];
+        // A production's key is written on the case's command: its spelling is the clause's
+        // marker.
+        let spelled = match pair.written() {
+            Written::Production(_) => format!("#[k::{}]", pair.form().marker),
+            written => written.text().replace("TAG", &case.tag()),
+        };
         assert_eq!(
             &rendered.source[placed.spelling.clone()],
-            written.replace("TAG", &case.tag()),
+            spelled,
             "{}: the spelling is the attribute",
             case.id
         );
@@ -259,6 +533,7 @@ fn an_attribute_cases_priorities_lie_after_the_driver_rules_and_apart_from_them(
     assert_eq!(priorities, BTreeSet::from([DRIVER_PRIORITY]));
     for priority in [
         CASE_PRIORITY,
+        LATE_CASE_PRIORITY,
         PRIORITY_SIBLING_PRIORITY,
         OWISE_SIBLING_PRIORITY,
     ] {
@@ -267,9 +542,18 @@ fn an_attribute_cases_priorities_lie_after_the_driver_rules_and_apart_from_them(
             "a case's or a sibling's priority, {priority}, lies after the drivers'"
         );
     }
-    // The default priority is 50, `owise`'s 200.
+    assert_eq!(
+        Attribute::PriorityLate.text(),
+        format!("priority = {LATE_CASE_PRIORITY}")
+    );
+    // The default priority is 50, `owise`'s 200; the two priority cases lie on either side of
+    // their sibling, so they have opposite winners.
     const {
         assert!(CASE_PRIORITY < PRIORITY_SIBLING_PRIORITY && PRIORITY_SIBLING_PRIORITY < 50);
+        assert!(
+            PRIORITY_SIBLING_PRIORITY < LATE_CASE_PRIORITY && LATE_CASE_PRIORITY < 50,
+            "a late case's priority lies after its sibling's and before the default"
+        );
         assert!(OWISE_SIBLING_PRIORITY > 50 && OWISE_SIBLING_PRIORITY < 200);
     }
     // No case names a driver command: its sentences match only its own command, which no
@@ -435,8 +719,8 @@ fn a_class_whose_registry_summary_advises_names_an_advised_case() {
             let form = advised_in_message(summary)?;
             class
                 .advice
-                .is_none()
-                .then(|| format!("{name} ({}: `{form}`)", class.code))
+                .is_empty()
+                .then(|| format!("{name} ({}: `{}`)", class.code, form.form))
         })
         .collect::<Vec<_>>();
     assert!(
@@ -454,7 +738,8 @@ fn advice_detector_over_messages() {
         .expect("the file is read")
         .lines()
     {
-        println!("{}\t{line}", advised_in_message(line).unwrap_or("-"));
+        let form = advised_in_message(line).map(|advice| advice.form);
+        println!("{}\t{line}", form.as_deref().unwrap_or("-"));
     }
 }
 

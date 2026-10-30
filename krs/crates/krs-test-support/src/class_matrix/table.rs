@@ -6,8 +6,13 @@
 //!    names an author mistake, not a site, so every case of the mistake answers with one code.
 //!    `proposed = true` marks a code that is not registered yet, whose step will register it;
 //!    until then every case of the class is red, and once it is registered the mark must go.
-//!    `advice = "ID"` names the case that writes the form the class's refusal advises writing
-//!    instead ([`super::advice`]), which the table must accept.
+//!    `advice` is `"none"` when the class's refusal advises no rewrite, or names the case that
+//!    writes the form it advises writing instead ([`super::advice`]), or a list of such cases
+//!    where the refusal advises different forms at different sites: each an ID, which the table
+//!    must accept, or a template whose `{form}` stands for the refused case's form (its ID's
+//!    second segment), so that a class refused on several forms is advised, on each, the form
+//!    there; a template must resolve to a case the table accepts for one refused case at least,
+//!    and K8 judges each refused case's resolution.
 //! 2. `[[refuse]]`: refusal rules, each a `match` glob over case IDs, the `class` of the mistake
 //!    the matched cases make, and `at`, the range the error must lie inside (`entry`,
 //!    `spelling`, `item`, or `header`).
@@ -72,13 +77,15 @@ use toml_edit::{DocumentMut, Item, Table as TomlTable};
 use super::oracle::{Class as OracleClass, Outcome, Stage};
 use super::{Case, Placed};
 
-/// The file beside `expected.toml` that holds the term families' accept entries.
+/// The file beside `expected.toml` that holds the accept entries of the families the oracle
+/// judges: the term families and the attribute axis.
 pub const TERM_ACCEPTS_FILE: &str = "accepted-terms.toml";
 
-/// Whether `id` is a case of the families the oracle judges, the term families and the attribute
-/// axis, whose accept entries [`TERM_ACCEPTS_FILE`] holds.
+/// Whether `id`'s accept entry lives in [`TERM_ACCEPTS_FILE`]: `id` is a case of a family the
+/// oracle judges, a term family or the attribute axis. Only where an accept entry is kept
+/// depends on it.
 #[must_use]
-pub fn is_term_case(id: &str) -> bool {
+pub fn in_term_accepts(id: &str) -> bool {
     id.starts_with("terms/")
         || id.starts_with("import/")
         || id.starts_with("notation/")
@@ -129,9 +136,27 @@ pub struct MistakeClass {
     pub doc: String,
     /// Whether the code is proposed and not registered yet.
     pub proposed: bool,
-    /// The generated case that writes the form the class's refusal advises writing instead
-    /// (K8, [`super::advice`]), which the table must accept.
-    pub advice: Option<String>,
+    /// The generated cases that write the forms the class's refusal advises writing instead
+    /// (K8, [`super::advice`]), each an ID or a template over [`FORM`]; empty for
+    /// `advice = "none"`, a refusal that advises no rewrite.
+    pub advice: Vec<String>,
+}
+
+/// The placeholder of a class's advice template for the refused case's form.
+pub const FORM: &str = "{form}";
+
+impl MistakeClass {
+    /// The cases the class advises writing in place of the case `refused`: its advice, with
+    /// [`FORM`] standing for `refused`'s form (its ID's second segment); empty for a class that
+    /// advises none.
+    #[must_use]
+    pub fn advised_cases(&self, refused: &str) -> Vec<String> {
+        let form = refused.split('/').nth(1).unwrap_or_default();
+        self.advice
+            .iter()
+            .map(|advice| advice.replace(FORM, form))
+            .collect()
+    }
 }
 
 /// One refusal rule.
@@ -296,7 +321,8 @@ pub enum TableError {
         /// The rule's glob.
         pattern: String,
     },
-    /// A class's advised case is one the table does not accept.
+    /// A class's advised case is one the table does not accept; for a template, no refused
+    /// case of the class resolves to one it accepts.
     AdviceNotAccepted {
         /// The class.
         class: String,
@@ -431,7 +457,7 @@ impl Table {
             errors.extend(found);
             Self::default()
         });
-        for id in table.accept.keys().filter(|id| is_term_case(id)) {
+        for id in table.accept.keys().filter(|id| in_term_accepts(id)) {
             errors.push(schema(format!(
                 "expected.toml accepts the term case {id:?}, whose entry belongs in {TERM_ACCEPTS_FILE}"
             )));
@@ -444,7 +470,7 @@ impl Table {
                     )));
                 }
                 for (id, accepted) in terms.accept {
-                    if is_term_case(&id) {
+                    if in_term_accepts(&id) {
                         table.accept.insert(id, accepted);
                     } else {
                         errors.push(schema(format!(
@@ -547,25 +573,48 @@ impl Table {
             }
         }
         for (name, class) in &self.classes {
-            let Some(advice) = &class.advice else {
-                continue;
-            };
-            if !known.contains(advice.as_str()) {
-                gathered.errors.push(TableError::UnknownCase {
-                    owner: format!("the advice of class {name:?}"),
-                    id: advice.clone(),
-                });
-            } else if !matches!(expected.get(advice), Some(Expected::Accept(_))) {
-                gathered.errors.push(TableError::AdviceNotAccepted {
-                    class: name.clone(),
-                    id: advice.clone(),
-                });
+            for advice in &class.advice {
+                Self::check_advice(name, advice, &known, &expected, &mut gathered.errors);
             }
         }
         Resolution {
             expected,
             errors: gathered.errors,
             overridden: gathered.overridden,
+        }
+    }
+
+    /// Check one advice of the class `name`: an ID names a case the table accepts; a template
+    /// resolves to one for a refused case of the class at least.
+    fn check_advice(
+        name: &str,
+        advice: &str,
+        known: &BTreeSet<&str>,
+        expected: &BTreeMap<String, Expected<'_>>,
+        errors: &mut Vec<TableError>,
+    ) {
+        let accepted = |id: &str| matches!(expected.get(id), Some(Expected::Accept(_)));
+        if advice.contains(FORM) {
+            let resolves = expected.iter().any(|(id, decided)| {
+                matches!(decided, Expected::Refuse { name: refused, .. } if *refused == name)
+                    && accepted(&advice.replace(FORM, id.split('/').nth(1).unwrap_or_default()))
+            });
+            if !resolves {
+                errors.push(TableError::AdviceNotAccepted {
+                    class: name.to_owned(),
+                    id: advice.to_owned(),
+                });
+            }
+        } else if !known.contains(advice) {
+            errors.push(TableError::UnknownCase {
+                owner: format!("the advice of class {name:?}"),
+                id: advice.to_owned(),
+            });
+        } else if !accepted(advice) {
+            errors.push(TableError::AdviceNotAccepted {
+                class: name.to_owned(),
+                id: advice.to_owned(),
+            });
         }
     }
 
@@ -860,6 +909,25 @@ fn string(item: Option<&&Item>, owner: &str, key: &str, errors: &mut Vec<TableEr
     }
 }
 
+/// A class's `advice`: `"none"`, one case, or a list of cases.
+fn advice(item: Option<&&Item>, owner: &str, errors: &mut Vec<TableError>) -> Vec<String> {
+    match item.and_then(|item| item.as_str()) {
+        Some("none") => Vec::new(),
+        Some(case) => vec![case.to_owned()],
+        // A missing field is the schema's error already.
+        None if item.is_none() => Vec::new(),
+        None => {
+            let cases = strings(item, owner, "advice", errors);
+            if cases.is_empty() {
+                errors.push(schema(format!(
+                    "{owner}.advice is \"none\", a case, or a list of cases"
+                )));
+            }
+            cases
+        }
+    }
+}
+
 fn strings(
     item: Option<&&Item>,
     owner: &str,
@@ -900,8 +968,8 @@ fn parse_classes(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
         let fields = fields(
             class,
             &owner,
-            &["code", "doc"],
-            &["proposed", "advice"],
+            &["code", "doc", "advice"],
+            &["proposed"],
             errors,
         );
         let proposed = match fields.get("proposed").map(|item| item.as_bool()) {
@@ -918,9 +986,7 @@ fn parse_classes(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
                 code: string(fields.get("code"), &owner, "code", errors),
                 doc: string(fields.get("doc"), &owner, "doc", errors),
                 proposed,
-                advice: fields
-                    .contains_key("advice")
-                    .then(|| string(fields.get("advice"), &owner, "advice", errors)),
+                advice: advice(fields.get("advice"), &owner, errors),
             },
         );
     }

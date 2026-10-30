@@ -900,14 +900,17 @@ fn the_table_decides_a_front_refusal_by_code_class_and_site() {
 [class.claim-only]
 code = "krs::expand::claim-only-term"
 doc = "`k::or_bool!` outside a claim"
+advice = "none"
 
 [class.other]
 code = "krs::analysis::invalid-term"
 doc = "another mistake"
+advice = "none"
 
 [class.no-effect]
 code = "krs::syntax::rust-syntax"
 doc = "a subject entry that matches any content of a cell the result leaves out"
+advice = "none"
 
 [[refuse]]
 match = "terms/{init,equation}/{item,guard}/k::or_bool!(true, false)"

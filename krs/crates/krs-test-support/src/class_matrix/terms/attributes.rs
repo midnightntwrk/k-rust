@@ -12,21 +12,33 @@
 //!
 //! **K7.** Each case's run is its slot's driver plan (`super::drivers`) on the hole's spelling,
 //! changed where the attribute changes what the sentence does:
-//! - a condition that does not hold, and `symbolic` on a run of concrete values: the sentence
-//!   must not apply ([`unapplied`]);
+//! - a condition that does not hold, a postcondition that does not hold (the step has no result
+//!   state, so it is not taken), and `symbolic` on a run of concrete values: the sentence must
+//!   not apply ([`unapplied`]);
 //! - `owise`: the sentence applies where its sibling does not, and the counter run, where both
 //!   match, shows the sibling's result (the sibling has priority 60, so a sentence that dropped
 //!   `owise`, at the default 50, would win there);
-//! - `priority = 20`: the run where both match shows the case's result (its sibling has priority
-//!   30, so a sentence that dropped the key, at the default 50, would lose);
+//! - `priority = 20` and `priority = 40`, beside a sibling of priority 30: the run where both
+//!   match shows the case's result for the first and, as its counter run, the sibling's for the
+//!   second. The two have opposite winners, so a key dropped from both sentences (one priority
+//!   for both, a tie) shows in one of them whichever way the tie breaks. `owise` has no such
+//!   pair: an `owise` sentence never wins where its sibling matches;
 //! - `heat`: the sentence applies where its hole, `x`, is no result (`word`, a token of a sort
 //!   below no `KResult`), and the counter run, at `x` = 1 (an `Int`, a result), leaves it;
-//!   `cool` the other way round;
+//!   `cool` the other way round; `heat, hole = x, result = Word` applies at `x` = 1, which is no
+//!   `Word` (where the default `KResult` would leave it), and leaves `word`;
 //! - an existential or a fresh value in the result: the sentence applies, with a value the
 //!   generator does not state;
 //! - every other accepted attribute (a label, `anywhere`, `nondet`, `concrete`, `smt_lemma`, a
-//!   condition that holds, `ensures`, a context's `result`): the sentence applies as the slot's
-//!   plan states.
+//!   condition that holds, `ensures` that holds, a context's `result`): the sentence applies as
+//!   the slot's plan states. `concrete` and `concrete(x)` are run on concrete values only, where
+//!   they let the sentence apply: what they restrict, a symbolic application, needs a symbolic
+//!   run, which K7 does not make.
+//!
+//! The extra cases ([`super::super::attributes::EXTRAS`]) run their slot's plan where the
+//! sentence applies as without them, and the unapplied run where it does not (a condition before
+//! the marker or a second condition that fails, `#[cfg(any())]`); a sentence about the solver's
+//! function has no driver.
 //!
 //! The case's sentences are its own and its sibling's, both over its own command, and the base's
 //! driver rules have priority 10: a case's priority (20) and its sibling's (30, 60) lie after the
@@ -36,7 +48,8 @@
 //! (`tests/attributes.rs` pins both).
 
 use super::super::attributes::{
-    Attribute, Form, OWISE_SIBLING_PRIORITY, PRIORITY_SIBLING_PRIORITY, Pair, Written, pairs,
+    Attribute, Effect, Extra, Form, OWISE_SIBLING_PRIORITY, PRIORITY_SIBLING_PRIORITY, Pair,
+    Written, pairs,
 };
 use super::super::k7::{Ground, K7, Run, SkipKind, Status};
 use super::super::{
@@ -65,36 +78,70 @@ pub(in super::super) fn cases(cases: &mut Vec<Case>) {
     }
 }
 
-/// The text of what a pair writes, as its case ID spells it.
-fn written_text(written: Written) -> &'static str {
-    match written {
-        Written::Key(text) | Written::Modality(text) | Written::Helper(text) => text,
+/// The marker of the production a static form's clause is of, with `key`.
+fn production_marker(form: Form, key: &str) -> &'static str {
+    match (form.name, key) {
+        ("desugar", "recursive") => "#[k::desugar(recursive)]",
+        ("alias", "recursive") => "#[k::alias(recursive)]",
+        (name, key) => unreachable!("no production marker of {name} with {key}"),
     }
+}
+
+/// The item of a sentence about a function the solver has a symbol for: the function, declared
+/// with `smtlib`, and the form's sentence about it, `ATTRIBUTE` standing for the key.
+fn solver_template(form: Form) -> String {
+    let function = "/// A function the solver has a symbol for.\n#[k::function(partial, sort = Int, syntax = \"twinTAG({a}, {b})\", smtlib = \"twinTAG\")]\npub struct TwinTAG {\n    pub a: Term<Int>,\n    pub b: Term<Int>,\n}\n\n";
+    let sentence = match form.name {
+        "equation" => {
+            "#[k::equation(ATTRIBUTE)]\nfn case_TAG(k::term![TwinTAG(x, 1)]: Term<Int>) -> Term<Int> {\n    x\n}\n"
+        }
+        "table" => {
+            "k::equations! {\n    for TwinTAG;\n\n    #[k::equation(ATTRIBUTE)]\n    case_TAG: (x, 1) => x;\n}\n"
+        }
+        "simplification" => {
+            "#[k::simplification(ATTRIBUTE)]\nfn case_TAG(k::term![TwinTAG(x, 1)]: Term<Int>) -> Term<Int> {\n    x\n}\n"
+        }
+        name => unreachable!("{name} states no sentence about a function"),
+    };
+    format!("{function}{sentence}")
 }
 
 fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
     let form = pair.form();
     let written = pair.written();
-    let text = written_text(written);
+    let text = written.text();
     let spec = CaseSpec {
         family: Family::Attributes,
         base: Base::Terms,
         side: Side::Subject,
         kind: None,
         slot: vec![form.name.to_owned()],
-        construct: text.to_owned(),
+        construct: pair.name().to_owned(),
     };
     let tag = spec.tag();
-    let command = Command::with_fields(&spec.id(), slot.arity, "KItem").marked(slot.marker);
+    let marker = match written {
+        Written::Production(key) => Some(production_marker(form, key)),
+        _ => slot.marker,
+    };
+    let command = Command::with_fields(&spec.id(), slot.arity, "KItem").marked(marker);
     let attribute = match pair {
         Pair::Attribute(_, attribute) => Some(attribute),
-        Pair::Malformed(..) => None,
+        Pair::Malformed(..) | Pair::Extra(..) => None,
     };
-    let mut template = slot.template.replace("HOLE", form.hole);
+    let mut template = match written {
+        Written::SolverFunction(_) => solver_template(form),
+        _ => slot.template.replace("HOLE", form.hole),
+    };
     if let Some(used) = attribute.and_then(|attribute| result_use(form, attribute)) {
         template = used;
     }
     let template = write_attribute(form, &template, written, attribute);
+    // A production's key is written on the case's command, outside its item: the spelling is
+    // the clause's own marker, which the key is about.
+    let spelled = match written {
+        Written::Production(_) => marker_of(form).trim(),
+        _ => text,
+    };
     let sibling = attribute
         .and_then(|attribute| sibling(form, attribute))
         .unwrap_or_default();
@@ -112,7 +159,7 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
         .expect("every attribute template has the attribute's place");
     let mut item = ItemBuilder::new();
     item.push(before)
-        .term(&text.replace("TAG", &tag))
+        .term(&spelled.replace("TAG", &tag))
         .push(after)
         .push(&sibling);
     // A restriction of one equation of `Probe` asks that the function's other equations be
@@ -130,12 +177,13 @@ fn case(pair: Pair, slot: &Slot, spelling: &Spelling) -> Case {
     };
     let mut case = spec.finish(packaging, &item);
     case.attribute = Some(pair);
-    let (plan, counter) = match attribute {
-        Some(attribute) => plan(form, attribute, slot, spelling, &command),
-        None => (
+    let (plan, counter) = match pair {
+        Pair::Attribute(_, attribute) => plan(form, attribute, slot, spelling, &command),
+        Pair::Malformed(..) => (
             K7::skip(SkipKind::Form, "a malformed attribute is refused"),
             None,
         ),
+        Pair::Extra(_, extra) => extra_plan(form, extra, slot, spelling, &command),
     };
     case.k7 = plan;
     case.k7_counter = counter;
@@ -191,6 +239,11 @@ fn marker(
     })
 }
 
+/// The marker line a form's template writes; `""` for a clause or a row.
+fn marker_of(form: Form) -> &'static str {
+    marker(form).map_or("", |(old, ..)| old)
+}
+
 /// `template` with `written` in its place, `ATTRIBUTE` standing for its text: a key after the
 /// marker's own keys (a modality in place of a claim's `all_paths`, a `cells!` claim's label in
 /// place of its base label), a helper on the line after the marker. A clause or a row, which has
@@ -204,10 +257,18 @@ fn write_attribute(
 ) -> String {
     let claim = matches!(form.name, "claim" | "cells-claim");
     let (key, helper) = match written {
+        // The solver's template has the key's place already.
+        Written::SolverFunction(_) => return template.to_owned(),
+        Written::Production(_) => {
+            let old = marker_of(form);
+            assert_eq!(template.matches(old).count(), 1, "{}: {old:?}", form.name);
+            return template.replacen(old.trim(), "ATTRIBUTE", 1);
+        }
         Written::Modality(_) if claim => (None, None),
         Written::Key(_) | Written::Modality(_) => (Some("ATTRIBUTE"), None),
-        Written::Helper(_) => (None, Some("ATTRIBUTE")),
+        Written::Helper(_) | Written::HelperBefore(_) => (None, Some("ATTRIBUTE")),
     };
+    let before = matches!(written, Written::HelperBefore(_));
     if let Some((old, path, own, indent)) = marker(form) {
         assert_eq!(template.matches(old).count(), 1, "{}: {old:?}", form.name);
         let mut parts = own
@@ -225,8 +286,18 @@ fn write_attribute(
             format!("{indent}#[k::{path}({})]\n", parts.join(", "))
         };
         let helper = helper.map_or_else(String::new, |helper| format!("{indent}{helper}\n"));
-        return template.replacen(old, &format!("{marker}{helper}"), 1);
+        let written = if before {
+            format!("{helper}{marker}")
+        } else {
+            format!("{marker}{helper}")
+        };
+        return template.replacen(old, &written, 1);
     }
+    assert!(
+        !before,
+        "{}: a helper before a marker the form has none of",
+        form.name
+    );
     let at = "    case_TAG:";
     assert_eq!(template.matches(at).count(), 1, "{}: {at:?}", form.name);
     let path = if form.name == "table" {
@@ -292,7 +363,9 @@ fn slots_template(form: Form) -> String {
 fn sibling(form: Form, attribute: Attribute) -> Option<String> {
     let key = match attribute {
         Attribute::Owise => format!("priority = {OWISE_SIBLING_PRIORITY}"),
-        Attribute::Priority => format!("priority = {PRIORITY_SIBLING_PRIORITY}"),
+        Attribute::Priority | Attribute::PriorityLate => {
+            format!("priority = {PRIORITY_SIBLING_PRIORITY}")
+        }
         Attribute::Nondet if !matches!(form.name, "equation" | "table") => {
             "nondet = gTAG".to_owned()
         }
@@ -419,28 +492,34 @@ fn plan(
     );
     let equation = matches!(form.name, "equation" | "table");
     let at = |first: Ground| program_at(form, cmd, first);
+    let sibling_wins = || {
+        if equation {
+            run(&at(int(2)), 1, vec![hold(int(2))], Status::Value)
+        } else if matches!(form.name, "local-rule" | "cells-local") {
+            run(
+                &at(int(2)),
+                1,
+                vec![command(cmd, vec![int(3), int(0)])],
+                Status::Value,
+            )
+        } else {
+            run(&at(int(2)), 1, vec![go()], Status::Value)
+        }
+    };
     match attribute {
         Attribute::RequiresFails | Attribute::Symbolic if transition || equation => {
             (K7::Run(unapplied(form, &at(int(1)), cmd)), None)
         }
+        // A postcondition that does not hold leaves the step no result state: it is not taken.
+        Attribute::EnsuresFails if transition => (K7::Run(unapplied(form, &at(int(1)), cmd)), None),
         Attribute::RequiresFails if form.name == "context" => {
             let program = command(cmd, vec![word(), int(1), int(0)]);
             (K7::Run(unapplied(form, &program, cmd)), None)
         }
-        Attribute::Owise if transition || equation => {
-            let sibling = if equation {
-                run(&at(int(2)), 1, vec![hold(int(2))], Status::Value)
-            } else if matches!(form.name, "local-rule" | "cells-local") {
-                run(
-                    &at(int(2)),
-                    1,
-                    vec![command(cmd, vec![int(3), int(0)])],
-                    Status::Value,
-                )
-            } else {
-                run(&at(int(2)), 1, vec![go()], Status::Value)
-            };
-            (base, Some(sibling))
+        // `owise`, and a priority after the sibling's: the sentence applies where its sibling
+        // does not, and the sibling wins where both match.
+        Attribute::Owise | Attribute::PriorityLate if transition || equation => {
+            (base, Some(sibling_wins()))
         }
         Attribute::Priority if transition || equation => {
             let wins = if equation {
@@ -465,6 +544,16 @@ fn plan(
             (K7::Run(heated), Some(unapplied(form, &at(int(1)), cmd)))
         }
         Attribute::Cool if transition => (base, Some(unapplied(form, &at(word()), cmd))),
+        // Heated where its hole is no `Word`: at `x` = 1, which the default `KResult` leaves.
+        Attribute::HeatResult if transition => {
+            let heated = run(
+                &at(int(1)),
+                1,
+                applied_items(form, cmd, int(1), None),
+                Status::Value,
+            );
+            (K7::Run(heated), Some(unapplied(form, &at(word()), cmd)))
+        }
         // An anywhere rule rewrites its subject wherever it occurs, as the program's
         // configuration is built too: below `hold(..)`, before any step.
         Attribute::Anywhere if transition => {
@@ -498,5 +587,37 @@ fn plan(
             None,
         ),
         _ => (base, None),
+    }
+}
+
+/// What K7 runs an extra case on: the slot's plan where the sentence applies as without the
+/// attribute, the unapplied run where it does not; a sentence about the solver's function has no
+/// driver.
+fn extra_plan(
+    form: Form,
+    extra: Extra,
+    slot: &Slot,
+    spelling: &Spelling,
+    cmd: &Command,
+) -> (K7, Option<Run>) {
+    if matches!(extra.written, Written::SolverFunction(_)) {
+        return (
+            K7::skip(
+                SkipKind::Form,
+                "the function the case declares for the solver has no driver command",
+            ),
+            None,
+        );
+    }
+    let base = drivers::plan(slot, spelling, cmd);
+    if matches!(base, K7::Skip(_)) {
+        return (base, None);
+    }
+    match extra.effect {
+        Effect::Applies => (base, None),
+        Effect::Unapplied => (
+            K7::Run(unapplied(form, &program_at(form, cmd, int(1)), cmd)),
+            None,
+        ),
     }
 }

@@ -22,9 +22,10 @@
 //!   transitions, since a function is deterministic); a simplification's priority orders the
 //!   simplifications a prover tries, and `owise` says where no other sentence applies, which a
 //!   prover never decides. A claim is proved, a context and a context alias say where
-//!   evaluation happens and are ordered by their hole, and a static clause rewrites every
-//!   application of its production once, as the definition and a program are read: none of them
-//!   is chosen against another;
+//!   evaluation happens and are ordered by their hole, and a static production's clauses expand
+//!   each of its applications, as the definition and a program are read, into one term, so they
+//!   may not overlap (a production may have several clauses, each for its own shapes): none of
+//!   them is chosen against another;
 //! - `anywhere` makes a transition rewrite its subject's root application wherever it occurs, which
 //!   a term-shaped transition has; a configuration-shaped one matches cells, which occur only at
 //!   their place, and a function's equations apply wherever its application occurs already;
@@ -38,9 +39,9 @@
 //!   function application to restrict;
 //! - `one_path`, `circularity` and `trusted` say how a claim is proved;
 //! - a label names a sentence for what refers to its steps (a run's, a proof's, a trace's), as
-//!   a clause's or a fn's name does by default: a context alias is named by its `name`, which
-//!   the strict productions that use it refer to, a static clause takes no step, and an
-//!   initializer, a constant and a function shorthand's declaration are no sentence of the
+//!   a clause's or a fn's name does by default, a function shorthand's one equation included: a
+//!   context alias is named by its `name`, which the strict productions that use it refer to, a
+//!   static clause takes no step, and an initializer and a constant are no sentence of the
 //!   author's to name;
 //! - `#[k::requires(c)]` makes a sentence apply only where `c` holds: a transition, an equation,
 //!   a simplification, a claim's start and a context; a static clause applies unconditionally
@@ -50,25 +51,28 @@
 //! - `#[k::fresh(l: S)]` draws a value in a transition step;
 //! - `unbound_variables = [..]` names the names a desugar clause's result leaves to the sentence
 //!   it is expanded in, which only a desugar clause is;
-//! - `recursive` is a property of a static production, not of a clause;
-//! - the retired `#[k::priority(N)]` is no attribute any more.
+//! - `recursive` is a property of a static production (on its own marker, [`Extra`]), not of a
+//!   sentence;
+//! - the retired `#[k::priority(N)]` is no attribute any more;
+//! - a Rust attribute on a clause means on it what it means on an item: `#[doc]` documents it,
+//!   and `#[cfg(..)]` keeps it in the definition where the configuration holds, as on a rule fn.
 //!
 //! An initializer's, a constant's and a function shorthand's attribute declares (the initial
 //! configuration, a value, a function's production): a sentence's key there is the key of no
 //! sentence. `smt_lemma` means something on an equation and a simplification, but only of a
 //! function the solver has a symbol for, which the terms base's `Probe` is not.
 //!
-//! **Classes.** A refused attribute's class is the most specific statement of the mistake the
-//! sentence kind has: an order on a static clause, `owise` on a simplification, `nondet` on a
-//! function, a restriction on a transition, `anywhere` on a configuration-shaped transition,
-//! `result` without heating, `recursive` on a static clause, `unbound_variables` elsewhere than
-//! on a desugar clause, a condition on a static clause, an existential or a postcondition on a
-//! sentence that reaches no result, a fresh value outside a transition. Otherwise a key is one
-//! the sentence's marker does not take (`unknown-key`), or, on a marker that takes no key of
-//! its kind (an alias clause's, a desugar clause's but for `unbound_variables`, an
-//! initializer's, a constant's), a payload of that marker (`payload-on-bare-marker`); and a
-//! helper the form's own grammar takes none of is that form's mistake (an initializer's, a
-//! constant's, a function shorthand's, a table row's, a context alias's).
+//! **Classes.** A refused attribute's class names the mistake, whatever the form it is made on:
+//! an order on a sentence that is chosen against none (`owise` on a simplification apart, which
+//! states what a prover cannot decide), `nondet` on a function, a restriction outside a
+//! function, `anywhere` outside a term-shaped transition, `result` without heating, `recursive`
+//! on a sentence, `unbound_variables` elsewhere than on a desugar clause, a condition on a
+//! static clause, an existential or a postcondition on a sentence that reaches no result, a fresh
+//! value outside a transition. Any other key, and every sentence key on a declaration's marker
+//! (an initializer's, a constant's, a function shorthand's, which declare and order nothing), is a
+//! key the marker does not take (`unknown-key`); and a helper the form's own grammar takes none
+//! of is that form's mistake (an initializer's, a constant's, a function shorthand's, a table
+//! row's, a context alias's).
 
 use super::oracle::{Class, Outcome, Refusal, Stage};
 
@@ -83,6 +87,12 @@ pub const CASE_PRIORITY: u32 = 20;
 /// The priority of the sibling a `priority` case is written beside: after the case's, before the
 /// default, so a sentence that dropped the case's key would lose to it.
 pub const PRIORITY_SIBLING_PRIORITY: u32 = 30;
+
+/// The priority a late `priority` case writes ([`Attribute::PriorityLate`]): after its sibling's
+/// and before the default, so the sibling wins where both match. With [`CASE_PRIORITY`], before
+/// the sibling's, the two cases have opposite winners, and a key dropped (both sentences at one
+/// priority) shows in one of them whichever way the tie breaks.
+pub const LATE_CASE_PRIORITY: u32 = 40;
 
 /// The priority of the sibling an `owise` case is written beside: before `owise` (200) and after
 /// the default, so a sentence that dropped `owise` would win over it.
@@ -136,6 +146,10 @@ pub struct Form {
     pub hole: &'static str,
     /// What kind of sentence the form writes.
     pub sentence: Sentence,
+    /// The path of the form's marker, `#[k::PATH]`: the sentence's, or a declaration's (a
+    /// function shorthand's `function`); a clause's or a row's, which the case writes where it
+    /// writes a key (`#[k::rule(..)]`, a row's `#[k::equation(..)]`).
+    pub marker: &'static str,
 }
 
 const fn form(
@@ -143,12 +157,14 @@ const fn form(
     position: &'static str,
     hole: &'static str,
     sentence: Sentence,
+    marker: &'static str,
 ) -> Form {
     Form {
         name,
         position,
         hole,
         sentence,
+        marker,
     }
 }
 
@@ -157,34 +173,60 @@ const CELLS_RULE: Sentence = Sentence::Transition { term_shaped: false };
 
 /// Every form of the attribute axis, one per slot form of the term family.
 pub const FORMS: [Form; 18] = [
-    form("rule", "subject", "_", TERM_RULE),
-    form("local-rule", "subject", "_", TERM_RULE),
-    form("sort-rule", "subject", "_", TERM_RULE),
-    form("readable", "subject", "_", CELLS_RULE),
-    form("cells", "subject", "_", CELLS_RULE),
-    form("cells-local", "subject", "_", CELLS_RULE),
-    form("claim", "subject", "_", Sentence::Claim),
-    form("cells-claim", "subject", "_", Sentence::Claim),
+    form("rule", "subject", "_", TERM_RULE, "rule"),
+    form("local-rule", "subject", "_", TERM_RULE, "rule"),
+    form("sort-rule", "subject", "_", TERM_RULE, "rule"),
+    form("readable", "subject", "_", CELLS_RULE, "rule"),
+    form("cells", "subject", "_", CELLS_RULE, "rule"),
+    form("cells-local", "subject", "_", CELLS_RULE, "rule"),
+    form("claim", "subject", "_", Sentence::Claim, "claim"),
+    form("cells-claim", "subject", "_", Sentence::Claim, "claim"),
     form(
         "equation",
         "subject",
         "x",
         Sentence::Equation { row: false },
+        "equation",
     ),
-    form("table", "subject", "x", Sentence::Equation { row: true }),
-    form("shorthand", "result", "x", Sentence::Shorthand),
-    form("simplification", "subject", "x", Sentence::Simplification),
-    form("context", "subject", "_", Sentence::Context),
-    form("context-alias", "subject", "_", Sentence::ContextAlias),
+    form(
+        "table",
+        "subject",
+        "x",
+        Sentence::Equation { row: true },
+        "equation",
+    ),
+    form("shorthand", "result", "x", Sentence::Shorthand, "function"),
+    form(
+        "simplification",
+        "subject",
+        "x",
+        Sentence::Simplification,
+        "simplification",
+    ),
+    form("context", "subject", "_", Sentence::Context, "context"),
+    form(
+        "context-alias",
+        "subject",
+        "_",
+        Sentence::ContextAlias,
+        "context_alias",
+    ),
     form(
         "desugar",
         "subject",
         "_",
         Sentence::Static { desugar: true },
+        "desugar",
     ),
-    form("alias", "subject", "1", Sentence::Static { desugar: false }),
-    form("init", "item", "1", Sentence::Initializer),
-    form("constant", "value", "1", Sentence::Constant),
+    form(
+        "alias",
+        "subject",
+        "1",
+        Sentence::Static { desugar: false },
+        "alias",
+    ),
+    form("init", "item", "1", Sentence::Initializer, "init"),
+    form("constant", "value", "1", Sentence::Constant, "constant"),
 ];
 
 /// Where an attribute is written.
@@ -196,6 +238,28 @@ pub enum Written {
     Modality(&'static str),
     /// A helper attribute, after the marker (before a readable clause or a table row).
     Helper(&'static str),
+    /// A helper attribute before the form's marker.
+    HelperBefore(&'static str),
+    /// A key of the marker of the production the form's clause is of (the case's command).
+    Production(&'static str),
+    /// A key of the form's marker, on a sentence of a function the solver has a symbol for: the
+    /// case declares the function, with `smtlib`, and states its sentence about it.
+    SolverFunction(&'static str),
+}
+
+impl Written {
+    /// What is written, `TAG` unexpanded.
+    #[must_use]
+    pub const fn text(self) -> &'static str {
+        match self {
+            Self::Key(text)
+            | Self::Modality(text)
+            | Self::Helper(text)
+            | Self::HelperBefore(text)
+            | Self::Production(text)
+            | Self::SolverFunction(text) => text,
+        }
+    }
 }
 
 macro_rules! attributes {
@@ -236,6 +300,8 @@ attributes! {
     Owise => Written::Key("owise"), ["owise"],
     /// `priority = 20`: the sentence is tried before those of a larger priority.
     Priority => Written::Key("priority = 20"), ["priority"],
+    /// `priority = 40`: the sentence is tried after its sibling's 30.
+    PriorityLate => Written::Key("priority = 40"), ["priority"],
     /// `anywhere`: the transition rewrites its subject wherever it occurs.
     Anywhere => Written::Key("anywhere"), ["anywhere"],
     /// `nondet = g`: the transition overlaps the others of its group, one of which is chosen.
@@ -246,8 +312,12 @@ attributes! {
     Cool => Written::Key("cool, hole = x"), ["cool", "hole"],
     /// `result = KResult`: the sort a heated hole's evaluation ends in.
     EvaluationResult => Written::Key("result = KResult"), ["result"],
+    /// `heat, hole = x, result = Word`: a heating step, where its hole is no `Word`.
+    HeatResult => Written::Key("heat, hole = x, result = Word"), ["heat", "hole", "result"],
     /// `concrete`: the equation applies to concrete values only.
     Concrete => Written::Key("concrete"), ["concrete"],
+    /// `concrete(x)`: the equation applies where `x` is concrete.
+    ConcreteBinders => Written::Key("concrete(x)"), ["concrete"],
     /// `symbolic`: the equation applies to symbolic values only.
     Symbolic => Written::Key("symbolic"), ["symbolic"],
     /// `smt_lemma`: the equation is also given to the solver.
@@ -266,8 +336,10 @@ attributes! {
     RequiresHolds => Written::Helper("#[k::requires(k::is!(Int, x))]"), [],
     /// A condition that does not hold at `x` = 1, which is no `Word`.
     RequiresFails => Written::Helper("#[k::requires(k::is!(Word, x))]"), [],
-    /// A condition on the result state.
+    /// A condition on the result state that holds at `x` = 1.
     Ensures => Written::Helper("#[k::ensures(k::is!(Int, x))]"), [],
+    /// A condition on the result state that does not hold at `x` = 1.
+    EnsuresFails => Written::Helper("#[k::ensures(k::is!(Word, x))]"), [],
     /// An existential value of the result.
     Exists => Written::Helper("#[k::exists(n: Int)]"), [],
     /// A fresh value of the step.
@@ -280,9 +352,7 @@ impl Attribute {
     /// The attribute as the case ID spells it: what is written, `TAG` unexpanded.
     #[must_use]
     pub const fn text(self) -> &'static str {
-        match self.written() {
-            Written::Key(text) | Written::Modality(text) | Written::Helper(text) => text,
-        }
+        self.written().text()
     }
 
     /// The name the result of the sentence uses where the attribute needs a use to mean what it
@@ -459,23 +529,185 @@ pub const MALFORMED: [Malformed; 26] = [
     ),
 ];
 
-impl Malformed {
-    /// What is written, as the case ID spells it.
-    #[must_use]
-    pub const fn text(self) -> &'static str {
-        match self.written {
-            Written::Key(text) | Written::Modality(text) | Written::Helper(text) => text,
-        }
+/// What K7 shows of an accepted [`Extra`]: the form's sentence applies as the slot's plan states,
+/// or does not apply to the program it would.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Effect {
+    /// The sentence applies as without the attribute.
+    Applies,
+    /// The sentence does not apply: a condition fails, or the sentence is configured out.
+    Unapplied,
+}
+
+/// An attribute case beyond the axis's product: a placement or a combination of attributes, on
+/// the forms where it says something, each accepted. Its ID's construct is its `name`, and its
+/// spelling what is written.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Extra {
+    /// The form.
+    pub form: &'static str,
+    /// The case ID's construct.
+    pub name: &'static str,
+    /// What is written, and where.
+    pub written: Written,
+    /// What K7 shows.
+    pub effect: Effect,
+}
+
+const fn extra(form: &'static str, name: &'static str, written: Written, effect: Effect) -> Extra {
+    Extra {
+        form,
+        name,
+        written,
+        effect,
     }
 }
 
-/// What an attribute case writes: an attribute of the axis, or a malformed one.
+/// Two conditions on one sentence, which applies where both hold: here one that holds at `x` = 1
+/// and one that does not.
+const REQUIRES_TWICE: &str = "#[k::requires(k::is!(Int, x))]\n#[k::requires(k::is!(Word, x))]";
+
+/// The extra cases:
+/// - `recursive` on a static production's own marker, its clauses' plain;
+/// - `smt_lemma` on an equation, a table row and a simplification of a function the solver has a
+///   symbol for (`smtlib`), which a lemma can be stated about;
+/// - a helper before the sentence's marker, which belongs to the sentence as after it: a
+///   condition and a postcondition that fail, so the run shows them kept;
+/// - two conditions on one sentence, which applies where both hold;
+/// - `#[doc]` and `#[cfg(..)]` on a clause: documentation, and a configuration that holds
+///   (`all()`) or does not (`any()`), which keeps the clause out of the definition.
+pub const EXTRAS: [Extra; 20] = [
+    extra(
+        "desugar",
+        "recursive production",
+        Written::Production("recursive"),
+        Effect::Applies,
+    ),
+    extra(
+        "alias",
+        "recursive production",
+        Written::Production("recursive"),
+        Effect::Applies,
+    ),
+    extra(
+        "equation",
+        "smt_lemma of an smtlib function",
+        Written::SolverFunction("smt_lemma"),
+        Effect::Applies,
+    ),
+    extra(
+        "table",
+        "smt_lemma of an smtlib function",
+        Written::SolverFunction("smt_lemma"),
+        Effect::Applies,
+    ),
+    extra(
+        "simplification",
+        "smt_lemma of an smtlib function",
+        Written::SolverFunction("smt_lemma"),
+        Effect::Applies,
+    ),
+    extra(
+        "rule",
+        "requires before the marker",
+        Written::HelperBefore("#[k::requires(k::is!(Word, x))]"),
+        Effect::Unapplied,
+    ),
+    extra(
+        "equation",
+        "requires before the marker",
+        Written::HelperBefore("#[k::requires(k::is!(Word, x))]"),
+        Effect::Unapplied,
+    ),
+    extra(
+        "rule",
+        "ensures before the marker",
+        Written::HelperBefore("#[k::ensures(k::is!(Word, x))]"),
+        Effect::Unapplied,
+    ),
+    extra(
+        "rule",
+        "requires twice",
+        Written::Helper(REQUIRES_TWICE),
+        Effect::Unapplied,
+    ),
+    extra(
+        "equation",
+        "requires twice",
+        Written::Helper(REQUIRES_TWICE),
+        Effect::Unapplied,
+    ),
+    extra(
+        "readable",
+        "requires twice",
+        Written::Helper(REQUIRES_TWICE),
+        Effect::Unapplied,
+    ),
+    extra(
+        "sort-rule",
+        "doc",
+        Written::Helper("#[doc = \"a clause\"]"),
+        Effect::Applies,
+    ),
+    extra(
+        "readable",
+        "doc",
+        Written::Helper("#[doc = \"a clause\"]"),
+        Effect::Applies,
+    ),
+    extra(
+        "table",
+        "doc",
+        Written::Helper("#[doc = \"a clause\"]"),
+        Effect::Applies,
+    ),
+    extra(
+        "sort-rule",
+        "cfg that holds",
+        Written::Helper("#[cfg(all())]"),
+        Effect::Applies,
+    ),
+    extra(
+        "readable",
+        "cfg that holds",
+        Written::Helper("#[cfg(all())]"),
+        Effect::Applies,
+    ),
+    extra(
+        "table",
+        "cfg that holds",
+        Written::Helper("#[cfg(all())]"),
+        Effect::Applies,
+    ),
+    extra(
+        "sort-rule",
+        "cfg that does not hold",
+        Written::Helper("#[cfg(any())]"),
+        Effect::Unapplied,
+    ),
+    extra(
+        "readable",
+        "cfg that does not hold",
+        Written::Helper("#[cfg(any())]"),
+        Effect::Unapplied,
+    ),
+    extra(
+        "table",
+        "cfg that does not hold",
+        Written::Helper("#[cfg(any())]"),
+        Effect::Unapplied,
+    ),
+];
+
+/// What an attribute case writes: an attribute of the axis, a malformed one, or an extra.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Pair {
     /// An attribute on a form.
     Attribute(Form, Attribute),
     /// A malformed attribute on a form.
     Malformed(Form, Malformed),
+    /// An extra case on a form.
+    Extra(Form, Extra),
 }
 
 impl Pair {
@@ -483,7 +715,7 @@ impl Pair {
     #[must_use]
     pub const fn form(self) -> Form {
         match self {
-            Self::Attribute(form, _) | Self::Malformed(form, _) => form,
+            Self::Attribute(form, _) | Self::Malformed(form, _) | Self::Extra(form, _) => form,
         }
     }
 
@@ -493,6 +725,16 @@ impl Pair {
         match self {
             Self::Attribute(_, attribute) => attribute.written(),
             Self::Malformed(_, malformed) => malformed.written,
+            Self::Extra(_, extra) => extra.written,
+        }
+    }
+
+    /// The case ID's construct: what is written, or an extra's name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Extra(_, extra) => extra.name,
+            _ => self.written().text(),
         }
     }
 
@@ -502,6 +744,7 @@ impl Pair {
         match self {
             Self::Attribute(form, attribute) => expected(form.sentence, attribute),
             Self::Malformed(_, malformed) => refuse(malformed.class),
+            Self::Extra(..) => Outcome::Accept,
         }
     }
 }
@@ -519,7 +762,7 @@ pub fn form_named(name: &str) -> Form {
         .unwrap_or_else(|| panic!("no attribute form is named {name}"))
 }
 
-/// Every pair of the axis: every attribute on every form, then the malformed ones.
+/// Every pair of the axis: every attribute on every form, then the malformed ones and the extras.
 #[must_use]
 pub fn pairs() -> Vec<Pair> {
     let mut pairs = FORMS
@@ -534,6 +777,11 @@ pub fn pairs() -> Vec<Pair> {
         MALFORMED
             .iter()
             .map(|malformed| Pair::Malformed(form_named(malformed.form), *malformed)),
+    );
+    pairs.extend(
+        EXTRAS
+            .iter()
+            .map(|extra| Pair::Extra(form_named(extra.form), *extra)),
     );
     pairs
 }
@@ -557,21 +805,21 @@ pub const fn means(sentence: Sentence, attribute: Attribute) -> bool {
     match attribute {
         A::Label => !matches!(
             sentence,
-            S::ContextAlias | S::Static { .. } | S::Initializer | S::Constant | S::Shorthand
+            S::ContextAlias | S::Static { .. } | S::Initializer | S::Constant
         ),
         A::Owise => transition || matches!(sentence, S::Equation { .. }),
-        A::Priority => transition || function,
-        A::Nondet | A::Heat | A::Cool | A::Fresh => transition,
+        A::Priority | A::PriorityLate => transition || function,
+        A::Nondet | A::Heat | A::Cool | A::HeatResult | A::Fresh => transition,
         A::Anywhere => matches!(sentence, S::Transition { term_shaped: true }),
         A::EvaluationResult => matches!(sentence, S::Context | S::ContextAlias),
-        A::Concrete | A::Symbolic | A::SmtLemma => function,
+        A::Concrete | A::ConcreteBinders | A::Symbolic | A::SmtLemma => function,
         A::OnePath | A::Circularity | A::Trusted => matches!(sentence, S::Claim),
         A::UnboundVariables => matches!(sentence, S::Static { desugar: true }),
         A::Recursive | A::RetiredPriority => false,
         A::RequiresHolds | A::RequiresFails => {
             transition || function || matches!(sentence, S::Shorthand | S::Claim | S::Context)
         }
-        A::Ensures | A::Exists => transition || matches!(sentence, S::Claim),
+        A::Ensures | A::EnsuresFails | A::Exists => transition || matches!(sentence, S::Claim),
     }
 }
 
@@ -580,7 +828,6 @@ pub const fn means(sentence: Sentence, attribute: Attribute) -> bool {
 #[must_use]
 pub fn expected(sentence: Sentence, attribute: Attribute) -> Outcome {
     use Attribute as A;
-    use Sentence as S;
     if means(sentence, attribute) {
         // The terms base's `Probe` has no solver symbol, so no lemma about it can be stated.
         return if attribute == A::SmtLemma {
@@ -589,47 +836,54 @@ pub fn expected(sentence: Sentence, attribute: Attribute) -> Outcome {
             Outcome::Accept
         };
     }
-    let class = match (attribute.written(), sentence) {
-        // The forms whose grammar lists the attributes they take refuse it as any other.
-        (Written::Helper(_), _) if attribute == A::RetiredPriority => match sentence {
-            S::Initializer => Class::HelperOnInitializer,
-            S::Shorthand => Class::HelperOnShorthand,
-            S::Equation { row: true } => Class::HelperOnTableRow,
-            _ => Class::RetiredAttribute,
-        },
-        (Written::Helper(_), S::Initializer) => Class::HelperOnInitializer,
-        (Written::Helper(_), S::Constant) => Class::HelperOnConstant,
-        (Written::Helper(_), S::Shorthand) => Class::HelperOnShorthand,
-        (Written::Helper(_), S::Equation { row: true }) => Class::HelperOnTableRow,
-        (Written::Helper(_), _) if attribute == A::Fresh => Class::FreshOutsideStep,
-        (Written::Helper(_), S::ContextAlias) => Class::HelperOnContextAlias,
-        (Written::Helper(_), S::Static { .. })
-            if attribute == A::RequiresHolds || attribute == A::RequiresFails =>
-        {
-            Class::ConditionOnStaticClause
-        }
-        (Written::Helper(_), _) => Class::ExistentialOutsideStep,
-        (_, S::Initializer | S::Constant) => Class::PayloadOnBareMarker,
-        (_, S::Static { .. }) => match attribute {
-            A::Owise | A::Priority | A::Nondet => Class::OrderOnUnorderedSentence,
-            A::Recursive => Class::RecursiveOnClause,
-            A::UnboundVariables => Class::UnboundVariablesOutsideDesugar,
-            _ => Class::PayloadOnBareMarker,
-        },
-        (_, S::Shorthand) => Class::UnknownKey,
-        _ if attribute == A::UnboundVariables => Class::UnboundVariablesOutsideDesugar,
-        (_, S::Transition { .. }) => match attribute {
-            A::Concrete | A::Symbolic | A::SmtLemma => Class::RestrictionOutsideFunction,
-            A::Anywhere => Class::AnywhereOutsideTermRule,
-            A::EvaluationResult => Class::EvaluationKeyWithoutEvaluation,
-            _ => Class::UnknownKey,
-        },
-        (_, S::Equation { .. } | S::Simplification) => match attribute {
-            A::Nondet => Class::NondetOnFunction,
-            A::Owise => Class::OrderOnUnorderedSentence,
-            _ => Class::UnknownKey,
-        },
-        _ => Class::UnknownKey,
+    let class = if matches!(attribute.written(), Written::Helper(_)) {
+        helper_class(sentence, attribute)
+    } else {
+        key_class(sentence, attribute)
     };
     refuse(class)
+}
+
+/// The mistake of a helper that means nothing on a sentence of the kind `sentence`: where the
+/// form's grammar takes no helper, that form's; otherwise the helper's.
+fn helper_class(sentence: Sentence, attribute: Attribute) -> Class {
+    use Attribute as A;
+    use Sentence as S;
+    match sentence {
+        S::Initializer => Class::HelperOnInitializer,
+        S::Shorthand => Class::HelperOnShorthand,
+        S::Equation { row: true } => Class::HelperOnTableRow,
+        _ if attribute == A::RetiredPriority => Class::RetiredAttribute,
+        S::Constant => Class::HelperOnConstant,
+        _ if attribute == A::Fresh => Class::FreshOutsideStep,
+        S::ContextAlias => Class::HelperOnContextAlias,
+        S::Static { .. } if matches!(attribute, A::RequiresHolds | A::RequiresFails) => {
+            Class::ConditionOnStaticClause
+        }
+        _ => Class::ExistentialOutsideStep,
+    }
+}
+
+/// The mistake of a key that means nothing on a sentence of the kind `sentence`: the key's,
+/// whatever the form; any key on a declaration's marker is one it does not take.
+fn key_class(sentence: Sentence, attribute: Attribute) -> Class {
+    use Attribute as A;
+    use Sentence as S;
+    let function = matches!(sentence, S::Equation { .. } | S::Simplification);
+    if matches!(sentence, S::Initializer | S::Constant | S::Shorthand) {
+        return Class::UnknownKey;
+    }
+    match attribute {
+        A::Owise if sentence == S::Simplification => Class::OwiseOnSimplification,
+        A::Nondet if function => Class::NondetOnFunction,
+        A::Owise | A::Priority | A::PriorityLate | A::Nondet => Class::OrderOnUnorderedSentence,
+        A::Anywhere => Class::AnywhereOutsideTermRule,
+        A::Concrete | A::ConcreteBinders | A::Symbolic | A::SmtLemma => {
+            Class::RestrictionOutsideFunction
+        }
+        A::EvaluationResult => Class::EvaluationKeyWithoutEvaluation,
+        A::Recursive => Class::RecursiveOutsideProduction,
+        A::UnboundVariables => Class::UnboundVariablesOutsideDesugar,
+        _ => Class::UnknownKey,
+    }
 }
