@@ -1,0 +1,17 @@
+# claims translated by `k2lean claims` (generated)
+[[claim]]
+label = "PRIO-SPEC.one"
+stated = true
+all_path = true
+
+[[claim]]
+label = "PRIO-SPEC.family"
+stated = true
+all_path = true
+
+[[claim]]
+label = "PRIO-SPEC.swapped"
+stated = true
+all_path = true
+refuted = "Hand.swapped_false"
+

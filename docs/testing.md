@@ -127,7 +127,7 @@ Each entry belongs to one area, which registers it in `k2lean/tests/areas/AREA.s
 | `soundness` | `soundness` (ImpTypes) |
 | `confluence` | `confluence` (RaceConf; UtxoConf, the views by process of the fixture utxo; HandoffConf and HandoffSeqRel, the fixtures handoff and handoffseq; DrfConf, a slot refuted by two runs of a program; SimpleConf and the classification of SIMPLE's pairs of rules) |
 | `noninterference` | `noninterference` (ImpNI; ContractNI, up to disclosure, the fixtures contract and contractsec) |
-| `claims` | `claims` over kimp's specifications, the claims under kimpinv's invariant, and the claim transferred along ImpRel's bisimulation (heavy); IMP++'s claims, a `Step` that is not a function, and kstrict's, whose framed claim steps by the cases of `Step` (light) |
+| `claims` | `claims` over kimp's specifications, the claims under kimpinv's invariant, and the claim transferred along ImpRel's bisimulation (heavy); IMP++'s claims, a `Step` that is not a function, kstrict's, whose framed claim steps by the cases of `Step`, and kprio's (the fixture `prio`), a decoder of bit patterns against an independently written table at one opcode and over a family of opcodes, with the family's swapped claim refuted by hand (light) |
 
 The areas run in that order, and an area's phase may use a library an earlier area built.
 

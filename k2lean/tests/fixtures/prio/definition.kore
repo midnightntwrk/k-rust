@@ -72,6 +72,7 @@ module PRIO
   sort SortGeneratedCounterCellOpt{} []
   sort SortGeneratedTopCell{} []
   sort SortGeneratedTopCellFragment{} []
+  sort SortInstr{} []
   hooked-sort SortInt{}
   [
     hasDomainValues{}(),
@@ -125,6 +126,7 @@ module PRIO
     unit{}(Lbl'Stop'Map{}())
   ]
   sort SortPgm{} []
+  sort SortReg{} []
   hooked-sort SortSet{}
   [
     concat{}(Lbl'Unds'Set'Unds'{}()),
@@ -1189,13 +1191,110 @@ module PRIO
   ]
   symbol LblisMap{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol Lblproject'Coln'Map{}(SortK{}) : SortMap{} [function{}()]
+  symbol Lblra'Unds'PRIO-SYNTAX'Unds'Reg{}() : SortReg{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,22)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    )
+  ]
+  symbol Lblrb'Unds'PRIO-SYNTAX'Unds'Reg{}() : SortReg{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,25,3,29)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    )
+  ]
+  symbol Lblrc'Unds'PRIO-SYNTAX'Unds'Reg{}() : SortReg{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,32,3,36)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    )
+  ]
+  symbol Lblrd'Unds'PRIO-SYNTAX'Unds'Reg{}() : SortReg{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,39,3,43)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    )
+  ]
+  symbol Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+    SortReg{},
+    SortReg{}
+  ) : SortInstr{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,20,4,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    )
+  ]
+  symbol Lblstop'Unds'PRIO-SYNTAX'Unds'Instr{}() : SortInstr{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,35,4,41)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    )
+  ]
+  symbol Lblbad'Unds'PRIO-SYNTAX'Unds'Instr{}() : SortInstr{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,44,4,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    )
+  ]
+  symbol Lbldecode'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(SortInt{}) : SortPgm{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,24,5,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    )
+  ]
+  symbol Lblexpect'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(SortInt{}) : SortPgm{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,38,5,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    )
+  ]
+  symbol LblisInstr{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol LblisPgm{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+  symbol LblisReg{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+  symbol Lblproject'Coln'Instr{}(SortK{}) : SortInstr{} [function{}()]
   symbol Lblproject'Coln'Pgm{}(SortK{}) : SortPgm{} [function{}()]
+  symbol Lblproject'Coln'Reg{}(SortK{}) : SortReg{} [function{}()]
   symbol Lbltable'LParUndsRParUnds'PRIO'Unds'Int'Unds'Int{}(SortInt{}) : SortInt{}
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,18,14,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,18,16,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/prio/prio.k)"
     ),
@@ -1205,7 +1304,7 @@ module PRIO
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,18,20,47)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,18,22,47)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/prio/prio.k)"
     ),
@@ -1214,10 +1313,40 @@ module PRIO
   symbol Lblfield'LParUndsRParUnds'PRIO'Unds'Int'Unds'Int{}(SortInt{}) : SortInt{}
   [
     function{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,18,25,39)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,18,27,39)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/prio/prio.k)"
     )
+  ]
+  symbol Lblreg'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(SortInt{}) : SortReg{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,18,37,44)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    ),
+    total{}()
+  ]
+  symbol Lbldec'LParUndsRParUnds'PRIO'Unds'Instr'Unds'Int{}(SortInt{}) : SortInstr{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,20,43,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblexpected'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(SortInt{}) : SortReg{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,18,51,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/prio/prio.k)"
+    ),
+    total{}()
   ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
@@ -1225,7 +1354,7 @@ module PRIO
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,3,10,34)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,34)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/prio/prio.k)"
     )
@@ -1791,19 +1920,211 @@ module PRIO
     [subsort{SortMap{}, SortKItem{}}()]
   axiom{R}
     \exists{R}(
+      Val:SortReg{},
+      \equals{SortReg{}, R}(Val:SortReg{}, Lblra'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [functional{}()]
+  axiom{}
+    \not{SortReg{}}(
+      \and{SortReg{}}(Lblra'Unds'PRIO-SYNTAX'Unds'Reg{}(), Lblrb'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortReg{}}(
+      \and{SortReg{}}(Lblra'Unds'PRIO-SYNTAX'Unds'Reg{}(), Lblrc'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortReg{}}(
+      \and{SortReg{}}(Lblra'Unds'PRIO-SYNTAX'Unds'Reg{}(), Lblrd'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortReg{},
+      \equals{SortReg{}, R}(Val:SortReg{}, Lblrb'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [functional{}()]
+  axiom{}
+    \not{SortReg{}}(
+      \and{SortReg{}}(Lblrb'Unds'PRIO-SYNTAX'Unds'Reg{}(), Lblrc'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortReg{}}(
+      \and{SortReg{}}(Lblrb'Unds'PRIO-SYNTAX'Unds'Reg{}(), Lblrd'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortReg{},
+      \equals{SortReg{}, R}(Val:SortReg{}, Lblrc'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [functional{}()]
+  axiom{}
+    \not{SortReg{}}(
+      \and{SortReg{}}(Lblrc'Unds'PRIO-SYNTAX'Unds'Reg{}(), Lblrd'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortReg{},
+      \equals{SortReg{}, R}(Val:SortReg{}, Lblrd'Unds'PRIO-SYNTAX'Unds'Reg{}())
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInstr{},
+      \equals{SortInstr{}, R}(
+        Val:SortInstr{},
+        Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+          K0:SortReg{},
+          K1:SortReg{}
+        )
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortInstr{}}(
+      \and{SortInstr{}}(
+        Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+          X0:SortReg{},
+          X1:SortReg{}
+        ),
+        Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+          Y0:SortReg{},
+          Y1:SortReg{}
+        )
+      ),
+      Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+        \and{SortReg{}}(X0:SortReg{}, Y0:SortReg{}),
+        \and{SortReg{}}(X1:SortReg{}, Y1:SortReg{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortInstr{}}(
+      \and{SortInstr{}}(
+        Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+          X0:SortReg{},
+          X1:SortReg{}
+        ),
+        Lblstop'Unds'PRIO-SYNTAX'Unds'Instr{}()
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortInstr{}}(
+      \and{SortInstr{}}(
+        Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+          X0:SortReg{},
+          X1:SortReg{}
+        ),
+        Lblbad'Unds'PRIO-SYNTAX'Unds'Instr{}()
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInstr{},
+      \equals{SortInstr{}, R}(Val:SortInstr{}, Lblstop'Unds'PRIO-SYNTAX'Unds'Instr{}())
+    )
+    [functional{}()]
+  axiom{}
+    \not{SortInstr{}}(
+      \and{SortInstr{}}(
+        Lblstop'Unds'PRIO-SYNTAX'Unds'Instr{}(),
+        Lblbad'Unds'PRIO-SYNTAX'Unds'Instr{}()
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInstr{},
+      \equals{SortInstr{}, R}(Val:SortInstr{}, Lblbad'Unds'PRIO-SYNTAX'Unds'Instr{}())
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
       Val:SortPgm{},
       \equals{SortPgm{}, R}(Val:SortPgm{}, inj{SortInt{}, SortPgm{}}(From:SortInt{}))
     )
     [subsort{SortInt{}, SortPgm{}}()]
   axiom{R}
+    \exists{R}(
+      Val:SortPgm{},
+      \equals{SortPgm{}, R}(
+        Val:SortPgm{},
+        Lbldecode'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lbldecode'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(X0:SortInt{}),
+        Lbldecode'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(Y0:SortInt{})
+      ),
+      Lbldecode'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(
+        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lbldecode'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(X0:SortInt{}),
+        Lblexpect'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortPgm{},
+      \equals{SortPgm{}, R}(
+        Val:SortPgm{},
+        Lblexpect'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lblexpect'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(X0:SortInt{}),
+        Lblexpect'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(Y0:SortInt{})
+      ),
+      Lblexpect'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(
+        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisInstr{}(K0:SortK{})))
+    [functional{}()]
+  axiom{R}
     \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisPgm{}(K0:SortK{})))
     [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisReg{}(K0:SortK{})))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortInstr{}, SortKItem{}}(From:SortInstr{}))
+    )
+    [subsort{SortInstr{}, SortKItem{}}()]
   axiom{R}
     \exists{R}(
       Val:SortKItem{},
       \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortPgm{}, SortKItem{}}(From:SortPgm{}))
     )
     [subsort{SortPgm{}, SortKItem{}}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortKItem{},
+      \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortReg{}, SortKItem{}}(From:SortReg{}))
+    )
+    [subsort{SortReg{}, SortKItem{}}()]
   axiom{R}
     \exists{R}(
       Val:SortInt{},
@@ -1819,6 +2140,33 @@ module PRIO
       \equals{SortInt{}, R}(
         Val:SortInt{},
         Lblranked'LParUndsRParUnds'PRIO'Unds'Int'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortReg{},
+      \equals{SortReg{}, R}(
+        Val:SortReg{},
+        Lblreg'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInstr{},
+      \equals{SortInstr{}, R}(
+        Val:SortInstr{},
+        Lbldec'LParUndsRParUnds'PRIO'Unds'Instr'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortReg{},
+      \equals{SortReg{}, R}(
+        Val:SortReg{},
+        Lblexpected'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(K0:SortInt{})
       )
     )
     [functional{}()]
@@ -2071,6 +2419,23 @@ module PRIO
       \bottom{SortGeneratedTopCellFragment{}}()
     )
     [constructor{}()]
+  axiom{}
+    \or{SortInstr{}}(
+      \exists{SortInstr{}}(
+        X0:SortReg{},
+        \exists{SortInstr{}}(
+          X1:SortReg{},
+          Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+            X0:SortReg{},
+            X1:SortReg{}
+          )
+        )
+      ),
+      Lblstop'Unds'PRIO-SYNTAX'Unds'Instr{}(),
+      Lblbad'Unds'PRIO-SYNTAX'Unds'Instr{}(),
+      \bottom{SortInstr{}}()
+    )
+    [constructor{}()]
   axiom{} \or{SortInt{}}(\top{SortInt{}}(), \bottom{SortInt{}}()) [constructor{}()]
   axiom{}
     \or{SortKCell{}}(
@@ -2108,27 +2473,46 @@ module PRIO
         ValV5:SortGeneratedTopCellFragment{},
         inj{SortGeneratedTopCellFragment{}, SortKItem{}}(ValV5:SortGeneratedTopCellFragment{})
       ),
-      \exists{SortKItem{}}(ValV6:SortInt{}, inj{SortInt{}, SortKItem{}}(ValV6:SortInt{})),
-      \exists{SortKItem{}}(ValV7:SortKCell{}, inj{SortKCell{}, SortKItem{}}(ValV7:SortKCell{})),
+      \exists{SortKItem{}}(ValV6:SortInstr{}, inj{SortInstr{}, SortKItem{}}(ValV6:SortInstr{})),
+      \exists{SortKItem{}}(ValV7:SortInt{}, inj{SortInt{}, SortKItem{}}(ValV7:SortInt{})),
+      \exists{SortKItem{}}(ValV8:SortKCell{}, inj{SortKCell{}, SortKItem{}}(ValV8:SortKCell{})),
       \exists{SortKItem{}}(
-        ValV8:SortKCellOpt{},
-        inj{SortKCellOpt{}, SortKItem{}}(ValV8:SortKCellOpt{})
+        ValV9:SortKCellOpt{},
+        inj{SortKCellOpt{}, SortKItem{}}(ValV9:SortKCellOpt{})
       ),
       \exists{SortKItem{}}(
-        ValV9:SortKConfigVar{},
-        inj{SortKConfigVar{}, SortKItem{}}(ValV9:SortKConfigVar{})
+        ValV10:SortKConfigVar{},
+        inj{SortKConfigVar{}, SortKItem{}}(ValV10:SortKConfigVar{})
       ),
-      \exists{SortKItem{}}(ValV10:SortList{}, inj{SortList{}, SortKItem{}}(ValV10:SortList{})),
-      \exists{SortKItem{}}(ValV11:SortMap{}, inj{SortMap{}, SortKItem{}}(ValV11:SortMap{})),
-      \exists{SortKItem{}}(ValV12:SortPgm{}, inj{SortPgm{}, SortKItem{}}(ValV12:SortPgm{})),
-      \exists{SortKItem{}}(ValV13:SortSet{}, inj{SortSet{}, SortKItem{}}(ValV13:SortSet{})),
+      \exists{SortKItem{}}(ValV11:SortList{}, inj{SortList{}, SortKItem{}}(ValV11:SortList{})),
+      \exists{SortKItem{}}(ValV12:SortMap{}, inj{SortMap{}, SortKItem{}}(ValV12:SortMap{})),
+      \exists{SortKItem{}}(ValV13:SortPgm{}, inj{SortPgm{}, SortKItem{}}(ValV13:SortPgm{})),
+      \exists{SortKItem{}}(ValV14:SortReg{}, inj{SortReg{}, SortKItem{}}(ValV14:SortReg{})),
+      \exists{SortKItem{}}(ValV15:SortSet{}, inj{SortSet{}, SortKItem{}}(ValV15:SortSet{})),
       \bottom{SortKItem{}}()
     )
     [constructor{}()]
   axiom{}
     \or{SortPgm{}}(
+      \exists{SortPgm{}}(
+        X0:SortInt{},
+        Lbldecode'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(X0:SortInt{})
+      ),
+      \exists{SortPgm{}}(
+        X0:SortInt{},
+        Lblexpect'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(X0:SortInt{})
+      ),
       \exists{SortPgm{}}(Val:SortInt{}, inj{SortInt{}, SortPgm{}}(Val:SortInt{})),
       \bottom{SortPgm{}}()
+    )
+    [constructor{}()]
+  axiom{}
+    \or{SortReg{}}(
+      Lblra'Unds'PRIO-SYNTAX'Unds'Reg{}(),
+      Lblrb'Unds'PRIO-SYNTAX'Unds'Reg{}(),
+      Lblrc'Unds'PRIO-SYNTAX'Unds'Reg{}(),
+      Lblrd'Unds'PRIO-SYNTAX'Unds'Reg{}(),
+      \bottom{SortReg{}}()
     )
     [constructor{}()]
   axiom{R}
@@ -4847,6 +5231,60 @@ module PRIO
       \and{R}(
         \top{R}(),
         \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(inj{SortInstr{}, SortKItem{}}(VarK:SortInstr{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInstr{}, R}(
+        Lblproject'Coln'Instr{}(X0:SortK{}),
+        \and{SortInstr{}}(VarK:SortInstr{}, \top{SortInstr{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("fa58df1e977e9f298aec05bfddf25c51189227bca5c8d9de9e7cba893ada4126")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortInstr{}, R}(Lblproject'Coln'Instr{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortInstr{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortInstr{}, SortKItem{}}(VarK:SortInstr{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "fa58df1e977e9f298aec05bfddf25c51189227bca5c8d9de9e7cba893ada4126.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortInstr{}, R}(Lblproject'Coln'Instr{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortInstr{}, SortKItem{}}(Lblproject'Coln'Instr{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "fa58df1e977e9f298aec05bfddf25c51189227bca5c8d9de9e7cba893ada4126.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
           \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortPgm{}, SortKItem{}}(VarK:SortPgm{}), dotk{}())),
           \top{R}()
         )
@@ -4889,6 +5327,104 @@ module PRIO
         "ddb4777eb97ab87ee0e1ea5bab55f10607991a4f447f275af1037d1b7c18329d.selector-inverse"
       ),
       simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortReg{}, SortKItem{}}(VarK:SortReg{}), dotk{}())),
+          \top{R}()
+        )
+      ),
+      \equals{SortReg{}, R}(
+        Lblproject'Coln'Reg{}(X0:SortK{}),
+        \and{SortReg{}}(VarK:SortReg{}, \top{SortReg{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("aa02ed74a6732791102395382ef842890b37744a9e1a85a9610bd9413f2d5859")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortReg{}, R}(Lblproject'Coln'Reg{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortReg{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortReg{}, SortKItem{}}(VarK:SortReg{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "aa02ed74a6732791102395382ef842890b37744a9e1a85a9610bd9413f2d5859.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortReg{}, R}(Lblproject'Coln'Reg{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortReg{}, SortKItem{}}(Lblproject'Coln'Reg{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "aa02ed74a6732791102395382ef842890b37744a9e1a85a9610bd9413f2d5859.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(inj{SortInstr{}, SortKItem{}}(VarInstr:SortInstr{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblisInstr{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("32d5e89928a2aebb8804d3fb80a3d8be72282b3682a4409df2f6c758e1ed3627")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortInstr{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortK{}, R}(
+                    X0:SortK{},
+                    kseq{}(inj{SortInstr{}, SortKItem{}}(Var'Unds'Gen0:SortInstr{}), dotk{}())
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}()))
+      ),
+      \equals{SortBool{}, R}(
+        LblisInstr{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("0450ef8a1c9f2018621ffde2cd14694632644777ab100b85c62be0e7ff7cad1f"),
+      owise{}()
     ]
   axiom{R}
     \implies{R}(
@@ -4942,6 +5478,56 @@ module PRIO
     ]
   axiom{R}
     \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(
+            X0:SortK{},
+            kseq{}(inj{SortReg{}, SortKItem{}}(VarReg:SortReg{}), dotk{}())
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblisReg{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("865ea952b1a26ead498ff863ce0c93a7778374b7269e2d664b14dd00bab55ebf")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortReg{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(
+                  \in{SortK{}, R}(
+                    X0:SortK{},
+                    kseq{}(inj{SortReg{}, SortKItem{}}(Var'Unds'Gen0:SortReg{}), dotk{}())
+                  ),
+                  \top{R}()
+                )
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}()))
+      ),
+      \equals{SortBool{}, R}(
+        LblisReg{}(X0:SortK{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("c286d787b7b6907b6c7b0d59bc06fd55b059406ae06b2801c9df799c4c572ab0"),
+      owise{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("0")), \top{R}())),
       \equals{SortInt{}, R}(
         Lbltable'LParUndsRParUnds'PRIO'Unds'Int'Unds'Int{}(X0:SortInt{}),
@@ -4950,7 +5536,7 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("234ad159439a4be42499cd7ae610d352963f9e77ff16263ab8c6265bd5f5396f"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,22)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,3,17,22)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       )
@@ -4965,7 +5551,7 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("fa8c54024c0d2530a7d7ad5355c8e79f408a5ec8ad9185b7f2136a6d5d05ef27"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,3,16,22)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,18,22)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       )
@@ -4983,7 +5569,7 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("676161281d8ed28905f52868a2359666aec397b417f8bc3becb634326d5ca76b"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,3,17,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,19,38)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       ),
@@ -4999,7 +5585,7 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("d8c837e1d7cfb27ecaa5c914a374a5951cc27298d84b529de815a7b21051a740"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,21,39)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,3,23,39)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       ),
@@ -5018,7 +5604,7 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("bef09c68d839dafbf4700d11d0f8c1af94972ae8b3563b183c6762bec25a5723"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,3,22,39)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,24,39)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       ),
@@ -5053,7 +5639,7 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("29790056bde0468171cd9c5af732b35e5b8d82ea891c1476feb491361ea439b0"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,3,26,96)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,96)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       )
@@ -5068,7 +5654,7 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("74b69720a38843da77f917924be806f0bc1c98af3c44dafbcc970056a632d757"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,29,23)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       )
@@ -5112,7 +5698,7 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("0017062e5b66ed4ea34333070b0e92565743914c4c62b11ae61f96a08ba1c6f8"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,29,41)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,31,41)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       )
@@ -5130,7 +5716,235 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("22ccba3d42405a13eca3ffb0da19a1e73fd63d1b59002a3ffbe09122d991fe08"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,30,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,32,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      ),
+      priority{}("200")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("0")), \top{R}())),
+      \equals{SortReg{}, R}(
+        Lblreg'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(X0:SortInt{}),
+        \and{SortReg{}}(Lblra'Unds'PRIO-SYNTAX'Unds'Reg{}(), \top{SortReg{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("2205ae275135a22b31dc0beef3e8c5e338c61dc74c2ed5cecb0455128fd9aa75"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,38,20)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("1")), \top{R}())),
+      \equals{SortReg{}, R}(
+        Lblreg'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(X0:SortInt{}),
+        \and{SortReg{}}(Lblrb'Unds'PRIO-SYNTAX'Unds'Reg{}(), \top{SortReg{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("47b6b1f391a1a8d700425e1d5f913f90a4913c50ba18266a1747ed1336a12111"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(39,3,39,20)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("2")), \top{R}())),
+      \equals{SortReg{}, R}(
+        Lblreg'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(X0:SortInt{}),
+        \and{SortReg{}}(Lblrc'Unds'PRIO-SYNTAX'Unds'Reg{}(), \top{SortReg{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("446ef417cf409af61db7693ca2a3f03ca4ec3aef26982930ae6733e7f0ab6cd7"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,40,20)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("3")), \top{R}())),
+      \equals{SortReg{}, R}(
+        Lblreg'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(X0:SortInt{}),
+        \and{SortReg{}}(Lblrd'Unds'PRIO-SYNTAX'Unds'Reg{}(), \top{SortReg{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("2e797491d128fb606be5b6ac6e22af2cba3bc8cd39e5511d07f8c169c8e32e71"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,41,20)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbl'Unds'andBool'Unds'{}(
+            Lbl'Unds'andBool'Unds'{}(
+              Lbl'Unds'andBool'Unds'{}(
+                Lbl'Unds-GT-Eqls'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("0")),
+                Lbl'Unds-LT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("64"))
+              ),
+              Lbl'UndsEqlsEqls'Int'Unds'{}(
+                LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(
+                  VarX:SortInt{},
+                  \dv{SortInt{}}("4"),
+                  \dv{SortInt{}}("2")
+                ),
+                \dv{SortInt{}}("1")
+              )
+            ),
+            Lbl'UndsEqlsSlshEqls'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("21"))
+          ),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())
+      ),
+      \equals{SortInstr{}, R}(
+        Lbldec'LParUndsRParUnds'PRIO'Unds'Instr'Unds'Int{}(X0:SortInt{}),
+        \and{SortInstr{}}(
+          Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+            Lblreg'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(
+              LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(
+                VarX:SortInt{},
+                \dv{SortInt{}}("2"),
+                \dv{SortInt{}}("2")
+              )
+            ),
+            Lblreg'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(
+              LblbitRangeInt'LParUndsCommUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int'Unds'Int{}(
+                VarX:SortInt{},
+                \dv{SortInt{}}("0"),
+                \dv{SortInt{}}("2")
+              )
+            )
+          ),
+          \top{SortInstr{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("350a54abfc642bd737ca981b5571aea2422b36d97d4ff9b3fb1b126669784e0f"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,45,98)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("21")), \top{R}())),
+      \equals{SortInstr{}, R}(
+        Lbldec'LParUndsRParUnds'PRIO'Unds'Instr'Unds'Int{}(X0:SortInt{}),
+        \and{SortInstr{}}(Lblstop'Unds'PRIO-SYNTAX'Unds'Instr{}(), \top{SortInstr{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("14305346fd17223dce1c037a68f36326f8e606501650ea6df07e6eb184ea3c5b"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,23)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen0:SortInt{}), \top{R}())
+      ),
+      \equals{SortInstr{}, R}(
+        Lbldec'LParUndsRParUnds'PRIO'Unds'Instr'Unds'Int{}(X0:SortInt{}),
+        \and{SortInstr{}}(Lblbad'Unds'PRIO-SYNTAX'Unds'Instr{}(), \top{SortInstr{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("dc7076c74629be7a00d92872e40c633ccdd0d1484bc243aec6642e2d522a04f5"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,47,37)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      ),
+      priority{}("200")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("1")), \top{R}())),
+      \equals{SortReg{}, R}(
+        Lblexpected'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(X0:SortInt{}),
+        \and{SortReg{}}(Lblrb'Unds'PRIO-SYNTAX'Unds'Reg{}(), \top{SortReg{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("daca162a66895265b7988461937597a634a994efa43756f728dcda3696eb8ab9"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,52,25)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("3")), \top{R}())),
+      \equals{SortReg{}, R}(
+        Lblexpected'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(X0:SortInt{}),
+        \and{SortReg{}}(Lblrd'Unds'PRIO-SYNTAX'Unds'Reg{}(), \top{SortReg{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("198aca19c461e91d83bb56e6f7675500458a8e6c39d3339e87fb110efbc58192"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(53,3,53,25)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("0")), \top{R}())),
+      \equals{SortReg{}, R}(
+        Lblexpected'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(X0:SortInt{}),
+        \and{SortReg{}}(Lblra'Unds'PRIO-SYNTAX'Unds'Reg{}(), \top{SortReg{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("cbffd74690361979fe1a48d16310fa7fda50187c2c8f6db9e2b255d9e702eed0"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,54,25)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("2")), \top{R}())),
+      \equals{SortReg{}, R}(
+        Lblexpected'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(X0:SortInt{}),
+        \and{SortReg{}}(Lblrc'Unds'PRIO-SYNTAX'Unds'Reg{}(), \top{SortReg{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("321bf48938661d7db34bfa2a8c0016570ff24b749fec17b516838fa190940b0b"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(55,3,55,25)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen0:SortInt{}), \top{R}())
+      ),
+      \equals{SortReg{}, R}(
+        Lblexpected'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(X0:SortInt{}),
+        \and{SortReg{}}(Lblra'Unds'PRIO-SYNTAX'Unds'Reg{}(), \top{SortReg{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("cd3f3f1a3663e2e51e0e0457d1291fb699ee003986d53c6d562b9995a037ce2e"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,56,41)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       ),
@@ -5171,7 +5985,93 @@ module PRIO
     )
     [
       UNIQUE'Unds'ID{}("5720d29536e53c0fb4f0b32aafd89cff2b44de60990d391450aa1fa3a735418a"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,3,32,84)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(58,3,58,84)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortPgm{}, SortKItem{}}(
+                Lbldecode'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(VarX:SortInt{})
+              ),
+              dotk{}()
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortInstr{}, SortKItem{}}(
+                Lbldec'LParUndsRParUnds'PRIO'Unds'Instr'Unds'Int{}(VarX:SortInt{})
+              ),
+              dotk{}()
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("527f1c8418c1b8673d49278432a608342774c234807969b8d060a7f9e8ea44e2"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,3,59,36)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/prio/prio.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortPgm{}, SortKItem{}}(
+                Lblexpect'LParUndsRParUnds'PRIO-SYNTAX'Unds'Pgm'Unds'Int{}(VarX:SortInt{})
+              ),
+              dotk{}()
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortInstr{}, SortKItem{}}(
+                Lblmv'LParUndsCommUndsRParUnds'PRIO-SYNTAX'Unds'Instr'Unds'Reg'Unds'Reg{}(
+                  Lblexpected'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(
+                    Lbl'UndsPerc'Int'Unds'{}(
+                      Lbl'UndsSlsh'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("4")),
+                      \dv{SortInt{}}("4")
+                    )
+                  ),
+                  Lblexpected'LParUndsRParUnds'PRIO'Unds'Reg'Unds'Int{}(
+                    Lbl'UndsPerc'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("4"))
+                  )
+                )
+              ),
+              dotk{}()
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("cc57b4be498d5892801a598e620a40129e85b6b9c85067c909528d0668015a11"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,81)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/prio/prio.k)"
       )
@@ -5990,7 +6890,7 @@ module PRIO
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,1,33,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,1,61,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/prio/prio.k)"
   )

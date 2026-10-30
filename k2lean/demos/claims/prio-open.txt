@@ -1,0 +1,4 @@
+# Claims of demos/claims/specs/prio-spec.k that get no generic proof (`k2lean claims --open`); the format
+# is demos/claims/kimp-open.txt's. The hand theorem is in demos/claims/hand/PrioHand.lean (`Hand`, relative
+# to KPrioClaims).
+PRIO-SPEC.swapped  | refuted Hand.swapped_false   # false: at 22 the decoder gives mv(rb, rc), not mv(rc, rb)

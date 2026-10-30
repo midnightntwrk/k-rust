@@ -5,9 +5,11 @@
 
 # ---------------------------------------------------------------- gate phases (tests/gate.sh)
 
-# The area's own definition, kstrict (demos/claims/specs/strict.k): `+` strict in both arguments,
+# The area's own definitions: kstrict (demos/claims/specs/strict.k), `+` strict in both arguments,
 # so either heats first (a `Step` that is not a function), and cooling rules that match the item
-# after the hole.
+# after the hole; kprio, the fixture `prio` (its compiled KORE, as the fixture libraries of the
+# invariants area), tables of equations of several priorities and a decoder of bit patterns over a
+# table of registers, with an independently written table.
 kore_claims() {
   case $1 in
     kstrict) f=$DEMOS/claims/specs/strict.k m=STRICT s=STRICT-SYNTAX inc=$DEMOS/claims/specs ;;
@@ -18,6 +20,7 @@ kore_claims() {
 name_claims() {
   case $1 in
     kstrict) echo KStrict ;;
+    kprio) echo KPrio ;;
     *) return 1 ;;
   esac
 }
@@ -26,6 +29,8 @@ gen_claims() {
   case $1 in
     kstrict) GEN_ARGS=(--kore "$(kore_dir kstrict)/definition.kore" --runtime "$(kore_dir kstrict)/runtime.json"
             --out "$o" --name KStrict --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
+    kprio) GEN_ARGS=(--kore "$FIXTURES/prio/definition.kore" --runtime "$FIXTURES/prio/runtime.json"
+            --out "$o" --name KPrio --prelude ../../lean --open-obligations "$o/open-obligations.txt") ;;
     *) return 1 ;;
   esac
 }
@@ -198,8 +203,44 @@ strict_claims() {
   else bad "claims-strict gen" "$L/claims-strict-gen.log"; fi
 }
 
+prio_claims() {
+  # kprio's claims (demos/claims/specs/prio-spec.k): the decoder against the independent table at one
+  # opcode (a target's witnesses named by partial functions' values), over its family of opcodes (the
+  # decoder by its equation whose `requires` holds, the two tables at symbolic fields by cases), and
+  # the family with source and destination swapped, false and refuted by hand (prio-open.txt,
+  # demos/claims/hand/PrioHand.lean)
+  phase "prio claims"
+  local OUTP=$GEN/prio-claims
+  if ! "$KRUST" kcompile "$T/demos/claims/specs/prio-spec.k" --main-module PRIO-SPEC --definition-module PRIO \
+      --for-proving --output-directory "$KO/prio-spec" --builtin-directory "$BUILTIN" -I "$FIXTURES/prio" -w none \
+      > "$L/kcompile-prio-spec.log" 2>&1; then
+    bad "kcompile prio-spec" "$L/kcompile-prio-spec.log"; return
+  fi
+  if "$G" claims --kore "$FIXTURES/prio/definition.kore" --spec "$KO/prio-spec/definition.kore" \
+      --out "$OUTP" --name KPrioClaims --semantics KPrio --semantics-path ../kprio \
+      --kclaims-path ../../lean --open "$T/demos/claims/prio-open.txt" --hand Hand \
+      > "$L/claims-prio-gen.log" 2>&1; then
+    ok "claims-prio gen"
+    cp "$T/demos/claims/hand/PrioHand.lean" "$OUTP/KPrioClaims/Hand.lean"
+    cp "$OUTP/claims.toml" "$MEAS/claims-prio.toml"
+    if lbuild "$OUTP" build-claims-prio; then
+      ok "build claims-prio" "$L/build-claims-prio.log"
+      if lbuild "$OUTP" build-claims-prio-guard KPrioClaimsTest; then
+        ok "guard claims-prio" "$L/build-claims-prio-guard.log"
+      else bad "guard claims-prio" "$L/build-claims-prio-guard.log"; fi
+      grep -o 'KPrioClaims[^ ]*\.holds depends on axioms: .*' "$L/build-claims-prio-guard.log" \
+        > "$MEAS/axioms-prio.txt" || true
+      grep -E 'kc_auto' "$L/build-claims-prio.log" > "$MEAS/kc-auto-prio.txt" || true
+    else bad "build claims-prio" "$L/build-claims-prio.log"; fi
+  else bad "claims-prio gen" "$L/claims-prio-gen.log"; fi
+}
+
 gate_claims() {
   runs lib kstrict && kc kstrict && lib kstrict KStrict
+  runs lib kprio && lib kprio KPrio
+  if runs record prio-claims; then
+    prio_claims
+  fi
   if runs record strict-claims; then
     kc kstrict && strict_claims
     # importing KClaims leaves common names usable (lean/claims/KClaimsTest/Keywords.lean)

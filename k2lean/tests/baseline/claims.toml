@@ -13,6 +13,14 @@ guarded = 105
 overlaps = 1
 unwitnessed = 1
 
+[lib.kprio]
+tier = "light"
+stated = 109
+open = []
+guarded = 124
+overlaps = 0
+unwitnessed = 0
+
 [claims]
 tier = "heavy"
 claims = 25
@@ -42,6 +50,14 @@ guarded = 2
 kc_auto = 2
 kc_auto_open = 0
 
+[prio-claims]
+tier = "light"
+claims = 3
+stated = 3
+guarded = 2
+kc_auto = 2
+kc_auto_open = 0
+
 [demo.ImpRelClaims]
 tier = "heavy"
 guarded = 29
@@ -66,6 +82,8 @@ preserve = []
 "kc-auto-impplus.txt" = { tier = "light", compare = "sorted-lines" }
 "claims-strict.toml" = { tier = "light", compare = "exact" }
 "kc-auto-strict.txt" = { tier = "light", compare = "sorted-lines" }
+"claims-prio.toml" = { tier = "light", compare = "exact" }
+"kc-auto-prio.txt" = { tier = "light", compare = "sorted-lines" }
 
 [sources]
 
@@ -106,6 +124,24 @@ preserve = []
 "generated/kimpinv-claims/claims.toml" = { tier = "heavy", sha256 = "c5036d3cef81b41f5f5f5ddb24dfb5689db9dcd8e379a0e7fe9b2b5a15cc8295" }
 "generated/kimpinv-claims/lakefile.lean" = { tier = "heavy", sha256 = "9ce2465e6a88b3051e8b5c0da74939fc3df57ca3aa066561b7d01034dffce6f7" }
 "generated/kimpinv-claims/lean-toolchain" = { tier = "heavy", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/kprio/KPrio.lean" = { tier = "light", sha256 = "de611d36730af1ce66ea5cadbb102fcc078d87db6a4ac3edf5c92c64eaa52f01" }
+"generated/kprio/KPrio/Adequacy.lean" = { tier = "light", sha256 = "c681c4e489969bd8d2f32eb6706f7217765210d55c9a4c39227cbca033b2417e" }
+"generated/kprio/KPrio/Determinism.lean" = { tier = "light", sha256 = "cb91065e965df8762fcff97e3e95ede1d04b50181c259b77f9e670e47897784c" }
+"generated/kprio/KPrio/Determinism/L1.lean" = { tier = "light", sha256 = "10161f2b0f5e3a952e0f7541ad88033d166330460a3a7f2b009fe749b2f16644" }
+"generated/kprio/KPrio/Determinism/Pre.lean" = { tier = "light", sha256 = "9dd6e5f858d83dac74e5d3d949a4d37620c028fec31c83809b389d40865fc08b" }
+"generated/kprio/KPrio/EqBase.lean" = { tier = "light", sha256 = "7d80a14086fc105f3ef3d14c42d8fcf60a2453ee204e15fe5ec4eb57f15375bf" }
+"generated/kprio/KPrio/Equations.lean" = { tier = "light", sha256 = "ac17b3374870f04df86b8e8ef027ca7a9c23333b9f87bf3e15fb69567a26723e" }
+"generated/kprio/KPrio/Functions.lean" = { tier = "light", sha256 = "20d5f20869a91ddd033dd3bd14b9523ad482b15368c697a4f8310ae82d18fdb4" }
+"generated/kprio/KPrio/Init.lean" = { tier = "light", sha256 = "3459d97425ea5e61ecbf058d9648067193b0ebf8a0dd0a0d618a758fd7341147" }
+"generated/kprio/KPrio/Preserves.lean" = { tier = "light", sha256 = "de8430c965f5dea5a4c938e519643c3a6289d9be997c9a18dc05367e6a5306f3" }
+"generated/kprio/KPrio/Rules.lean" = { tier = "light", sha256 = "3111ac2b801fe39ca5d96d030b066d397a106578a38f205a388bda776cb8f582" }
+"generated/kprio/KPrio/Terms.lean" = { tier = "light", sha256 = "17ee7592a0be8adbf451b3674c3b19edf0a6be5ce7a6f3e26d1b4f14029200c9" }
+"generated/kprio/KPrioBench/Main.lean" = { tier = "light", sha256 = "52277affc729e8dbba3d133b208bf95fcf69d6ba413f968b01ffa4cd53ccb8cb" }
+"generated/kprio/KPrioTest/Axioms.lean" = { tier = "light", sha256 = "750da3916f68df205327d32557d879f9b14e30387e1fbcad89d2f7593fede31f" }
+"generated/kprio/KPrioTest/DetAxioms.lean" = { tier = "light", sha256 = "8fa195e7b1ce3c2f6dc70c5bb251047605fb35cc22c0de22d81107dd83a428f4" }
+"generated/kprio/KPrioTest/Main.lean" = { tier = "light", sha256 = "f5a6c493f6ab77d642b40c5543b660e77b4417643f70b1cb12cd931168ebfa3c" }
+"generated/kprio/lakefile.lean" = { tier = "light", sha256 = "0d2de45012ed89e27c1f144b33612e491c80370f1656953af4c9f51f4f4405d8" }
+"generated/kprio/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/kstrict/KStrict.lean" = { tier = "light", sha256 = "3ae00feaae5f1e341ee448db1d76d8db7459bbd77e8bb7c6407c28d466135ee8" }
 "generated/kstrict/KStrict/Adequacy.lean" = { tier = "light", sha256 = "f30d48deadef48b9b552e64019c9201bfb4c8773e3bb7a38b8c1cfbc0fed9692" }
 "generated/kstrict/KStrict/Determinism.lean" = { tier = "light", sha256 = "82d2a05734017ee324b645a3d2c89ddc68cbc284e4ff6a0769848060e043e4f1" }
@@ -125,6 +161,15 @@ preserve = []
 "generated/kstrict/KStrictTest/Main.lean" = { tier = "light", sha256 = "7dcb428e13418fea9889c106bc6116a0a68e2febfd6d9f37be2ee60c71f5e7c8" }
 "generated/kstrict/lakefile.lean" = { tier = "light", sha256 = "08ecf28f274e5f3bb81ba8ac07490a066cb072ccbfc72dc1caa4f13af2684c08" }
 "generated/kstrict/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/prio-claims/KPrioClaims.lean" = { tier = "light", sha256 = "f70f3f5acfaba5b01a78412f6a8e7890fc658c8ea8e931dcec58086a02602b9a" }
+"generated/prio-claims/KPrioClaims/Basic.lean" = { tier = "light", sha256 = "8487c911a34d49eca429885526ea67a34c9d5262d28488a3dfe184d85be6dd07" }
+"generated/prio-claims/KPrioClaims/Hand.lean" = { tier = "light", sha256 = "fd8b34c47c9dcdb911faa0d50da9527d2acea5c48365ff1194355a0bfd75736f" }
+"generated/prio-claims/KPrioClaims/PrioSpec.lean" = { tier = "light", sha256 = "df2fab52e0ab08abbc8d920eae709c5d579a1544e2b67e80ec79559bee2a368e" }
+"generated/prio-claims/KPrioClaimsTest/Axioms.lean" = { tier = "light", sha256 = "c912642570c98467720179f9501cd99731ceb9ae659db827a1e374e9b5d3ad6d" }
+"generated/prio-claims/KPrioClaimsTest/Hand.lean" = { tier = "light", sha256 = "7fee054ab51bffb21c1f499973b4fd99ca28520a5a8aed4fd8373f9db210864c" }
+"generated/prio-claims/claims.toml" = { tier = "light", sha256 = "2481e83232ad5cc2308064aababe95f0351f64a7233523f19005e11a8122aa75" }
+"generated/prio-claims/lakefile.lean" = { tier = "light", sha256 = "efad7520cee290ff1dbfb445613b5f6089619742f9a4dd145b03cd709ebd3e09" }
+"generated/prio-claims/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/strict-claims/KStrictClaims.lean" = { tier = "light", sha256 = "942f776ef6a8682bde77d0abe77dbab8eda20be899c86f58bd241f84ca4e3d83" }
 "generated/strict-claims/KStrictClaims/Basic.lean" = { tier = "light", sha256 = "1ffe7a380138f8338dbd7e340e424b4dfabcf55504da3f499016fce4efced5f2" }
 "generated/strict-claims/KStrictClaims/StrictSpec.lean" = { tier = "light", sha256 = "6c830fad12c37cb27bbeb4710611e3d1a8cc68b2dfb18e7b62338d519d95f748" }

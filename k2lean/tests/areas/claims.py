@@ -4,6 +4,9 @@
 LIBS = {
     # a strict operator in a `Step` that is not a function (demos/claims/specs/strict.k)
     "kstrict": {"ns": "KStrict", "tier": "light"},
+    # tables of equations of several priorities, a decoder of bit patterns over a table of registers
+    # and an independent table (tests/fixtures/prio/prio.k)
+    "kprio": {"ns": "KPrio", "tier": "light"},
 }
 
 DEMOS = {
@@ -68,6 +71,10 @@ RECORDS = {
     # on kstrict (the area's own library; claims whose successors do not reduce: `tryRel`)
     "strict-claims": {"tier": "light", "measure": measure_spec("strict"),
                       "sources": ["generated/strict-claims"]},
+    # on kprio (the area's own library; a decoder against an independent table, one opcode and a
+    # family by its fields, and a refuted family claim)
+    "prio-claims": {"tier": "light", "measure": measure_spec("prio"),
+                    "sources": ["generated/prio-claims"]},
 }
 
 OUTPUTS = {
@@ -84,4 +91,6 @@ OUTPUTS = {
     "kc-auto-impplus.txt": {"tier": "light", "compare": "sorted-lines"},
     "claims-strict.toml": {"tier": "light", "compare": "exact"},
     "kc-auto-strict.txt": {"tier": "light", "compare": "sorted-lines"},
+    "claims-prio.toml": {"tier": "light", "compare": "exact"},
+    "kc-auto-prio.txt": {"tier": "light", "compare": "sorted-lines"},
 }

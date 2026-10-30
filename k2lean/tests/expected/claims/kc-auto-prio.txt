@@ -1,0 +1,2 @@
+info: KPrioClaims/PrioSpec.lean:37:2: kc_auto KPrioClaims.PrioSpec.Inst.one.holds: 1 configurations, 0 rule steps, 0 splits, 0 claim applications, 0 open
+info: KPrioClaims/PrioSpec.lean:62:2: kc_auto KPrioClaims.PrioSpec.Inst.family.holds: 1 configurations, 0 rule steps, 0 splits, 0 claim applications, 0 open
