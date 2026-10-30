@@ -1097,6 +1097,7 @@ pub fn observe_error(error: &CommandError) -> Vec<ObservedDiagnostic> {
             range: None,
             labels: Vec::new(),
             message: error.to_string(),
+            help: Vec::new(),
         });
     }
     observed
@@ -1132,6 +1133,7 @@ fn observe_reports(envelopes: &[DiagnosticEnvelope]) -> Vec<ObservedDiagnostic> 
                 .map(|label| in_case(&label.range))
                 .collect(),
             message: envelope.message.clone(),
+            help: envelope.help.clone(),
         })
         .collect()
 }

@@ -6,12 +6,14 @@
 //! `pending.toml`.
 //!
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
-//! `cells`, `init`, `terms`, `import`, and `notation` (the collection notation at the term
-//! positions), each of which also judges its accepted cases by K3
+//! `cells`, `init`, `terms`, `import`, `notation` (the collection notation at the term
+//! positions), and `attrs` (every sentence attribute on every sentence form), each of which also
+//! judges its accepted cases by K3
 //! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`, by K6 (the definition an accepted case emits
 //! passes the judgement `krs check` makes on the native routes, [`pipeline`]) unless
 //! `KRS_CLASS_NATIVE=0`, and by K7 (the case's program, run on that definition, shows its
-//! sentence applied, with the value the generator states, [`runs`]) unless `KRS_CLASS_RUN=0`;
+//! sentence applied, with the value the generator states, [`runs`]) unless `KRS_CLASS_RUN=0`,
+//! and judges the advice of the classes whose refusal advises a rewrite (K8, [`k8`]);
 //! `k5`, which checks one broken header per entry
 //! point ([`mutations`]); and `k4`, which compares KRS's sort judges with
 //! k-rust's lattice on each base's emitted definition ([`lattice`]). Each prints its counts and its red cases per finding
@@ -21,8 +23,8 @@
 //! A K2 entry of `pending.toml` is keyed by the case's ID, and the fast tier reads the same entry
 //! for a case the front refuses; where the two tiers observe such a case differently, this tier
 //! reads `full/<case ID>` instead. A K1 entry of this tier, which judges keys after lowering, is
-//! keyed `k1/<case ID>`, a K6 entry `k6/<case ID>`, and a K7 entry `k7/<case ID>`
-//! (`class_matrix::pending`).
+//! keyed `k1/<case ID>`, a K6 entry `k6/<case ID>`, a K7 entry `k7/<case ID>`, and a K8 entry
+//! `k8/<case ID>` (`class_matrix::pending`).
 //!
 //! The run is set by the environment (the script sets every variable from measured headroom):
 //! - `KRS_CLASS_WORKERS`: concurrent workers, each with one Cargo target (default 1);
@@ -62,12 +64,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use krs_compiler::testing::SortJudges;
+use krs_test_support::class_matrix::advice::advised;
 use krs_test_support::class_matrix::invariants::{
     Observed, registry_kind, signature, violations, without_rustc_parse_error,
 };
 use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::pending::{
-    CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, RUN, case_of,
+    ADVICE, CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, RUN, case_of,
 };
 use krs_test_support::class_matrix::table::{
     Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, is_term_case,
@@ -301,6 +304,7 @@ impl Shard {
                 "k3" => format!("{CLOSURE}{id}"),
                 "k6" => format!("{NATIVE}{id}"),
                 "k7" => format!("{RUN}{id}"),
+                "k8" => format!("{ADVICE}{id}"),
                 "k5" => id.to_owned(),
                 _ if spec().pending.entries.contains_key(&full) => full,
                 _ => id.to_owned(),
@@ -421,14 +425,15 @@ impl Shard {
 /// K2: the table-free invariants, and the table where it covers the case. `k` is the case's K
 /// for the table's comparison, `None` in the record mode. At a position rustc parses, rustc's
 /// parse error beside KRS's one error at the same spelling is left out of the judgement
-/// ([`without_rustc_parse_error`]), not out of the signature.
+/// ([`without_rustc_parse_error`]), not out of the signature. Whether the table covers the case,
+/// and whether the case conforms.
 fn k2(
     shard: &mut Shard,
     resolution: &Resolution<'_>,
     case: &Case,
     judged: &Judged,
     k: Option<&str>,
-) -> bool {
+) -> (bool, bool) {
     let placed = judged.placed(case);
     let covered = resolution.expected.get(&judged.id);
     let site = covered.map_or(&placed.entry, |expected| expected.site(&placed));
@@ -453,13 +458,68 @@ fn k2(
         messages.join(" | ")
     )
     .expect("writing to a String cannot fail");
+    let conforms = misses.is_empty();
     shard.add(
         "k2",
         &judged.id,
         signature(&judged.observed, &placed),
         misses,
     );
-    covered.is_some()
+    (covered.is_some(), conforms)
+}
+
+/// K8, the advice check: a class's advised case (`expected.toml`'s `advice`) is accepted, passes
+/// K6 and runs as K7 states where K6 and K7 ran; and a case its class refuses as the table
+/// expects, whose error advises a rewrite (`class_matrix::advice`), belongs to a class that names
+/// an advised case. Keyed `k8/<case ID>`.
+fn k8(shard: &mut Shard, resolution: &Resolution<'_>, judged: &Judged, conforms: bool) {
+    let classes = &spec().table.classes;
+    let advising = classes
+        .iter()
+        .filter(|(_, class)| class.advice.as_deref() == Some(judged.id.as_str()))
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>();
+    if !advising.is_empty() {
+        let of = format!("advice of {}", advising.join(", "));
+        let deviation = if judged.observed.refused() {
+            Some(format!(
+                "{of}: refused: {}",
+                judged
+                    .observed
+                    .errors()
+                    .map(|error| error.code.as_deref().unwrap_or("uncoded"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        } else if let Some(native @ Native::Refused { .. }) = &judged.native {
+            Some(format!("{of}: K6: {}", native.signature()))
+        } else if let Some(ran @ Ran::Deviates(_)) = &judged.ran {
+            Some(format!("{of}: K7: {}", ran.signature()))
+        } else {
+            None
+        };
+        let (signature, misses) = match deviation {
+            Some(deviation) => (
+                deviation,
+                vec!["the form a class's refusal advises is not accepted as written".to_owned()],
+            ),
+            None => (format!("{of}: accepted"), Vec::new()),
+        };
+        shard.add("k8", &judged.id, signature, misses);
+    }
+    if let Some(Expected::Refuse { name, class, .. }) = resolution.expected.get(&judged.id)
+        && conforms
+        && judged.observed.refused()
+        && class.advice.is_none()
+        && let Some(form) = judged.observed.errors().find_map(advised)
+    {
+        shard.add(
+            "k8",
+            &judged.id,
+            format!("{name} advises `{form}` and names no advised case"),
+            vec!["a refusal advises a rewrite its class names no case of".to_owned()],
+        );
+    }
 }
 
 /// The test a pending key belongs to.
@@ -472,6 +532,8 @@ fn test_of(key: &str) -> &'static str {
         "k6"
     } else if key.starts_with(RUN) {
         "k7"
+    } else if key.starts_with(ADVICE) {
+        "k8"
     } else if key.starts_with("entry/") {
         "k5"
     } else {
@@ -751,14 +813,14 @@ fn shard(name: &str, families: &[Family]) {
             ));
         }
         let compared = k.as_deref().filter(|_| !recording);
-        if !k2(&mut shard, &resolution, case, judged, compared) {
-            uncovered += 1;
-        }
+        let (covered, conforms) = k2(&mut shard, &resolution, case, judged, compared);
+        uncovered += usize::from(!covered);
         k1(&mut shard, judged);
         let pairs = k.as_deref().map_or_else(Vec::new, |k| other_k(expected, k));
         k3(&mut shard, judged, pairs, &mut forms);
         k6(&mut shard, judged);
         k7(&mut shard, judged);
+        k8(&mut shard, &resolution, judged, conforms);
     }
     if recording {
         record(&recorded);
@@ -840,6 +902,12 @@ fn import() {
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn notation() {
     shard("notation", &[Family::Notation]);
+}
+
+#[test]
+#[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
+fn attrs() {
+    shard("attrs", &[Family::Attributes]);
 }
 
 #[test]

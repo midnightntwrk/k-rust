@@ -36,6 +36,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
+use krs_diagnostic::codes::expand;
 use krs_diagnostic::{Code, untag_rustc_message};
 use krs_expand::sink::{ByteRange, InvocationId, MappingClass};
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
@@ -134,6 +135,7 @@ fn run_front(placed: &Placed<'_>, source: &str) -> Front {
                         range: diagnostic.authored.map(range),
                         labels: Vec::new(),
                         message: diagnostic.message,
+                        help: Vec::new(),
                     })
                     .collect(),
                 panic: None,
@@ -193,6 +195,7 @@ fn written_errors(expansion: &FileExpansion) -> Vec<(ObservedDiagnostic, bool)> 
                     range: Some(range(exact.unwrap_or(call_site))),
                     labels: Vec::new(),
                     message,
+                    help: Vec::new(),
                 },
                 exact.is_some(),
             ));
@@ -566,8 +569,10 @@ impl Test {
 
 /// One case's verdict in this tier.
 enum Verdict {
-    /// The front accepted the case with sound keys, or stopped at rustc's parse error at a
-    /// position rustc parses: the full tier decides it.
+    /// The front accepted the case with sound keys, stopped at rustc's parse error at a position
+    /// rustc parses, or met a KRS attribute a marker's expansion emits, which rustc expands and
+    /// this driver does not (`krs::expand::nested-attribute`, a helper a marker passes on): the
+    /// full tier decides it.
     Deferred,
     Conforms,
     Deviates(Test, String),
@@ -582,7 +587,12 @@ fn judge(placed: &Placed<'_>, front: &Front, expected: Option<&Expected<'_>>) ->
             Verdict::Deviates(Test::K1, front.keys.defects.join("; "))
         };
     }
-    if front_stops_at_rustc_parse(&front.observed, placed) {
+    if front_stops_at_rustc_parse(&front.observed, placed)
+        || front
+            .observed
+            .errors()
+            .any(|error| error.code.as_deref() == Some(expand::NESTED_ATTRIBUTE.as_str()))
+    {
         return Verdict::Deferred;
     }
     let site = expected.map_or(&placed.entry, |expected| expected.site(placed));
