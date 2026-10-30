@@ -101,7 +101,27 @@ the descriptors of the base and its own. A case is judged by
   emitted again, byte for byte or after the normalization of `class_matrix/closure.rs`
   (alpha-renaming, `... </k>` for an explicit computation rest, `...` for a frame variable used
   once or `_` there, and the digest of a generated label). Each shard prints, per form, how many cases are byte-identical, equal after
-  normalization, different, or refused in the printed source. `KRS_CLASS_CLOSURE=0` skips it.
+  normalization, different, or refused in the printed source. `KRS_CLASS_CLOSURE=0` skips it;
+- K6, once accepted (initializers included) and not refused by the table: the definition the case
+  emits, its base and the case alone, passes the judgement `krs check` makes without `--backend`
+  (`krs_cli::CollectedDefinition::check`, the function `krs check` itself runs): `emit-k`'s
+  emission, every native route's capability table, `krs build`'s native compile on both backends,
+  and on the `native-rust` route the definition load of `krs run`, `krs search` and `krs prove`.
+  K6 asks whether any `krs` command can use the K KRS wrote: a case KRS accepts but a native
+  route refuses cannot be built, run or proved, however good its K. A refusal or a panic is a
+  deviation keyed `k6/<case ID>`, its signature the refusing route or command (`native-rust`,
+  `native-llvm`, `every native route`, `load` for the definition load, `emit-k`) and the code of
+  each error, for example `every native route IllegalFunctionOnLhs`.
+
+  The native compile of a base costs far more than a case adds to it (on 2026-10-30, about 2 s a
+  check for the machine base, the case's lowering under 0.01 s), so the accepted cases of a batch
+  are judged together, as one definition, when it is exactly theirs: its emitted sentences are the
+  base's and each case's own, as each emits alone. A refusal is bisected, as a collection failure
+  is, down to the case whose definition alone is refused; a batch whose cases lower otherwise
+  together is judged case by case. Each shard prints how many cases K6 judged, in how many checks,
+  and the workers' time they took. `KRS_CLASS_NATIVE=0` skips K6, and `KRS_CLASS_NATIVE=alone`
+  judges every case alone, which must give the same verdicts. K6 compiles natively, so the tier
+  links the Z3 release `Krs.lock` pins (`KRS_Z3_LIB`, or the Nix store).
 
 The `k4` shard compares KRS's sort judges with k-rust's subsort relations of each base's emitted
 definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, and those about
@@ -147,7 +167,7 @@ creating its `[accept."ID"]` entry if needed, and keeps `same_k_as`. Review the 
 ## Pending entries
 
 A case that deviates fails the suite until `pending.toml` records it, keyed by the test and the case
-(`k2/readable/result/pc/None`), with the finding that owns it (`unassigned` while none does) and the
+(`readable/result/pc/None` for K2, `k1/..`, `k3/..` and `k6/..` for K1, K3 and K6), with the finding that owns it (`unassigned` while none does) and the
 deviation exactly as the harness prints it. `KRS_CLASS_OUT` writes the entries of every unrecorded
 deviation to `<shard>.pending.toml`, with `finding = "unassigned"`, for review. A pending case that
 conforms, or deviates differently, also fails: remove its entry, or record the new deviation.
