@@ -2108,12 +2108,15 @@ fn symbolic_stuck_leaf_is_complete_in_both_profiles() {
 
 /// SYM-3B-05 (README R19): `&Int` is `smtlib(andInt)`, which k-rust declares as an
 /// uninterpreted SMT function, and k-rust 347f693e's `smt::translates_exactly` did not count
-/// that. Z3 answers `Sat` for `X &Int 6 ==Int 1` although no integer satisfies it, so k-rust
-/// takes `gate` under that condition, and the leaf after the load was `Solver`-feasible,
+/// that. Z3 answers `Sat` for `X &Int (2 *Int X) ==Int 1` although no integer satisfies it (bit 0
+/// of `2 *Int X` is clear), so k-rust takes `gate` under that condition, and the leaf after the
+/// load was `Solver`-feasible,
 /// complete and a witness: WL-after was a wrong `match` (every instance is stuck at `gate`
 /// after the write). `translates_exactly` now rejects `smtlib` symbols (k-rust KK-48), so that
 /// leaf, and the remainder stuck at `gate` under the negated condition, are `SolverUnknown`, and
-/// the result is `unknown`.
+/// the result is `unknown`. The condition has two symbolic operands: k-rust reads `&Int` by a
+/// literal nonnegative mask exactly (k-rust 0da031036), and refutes the earlier
+/// `X &Int 6 ==Int 1`, which is then no uninterpreted function.
 #[test]
 fn uninterpreted_smt_function_does_not_make_a_path_feasible() {
     use HaltClass::{Indeterminate, Stuck};

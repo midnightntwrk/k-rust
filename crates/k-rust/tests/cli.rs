@@ -11269,6 +11269,12 @@ endmodule []
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A model of a query the translation approximates is no K valuation: `m2` quantifies over
+/// `Nat`, which the solver reads as an uninterpreted sort, and `opaque` (`X &Int Y ==Int 1`)
+/// applies the uninterpreted `andInt` to two symbolic operands, so a solver `Sat` for either is
+/// `Unknown`. `m1` (`X &Int 6 ==Int 1`) has the exact fixed-mask reading
+/// `2 * ((X div 2) mod 4)`, which is even for every integer `X`, so no `X` satisfies it, and the
+/// solver's `Unsat` for an exact query is the answer.
 #[cfg(feature = "z3-inference")]
 #[test]
 fn kore_get_model_reports_unknown_for_approximate_smt_models() {
@@ -11287,9 +11293,13 @@ fn kore_get_model_reports_unknown_for_approximate_smt_models() {
         String::from_utf8_lossy(&compile.stderr)
     );
 
-    for (name, pattern) in [
-        ("m1", include_str!("fixtures/kink/model/m1.kore")),
-        ("m2", include_str!("fixtures/kink/model/m2.kore")),
+    let m1 = include_str!("fixtures/kink/model/m1.kore");
+    let opaque = m1.replace(r#"\dv{SortInt{}}("6")"#, "VarY:SortInt{}");
+    assert_ne!(opaque, m1);
+    for (name, pattern, satisfiable) in [
+        ("m1", m1, "Unsat"),
+        ("m2", include_str!("fixtures/kink/model/m2.kore"), "Unknown"),
+        ("opaque", opaque.as_str(), "Unknown"),
     ] {
         let pattern_path = root.join(format!("{name}.kore"));
         fs::write(&pattern_path, pattern).unwrap();
@@ -11310,7 +11320,7 @@ fn kore_get_model_reports_unknown_for_approximate_smt_models() {
             String::from_utf8_lossy(&output.stderr)
         );
         let answer: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(answer["satisfiable"], "Unknown", "{name}: {answer}");
+        assert_eq!(answer["satisfiable"], satisfiable, "{name}: {answer}");
         assert!(answer.get("substitution").is_none(), "{name}: {answer}");
     }
     fs::remove_dir_all(root).unwrap();

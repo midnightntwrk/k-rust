@@ -14386,7 +14386,12 @@ fn absence_update_leaves(
 /// application leaves a `Trivial` remainder and one more obligation at every step, keeps
 /// exactly that shape and no more than one absence. Its first step consumes `a |-> zero() R`
 /// and so carries the absence, as every later step finds it on the path: its `Trivial`
-/// remainder holds one more constraint than the step count alone gives. Where the initial
+/// remainder holds one more constraint than the step count alone gives. The `DepthBound`
+/// leaf holds the absence and only the last step's obligation `\ceil(inc^7(zero()))`: symbol
+/// application is strict, so that obligation entails `\ceil(inc^k(zero()))` for every `k < 7`,
+/// and the solver, reading a partial application's domain with its arguments' domains, shows
+/// each earlier obligation entailed and the leaf's simplification drops it; the leaf's
+/// instances are the same as with all seven obligations. Where the initial
 /// state's definedness is not assumed, its instances without the absence are those where the
 /// state itself is undefined, so they have no leaf, assumed or not; the first step's own
 /// obligation states the absence on the unassumed path.
@@ -14417,7 +14422,7 @@ fn updating_a_value_through_requires_or_hooks_restates_one_absence() {
         let mut cases = (0..8)
             .map(|depth| ("Trivial".to_owned(), depth as u64, depth + first))
             .collect::<Vec<_>>();
-        cases.push(("DepthBound".to_owned(), 8, 7 + first - 1));
+        cases.push(("DepthBound".to_owned(), 8, first));
         cases
     };
     assert_eq!(absence_update_leaves("sOther", false), (other(2), 1));

@@ -1,7 +1,8 @@
 // SYM-3B-05 audit fixture: symmem's write/load over `Int` addresses, plus rules whose
 // applicability to a symbolic `Int` subject depends on its value without a `requires`
 // (a repeated variable, `Int` and `Bool` literals, an `owise` fallback) and one whose
-// `requires` uses `&Int`, which k-rust's SMT translation leaves uninterpreted (`smtlib`).
+// `requires` uses `&Int` over two symbolic operands, which k-rust's SMT translation leaves
+// uninterpreted (`smtlib`); a literal nonnegative mask has an exact reading.
 module SYMNARROW-SYNTAX
   imports INT-SYNTAX
   imports BOOL-SYNTAX
@@ -30,6 +31,6 @@ module SYMNARROW
   rule [flag]:  seq(flag(true), P) => P
   rule [pick]:  seq(pick(0), P) => P
   rule [pickOwise]: seq(pick(_), _) => halt [owise]
-  // `A &Int 6` is even, so no instance takes this rule.
-  rule [gate]:  seq(gate(A), P) => P requires A &Int 6 ==Int 1
+  // Bit 0 of `2 *Int A` is clear, so `A &Int (2 *Int A)` is even and no instance takes this rule.
+  rule [gate]:  seq(gate(A), P) => P requires A &Int (2 *Int A) ==Int 1
 endmodule
