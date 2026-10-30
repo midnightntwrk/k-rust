@@ -13,16 +13,18 @@
 //!   whether some reached configuration matches;
 //! - (c) on the programs of k-rust-fuzz's `COMPARABLE_ENDS` (`tests/support/mod.rs`), a run the
 //!   fuzz judges comparable is `comparable` in kink's `results`; and on those programs kink-flow's
-//!   witness filter accepts a reach candidate exactly when kink's own confirmation lists it.
+//!   witness filter accepts a reach candidate exactly when kink's own confirmation lists it;
+//! - (d) an undefined step is no end (finding KINK-UNDEFINED-END, decision D41): its pre-step
+//!   configuration is reached but is no result of the program, so two definitions that both end
+//!   undefined at different pre-step configurations are killed by neither tool, and a side whose
+//!   every path takes an undefined step has the empty set of ends, which a clean end of the other
+//!   side distinguishes.
 //!
 //! Known divergences, pinned for the final first-principles review, not desired behaviour:
 //! - cond(0): the fuzz holds no end of a definition with an unnamed critical-pair finding to be
 //!   data, while kink's `results` classifies the run by its own end check and lists its coverage;
 //! - a non-ASCII String end: k-rust's data judgement accepts it and kink's end check does not; the
-//!   witness filter closes the gap inside a kink-flow campaign, the library judgement keeps it;
-//! - (d) KINK-UNDEFINED-END: kink counts an undefined step's pre-step configuration as a final
-//!   result, the fuzz holds an undefined step to be no end, so two definitions that both end
-//!   undefined at different pre-step configurations are killed by kink and not by the fuzz.
+//!   witness filter closes the gap inside a kink-flow campaign, the library judgement keeps it.
 //!
 //! The kill job's agreement of the filter and kink's confirmation on a non-ASCII end is pinned in
 //! `tests/fuzz.rs` (`a_witness_kink_refuses_is_unconfirmed_with_kinks_cause`, and `comparable_b`
@@ -931,7 +933,7 @@ endmodule
     }
 
     // -----------------------------------------------------------------------------------------
-    // (d) KINK-UNDEFINED-END
+    // (d) An undefined step is no end
     // -----------------------------------------------------------------------------------------
 
     /// `go(N)` writes `0` to `<log>` and steps to `step(N)`, whose one rule writes `N /Int 0`: an
@@ -951,26 +953,33 @@ module UE
 endmodule
 ";
 
-    /// The mutant writes `1` to `<log>`: it ends undefined too, at another pre-step configuration.
+    /// `log-one` writes `1` to `<log>`: it ends undefined too, at another pre-step configuration.
+    /// `out-defined` writes `N` to `<out>`: its step is defined, and every run ends cleanly.
     const UNDEFINED_MUTATIONS: &str = "[[mutation]]\nid = \"log-one\"\n[[mutation.edit]]\nrule = \
-                                       \"UE.go\"\nfind = \"_ => 0\"\nreplace = \"_ => 1\"\n";
+                                       \"UE.go\"\nfind = \"_ => 0\"\nreplace = \"_ => \
+                                       1\"\n\n[[mutation]]\nid = \"out-defined\"\n\
+                                       [[mutation.edit]]\nrule = \"UE.step\"\nfind = \"N /Int \
+                                       0\"\nreplace = \"N\"\n";
 
-    /// Known divergence (finding KINK-UNDEFINED-END), for the final first-principles review, not
-    /// desired behaviour. Both definitions end every run in an undefined step, at pre-step
-    /// configurations that differ in `<log>`. Both tools judge the run comparable (complete, every
-    /// leaf a clean end or undefined step, its configuration data and a value). They differ on
-    /// what the run's result is: the fuzz holds an undefined step to be no end (its outcome is
-    /// undefinedness, not a configuration), so both sets of ends are empty and no input kills;
-    /// kink's whole-term projection counts the pre-step configuration as a final result, so its
-    /// exit stop slot agrees (both `UndefinedStep`) and its whole-term slot distinguishes: the
-    /// template's own program kills.
+    /// (d) An undefined step is no end, for both tools (finding KINK-UNDEFINED-END, decision D41).
+    /// A rule whose right-hand side is `\bottom` at an instance states that the instance has no
+    /// successor in any model: the configuration before the step is reached, but it is no result
+    /// of the program. The baseline ends every run in an undefined step, so its set of ends is
+    /// empty, and both tools judge the run comparable (complete, every leaf a clean end or an
+    /// undefined step).
+    /// - `log-one` ends every run undefined too, at pre-step configurations that differ in
+    ///   `<log>`: both sets of ends are empty, the fuzz finds no witness among the six inputs of the
+    ///   hole's domain, and kink's slots agree (both exit stops are `UndefinedStep`, both whole terms
+    ///   the empty set), so the mutation survives.
+    /// - `out-defined` gives every run a clean end: the fuzz kills by an added end, and kink kills
+    ///   the corpus program by both slots, its baseline whole term the empty set.
     ///
-    /// Fails if either tool changes its reading of an undefined step: the fuzz counting the
-    /// pre-step configuration as an end (a witness), or kink leaving it out of the whole-term
-    /// projection (the mutation survives).
+    /// Fails if either tool counts an undefined step's pre-step configuration as an end (a fuzz
+    /// witness for `log-one`, or kink killing it), or if an empty set of ends stops being a value
+    /// (`out-defined` is not killed by its whole term).
     #[test]
     #[ignore = "kink"]
-    fn known_divergence_kink_kills_by_an_undefined_steps_pre_step_configuration() {
+    fn an_undefined_step_is_no_end_for_either_tool() {
         let dir = flow(
             "undefined-end",
             "ue.k",
@@ -993,9 +1002,25 @@ endmodule
         assert_eq!(case["comparable"], json!({"holds": true, "reasons": []}));
         assert_eq!(case["sides"][0]["halts"], json!(["trivial"]), "{case:#}");
         assert_eq!(row(&kink_results(&dir), "one")["class"], "comparable");
+        // The program's result record, the one record of the flow's result cache.
+        let records = fs::read_dir(dir.join("cache/results"))
+            .unwrap()
+            .flat_map(|spec| fs::read_dir(spec.unwrap().path()).unwrap())
+            .map(|record| record.unwrap().path())
+            .collect::<Vec<_>>();
+        let [record] = records.as_slice() else {
+            panic!("one result record: {records:?}");
+        };
+        let record: Value = serde_json::from_str(&fs::read_to_string(record).unwrap()).unwrap();
+        assert_eq!(
+            record["final_configuration"],
+            json!([]),
+            "an undefined step's pre-step configuration is no final configuration: {record:#}"
+        );
 
-        // The fuzz: each of the six inputs ends undefined on both sides; no witness. The six cases
-        // try every assignment of the hole's finite domain, so the campaign stops on that.
+        // `log-one`, the fuzz: each of the six inputs ends undefined on both sides; no witness.
+        // The six cases try every assignment of the hole's finite domain, so the campaign stops
+        // on that.
         let (document, ok) = kink_flow_fuzz(
             &dir,
             HOLE_TEMPLATE,
@@ -1008,23 +1033,49 @@ endmodule
         assert_eq!(document["program"], Value::Null);
         assert_eq!(totals(&document)["classes"], json!({"undefined": 6}));
 
-        // kink: the corpus program kills by the whole term alone.
+        // `log-one`, kink: the corpus program agrees on both slots; the mutation survives.
         let mutation = kink_run(&dir, "log-one");
+        assert_eq!(mutation["status"], "survived", "{mutation:#}");
+        assert_eq!(
+            mutation["executed"][0]["slots"],
+            json!({"exit-stop": {"outcome": "agree"}, "whole-term": {"outcome": "agree"}}),
+            "{mutation:#}"
+        );
+
+        // `out-defined`, the fuzz: an added end.
+        let (document, ok) = kink_flow_fuzz(
+            &dir,
+            HOLE_TEMPLATE,
+            "h",
+            Job::Kill("out-defined"),
+            options(6, true, true),
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["stopped"], Value::Null, "{document:#}");
+        let candidate = &document["attempts"][0]["candidate"];
+        assert_eq!(candidate["kill"], "added-end", "{candidate:#}");
+        let confirmation = &document["attempts"][0]["confirmation"];
+        assert_eq!(confirmation["status"], "killed", "{confirmation:#}");
+
+        // `out-defined`, kink: the corpus program kills by both slots; the baseline's whole term
+        // is the empty set.
+        let mutation = kink_run(&dir, "out-defined");
         assert_eq!(
             (&mutation["status"], &mutation["killer"]),
             (&json!("killed"), &json!("one")),
             "{mutation:#}"
         );
         let slots = &mutation["executed"][0]["slots"];
-        assert_eq!(slots["exit-stop"]["outcome"], "agree", "{slots:#}");
+        assert_eq!(slots["exit-stop"]["outcome"], "distinguish", "{slots:#}");
         assert_eq!(slots["whole-term"]["outcome"], "distinguish", "{slots:#}");
-        let mutant = slots["whole-term"]["sides"]["mutant"]["kore"][0]["text"]
-            .as_str()
-            .unwrap();
-        assert!(
-            mutant.contains("Lblstep{}")
-                && mutant.contains("Lbl'-LT-'log'-GT-'{}(\\dv{SortInt{}}(\"1\"))"),
-            "the mutant's final result is its pre-step configuration: {mutant}"
+        assert_eq!(
+            slots["whole-term"]["sides"]["baseline"],
+            json!({"final_configurations": 0}),
+            "{slots:#}"
+        );
+        assert_eq!(
+            slots["whole-term"]["sides"]["mutant"]["final_configurations"], 1,
+            "{slots:#}"
         );
     }
 }

@@ -93,14 +93,14 @@ impl OracleValue {
         }
     }
 
-    /// Whether the value is of `kind` and names at least one terminal.
+    /// Whether the value is of `kind` and, for an exit stop, names at least one terminal. A final
+    /// result may be empty: an undefined step is a terminal but no end, so a run whose every path
+    /// takes one has no final result (kink27 R1-UNDEF; kink-campaign `runner`).
     fn is_valid_for(&self, kind: OracleKind) -> bool {
         self.kind() == kind
             && match self {
                 Self::ExitStop(stops) => !stops.is_empty(),
-                Self::FinalResult(FinalResult::WholeTerm(terms)) => !terms.is_empty(),
-                Self::FinalResult(FinalResult::TermPaths(terms)) => !terms.is_empty(),
-                Self::Pattern(_) => true,
+                Self::FinalResult(_) | Self::Pattern(_) => true,
             }
     }
 }
@@ -125,7 +125,7 @@ pub enum OracleSide {
 ///
 /// A failed side decides first, in the order error, timeout, unknown. Two crashes
 /// compare by their terminal terms under `crash_policy`. A normal value of another
-/// kind, an empty value, a whole-term value against a term-path value, or a match
+/// kind, an empty exit stop, a whole-term value against a term-path value, or a match
 /// with bindings against one without is `InvalidKindValue`. This function performs
 /// no K parsing, projection, solver work, or discovery.
 pub fn compare_supplied(

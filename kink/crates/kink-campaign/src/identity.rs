@@ -77,7 +77,10 @@ use std::{path::Path, sync::OnceLock};
 /// `fired_by` now lists in place of `applied_sentences`: a rewrite rule only when some path of the
 /// run takes its step (k-rust `committed`), not when its candidate was rolled back or its step was
 /// undefined; a v5 record has no such member, and its `applied_sentences` hold rules no path took.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v6";
+/// v7 (kink27 R1-UNDEF): an undefined step's pre-step configuration is no end, so a record's
+/// whole-term side and `final_configuration` no longer hold it (a run whose every path takes an
+/// undefined step holds the empty set); a v6 record lists it.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v7";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

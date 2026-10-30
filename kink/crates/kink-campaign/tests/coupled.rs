@@ -5781,10 +5781,16 @@ mod kink_tier {
         });
     }
 
-    /// AT8: terminal classes stay outside step events under SO-D5. WholeTerm and the declared trace agree for Stuck versus an undefined step.
+    /// AT8: terminal classes stay outside step events under SO-D5: the declared trace agrees for
+    /// Stuck versus an undefined step. Re-pinned by kink27 R1-UNDEF (finding KINK-UNDEFINED-END,
+    /// decision D41): the baseline's `divide(1, 0)` is stuck, a genuine end, while the mutant's
+    /// step from it is undefined, which is no end, so the mutant's whole term is the empty set and
+    /// lacks the baseline's end (a removed end): `div-zero` kills through the whole term alone.
+    /// Before the ticket the whole term read the mutant's pre-step configuration as its final
+    /// result, the baseline's stuck term, and agreed.
     #[test]
     #[ignore = "kink"]
-    fn audit_so_at8_stuck_against_undefined_step_is_not_killed() {
+    fn audit_so_at8_stuck_against_undefined_step_is_killed_by_the_whole_term_alone() {
         with_stack(|| {
             let validator =
                 NativeValidator::bind(support::load("guardeddiv.k"), CompileOptions::default());
@@ -5838,9 +5844,9 @@ mod kink_tier {
                 budget: BUDGET,
             };
             let run = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("campaign");
-            assert_eq!(outcomes(&run), vec![vec![A, A], vec![A, A]]);
-            assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
-            assert!(run.mutants[0].report.killing_test_ids.is_empty());
+            assert_eq!(outcomes(&run), vec![vec![D, A], vec![A, A]]);
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+            assert_eq!(run.mutants[0].report.killing_test_ids, ["div-zero"]);
         });
     }
 

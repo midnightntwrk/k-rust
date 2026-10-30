@@ -233,12 +233,16 @@ mod kink_tier {
                     status: Some(Killed),
                     slots: [Agree, Distinguish],
                 },
+                // kink27 R1-UNDEF: the baseline is stuck at the second `var x ;`, a genuine end,
+                // while the mutant's step from it builds a map with a repeated key, an undefined
+                // step, which is no end: the mutant's whole term is the empty set and lacks the
+                // baseline's end. Before, it read the pre-step configuration and agreed.
                 Row {
                     id: "R19",
                     mutation: "decl-guard-dropped",
                     program: "dup",
                     status: Some(Killed),
-                    slots: [Distinguish, Agree],
+                    slots: [Distinguish, Distinguish],
                 },
                 Row {
                     id: "R20",

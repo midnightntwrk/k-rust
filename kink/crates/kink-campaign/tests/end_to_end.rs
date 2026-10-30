@@ -1146,8 +1146,12 @@ mod kink_tier {
     /// KK-66: dropping `requires I2 =/=Int 0` from guardeddiv's `divide` makes `divide(10, 0)` an
     /// undefined step, since its right-hand side `10 /Int 0` is undefined. The baseline is stuck on
     /// that term, so the exit-stop oracle distinguishes the classes `Stuck` and `UndefinedStep` and
-    /// kills the mutant. The final result is the same term, and the write/load prefix is real on both
-    /// sides, so those oracles agree. A nonzero divisor agrees everywhere.
+    /// kills the mutant. The write/load prefix is real on both sides, so the pattern oracle agrees.
+    /// The baseline's stuck term is an end and the mutant's undefined step is none (kink27
+    /// R1-UNDEF; finding KINK-UNDEFINED-END, decision D41): the mutant's final result is the empty
+    /// set, which lacks the baseline's end, so the final-result oracle distinguishes too (before
+    /// the ticket it read the mutant's pre-step configuration, the same term, and agreed). A
+    /// nonzero divisor agrees everywhere.
     #[test]
     #[ignore = "kink"]
     fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
@@ -1239,13 +1243,19 @@ mod kink_tier {
             };
             assert_eq!(sides(&mutant.evidence[0])[0], class(UndefinedStep));
             assert_eq!(
-                sides(&mutant.evidence[0])[1..],
-                sides(&run.baseline[0])[1..]
+                sides(&mutant.evidence[0])[1],
+                OracleSide::Normal(OracleValue::FinalResult(
+                    kink_campaign::FinalResult::WholeTerm(std::collections::BTreeSet::new())
+                ))
+            );
+            assert_eq!(
+                sides(&mutant.evidence[0])[2..],
+                sides(&run.baseline[0])[2..]
             );
             assert_eq!(
                 outcomes(&mutant.plan.tests),
                 [
-                    ("divide-by-0", vec![Distinguish, Agree, Agree]),
+                    ("divide-by-0", vec![Distinguish, Distinguish, Agree]),
                     ("divide-by-2", vec![Agree, Agree, Agree]),
                 ]
             );

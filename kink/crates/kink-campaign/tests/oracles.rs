@@ -30,6 +30,7 @@ use kink_pattern::{
     ExecutionTerminalKind, PathInput, PathStop, PatternArm, PatternFailure, PatternOutcome,
     PatternPlan, SearchPolicy, SymbolSorts, Witness, evaluate,
 };
+use std::collections::BTreeSet;
 
 use CrashPolicy::{CompareIdentity, Distinguish as Distinguishes, Reject};
 use ExecutionTerminalKind::{Normal, SemanticCrash, Stuck, UndefinedStep};
@@ -590,8 +591,12 @@ fn symbolic_binding_values_are_unknown() {
 
 /// An undefined step is its own exit-stop class. It has no exit code, so a declared exit-code cell
 /// is not read. A mutant that makes a stuck or normal terminal an undefined step is
-/// distinguished, and two undefined steps agree. The final result of an undefined step is its
-/// last configuration, so a stuck baseline and an undefined mutant at the same term agree there.
+/// distinguished, and two undefined steps agree. An undefined step is no final result (kink27
+/// R1-UNDEF; finding KINK-UNDEFINED-END, decision D41): its pre-step configuration is reached but
+/// is no result of the program, so a run whose every path takes one has the empty set of final
+/// results, two such runs agree whatever their pre-step configurations, and a stuck baseline at
+/// the mutant's pre-step configuration is a removed end, which distinguishes. In a run with other
+/// terminals the final result holds theirs only.
 #[test]
 fn an_undefined_step_is_its_own_exit_stop_class() {
     let cell = "Lbl'-LT-'exit-code'-GT-'";
@@ -629,15 +634,57 @@ fn an_undefined_step_is_its_own_exit_stop_class() {
             );
         }
     }
-    let whole = |kind| state_side(&StateProjection::WholeTerm, &single(kind, at("divide")));
+    let whole = |kind, program| state_side(&StateProjection::WholeTerm, &single(kind, at(program)));
+    let empty = normal(OracleValue::FinalResult(FinalResult::WholeTerm(
+        BTreeSet::new(),
+    )));
+    assert_eq!(whole(UndefinedStep, "divide"), empty);
+    #[rustfmt::skip]
+    let rows = [
+        ("stuck-baseline", whole(Stuck, "divide"), whole(UndefinedStep, "divide"), Distinguish),
+        ("undefined-both", whole(UndefinedStep, "divide"), whole(UndefinedStep, "other"), Agree),
+    ];
+    for (id, baseline, mutant, expected) in rows {
+        assert_eq!(
+            compare_supplied(OracleKind::FinalResult, CompareIdentity, &baseline, &mutant),
+            Ok(expected),
+            "{id}"
+        );
+    }
+    let mixed = run(vec![
+        terminal(0, Stuck, at("done")),
+        terminal(1, UndefinedStep, at("divide")),
+    ]);
     assert_eq!(
-        compare_supplied(
-            OracleKind::FinalResult,
-            CompareIdentity,
-            &whole(Stuck),
-            &whole(UndefinedStep)
-        ),
-        Ok(Agree)
+        state_side(&StateProjection::WholeTerm, &mixed),
+        whole(Stuck, "done")
+    );
+    let paths = StateProjection::TermPaths(vec![vec![0]]);
+    assert_eq!(
+        state_side(&paths, &mixed),
+        state_side(&paths, &single(Stuck, at("done")))
+    );
+    assert_eq!(
+        state_side(&paths, &single(UndefinedStep, at("divide"))),
+        normal(OracleValue::FinalResult(FinalResult::TermPaths(
+            BTreeSet::new()
+        )))
+    );
+    assert_eq!(
+        state_side(&exit_stop(None), &mixed),
+        normal(OracleValue::ExitStop(
+            [
+                ExitStop {
+                    class: TerminalClass::Stuck,
+                    code: None
+                },
+                ExitStop {
+                    class: TerminalClass::UndefinedStep,
+                    code: None
+                },
+            ]
+            .into()
+        ))
     );
 }
 
@@ -1010,7 +1057,9 @@ fn runner_mapping_is_exhaustive() {
     let halts: [(HaltClass, Result<OracleSide, ExecutionFailureKind>); 14] = [
         (H::Stuck, Ok(value(std::slice::from_ref(&done)))),
         // An undefined step's final result is its last configuration.
-        (H::Trivial, Ok(value(std::slice::from_ref(&done)))),
+        // kink27 R1-UNDEF: an undefined step is a complete terminal but no end; its whole term is
+        // the empty set. Before: its pre-step configuration.
+        (H::Trivial, Ok(value(&[]))),
         (H::Vacuous, Ok(OracleSide::Unknown)),
         (H::Branch, infrastructure.clone()),
         (H::CutPoint, infrastructure.clone()),
@@ -1147,11 +1196,28 @@ fn runner_mapping_is_exhaustive() {
     let crash_side = OracleSide::SemanticCrash(crash);
     let complete_side = value(&[configuration("done", "1")]);
     let reject = declaration(Reject, Projection::State(StateProjection::WholeTerm));
+    let exit_side = normal(OracleValue::ExitStop(
+        [ExitStop {
+            class: TerminalClass::Stuck,
+            code: None,
+        }]
+        .into(),
+    ));
+    // kink27 R1-UNDEF: an empty final result is a value (a run whose every path takes an
+    // undefined step), which a final result with an end distinguishes.
+    assert_eq!(
+        slot_outcome(
+            &state(StateProjection::WholeTerm),
+            &complete_side,
+            &value(&[])
+        ),
+        Distinguish
+    );
     #[rustfmt::skip]
     let failures = [
         ("crash-rejected-by-policy", &reject, &complete_side, &crash_side),
         ("value-of-another-kind", &state(exit_stop(None)), &complete_side, &complete_side),
-        ("empty-value", &state(StateProjection::WholeTerm), &complete_side, &value(&[])),
+        ("empty-exit-stop", &state(exit_stop(None)), &exit_side, &normal(OracleValue::ExitStop(BTreeSet::new()))),
     ];
     for (id, declaration, baseline, mutant) in failures {
         assert!(

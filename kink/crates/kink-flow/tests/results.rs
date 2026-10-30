@@ -1047,8 +1047,9 @@ text = 'h(opaque(1), 2)'
         // Re-pin R0b: v4, because the exclusions change what counts as comparable. Re-pin adoption
         // A-1: v5, because a record holds the baseline run's specification diagnostics and undecided
         // solver answers, and k-rust's run-level lists exclude a baseline run. KINK-R4: v6,
-        // because a record's coverage holds the fired sentences `fired_by` lists.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v6");
+        // because a record's coverage holds the fired sentences `fired_by` lists. kink27 R1-UNDEF: v7,
+        // because an undefined step's pre-step configuration is no final configuration of a record.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v7");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

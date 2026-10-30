@@ -38,8 +38,19 @@
 //!   `implementationChosenValues` list (class `fresh-association`), which excludes the run as any
 //!   other entry there does (kink-native [`Exclusion::ImplementationChosenValue`]).
 //! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
-//!   terminal. Its exit stop is the class `UndefinedStep` without a code, and its final result
-//!   is its last configuration, the pre-step term, as for a stuck terminal.
+//!   terminal, but no end (kink27 R1-UNDEF; finding KINK-UNDEFINED-END, decision D41). A rewrite
+//!   rule states that each instance of its left-hand side has a successor in its right-hand side,
+//!   so a right-hand side that is `\bottom` at an instance states that the instance has no
+//!   successor in any model, not that the program halts there: the configuration before the step
+//!   is reached, but it is no result of the program. Its exit stop is the class `UndefinedStep`
+//!   without a code, which reads no configuration. A final result ([`StateProjection::WholeTerm`],
+//!   [`StateProjection::TermPaths`]) projects the run's other terminals only, so a side whose
+//!   every path takes an undefined step has the empty set, and a baseline end the mutant lacks
+//!   distinguishes (a removed end), as in k-rust-fuzz's differential. Its pre-step term is not one
+//!   of the run's ends ([`TestEvidence::ends`]), so it is not judged as data under the other
+//!   side's definition either. kink-native's bridge still completes the leaf on the terms of a
+//!   stuck leaf, its term a terminal value (TV-01): no state slot reads that term now, so the
+//!   check costs completeness (a side `Unknown`) where the term is no value, never a kill.
 //! - Every compared end is data under both definitions (fz26 KINK-OVERLOAD-VALUE; kink-native
 //!   [`data_ends`]): a run's terminals are judged under its own definition and facts when the
 //!   run is judged, and each side's terminals ([`TestEvidence::ends`]), pattern bindings and
@@ -298,10 +309,15 @@ pub struct TestEvidence {
     pub notes: RunNotes,
     /// The terminal values of the run's complete paths, which its state sides are projected from
     /// (canonical under its own definition, TV-01), as a set: a path set and the state set of the
-    /// same request give the same one; empty when the run gave no sides. A pair
+    /// same request give the same one; empty when the run gave no sides. An undefined step's
+    /// pre-step term is no end and is not here (kink27 R1-UNDEF, module documentation). A pair
     /// judges them under the other side's definition before it compares the state slots (fz26
     /// KINK-OVERLOAD-VALUE, [`judge_across`]). Not encoded in the campaign report.
     pub ends: BTreeSet<Pattern>,
+    /// Whether a complete path of the run is an undefined step (kink27 R1-UNDEF): a state value
+    /// with no [`Self::ends`] is then the value of a run whose every path takes one, not a value
+    /// whose ends were omitted ([`judge_across`], review N2).
+    pub undefined_steps: bool,
     /// For each pattern slot (by its index in the test's oracles), the terms its relation
     /// decisions read ([`ReadTerms`]): the payloads, bound values and assumptions of every
     /// relation the side's own decider decided other than by syntactic identity, and of every
@@ -1108,6 +1124,7 @@ impl<'v> BaselineSession<'v> {
                         run: SideRun::Failed((*exclusion).into()),
                         notes: RunNotes::default(),
                         ends: BTreeSet::new(),
+                        undefined_steps: false,
                         payloads: BTreeMap::new(),
                     },
                     (**cache).clone(),
@@ -2351,7 +2368,10 @@ fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
 ///   theory alone, so a failure makes that slot `Unknown` (review S1).
 ///
 /// A value-holding state slot whose side has no ends is `Unknown` (review N2): the ends are the
-/// terminals it was projected from, and a producer that omits them cannot be judged.
+/// terminals it was projected from, and a producer that omits them cannot be judged. A side whose
+/// every complete path is an undefined step has no ends and is judged: its final result is the
+/// empty set and its exit stop reads no configuration ([`TestEvidence::undefined_steps`], kink27
+/// R1-UNDEF).
 ///
 /// A side with no data facts (`None`), or with a finding left ([`DataEnds::None`]), makes every
 /// end judged under it not data. A failure to reach a definition does too.
@@ -2449,8 +2469,10 @@ fn judge_across(
         let SideRun::Sides { sides } = &mut evidence.run else {
             continue;
         };
-        // A value-holding state slot with no ends to judge fails closed (review N2).
-        let states_data = !evidence.ends.is_empty() && data.iter().all(|data| *data);
+        // A value-holding state slot with no ends to judge fails closed (review N2), unless every
+        // complete path of its run is an undefined step, which is no end (kink27 R1-UNDEF).
+        let states_data = (!evidence.ends.is_empty() || evidence.undefined_steps)
+            && data.iter().all(|data| *data);
         for (index, (declaration, side)) in test.oracles.iter().zip(sides).enumerate() {
             // A pattern value whose relation decisions read a term that is not data under the
             // other side's definition (review S1).
@@ -2966,6 +2988,7 @@ impl Runtime {
             _ => RunNotes::default(),
         };
         let mut ends = BTreeSet::new();
+        let mut undefined_steps = false;
         let run = match &executed.execution {
             Err(failure) => SideRun::Failed(failure.into()),
             Ok(execution) if execution.timed_out() => {
@@ -3024,10 +3047,18 @@ impl Runtime {
                         Some(exclusion) => SideRun::Failed(exclusion.into()),
                         None => {
                             terminals = one_sided;
-                            ends = bridged
+                            // An undefined step's pre-step term is no end (kink27 R1-UNDEF).
+                            let complete = bridged
                                 .paths
                                 .iter()
-                                .filter_map(|path| path.execution_terminal.as_ref())
+                                .filter_map(|path| path.execution_terminal.as_ref());
+                            undefined_steps = complete.clone().any(|terminal| {
+                                terminal.kind == ExecutionTerminalKind::UndefinedStep
+                            });
+                            ends = complete
+                                .filter(|terminal| {
+                                    terminal.kind != ExecutionTerminalKind::UndefinedStep
+                                })
                                 .map(|terminal| terminal.state.clone())
                                 .collect();
                             SideRun::Sides {
@@ -3055,6 +3086,7 @@ impl Runtime {
                 run,
                 notes,
                 ends,
+                undefined_steps,
                 payloads: BTreeMap::new(),
             },
             terminals,
@@ -3450,7 +3482,15 @@ pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> Oracl
 /// Projects complete, non-crash terminals; `None` is a projection failure. A whole term is the
 /// terminal's configuration with its `<generatedCounter>` content erased
 /// ([`StateProjection::WholeTerm`]), so two terminal sets that differ only in that cell agree.
+/// An undefined step is an exit stop of its own class and no final result: its pre-step
+/// configuration is reached but is no result of the program (kink27 R1-UNDEF, module
+/// documentation), so a final result of a run whose every path takes one is the empty set.
 fn project(projection: &StateProjection, terminals: &[&ExecutionTerminal]) -> Option<OracleValue> {
+    let ends = || {
+        terminals
+            .iter()
+            .filter(|terminal| terminal.kind != ExecutionTerminalKind::UndefinedStep)
+    };
     Some(match projection {
         StateProjection::ExitStop { exit_code_cell } => OracleValue::ExitStop(
             terminals
@@ -3472,14 +3512,12 @@ fn project(projection: &StateProjection, terminals: &[&ExecutionTerminal]) -> Op
                 .collect::<Option<BTreeSet<_>>>()?,
         ),
         StateProjection::WholeTerm => OracleValue::FinalResult(FinalResult::WholeTerm(
-            terminals
-                .iter()
+            ends()
                 .map(|terminal| counter_erased(&terminal.state).into_owned())
                 .collect(),
         )),
         StateProjection::TermPaths(paths) => OracleValue::FinalResult(FinalResult::TermPaths(
-            terminals
-                .iter()
+            ends()
                 .map(|terminal| {
                     paths
                         .iter()
@@ -4047,6 +4085,7 @@ mod tests {
                             run: SideRun::Failed(ExecutionFailureKind::StackStop),
                             notes: RunNotes::default(),
                             ends: BTreeSet::new(),
+                            undefined_steps: false,
                             payloads: BTreeMap::new(),
                         },
                         Vec::new()
@@ -4508,6 +4547,7 @@ mod tests {
                 },
                 notes: RunNotes::default(),
                 ends: BTreeSet::new(),
+                undefined_steps: false,
                 payloads: BTreeMap::new(),
             };
             let before = evidence.clone();
@@ -4729,6 +4769,7 @@ mod tests {
                     },
                     notes: RunNotes::default(),
                     ends: BTreeSet::from([end.clone()]),
+                    undefined_steps: false,
                     payloads: BTreeMap::new(),
                 };
                 let sides = |evidence: &TestEvidence| match &evidence.run {
@@ -4876,6 +4917,27 @@ mod tests {
                         })
                     )]
                 );
+                // kink27 R1-UNDEF: a side whose every path takes an undefined step has no ends and
+                // the empty final result, which is judged and compared, not refused.
+                let (mut baseline, mut mutant) = (evidence(&d), evidence(&d));
+                mutant.ends.clear();
+                mutant.undefined_steps = true;
+                if let SideRun::Sides { sides } = &mut mutant.run {
+                    sides[0] = OracleSide::Normal(OracleValue::FinalResult(
+                        FinalResult::WholeTerm(BTreeSet::new()),
+                    ));
+                }
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut Vec::new(),
+                    &mut anywhere_runtime,
+                    &mut plain_runtime,
+                );
+                assert_eq!(sides(&baseline), [false, false], "{baseline:?}");
+                assert_eq!(sides(&mutant), [false, false], "{mutant:?}");
+                assert!(mutant.notes.across.is_empty(), "{mutant:?}");
             })
             .unwrap()
             .join()

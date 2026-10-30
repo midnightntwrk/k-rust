@@ -740,8 +740,8 @@ mod kink_tier {
     }
 
     /// fz26 KINK-PATHSET-FALLBACK: the rule on a work-bound state set that holds an undefined step
-    /// (`testdata/k/stateset/onesidedz.k`, START = 10; the baseline's complete set holds the
-    /// undefined step's terminal `zm(10)`). With early's 7 made 8 the run, cut in the loop, holds
+    /// (`testdata/k/stateset/onesidedz.k`, START = 10; the baseline's complete run holds the
+    /// undefined step at `zm(10)`, which is no end, kink27 R1-UNDEF). With early's 7 made 8 the run, cut in the loop, holds
     /// the clean leaf `done(18)` the baseline lacks beside the `Trivial` leaf, and kills
     /// one-sidedly, as its unbounded run kills. With zc's 0 made 1 the cut run holds the clean
     /// `done(111)` the baseline lacks, but the undefined step `td(11)` on another explored path
