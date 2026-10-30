@@ -3732,9 +3732,11 @@ fn t12_patch(baseline: &Baseline, rule: &str, edit: &T12Edit) -> Patch {
 /// - R3-ADMIT-FLOAT fix round 1: the census refuses the `t12probe.k` rows before any run, so
 ///   they exercise no canonicalization; `census_free_float_spelling_routes_are_not_killed` runs
 ///   F6, F8, F9, F11, F12 and V5b on census-free rows of `floatzero.k`.
-/// - every `t12probe.k` row: its own rules apply `+Float` and `/Float`, whose value k-rust
-///   chooses, so the census excludes every run on it and the baseline is refused
-///   (`implementation-chosen-hook`) before any mutant runs.
+/// - every `t12probe.k` row: its own rules apply `String2Bytes` (rule `b1s`), whose encoding the
+///   definition leaves open and k-rust evaluates with no run-level record, so the census excludes
+///   every run on it and the baseline is refused (`implementation-chosen-hook`) before any mutant
+///   runs. (Its `+Float` and `/Float` are k-rust classes, judged per run since kink27
+///   R3-CENSUS-RUNLEVEL.)
 ///
 /// Every row is measured before the first assertion, so failing-first logs contain the complete
 /// matrix. The kink tier runs every row in Full, the heavy tier in both schedules. The rows of one
@@ -9006,6 +9008,16 @@ mod kink_tier {
     /// `1.0`/`1.00` would load to the baseline's definition were it admitted); `t12unev.k`'s own
     /// rules apply `*Float`, whose value k-rust chooses, so the census excludes every run on it
     /// and the baseline is refused (`implementation-chosen-hook`).
+    ///
+    /// Re-pin kink27 R3-CENSUS-RUNLEVEL (ADOPTION D-8): k-rust's classes left decision 1's census,
+    /// so t12unev.k is no longer excluded as a whole, and no run here reads a class value (one
+    /// format; `*Float` of a symbolic `?F` is not evaluated). The baseline is still refused
+    /// (`BaselineOracleFailed`), now by its declaration-scoped oracle gate, with no exclusion: the
+    /// run from `u1s(1)` or `u3s(1)` introduces the existential `?F`, so the configurations it
+    /// reaches hold a symbolic Float, which the whole-term slot does not admit as a compared value
+    /// on the baseline. Every earlier pin gave the same result, for G-F and then for the census.
+    /// Either way no definite separation becomes a kill. Every row is measured before the first
+    /// assertion.
     #[test]
     #[ignore = "kink"]
     fn audit_vi_t12_unevaluated_hook_controls_are_not_killed() {
@@ -9013,6 +9025,7 @@ mod kink_tier {
             let validator =
                 NativeValidator::bind(support::load("t12unev.k"), CompileOptions::default());
             let baseline = validator.baseline();
+            let mut rows = Vec::new();
             for (id, head, label, path, spelling) in [
                 ("U1", "u1s", "T12UNEV.u1", vec![1, 0, 1], "1.00"),
                 ("U3", "u3s", "T12UNEV.u3", vec![0, 1, 1, 1], "3.0"),
@@ -9057,16 +9070,25 @@ mod kink_tier {
                         .as_ref()
                         .err()
                         .and_then(|failure| failure.exclusion());
-                    eprintln!("TB03 {id} {mode:?}: {result:?} {exclusion:?}");
-                    assert_eq!(
-                        (result, exclusion),
-                        (
-                            ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
-                            Some(Exclusion::ImplementationChosenHook)
-                        ),
-                        "{id} {mode:?}"
-                    );
+                    let detail = outcome.as_ref().err().map(ToString::to_string);
+                    eprintln!("TB03 {id} {mode:?}: {result:?} {exclusion:?} {detail:?}");
+                    rows.push((id, mode, result, exclusion, detail));
                 }
+            }
+            for (id, mode, result, exclusion, detail) in rows {
+                assert!(!result.killed(), "STOP: {id} {mode:?}: {result:?}");
+                assert_eq!(
+                    (result, exclusion),
+                    (
+                        ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
+                        None
+                    ),
+                    "{id} {mode:?}"
+                );
+                assert!(
+                    detail.is_some_and(|detail| detail.contains("oracle gate rejected")),
+                    "{id} {mode:?}"
+                );
             }
         });
     }
