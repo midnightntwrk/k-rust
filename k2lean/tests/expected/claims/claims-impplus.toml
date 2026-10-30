@@ -49,3 +49,13 @@ label = "IMPPLUS-SPEC.assign-rest"
 stated = true
 all_path = true
 
+[[claim]]
+label = "IMPPLUS-SPEC.assign-sum"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMPPLUS-SPEC.decl-two"
+stated = true
+all_path = true
+
