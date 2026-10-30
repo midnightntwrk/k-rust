@@ -691,7 +691,17 @@ endmodule
                 .iter()
                 .map(|end| (end.id, end.text))
                 .collect::<Vec<_>>();
-            let dir = flow(main, entry, &fuzz_data(file), main, "", &programs, "");
+            // `start` never ends and kink's run of it is cut by `max_depth`; the time limit is set
+            // far above that bound's cost so that load cannot turn the cut into a timeout.
+            let dir = flow(
+                main,
+                entry,
+                &fuzz_data(file),
+                main,
+                "time_ms = 300000\n",
+                &programs,
+                "",
+            );
             let document = kink_results(&dir);
             for end in ends {
                 let report = krust_fuzz(
