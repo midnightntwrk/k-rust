@@ -51,10 +51,9 @@ success-output = "final"
 # below names kink packages, binaries and test paths only; `kink/scripts/kink-tier.py lint` fails
 # when one of them stops matching a test.
 #
-# kink-flow: the work-bounded run must finish within 30 s; and the slow program's recorded wall
-# time must exceed the fast one's.
+# kink-flow: the slow program's recorded wall time must exceed the fast one's.
 [[profile.default.overrides]]
-filter = 'package(kink-flow) & ((binary(work_budget) & test(=kink_tier::a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached)) | (binary(usability) & test(=kink_tier::the_cheaper_killer_is_found_and_hinted_first)))'
+filter = 'package(kink-flow) & binary(usability) & test(=kink_tier::the_cheaper_killer_is_found_and_hinted_first)'
 test-group = "wall-clock"
 
 # kink's heavy tests that take longer than the default ten minutes on a quiet host: the one-sided

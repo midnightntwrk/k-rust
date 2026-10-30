@@ -112,14 +112,11 @@ mod kink_tier {
     #[ignore = "kink"]
     fn a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached() {
         let manifest = fixture("loop-work", 2);
-        let started = std::time::Instant::now();
         let first = search(&manifest);
-        // The time bound is a minute; the work budget stops the loop long before.
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(30),
-            "{:?}",
-            started.elapsed()
-        );
+        // The time bound is a minute; that the work budget, not the clock, stopped the loop is
+        // the run's outcome and cause below: a run the clock stops is a timeout, and this one is
+        // `unknown` because it reached its work budget, with one work-bound leaf. So no elapsed
+        // time is compared (a wall-time bound fails under load).
         let entries = executed(&first);
         assert_eq!(entries.len(), 2, "{entries:?}");
         let (program, outcome, cause, cached) = &entries[0];
