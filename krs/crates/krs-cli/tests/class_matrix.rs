@@ -711,7 +711,7 @@ const UNCHECKED: &[(&str, &str, usize)] = &[
     ("terms", "ml-in-condition", 40),
     ("terms", "notation-in-pattern", 264),
     ("terms", "record-remainder-in-initializer", 4),
-    ("terms", "sort-test-in-pattern", 66),
+    ("terms", "sort-test-in-pattern", 70),
     ("terms", "wildcard-at-subject-root", 2),
 ];
 

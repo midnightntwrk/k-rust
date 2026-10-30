@@ -1018,10 +1018,21 @@ fn the_oracle_reads_a_subject_root_by_its_role() {
             Some(Class::StaticClauseRootNotMarked)
         );
     }
-    // A static clause expands program terms as written, so an application below its root is one
-    // it matches.
-    let below = root(Form::Alias).enter(Opening::Argument);
-    assert_eq!(admits(Construct::FunctionApplication, below), None);
+    // A static clause matches program terms as written, so an application below its root would
+    // stand for its spelling rather than its value (decision NT-11-5), as would a sort test; a
+    // static production's application stands for its expansion, a value.
+    for form in [Form::Alias, Form::Desugar] {
+        let below = root(form).enter(Opening::Argument);
+        assert_eq!(
+            admits(Construct::FunctionApplication, below).map(|refusal| refusal.class),
+            Some(Class::FunctionInPattern)
+        );
+        assert_eq!(
+            admits(Construct::SortTest, below).map(|refusal| refusal.class),
+            Some(Class::SortTestInPattern)
+        );
+        assert_eq!(admits(Construct::StaticApplication, below), None);
+    }
 }
 
 /// A map key reads by its parent's kind (D2): a key of a map in a pattern is evaluated, of a

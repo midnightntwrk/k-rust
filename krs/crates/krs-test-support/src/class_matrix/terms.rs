@@ -1200,12 +1200,12 @@ fn imported_spellings() -> Vec<Spelling> {
 
 /// The applications of the base's static productions, `Cmd::Dz()` marked `#[k::desugar]` and
 /// `Cmd::Az()` marked `#[k::alias]`, each expanded by one clause of the base. A static
-/// production's application denotes its expansion: where a rule's pattern holds it, KRS expands
-/// it as it emits the rule, and (decision NT-14) below a desugar's or an alias's subject root it
-/// is expanded as the clause is emitted wherever the expansion needs no value, as a ground
+/// production's application denotes its expansion: where a rule's pattern holds it, the
+/// definition's expansion rewrites it, and (decision NT-14) below a desugar's or an alias's
+/// subject root KRS writes the expansion in the clause wherever it needs no value, as a ground
 /// application's never does. So each is a value, matched and built as its expansion is. They
-/// stand at the matched positions below a subject's root, where the classes NT-8-4 and NT-8 M2
-/// lie; a root names the production its own clause expands.
+/// stand at the matched positions below a subject's root, those of findings NT-8-4 and NT-8 M2;
+/// a root names the production its own clause expands.
 fn static_spellings() -> Vec<Spelling> {
     let application = |text| Spelling {
         below_root_only: true,

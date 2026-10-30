@@ -16,8 +16,10 @@
 //!   bindings, and printing builds no test, choice or hole;
 //! - a computed construct (a function application, a notation form, a `let` block,
 //!   `k::matches!`, a sort test, a record update) means something only where a term is computed:
-//!   in a matched position over evaluated terms it describes a term that never occurs; a
-//!   notation form is moreover no pattern, so a matched position refuses it by its spelling;
+//!   in a matched position over evaluated terms it describes a term that never occurs, and in a
+//!   static clause's subject, matched against a program as written, it would stand for its
+//!   spelling rather than its value (decision NT-11-5); a notation form is moreover no pattern,
+//!   so a matched position refuses it by its spelling;
 //! - a value (a binder, a constructor application, a literal, a token island) may stand
 //!   anywhere, except for the whole subject of an equation or a simplification, which is a
 //!   function's application, and of a static clause, which is the production it expands;
@@ -351,6 +353,18 @@ const fn built_backwards(position: Position) -> bool {
         && position.nesting.local.is_none()
 }
 
+/// Whether `position` lies in a static clause's subject, outside a local pattern: an alias's or
+/// a desugar's, which static expansion matches against a program's terms as they are written,
+/// before anything evaluates. A computed construct there would match only its own spelling
+/// (`Foo(x + 1)` the program `foo(y + 1)`, not `foo(1 + y)`), where everywhere else it denotes
+/// its value (decision NT-11-5).
+const fn matched_as_written(position: Position) -> bool {
+    position.form.subject_root_expands_production()
+        && matches!(position.slot, Slot::Subject)
+        && matches!(position.kind, Kind::Matched | Kind::Evaluated)
+        && position.nesting.local.is_none()
+}
+
 /// Whether `position` is the whole subject of a fn, a table row, a context or a static clause.
 const fn at_subject_root(position: Position) -> bool {
     matches!(position.root, Some(PatternRoot::Subject))
@@ -407,9 +421,10 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
     match construct {
         // A value denotes itself wherever a term stands, but at a root that is a function's
         // application or a static clause's production ([`value_at_root`]). A static production's
-        // application denotes its expansion: KRS expands it in a rule's pattern as it emits the
-        // rule, and (decision NT-14) below a desugar's or an alias's subject root wherever the
-        // expansion needs no value, as a ground application's never does, so it is a value too.
+        // application denotes its expansion: the definition's expansion rewrites it in a rule's
+        // pattern, and (decision NT-14) KRS writes it expanded below a desugar's or an alias's
+        // subject root wherever the expansion needs no value, as a ground application's never
+        // does, so it is a value too.
         // A collection literal
         // that denotes a value, the empty collection or a set's singleton, is one, as its call
         // `map::empty()` or `set::item(x)` is; and a turbofish names the instance of a parametric
@@ -476,10 +491,15 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
 /// unevaluated application, except at an equation's subject root, which is the function it
 /// defines, and a builtin operation is no function an equation defines; a simplification may
 /// rewrite a builtin's application as any other. A static clause expands a production, which an
-/// application is not. A constant's value is ground. A key computes and looks it up. Telling a
-/// function from a constructor needs its head.
+/// application is not, and below its root its subject matches a program's terms as written,
+/// where an application would stand for its spelling rather than its value (decision NT-11-5),
+/// a key or a set's element too, since nothing is looked up there. A constant's value is
+/// ground. A key computes and looks it up. Telling a function from a constructor needs its head.
 const fn application(construct: Construct, position: Position) -> Option<Refusal> {
     let form = position.form;
+    if matched_as_written(position) && !at_subject_root(position) {
+        return Some(resolution(Class::FunctionInPattern));
+    }
     match position.kind {
         Kind::Matched => {
             if at_subject_root(position) && form.subject_root_applies_function() {
@@ -682,15 +702,17 @@ const fn rewrite(position: Position) -> Option<Refusal> {
 }
 
 /// `k::is!` and `k::project!` apply the sort's generated predicate or projection, so they mean
-/// what an application does: a pattern over evaluated terms never meets one, and a
-/// simplification's or a claim's subject may hold one, as a built term, an initializer's
-/// included, does.
+/// what an application does: a pattern over evaluated terms never meets one, nor does a static
+/// clause's subject, which would match its spelling (decision NT-11-5), and a simplification's
+/// or a claim's subject may hold one, as a built term, an initializer's included, does.
 const fn sort_test(position: Position) -> Option<Refusal> {
     if in_constant(position) {
         Some(placement(Class::ConstantNotGround))
     } else if in_map_instance(position) {
         Some(resolution(Class::SortTestInPattern))
-    } else if matches!(position.kind, Kind::Matched) && meets_evaluated_terms(position) {
+    } else if matched_as_written(position)
+        || (matches!(position.kind, Kind::Matched) && meets_evaluated_terms(position))
+    {
         Some(placement(Class::SortTestInPattern))
     } else {
         None

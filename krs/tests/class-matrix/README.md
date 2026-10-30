@@ -51,8 +51,12 @@ term at a `Stmt` production) is the mistake `static-result-sort`, which `expecte
 by the spelling's sort. The oracle reads
 their application as the value it expands to (decision NT-14: a static application below a
 desugar's or an alias's subject root expands when the expansion needs no value, as a ground
-one's never does), and `cargo test -p krs-test-support --test k7` names a static production the
-base gains without a spelling. The slot `terms/cells/result-map-framed/..` writes one key under two
+one's never does), KRS writes the expansion in the clause, and K7 runs it on a program writing
+the application; `cargo test -p krs-test-support --test k7` names a static production the base
+gains without a spelling. Below a static subject's root, which static expansion matches as a
+program writes it, a construct that computes (a function's application, a collection literal
+that builds, an index, a method, a sort test) would stand for its spelling rather than its value,
+and the oracle refuses it with the class a pattern's has (decision NT-11-5). The slot `terms/cells/result-map-framed/..` writes one key under two
 spellings over the map a framed `cells!` subject leaves (`map![x -> 1, (x) -> HOLE, ..rest]`); the
 slot `terms/cells/result-map-whole/..` writes an entry over a map the subject binds whole
 (`map![x -> HOLE, ..m]` over `Cell(m)`, the form the class `framed-map-unmatched-key` advises),
@@ -386,7 +390,8 @@ the descriptors of the base and its own. A case is judged by
   printed `unchecked`, as is advice in prose; and a case the table accepts whose refusal advises a
   form (`refused where the table accepts, advising ..`). The unchecked refusals are pinned per
   shard and class (`UNCHECKED` in `krs-cli/tests/class_matrix.rs`; 480 on 2026-10-31, 440 of
-  them in `terms`), and the case shards with none are listed (`NO_UNCHECKED`: `attrs`, `cells`,
+  them in `terms`, and 484 and 444 since NT-14 refuses a sort test in a static subject, whose
+  advice writes `where x: Sort`), and the case shards with none are listed (`NO_UNCHECKED`: `attrs`, `cells`,
   `import`, `readable`, `runs`): a shard whose counts differ, or that neither lists, fails, so a
   new class, or a message that adds advice no generated case writes, is reviewed before it is
   pinned.
