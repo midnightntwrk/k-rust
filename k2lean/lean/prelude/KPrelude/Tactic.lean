@@ -150,6 +150,46 @@ elab "k2l_case_rec " "[" fs:ident,+ "]" : tactic => do
       let (_, g') ← s.mvarId.introNP fvs.size
       pure g'
 
+/-- The case split of `k2l_case_call` on `g`, on a call whose function `excluded` does not name. -/
+def caseCall (g : MVarId) (excluded : Name → Bool) : MetaM (List MVarId) := g.withContext do
+  let env ← getEnv
+  let tgt ← instantiateMVars (← g.getType)
+  -- the discriminants of the goal's matches that are applications of a function
+  let cands ← IO.mkRef (#[] : Array Expr)
+  tgt.forEach fun e => do
+    let .const n _ := e.getAppFn | pure ()
+    let some info := Lean.Meta.Match.Extension.getMatcherInfo? env n | pure ()
+    let args := e.getAppArgs
+    for d in args.extract (info.numParams + 1) (info.numParams + 1 + info.numDiscrs) do
+      if d.hasLooseBVars then continue
+      let .const c _ := d.getAppFn | continue
+      if env.isConstructor c || excluded c then continue
+      if (Lean.Meta.Match.Extension.getMatcherInfo? env c).isSome then continue
+      cands.modify (·.push d)
+  -- a partial function's declared result type is `Option _` (`ite` and `dite`, whose result
+  -- may be an `Option` too, are not calls of one)
+  let partialFn (c : Name) : MetaM Bool := do
+    let some ci := env.find? c | return false
+    forallTelescopeReducing ci.type fun _ r => return r.isAppOfArity ``Option 1
+  let mut found : Option Expr := none
+  for d in (← cands.get) do
+    if ← partialFn d.getAppFn.constName! then
+      found := some d
+      break
+  let some t := found | throwError "k2l_case_call: no partial call that a match inspects"
+  let mut fvs := #[]
+  for d in (← getLCtx) do
+    unless d.isImplementationDetail do
+      let ty ← instantiateMVars d.type
+      if (ty.find? (· == t)).isSome && !(ty.isAppOfArity ``Eq 3 && ty.appFn!.appArg! == t) then
+        fvs := fvs.push d.fvarId
+  let (_, g) ← g.revert fvs (preserveOrder := true)
+  let (xs, g) ← g.generalize #[{ expr := t, xName? := `r, hName? := `hc }] (transparency := .default)
+  let gs ← g.cases xs[0]!
+  gs.toList.mapM fun s => do
+    let (_, g') ← s.mvarId.introNP fvs.size
+    pure g'
+
 /-- `k2l_case_call`: case on the value of a partial call that a `match` in the goal inspects.
 A generated definition binds each partial call of a right-hand side (a hook or a K function, whose
 result type is `Option _`) by a `match` on its value, and the equation's statement binds the same
@@ -158,45 +198,14 @@ generalized in the goal and in the hypotheses that mention it, with `hc : call =
 `hc : call = some r` added) reduces the `match` on either side. The call must be outside binders:
 a call whose argument is the value of an earlier call becomes one after the case on that call.
 Fails when the goal's matches inspect no such call. -/
-elab "k2l_case_call" : tactic => do
-  liftMetaTactic fun g => g.withContext do
-    let env ← getEnv
-    let tgt ← instantiateMVars (← g.getType)
-    -- the discriminants of the goal's matches that are applications of a function
-    let cands ← IO.mkRef (#[] : Array Expr)
-    tgt.forEach fun e => do
-      let .const n _ := e.getAppFn | pure ()
-      let some info := Lean.Meta.Match.Extension.getMatcherInfo? env n | pure ()
-      let args := e.getAppArgs
-      for d in args.extract (info.numParams + 1) (info.numParams + 1 + info.numDiscrs) do
-        if d.hasLooseBVars then continue
-        let .const c _ := d.getAppFn | continue
-        if env.isConstructor c then continue
-        if (Lean.Meta.Match.Extension.getMatcherInfo? env c).isSome then continue
-        cands.modify (·.push d)
-    -- a partial function's declared result type is `Option _` (`ite` and `dite`, whose result
-    -- may be an `Option` too, are not calls of one)
-    let partialFn (c : Name) : MetaM Bool := do
-      let some ci := env.find? c | return false
-      forallTelescopeReducing ci.type fun _ r => return r.isAppOfArity ``Option 1
-    let mut found : Option Expr := none
-    for d in (← cands.get) do
-      if ← partialFn d.getAppFn.constName! then
-        found := some d
-        break
-    let some t := found | throwError "k2l_case_call: no partial call that a match inspects"
-    let mut fvs := #[]
-    for d in (← getLCtx) do
-      unless d.isImplementationDetail do
-        let ty ← instantiateMVars d.type
-        if (ty.find? (· == t)).isSome && !(ty.isAppOfArity ``Eq 3 && ty.appFn!.appArg! == t) then
-          fvs := fvs.push d.fvarId
-    let (_, g) ← g.revert fvs (preserveOrder := true)
-    let (xs, g) ← g.generalize #[{ expr := t, xName? := `r, hName? := `hc }] (transparency := .default)
-    let gs ← g.cases xs[0]!
-    gs.toList.mapM fun s => do
-      let (_, g') ← s.mvarId.introNP fvs.size
-      pure g'
+elab "k2l_case_call" : tactic => liftMetaTactic (caseCall · fun _ => false)
+
+/-- `k2l_case_call` on a call of no function named in `fs` nor of one of its rows (`f.ruleK`): the
+proof of one equation by its row cases on the calls of that row and of the right-hand side, never
+on a later row of the cascade, which it never unfolds. -/
+elab "k2l_case_call_except " "[" fs:ident,* "]" : tactic => do
+  let ns ← fs.getElems.mapM fun f => realizeGlobalConstNoOverloadWithInfo f
+  liftMetaTactic (caseCall · fun c => ns.any fun n => c == n || c.getPrefix == n)
 
 /-- A list built from `.List`, `ListItem` and concatenation (a list pattern of an equation's
 left-hand side, or a part of one). -/
@@ -563,6 +572,149 @@ macro "k2l_eqn_b" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tacti
 which the statement binds with `Option.bind`: after each case both sides reduce, and the cases
 are closed as `k2l_eqn_a` does. Fails unless there is such a call. -/
 macro "k2l_eqn_c" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((try simp only []); (k2l_case_call <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))
+
+/-! ### An equation by its own row
+
+A generated function is a cascade that tries its rows (one per equation, `f.ruleK`) in order, so
+equation `N` holds where its own row gives its value and every row before it gives `none`. The
+proofs above unfold every row of the cascade at once and split their tests: on a table of 42 rows
+of bit patterns (a CPU's decoder) that exceeds any budget, although each row is a small fact.
+These prove the two parts row by row: the rows after `N` are never unfolded (the cascade reaches
+them only where row `N` gives `none`, which its premises exclude), a row before `N` of the same
+priority is excluded by the arithmetic of the premises (`k2l_eqn_row`), and one of a smaller
+priority by the no-match premise of its equation alone (`k2l_rows_none`). -/
+
+/-- `omega`, with a library's sort abbreviations of `Int` and `Nat` (`SortInt := Int`) read as
+those types: `omega` recognizes the equations, comparisons and operations of `Int` and `Nat` by
+their type, syntactically, so a fact at `SortInt` (a literal row's test `x = 226`, `0 ≤ x`) would
+be an atom to it. -/
+elab "k2l_int_omega" : tactic => do
+  let unAbbrev (e : Expr) : MetaM Expr := Meta.transform e (post := fun x => do
+    let .const c [] := x | return .continue
+    if c == ``Int || c == ``Nat then return .continue
+    let some (.defnInfo _) := (← getEnv).find? c | return .continue
+    let x' ← whnfR x
+    if x'.isConstOf ``Int || x'.isConstOf ``Nat then return .done x' else return .continue)
+  let g ← getMainGoal
+  let g ← g.withContext do
+    let mut g ← g.replaceTargetDefEq (← unAbbrev (← instantiateMVars (← g.getType)))
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let t ← instantiateMVars d.type
+      let t' ← unAbbrev t
+      if t' != t then g ← g.replaceLocalDeclDefEq d.fvarId t'
+    return g
+  replaceMainGoal [g]
+  evalTactic (← `(tactic| omega))
+
+theorem k2l_ite_neg {α : Sort _} {c : Prop} [Decidable c] {a b : α} (h : ¬c) : ite c a b = b := by
+  simp [h]
+
+theorem k2l_ite_pos {α : Sort _} {c : Prop} [Decidable c] {a b : α} (h : c) : ite c a b = a := by
+  simp [h]
+
+/-- A bit range at nonnegative positions is defined, the remainder of a division by powers of two:
+read so, two rows' bit patterns, and a literal row's value against a pattern, are linear
+arithmetic. -/
+theorem k2l_bitRange_nonneg {i idx len : Int} (h1 : 0 ≤ idx) (h2 : 0 ≤ len) :
+    IntHook.bitRange i idx len = some (i / 2 ^ idx.toNat % 2 ^ len.toNat) := by
+  simp [IntHook.bitRange, h1, h2, Int.shiftRight_eq_div_pow]
+
+/-- The context's facts in linear arithmetic, then `k2l_int_omega`: the hooks unfolded, a bit range or a
+shift by literals as division and remainder by a power of two (the literal arithmetic evaluated,
+which `simp only` does only with the simprocs named), a Boolean condition as a proposition. -/
+macro "k2l_arith_omega" : tactic => `(tactic| (
+  try simp only [k2l_eq, k2l_bitRange_nonneg, IntHook.bitRange, Int.shiftRight_eq_div_pow,
+    Int.reduceLE, Int.reduceLT, Int.reduceToNat, Int.reducePow, Nat.reducePow, Int.reduceNatCast,
+    Nat.ToInt.natCast_ofNat, Int.cast_ofNat_Int,
+    Option.some.injEq, Option.bind_some, reduceCtorEq, ite_true, ite_false, and_self, and_true,
+    true_and, decide_eq_true_eq, decide_eq_false_iff_not, Bool.and_eq_true, Bool.or_eq_true,
+    Bool.not_eq_true', Bool.not_eq_false', ne_eq] at *
+  k2l_int_omega))
+
+/-- Run `x` with `k` times the module's budget (`maxHeartbeats`), counted from its start, a timeout
+being an ordinary failure, which `first` catches: a proof whose steps are one per row has a budget
+per row, and a proof that fails within it leaves the other proofs of `first` to try. -/
+def withRowsBudget (k : Nat) (x : TacticM Unit) : TacticM Unit := do
+  let run : TacticM Unit := tryCatchRuntimeEx x fun e => do
+    if e.isRuntime then throwError "the budget of {k} rows is exceeded" else throw e
+  controlAt CoreM fun runInBase => do
+    let now ← IO.getNumHeartbeats
+    withReader (fun ctx => { ctx with initHeartbeats := now, maxHeartbeats := ctx.maxHeartbeats * k })
+      (runInBase run)
+
+/-- After the rows up to `N` are unfolded: decide the rows' tests from the premises (a bit range
+read as arithmetic, an `if` by `k2l_arith_omega`), case on the partial calls of the row and of the
+right-hand side, never on `f`'s own rows (`k2l_case_call_except`), and close each case. -/
+macro "k2l_eqn_row_close " f:ident : tactic => `(tactic| (
+  all_goals ((try simp_all [k2l_eq, k2l_bitRange_nonneg]) <;>
+    (try simp (disch := k2l_arith_omega) only [k2l_ite_neg, k2l_ite_pos]))
+  all_goals (repeat' (k2l_case_call_except [$f] <;> (try simp_all [k2l_eq, k2l_bitRange_nonneg]) <;>
+    (try simp (disch := k2l_arith_omega) only [k2l_ite_neg, k2l_ite_pos])))
+  all_goals first
+    | with_reducible rfl
+    | (simp_all [k2l_eq]; done)
+    | k2l_arith_omega))
+
+/-- `k2l_eqn_row f [f, f.rule1, …, f.ruleN]`: equation `N` of `f` by its own row, `f` and its rows
+up to `N` unfolded, never a later one; within the module's budget, a timeout a failure. -/
+elab "k2l_eqn_row " f:ident " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic =>
+  withRowsBudget 1 do
+    evalTactic (← `(tactic| (simp only [$xs,*]; k2l_eqn_row_close $f)))
+
+/-- Clear the no-match premises (`howise…`) other than `h`: a row's exclusion reads its own, and a
+`simp_all` would read all of them. -/
+elab "k2l_only " h:ident : tactic => do
+  let g ← getMainGoal
+  let g ← g.withContext do
+    let keep := (← getLocalDeclFromUserName h.getId).fvarId
+    let mut g := g
+    for d in ← getLCtx do
+      if d.fvarId != keep && d.userName.toString.startsWith "howise" then
+        g ← g.tryClear d.fvarId
+    return g
+  replaceMainGoal [g]
+
+/-- `k2l_row_none h r`: the goal `r x = none`, row `r` of a cascade, from the premise `h` that its
+equation does not apply at `x`: every arm of the row that gives a value is a match of the equation
+(its pattern, by reflexivity or a split's hypothesis, and its `requires`, from the arm's facts). -/
+macro "k2l_row_none " h:ident r:ident : tactic => `(tactic| (
+  k2l_only $h
+  simp only [$r:ident]
+  (repeat' split) <;> first
+    | rfl
+    | (exfalso; apply $h <;> first | rfl | assumption | (simp_all [k2l_eq, k2l_bitRange_nonneg]; done))))
+
+syntax k2lRowNone := "(" ident ", " ident ")"
+
+/-- `k2l_rows_none [(h, r), …]`: each row `r` that the goal's cascade reaches is `none` by the
+no-match premise `h` of its equation (`k2l_row_none`, a proof of its own), and the goal is
+rewritten with it. -/
+elab "k2l_rows_none " "[" ps:k2lRowNone,* "]" : tactic => do
+  for p in ps.getElems do
+    let `(k2lRowNone| ($h:ident, $r:ident)) := p | throwUnsupportedSyntax
+    let rn ← realizeGlobalConstNoOverloadWithInfo r
+    let g ← getMainGoal
+    let some t ← g.withContext do
+        return (← instantiateMVars (← g.getType)).find? fun e => e.isAppOf rn && !e.hasLooseBVars
+      | continue
+    let ts ← g.withContext <| Term.exprToSyntax t
+    let hr := mkIdent `hrow
+    evalTactic (← `(tactic| have $hr : $ts = none := by k2l_row_none $h $r))
+    evalTactic (← `(tactic| (simp only [$hr:ident]; clear $hr)))
+
+/-- `k2l_eqn_rows_o f [(h, r), …] [xs]`: an equation with no-match premises (`owise`, or of a
+priority after others) by its own row: `f` unfolded, the rows of the premises' equations excluded
+one by one (`k2l_rows_none`), then its own row (`xs`, none for a total function's last equation,
+the cascade's fallback) as `k2l_eqn_row` does; a budget per row. -/
+elab "k2l_eqn_rows_o " f:ident " [" ps:k2lRowNone,* "]" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" :
+    tactic =>
+  withRowsBudget (ps.getElems.size + 1) do
+    evalTactic (← `(tactic| (
+      simp only [$f:ident]
+      k2l_rows_none [$ps,*]
+      try simp only [$xs,*]
+      k2l_eqn_row_close $f)))
 
 end KPrelude
 

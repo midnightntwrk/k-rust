@@ -34,6 +34,7 @@ theorem Eqn.«double(_)_PEANO_Nat_Nat_1» (N : SortNat) :
     K.«double(_)_PEANO_Nat_Nat» N = (Option.bind (K.«plus(_,_)_PEANO_Nat_Nat_Nat» N N) fun r => some r) := by
   intros
   first
+  | k2l_eqn_row K.«double(_)_PEANO_Nat_Nat» [K.«double(_)_PEANO_Nat_Nat», K.«double(_)_PEANO_Nat_Nat».rule1]
   | k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]
   | (unfold K.«double(_)_PEANO_Nat_Nat» K.«double(_)_PEANO_Nat_Nat».rule1; k2l_eqn_b [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
@@ -68,6 +69,7 @@ theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_1» (N : SortNat) :
     K.«pick(_,_)_PEANO_Nat_B_Nat» SortB.tt N = (Option.bind (K.«double(_)_PEANO_Nat_Nat» N) fun r => some r) := by
   intros
   first
+  | k2l_eqn_row K.«pick(_,_)_PEANO_Nat_B_Nat» [K.«pick(_,_)_PEANO_Nat_B_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1]
   | k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]
   | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_b [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
@@ -79,6 +81,7 @@ theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_2» (Gen0 : SortB) (N : SortNat)
     K.«pick(_,_)_PEANO_Nat_B_Nat» Gen0 N = some N := by
   intros
   first
+  | k2l_eqn_rows_o K.«pick(_,_)_PEANO_Nat_B_Nat» [(howise0, K.«pick(_,_)_PEANO_Nat_B_Nat».rule1)] [K.«pick(_,_)_PEANO_Nat_B_Nat».rule2]
   | k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]
   | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_b [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])

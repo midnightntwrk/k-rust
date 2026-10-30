@@ -212,6 +212,7 @@ theorem Eqn.«hasNeg(_)_FREEKEY_Bool_Map_2» (Gen0 : SortMap)
     K.«hasNeg(_)_FREEKEY_Bool_Map» Gen0 = false := by
   intros
   first
+  | k2l_eqn_rows_o K.«hasNeg(_)_FREEKEY_Bool_Map» [(howise0, K.«hasNeg(_)_FREEKEY_Bool_Map».rule1)] []
   | k2l_eqn_a [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»]
   | (unfold K.«hasNeg(_)_FREEKEY_Bool_Map» K.«hasNeg(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_b [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»])
@@ -223,6 +224,7 @@ theorem Eqn.«isNat(_)_FREEKEY_Bool_KItem_1» (I : SortInt) :
     K.«isNat(_)_FREEKEY_Bool_KItem» (SortKItem.inj_Int I) = KPrelude.IntHook.ge I (0 : Int) := by
   intros
   first
+  | k2l_eqn_row K.«isNat(_)_FREEKEY_Bool_KItem» [K.«isNat(_)_FREEKEY_Bool_KItem», K.«isNat(_)_FREEKEY_Bool_KItem».rule1]
   | k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]
   | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_b [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
@@ -234,6 +236,7 @@ theorem Eqn.«isNat(_)_FREEKEY_Bool_KItem_2» (Gen0 : SortKItem)
     K.«isNat(_)_FREEKEY_Bool_KItem» Gen0 = false := by
   intros
   first
+  | k2l_eqn_rows_o K.«isNat(_)_FREEKEY_Bool_KItem» [(howise0, K.«isNat(_)_FREEKEY_Bool_KItem».rule1)] []
   | k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]
   | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_b [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
@@ -327,6 +330,7 @@ theorem Eqn.«twoPos(_)_FREEKEY_Bool_Map_2» (Gen0 : SortMap)
     K.«twoPos(_)_FREEKEY_Bool_Map» Gen0 = false := by
   intros
   first
+  | k2l_eqn_rows_o K.«twoPos(_)_FREEKEY_Bool_Map» [(howise0, K.«twoPos(_)_FREEKEY_Bool_Map».rule1)] []
   | k2l_eqn_a [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»]
   | (unfold K.«twoPos(_)_FREEKEY_Bool_Map» K.«twoPos(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_b [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»])

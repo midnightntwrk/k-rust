@@ -206,6 +206,7 @@ theorem Eqn.«get(_,_)_COUNTER_Int_Map_Id_1» (M : SortMap) (X : SortId)
     K.«get(_,_)_COUNTER_Int_Map_Id» M X = (Option.bind (KPrelude.MapHook.lookup M (SortKItem.inj_Id X)) fun r_1 => (Option.bind (K.«project:Int» (SortK.kseq r_1 SortK.dotk)) fun r_3 => some r_3)) := by
   intros
   first
+  | k2l_eqn_row K.«get(_,_)_COUNTER_Int_Map_Id» [K.«get(_,_)_COUNTER_Int_Map_Id», K.«get(_,_)_COUNTER_Int_Map_Id».rule1]
   | k2l_eqn_a [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]
   | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_b [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
@@ -217,6 +218,7 @@ theorem Eqn.«get(_,_)_COUNTER_Int_Map_Id_2» (Gen0 : SortMap) (Gen1 : SortId)
     K.«get(_,_)_COUNTER_Int_Map_Id» Gen0 Gen1 = some (0 : Int) := by
   intros
   first
+  | k2l_eqn_rows_o K.«get(_,_)_COUNTER_Int_Map_Id» [(howise0, K.«get(_,_)_COUNTER_Int_Map_Id».rule1)] [K.«get(_,_)_COUNTER_Int_Map_Id».rule2]
   | k2l_eqn_a [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]
   | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_b [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
@@ -228,6 +230,7 @@ theorem Eqn.isInt_1 (Int : SortInt) :
     K.isInt (SortK.kseq (SortKItem.inj_Int Int) SortK.dotk) = true := by
   intros
   first
+  | k2l_eqn_row K.isInt [K.isInt, K.isInt.rule1]
   | k2l_eqn_a [K.isInt.rule1, K.isInt]
   | (unfold K.isInt K.isInt.rule1; k2l_eqn_b [K.isInt.rule1, K.isInt]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt])
@@ -239,6 +242,7 @@ theorem Eqn.isInt_2 (K_1 : SortK)
     K.isInt K_1 = false := by
   intros
   first
+  | k2l_eqn_rows_o K.isInt [(howise0, K.isInt.rule1)] []
   | k2l_eqn_a [K.isInt.rule1, K.isInt]
   | (unfold K.isInt K.isInt.rule1; k2l_eqn_b [K.isInt.rule1, K.isInt]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt])
@@ -292,6 +296,7 @@ theorem Eqn.«project:Int_1» (K_1 : SortInt) :
     K.«project:Int» (SortK.kseq (SortKItem.inj_Int K_1) SortK.dotk) = some K_1 := by
   intros
   first
+  | k2l_eqn_row K.«project:Int» [K.«project:Int», K.«project:Int».rule1]
   | k2l_eqn_a [K.«project:Int».rule1, K.«project:Int»]
   | (unfold K.«project:Int» K.«project:Int».rule1; k2l_eqn_b [K.«project:Int».rule1, K.«project:Int»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«project:Int».rule1, K.«project:Int»])

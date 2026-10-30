@@ -39,6 +39,24 @@ pub struct Stated {
     /// The lemmas that decide its `Term.nf` premises and fold a value back into a normalizer's
     /// application (`normal::lemmas`), when it has such premises (EQ-18).
     pub nf: Vec<String>,
+    /// The proof by its own row of the generated cascade, for an equation of a function without
+    /// overload variants (whose rows are then its equations, in order).
+    pub row: Option<RowProof>,
+}
+
+/// An equation `N` of a generated function `f` as a row of `f`'s cascade (`KPrelude.Tactic`, "An
+/// equation by its own row"): it holds where row `N` gives its value and every row before it gives
+/// `none`, so its proof unfolds `f` and the rows up to `N` only. A row before it of a smaller
+/// priority is excluded by the no-match premise of its equation (`k2l_rows_none`), one of the
+/// same priority by the arithmetic of the equation's premises.
+#[derive(Clone)]
+pub struct RowProof {
+    /// `f` (`K.f`)
+    pub function: String,
+    /// the rows up to `N` (`K.f.rule1` … `K.f.ruleN`)
+    pub rows: Vec<String>,
+    /// for each no-match premise (`howise{j}`, in order), the row of its equation
+    pub excluded: Vec<String>,
 }
 
 /// Whether symbol `g` occurs in `p`.
@@ -157,11 +175,23 @@ pub fn equation_theorems(
             // an equation applies only where no equation of a smaller priority does (`owise` is
             // priority 200): the KORE axiom of a prioritized equation states its value without
             // that condition, which the cascade's order realizes, so its statement assumes it
-            let comps: Vec<&Equation> = es
+            let ranked: Vec<(usize, &Equation)> = es
                 .iter()
-                .filter(|c| c.variant == 0 && c.priority < e.priority)
+                .enumerate()
+                .filter(|(_, c)| c.variant == 0 && c.priority < e.priority)
                 .collect();
+            let comps: Vec<&Equation> = ranked.iter().map(|(_, c)| *c).collect();
             let comps = &comps[..];
+            // the rows are the equations, in order, unless an overload adds variants among them
+            let row_of = |k: usize| format!("{}.rule{}", sig.lean, k + 1);
+            let row =
+                (sig.lean.starts_with("K.") && es.iter().all(|x| x.variant == 0)).then(|| {
+                    RowProof {
+                        function: sig.lean.clone(),
+                        rows: (0..=i).map(row_of).collect(),
+                        excluded: ranked.iter().map(|(k, _)| row_of(*k)).collect(),
+                    }
+                });
             // a no-match premise reads a competitor's pattern through the normalizers, while the
             // definition's arms match the representation (its overload variants, EQ-17), only
             // when the pattern has an overloaded symbol: there a value that is no K value can
@@ -189,6 +219,7 @@ pub fn equation_theorems(
                     case_first: vec![],
                     simp_with: vec![],
                     normalizers: normalizers.clone(),
+                    row,
                 }),
                 Err(err) => eprintln!("note: {what} not stated: {err}"),
             }
@@ -672,6 +703,7 @@ pub fn simplification_theorems(def: &Def, m: &Model, fns: &Fns) -> Vec<Stated> {
                     normalizers: vec![],
                     nf: vec![],
                     statement: st,
+                    row: None,
                 })
             }
             Err(err) => eprintln!("note: {what} not stated: {err}"),
@@ -1157,6 +1189,50 @@ all_goals first\n      \
     o
 }
 
+/// The proof of `s` by its own row (`RowProof`), as the first alternative of its `first`: it ends
+/// within its budget, a timeout being a failure, so the other alternatives still run. None for a
+/// statement with `Term.nf` premises, whose no-match premises read the values as K's terms.
+fn row_route(s: &Stated, defs: &[String]) -> String {
+    let Some(r) = &s.row else {
+        return String::new();
+    };
+    if !s.nf.is_empty() || !defs.contains(&r.function) {
+        return String::new();
+    }
+    let rows: Vec<&str> = r
+        .rows
+        .iter()
+        .filter(|x| defs.contains(x))
+        .map(|x| x.as_str())
+        .collect();
+    if r.excluded.is_empty() {
+        let mut xs = vec![r.function.as_str()];
+        xs.extend(rows);
+        return format!("\n  | k2l_eqn_row {} [{}]", r.function, xs.join(", "));
+    }
+    // a premise's row that is no definition (a total function's fallback) is not in the cascade
+    let ps: Vec<String> = r
+        .excluded
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| defs.contains(x))
+        .map(|(j, x)| format!("(howise{j}, {x})"))
+        .collect();
+    // its own row, the last of `rows` unless it is the fallback
+    let own: Vec<&str> = r
+        .rows
+        .last()
+        .filter(|x| defs.contains(x))
+        .map(|x| vec![x.as_str()])
+        .unwrap_or_default();
+    format!(
+        "\n  | k2l_eqn_rows_o {} [{}] [{}]",
+        r.function,
+        ps.join(", "),
+        own.join(", ")
+    )
+}
+
 /// One module of statements: `part = None` for the whole of `Equations.lean`, `Some((k, n))` for
 /// part `k` of `n` (`Equations/Part{k}.lean`), whose statements are a subsequence of the whole.
 fn emit_part(cx: &Cx, stated: &[&Stated], part: Option<(usize, usize)>) -> String {
@@ -1267,8 +1343,9 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
                         s.normalizers.join(", ")
                     )
                 };
+                let row = row_route(s, defs);
                 let mut t = format!(
-                    "by\n  intros\n  first{norm}\n  | k2l_eqn_a [{own}]{cases}\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
+                    "by\n  intros\n  first{row}{norm}\n  | k2l_eqn_a [{own}]{cases}\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
                 );
                 if owise {
                     t.push_str(&format!("\n  | ({first}{eqn_o} [{own}])"));
@@ -1482,6 +1559,7 @@ mod tests {
             simp_with: vec![],
             normalizers: vec![],
             nf: vec![],
+            row: None,
         }
     }
 
@@ -1560,9 +1638,11 @@ mod tests {
     }
 
     /// `prio` (`tests/fixtures/prio`): an equation of a later priority assumes that no earlier one
-    /// applies, whether K writes it `owise` or `priority(N)`.
+    /// applies, whether K writes it `owise` or `priority(N)`; each equation of a cascade is proved by
+    /// its own row first, the rows before it excluded by arithmetic (one priority) or by the
+    /// no-match premise of their equation (an earlier priority).
     #[test]
-    fn an_equation_assumes_the_earlier_priorities() {
+    fn an_equation_assumes_the_earlier_priorities_and_is_proved_by_its_row() {
         let def = crate::funcs::tests::fixture("prio");
         let (m, g) = crate::funcs::tests::generated(&def);
         let eqs = crate::funcs::equations_modulo_overloads(&def, &m);
@@ -1592,6 +1672,34 @@ mod tests {
             !of("Eqn.«field(_)_PRIO_Int_Int_3»")
                 .statement
                 .contains("howise")
+        );
+        let o = emit_modules(
+            "Prio",
+            &st,
+            &BTreeSet::new(),
+            &g.unfold,
+            &g.recursive,
+            &g.list_recursive,
+            usize::MAX,
+            &Budget::default(),
+        )
+        .into_iter()
+        .map(|(_, text)| text)
+        .collect::<String>();
+        let f = "K.«field(_)_PRIO_Int_Int»";
+        assert!(
+            o.contains("theorem Eqn.«field(_)_PRIO_Int_Int_3» (X : SortInt)")
+                && o.contains(&format!(
+                    "  first\n  | k2l_eqn_row {f} [{f}, {f}.rule1, {f}.rule2, {f}.rule3]\n"
+                )),
+            "{o}"
+        );
+        // the default row: the cascade's fallback, after the three rows its premises exclude
+        assert!(
+            o.contains(&format!(
+                "  first\n  | k2l_eqn_rows_o {f} [(howise0, {f}.rule1), (howise1, {f}.rule2), (howise2, {f}.rule3)] []\n"
+            )),
+            "{o}"
         );
     }
 
