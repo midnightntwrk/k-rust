@@ -35,9 +35,16 @@ toml.workspace = true
 # recommended build for the LLM loop (README).
 default = ["z3"]
 z3 = ["kink-corpus/z3", "kink-campaign/z3", "kink-native/z3"]
+# k-rust's seeded chooser of implementation-chosen values (k-rust-backend `choice-sampling`), for
+# the heavy test `choice_sampling` (kink27 R2-CHOICE-SAMPLING); no shipped crate enables it.
+choice-sampling = ["k-rust/choice-sampling"]
 
 [[bin]]
 name = "kink-flow"
 path = "src/main.rs"
+
+[[test]]
+name = "choice_sampling"
+required-features = ["choice-sampling"]
 
 [dev-dependencies]
