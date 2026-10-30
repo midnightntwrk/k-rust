@@ -40,9 +40,11 @@
 //! Subsumption by Implies-mode matching, existential witness elimination, and SMT validity of
 //! the residual, iterated to a fixed point of the simplified antecedent (Kore checkImplication):
 //! O(rounds x (|consequents| x one matching problem + witness saturation + one SMT validity));
-//! one `Counter::SmtQueries` per solver call (an antecedent satisfiability check, up to three
-//! validity subqueries for the residual, a refutation check, and, for a match refuted, undecided
-//! or unprepared, a satisfiability check of the antecedent's knowledge),
+//! each solver call (an antecedent satisfiability check, up to three validity subqueries for the
+//! residual, a refutation check, and, for a match refuted, undecided or unprepared, a
+//! satisfiability check of the antecedent's knowledge) counts one `Counter::SmtQueries` per
+//! prepared script-level subquery, a result-cache answer included, and a call the typed-input
+//! cache answers before preparation counts `Counter::SmtTypedCacheHits` and no `SmtQueries`,
 //! `Counter::ProofImplicationChecks` at the caller.
 //!
 //! The check is policy-neutral: it records what it established about the antecedent's

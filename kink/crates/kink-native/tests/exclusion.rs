@@ -2381,10 +2381,12 @@ fn a_state_set_with_converging_undefined_leaves_is_excluded_as_its_path_set() {
 /// initial condition `f(X) =/=Int 3` for a total `f` that is 3 at 0): `pr`'s remainder below the
 /// merged `p(X)` is `X ==Int 0` beside that condition, which the definition refutes; neither run
 /// is excluded, whichever stage refutes it.
-/// - `g`, whose equation `g0` is `concrete`: no solver summary reads it, so the solver finds the
-///   remainder satisfiable and its normalization refutes it with no undefined term. It is a
-///   `Vacuous` leaf, one in the state set and one per path in the path set, beside the `Stuck`
-///   `q(X)`; the bridge discards it.
+/// - `g`, whose equation `g0` is `concrete`: it stays an axiom of the definition (`g(0) = 3`),
+///   and no solver summary reads it only because summary admission refuses a `concrete` equation
+///   (a summary admission policy, `Rejected::Restricted`, not the meaning of `concrete`), so the
+///   solver finds the remainder satisfiable and its normalization refutes it with no undefined
+///   term. It is a `Vacuous` leaf, one in the state set and one per path in the path set, beside
+///   the `Stuck` `q(X)`; the bridge discards it.
 /// - `gs`, the same function with an unconstrained equation: the solver's summary of `gs` reads
 ///   `gs0` as `gs(X) = 3` where `X = 0` (and `gs`'s own value elsewhere), so the remainder is
 ///   unsatisfiable and is no leaf: only the `Stuck` `q(X)` is left, once per run.

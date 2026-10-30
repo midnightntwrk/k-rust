@@ -329,14 +329,33 @@ fn be08_measure_stopped(definition: &BackendDefinition, mode: ExecutionMode) -> 
     delta
 }
 
+/// The cache split is reported, not pinned (EB-RULE-5); solver runs and resource units stay
+/// pinned.
 #[cfg(feature = "z3")]
 fn assert_be08_snapshot(name: &str, actual: Snapshot) {
+    const CACHE_SPLIT: [&str; 4] = [
+        "smt.queries",
+        "smt.typed_cache_hits",
+        "smt.typed_cache_misses",
+        "smt.prepared_queries",
+    ];
+    let full = report(&actual);
+    eprintln!("{name}: {}", full.replace('\n', ", "));
+    let pinned = full
+        .lines()
+        .filter(|line| {
+            !CACHE_SPLIT
+                .iter()
+                .any(|counter| line.split(" = ").next() == Some(*counter))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     insta::with_settings!({
         description => "BE08 backend counter report",
         omit_expression => true,
         prepend_module_to_snapshot => true,
     }, {
-        insta::assert_snapshot!(name, report(&actual));
+        insta::assert_snapshot!(name, pinned);
     });
 }
 
@@ -951,10 +970,11 @@ mod smt {
         )
     }
 
-    /// Constructing a solver runs nothing, and two identical queries run the solver at most once
-    /// between them: no separate prelude check, no second run. How the repeat is answered (the
-    /// typed-input cache before preparation, or the script result cache after it) is reported,
-    /// not pinned (EB-RULE-5).
+    /// Constructing a solver runs nothing, and two identical queries run the solver exactly once
+    /// between them: the first query runs it (the lower bound keeps this a cache test) and no
+    /// repeat does, so there is no separate prelude check and no second run. How a repeat is
+    /// answered (the typed-input cache before preparation, or the script result cache after it)
+    /// is reported, not pinned (EB-RULE-5).
     #[test]
     fn identical_sat_queries_need_no_prelude_check() {
         let definition = definition(COUNTING);
@@ -972,14 +992,21 @@ mod smt {
         });
         eprintln!("two identical queries: {:?}", super::nonzero(&delta));
         assert!(
+            delta.get(Counter::SmtSolverRuns) >= 1,
+            "the first query reaches the solver, else this is no cache test: {:?}",
+            super::nonzero(&delta)
+        );
+        assert!(
             delta.get(Counter::SmtSolverRuns) <= 1,
             "{:?}",
             super::nonzero(&delta)
         );
     }
 
-    /// A blow-up detector: sixteen identical queries run the solver at most once, where a solver
-    /// without a result cache would run it sixteen times.
+    /// A blow-up detector: sixteen identical queries run the solver exactly once, where a solver
+    /// without a result cache would run it sixteen times: the first query runs it (the lower
+    /// bound keeps this a cache test) and no repeat does; how a repeat is answered is reported,
+    /// not pinned (EB-RULE-5).
     #[test]
     fn repeated_queries_never_run_the_solver_again() {
         let definition = definition(COUNTING);
@@ -993,6 +1020,11 @@ mod smt {
         }
         let delta = snapshot().delta(&before);
         eprintln!("sixteen identical queries: {:?}", super::nonzero(&delta));
+        assert!(
+            delta.get(Counter::SmtSolverRuns) >= 1,
+            "the first query reaches the solver, else this is no cache test: {:?}",
+            super::nonzero(&delta)
+        );
         assert!(
             delta.get(Counter::SmtSolverRuns) <= 1,
             "{:?}",

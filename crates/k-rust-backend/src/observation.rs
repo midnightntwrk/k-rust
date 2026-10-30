@@ -183,6 +183,13 @@ impl Selector {
 
 /// Decide an exact image-domain instance without querying a solver or evaluating a body.
 /// Undefined child obligations remain the caller's strict-argument obligations.
+///
+/// As a domain condition (definedness walk and SMT `domain_plan`), `Some(true)` is `\top` and `Some(false)` is `\bottom`,
+/// each exactly the definedness of `project:S(input)` beyond the input's.
+/// The catalog admits the head only with the unconditional row `\ceil(project:S(X)) = \exists V. X = E[V]`.
+/// `Success` exhibits `input = E[v]`.
+/// `Failed` says that no instance of `input` is an instance of `E[V]`, so the existential is false at every valuation.
+/// `None` keeps that row's stated condition (kink27 R2-DOMAIN-ROUTES).
 pub(crate) fn selector_domain(definition: &BackendDefinition, term: &Term) -> Option<bool> {
     let TermKind::Application { arguments, .. } = term.kind() else {
         return None;

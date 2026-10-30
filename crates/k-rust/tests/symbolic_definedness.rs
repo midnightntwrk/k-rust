@@ -1627,3 +1627,229 @@ mod claim_constraints {
         );
     }
 }
+
+/// The probe definition of the observation domain routes (kink27 R2-DOMAIN-ROUTES), named as
+/// `compile` expects. Each operation's rule is feasible on a symbolic argument only under a
+/// domain condition no stronger than the definedness of the partial term it reads: a sort
+/// projection (`selv`, `selb`), a hooked map lookup (`look`), a product field (`fld`), a fixed
+/// list access and drop (`lget`, `ldrop`), and a stated ceil equation (`hv`).
+const ROUTES: &str = r#"module DEFPROBE-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  imports MAP
+  imports LIST
+  syntax Small ::= sm(Int) [symbol(sm)]
+  syntax Val ::= Small | vb(Bool) [symbol(vb)]
+  syntax C ::= c(Int) [symbol(c)]
+  syntax A ::= C | a0() [symbol(a0)]
+  syntax B ::= C | b0() [symbol(b0)]
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  syntax Int ::= first(Pair) [function, symbol(first)]
+               | second(Pair) [function, symbol(second)]
+               | half(Int) [function, symbol(half)]
+  syntax Op ::= selv(KItem) [symbol(selv)]
+              | selb(KItem) [symbol(selb)]
+              | look(Map, Int, Int) [symbol(look)]
+              | fld(Pair) [symbol(fld)]
+              | lget(List) [symbol(lget)]
+              | ldrop(List) [symbol(ldrop)]
+              | hv(Int) [symbol(hv)]
+  syntax Prog ::= "halt" [symbol(halt)]
+                | seq(Op, Prog) [symbol(seq)]
+endmodule
+
+module DEFPROBE
+  imports DEFPROBE-SYNTAX
+  imports BASIC-K
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  configuration <k> .K </k>
+
+  rule first(pair(X, _)) => X
+  rule second(pair(_, Y)) => Y
+  rule half(X) => X /Int 2 requires X %Int 2 ==Int 0
+  rule #Ceil(half(X)) => {X %Int 2 #Equals 0} [simplification]
+
+  rule [selv]:  seq(selv(X), R) => R requires {X}:>Val =/=K vb(true)
+  rule [selb]:  seq(selb(X), R) => R requires {X}:>B =/=K b0()
+  rule [look]:  seq(look(M, I, N), R) => R
+                  requires notBool (N in_keys(M)) andBool M[I <- 5][N] ==K 5
+  rule [fld]:   seq(fld(P), R) => R requires first(P) >Int second(P)
+  rule [lget]:  seq(lget(L), R) => R requires L[1] ==K 2 andBool size(L) <=Int 2
+  rule [ldrop]: seq(ldrop(L), R) => R requires size(range(L, 2, 0)) ==Int 0
+  rule [hv]:    seq(hv(X), R) => R requires half(X) ==Int 3
+endmodule
+"#;
+
+/// A fresh backend over the KORE of `ROUTES`, compiled once per process and inference mode.
+fn routes_backend() -> Backend {
+    static KORE: shared::Shared<String> = shared::Shared::new();
+    backend_over(&KORE.get(|| compile(ROUTES)))
+}
+
+fn int(value: i64) -> String {
+    format!("\\dv{{SortInt{{}}}}(\"{value}\")")
+}
+
+fn list_item(value: i64) -> String {
+    format!(
+        "LblListItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}({}))",
+        int(value)
+    )
+}
+
+/// The two-item list `ListItem(1) ListItem(2)`.
+fn two_items() -> String {
+    format!(
+        "Lbl'Unds'List'Unds'{{}}({}, {})",
+        list_item(1),
+        list_item(2)
+    )
+}
+
+/// Why the symbolic run of `name` shows its route refuting a defined instance, if it does.
+/// With a solver, the step to `halt` is a depth-1 leaf and no leaf is `Vacuous`; without one,
+/// the step is a depth-1 leaf or every leaf is `Indeterminate`.
+fn route_refuted(backend: &mut Backend, name: &str, symbolic: &str) -> Option<String> {
+    let leaves = execute(backend, &op(name, symbolic), false);
+    let stepped = leaves.iter().any(|leaf| leaf.depth == 1);
+    let fine = if backend.capabilities().smt {
+        stepped
+            && leaves
+                .iter()
+                .all(|leaf| leaf.reason != HaltReasonOutput::Vacuous)
+    } else {
+        stepped
+            || leaves
+                .iter()
+                .all(|leaf| leaf.reason == HaltReasonOutput::Indeterminate)
+    };
+    (!fine).then(|| format!("{name}({symbolic}): the step to halt is refuted: {leaves:#?}"))
+}
+
+/// Why the ground runs of `name` do not show the route's obligation, if they do not: `ground`
+/// halts at depth 1 (`Stuck` on `halt`), and `negative`, where the read term is undefined, is
+/// `Stuck` at depth 0, so the route still owes its condition.
+fn ground_violation(
+    backend: &mut Backend,
+    name: &str,
+    ground: &str,
+    negative: Option<&str>,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    let leaves = execute(backend, &op(name, ground), false);
+    if leaves.is_empty()
+        || !leaves.iter().all(|leaf| {
+            leaf.depth == 1
+                && leaf.reason == HaltReasonOutput::Stuck
+                && leaf.text.contains("Lblhalt{}()")
+                && !leaf.text.contains(&format!("Lbl{name}{{}}"))
+        })
+    {
+        violations.push(format!(
+            "{name}({ground}): expected a halt at depth 1: {leaves:#?}"
+        ));
+    }
+    if let Some(negative) = negative {
+        let leaves = execute(backend, &op(name, negative), false);
+        if leaves.is_empty()
+            || !leaves
+                .iter()
+                .all(|leaf| leaf.depth == 0 && leaf.reason == HaltReasonOutput::Stuck)
+        {
+            violations.push(format!(
+                "{name}({negative}): expected Stuck at depth 0: {leaves:#?}"
+            ));
+        }
+    }
+    violations
+}
+
+fn assert_route(name: &str, symbolic: &str, ground: &str, negative: Option<&str>) {
+    let mut backend = routes_backend();
+    let mut violations = Vec::from_iter(route_refuted(&mut backend, name, symbolic));
+    violations.extend(ground_violation(&mut backend, name, ground, negative));
+    assert_no_violation(&violations);
+}
+
+/// `project:Val(inj{Small, KItem}(S))` is defined (`Small < Val`): the matcher exhibits the
+/// image `inj{Val, KItem}(V)` at `V = inj{Small, Val}(S)`, so the selector route gives `\top`;
+/// a same-source test would give `\bottom`. Both profiles step, with no leaf at depth 0.
+#[test]
+fn observation_domain_routes_a_projection_onto_a_supersort_holds() {
+    let mut backend = routes_backend();
+    let symbolic = "inj{SortSmall{}, SortKItem{}}(S:SortSmall{})";
+    let leaves = execute(&mut backend, &op("selv", symbolic), false);
+    let mut violations = Vec::new();
+    if !leaves.iter().any(|leaf| leaf.depth == 1) || leaves.iter().any(|leaf| leaf.depth == 0) {
+        violations.push(format!(
+            "selv({symbolic}): expected a step and no leaf at depth 0: {leaves:#?}"
+        ));
+    }
+    violations.extend(ground_violation(
+        &mut backend,
+        "selv",
+        &format!("inj{{SortSmall{{}}, SortKItem{{}}}}(Lblsm{{}}({}))", int(3)),
+        Some("inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\"))"),
+    ));
+    assert_no_violation(&violations);
+}
+
+/// `A` and `B` are incomparable with the common subsort `C`, so `project:B(inj{A, KItem}(Z))`
+/// is defined exactly where `Z` is a `C`: the matcher defers and the solver reads the row's
+/// existential; `\bottom` (distinct injection sources) would refute the step.
+#[test]
+fn observation_domain_routes_a_projection_through_a_common_subsort_stays_feasible() {
+    assert_route(
+        "selb",
+        "inj{SortA{}, SortKItem{}}(Z:SortA{})",
+        &format!("inj{{SortC{{}}, SortKItem{{}}}}(Lblc{{}}({}))", int(1)),
+        Some("inj{SortA{}, SortKItem{}}(Lbla0{}())"),
+    );
+}
+
+/// `M[I <- 5][N]` is defined where `N = I` although `N` is not a key of `M`: a domain
+/// `N in_keys(M)` that ignored the update would contradict `notBool N in_keys(M)`.
+#[test]
+fn observation_domain_routes_a_lookup_defined_by_an_update_stays_feasible() {
+    assert_route(
+        "look",
+        "M:SortMap{}, I:SortInt{}, N:SortInt{}",
+        &format!("Lbl'Stop'Map{{}}(), {}, {}", int(3), int(3)),
+        Some(&format!("Lbl'Stop'Map{{}}(), {}, {}", int(3), int(4))),
+    );
+}
+
+/// `first(P)` is defined for every `P`: `\bottom`, or a demand that `P` be a literal, would
+/// refute the step.
+#[test]
+fn observation_domain_routes_a_field_of_a_symbolic_product_stays_feasible() {
+    assert_route(
+        "fld",
+        "P:SortPair{}",
+        &format!("Lblpair{{}}({}, {})", int(2), int(1)),
+        None,
+    );
+}
+
+/// `L[1]` is defined where `size(L) >= 2`: an off-by-one `size(L) >= 3` would contradict
+/// `size(L) <=Int 2`.
+#[test]
+fn observation_domain_routes_a_fixed_list_access_stays_feasible() {
+    assert_route("lget", "L:SortList{}", &two_items(), Some(&list_item(1)));
+}
+
+/// `range(L, 2, 0)` is defined where `size(L) >= 2`, and the rule needs `size(L) = 2`, so
+/// `size(L) >= 3` would refute the step.
+#[test]
+fn observation_domain_routes_a_fixed_list_drop_stays_feasible() {
+    assert_route("ldrop", "L:SortList{}", &two_items(), Some(&list_item(1)));
+}
+
+/// The general walk reads the lemma's stated `X %Int 2 = 0` and the strict child's domain; the
+/// step is feasible at `X = 6`.
+#[test]
+fn observation_domain_routes_a_stated_ceil_condition_stays_feasible() {
+    assert_route("hv", X, &int(6), Some(&int(7)));
+}

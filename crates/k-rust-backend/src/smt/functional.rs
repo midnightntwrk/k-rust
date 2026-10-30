@@ -519,6 +519,16 @@ pub(super) fn prepare(
 
 /// One source-owned head domain shared by observation discovery and final domain preparation.
 /// The cached predicates contain no query facts or solver names; strict operands stay explicit.
+///
+/// The plan replaces every occurrence of `\ceil(term)` in the query, under a negation too,
+/// and is tied to the head's domain function under the arguments' domains.
+/// It must therefore be equivalent to `\ceil(term)` on defined arguments:
+/// a stronger plan refutes a defined instance, a weaker one an undefined instance.
+/// Its sources are each equivalent: an observation route (argued at each route's function);
+/// an unconditional ceil equation's stated condition, an axiom, with its terms' definedness, implied by the condition itself;
+/// `\top` for a `value-production` application no equation reduces, a total or constructor head, a variable, a domain value or an injection;
+/// a map literal's key disjointness; and every child's domain, since every application is strict.
+/// Anything else keeps the opaque `\ceil` (kink27 R2-DOMAIN-ROUTES).
 #[cfg(any(feature = "z3", test))]
 pub(super) fn domain_plan(
     definition: &crate::definition::BackendDefinition,

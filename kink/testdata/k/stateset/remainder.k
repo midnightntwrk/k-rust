@@ -9,9 +9,13 @@
 //
 // With `g`, a total function that is 3 at 0, in the initial condition instead of `h`, the
 // remainder's normalization refutes `g(0) =/=Int 3`, so it is a `Vacuous` leaf, which names the
-// producing rule the same way. `g0` is `concrete` so that no solver summary reads it: with `gs`,
-// the same function with an unconstrained equation, the solver's summary of `gs` refutes the
-// remainder itself (`gs(X) = 3` where `X = 0`), and no remainder leaf is left.
+// producing rule the same way. `g0` is `concrete`. It stays an axiom of the definition
+// (`g(0) = 3`); no solver summary reads it only because summary admission refuses a `concrete`
+// equation (`Rejected::Restricted`). That is a policy, not what `concrete` means. An admission
+// that read such equations would be sound, would refute this remainder at the solver as it does
+// for `gs`, and would move the `Vacuous` guard to another function the solver cannot read. With
+// `gs`, the same function with an unconstrained equation, the solver's summary of `gs` refutes
+// the remainder itself (`gs(X) = 3` where `X = 0`), and no remainder leaf is left.
 //
 // REMAINDER-RECORD adds a step after `q` whose candidate `qz` contradicts `tz`'s `total` claim and
 // is covered by its defined sibling `qr`: a record on the run's list that no leaf carries.

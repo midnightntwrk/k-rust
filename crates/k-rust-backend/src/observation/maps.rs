@@ -492,6 +492,12 @@ impl BackendDefinition {
 
 /// Canonical head domain of an actual source lookup. Strict child domains are retained by
 /// the existing definedness walk. Offered source ceil/value rows disable this contract.
+///
+/// `in_keys(key, map) = true` is exactly where `MAP.lookup` is defined on defined operands,
+/// so the condition is neither stronger nor weaker than definedness.
+/// The SMT reading (`smt::observation::observation_domain`) refines it through the map's view,
+/// and each branch is again the key's presence: an update binds its key, a removal unbinds it, an empty map binds none,
+/// and a concatenation keeps its disjointness among the strict child domains (kink27 R2-DOMAIN-ROUTES).
 pub(crate) fn lookup_domain(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
     let TermKind::Application { arguments, .. } = term.kind() else {
         return None;
