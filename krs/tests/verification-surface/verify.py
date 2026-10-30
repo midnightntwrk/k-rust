@@ -154,7 +154,19 @@ in a map that holds it alone, `sym-two` in one that also holds a second key,
 writes two keys the empty start map does not hold, so its emitted end map is
 the update chain `.Map [ A:Int <- 10 ] [ B:Int <- 11 ]`. Every claim is
 proved natively (`krs prove`) and by Java `kprove --claims` on the emitted
-files.
+files. Each has a negative control, `<label>-false`, with an end state no path
+reaches (`sym-one` ending with 11, `sym-two` writing `b` too, `set-get`
+reading back 11, `unmatched-keys` with 11 at `a`): neither route may prove
+it, as the `conc` and ablation fixtures pin a claim that fails. `krs prove`
+disproves `set-get-false` and reports the three others `indeterminate`.
+
+Set collections selected by computed instances (NT-10): `set-instance-claims`
+is the configuration-cells gate's `set-instances` definition with three
+claims over `probe n`, which needs the object whose id is `n + 1` and whose
+hits are 0. `found` (that object alone) and `found-among-two` (beside an
+object with one hit) are proved by `krs prove` and by Java `kprove --claims`;
+`other-hits` gives that object one hit, so no rule applies, and both routes
+must fail it.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -361,6 +373,17 @@ LESSON_SPEC_FRAGMENT = (
 CELL_MAPS = Fixture(MANIFEST, "krs-verification-surface-cell-maps")
 CELL_MAPS_SPEC = "KRS-CELL-MAPS-SPEC"
 CELL_MAPS_CLAIMS = ("sym-one", "sym-two", "set-get", "unmatched-keys")
+# Each claim with a false end state: neither route may prove it. `krs prove` disproves the
+# concrete `got(11)` (stuck at `got(10)`); on the three end maps it ends with a leaf whose
+# condition, a negated equality of terms over the symbolic keys, it cannot decide, and reports
+# `indeterminate`.
+CELL_MAPS_STATUSES = {
+    **dict.fromkeys(CELL_MAPS_CLAIMS, "proven"),
+    "sym-one-false": "indeterminate",
+    "sym-two-false": "indeterminate",
+    "set-get-false": "disproved",
+    "unmatched-keys-false": "indeterminate",
+}
 # The `<env>` cell of each claim as emitted: the keys a claim names stay symbolic,
 # and keys the start map does not hold are written as the update chain.
 CELL_MAPS_FRAGMENTS = (
@@ -369,6 +392,10 @@ CELL_MAPS_FRAGMENTS = (
     "    <env> E:Map => ?After:Map </env>\n",
     "    <env> .Map => .Map [ A:Int <- 10 ] [ B:Int <- 11 ] </env>\n",
 )
+
+SET_INSTANCE_CLAIMS = Fixture(MANIFEST, "krs-verification-surface-set-instance-claims")
+SET_INSTANCE_CLAIMS_SPEC = "KRS-SET-INSTANCE-CLAIMS-SPEC"
+SET_INSTANCE_CLAIMS_STATUSES = {"found": "proven", "found-among-two": "proven", "other-hits": "failed"}
 
 NEGATIVE = (
     "exists-equation",
@@ -1289,16 +1316,34 @@ def verify_cell_maps(harness: FixtureGate, fixture: Fixture) -> None:
     for fragment in CELL_MAPS_FRAGMENTS:
         if fragment not in spec:
             raise GateError(f"{fixture.package}: emitted spec.k omits:\n{fragment}")
-    expected = dict.fromkeys(CELL_MAPS_CLAIMS, "proven")
     native = native_trusted_proof(harness, fixture, CELL_MAPS_SPEC)
-    if native["statuses"] != expected or native["exit"] != 0 or native["warnings"]:
+    if native["statuses"] != CELL_MAPS_STATUSES or native["exit"] != 1 or native["warnings"]:
         raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
     harness.pins.expect(("cell_map_proofs", fixture.package), native)
-    java = java_claim_proofs(harness, emitted, CELL_MAPS_SPEC, CELL_MAPS_CLAIMS)
-    if java != dict.fromkeys(CELL_MAPS_CLAIMS, True):
+    java = java_claim_proofs(harness, emitted, CELL_MAPS_SPEC, tuple(CELL_MAPS_STATUSES))
+    expected = {label: status == "proven" for label, status in CELL_MAPS_STATUSES.items()}
+    if java != expected:
         raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(native['statuses'])}")
     harness.pins.expect(("cell_map_kprove", fixture.package), java)
-    print(f"PASS {fixture.package}: every claim proven natively and by kprove")
+    print(f"PASS {fixture.package}: every claim proven natively and by kprove, no negative control proven on either")
+
+
+def verify_set_instance_claims(harness: FixtureGate, fixture: Fixture) -> None:
+    """Claims over a Set collection whose instance a computed id selects, on both routes (NT-10)."""
+
+    harness.check(fixture)
+    harness.expand(fixture)
+    emitted = harness.emit(fixture)
+    native = native_trusted_proof(harness, fixture, SET_INSTANCE_CLAIMS_SPEC)
+    if native["statuses"] != SET_INSTANCE_CLAIMS_STATUSES or native["exit"] != 1:
+        raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
+    harness.pins.expect(("set_instance_proofs", fixture.package), native)
+    java = java_claim_proofs(harness, emitted, SET_INSTANCE_CLAIMS_SPEC, tuple(SET_INSTANCE_CLAIMS_STATUSES))
+    expected = {label: status == "proven" for label, status in SET_INSTANCE_CLAIMS_STATUSES.items()}
+    if java != expected:
+        raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(native['statuses'])}")
+    harness.pins.expect(("set_instance_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: found and found-among-two proven, other-hits failed, on both routes")
 
 
 def main() -> int:
@@ -1335,6 +1380,7 @@ def main() -> int:
         verify_lesson_spec(harness, L22_LESSON)
         verify_ml_predicates(harness, L22)
         verify_cell_maps(harness, CELL_MAPS)
+        verify_set_instance_claims(harness, SET_INSTANCE_CLAIMS)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-verification-surface-{name}"))

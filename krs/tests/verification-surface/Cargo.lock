@@ -192,6 +192,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-verification-surface-set-instance-claims"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-verification-surface-trusted"
 version = "0.1.0"
 dependencies = [

@@ -13,6 +13,7 @@ members = [
     "packages/l22-verification",
     "packages/l22-lesson",
     "packages/cell-maps",
+    "packages/set-instance-claims",
 ]
 resolver = "3"
 

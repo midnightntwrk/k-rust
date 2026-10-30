@@ -15,6 +15,9 @@
 //! - `unmatched-keys`: `put(a, 10)` and `put(b, 11)` write keys the empty
 //!   start map does not hold, so the end map is the update chain
 //!   `.Map [ a <- 10 ] [ b <- 11 ]`, whatever `a` and `b` are.
+//!
+//! Each claim has a negative control, `<label>-false`, whose end state no
+//! path reaches; neither prover may prove it.
 
 use k::builtin::{Int, KSequence, Map, map};
 use k::{KItem, Term};
@@ -193,6 +196,81 @@ fn unmatched_keys(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![a -> 10, b -> 11]),
+        ..state
+    }
+}
+
+// Negative controls: each claim above with a false end state, which neither prover may prove.
+
+/// `sym-one` ending with 11, a value no step writes.
+#[k::claim(all_paths, label = "sym-one-false")]
+fn sym_one_false(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Two(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> 0]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 11]),
+        ..state
+    }
+}
+
+/// `sym-two` with the entry of `b` changed too.
+#[k::claim(all_paths, label = "sym-two-false")]
+fn sym_two_false(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Two(a, b), tail @ ..),
+        env: k::configuration::Cell(map![a -> 0, b -> 0]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 10, b -> 10]),
+        ..state
+    }
+}
+
+/// `set-get` reading back 11, a value `set` never writes.
+#[k::claim(all_paths, label = "set-get-false")]
+#[k::exists(after: Map)]
+fn set_get_false(
+    a: Term<Int>,
+    e: Term<Map>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Set(a), ExpSyntax::Get(a), tail @ ..),
+        env: k::configuration::Cell(e),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Got(11), ..tail),
+        env: k::configuration::Cell(after),
+        ..state
+    }
+}
+
+/// `unmatched-keys` with 11 at `a`, where `put(a, 10)` wrote 10.
+#[k::claim(all_paths, label = "unmatched-keys-false")]
+fn unmatched_keys_false(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Put(a, 10), ExpSyntax::Put(b, 11), tail @ ..),
+        env: k::configuration::Cell(map![]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![a -> 11, b -> 11]),
         ..state
     }
 }

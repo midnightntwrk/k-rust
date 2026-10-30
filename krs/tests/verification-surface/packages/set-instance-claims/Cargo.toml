@@ -1,0 +1,21 @@
+[package]
+name = "krs-verification-surface-set-instance-claims"
+description = "Claims over a Set cell collection whose instance a computed id selects: two proved, one that must stay unproven"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_verification_surface_set_instance_claims"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-SET-INSTANCE-CLAIMS"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true
