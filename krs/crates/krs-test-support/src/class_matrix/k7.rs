@@ -63,6 +63,8 @@ pub enum Ground {
     Map(Vec<(Ground, Ground)>),
     /// A K sequence, the computation cell's content.
     Seq(Vec<Ground>),
+    /// An optional cell the state does not hold.
+    Absent,
     /// Any term: a run must show that the sentence applied, but the generator states no value.
     Any,
     /// A term a run showed that has no form above (a freezer, a variable, `\bottom`'s parts),
@@ -263,7 +265,9 @@ impl Ground {
                 }
                 written
             }
-            Self::Token { .. } | Self::Seq(_) | Self::Any | Self::Opaque(_) => return None,
+            Self::Token { .. } | Self::Seq(_) | Self::Absent | Self::Any | Self::Opaque(_) => {
+                return None;
+            }
         })
     }
 }
@@ -320,6 +324,7 @@ impl fmt::Display for Ground {
                 list(formatter, items)?;
                 formatter.write_str("]")
             }
+            Self::Absent => formatter.write_str("absent"),
             Self::Any => formatter.write_str("_"),
             Self::Opaque(text) => write!(formatter, "<{text}>"),
         }
@@ -379,7 +384,12 @@ pub struct Run {
     /// The rewrite steps the run takes when the case's sentence applies as stated: the driver's
     /// setup steps and the sentence's own. Fewer steps is a sentence that did not apply.
     pub steps: u64,
-    /// The cells the final state holds, by the Rust path of their fields (`k`, `env`).
+    /// The cells the final state holds, by the Rust path of their fields (`k`, `env`,
+    /// `frame.ret`). A repeated cell is read by its path and its instances' children, each instance
+    /// the constructor named after the collection's field of its children's values:
+    /// `queue.job[payload]` a List collection's, a [`Ground::List`] in order, and `shelf.bag{key,m}`
+    /// a Set collection's, a [`Ground::Set`]. An optional cell the state does not hold is
+    /// [`Ground::Absent`].
     pub cells: Vec<(String, Ground)>,
     /// What the run checks.
     pub status: Status,

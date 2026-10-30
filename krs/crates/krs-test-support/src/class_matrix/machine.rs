@@ -1,8 +1,15 @@
 //! The configuration families: readable records, readable claims, initializers, and the
-//! strict-subsort axis over typed cells.
+//! strict-subsort axis over typed cells; and the readable records again on the run base
+//! ([`Base::Run`]), which K7 runs ([`super::config_drivers`]).
+//!
+//! The readable records are one slot list instantiated twice, on the machine base and on the run
+//! base, rather than copied: the run base declares the machine base's cells under the same names, so
+//! each template writes the same item on both, and a spelling added to the family reaches its run
+//! twin by construction, while the machine base's items, and the K they record, stay as they are.
 
 use std::sync::LazyLock;
 
+use super::config_drivers;
 use super::k7::{Ground, K7, Run, Status};
 use super::{
     Base, BaseText, Case, CaseSpec, CellKind, Command, Family, ItemBuilder, OwnReason, Packaging,
@@ -189,6 +196,178 @@ pub(super) fn nested_base() -> BaseText {
     }
 }
 
+/// The run base up to its case commands: the machine base's sorts and `go`, and K7's driver
+/// commands, each of which sets one cell up ([`RUN_DRIVERS`]).
+const RUN_BEFORE_COMMANDS: &str = r#"use k::builtin::{Int, KSequence, List, Map, list};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+/// `go`, K7's driver commands, then one command per case.
+#[k::constructors(sort = Stmt, result = KResult)]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("go")] Go(),
+    #[k::syntax("then({a}, {b})")] Then { a: KItem, b: KItem },
+    #[k::syntax("skip")] Skip(),
+    #[k::syntax("setpc({a})")] SetPc { a: Int },
+    #[k::syntax("setstack({a})")] SetStack { a: KItem },
+    #[k::syntax("setenv({a})")] SetEnv { a: KItem },
+    #[k::syntax("setret({a})")] SetRet { a: Int },
+    #[k::syntax("setcounter({a})")] SetCounter { a: Int },
+    #[k::syntax("dropcounter")] DropCounter(),
+    #[k::syntax("addjob({a})")] AddJob { a: Int },
+    #[k::syntax("addobj({a}, {b})")] AddObj { a: Int, b: KItem },
+"#;
+
+/// The run base's Set collection: its parent and one instance, which holds a map cell.
+const RUN_SHELF: &str = "/// The parent of the Set collection `bag`.
+#[k::cell]
+pub struct Shelf {
+    #[k::cell(multiplicity = \"*\", cell_type = \"Set\", nested)]
+    pub bag: Obj,
+}
+
+/// One instance of the `bag` collection: a key and a map.
+#[k::cell]
+pub struct Obj {
+    #[k::cell]
+    pub key: Int,
+    #[k::cell]
+    pub m: Map,
+}
+
+";
+
+/// The machine base's configuration declaration, which the run base extends with its shelf.
+const MACHINE_CONFIGURATION: &str = "#[k::configuration]
+pub struct Machine {";
+const MACHINE_LAST_CELL: &str = "    #[k::cell(nested)]
+    pub queue: Queue,
+}";
+const RUN_LAST_CELLS: &str = "    #[k::cell(nested)]
+    pub queue: Queue,
+    #[k::cell(nested)]
+    pub shelf: Shelf,
+}";
+
+/// The machine base's declarations, with the shelf declared before the configuration and held
+/// last by it.
+static RUN_AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
+    assert!(
+        MACHINE_AFTER_COMMANDS.contains(MACHINE_CONFIGURATION)
+            && MACHINE_AFTER_COMMANDS.contains(MACHINE_LAST_CELL),
+        "the machine base declares its configuration, the queue last"
+    );
+    MACHINE_AFTER_COMMANDS
+        .replacen(
+            MACHINE_CONFIGURATION,
+            &format!("{RUN_SHELF}{MACHINE_CONFIGURATION}"),
+            1,
+        )
+        .replacen(MACHINE_LAST_CELL, RUN_LAST_CELLS, 1)
+});
+
+/// The run base's initializer, field by field: the machine's, and the shelf's instance template.
+const RUN_FIELDS: [(&str, &str); 8] = [
+    ("k", "k::k![pgm]"),
+    ("pc", "0"),
+    ("stack", "list::empty()"),
+    ("env", "k::map![]"),
+    ("frame", "Frame { ret: 0 }"),
+    ("counter", "Some(0)"),
+    ("queue", "Queue { job: Job { payload: 0 } }"),
+    ("shelf", "Shelf { bag: Obj { key: 0, m: k::map![] } }"),
+];
+
+static RUN_INITIALIZER: LazyLock<String> =
+    LazyLock::new(|| base_initializer(MACHINE_HEADER, &RUN_FIELDS));
+
+/// K7's driver rules and the makers of the values the program grammar has no syntax for, as the
+/// terms base has them: a program is one `Stmt`, written in the definition's program grammar,
+/// which has user productions and literals only, so
+///
+/// - `then(a, b)` puts `a` before `b` in the computation cell, and `skip` leaves it, which
+///   empties it when nothing follows;
+/// - `setpc(a)`, `setstack(l)`, `setenv(m)`, `setret(a)` and `setcounter(a)` replace a cell's
+///   content (`setcounter` creates the optional cell where the state does not hold it), and
+///   `dropcounter` removes it; `addjob(a)` puts an instance at the front of the List collection
+///   `job`, and `addobj(a, m)` adds one to the Set collection `bag`;
+/// - `memp` and `mput(m, k, v)` build a map, `lemp`, `lone(a)` and `lcat(a, b)` a list, each
+///   exactly the value it names.
+///
+/// None of them is a case's: each case's K is what it adds to this base. The driver rules have
+/// priority 10 (11 for the rule that creates the optional cell, which applies only where the cell
+/// is absent), ahead of every case's, so that none overlaps a case's rule whose computation cell
+/// takes any item (`[x, ..]`): a driver rule applies first where both could, and a case's rule
+/// never meets a driver's command but as its witness.
+const RUN_DRIVERS: &str = r#"
+k::rules! {
+    for Machine;
+
+    #[k::rule(priority = 10)]
+    then: { k: [Cmd::Then(a, b), ..] } => { k: [a, b, ..] };
+    #[k::rule(priority = 10)]
+    skip: { k: [Cmd::Skip(), ..] } => { k: [..] };
+    #[k::rule(priority = 10)]
+    set_pc: { k: [Cmd::SetPc(a), ..], pc: _ } => { k: [..], pc: a };
+    #[k::rule(priority = 10)]
+    set_stack: { k: [Cmd::SetStack(l), ..], stack: _ } => { k: [..], stack: k::project!(List, l) };
+    #[k::rule(priority = 10)]
+    set_env: { k: [Cmd::SetEnv(m), ..], env: _ } => { k: [..], env: k::project!(Map, m) };
+    #[k::rule(priority = 10)]
+    set_ret: { k: [Cmd::SetRet(a), ..], frame: Frame { ret: _ } } => { k: [..], frame: Frame { ret: a } };
+    #[k::rule(priority = 10)]
+    set_counter: { k: [Cmd::SetCounter(a), ..], counter: Some(_) } => { k: [..], counter: Some(a) };
+    #[k::rule(priority = 11)]
+    make_counter: { k: [Cmd::SetCounter(a), ..], counter: None } => { k: [..], counter: Some(a) };
+    #[k::rule(priority = 10)]
+    drop_counter: { k: [Cmd::DropCounter(), ..], counter: Some(_) } => { k: [..], counter: None };
+    #[k::rule(priority = 10)]
+    add_job: { k: [Cmd::AddJob(a), ..], job: [..] } => { k: [..], job: [Job { payload: a }, ..] };
+    #[k::rule(priority = 10)]
+    add_obj: { k: [Cmd::AddObj(a, m), ..], bag: { .. } } => { k: [..], bag: { Obj { key: a, m: k::project!(Map, m) }, .. } };
+}
+
+#[k::function(partial, syntax = "memp")]
+pub fn Memp() -> Term<KItem> {
+    k::builtin::map::empty()
+}
+
+#[k::function(partial, syntax = "mput({m}, {a}, {b})")]
+pub fn Mput(m: Term<KItem>, a: Term<KItem>, b: Term<KItem>) -> Term<KItem> {
+    k::builtin::map::update(k::project!(Map, m), a, b)
+}
+
+#[k::function(partial, syntax = "lemp")]
+pub fn Lemp() -> Term<KItem> {
+    k::builtin::list::empty()
+}
+
+#[k::function(partial, syntax = "lone({a})")]
+pub fn Lone(a: Term<KItem>) -> Term<KItem> {
+    k::builtin::list::item(a)
+}
+
+#[k::function(partial, syntax = "lcat({a}, {b})")]
+pub fn Lcat(a: Term<KItem>, b: Term<KItem>) -> Term<KItem> {
+    k::builtin::list::concat(k::project!(List, a), k::project!(List, b))
+}
+"#;
+
+pub(super) fn run_base() -> BaseText {
+    BaseText {
+        before_commands: RUN_BEFORE_COMMANDS,
+        after_commands: RUN_AFTER_COMMANDS.as_str(),
+        initializer: RUN_INITIALIZER.as_str(),
+        after_initializer: RUN_DRIVERS,
+    }
+}
+
 /// The cell of each kind in the machine base.
 const fn machine_cell(kind: CellKind) -> &'static str {
     match kind {
@@ -199,6 +378,7 @@ const fn machine_cell(kind: CellKind) -> &'static str {
         CellKind::Group => "frame",
         CellKind::Optional => "counter",
         CellKind::Collection => "job",
+        CellKind::SetCollection => "bag",
     }
 }
 
@@ -277,36 +457,102 @@ const fn result_subject(kind: CellKind) -> &'static str {
     match kind {
         CellKind::Optional => "Some(old)",
         CellKind::Collection => "[Job { payload: _, .. }, ..]",
+        CellKind::SetCollection => "{ .. }",
         _ => "old",
     }
 }
 
+/// The Set collection's subject spellings on the run base, the shape NT-10's review M1 needs: an
+/// instance whose map cell is exact (`map![1 -> 2]`), one whose key is computed, two whose exact
+/// map computes its value or its key, each looked up as the set's element (decision D1a: every
+/// cell written, nothing that selects), and one whose map reads an entry and leaves the others
+/// open (`{ 1 -> 2, .. }`), which selects; and that map written as a literal with an anonymous rest
+/// (`map![1 -> 2, ..]`), which names no map in a readable record.
+const READABLE_BAG_SUBJECTS: [&str; 6] = [
+    "{ Obj { key: 1, m: map![1 -> 2] }, .. }",
+    "{ Obj { key: k::builtin::int::add(0, 1), m: map![1 -> 2] }, .. }",
+    "{ Obj { key: 1, m: map![1 -> k::builtin::int::add(1, 1)] }, .. }",
+    "{ Obj { key: 1, m: map![k::builtin::int::add(0, 1) -> 2] }, .. }",
+    "{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }",
+    "{ Obj { key: 1, m: map![1 -> 2, ..] }, .. }",
+];
+
+/// The Set collection's result spellings on the run base, over the command's binders `x` and `y`:
+/// a new instance whose map cell is exact, one whose key is computed, two whose map computes its
+/// value or its key, and one whose map writes `..`.
+const READABLE_BAG_RESULTS: [&str; 5] = [
+    "{ Obj { key: x, m: map![x -> y] }, .. }",
+    "{ Obj { key: k::builtin::int::add(x, 1), m: map![x -> y] }, .. }",
+    "{ Obj { key: x, m: map![x -> k::builtin::int::add(y, 1)] }, .. }",
+    "{ Obj { key: x, m: map![k::builtin::int::add(x, 1) -> y] }, .. }",
+    "{ Obj { key: x, m: map![x -> y, ..] }, .. }",
+];
+
 /// Readable records: 7 kinds × 13 spellings × {subject, result}.
 pub(super) fn readable(cases: &mut Vec<Case>) {
-    record_family(cases, Family::Readable);
+    record_family(cases, Family::Readable, Base::Machine);
 }
 
 /// Readable claims over the same matrix as readable records.
 pub(super) fn claims(cases: &mut Vec<Case>) {
-    record_family(cases, Family::Claim);
+    record_family(cases, Family::Claim, Base::Machine);
 }
 
-fn record_family(cases: &mut Vec<Case>, family: Family) {
+/// The readable records again on the run base, each with K7's plan
+/// ([`config_drivers::readable`]), and the Set collection's spellings, which only the run base
+/// declares a cell for.
+pub(super) fn readable_runs(cases: &mut Vec<Case>) {
+    record_family(cases, Family::ReadableRun, Base::Run);
+    for (side, spellings) in [
+        (Side::Subject, &READABLE_BAG_SUBJECTS[..]),
+        (Side::Result, &READABLE_BAG_RESULTS[..]),
+    ] {
+        for construct in spellings {
+            cases.push(record_spelling(
+                Family::ReadableRun,
+                Base::Run,
+                CellKind::SetCollection,
+                side,
+                construct,
+            ));
+        }
+    }
+}
+
+fn record_family(cases: &mut Vec<Case>, family: Family, base: Base) {
     for kind in CellKind::ALL {
         for side in [Side::Subject, Side::Result] {
             for construct in READABLE_SPELLINGS {
-                let spec = CaseSpec {
-                    family,
-                    base: Base::Machine,
-                    side,
-                    kind: Some(kind),
-                    slot: vec![side.name().to_owned(), machine_cell(kind).to_owned()],
-                    construct: construct.to_owned(),
-                };
-                cases.push(record_case(spec, kind, side));
+                cases.push(record_spelling(family, base, kind, side, construct));
             }
         }
     }
+}
+
+/// The record case of `family` on `base` writing `construct` into `kind`'s cell on `side`, with
+/// K7's plan where the base has drivers.
+fn record_spelling(
+    family: Family,
+    base: Base,
+    kind: CellKind,
+    side: Side,
+    construct: &str,
+) -> Case {
+    let spec = CaseSpec {
+        family,
+        base,
+        side,
+        kind: Some(kind),
+        slot: vec![side.name().to_owned(), machine_cell(kind).to_owned()],
+        construct: construct.to_owned(),
+    };
+    let mut case = record_case(spec, kind, side);
+    if base == Base::Run {
+        let plans = config_drivers::readable(kind, side, construct, case.command());
+        case.k7 = plans.k7;
+        case.k7_counter = plans.counter.ok();
+    }
+    case
 }
 
 fn record_case(spec: CaseSpec, kind: CellKind, side: Side) -> Case {

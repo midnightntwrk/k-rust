@@ -1,8 +1,11 @@
-//! `cells!` rules: the reference spelling of a configuration rule, over the machine base.
+//! `cells!` rules: the reference spelling of a configuration rule, over the machine base, and again
+//! over the run base ([`Base::Run`]), which K7 runs (one slot list instantiated twice, as the
+//! readable family's).
 //!
 //! A `cells!` rule declares every subject binder, in first-occurrence order, as a parameter
 //! before the subject, so each spelling carries its binders, typed by the position they fill.
 
+use super::config_drivers;
 use super::{
     Base, Case, CaseSpec, CellKind, Command, Family, ItemBuilder, OwnReason, Packaging, Side,
 };
@@ -68,6 +71,29 @@ const RESULT_SPELLINGS: [&str; 13] = [
     "k::configuration::Cell([x, y])",
 ];
 
+/// The Set collection's subject spellings on the run base, as the readable family's
+/// (`machine::READABLE_BAG_SUBJECTS`): an instance whose map cell is exact, one whose key is
+/// computed, two whose exact map computes its value or its key, and one whose map writes `..`,
+/// which selects.
+const BAG_SUBJECTS: [&str; 5] = [
+    "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2] }], instances0 @ .. }",
+    "{ k::fragment![crate::Obj { key: k::builtin::int::add(0, 1), m: k::map![1 -> 2] }], instances0 @ .. }",
+    "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> k::builtin::int::add(1, 1)] }], instances0 @ .. }",
+    "{ k::fragment![crate::Obj { key: 1, m: k::map![k::builtin::int::add(0, 1) -> 2] }], instances0 @ .. }",
+    "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }",
+];
+
+/// The Set collection's result spellings on the run base, over the command's binders: a new
+/// instance beside the subject's others (`..instances0`), whose map cell is exact, whose key is
+/// computed, whose map computes its value or its key, or whose map writes `..`.
+const BAG_RESULTS: [&str; 5] = [
+    "{ k::fragment![crate::Obj { key: x, m: k::map![x -> y] }], ..instances0 }",
+    "{ k::fragment![crate::Obj { key: k::builtin::int::add(x, 1), m: k::map![x -> y] }], ..instances0 }",
+    "{ k::fragment![crate::Obj { key: x, m: k::map![x -> k::builtin::int::add(y, 1)] }], ..instances0 }",
+    "{ k::fragment![crate::Obj { key: x, m: k::map![k::builtin::int::add(x, 1) -> y] }], ..instances0 }",
+    "{ k::fragment![crate::Obj { key: x, m: k::map![x -> y, ..] }], ..instances0 }",
+];
+
 /// The `cells!` key of each kind's cell: a collection is named through its parent.
 const fn key(kind: CellKind) -> &'static str {
     match kind {
@@ -78,6 +104,7 @@ const fn key(kind: CellKind) -> &'static str {
         CellKind::Group => "frame",
         CellKind::Optional => "counter",
         CellKind::Collection => "crate::Queue::job",
+        CellKind::SetCollection => "crate::Shelf::bag",
     }
 }
 
@@ -85,6 +112,7 @@ const fn key(kind: CellKind) -> &'static str {
 const fn cell(kind: CellKind) -> &'static str {
     match kind {
         CellKind::Collection => "job",
+        CellKind::SetCollection => "bag",
         other => key(other),
     }
 }
@@ -98,6 +126,7 @@ const fn whole(kind: CellKind) -> &'static str {
         CellKind::Map => "k::Term<k::builtin::Map>",
         CellKind::Group => "crate::Frame",
         CellKind::Collection => "crate::Job",
+        CellKind::SetCollection => "crate::Obj",
     }
 }
 
@@ -132,6 +161,7 @@ fn old(kind: CellKind) -> (&'static str, Vec<(&'static str, &'static str)>) {
             "[old @ k::fragment![crate::Job { payload: _, .. }], instances0 @ ..]",
             Vec::new(),
         ),
+        CellKind::SetCollection => ("{ instances0 @ .. }", Vec::new()),
     }
 }
 
@@ -145,25 +175,70 @@ fn old(kind: CellKind) -> (&'static str, Vec<(&'static str, &'static str)>) {
 /// - The computation cell's result: `k: KCell(C(x, y))`, the whole cell, and the result is
 ///   `k: S`.
 pub(super) fn cases(cases: &mut Vec<Case>) {
+    family(cases, Family::Cells, Base::Machine);
+}
+
+/// The `cells!` rules again on the run base, each with K7's plan ([`config_drivers::cells`]), and
+/// the Set collection's spellings, which only the run base declares a cell for.
+pub(super) fn runs(cases: &mut Vec<Case>) {
+    family(cases, Family::CellsRun, Base::Run);
+    let at = Placement {
+        family: Family::CellsRun,
+        base: Base::Run,
+        kind: CellKind::SetCollection,
+    };
+    for construct in BAG_SUBJECTS {
+        cases.push(at.case(Side::Subject, construct, &[]));
+    }
+    for construct in BAG_RESULTS {
+        cases.push(at.case(Side::Result, construct, &[]));
+    }
+}
+
+fn family(cases: &mut Vec<Case>, family: Family, base: Base) {
     for kind in CellKind::ALL {
+        let at = Placement { family, base, kind };
         for (construct, binders) in SUBJECT_SPELLINGS {
-            cases.push(case(
-                kind,
-                Side::Subject,
-                construct,
-                &declare(binders, kind),
-            ));
+            cases.push(at.case(Side::Subject, construct, &declare(binders, kind)));
         }
         for construct in RESULT_SPELLINGS {
-            cases.push(case(kind, Side::Result, construct, &[]));
+            cases.push(at.case(Side::Result, construct, &[]));
         }
     }
 }
 
-fn case(kind: CellKind, side: Side, construct: &str, binders: &[(&str, &str)]) -> Case {
+/// Where a case's construct stands: its family, base and cell kind.
+struct Placement {
+    family: Family,
+    base: Base,
+    kind: CellKind,
+}
+
+impl Placement {
+    /// The case writing `construct` on `side`, its subject binders `binders`, with K7's plan where
+    /// the base has drivers.
+    fn case(&self, side: Side, construct: &str, binders: &[(&str, &str)]) -> Case {
+        let mut case = case(self.family, self.base, self.kind, side, construct, binders);
+        if self.base == Base::Run {
+            let plans = config_drivers::cells(self.kind, side, construct, case.command());
+            case.k7 = plans.k7;
+            case.k7_counter = plans.counter.ok();
+        }
+        case
+    }
+}
+
+fn case(
+    family: Family,
+    base: Base,
+    kind: CellKind,
+    side: Side,
+    construct: &str,
+    binders: &[(&str, &str)],
+) -> Case {
     let spec = CaseSpec {
-        family: Family::Cells,
-        base: Base::Machine,
+        family,
+        base,
         side,
         kind: Some(kind),
         slot: vec![side.name().to_owned(), cell(kind).to_owned()],

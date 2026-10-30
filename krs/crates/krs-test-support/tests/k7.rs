@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use krs_test_support::class_matrix::k7::{Ground, K7, Meaning, SkipKind, Status};
-use krs_test_support::class_matrix::{self, Base, Case, Family};
+use krs_test_support::class_matrix::{self, Base, Case, Command, Family, Side};
 
 fn term_case(cases: &[Case], id: &str) -> Case {
     cases
@@ -124,7 +124,8 @@ const UNDRIVEN: &[&str] = &[
 fn every_cases_k7_status_is_counted() {
     let cases = class_matrix::cases();
     let mut statuses = BTreeMap::<String, usize>::new();
-    for case in &cases {
+    // The run families' statuses are pinned by family ([`RUN_STATUSES`]).
+    for case in cases.iter().filter(|case| case.family.twin().is_none()) {
         let status = match &case.k7 {
             K7::Run(run) => format!("runs, {}", run.status.name()),
             K7::Skip(skip) => format!("{}: {}", skip.kind.name(), skip.reason),
@@ -476,4 +477,212 @@ fn ground_terms_are_written_and_compared_by_value() {
         Ground::Bytes(b"ab".to_vec()).program().as_deref(),
         Some("b\"ab\"")
     );
+}
+
+/// Each run family's cases (the readable records and `cells!` rules on the run base) by K7 status,
+/// a skip by its kind and reason, with its count, and the subject cases that run a counter-witness
+/// or why they do not.
+#[test]
+fn every_run_cases_k7_status_is_counted() {
+    let cases = class_matrix::cases();
+    let mut statuses = BTreeMap::<String, usize>::new();
+    for case in cases.iter().filter(|case| case.family.twin().is_some()) {
+        let family = case.family.name();
+        let status = match &case.k7 {
+            K7::Run(run) => format!("{family}: runs, {}", run.status.name()),
+            K7::Skip(skip) => format!("{family}: {}: {}", skip.kind.name(), skip.reason),
+        };
+        *statuses.entry(status).or_default() += 1;
+        if case.side == Side::Subject && matches!(case.k7, K7::Run(_)) {
+            let counter = match class_matrix::run_counterless(case) {
+                None => "runs a counter-witness".to_owned(),
+                Some(reason) => format!("no counter-witness: {reason}"),
+            };
+            *statuses.entry(format!("{family}: {counter}")).or_default() += 1;
+        }
+    }
+    let listed = statuses
+        .iter()
+        .map(|(status, count)| format!("{count} {status}"))
+        .collect::<Vec<_>>();
+    assert_eq!(listed, RUN_STATUSES, "{listed:#?}");
+}
+
+const RUN_STATUSES: &[&str] = &[
+    "4 cells-run: no counter-witness: `_` matches every value of the cell",
+    "4 cells-run: no counter-witness: a binder matches every value of the cell",
+    "1 cells-run: no counter-witness: a group record whose every child is a binder matches every group",
+    "1 cells-run: no value: a map literal's rest is the map its entries are written over, and an anonymous `..` names none",
+    "76 cells-run: no value: the spelling is no notation of its cell's kind, so it denotes nothing there",
+    "3 cells-run: no value: x = 1 is no value of the cell's sort",
+    "74 cells-run: no witness: the spelling is no notation of its cell's kind, so it denotes nothing there",
+    "13 cells-run: runs a counter-witness",
+    "22 cells-run: runs, liveness",
+    "16 cells-run: runs, value",
+    "4 readable-run: no counter-witness: `..` alone matches every value of the cell",
+    "4 readable-run: no counter-witness: `_` matches every value of the cell",
+    "4 readable-run: no counter-witness: a binder matches every value of the cell",
+    "1 readable-run: no counter-witness: a group record whose every child is a binder matches every group",
+    "6 readable-run: no value: `..` in a result is the rest a `..` of the subject's entry matched, and the subject's `old` matches the cell whole",
+    "7 readable-run: no value: `_` builds no value",
+    "1 readable-run: no value: a map literal's rest is the map its entries are written over, and an anonymous `..` names none",
+    "1 readable-run: no value: the result's instance list does not line up with the subject's, which reads the front one",
+    "60 readable-run: no value: the spelling is no notation of its cell's kind, so it denotes nothing there",
+    "3 readable-run: no value: x = 1 is no value of the cell's sort",
+    "4 readable-run: no witness: a cell record as an item, which no program writes",
+    "1 readable-run: no witness: a map literal's rest is the map its entries are written over, and an anonymous `..` names none",
+    "63 readable-run: no witness: the spelling is no notation of its cell's kind, so it denotes nothing there",
+    "16 readable-run: runs a counter-witness",
+    "31 readable-run: runs, liveness",
+    "16 readable-run: runs, value",
+];
+
+/// The run families' cases K7 does not run for another reason than a spelling in another kind's
+/// notation than its cell's, and the subject cases it runs without a counter-witness, by reason:
+/// what the drivers cannot run and why ([`every_run_cases_k7_status_is_counted`] counts them).
+#[test]
+fn every_run_case_without_a_witness_value_or_counter_witness_says_why() {
+    let cases = class_matrix::cases();
+    let mut missing = BTreeMap::<String, Vec<String>>::new();
+    for case in cases.iter().filter(|case| case.family.twin().is_some()) {
+        let slot = case
+            .id
+            .split_once('/')
+            .map_or(case.id.as_str(), |(_, slot)| slot);
+        let slot = format!("{} {slot}", case.family.name());
+        match &case.k7 {
+            K7::Skip(skip) if !skip.reason.starts_with("the spelling is no notation") => {
+                missing
+                    .entry(format!("{}: {}", skip.kind.name(), skip.reason))
+                    .or_default()
+                    .push(slot);
+            }
+            K7::Run(_) if case.side == Side::Subject => {
+                if let Some(reason) = class_matrix::run_counterless(case) {
+                    missing
+                        .entry(format!("no counter-witness: {reason}"))
+                        .or_default()
+                        .push(slot);
+                }
+            }
+            _ => {}
+        }
+    }
+    let listed = missing
+        .iter()
+        .map(|(reason, slots)| format!("{reason}: {}", slots.join(" | ")))
+        .collect::<Vec<_>>();
+    assert_eq!(listed, RUN_UNSTATED, "{listed:#?}");
+}
+
+const RUN_UNSTATED: &[&str] = &[
+    "no counter-witness: `..` alone matches every value of the cell: readable-run subject/env/{ .. } | readable-run subject/job/[..] | readable-run subject/k/[..] | readable-run subject/stack/[..]",
+    "no counter-witness: `_` matches every value of the cell: cells-run subject/env/k::configuration::Cell(_) | cells-run subject/frame/_ | cells-run subject/pc/k::configuration::Cell(_) | cells-run subject/stack/k::configuration::Cell(_) | readable-run subject/env/_ | readable-run subject/frame/_ | readable-run subject/pc/_ | readable-run subject/stack/_",
+    "no counter-witness: a binder matches every value of the cell: cells-run subject/env/k::configuration::Cell(x) | cells-run subject/frame/x | cells-run subject/pc/k::configuration::Cell(x) | cells-run subject/stack/k::configuration::Cell(x) | readable-run subject/env/x | readable-run subject/frame/x | readable-run subject/pc/x | readable-run subject/stack/x",
+    "no counter-witness: a group record whose every child is a binder matches every group: cells-run subject/frame/k::fragment![crate::Frame { ret: x }] | readable-run subject/frame/Frame { ret: x }",
+    "no value: `..` in a result is the rest a `..` of the subject's entry matched, and the subject's `old` matches the cell whole: readable-run result/env/{ .. } | readable-run result/env/{ y -> x, .. } | readable-run result/stack/[.., Job { payload: 0, .. }] | readable-run result/stack/[..] | readable-run result/stack/[Job { payload: x, .. }, ..] | readable-run result/stack/[x, ..]",
+    "no value: `_` builds no value: readable-run result/counter/_ | readable-run result/env/_ | readable-run result/frame/_ | readable-run result/job/_ | readable-run result/k/_ | readable-run result/pc/_ | readable-run result/stack/_",
+    "no value: a map literal's rest is the map its entries are written over, and an anonymous `..` names none: cells-run result/bag/{ k::fragment![crate::Obj { key: x, m: k::map![x -> y, ..] }], ..instances0 } | readable-run result/bag/{ Obj { key: x, m: map![x -> y, ..] }, .. }",
+    "no value: the result's instance list does not line up with the subject's, which reads the front one: readable-run result/job/[.., Job { payload: 0, .. }]",
+    "no value: x = 1 is no value of the cell's sort: cells-run result/env/k::configuration::Cell(x) | cells-run result/frame/x | cells-run result/stack/k::configuration::Cell(x) | readable-run result/env/x | readable-run result/frame/x | readable-run result/stack/x",
+    "no witness: a cell record as an item, which no program writes: readable-run subject/k/[.., Job { payload: 0, .. }] | readable-run subject/k/[Job { payload: x, .. }, ..] | readable-run subject/stack/[.., Job { payload: 0, .. }] | readable-run subject/stack/[Job { payload: x, .. }, ..]",
+    "no witness: a map literal's rest is the map its entries are written over, and an anonymous `..` names none: readable-run subject/bag/{ Obj { key: 1, m: map![1 -> 2, ..] }, .. }",
+];
+
+/// What a run family's case's program is, what the run must end with, and its counter run, for one
+/// case of each kind of plan: a subject whose witness a driver command writes, one the start
+/// configuration holds, the computation cell's own subject and result, a result over the old value
+/// a driver writes first, a map written twice at one key, an absent optional cell, a List
+/// collection's and a Set collection's instances.
+#[test]
+fn the_run_drivers_write_their_programs_and_cells() {
+    let cases = class_matrix::cases();
+    let plans = |id: &str| {
+        let case = term_case(&cases, id);
+        let terminal = case
+            .command()
+            .map_or_else(|| "NAME".to_owned(), Command::terminal);
+        let run = |run: &krs_test_support::class_matrix::k7::Run| {
+            let cells = run
+                .cells
+                .iter()
+                .map(|(cell, term)| format!("{cell} = {term}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "{} in {} of {} steps; {cells}",
+                run.program.replace(&terminal, "NAME"),
+                run.steps,
+                run.depth
+            )
+        };
+        let K7::Run(plan) = &case.k7 else {
+            panic!("{id}: {:?}", case.k7);
+        };
+        (run(plan), case.k7_counter.as_ref().map(run))
+    };
+    let cases_of = [
+        (
+            "readable-run/subject/pc/0",
+            "then(setpc(0), NAME) in 3 of 3 steps; k = k[]",
+            Some("then(setpc(1), NAME) in 2 of 3 steps; "),
+        ),
+        (
+            "readable-run/subject/pc/x",
+            "NAME in 1 of 1 steps; k = k[]",
+            None,
+        ),
+        (
+            "readable-run/subject/k/[]",
+            "skip in 2 of 2 steps; pc = 1",
+            Some("go in 0 of 1 steps; "),
+        ),
+        (
+            "cells-run/subject/k/k::configuration::KCell(x, ..)",
+            "go in 1 of 1 steps; pc = 1",
+            Some("skip in 1 of 2 steps; "),
+        ),
+        (
+            "readable-run/result/k/[x, ..]",
+            "then(NAME(1, 2), go) in 2 of 2 steps; k = k[1, Cmd::Go()]",
+            None,
+        ),
+        (
+            "readable-run/subject/counter/Some(x)",
+            "then(setcounter(0), NAME) in 3 of 3 steps; k = k[]",
+            Some("then(then(setcounter(0), dropcounter), NAME) in 4 of 5 steps; "),
+        ),
+        (
+            "readable-run/result/counter/None",
+            "then(setcounter(5), NAME(1, 2)) in 3 of 3 steps; k = k[], counter = absent",
+            None,
+        ),
+        (
+            "cells-run/result/env/k::configuration::Cell(k::map![x -> 1, y -> 2])",
+            "then(setenv(mput(memp, 5, 5)), NAME(1, 1)) in 3 of 3 steps; k = k[], env = map{1 -> 2}",
+            None,
+        ),
+        (
+            "cells-run/result/job/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]",
+            "then(then(addjob(6), addjob(5)), NAME(1, 2)) in 5 of 5 steps; k = k[], queue.job[payload] = [job(1), job(6)]",
+            None,
+        ),
+        (
+            "readable-run/subject/bag/{ Obj { key: 1, m: map![1 -> 2] }, .. }",
+            "then(addobj(1, mput(memp, 1, 2)), NAME) in 3 of 3 steps; k = k[]",
+            Some("then(addobj(1, mput(mput(memp, 1, 2), 3, 4)), NAME) in 2 of 3 steps; "),
+        ),
+        (
+            "cells-run/result/bag/{ k::fragment![crate::Obj { key: x, m: k::map![x -> k::builtin::int::add(y, 1)] }], ..instances0 }",
+            "then(addobj(5, mput(memp, 5, 5)), NAME(1, 2)) in 3 of 3 steps; k = k[], shelf.bag{key,m} = set{bag(1, map{1 -> 3}), bag(5, map{5 -> 5})}",
+            None,
+        ),
+    ];
+    for (id, plan, counter) in cases_of {
+        assert_eq!(
+            plans(id),
+            (plan.to_owned(), counter.map(str::to_owned)),
+            "{id}"
+        );
+    }
 }

@@ -35,7 +35,12 @@
 //!   `use Cmd::*;`, `import/table/subject/Go()`;
 //! - the attribute axis ([`attributes`]): every attribute an author writes on a sentence (a key of
 //!   its marker, a helper beside it) on every sentence form, on the form's term slot template,
-//!   judged by the attribute oracle, `attrs/rule/owise`, `attrs/alias/#[k::requires(..)]`.
+//!   judged by the attribute oracle, `attrs/rule/owise`, `attrs/alias/#[k::requires(..)]`;
+//! - the run families: the readable records and the `cells!` rules again on the run base
+//!   ([`Base::Run`]), whose driver commands let K7 run them, each a twin of a machine-base case
+//!   judged by the same table entries ([`table::twin`]), `readable-run/subject/pc/0`, and 4 subject
+//!   and 4 result spellings of a Set collection whose instances hold a map cell, which only the run
+//!   base declares, `cells-run/subject/bag/{ k::fragment![crate::Obj { .. }], instances0 @ .. }`.
 //!
 //! A case's ID is spelled from its axes, as above, so the expected-outcome table ([`table`])
 //! can match IDs with globs and an ID stays stable when other cases are added. A construct
@@ -74,6 +79,7 @@
 pub mod advice;
 pub mod attributes;
 mod cells;
+mod config_drivers;
 pub mod entry_points;
 pub mod invariants;
 pub mod k7;
@@ -106,6 +112,8 @@ pub const FRONT_SHARDS: [&[Family]; 3] = [
         Family::Init,
         Family::Import,
         Family::Attributes,
+        Family::ReadableRun,
+        Family::CellsRun,
     ],
     &[Family::Notation],
     &[Family::Terms],
@@ -134,11 +142,18 @@ pub enum Family {
     /// An attribute on a sentence form ([`attributes`]), written on the form's term slot
     /// template.
     Attributes,
+    /// The readable family's records on the run base ([`Base::Run`]), which K7 runs: each case a
+    /// twin of a readable record of the machine base, judged by the same table entries, and the
+    /// Set collection's instances, which the machine base does not have.
+    ReadableRun,
+    /// The `cells!` family's rules on the run base, as [`Family::ReadableRun`] is the readable
+    /// family's.
+    CellsRun,
 }
 
 impl Family {
     /// Every family, in ID order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::Readable,
         Self::Claim,
         Self::Cells,
@@ -147,6 +162,8 @@ impl Family {
         Self::Import,
         Self::Notation,
         Self::Attributes,
+        Self::ReadableRun,
+        Self::CellsRun,
     ];
 
     /// The first segment of the IDs of this family's cases.
@@ -161,6 +178,19 @@ impl Family {
             Self::Import => "import",
             Self::Notation => "notation",
             Self::Attributes => "attrs",
+            Self::ReadableRun => "readable-run",
+            Self::CellsRun => "cells-run",
+        }
+    }
+
+    /// The family a run family's cases are twins of: the same slot templates and spellings on
+    /// the machine base ([`Base::Run`]).
+    #[must_use]
+    pub const fn twin(self) -> Option<Self> {
+        match self {
+            Self::ReadableRun => Some(Self::Readable),
+            Self::CellsRun => Some(Self::Cells),
+            _ => None,
         }
     }
 }
@@ -186,17 +216,24 @@ pub enum Base {
     /// writes it present (`counter: Some(0)`, which `none-in-initializer` advises): its only case
     /// is that initializer.
     Initial,
+    /// The machine base's cells, with the same names and declarations, a Set collection whose
+    /// instances hold a map cell (`shelf.bag` of `Obj { key, m }`), and K7's driver commands, which
+    /// set each cell up in one step: the readable and `cells!` families' templates instantiated
+    /// again ([`Family::ReadableRun`], [`Family::CellsRun`]), so that K7 runs them while the machine
+    /// base's cases, and the K they record, stay as they are.
+    Run,
 }
 
 impl Base {
     /// Every base.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Machine,
         Self::Typed,
         Self::Terms,
         Self::Imported,
         Self::Nested,
         Self::Initial,
+        Self::Run,
     ];
 
     /// The base's own source, with no case: its default initializer and no command.
@@ -213,6 +250,7 @@ impl Base {
             Self::Imported => terms::base(true),
             Self::Nested => machine::nested_base(),
             Self::Initial => machine::initial_base(),
+            Self::Run => machine::run_base(),
         }
     }
 }
@@ -301,10 +339,14 @@ pub enum CellKind {
     Optional,
     /// A `multiplicity = "*"` collection (`cell_type = "List"`).
     Collection,
+    /// A `multiplicity = "*"` collection with `cell_type = "Set"`, whose instances hold a map
+    /// cell: only on the run base ([`Base::Run`]), outside [`CellKind::ALL`].
+    SetCollection,
 }
 
 impl CellKind {
-    /// Every kind.
+    /// Every kind of the machine base, which the configuration families cross with their
+    /// spellings.
     pub const ALL: [Self; 7] = [
         Self::KSequence,
         Self::Leaf,
@@ -669,6 +711,8 @@ pub fn cases() -> Vec<Case> {
     machine::initializers(&mut cases);
     machine::typed(&mut cases);
     cells::cases(&mut cases);
+    machine::readable_runs(&mut cases);
+    cells::runs(&mut cases);
     terms::cases(&mut cases);
     cases.sort_by(|left, right| left.id.cmp(&right.id));
     for shard in FRONT_SHARDS {
@@ -685,6 +729,21 @@ pub fn cases() -> Vec<Case> {
         panic!("two class-test cases share the ID {}", pair[0].id);
     }
     cases
+}
+
+/// Why K7 runs no counter-witness of a run family's case ([`Family::twin`]), `None` for a case that
+/// runs one or a case of another family ([`config_drivers`]).
+#[must_use]
+pub fn run_counterless(case: &Case) -> Option<&'static str> {
+    let kind = case.kind?;
+    let plans = match case.family {
+        Family::ReadableRun => {
+            config_drivers::readable(kind, case.side, &case.construct, case.command())
+        }
+        Family::CellsRun => config_drivers::cells(kind, case.side, &case.construct, case.command()),
+        _ => return None,
+    };
+    plans.counter.err()
 }
 
 /// What a spelling of the term families matches and denotes, as K7 reads it ([`k7`]).

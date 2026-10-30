@@ -38,6 +38,12 @@
 //! glob in a TOML literal string, `'readable/subject/env/\{ .. \}'`. Every other character
 //! matches itself.
 //!
+//! **Run families.** A case of a run family (`readable-run/..`, `cells-run/..`, the readable and
+//! `cells!` templates on the run base, which K7 runs) whose twin, the machine-base case of the same
+//! slot and spelling ([`twin`]), is generated, is covered by every refusal rule that covers its
+//! twin: the two are judged by the same rules, and a pair with different outcomes is a deviation of
+//! one of them. Its accept entry is its own, since its K names its own command.
+//!
 //! **Resolution.** A case is decided by the most specific entry that covers it: an accept
 //! entry covers its one ID, and a refusal rule the IDs its glob matches. One entry is more
 //! specific than another when the cases it covers are a strict subset of the other's, over the
@@ -75,7 +81,7 @@ use krs_diagnostic::codes::CodeKind;
 use toml_edit::{DocumentMut, Item, Table as TomlTable};
 
 use super::oracle::{Class as OracleClass, Outcome, Stage};
-use super::{Case, Placed};
+use super::{Case, Family, Placed};
 
 /// The file beside `expected.toml` that holds the accept entries of the families the oracle
 /// judges: the term families and the attribute axis.
@@ -90,6 +96,19 @@ pub fn in_term_accepts(id: &str) -> bool {
         || id.starts_with("import/")
         || id.starts_with("notation/")
         || id.starts_with("attrs/")
+}
+
+/// The case of the machine base that the run family's case `id` is the twin of
+/// ([`Family::twin`]): the same slot template and spelling, `readable-run/subject/pc/0` of
+/// `readable/subject/pc/0`. A twin that is a generated case judges the run case by the same
+/// refusal rules ([`Table::resolve`]).
+#[must_use]
+pub fn twin(id: &str) -> Option<String> {
+    Family::ALL.into_iter().find_map(|family| {
+        let twin = family.twin()?;
+        let rest = id.strip_prefix(family.name())?.strip_prefix('/')?;
+        Some(format!("{}/{rest}", twin.name()))
+    })
 }
 
 /// The range a refusal's error must lie inside.
@@ -510,6 +529,14 @@ impl Table {
         };
         let known = ids.iter().copied().collect::<BTreeSet<_>>();
         self.check_accepts(&known, &mut gathered.errors);
+        // A run case is matched by the refusal rules as its twin is, where the twin is generated.
+        let twins = ids
+            .iter()
+            .filter_map(|id| {
+                let twin = twin(id)?;
+                known.contains(twin.as_str()).then_some((*id, twin))
+            })
+            .collect::<BTreeMap<_, _>>();
         let outcomes = ids
             .iter()
             .map(|id| (*id, oracle(id)))
@@ -527,7 +554,9 @@ impl Table {
             let matched = ids
                 .iter()
                 .copied()
-                .filter(|id| glob.matches(id))
+                .filter(|id| {
+                    glob.matches(id) || twins.get(id).is_some_and(|twin| glob.matches(twin))
+                })
                 .collect::<BTreeSet<_>>();
             if matched.is_empty() {
                 gathered.errors.push(TableError::UnusedRule {

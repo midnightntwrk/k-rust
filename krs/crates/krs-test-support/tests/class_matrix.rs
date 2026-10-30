@@ -21,7 +21,7 @@ use krs_test_support::class_matrix::positions::{
     Construct, Entry, Form, Kind, Notation, Opening, Position, Slot as Part,
 };
 use krs_test_support::class_matrix::table::{
-    At, Expected, Glob, TERM_ACCEPTS_FILE, Table, TableError,
+    self as table, At, Expected, Glob, TERM_ACCEPTS_FILE, Table, TableError,
 };
 use krs_test_support::class_matrix::{
     self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, entry_points, render,
@@ -113,6 +113,11 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::Notation, 106 * (12 + 15)),
             // 18 forms × 26 attributes, 26 malformed attributes, and 20 extra cases.
             (Family::Attributes, 18 * 26 + 26 + 20),
+            // The readable records and the `cells!` rules on the run base, and the Set collection's
+            // spellings: 6 subject (a map literal with an anonymous rest among them) and 5 result
+            // spellings in a readable record, 5 and 5 in a `cells!` rule.
+            (Family::ReadableRun, 182 + 6 + 5),
+            (Family::CellsRun, 182 + 5 + 5),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
@@ -624,6 +629,51 @@ fn the_shipped_table_and_red_list_parse() {
     let mut named = ids.clone();
     named.extend(mutations.iter().map(|mutation| mutation.id.as_str()));
     assert!(pending.stale(&named).is_empty());
+}
+
+/// A run family's case is judged as its twin, the machine-base case of the same slot and spelling,
+/// is (`table::twin`): the table expects the same of both, accepted with the same `same_k_as` pairs
+/// between twins and the same K (the sentences the case adds, its command written `TAG`, so the run
+/// base's driver commands and Set collection change no twin's K), or refused with the same class
+/// at the same site.
+#[test]
+fn every_run_case_is_expected_what_its_twin_is() {
+    let table = Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
+    )
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let cases = class_matrix::cases();
+    let resolution = table.resolve_cases(&cases, registry_kind);
+    let shape = |expected: &Expected<'_>| match expected {
+        Expected::Accept(accepted) => format!(
+            "accepted, K {:?}, same K as {:?}",
+            accepted.k,
+            accepted
+                .same_k_as
+                .iter()
+                .map(|other| table::twin(other).unwrap_or_else(|| other.clone()))
+                .collect::<Vec<_>>()
+        ),
+        Expected::Refuse { name, at, .. } => format!("refused as {name} at the {at:?}"),
+    };
+    let mut twins = 0;
+    for case in cases.iter().filter(|case| case.family.twin().is_some()) {
+        let Some(twin) =
+            table::twin(&case.id).filter(|twin| resolution.expected.contains_key(twin))
+        else {
+            continue;
+        };
+        twins += 1;
+        assert_eq!(
+            shape(&resolution.expected[&case.id]),
+            shape(&resolution.expected[&twin]),
+            "{} and its twin {twin}",
+            case.id
+        );
+    }
+    // Every readable record and `cells!` rule of the machine base has its twin.
+    assert_eq!(twins, 182 + 182);
 }
 
 #[test]
