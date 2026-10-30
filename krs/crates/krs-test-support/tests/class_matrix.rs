@@ -97,8 +97,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::Init, 126 + 1 + 3 + 1 + 32),
             // (81 positions of depth 1 + 25 positions constructs open) × 47 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
-            // read `x`, and 3 elements in an alias subject's set concatenation.
-            (Family::Terms, 106 * 47 + 3),
+            // read `x`, 3 elements in an alias subject's set concatenation, and 2 spellings
+            // reading an initializer's configuration variable in a `let` body.
+            (Family::Terms, 106 * 47 + 3 + 2),
             // 83 slots of depth 1 (an alias root's twin is a slot of its own) × 2 bare variants.
             (Family::Import, 83 * 2),
             // The term family's 106 positions × (6 collection notation forms and their calls, and

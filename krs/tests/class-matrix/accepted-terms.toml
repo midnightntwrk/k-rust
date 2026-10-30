@@ -32528,6 +32528,62 @@ configuration
 </table>
 """
 
+[accept."terms/init/variable-item/let-body/Cmd::Hold(x)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( ( #let V0:KItem = $X:KItem #in hold ( $X:KItem ) ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
+[accept."terms/init/variable-item/let-body/x"]
+k = """
+configuration
+<k> $PGM:Stmt ~> $X:KItem ~> hold ( ( #let V0:KItem = $X:KItem #in $X:KItem ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+<seq> nil </seq>
+<pool>
+<member multiplicity="*" type="List">
+<item> go </item>
+</member>
+</pool>
+<tray>
+<token multiplicity="*" type="Set">
+<mark> go </mark>
+</token>
+</tray>
+<table>
+<row multiplicity="*" type="Map">
+<id> go </id>
+<value> go </value>
+</row>
+</table>
+"""
+
 [accept."terms/init/variable-item/true"]
 k = """
 configuration

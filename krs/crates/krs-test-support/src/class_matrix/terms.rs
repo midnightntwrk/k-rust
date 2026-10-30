@@ -835,7 +835,8 @@ enum Holds {
     /// names rules there.
     ReadingX(bool),
     /// The listed spellings only: a position of one host whose construct is judged, before what
-    /// stands in it, by what its head resolves to.
+    /// stands in it, by what its head resolves to, or a host that only the spellings reading `x`
+    /// make a case of.
     Only(&'static [&'static str]),
 }
 
@@ -1920,7 +1921,11 @@ fn variable_initializer(item: &str) -> String {
 /// matched (a `#[k::rule]` fn's subject), evaluated (a readable map key), built (a `for Stmt`
 /// clause's result) and guard (a `#[k::rule]` fn's condition), with the single-body rule's
 /// subject for a rewrite's sides and a claim's condition for a predicate's body; a set's element
-/// stands in a pattern only, where its D2 reading differs from a constructor's argument.
+/// stands in a pattern only, where its D2 reading differs from a constructor's argument. A `let`
+/// body also stands in an initializer that reads its configuration variable `x` there: the
+/// native compile lifts a `let` into a function that takes each variable its body reads from
+/// the term around it, and in an initializer `x` is read from the initial configuration's map
+/// below a cast to `x`'s sort, which no sentence position gives a `let` body.
 #[expect(
     clippy::too_many_lines,
     reason = "One list of the openers and their hosts; each entry is one position."
@@ -2003,6 +2008,17 @@ fn openers() -> Vec<Slot> {
             &[node(C::Let, &[])],
             &[LetPattern],
             &[let_value[0].clone(), node(result, &[LetBody])],
+        )
+    };
+    // An initializer whose configuration variable `x` its computation cell reads.
+    let init_variable = Slot {
+        template: variable_initializer("Cmd::Hold(HOLE)"),
+        ..slot(
+            "init",
+            "variable-item",
+            Side::Initializer,
+            (Initializer, Part::Value, &[ComputationItem, Argument]),
+            "",
         )
     };
     let let_body = |host: &Slot| {
@@ -2124,6 +2140,7 @@ fn openers() -> Vec<Slot> {
         let_body(&built),
         let_body(&guard),
         let_body(&evaluated),
+        let_body(&init_variable).holding(Holds::Only(&["x", "Cmd::Hold(x)"])),
         matches_pattern(&built),
         matches_pattern(&guard),
         matches_pattern(&evaluated),
