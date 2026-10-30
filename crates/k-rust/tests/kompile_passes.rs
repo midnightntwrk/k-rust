@@ -279,9 +279,7 @@ fn initializer_ids(definition_kore: &str) -> BTreeMap<String, String> {
             let start = axiom.find("Lblinit")?;
             let label = &axiom[start + "Lbl".len()..];
             let label = &label[..label.find('{')?];
-            let id = axiom.split("UNIQUE'Unds'ID{}(\"").nth(1)?;
-            let id = &id[..id.find('"')?];
-            Some((label.to_owned(), id.to_owned()))
+            Some((label.to_owned(), emitted_unique_ids(axiom).next()?))
         })
         .collect()
 }
@@ -11774,6 +11772,73 @@ fn equal_content_rules_keep_their_own_addresses_under_one_unique_id() {
             .count(),
         1
     );
+}
+
+/// A definedness lemma about a projection is a fact the author states about it, as an override
+/// is, so the compiler emits no selector contract for that projection: it never places a
+/// generated exact domain beside an authored one. `#Ceil({X}:>Int) => #Ceil(X)` is false where
+/// `X` is a defined value outside `Int`, where the generated domain `\exists V. X = e(V)` is
+/// `\bottom`; beside it the definition would be inconsistent. The lemma that is true in that
+/// model, `docs/compatibility.md`'s example, switches them off as well: the criterion is that
+/// the author speaks about the projection (the native selector catalog's criterion), not
+/// whether what is said is true. Other projections keep their contracts.
+#[test]
+fn an_authored_definedness_lemma_switches_a_projections_selector_contracts_off() {
+    let source = |lemma: &str| {
+        format!(
+            "module MAIN\n  imports INT\n  imports BOOL\n  imports ML-SYNTAX\n  \
+             syntax Exp ::= go(K) | Int\n  \
+             rule go(X) => {{X}}:>Int requires {{X}}:>Bool\n  {lemma}\nendmodule\n"
+        )
+    };
+    let contracts = |kore: &str, projection: &str| -> BTreeSet<String> {
+        let syntax = k_rust::kore::parser::parse_definition(kore).unwrap();
+        syntax
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                k_rust::kore::ast::Sentence::Axiom {
+                    pattern,
+                    attributes,
+                    ..
+                } => attributes
+                    .string(k_rust::names::KoreAttribute::UniqueId)
+                    .unwrap()
+                    .filter(|id| {
+                        (id.ends_with(".selector-domain") || id.ends_with(".selector-inverse"))
+                            && pattern.to_string().contains(projection)
+                    })
+                    .map(str::to_owned),
+                _ => None,
+            })
+            .collect()
+    };
+    let compiled = |lemma: &str| {
+        compile_main_with_prelude("lemma.k", &source(lemma))
+            .unwrap_or_else(|error| panic!("{lemma}: {error}"))
+            .definition_kore
+    };
+    let plain = compiled("");
+    assert_eq!(contracts(&plain, "Lblproject'Coln'Int{}").len(), 2);
+    let bool_contracts = contracts(&plain, "Lblproject'Coln'Bool{}");
+    assert_eq!(bool_contracts.len(), 2);
+    for lemma in [
+        "rule #Ceil({X}:>Int) => #Ceil(X) [simplification]",
+        "rule #Ceil({X}:>Int) => {isInt(X) #Equals true} #And #Ceil(X) [simplification]",
+    ] {
+        let kore = compiled(lemma);
+        assert_eq!(
+            contracts(&kore, "Lblproject'Coln'Int{}"),
+            BTreeSet::new(),
+            "{lemma}"
+        );
+        assert_eq!(
+            contracts(&kore, "Lblproject'Coln'Bool{}"),
+            bool_contracts,
+            "{lemma}"
+        );
+    }
 }
 
 /// The `UNIQUE_ID` of every sentence `kore` writes. The printer may break the attribute after

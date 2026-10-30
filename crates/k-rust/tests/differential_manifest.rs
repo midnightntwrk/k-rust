@@ -2103,7 +2103,9 @@ fn every_conformance_normalisation_is_registered() {
         );
     }
     for needle in [
-        "domains.md:2805-2846",
+        "crates/k-rust/builtin/domains.md:2748-2756",
+        "crates/k-rust/builtin/domains.md:2759-2767",
+        "crates/k-rust/builtin/domains.md:2807-2848",
         "krun:442-448",
         "docs/compatibility.md#comparison-contract",
     ] {

@@ -99,13 +99,21 @@ fn rules_headed(
         .collect()
 }
 
-/// The emitted `UNIQUE_ID`s of `definition_kore`.
+/// The emitted `UNIQUE_ID`s of `definition_kore`. The printer may break the attribute after its
+/// opening parenthesis (a long id, such as a compiler selector contract's
+/// `<id>.selector-domain`), so the string literal is read after any whitespace.
 fn emitted(artifacts: &CompiledKoreArtifacts) -> BTreeSet<String> {
     artifacts
         .definition_kore
-        .split("UNIQUE'Unds'ID{}(\"")
+        .split("UNIQUE'Unds'ID{}(")
         .skip(1)
-        .map(|rest| rest.split('"').next().unwrap().to_owned())
+        .map(|rest| {
+            let literal = rest
+                .trim_start()
+                .strip_prefix('"')
+                .expect("a string literal id");
+            literal.split('"').next().unwrap().to_owned()
+        })
         .collect()
 }
 

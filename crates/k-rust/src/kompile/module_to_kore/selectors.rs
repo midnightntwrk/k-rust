@@ -18,6 +18,52 @@ pub(crate) fn contract_forward_id(id: &str) -> Option<&str> {
     CONTRACT_SUFFIXES.contains(&suffix).then_some(forward)
 }
 
+/// Whether `rule` states a fact about the value or the domain of the projection `label`: its
+/// left side is headed by `label` (the forward equation itself, an authored equation,
+/// simplification, anywhere or macro rule), or is `#Ceil` of a term headed by `label` (a
+/// definedness lemma, such as `#Ceil({X}:>S) => #Ceil(X) [simplification]`). An alias
+/// `P #as V` is read through to `P`.
+///
+/// A generated exact domain `\ceil(project:S(I)) = \exists V. I = e(V)` beside such a rule
+/// could contradict it (that lemma makes `project:S` defined on every defined `X`), so the
+/// contracts are emitted only where the forward equation is the one rule this predicate
+/// admits. It is the criterion the native backend's selector catalog applies to the loaded
+/// axioms (`k-rust-backend` `observation::Selectors::checked`): a selector is used only when
+/// the projection's function, ceil and simplification rows indexed at its symbol are exactly
+/// the forward equation, the domain and (for `K`) the inverse. A `#Ceil` row is indexed at
+/// the head under `#Ceil`, an equation or simplification at its left side's head, so this
+/// predicate names the same author rules; it also counts rewrite-shaped rules the backend
+/// files elsewhere, which only withholds contracts more often.
+fn speaks_about_projection(rule: &Sentence, label: &Label) -> bool {
+    fn headed_by(term: &Term, label: &Label) -> bool {
+        match term.unannotated() {
+            Term::Apply { label: head, .. } => head.name == label.name,
+            Term::As { pattern, .. } => headed_by(pattern, label),
+            Term::InjectedLabel(_)
+            | Term::Rewrite { .. }
+            | Term::Variable { .. }
+            | Term::Sequence(_)
+            | Term::Token { .. }
+            | Term::Annotated { .. } => false,
+        }
+    }
+    let Sentence::Rule { body, .. } = rule else {
+        return false;
+    };
+    let Term::Rewrite { left, .. } = body.unannotated() else {
+        return false;
+    };
+    if let Term::Apply {
+        label: head,
+        arguments,
+    } = left.unannotated()
+        && head.is(InternalLabel::Ceil)
+    {
+        return arguments.iter().any(|argument| headed_by(argument, label));
+    }
+    headed_by(left, label)
+}
+
 /// Companion axioms of a canonical generated sort projection's identity equation.
 /// The marker selects this compiler feature; the checked identity supplies its embedding.
 pub(super) fn contracts(
@@ -71,20 +117,13 @@ pub(super) fn contracts(
     if Label::projection(sort).as_ref() != Some(label) || arguments.len() != 1 {
         return Ok(Vec::new());
     }
-    // An authored override or an additional equation is not the compiler's canonical
-    // selector implementation. Do not strengthen that source with a generated exact domain.
+    // An authored override, an additional equation or a definedness lemma is not the
+    // compiler's canonical selector implementation. Do not strengthen that source with a
+    // generated exact domain.
     let offered = context
         .module_rules
         .iter()
-        .filter(|rule| {
-            let Sentence::Rule { body, .. } = rule else {
-                return false;
-            };
-            let Term::Rewrite { left, .. } = body.unannotated() else {
-                return false;
-            };
-            matches!(left.unannotated(), Term::Apply { label: head, .. } if head.name == label.name)
-        })
+        .filter(|rule| speaks_about_projection(rule, label))
         .count();
     if offered != 1 {
         return Ok(Vec::new());

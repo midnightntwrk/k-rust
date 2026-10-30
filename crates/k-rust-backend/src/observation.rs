@@ -400,6 +400,9 @@ impl Selectors {
         }
         // Additional ceil or direct simplification rows can alter the supported contract;
         // decline this specialized reading rather than selecting a convenient source subset.
+        // An author's rule about the projection (left side headed by it, or a `#Ceil` of a
+        // term headed by it) is such a row; the compiler withholds its contracts on the same
+        // criterion (k-rust `module_to_kore::selectors::speaks_about_projection`).
         if definition
             .ceil_theory()
             .get(&index)?
@@ -887,6 +890,23 @@ mod tests {
                 definition
                     .selector(&Sort::simple("SortC"), &Sort::simple("SortS"))
                     .is_none()
+            );
+        }
+        // An authored row about the projection beside the complete contract (a definedness
+        // lemma `#Ceil({X}:>S) => #Ceil(X)`, or a simplification headed by it) makes the
+        // contract a source subset: the catalog declines it, as the compiler withholds its
+        // contracts beside such a rule.
+        for row in [
+            r#"axiom{R} \implies{R}(\top{R}(),\equals{R,R}(\ceil{SortS{},R}(p{}(X:SortC{})),\ceil{SortC{},R}(X:SortC{}))) [simplification{}()]"#,
+            r#"axiom{R} \implies{R}(\top{R}(),\equals{SortS{},R}(p{}(other{}()),\and{SortS{}}(partial{}(),\top{SortS{}}()))) [simplification{}()]"#,
+        ] {
+            let (prefix, _) = SOURCE.rsplit_once("endmodule").unwrap();
+            let definition = load(&format!("{prefix}  {row}\n    endmodule []"));
+            assert!(
+                definition
+                    .selector(&Sort::simple("SortC"), &Sort::simple("SortS"))
+                    .is_none(),
+                "{row}"
             );
         }
         // The original immutable definition retains its own checked contract.
