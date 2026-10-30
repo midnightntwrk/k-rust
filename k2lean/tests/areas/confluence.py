@@ -30,7 +30,8 @@ DEMOS = {
                                                  "demos/HandoffConf/confluence.toml"],
                     "slots": {"prefixes": ["join."], "list": "demos/HandoffConf/open-joins.txt"}},
     # the same script run in its order into it, the simulation by hand, composed by the prelude's
-    # `KPrelude.Forward` (`HandoffSeqRel.result_unique`); built against HandoffConf's phase
+    # `KPrelude.Forward` (`HandoffSeqRel.result_unique`), and every order ends there
+    # (`HandoffSeqRel.transaction`, with HandoffConf's `terminates`); built against HandoffConf's phase
     "HandoffSeqRel": {"tier": "light", "sources": ["generated/handoffseq"]},
     # workers writing one cell: the slot of two writes refuted by two runs of a program
     "DrfConf": {"tier": "light", "sources": ["generated/drf",

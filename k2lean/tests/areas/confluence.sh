@@ -128,7 +128,8 @@ gate_confluence() {
   # the script run in its order (the fixture handoffseq) into handoff, the simulation by hand: a run
   # of handoffseq to the script's end is a run of handoff, so every terminal run of handoff ends where
   # it does (`HandoffSeqRel.result_unique` by `KPrelude.Forward.result_unique_of`, through
-  # HandoffConf's `terminal_unique`, built just above)
+  # HandoffConf's `terminal_unique`, built just above); with HandoffConf's `terminates` (the work left
+  # drops at every step), every order ends there (`HandoffSeqRel.transaction`, through `KPrelude.Ends`)
   if runs demo HandoffSeqRel; then
     phase "build HandoffSeqRel"
     partlib handoffseq HandoffSeq.Rules

@@ -140,16 +140,22 @@ theorem run_exists {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopCell
     ∃ r, Star Handoff.Step (Handoff.init (trPgm P)) r ∧ Terminal Handoff.Step r ∧ Fin s r :=
   Forward.result_of sim (fun _ _ => sim_end) (sim_init P) hs hd
 
+/-- A script that runs to its end in its order is well-formed: its initial configuration in
+`handoff` satisfies `wf`. -/
+theorem invariant_of_run {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopCell}
+    (hs : Star HandoffSeq.Step (HandoffSeq.init P) s) (hd : Done s) :
+    Handoff.Invariant (Handoff.init (trPgm P)) :=
+  HandoffConf.invariant_init (claims_of_run hs hd ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩).1
+
 /-- **The script's result is the one every ready order gives.** If `handoffseq` runs the script `P`
 to its end, then every run of `handoff` from `P` to a terminal configuration leaves no task and
 ends with the same processes and values: the same bindings of `<procs>` and `<vals>`. -/
 theorem result_unique {P : HandoffSeq.SortPgm} {s : HandoffSeq.SortGeneratedTopCell}
     {r : Handoff.SortGeneratedTopCell} (hs : Star HandoffSeq.Step (HandoffSeq.init P) s) (hd : Done s)
     (hr : Star Handoff.Step (Handoff.init (trPgm P)) r) (ht : Terminal Handoff.Step r) : Fin s r :=
-  have hw : Handoff.Invariant (Handoff.init (trPgm P)) :=
-    HandoffConf.invariant_init (claims_of_run hs hd ⟨unit, unit, _, rfl, rep_unit, rep_unit⟩).1
-  Forward.result_unique_of sim (fun _ _ => sim_end) (fun _ _ => terminal_unique hw) (sim_init P) hs hd hr ht
+  Forward.result_unique_of sim (fun _ _ => sim_end) (fun _ _ => terminal_unique (invariant_of_run hs hd))
+    (sim_init P) hs hd hr ht
 
-#k2l_assert_axioms result_unique run_exists
+#k2l_assert_axioms invariant_of_run result_unique run_exists
 
 end HandoffSeqRel
