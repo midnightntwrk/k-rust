@@ -358,6 +358,8 @@ pub struct TranslationState {
     congruence: Option<Arc<CongruencePolicy>>,
     opaque_functions: BTreeMap<CongruenceHead, String>,
     domain_functions: BTreeMap<CongruenceHead, String>,
+    /// The domain functions the query applies at a single point, declared as constants.
+    single_point_domains: BTreeSet<String>,
     domains: BTreeMap<Term, Arc<[Predicate]>>,
     observations: BTreeMap<Term, Arc<crate::observation::reading::Reading>>,
     observation_demands: BTreeMap<Term, Vec<Term>>,
@@ -411,6 +413,7 @@ impl TranslationState {
             congruence: None,
             opaque_functions: BTreeMap::new(),
             domain_functions: BTreeMap::new(),
+            single_point_domains: BTreeSet::new(),
             domains: BTreeMap::new(),
             observations: BTreeMap::new(),
             observation_demands: BTreeMap::new(),
@@ -1317,10 +1320,14 @@ impl TranslationState {
         }
         for (head, name) in self.domain_functions.clone() {
             let (arguments, _) = head.rank();
-            let arguments = arguments
-                .iter()
-                .map(|sort| self.smt_sort(sort))
-                .collect::<Result<Vec<_>, _>>()?;
+            let arguments = if self.single_point_domains.contains(&name) {
+                Vec::new()
+            } else {
+                arguments
+                    .iter()
+                    .map(|sort| self.smt_sort(sort))
+                    .collect::<Result<Vec<_>, _>>()?
+            };
             declarations.push(format!(
                 "(declare-fun {name} ({}) Bool)",
                 arguments.join(" ")
@@ -1503,8 +1510,16 @@ fn translate_query_in_state(
         .iter()
         .map(|predicate| translation.translate_predicate(predicate))
         .collect::<Result<Vec<_>, _>>()?;
-    let checked = SExpr::application("and", checked);
+    let mut checked = SExpr::application("and", checked);
     known.extend(translation.domain_facts.clone());
+    let mut substitution = substitution;
+    translation.close_single_point_domains(
+        substitution
+            .iter_mut()
+            .chain(known.iter_mut())
+            .chain(std::iter::once(&mut checked))
+            .collect(),
+    );
     let mut declarations = translation.mapping_declarations()?;
     declarations.extend(translation.derived_definitions.clone());
     Ok((translation, declarations, substitution, known, checked))

@@ -28,6 +28,98 @@ impl SharedDomains {
 }
 
 impl TranslationState {
+    /// Read each domain function that the finished query applies at a single point as a
+    /// Boolean constant, in every part of the query, and record it for its declaration.
+    ///
+    /// A query-local domain function constrains the query only through its values at the
+    /// points where it is applied. One syntactic application that no quantifier encloses (a
+    /// `let` only names a value) has one point in each interpretation. A model of the function
+    /// reading gives the constant that point's value; a model of the constant reading gives the
+    /// function that is the constant everywhere. So the readings are equisatisfiable, and the
+    /// query keeps its exactness and the variables of its models. Domain congruence needs two
+    /// points, so it is not lost; a function that also occurs in a derived definition, under a
+    /// quantifier, unapplied, or at two points keeps its rank. The solver is then not handed a
+    /// function symbol that carries nothing: its presence alone selects another procedure,
+    /// one that leaves undecided queries the constant reading decides.
+    pub(super) fn close_single_point_domains(&mut self, mut parts: Vec<&mut SExpr>) {
+        #[derive(Default)]
+        struct Uses {
+            applications: usize,
+            excluded: bool,
+        }
+        fn count(expression: &SExpr, bound: bool, uses: &mut BTreeMap<String, Uses>) {
+            match expression {
+                SExpr::Atom(atom) => {
+                    if let Some(entry) = uses.get_mut(atom.as_str()) {
+                        entry.excluded = true;
+                    }
+                }
+                SExpr::List(items) => {
+                    let mut rest = items.as_slice();
+                    if let Some((SExpr::Atom(head), arguments)) = items.split_first()
+                        && let Some(entry) = uses.get_mut(head.as_str())
+                    {
+                        entry.applications += 1;
+                        entry.excluded |= bound;
+                        rest = arguments;
+                    }
+                    let binder = matches!(
+                        items.first(),
+                        Some(SExpr::Atom(head)) if head == "forall" || head == "exists"
+                    );
+                    for item in rest {
+                        count(item, bound || binder, uses);
+                    }
+                }
+            }
+        }
+        fn close(expression: &mut SExpr, names: &BTreeSet<String>) {
+            if let SExpr::List(items) = expression {
+                if let Some(SExpr::Atom(head)) = items.first()
+                    && names.contains(head.as_str())
+                {
+                    *expression = SExpr::atom(head.clone());
+                    return;
+                }
+                for item in items {
+                    close(item, names);
+                }
+            }
+        }
+
+        let mut uses = self
+            .domain_functions
+            .iter()
+            .filter(|(head, _)| !head.rank().0.is_empty())
+            .map(|(_, name)| (name.clone(), Uses::default()))
+            .collect::<BTreeMap<_, _>>();
+        if uses.is_empty() {
+            return;
+        }
+        for definition in &self.derived_definitions {
+            for token in definition.split(|c: char| c.is_whitespace() || matches!(c, '(' | ')')) {
+                if let Some(entry) = uses.get_mut(token) {
+                    entry.excluded = true;
+                }
+            }
+        }
+        for part in &parts {
+            count(part, false, &mut uses);
+        }
+        let names = uses
+            .into_iter()
+            .filter(|(_, uses)| uses.applications == 1 && !uses.excluded)
+            .map(|(name, _)| name)
+            .collect::<BTreeSet<_>>();
+        if names.is_empty() {
+            return;
+        }
+        for part in &mut parts {
+            close(part, &names);
+        }
+        self.single_point_domains.extend(names);
+    }
+
     /// Instantiate already-admitted cases at this opaque occurrence's scalar arguments.
     /// This also runs when a word plan bypasses the corresponding scalar value call.
     /// Each fact is closed at the actual query scope; no quantified source theory is added.
@@ -588,16 +680,23 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").unwrap()
     }
 
+    /// Two applications of `f`, so that its domain function keeps its rank (a single point
+    /// is a constant, [`a_domain_applied_at_one_point_is_a_constant`]).
     #[test]
     fn portable_domains_retain_argument_rank_and_conservative_model_evidence() {
         let definition = definition();
-        let term = definition
-            .internalize_term(
-                &k_rust_kore::kore::parser::parse_pattern("f{}(X:SortInt{})").unwrap(),
-                &[],
-            )
-            .unwrap();
-        let checked = [Predicate::Ceil(term)];
+        let term = |source: &str| {
+            definition
+                .internalize_term(
+                    &k_rust_kore::kore::parser::parse_pattern(source).unwrap(),
+                    &[],
+                )
+                .unwrap()
+        };
+        let checked = [
+            Predicate::Ceil(term("f{}(X:SortInt{})")),
+            Predicate::Ceil(term("f{}(Y:SortInt{})")),
+        ];
         let mut state = TranslationState::new();
         state.congruence = CongruencePolicy::from_definition(&definition).map(Arc::new);
         prepare(&definition, &mut state, &[], &Substitution::new(), &checked).unwrap();
@@ -606,6 +705,77 @@ mod tests {
         assert_eq!(state.exactness(), Exactness::Approximate);
         assert!(declarations.iter().any(|d| d.ends_with("(Int) Bool)")));
         assert!(SExpr::parse(&checked.to_string()).is_ok());
+    }
+
+    /// The declarations and the checked conjunction of the portable query over `checked`.
+    fn domain_query(
+        definition: &BackendDefinition,
+        checked: &[Predicate],
+    ) -> (Vec<String>, String) {
+        let mut state = TranslationState::new();
+        state.congruence = CongruencePolicy::from_definition(definition).map(Arc::new);
+        prepare(definition, &mut state, &[], &Substitution::new(), checked).unwrap();
+        let (state, declarations, _, _, checked) =
+            translate_query_in_state(&[], &Substitution::new(), checked, state).unwrap();
+        assert_eq!(state.exactness(), Exactness::Approximate);
+        (declarations, checked.to_string())
+    }
+
+    /// The domain function declarations of a query: functions or constants of result `Bool`.
+    fn domain_declarations(declarations: &[String]) -> Vec<&str> {
+        declarations
+            .iter()
+            .filter(|d| d.starts_with("(declare-fun") && d.ends_with(" Bool)"))
+            .map(String::as_str)
+            .collect()
+    }
+
+    /// A domain function applied at a single point outside every quantifier is a Boolean
+    /// constant: it has one value in each interpretation, so the function and the constant
+    /// readings are equisatisfiable. Two points keep the function, which then carries domain
+    /// congruence; so does one occurrence under a quantifier, which denotes a point per value of
+    /// the bound variable.
+    #[test]
+    fn a_domain_applied_at_one_point_is_a_constant() {
+        let definition = definition();
+        let term = |source: &str| {
+            definition
+                .internalize_term(
+                    &k_rust_kore::kore::parser::parse_pattern(source).unwrap(),
+                    &[],
+                )
+                .unwrap()
+        };
+        let (declarations, checked) =
+            domain_query(&definition, &[Predicate::Ceil(term("f{}(X:SortInt{})"))]);
+        let [domain] = domain_declarations(&declarations)[..] else {
+            panic!("one domain declaration: {declarations:?}");
+        };
+        assert!(domain.ends_with(" () Bool)"), "{domain}");
+        let name = domain.split_whitespace().nth(1).unwrap();
+        assert!(!checked.contains(&format!("({name} ")), "{checked}");
+
+        let (declarations, _) = domain_query(
+            &definition,
+            &[
+                Predicate::Ceil(term("f{}(X:SortInt{})")),
+                Predicate::Not(Arc::new(Predicate::Ceil(term("f{}(Y:SortInt{})")))),
+            ],
+        );
+        let [domain] = domain_declarations(&declarations)[..] else {
+            panic!("one domain declaration: {declarations:?}");
+        };
+        assert!(domain.ends_with(" (Int) Bool)"), "{domain}");
+
+        let bound = Predicate::Forall(
+            crate::term::Variable::new("X", crate::term::Sort::simple("SortInt")),
+            Arc::new(Predicate::Ceil(term("f{}(X:SortInt{})"))),
+        );
+        let (declarations, _) = domain_query(&definition, &[bound]);
+        let [domain] = domain_declarations(&declarations)[..] else {
+            panic!("one domain declaration: {declarations:?}");
+        };
+        assert!(domain.ends_with(" (Int) Bool)"), "{domain}");
     }
 
     #[test]
