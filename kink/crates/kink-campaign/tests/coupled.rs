@@ -8935,6 +8935,17 @@ mod kink_tier {
 
     /// T-REPR: hook outputs for one value have one spelling, even for NaN and signed zero.
     /// The rules restrict the inputs so replacing one computation with the other is equivalent.
+    ///
+    /// Re-pin kink27 R3-CENSUS-RUNLEVEL (ADOPTION D-8): k-rust's classes left decision 1's census,
+    /// so t12hook.k is no longer excluded as a whole, and each run is judged by its own
+    /// `implementationChosenValues` list. No run here reads a class value: every Float operand is
+    /// binary64 (one format, so no mixed destination), no rule applies `signFloat`, `minFloat` or
+    /// `maxFloat`, and the NaN `nan` computes is compared by `==K` on k-rust's one NaN per format
+    /// (a reading R3-ADMIT-FLOAT takes on, decision D-3). So each baseline is admitted and each
+    /// mutant, which swaps one computation for the other on the one input its guard admits,
+    /// Survives with its whole term agreeing, as before R0b (when the baseline's whole term was
+    /// `done(7)`). Every row is measured before the first assertion. Before: every baseline refused
+    /// (`implementation-chosen-hook`).
     #[test]
     #[ignore = "kink"]
     fn audit_vi_t12_hook_only_computations_agree() {
@@ -8942,6 +8953,7 @@ mod kink_tier {
             let validator =
                 NativeValidator::bind(support::load("t12hook.k"), CompileOptions::default());
             let baseline = validator.baseline();
+            let mut rows = Vec::new();
             for (head, arg) in [("square", 1), ("widen", 1), ("nan", 0), ("negzero", 0)] {
                 let label = format!("T12HOOK.{head}");
                 let alternative = baseline
@@ -8966,22 +8978,24 @@ mod kink_tier {
                     budget: BUDGET,
                 };
                 for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                    // Re-pin R0b (decision 1, finding E-10): t12hook.k's own rules apply Float
-                    // arithmetic and `signFloat` (FLOAT.mul, FLOAT.sub, FLOAT.sign), whose mixed-format
-                    // destination and NaN sign k-rust chooses where domains.md leaves them open, so
-                    // every run on it is excluded (`implementation-chosen-hook`) and the baseline is
-                    // refused before the mutant runs. Before: admitted, the mutant Survived [A] and
-                    // the baseline's whole term was done(7). The T-REPR spelling property is no
-                    // longer reached through a campaign on this definition.
-                    let failure = run_campaign(&campaign, &generation, mode)
-                        .expect_err("an implementation-chosen baseline is refused");
-                    eprintln!("TB03-HOOK {head} {mode:?}: {failure}");
-                    assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
-                    assert!(
-                        failure.to_string().contains("implementation-chosen-hook"),
-                        "{failure}"
-                    );
+                    let outcome = run_campaign(&campaign, &generation, mode);
+                    let result = ViResult::of_outcome(&outcome);
+                    let detail = outcome.as_ref().err().map(ToString::to_string);
+                    eprintln!("TB03-HOOK {head} {mode:?}: {result:?} {detail:?}");
+                    rows.push((head, mode, result));
                 }
+            }
+            for (head, mode, result) in rows {
+                assert!(!result.killed(), "STOP: {head} {mode:?}: {result:?}");
+                assert_eq!(
+                    result,
+                    ViResult::Ran {
+                        tests: vec![(head.into(), TestRun::Compared(vec![A]))],
+                        status: MutantStatus::Survived,
+                        killing: vec![],
+                    },
+                    "{head} {mode:?}"
+                );
             }
         });
     }
