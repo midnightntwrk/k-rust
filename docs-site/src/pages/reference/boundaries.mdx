@@ -25,6 +25,21 @@ Arbitrary method calls and Rust-only operators (except `&&`, `||`, the arithmeti
 This boundary keeps object-language meaning deterministic and collectable.
 If an expression is ordinary Rust, rustc executes or type-checks it as host code; if it is inside a KRS island, the island parser must recognize it as symbolic syntax.
 
+## What KRS admits
+
+A construct is admitted for what it gives an author of a semantics, weighed through these lenses:
+
+- **sound**: an accepted construct means what it is written to mean on every route that accepts it, and a route that cannot carry it refuses the definition (`krs::capability::unavailable`) instead of running something else;
+- **useful**: it occurs, or would, in real semantics, and reads better than what an author writes without it;
+- **consistent**: it means the same thing at every position that admits it, and a position refuses only what has no meaning there;
+- **performant**: it costs no more at run time than the K an author would write by hand, or it is the only way to say what it says;
+- **provable**: the symbolic backends and the SMT solver can still reason about the K it emits;
+- **legible**: printed results, proof failures and diagnostics speak in terms the author wrote;
+- **reference K**: Java K runs it too, which keeps the differential evidence the table below cites.
+
+Soundness is the one requirement; the others are weighed against each other.
+In particular, Java K support is a convenience, not a condition: the table records constructs that run on some routes only, such as anywhere rules, `pNxM` floats and console I/O.
+
 ## Qualified or unqualified today
 
 | Surface | Status | Exact boundary |
