@@ -17,6 +17,7 @@ use crate::{
 };
 
 mod canonical;
+mod destination;
 mod root;
 
 pub use canonical::{
@@ -500,7 +501,9 @@ impl KFloat {
     /// The exact result of `operation` rounded once to nearest, ties to even, in the destination
     /// format: the operands' format when they share one, and otherwise the operand format that
     /// contains the other, binary64 ([`MixedPair`]). The second is k-rust's reading, which the
-    /// root evaluation outside an execution withholds (`super::implementation_chosen`).
+    /// root evaluation outside an execution withholds (`super::implementation_chosen`); under a
+    /// `choice_sampling` seed the destination is the one the seed chooses, binary32 or binary64,
+    /// either of which a model of the definition may take (class `float-destination`).
     ///
     /// A value is computed only when both operands are binary32 or binary64: an operand of any
     /// other format is the unsupported-hook outcome (`binary`) before this, and is never read as
@@ -521,6 +524,14 @@ impl KFloat {
                     right: other,
                 }
                 .widened();
+                if let Some(seed) = choice_sampling::seed() {
+                    choice_sampling::taken(super::ChosenClass::FloatDestination);
+                    if choice_sampling::bit(seed) {
+                        return Self::Binary32(destination::binary32_destination(
+                            operation, left, right,
+                        ));
+                    }
+                }
                 Self::Binary64(operation.binary64(left, right))
             }
         }
@@ -605,6 +616,7 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
                 if let Some(seed) = choice_sampling::seed()
                     && value.is_nan()
                 {
+                    choice_sampling::taken(super::ChosenClass::NanSign);
                     bool_term(choice_sampling::bit(seed))
                 } else {
                     bool_term(value.is_sign_negative())
@@ -614,6 +626,7 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
                 if let Some(seed) = choice_sampling::seed()
                     && body == "NaN"
                 {
+                    choice_sampling::taken(super::ChosenClass::NanSign);
                     bool_term(choice_sampling::bit(seed))
                 } else {
                     bool_term(body.starts_with('-'))
@@ -1063,9 +1076,13 @@ fn minimum_f32(left: f32, right: f32) -> f32 {
     } else if left == 0.0 && (left.is_sign_negative() || right.is_sign_negative()) {
         if let Some(seed) = choice_sampling::seed()
             && left.is_sign_negative() != right.is_sign_negative()
-            && choice_sampling::bit(seed)
         {
-            0.0
+            choice_sampling::taken(super::ChosenClass::SignedZero);
+            if choice_sampling::bit(seed) {
+                0.0
+            } else {
+                -0.0
+            }
         } else {
             -0.0
         }
@@ -1084,9 +1101,13 @@ fn maximum_f32(left: f32, right: f32) -> f32 {
     } else if left == 0.0 && (!left.is_sign_negative() || !right.is_sign_negative()) {
         if let Some(seed) = choice_sampling::seed()
             && left.is_sign_negative() != right.is_sign_negative()
-            && choice_sampling::bit(seed)
         {
-            -0.0
+            choice_sampling::taken(super::ChosenClass::SignedZero);
+            if choice_sampling::bit(seed) {
+                -0.0
+            } else {
+                0.0
+            }
         } else {
             0.0
         }
@@ -1105,9 +1126,13 @@ fn minimum_f64(left: f64, right: f64) -> f64 {
     } else if left == 0.0 && (left.is_sign_negative() || right.is_sign_negative()) {
         if let Some(seed) = choice_sampling::seed()
             && left.is_sign_negative() != right.is_sign_negative()
-            && choice_sampling::bit(seed)
         {
-            0.0
+            choice_sampling::taken(super::ChosenClass::SignedZero);
+            if choice_sampling::bit(seed) {
+                0.0
+            } else {
+                -0.0
+            }
         } else {
             -0.0
         }
@@ -1126,9 +1151,13 @@ fn maximum_f64(left: f64, right: f64) -> f64 {
     } else if left == 0.0 && (!left.is_sign_negative() || !right.is_sign_negative()) {
         if let Some(seed) = choice_sampling::seed()
             && left.is_sign_negative() != right.is_sign_negative()
-            && choice_sampling::bit(seed)
         {
-            -0.0
+            choice_sampling::taken(super::ChosenClass::SignedZero);
+            if choice_sampling::bit(seed) {
+                -0.0
+            } else {
+                0.0
+            }
         } else {
             0.0
         }

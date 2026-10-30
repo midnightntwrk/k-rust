@@ -103,6 +103,7 @@ fn choice(arguments: &[Term]) -> HookResult<BuiltinResult> {
         ),
         _ => match concrete_set(&arguments[0]).and_then(|(_, elements)| {
             if let Some(seed) = choice_sampling::seed() {
+                choice_sampling::taken(super::ChosenClass::Item);
                 elements.get(choice_sampling::item(seed, elements.len()))
             } else {
                 elements.first()
@@ -338,6 +339,7 @@ fn to_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Optio
     if let Some(seed) = choice_sampling::seed()
         && elements.len() >= 2
     {
+        choice_sampling::taken(super::ChosenClass::Order);
         return Ok(into
             .elements(
                 choice_sampling::permuted(seed, elements),

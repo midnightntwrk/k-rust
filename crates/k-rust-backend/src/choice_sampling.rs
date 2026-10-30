@@ -7,24 +7,34 @@
 //! some single model of the definition gives, and a run without a mark must be unchanged.
 //!
 //! Every choice is a function of the seed and of the application's arguments (the collection's
-//! value, whose stored order is canonical; the length a read may take), so one seed is one model:
-//! one listing order per collection value, one item, one letter case, one NaN sign, one zero.
+//! value, whose stored order is canonical; the length a read may take; the substitution's terms;
+//! the rule), so one seed is one model: one listing order per collection value, one item, one
+//! letter case, one NaN sign, one zero, one destination format for operands of two formats, one
+//! renaming of the binders of each substitution, one association of each rule's fresh names.
 //! The exception is `#read`, an effect, whose count another implementation may choose per call.
 //!
 //! Only the cargo feature `choice-sampling` (enabled by no shipped crate) has a seed; without it
 //! [`seed`] is the constant `None`, every site computes k-rust's value, and nothing changes.
 
-use crate::term::{Items, chunked::Item};
+use crate::{
+    builtin::ChosenClass,
+    term::{Items, chunked::Item},
+};
 
 #[cfg(feature = "choice-sampling")]
-use std::cell::Cell;
-#[cfg(feature = "choice-sampling")]
-use std::num::NonZeroU64;
+use std::{
+    cell::{Cell, RefCell},
+    collections::BTreeMap,
+    num::NonZeroU64,
+};
 
 #[cfg(feature = "choice-sampling")]
 thread_local! {
     /// The seed of the innermost [`with_seed`] scope on this thread.
     static SEED: Cell<Option<u64>> = const { Cell::new(None) };
+    /// Per class name, the open values a site took under a seed on this thread since the last
+    /// [`take_counts`].
+    static TAKEN: RefCell<BTreeMap<&'static str, u64>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 /// Run `action` with every site computing an implementation-chosen value on this thread taking
@@ -60,6 +70,31 @@ pub(crate) fn seed() -> Option<u64> {
     {
         None
     }
+}
+
+/// Count one value of `class` that a site took under the seed: the site's own condition, under
+/// which the definition leaves the value open, held, and the seed chose the value, whichever it
+/// chose (k-rust's own included). Nothing without the feature `choice-sampling`.
+#[inline(always)]
+pub(crate) fn taken(class: ChosenClass) {
+    #[cfg(feature = "choice-sampling")]
+    TAKEN.with_borrow_mut(|taken| *taken.entry(class.name()).or_default() += 1);
+    #[cfg(not(feature = "choice-sampling"))]
+    let _ = class;
+}
+
+/// [`taken`], for a site outside this crate (the compiler's fresh-counter association).
+#[cfg(feature = "choice-sampling")]
+pub fn note_taken(class: ChosenClass) {
+    taken(class);
+}
+
+/// The open values each class's sites took under a seed on this thread since the last call, by
+/// class name, and the count reset: a harness reads it around each compilation and run, so that
+/// an unmarked run that took one shows a site that computed an open value without its mark.
+#[cfg(feature = "choice-sampling")]
+pub fn take_counts() -> BTreeMap<&'static str, u64> {
+    TAKEN.take()
 }
 
 /// An order of `n` items, as indices into their stored order: reversed when `seed % 3 == 1`,

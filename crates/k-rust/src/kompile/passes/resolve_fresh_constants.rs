@@ -468,6 +468,25 @@ fn fresh_variables<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<St
             }
         });
     }
+    // Under a `choice_sampling` seed (a test-only feature), another association of two or more
+    // names with their offsets, which the definition leaves open (class `fresh-association`, which
+    // the backend marks on every rule with two or more names): the offsets rotated by the seed
+    // modulo their number, a permutation of `0..n`, so the offsets stay distinct and below the
+    // advance `n`, every occurrence of a name still reuses its offset, and the counter advance is
+    // unchanged.
+    #[cfg(feature = "choice-sampling")]
+    if offsets.len() >= 2
+        && let Some(seed) = k_rust_backend::choice_sampling::current()
+    {
+        k_rust_backend::choice_sampling::note_taken(
+            k_rust_backend::builtin::ChosenClass::FreshAssociation,
+        );
+        let count = offsets.len();
+        let rotation = (seed % count as u64) as usize;
+        for offset in offsets.values_mut() {
+            *offset = (*offset + rotation) % count;
+        }
+    }
     offsets
 }
 

@@ -315,9 +315,23 @@ fn subst_one(
     collect_kvars(body, kvar_sorts, &mut used)?;
     collect_kvars(&replacement, kvar_sorts, &mut used)?;
     used.insert(target.clone());
-    let mut fresh = FreshNames {
-        used,
-        next_suffix: 0,
+    // Under a `choice_sampling` seed, every binder the substitution traverses is renamed apart,
+    // to names from another suffix: the contract fixes no names for these binders, so any
+    // alpha-variant is a value some model gives (class `fresh-name`, which every substitution
+    // into a term holding a binder is marked with, `substitutes_under_a_binder`).
+    let mut fresh = if let Some(seed) = crate::choice_sampling::seed() {
+        FreshNames {
+            used,
+            // Bounded so that the suffix cannot overflow however many names are minted.
+            next_suffix: seed % (1 << 32),
+            force: true,
+        }
+    } else {
+        FreshNames {
+            used,
+            next_suffix: 0,
+            force: false,
+        }
     };
     Ok(
         match substitute(
@@ -339,6 +353,9 @@ fn subst_one(
 struct FreshNames {
     used: BTreeSet<Name>,
     next_suffix: u64,
+    /// Whether every binder the substitution traverses is renamed, not only one that would
+    /// capture a free variable of the replacement: set only under a `choice_sampling` seed.
+    force: bool,
 }
 
 impl FreshNames {
@@ -461,13 +478,22 @@ fn substitute(
                     return Ok(SubstituteOutcome::NotApplicable);
                 };
                 let mut effective_bound = bound.clone();
-                if target_occurs && replacement_free.contains(&bound) {
+                let captures = target_occurs && replacement_free.contains(&bound);
+                if captures || fresh.force {
+                    if fresh.force {
+                        crate::choice_sampling::taken(super::ChosenClass::FreshName);
+                    }
                     let renamed = fresh.mint(&bound);
                     let declaration = rename_kvar_token(&updated[0], &renamed, kvar_sorts)
                         .expect("the binder declaration was validated as a KVar");
                     let renamed_token = peel_injections(&declaration);
                     let renamed_free = BTreeSet::from([renamed.clone()]);
-                    let renamed_body = substitution_value!(substitute(
+                    // The renaming of the bound variable renames no binder of its own: the
+                    // binders inside `body` are renamed once, by the substitution below, and
+                    // renaming them here too would rename each nested binder once per enclosing
+                    // one (exponential in the nesting).
+                    let force = std::mem::replace(&mut fresh.force, false);
+                    let renamed_body = substitute(
                         &body,
                         &bound,
                         &renamed_token,
@@ -475,7 +501,9 @@ fn substitute(
                         kvar_sorts,
                         sort_graph,
                         fresh,
-                    ));
+                    );
+                    fresh.force = force;
+                    let renamed_body = substitution_value!(renamed_body);
                     updated[0] = declaration;
                     body = renamed_body;
                     effective_bound = renamed;

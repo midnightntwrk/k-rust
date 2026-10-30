@@ -11,8 +11,14 @@
 //! Each program is compiled and run inside the seed's scope (a compile-time choice is read
 //! there), for the seeds 1 to 3 and once without a scope, with a console (`#read`'s count is a
 //! class) and in `Execution` mode, where k-rust takes its own value for every open application.
+//! The chooser's count of the open values each class's sites took (`choice_sampling::take_counts`)
+//! is read apart for the compilation and the run: a probe's class takes one under some seed, and
+//! a control's run takes none.
 
-use std::{collections::BTreeSet, num::NonZeroU64};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    num::NonZeroU64,
+};
 
 use k_rust::{
     backend::{Backend, BackendOptions},
@@ -131,18 +137,6 @@ const CONTROLS: &[Program] = &[
     program("fresh-association", FRESH, "one(3)"),
 ];
 
-/// The classes whose sites have a chooser. The others (renamed binders, another counter
-/// association, a binary32 destination) are not built yet: their probes are checked to be
-/// marked, and to change under some seed once their class joins this list.
-const COVERED: &[&str] = &[
-    "order",
-    "item",
-    "nan-sign",
-    "letter-case",
-    "signed-zero",
-    "read-count",
-];
-
 const SEEDS: [u64; 3] = [1, 2, 3];
 
 /// What a run gives: its leaves, as the set of (state, halt reason), and the classes of the
@@ -178,10 +172,26 @@ fn compile(source: &str, program: &str) -> (String, Pattern) {
     (artifacts.definition_kore, assembler.finish().unwrap())
 }
 
+/// Per class name, the open values the chooser's sites took (`choice_sampling::take_counts`).
+type Taken = BTreeMap<&'static str, u64>;
+
+/// The open values taken while compiling, and while running.
+#[derive(Debug, Default)]
+struct Choices {
+    compile: Taken,
+    run: Taken,
+}
+
 /// Compile and run `program` with the console [`CONSOLE`], inside `seed`'s scope when there is
 /// one.
 fn run(program: &Program, seed: Option<u64>) -> Run {
+    run_counting(program, seed).0
+}
+
+/// [`run`], and the open values the chooser took.
+fn run_counting(program: &Program, seed: Option<u64>) -> (Run, Choices) {
     let go = || {
+        choice_sampling::take_counts();
         let (kore, initial) = compile(program.source, program.program);
         let mut backend = Backend::new(&kore, "MAIN", BackendOptions::default()).unwrap();
         let definition = backend.select_definition(None).unwrap();
@@ -189,6 +199,7 @@ fn run(program: &Program, seed: Option<u64>) -> Run {
             .admit_unverified(&initial, &[])
             .internalize_pattern()
             .unwrap();
+        let compile = choice_sampling::take_counts();
         let result = execute_with_io_state(
             &definition,
             pattern,
@@ -198,7 +209,11 @@ fn run(program: &Program, seed: Option<u64>) -> Run {
             },
             ExecutionIoState::new(CONSOLE.to_vec()),
         );
-        Run {
+        let choices = Choices {
+            compile,
+            run: choice_sampling::take_counts(),
+        };
+        let run = Run {
             leaves: result
                 .leaves
                 .iter()
@@ -214,7 +229,8 @@ fn run(program: &Program, seed: Option<u64>) -> Run {
                 .iter()
                 .map(|value| value.class.name())
                 .collect(),
-        }
+        };
+        (run, choices)
     };
     match seed {
         Some(seed) => choice_sampling::with_seed(NonZeroU64::new(seed).unwrap(), go),
@@ -222,33 +238,43 @@ fn run(program: &Program, seed: Option<u64>) -> Run {
     }
 }
 
-/// Every probe's default run lists its class's mark, and, for each class the chooser covers,
-/// some seed gives the probe other leaves: the chooser reaches the class's computing site.
+/// Every probe's default run lists its class's mark, takes no value under no seed, and some seed
+/// gives the probe other leaves and takes a value of the class: the chooser reaches the class's
+/// computing site.
 #[test]
 fn every_class_probe_reads_a_mark_and_some_seed_changes_it() {
     for probe in POWER {
         let context = format!("{} ({})", probe.program, probe.class);
-        let default = run(probe, None);
+        let (default, unseeded) = run_counting(probe, None);
         assert!(!default.leaves.is_empty(), "{context}: {default:#?}");
         assert!(
             default.classes.contains(probe.class),
             "{context}: the default run lists the class: {default:#?}"
         );
-        if !COVERED.contains(&probe.class) {
-            continue;
+        assert!(
+            unseeded.compile.is_empty() && unseeded.run.is_empty(),
+            "{context}: no value is taken without a seed: {unseeded:?}"
+        );
+        let mut changed = false;
+        let mut taken = false;
+        for seed in SEEDS {
+            let (seeded, choices) = run_counting(probe, Some(seed));
+            changed |= seeded.leaves != default.leaves;
+            taken |=
+                choices.compile.contains_key(probe.class) || choices.run.contains_key(probe.class);
         }
-        let changed = SEEDS
-            .iter()
-            .any(|&seed| run(probe, Some(seed)).leaves != default.leaves);
         assert!(
             changed,
             "{context}: some seed changes the leaves of {default:#?}"
         );
+        assert!(taken, "{context}: some seed takes a value of the class");
     }
 }
 
 /// Every control's default run has an empty list, and every seed gives it the same leaves and
-/// list: the chooser takes only values the definition leaves open.
+/// list and takes no value while running: the chooser takes only values the definition leaves
+/// open. (Compiling `FRESH` takes associations, of its rules with two names, which the control's
+/// run does not apply.)
 #[test]
 fn no_seed_changes_a_control_probe() {
     for control in CONTROLS {
@@ -260,10 +286,12 @@ fn no_seed_changes_a_control_probe() {
             "{context}: the default run is unmarked: {default:#?}"
         );
         for seed in SEEDS {
-            assert_eq!(
-                run(control, Some(seed)),
-                default,
-                "{context}: seed {seed} changes the run"
+            let (seeded, choices) = run_counting(control, Some(seed));
+            assert_eq!(seeded, default, "{context}: seed {seed} changes the run");
+            assert!(
+                choices.run.is_empty(),
+                "{context}: seed {seed}'s run takes {:?}",
+                choices.run
             );
         }
     }

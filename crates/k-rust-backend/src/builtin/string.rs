@@ -331,12 +331,19 @@ fn base_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(base) = read_base(&base) else {
         return Ok(BuiltinResult::Bottom);
     };
-    if let Some(seed) = choice_sampling::seed()
-        && choice_sampling::bit(seed)
-    {
-        // The other letter case, one per model: digits and the sign read the same in both.
+    if let Some(seed) = choice_sampling::seed() {
+        // The letter case the seed chooses, one per model: digits and the sign read the same in
+        // both, so only a text with a letter digit takes an open value.
+        let text = value.to_str_radix(base);
+        if text.bytes().any(|byte| byte.is_ascii_alphabetic()) {
+            choice_sampling::taken(super::ChosenClass::LetterCase);
+        }
         return Ok(BuiltinResult::Value(string_term(
-            value.to_str_radix(base).to_ascii_uppercase(),
+            if choice_sampling::bit(seed) {
+                text.to_ascii_uppercase()
+            } else {
+                text
+            },
         )));
     }
     Ok(BuiltinResult::Value(string_term(value.to_str_radix(base))))

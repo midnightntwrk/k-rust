@@ -1168,6 +1168,7 @@ fn io_read(
         // a `choice_sampling` seed, a read that would take two or more takes fewer.
         let available = maximum.min(execution.remaining());
         if available >= 2 {
+            choice_sampling::taken(ChosenClass::ReadCount);
             execution.read(choice_sampling::read_count(seed, available))
         } else {
             execution.read(maximum)

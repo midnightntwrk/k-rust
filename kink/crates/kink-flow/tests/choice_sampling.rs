@@ -19,9 +19,15 @@
 //! - (c) a seeded admission that refuses what the default admits, or a seeded run the adapter
 //!   refuses or the clock cuts where the default's did not (rerun to tell load from a difference).
 //!
+//! - (d) a seeded run without a mark in which a site took an open value under the seed
+//!   (`choice_sampling::take_counts`, read around each run): a site computed a value the
+//!   definition leaves open and the run noted no mark for it, whether or not a leaf changed.
+//!
 //! A difference is a missing mark. It also reports, without failing, the work and coverage
-//! differences of unmarked runs (an unnoted read that changed no leaf) and, per class, how many
-//! marked runs some seed changed (the corpus's power for the class).
+//! differences of unmarked runs (an unnoted read that changed no leaf), per class how many marked
+//! runs some seed changed (the corpus's power for the class), and per class the open values the
+//! sites took under the seeds while compiling and admitting, in unmarked runs (failure (d)) and in
+//! marked runs: a class no site took a value of in a run is one the corpus does not reach.
 //!
 //! The file builds only with the feature (`required-features`), so no kink tier builds it; run
 //! `cargo test -p kink-flow --no-default-features --features choice-sampling --test
@@ -139,10 +145,15 @@ struct Observed {
     timed_out: bool,
     work: u64,
     coverage: String,
+    /// The open values the sites took during the run, per class.
+    taken: Taken,
 }
 
+/// Per class name, the open values the chooser's sites took (`choice_sampling::take_counts`).
+type Taken = BTreeMap<&'static str, u64>;
+
 impl Observed {
-    fn of(execution: &AdaptedExecution) -> Self {
+    fn of(execution: &AdaptedExecution, taken: Taken) -> Self {
         let end = |leaf: &AdaptedLeaf| (format!("{:?}", leaf.halt), state_text(leaf));
         let ends = execution.leaves().iter().filter(|leaf| complete(leaf));
         Self {
@@ -154,6 +165,7 @@ impl Observed {
             timed_out: execution.timed_out(),
             work: execution.work(),
             coverage: format!("{:?}", execution.coverage()),
+            taken,
         }
     }
 
@@ -183,19 +195,22 @@ impl Observed {
     }
 }
 
-/// A manifest admitted and run: `None` when the specification is refused, else each program's
-/// run, or the refusal of its admission or run.
-type Side = Option<BTreeMap<String, Result<Observed, String>>>;
+/// A manifest admitted and run: `None` when the specification is refused, else the open values
+/// taken while compiling and admitting, and each program's run, or the refusal of its admission
+/// or run.
+type Side = Option<(Taken, BTreeMap<String, Result<Observed, String>>)>;
 
 /// Admit `manifest` and run every admitted program, inside `seed`'s scope when there is one.
 fn side(manifest: &Path, seed: Option<u64>) -> Side {
     let go = || {
+        choice_sampling::take_counts();
         let manifest = FlowManifest::read(manifest).unwrap();
         let admission = admit(&manifest);
         let spec = admission.spec.as_ref()?;
         let budget = execution_budget(manifest.budget);
         let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
         let mut backend = input_backend(&spec.compiled, &manifest.spec.main_module).unwrap();
+        let compile = choice_sampling::take_counts();
         let mut runs = BTreeMap::new();
         for program in &admission.programs {
             let run = match &program.outcome {
@@ -210,12 +225,12 @@ fn side(manifest: &Path, seed: Option<u64>) -> Side {
                             max_work: None,
                         },
                     )
-                    .map(|execution| Observed::of(&execution))
+                    .map(|execution| Observed::of(&execution, choice_sampling::take_counts()))
                     .map_err(|failure| format!("run: {failure:?}")),
             };
             runs.insert(program.id.clone(), run);
         }
-        Some(runs)
+        Some((compile, runs))
     };
     match seed {
         Some(seed) => choice_sampling::with_seed(NonZeroU64::new(seed).unwrap(), go),
@@ -241,6 +256,17 @@ struct Tally {
     /// Per class: the marked runs whose list names it, and those some seed changed.
     marked: BTreeMap<String, usize>,
     changed: BTreeMap<String, usize>,
+    /// Per class: the open values the sites took under the seeds while compiling and admitting,
+    /// in seeded runs without a mark (each one also a failure (d)), and in marked seeded runs.
+    taken_compiling: BTreeMap<String, u64>,
+    taken_unmarked: BTreeMap<String, u64>,
+    taken_marked: BTreeMap<String, u64>,
+}
+
+fn add(into: &mut BTreeMap<String, u64>, taken: &Taken) {
+    for (class, count) in taken {
+        *into.entry((*class).to_owned()).or_default() += count;
+    }
 }
 
 /// The checks over `manifest`; see the module documentation.
@@ -250,15 +276,20 @@ fn check(manifest: &Path, tally: &mut Tally) {
         .unwrap_or(manifest)
         .display()
         .to_string();
-    let Some(default) = side(manifest, None) else {
+    let Some((_, default)) = side(manifest, None) else {
         return;
     };
     let seeded = SEEDS.map(|seed| (seed, side(manifest, Some(seed))));
+    for (_, side) in &seeded {
+        if let Some((compile, _)) = side {
+            add(&mut tally.taken_compiling, compile);
+        }
+    }
     for (program, default_run) in &default {
         let id = format!("{label} {program}");
         let Ok(default_run) = default_run else {
             for (seed, side) in &seeded {
-                if let Some(Ok(_)) = side.as_ref().and_then(|runs| runs.get(program)) {
+                if let Some(Ok(_)) = side.as_ref().and_then(|(_, runs)| runs.get(program)) {
                     tally.failures.push(format!(
                         "{id}: seed {seed} admits and runs what the default refuses"
                     ));
@@ -278,7 +309,7 @@ fn check(manifest: &Path, tally: &mut Tally) {
         let mut changed = false;
         for (seed, side) in &seeded {
             let context = format!("{id}, seed {seed}");
-            let run = match side.as_ref().map(|runs| runs.get(program)) {
+            let run = match side.as_ref().map(|(_, runs)| runs.get(program)) {
                 None => {
                     tally
                         .failures
@@ -292,6 +323,17 @@ fn check(manifest: &Path, tally: &mut Tally) {
                 }
                 Some(Some(Ok(run))) => run,
             };
+            if run.facts.implementation_chosen_values.is_empty() {
+                add(&mut tally.taken_unmarked, &run.taken);
+                if !run.taken.is_empty() {
+                    tally.failures.push(format!(
+                        "(d) {context}: the run has no mark and took the open values {:?}",
+                        run.taken
+                    ));
+                }
+            } else {
+                add(&mut tally.taken_marked, &run.taken);
+            }
             if run.timed_out {
                 tally
                     .failures

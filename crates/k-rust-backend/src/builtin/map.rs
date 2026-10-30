@@ -177,6 +177,7 @@ fn choice(arguments: &[Term]) -> HookResult<BuiltinResult> {
         }
         _ => match ordered_entries(&arguments[0]).and_then(|(_, entries)| {
             if let Some(seed) = choice_sampling::seed() {
+                choice_sampling::taken(super::ChosenClass::Item);
                 entries.get(choice_sampling::item(seed, entries.len()))
             } else {
                 entries.first()
@@ -679,6 +680,7 @@ fn keys_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Opt
     let keys = if let Some(seed) = choice_sampling::seed()
         && entries.len() >= 2
     {
+        choice_sampling::taken(super::ChosenClass::Order);
         choice_sampling::permuted(seed, entries)
             .map(|(key, _)| key.clone())
             .collect()
@@ -723,6 +725,7 @@ fn values(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option
     let values = if let Some(seed) = choice_sampling::seed()
         && entries.len() >= 2
     {
+        choice_sampling::taken(super::ChosenClass::Order);
         choice_sampling::permuted(seed, entries)
             .map(|(_, value)| value.clone())
             .collect()
