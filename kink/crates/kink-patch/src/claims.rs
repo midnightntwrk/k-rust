@@ -128,27 +128,27 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "total",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1156, 1671-1681; backend-port.md 323",
+        citation: "compatibility.md 1171, 1686-1696; backend-port.md 323",
     },
     TrustedClaim {
         claim: "functional",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1193, 1673; backend-port.md 323",
+        citation: "compatibility.md 1208, 1688; backend-port.md 323",
     },
     TrustedClaim {
         claim: "injective",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 1206 (a user-written injective is an axiom)",
+        citation: "compatibility.md 1221 (a user-written injective is an axiom)",
     },
     TrustedClaim {
         claim: "smt-hook",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2975; backend-port.md 316; k-rust-backend/src/smt.rs 230",
+        citation: "compatibility.md 2992; backend-port.md 316; k-rust-backend/src/smt.rs 230",
     },
     TrustedClaim {
         claim: "smtlib",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2974-2976; k-rust-backend/src/smt.rs 230",
+        citation: "compatibility.md 2991-2993; k-rust-backend/src/smt.rs 230",
     },
     TrustedClaim {
         claim: "preserves-definedness",
@@ -158,27 +158,27 @@ pub const TRUSTED_CLAIMS: &[TrustedClaim] = &[
     TrustedClaim {
         claim: "smt-lemma",
         removal: ClaimRemoval::Attribute,
-        citation: "compatibility.md 2975; backend-port.md 316; k-rust-backend/src/smt.rs 230, 1852-1863",
+        citation: "compatibility.md 2992; backend-port.md 316; k-rust-backend/src/smt.rs 230, 1867-1878",
     },
     TrustedClaim {
         claim: "simplification",
         removal: ClaimRemoval::Sentence,
-        citation: "compatibility.md 1156, 1412, 1591",
+        citation: "compatibility.md 1171, 1427, 1606",
     },
     TrustedClaim {
         claim: "ensures",
         removal: ClaimRemoval::Refused,
-        citation: "backend-port.md 342; compatibility.md 1078 (a false ensures makes the application bottom)",
+        citation: "backend-port.md 342; compatibility.md 1093 (a false ensures makes the application bottom)",
     },
     TrustedClaim {
         claim: "concrete-equation",
         removal: ClaimRemoval::Refused,
-        citation: "compatibility.md 1156 (concrete or symbolic equations are theorems of the executable equations)",
+        citation: "compatibility.md 1171 (concrete or symbolic equations are theorems of the executable equations)",
     },
     TrustedClaim {
         claim: "hooked-equation",
         removal: ClaimRemoval::Refused,
-        citation: "compatibility.md 1158 (a hooked symbol's equations are paired with the builtin it denotes)",
+        citation: "compatibility.md 1173 (a hooked symbol's equations are paired with the builtin it denotes)",
     },
 ];
 

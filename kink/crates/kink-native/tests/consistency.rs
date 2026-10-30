@@ -408,23 +408,25 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
+///
+/// kink27 INT1: the passages are byte-identical (same digests) and only moved, compatibility.md down 15 lines between 552 and 2367 (R1-PINS 1 line after 418, R1-BRACKET 14 lines of bracket exemption at 547-565), 17 from 2368 (R1-PINS 2 lines after 2367) and 18 after 2977 (R1-SOUND 1 line); re-pinned at their new lines.
 const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     (
         "docs/compatibility.md",
-        1082,
-        1084,
+        1097,
+        1099,
         "a350602f04b9a4d28ae88fa10bfe57340bcfe3f0f19a9260c9e926ac80f00e25",
     ),
     (
         "docs/compatibility.md",
-        1113,
-        1120,
+        1128,
+        1135,
         "16798fc021e1c3b22eee935971f2c7fcbfdddb5af1771ee22bdd0929d7d58bf1",
     ),
     (
         "docs/compatibility.md",
-        1136,
-        1149,
+        1151,
+        1164,
         "64b22da342b8e31eb42497885315d42af3fba138e6315797d46870ab2a47d202",
     ),
     (

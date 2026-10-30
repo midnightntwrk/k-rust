@@ -645,71 +645,73 @@ fn trusted_claims_are_pinned() {
 // WORD-03: both SMT passages remain byte-identical after domains/literal/helper/word
 // emission changes; their SHA-256 pins are unchanged. Source-derived functions are readings
 // of admitted source equations, not new user smt-lemma assumptions. Re-pin only their lines.
+// kink27 INT1: the passages are byte-identical (same digests) and only moved, compatibility.md down 15 lines between 552 and 2367 (R1-PINS 1 line after 418, R1-BRACKET 14 lines of bracket exemption at 547-565), 17 from 2368 (R1-PINS 2 lines after 2367) and 18 after 2977 (R1-SOUND 1 line); re-pinned at their new lines. smt.rs 1852-1863 moved byte-identical to 1867-1878 (R1-SOUND's single-point domain
+// state above it). TRUSTED_CLAIMS' citations (src/claims.rs) follow the pins.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     (
         "docs/compatibility.md",
-        1078,
-        1078,
+        1093,
+        1093,
         "bcee9ac9986b1b5c90868e046c36afc8da3dc45638790a4926d7ef624b18e8b7",
     ),
     (
         "docs/compatibility.md",
-        1156,
-        1156,
+        1171,
+        1171,
         "9fa7fb1ee4fde986bdc71fd04e907f47fe0d37e800774563526ce8a8bfaaeef3",
     ),
     (
         "docs/compatibility.md",
-        1158,
-        1158,
+        1173,
+        1173,
         "6ac61e27f16d7f63164621e446aa193f3d769bd4ce09ba332bf23b95c7c6fd13",
     ),
     (
         "docs/compatibility.md",
-        1188,
-        1193,
+        1203,
+        1208,
         "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
     ),
     (
         "docs/compatibility.md",
-        1206,
-        1206,
+        1221,
+        1221,
         "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
     ),
     (
         "docs/compatibility.md",
-        1412,
-        1412,
+        1427,
+        1427,
         "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
     ),
     (
         "docs/compatibility.md",
-        1566,
-        1566,
+        1581,
+        1581,
         "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
     ),
     (
         "docs/compatibility.md",
-        1591,
-        1591,
+        1606,
+        1606,
         "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
     ),
     (
         "docs/compatibility.md",
-        1671,
-        1681,
+        1686,
+        1696,
         "1c61218ca52c52d4e182fd7c3b475ebd3129ff57d44c41bb280f022eff21fb32",
     ),
     (
         "docs/compatibility.md",
-        2313,
-        2313,
+        2328,
+        2328,
         "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
     ),
     (
         "docs/compatibility.md",
-        2974,
-        2976,
+        2991,
+        2993,
         "06f1bdd33226940c3a77f600bf937ac94fe8601e4099065edee67ce69d9a612a",
     ),
     (
@@ -738,8 +740,8 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     ),
     (
         "crates/k-rust-backend/src/smt.rs",
-        1852,
-        1863,
+        1867,
+        1878,
         "a93c2de2f4221dc5c729b3e23a7426ee612300dfbddc13ff04275418b7291974",
     ),
     (

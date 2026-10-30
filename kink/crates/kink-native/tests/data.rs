@@ -462,6 +462,16 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// free-constructor `kseq(_, dotk)` spines, on which matching decides an instance by structure
 /// alone; `Selector::project` rebuilds the projection `selector_domain` compares the term with,
 /// at the selector's input sort.
+///
+/// kink27 INT1 (re-read on the combined tree): R1-PINS added three comment lines to
+/// `Selector::checked` naming the compiler's matching criterion; its code is unchanged, so it is
+/// re-pinned. R1-SIMPLE made `ceil_theory_condition` pass over a usable instance whose bindings
+/// hold an effect (`deferred::holds_impure_application`). Passing over an instance only removes
+/// a route by which the walk discharges a `\ceil`: the function then returns a later usable
+/// instance's condition (each instance of an unconditional ceil equation is an equality of the
+/// definition), or `None`, after which `ceil_term_node` either keeps the obligation owed or asks
+/// `value_production_ceil_equations`, a route pinned above. No route gains a `\top` it did not
+/// have, so `ground_defined` stays one-sided and it is re-pinned.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -707,7 +717,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "ceil_theory_condition",
-                "16d223f688828cbd210e28fc37d035a1fbeae34cfb1d189c77758ae1b2b221c4"
+                "590b7d321c3a2ed3e72cb3d1cd516d34bd0f1044dfa7c93beec837d3d7cdb92d"
             ),
             (
                 "irreducible_application_is_defined",
@@ -723,7 +733,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "selector_checked",
-                "c6f70063aaa675077a71b24b28969178f5bf2100fa1394e4c113742ffd500c9a"
+                "201dcb6d5ae0f7e08e02a891ddd0cdaf12b575c7ca14a2f6266fa5fd72358156"
             ),
             (
                 "map_lookup_domain",
