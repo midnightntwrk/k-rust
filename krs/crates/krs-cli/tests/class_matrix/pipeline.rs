@@ -222,9 +222,10 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
         let time = Duration::from_nanos(cost.nanos.load(Ordering::Relaxed));
         let each = time / u32::try_from(checks.max(1)).unwrap_or(u32::MAX);
         eprintln!(
-            "[krs-class] K6 judged {cases} cases ({:?}) in {checks} checks, {} of them in batches that lower otherwise together; {:.1} s of worker time, {:.2} s a check",
+            "[krs-class] K6 judged {cases} cases ({:?}) in {checks} checks, {} of them in batches that lower otherwise together; {} refusals of cases together that no case alone makes; {:.1} s of worker time, {:.2} s a check",
             settings.native,
             cost.apart.load(Ordering::Relaxed),
+            cost.joint.load(Ordering::Relaxed),
             time.as_secs_f64(),
             each.as_secs_f64(),
         );
@@ -232,13 +233,15 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
     judged
 }
 
-/// What K6 cost a run: the checks it made, the workers' time they took, and the cases judged
-/// alone because their batch lowers otherwise together.
+/// What K6 cost a run: the checks it made, the workers' time they took, the cases judged alone
+/// because their batch lowers otherwise together, and the refusals of cases together that no
+/// case alone makes.
 #[derive(Default)]
 struct NativeCost {
     checks: AtomicUsize,
     nanos: AtomicU64,
     apart: AtomicUsize,
+    joint: AtomicUsize,
 }
 
 /// A worker's part in K6.
@@ -379,9 +382,8 @@ impl Worker<'_> {
     }
 
     /// K6 over a collected batch: the definition of each case that KRS accepted and the table does
-    /// not refuse, the base's descriptors and the case's, judged as `krs check` judges it. The
-    /// cases are judged together when their definition together is exactly theirs
-    /// ([`lowers_as_alone`]), and each alone otherwise.
+    /// not refuse, the base's descriptors and the case's, judged as `krs check` judges it: the
+    /// cases together, bisected ([`Self::native_bisect`]), or each alone in the alone mode.
     fn check_native(
         &self,
         collected: &CollectedDefinition,
@@ -404,15 +406,12 @@ impl Worker<'_> {
             .filter(|placed| judged_cases.contains(placed.case.id.as_str()))
             .collect::<Vec<_>>();
         let mut verdicts = BTreeMap::new();
-        if run.alone || cases.len() < 2 || !lowers_as_alone(collected, all, &cases, base, judged) {
-            if cases.len() > 1 && !run.alone {
-                run.cost.apart.fetch_add(cases.len(), Ordering::Relaxed);
-            }
+        if run.alone {
             for placed in cases {
-                self.native_bisect(collected, all, &[placed], &mut verdicts);
+                self.native_bisect(collected, all, &[placed], base, judged, &mut verdicts);
             }
         } else {
-            self.native_bisect(collected, all, &cases, &mut verdicts);
+            self.native_bisect(collected, all, &cases, base, judged, &mut verdicts);
         }
         for judged in judged {
             judged.native = verdicts.remove(&judged.id);
@@ -420,21 +419,39 @@ impl Worker<'_> {
     }
 
     /// Judge the definition of the base and `cases` together; on a refusal, each half, down to a
-    /// case alone, whose verdict is its own definition's. An accepted definition that holds a
-    /// case's definition stands for it: a refusal of `krs check` is of a sentence the definition
-    /// has, or of a feature one of its sentences needs, never of a sentence it lacks, so adding
-    /// the other cases' sentences cannot hide one. `KRS_CLASS_NATIVE=alone` judges each case
-    /// alone, which must give the same verdicts.
+    /// case alone, whose verdict is its own definition's.
+    ///
+    /// Two conditions make a verdict on several cases together one on each case's own definition.
+    /// The definition together is exactly theirs, which [`lowers_as_alone`] checks for every set
+    /// of two or more cases, the halves of a bisection included (an emission, under 0.01 s beside
+    /// a check's 1 to 2 s); a set that lowers otherwise is judged case by case. And an accepted
+    /// definition that holds a case's definition accepts it: this harness assumes that a refusal
+    /// of `krs check` is of a sentence the definition has, or of a feature one of its sentences
+    /// needs, never of a sentence it lacks, so the other cases' sentences cannot hide one. A
+    /// refusal only the cases together make is no case's: its halves' verdicts stand, and the run
+    /// prints it and counts it, since a flaky refusal looks the same.
+    /// `KRS_CLASS_NATIVE=alone` judges each case alone, without the assumption; the two modes
+    /// must give the same verdicts (the shard's TSV, `k6/` lines).
     fn native_bisect(
         &self,
         collected: &CollectedDefinition,
         all: &[Placed<'_>],
         cases: &[&Placed<'_>],
+        base: Option<&[String]>,
+        judged: &[Judged],
         out: &mut BTreeMap<String, Native>,
     ) {
-        let Some(run) = self.native else {
+        // No case, no verdict: the base alone is no case's definition.
+        let Some(run) = self.native.filter(|_| !cases.is_empty()) else {
             return;
         };
+        if cases.len() > 1 && !lowers_as_alone(collected, all, cases, base, judged) {
+            run.cost.apart.fetch_add(cases.len(), Ordering::Relaxed);
+            for placed in cases {
+                self.native_bisect(collected, all, &[placed], base, judged, out);
+            }
+            return;
+        }
         let ids = cases
             .iter()
             .map(|placed| placed.case.id.as_str())
@@ -474,10 +491,22 @@ impl Worker<'_> {
             (refused, [placed]) => {
                 out.insert(placed.case.id.clone(), refused);
             }
-            (_, _) => {
+            (refused, _) => {
                 let (left, right) = cases.split_at(cases.len() / 2);
-                self.native_bisect(collected, all, left, out);
-                self.native_bisect(collected, all, right, out);
+                self.native_bisect(collected, all, left, base, judged, out);
+                self.native_bisect(collected, all, right, base, judged, out);
+                let alone = cases
+                    .iter()
+                    .any(|placed| matches!(out.get(&placed.case.id), Some(Native::Refused { .. })));
+                if !alone {
+                    run.cost.joint.fetch_add(1, Ordering::Relaxed);
+                    eprintln!(
+                        "[krs-class] K6: {} cases together are refused, none alone ({}): {}",
+                        cases.len(),
+                        cases[0].case.id,
+                        refused.signature()
+                    );
+                }
             }
         }
     }

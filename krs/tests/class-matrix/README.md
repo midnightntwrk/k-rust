@@ -109,9 +109,15 @@ the descriptors of the base and its own. A case is judged by
   and on the `native-rust` route the definition load of `krs run`, `krs search` and `krs prove`.
   K6 asks whether any `krs` command can use the K KRS wrote: a case KRS accepts but a native
   route refuses cannot be built, run or proved, however good its K. A refusal or a panic is a
-  deviation keyed `k6/<case ID>`, its signature the refusing route or command (`native-rust`,
-  `native-llvm`, `every native route`, `load` for the definition load, `emit-k`) and the code of
-  each error, for example `every native route IllegalFunctionOnLhs`.
+  deviation keyed `k6/<case ID>`. A refusal's signature is the refusing route or command, as the
+  note `krs check` adds names it (`native-rust`, `native-llvm`, `every native route`, `load` for
+  the definition load, `emit-k`), and the code of each error, for example `every native route
+  IllegalFunctionOnLhs`. `krs check` reports a panic of one of its route workers as the uncoded
+  error "a check worker panicked", before any route note, so its signature is `uncoded: a check
+  worker panicked` and names no route (a panic in the definition load is reported, and signed,
+  under the `native-rust` and `load` notes); a panic on the harness's own thread (lowering,
+  emission, the capability tables) is `panic: <message>`. The TSV's `k6-refusal` lines hold each
+  refusal's messages.
 
   The native compile of a base costs far more than a case adds to it (on 2026-10-30, about 2 s a
   check for the machine base, the case's lowering under 0.01 s), so the accepted cases of a batch
@@ -146,9 +152,13 @@ To iterate on a few cases, run the test directly with a glob over case IDs, and 
 per case and verdict to a directory:
 
 ```sh
-KRS_CLASS_FILTER='readable/result/pc/*' KRS_CLASS_OUT=/tmp/class \
-  cargo test -p krs-cli --no-default-features --test class_matrix -- --ignored readable
+z3=${KRS_Z3_LIB:-$(ls -d /nix/store/*-z3-4.12.5-lib/lib | head -n 1)}
+LIBRARY_PATH=$z3 LD_LIBRARY_PATH=$z3 KRS_CLASS_FILTER='readable/result/pc/*' KRS_CLASS_OUT=/tmp/class \
+  cargo test -p krs-cli --no-default-features --features z3-inference --test class_matrix -- --ignored readable
 ```
+
+K6 judges with the sort inference `krs check` uses, Z3's, so the test refuses to judge K6 when it
+was built without `z3-inference`; `KRS_CLASS_NATIVE=0` runs the other checks without it.
 
 ## Recording the accepted K
 

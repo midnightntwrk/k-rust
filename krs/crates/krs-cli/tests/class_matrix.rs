@@ -194,6 +194,14 @@ fn settings() -> (Settings, Option<tempfile::TempDir>) {
         },
         refused_by_table: BTreeSet::new(),
     };
+    // K6 must make the judgement `krs check` makes, whose native compile infers sorts with Z3: a
+    // build without the solver infers them by another engine and could judge otherwise.
+    assert!(
+        settings.native == NativeMode::Off || cfg!(feature = "z3-inference"),
+        "K6 judges as `krs check` does, with Z3's sort inference, but this test was built without \
+         `--features z3-inference`: build it with that feature and Z3 on the link path (as \
+         scripts/krs-class.sh does), or skip K6 with KRS_CLASS_NATIVE=0"
+    );
     (settings, guard)
 }
 
