@@ -233,11 +233,12 @@ theorem Eqn.«hasNeg(_)_FREEKEY_Bool_Map_2» (Gen0 : SortMap)
   intros
   first
   | k2l_eqn_rows_o K.«hasNeg(_)_FREEKEY_Bool_Map» [(howise0, K.«hasNeg(_)_FREEKEY_Bool_Map».rule1)] []
-  | k2l_eqn_a [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»]
-  | (unfold K.«hasNeg(_)_FREEKEY_Bool_Map» K.«hasNeg(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_b [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»])
-  | (unfold K.«hasNeg(_)_FREEKEY_Bool_Map» K.«hasNeg(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_c [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»])
-  | (unfold K.«hasNeg(_)_FREEKEY_Bool_Map» K.«hasNeg(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_o [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»]
+    | (unfold K.«hasNeg(_)_FREEKEY_Bool_Map» K.«hasNeg(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_b [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»])
+    | (unfold K.«hasNeg(_)_FREEKEY_Bool_Map» K.«hasNeg(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_c [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»])
+    | (unfold K.«hasNeg(_)_FREEKEY_Bool_Map» K.«hasNeg(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_o [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»]))
 
 /-- isNat(_)_FREEKEY_Bool_KItem equation 1 -/
 @[k2l_equation]
@@ -246,10 +247,11 @@ theorem Eqn.«isNat(_)_FREEKEY_Bool_KItem_1» (I : SortInt) :
   intros
   first
   | k2l_eqn_row K.«isNat(_)_FREEKEY_Bool_KItem» [K.«isNat(_)_FREEKEY_Bool_KItem», K.«isNat(_)_FREEKEY_Bool_KItem».rule1]
-  | k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]
-  | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_b [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
-  | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_c [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]
+    | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_b [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
+    | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_c [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]))
 
 /-- isNat(_)_FREEKEY_Bool_KItem equation 2 -/
 @[k2l_equation]
@@ -259,11 +261,12 @@ theorem Eqn.«isNat(_)_FREEKEY_Bool_KItem_2» (Gen0 : SortKItem)
   intros
   first
   | k2l_eqn_rows_o K.«isNat(_)_FREEKEY_Bool_KItem» [(howise0, K.«isNat(_)_FREEKEY_Bool_KItem».rule1)] []
-  | k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]
-  | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_b [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
-  | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_c [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
-  | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_o [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]
+    | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_b [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
+    | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_c [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
+    | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_o [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»]))
 
 /-- jobsOk(_)_FREEKEY_Bool_JobsCell equation 1 -/
 @[k2l_equation]
@@ -363,11 +366,12 @@ theorem Eqn.«twoPos(_)_FREEKEY_Bool_Map_2» (Gen0 : SortMap)
   intros
   first
   | k2l_eqn_rows_o K.«twoPos(_)_FREEKEY_Bool_Map» [(howise0, K.«twoPos(_)_FREEKEY_Bool_Map».rule1)] []
-  | k2l_eqn_a [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»]
-  | (unfold K.«twoPos(_)_FREEKEY_Bool_Map» K.«twoPos(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_b [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»])
-  | (unfold K.«twoPos(_)_FREEKEY_Bool_Map» K.«twoPos(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_c [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»])
-  | (unfold K.«twoPos(_)_FREEKEY_Bool_Map» K.«twoPos(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_o [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»]
+    | (unfold K.«twoPos(_)_FREEKEY_Bool_Map» K.«twoPos(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_b [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»])
+    | (unfold K.«twoPos(_)_FREEKEY_Bool_Map» K.«twoPos(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_c [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»])
+    | (unfold K.«twoPos(_)_FREEKEY_Bool_Map» K.«twoPos(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_o [K.«twoPos(_)_FREEKEY_Bool_Map».rule1, K.«twoPos(_)_FREEKEY_Bool_Map»]))
 
 /-- simplification 72139ee1f2b9 (domains.md) -/
 theorem Simp.s_72139ee1f2b9 (B : SortBool) :

@@ -208,7 +208,8 @@ prio_claims() {
   # opcode (a target's witnesses named by partial functions' values), over its family of opcodes (the
   # decoder by its equation whose `requires` holds, the two tables at symbolic fields by cases), and
   # the family with source and destination swapped, false and refuted by hand (prio-open.txt,
-  # demos/claims/hand/PrioHand.lean)
+  # demos/claims/hand/PrioHand.lean); and four of kprio's equations by the row route alone
+  # (demos/claims/hand/PrioRows.lean)
   phase "prio claims"
   local OUTP=$GEN/prio-claims
   if ! "$KRUST" kcompile "$T/demos/claims/specs/prio-spec.k" --main-module PRIO-SPEC --definition-module PRIO \
@@ -222,9 +223,14 @@ prio_claims() {
       > "$L/claims-prio-gen.log" 2>&1; then
     ok "claims-prio gen"
     cp "$T/demos/claims/hand/PrioHand.lean" "$OUTP/KPrioClaims/Hand.lean"
+    cp "$T/demos/claims/hand/PrioRows.lean" "$OUTP/KPrioClaims/Rows.lean"
     cp "$OUTP/claims.toml" "$MEAS/claims-prio.toml"
     if lbuild "$OUTP" build-claims-prio; then
       ok "build claims-prio" "$L/build-claims-prio.log"
+      # the row route alone on kprio's equations, which the other proofs would also close
+      if lbuild "$OUTP" build-prio-rows KPrioClaims.Rows; then
+        ok "prio rows" "$L/build-prio-rows.log"
+      else bad "prio rows" "$L/build-prio-rows.log"; fi
       if lbuild "$OUTP" build-claims-prio-guard KPrioClaimsTest; then
         ok "guard claims-prio" "$L/build-claims-prio-guard.log"
       else bad "guard claims-prio" "$L/build-claims-prio-guard.log"; fi

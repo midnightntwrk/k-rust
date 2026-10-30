@@ -37,10 +37,11 @@ theorem Eqn.«double(_)_PEANO_Nat_Nat_1» (N : SortNat) :
   intros
   first
   | k2l_eqn_row K.«double(_)_PEANO_Nat_Nat» [K.«double(_)_PEANO_Nat_Nat», K.«double(_)_PEANO_Nat_Nat».rule1]
-  | k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]
-  | (unfold K.«double(_)_PEANO_Nat_Nat» K.«double(_)_PEANO_Nat_Nat».rule1; k2l_eqn_b [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
-  | (unfold K.«double(_)_PEANO_Nat_Nat» K.«double(_)_PEANO_Nat_Nat».rule1; k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]
+    | (unfold K.«double(_)_PEANO_Nat_Nat» K.«double(_)_PEANO_Nat_Nat».rule1; k2l_eqn_b [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
+    | (unfold K.«double(_)_PEANO_Nat_Nat» K.«double(_)_PEANO_Nat_Nat».rule1; k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]))
 
 /-- even(_)_PEANO_B_Nat equation 1 -/
 @[k2l_equation]
@@ -77,10 +78,11 @@ theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_1» (N : SortNat) :
   intros
   first
   | k2l_eqn_row K.«pick(_,_)_PEANO_Nat_B_Nat» [K.«pick(_,_)_PEANO_Nat_B_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1]
-  | k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]
-  | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_b [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
-  | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]
+    | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_b [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
+    | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]))
 
 /-- pick(_,_)_PEANO_Nat_B_Nat equation 2 -/
 @[k2l_equation]
@@ -90,11 +92,12 @@ theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_2» (Gen0 : SortB) (N : SortNat)
   intros
   first
   | k2l_eqn_rows_o K.«pick(_,_)_PEANO_Nat_B_Nat» [(howise0, K.«pick(_,_)_PEANO_Nat_B_Nat».rule1)] [K.«pick(_,_)_PEANO_Nat_B_Nat».rule2]
-  | k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]
-  | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_b [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
-  | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_c [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
-  | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_o [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]
+    | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_b [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
+    | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_c [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
+    | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_o [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]))
 
 /-- plus(_,_)_PEANO_Nat_Nat_Nat equation 1 -/
 @[k2l_equation]

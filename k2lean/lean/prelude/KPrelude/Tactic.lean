@@ -644,6 +644,11 @@ def withRowsBudget (k : Nat) (x : TacticM Unit) : TacticM Unit := do
     withReader (fun ctx => { ctx with initHeartbeats := now, maxHeartbeats := ctx.maxHeartbeats * k })
       (runInBase run)
 
+/-- `k2l_fresh_budget t`: `t` with the module's budget counted from its start, as if it were the
+first proof tried: the alternatives tried before it (a row route that failed) do not shorten it.
+A timeout of `t` stays a timeout, a failure of the theorem. -/
+elab "k2l_fresh_budget " t:tactic : tactic => withCurrHeartbeats (evalTactic t)
+
 /-- After the rows up to `N` are unfolded: decide the rows' tests from the premises (a bit range
 read as arithmetic, an `if` by `k2l_arith_omega`), case on the partial calls of the row and of the
 right-hand side, never on `f`'s own rows (`k2l_case_call_except`), and close each case. -/

@@ -226,10 +226,11 @@ theorem Eqn.«get(_,_)_COUNTER_Int_Map_Id_1» (M : SortMap) (X : SortId)
   intros
   first
   | k2l_eqn_row K.«get(_,_)_COUNTER_Int_Map_Id» [K.«get(_,_)_COUNTER_Int_Map_Id», K.«get(_,_)_COUNTER_Int_Map_Id».rule1]
-  | k2l_eqn_a [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]
-  | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_b [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
-  | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_c [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]
+    | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_b [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
+    | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_c [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]))
 
 /-- get(_,_)_COUNTER_Int_Map_Id equation 2 -/
 @[k2l_equation]
@@ -239,11 +240,12 @@ theorem Eqn.«get(_,_)_COUNTER_Int_Map_Id_2» (Gen0 : SortMap) (Gen1 : SortId)
   intros
   first
   | k2l_eqn_rows_o K.«get(_,_)_COUNTER_Int_Map_Id» [(howise0, K.«get(_,_)_COUNTER_Int_Map_Id».rule1)] [K.«get(_,_)_COUNTER_Int_Map_Id».rule2]
-  | k2l_eqn_a [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]
-  | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_b [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
-  | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_c [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
-  | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_o [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]
+    | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_b [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
+    | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_c [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
+    | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_o [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»]))
 
 /-- isInt equation 1 -/
 @[k2l_equation]
@@ -252,10 +254,11 @@ theorem Eqn.isInt_1 (Int : SortInt) :
   intros
   first
   | k2l_eqn_row K.isInt [K.isInt, K.isInt.rule1]
-  | k2l_eqn_a [K.isInt.rule1, K.isInt]
-  | (unfold K.isInt K.isInt.rule1; k2l_eqn_b [K.isInt.rule1, K.isInt]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt])
-  | (unfold K.isInt K.isInt.rule1; k2l_eqn_c [K.isInt.rule1, K.isInt])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.isInt.rule1, K.isInt]
+    | (unfold K.isInt K.isInt.rule1; k2l_eqn_b [K.isInt.rule1, K.isInt]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt])
+    | (unfold K.isInt K.isInt.rule1; k2l_eqn_c [K.isInt.rule1, K.isInt]))
 
 /-- isInt equation 2 -/
 @[k2l_equation]
@@ -265,11 +268,12 @@ theorem Eqn.isInt_2 (K_1 : SortK)
   intros
   first
   | k2l_eqn_rows_o K.isInt [(howise0, K.isInt.rule1)] []
-  | k2l_eqn_a [K.isInt.rule1, K.isInt]
-  | (unfold K.isInt K.isInt.rule1; k2l_eqn_b [K.isInt.rule1, K.isInt]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt])
-  | (unfold K.isInt K.isInt.rule1; k2l_eqn_c [K.isInt.rule1, K.isInt])
-  | (unfold K.isInt K.isInt.rule1; k2l_eqn_o [K.isInt.rule1, K.isInt])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.isInt.rule1, K.isInt]
+    | (unfold K.isInt K.isInt.rule1; k2l_eqn_b [K.isInt.rule1, K.isInt]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.isInt.rule1, K.isInt])
+    | (unfold K.isInt K.isInt.rule1; k2l_eqn_c [K.isInt.rule1, K.isInt])
+    | (unfold K.isInt K.isInt.rule1; k2l_eqn_o [K.isInt.rule1, K.isInt]))
 
 /-- minInt(_,_)_INT-COMMON_Int_Int_Int equation 1 -/
 @[k2l_equation]
@@ -324,10 +328,11 @@ theorem Eqn.«project:Int_1» (K_1 : SortInt) :
   intros
   first
   | k2l_eqn_row K.«project:Int» [K.«project:Int», K.«project:Int».rule1]
-  | k2l_eqn_a [K.«project:Int».rule1, K.«project:Int»]
-  | (unfold K.«project:Int» K.«project:Int».rule1; k2l_eqn_b [K.«project:Int».rule1, K.«project:Int»]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«project:Int».rule1, K.«project:Int»])
-  | (unfold K.«project:Int» K.«project:Int».rule1; k2l_eqn_c [K.«project:Int».rule1, K.«project:Int»])
+  | k2l_fresh_budget (first
+    | k2l_eqn_a [K.«project:Int».rule1, K.«project:Int»]
+    | (unfold K.«project:Int» K.«project:Int».rule1; k2l_eqn_b [K.«project:Int».rule1, K.«project:Int»]; done)
+    | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«project:Int».rule1, K.«project:Int»])
+    | (unfold K.«project:Int» K.«project:Int».rule1; k2l_eqn_c [K.«project:Int».rule1, K.«project:Int»]))
 
 /-- pushList equation 1 -/
 @[k2l_equation]

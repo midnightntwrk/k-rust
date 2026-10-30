@@ -1343,14 +1343,21 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
                         s.normalizers.join(", ")
                     )
                 };
-                let row = row_route(s, defs);
-                let mut t = format!(
-                    "by\n  intros\n  first{row}{norm}\n  | k2l_eqn_a [{own}]{cases}\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
+                let mut alts = format!(
+                    "{norm}\n  | k2l_eqn_a [{own}]{cases}\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
                 );
                 if owise {
-                    t.push_str(&format!("\n  | ({first}{eqn_o} [{own}])"));
+                    alts.push_str(&format!("\n  | ({first}{eqn_o} [{own}])"));
                 }
-                t
+                // after a row route, the other proofs get the budget they had without it: the
+                // heartbeats the row route spent before failing are not theirs to lose
+                let row = row_route(s, defs);
+                if row.is_empty() {
+                    format!("by\n  intros\n  first{alts}")
+                } else {
+                    let alts = alts.replace("\n  | ", "\n    | ");
+                    format!("by\n  intros\n  first{row}\n  | k2l_fresh_budget (first{alts})")
+                }
             }
         };
         if open.contains(&s.name) {
@@ -1704,6 +1711,13 @@ mod tests {
         assert!(
             o.contains(&format!(
                 "  first\n  | k2l_eqn_rows_o {f} [(howise0, {f}.rule1), (howise1, {f}.rule2), (howise2, {f}.rule3)] []\n"
+            )),
+            "{o}"
+        );
+        // after the row route, the other proofs with a budget of their own
+        assert!(
+            o.contains(&format!(
+                "  | k2l_eqn_row {f} [{f}, {f}.rule1, {f}.rule2, {f}.rule3]\n  | k2l_fresh_budget (first\n    | k2l_eqn_a ["
             )),
             "{o}"
         );
