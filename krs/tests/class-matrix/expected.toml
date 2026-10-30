@@ -1175,7 +1175,9 @@ at = "spelling"
 # Bytes, an Id, a `Word` token, a map, a set, a list, a cell fragment, or a term of `KItem` (`x`, a
 # `let` block over `x`, `Wrap::<KItem>(x)`, a list's or a map's element). A static clause says its
 # production's application is its result, which a term of another sort cannot be wherever the
-# production's sort is required; KRS accepts it today (finding NT-12-3)
+# production's sort is required; KRS accepts it today (finding NT-12-3). The mistake is judged by
+# the result's sort, not by the value one binding gives it: a `KItem` result at a `Stmt` production
+# is undefined for the bindings that are no `Stmt`, however a witness at `x` = 1 runs.
 [[refuse]]
 match = 'notation/desugar/result-root/{k::builtin::list::get(k::builtin::list::item(x)\, 0),k::builtin::list::item(x)[0],k::builtin::map::empty(),k::builtin::map::empty().contains_key(x),k::builtin::map::empty().update(x\, 1),k::builtin::map::empty()[x],k::builtin::map::get(k::builtin::map::empty()\, x),k::builtin::map::in_keys(x\, k::builtin::map::empty()),k::builtin::map::update(k::builtin::map::empty()\, 0\, 1),k::builtin::map::update(k::builtin::map::empty()\, x\, 1),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, 2\, 3),k::builtin::set::empty(),k::builtin::set::item(x),k::builtin::set::item(x).to_list(),k::builtin::set::to_list(k::builtin::set::item(x)),k::builtin::set::union(k::builtin::set::empty()\, k::builtin::set::item(x)),k::builtin::set::union(k::builtin::set::item(x)\, k::builtin::set::item(1)),map![0 -> 1],map![],map![x -> 1\, ..k::builtin::map::empty()],map![x -> 1\, 2 -> 3],set![],set![x\, ..k::builtin::set::empty()],set![x\, 1],set![x]}'
 class = "static-result-sort"
