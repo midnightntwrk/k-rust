@@ -806,7 +806,9 @@ fn a_trivial_leaf_on_a_merged_state_names_the_undefined_step_of_its_configuratio
 /// `g2`; `pr: p(X) => q(X) requires X =/=Int 0` leaves the remainder `X ==Int 0`, which the
 /// solver finds satisfiable beside the path's `h(X) =/=Int 3` (it does not know `h`), and whose
 /// normalization evaluates `h(0)`, undefined, so the remainder is a `Trivial` leaf of `\ceil`
-/// `h(X)`; with `g`, a total function that is `3` at `0`, it is a `Vacuous` leaf.
+/// `h(X)`; with `g`, a total function that is `3` at `0`, it is a `Vacuous` leaf. `g`'s
+/// equation applies to concrete arguments only, so the solver does not know `g` either: no
+/// summary reads a concrete equation, and one that did would refute the remainder itself.
 #[cfg(feature = "z3")]
 #[test]
 fn a_refuted_remainder_below_a_merged_state_names_the_witness_paths_producing_rule() {
@@ -837,7 +839,7 @@ fn a_refuted_remainder_below_a_merged_state_names_the_witness_paths_producing_ru
                     g{}(X0:SortInt{}),
                     \and{SortInt{}}(\dv{SortInt{}}("3"), \top{SortInt{}}())
                 )
-            ) [label{}("g0")]
+            ) [label{}("g0"), concrete{}()]
             axiom{R} \implies{R}(
                 \and{R}(
                     \top{R}(),

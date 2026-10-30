@@ -148,6 +148,7 @@ struct Body<'a> {
     state: &'a mut TranslationState,
     decisions: FxHashMap<*const Decision, (SExpr, SExpr)>,
     domains: &'a std::collections::BTreeMap<Term, Arc<[Predicate]>>,
+    formal: &'a Term,
     bindings: Vec<(String, SExpr)>,
     remaining: &'a mut usize,
 }
@@ -177,6 +178,12 @@ impl Body<'_> {
                 };
                 Ok((value, domain))
             })(),
+            // The summary is not installed yet, so this is the ordinary pure total UF of the
+            // call at its formal parameters, as the declared-total fallback below.
+            Decision::Opaque => self
+                .state
+                .translate_term(self.formal)
+                .map(|value| (value, SExpr::atom("true"))),
             Decision::If { test, yes, no } => {
                 let test = match test {
                     Atom::Bool(term) => self.state.translate_term(term),
@@ -270,6 +277,7 @@ fn emit(
         state,
         decisions: FxHashMap::default(),
         domains: &summary.domains,
+        formal: &summary.formal,
         bindings: Vec::new(),
         remaining,
     };

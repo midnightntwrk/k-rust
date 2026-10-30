@@ -30,6 +30,10 @@ module MAIN
   symbol dispatch{{}}(SortOp{{}}, SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
   symbol outer{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
   symbol effect{{}}() : SortInt{{}} [function{{}}(), total{{}}(), impure{{}}()]
+  symbol table{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+  symbol partialTable{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+  symbol opTable{{}}(SortInt{{}}) : SortOp{{}} [function{{}}(), total{{}}()]
+  symbol opTable2{{}}(SortInt{{}}) : SortOp{{}} [function{{}}(), total{{}}()]
   {extra}
 endmodule []"#
     )
@@ -85,6 +89,7 @@ fn equation(lhs: &str, rhs: &str, guard: Option<&str>, attrs: &str) -> String {
         |g| format!("\\equals{{SortBool{{}},R}}({g},{})", boolv(true)),
     );
     let mut lhs = lhs.to_owned();
+    let mut result = "SortInt";
     if !attrs.contains("simplification")
         && let Pattern::Application { symbol, arguments } = &parse_pattern(&lhs).unwrap()
     {
@@ -96,9 +101,14 @@ fn equation(lhs: &str, rhs: &str, guard: Option<&str>, attrs: &str) -> String {
             }
             "ignore" => vec!["SortInt"],
             "dispatch" => vec!["SortOp", "SortInt"],
-            "magnitude" | "outer" => vec!["SortInt"],
+            "magnitude" | "outer" | "table" | "partialTable" | "opTable" | "opTable2" => {
+                vec!["SortInt"]
+            }
             other => panic!("fixture signature for {other}"),
         };
+        if symbol.name.starts_with("opTable") {
+            result = "SortOp";
+        }
         let mut binders = "\\top{R}()".to_owned();
         let mut formals = Vec::new();
         for (i, (argument, sort)) in arguments.iter().zip(sorts).enumerate().rev() {
@@ -112,7 +122,7 @@ fn equation(lhs: &str, rhs: &str, guard: Option<&str>, attrs: &str) -> String {
         condition = format!("\\and{{R}}({condition},{binders})");
     }
     format!(
-        "axiom{{R}} \\implies{{R}}({condition}, \\equals{{SortInt{{}},R}}({lhs}, \\and{{SortInt{{}}}}({rhs},\\top{{SortInt{{}}}}()))) [{attrs}]"
+        "axiom{{R}} \\implies{{R}}({condition}, \\equals{{{result}{{}},R}}({lhs}, \\and{{{result}{{}}}}({rhs},\\top{{{result}{{}}}}()))) [{attrs}]"
     )
 }
 
@@ -132,6 +142,7 @@ fn evaluate(d: &BackendDefinition, summary: &Summary, inputs: Vec<Term>) -> Term
     loop {
         match decision {
             Decision::Value(t) => return value(t),
+            Decision::Opaque => return substitute(&summary.formal, &bindings),
             Decision::If { test, yes, no } => {
                 let holds = match test {
                     Atom::Bool(t) => boolean(&value(t)).unwrap(),
@@ -216,12 +227,22 @@ fn compound_boolean_path_guards_form_their_actual_source_partition() {
         .filter(|line| !line.contains("not{}(Q:SortBool{})"))
         .collect::<Vec<_>>()
         .join("\n");
+    // `twoBits` is declared total: where no row applies, it is its own application.
     let d = definition(&incomplete);
+    let summary = Catalog::new(&d)
+        .admit(&term(&d, "twoBits{}(P:SortBool{},Q:SortBool{})"))
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        Catalog::new(&d)
-            .admit(&term(&d, "twoBits{}(P:SortBool{},Q:SortBool{})"))
-            .unwrap(),
-        Err(Rejected::Incomplete)
+        evaluate(&d, &summary, vec![Term::bool(false), Term::bool(false)]),
+        term(
+            &d,
+            &format!("twoBits{{}}({},{})", boolv(false), boolv(false))
+        )
+    );
+    assert_eq!(
+        evaluate(&d, &summary, vec![Term::bool(false), Term::bool(true)]),
+        Term::int(2)
     );
     // The same spelling with a changed source hook has a different truth table: these
     // rows then really overlap. A name or a total declaration does not supply conjunction.
@@ -617,8 +638,9 @@ fn missing_overlapping_restricted_unbound_and_partial_rows_do_not_become_summari
     let one = int(1);
     let true_lhs = format!("bit{{}}({})", boolv(true));
     let false_lhs = format!("bit{{}}({})", boolv(false));
+    // A total function's missing rows and a function equation's priority are admitted
+    // (`integer_literal_rows_and_priorities_form_the_source_cascade`).
     let cases = [
-        (equation(&true_lhs, &one, None, ""), Rejected::Incomplete),
         (
             [
                 bit_rows(),
@@ -630,14 +652,6 @@ fn missing_overlapping_restricted_unbound_and_partial_rows_do_not_become_summari
         (
             [
                 equation(&true_lhs, &one, None, "concrete{}()"),
-                equation(&false_lhs, &zero, None, ""),
-            ]
-            .join("\n"),
-            Rejected::Restricted,
-        ),
-        (
-            [
-                equation(&true_lhs, &one, None, "priority{}(\"40\")"),
                 equation(&false_lhs, &zero, None, ""),
             ]
             .join("\n"),
@@ -667,6 +681,147 @@ fn missing_overlapping_restricted_unbound_and_partial_rows_do_not_become_summari
             .unwrap();
         assert_eq!(result, Err(expected), "{rules}");
     }
+}
+
+/// A table as `krs` emits one: integer literal rows, an `owise` row, and a row of a higher
+/// priority, which each lower row excludes where it applies.
+#[test]
+fn integer_literal_rows_and_priorities_form_the_source_cascade() {
+    let negative = format!("lt{{}}(X:SortInt{{}},{})", int(0));
+    let d = definition(
+        &[
+            equation(
+                "table{}(X:SortInt{})",
+                &int(1),
+                Some(&negative),
+                "priority{}(\"40\")",
+            ),
+            equation(&format!("table{{}}({})", int(0)), &int(10), None, ""),
+            equation(&format!("table{{}}({})", int(1)), &int(11), None, ""),
+            equation("table{}(X:SortInt{})", &int(0), None, "owise{}()"),
+        ]
+        .join("\n"),
+    );
+    let summary = Catalog::new(&d)
+        .admit(&term(&d, "table{}(V:SortInt{})"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(summary.source_rules.len(), 4);
+    for (input, expected) in [(-3, 1), (0, 10), (1, 11), (7, 0)] {
+        let value = evaluate(&d, &summary, vec![term(&d, &int(input))]);
+        assert_eq!(
+            crate::builtin::read_int(&value).unwrap(),
+            expected.into(),
+            "{input}"
+        );
+    }
+    // Two rows of one literal at one priority still overlap.
+    let d = definition(
+        &[
+            equation(&format!("table{{}}({})", int(0)), &int(10), None, ""),
+            equation(&format!("table{{}}({})", int(0)), &int(11), None, ""),
+        ]
+        .join("\n"),
+    );
+    assert_eq!(
+        Catalog::new(&d)
+            .admit(&term(&d, "table{}(V:SortInt{})"))
+            .unwrap(),
+        Err(Rejected::Overlapping)
+    );
+}
+
+/// Where no row applies, a declared-total function is its own application and a partial one
+/// gives no summary.
+#[test]
+fn a_total_table_is_opaque_outside_its_rows_and_a_partial_one_is_incomplete() {
+    let rows = |name: &str| {
+        [
+            equation(&format!("{name}{{}}({})", int(0)), &int(10), None, ""),
+            equation(&format!("{name}{{}}({})", int(1)), &int(11), None, ""),
+        ]
+        .join("\n")
+    };
+    let d = definition(&rows("table"));
+    let summary = Catalog::new(&d)
+        .admit(&term(&d, "table{}(V:SortInt{})"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        crate::builtin::read_int(&evaluate(&d, &summary, vec![term(&d, &int(1))])).unwrap(),
+        11.into()
+    );
+    assert_eq!(
+        evaluate(&d, &summary, vec![term(&d, &int(5))]),
+        term(&d, &format!("table{{}}({})", int(5)))
+    );
+    let d = definition(&rows("partialTable"));
+    assert_eq!(
+        Catalog::new(&d)
+            .admit(&term(&d, "partialTable{}(V:SortInt{})"))
+            .unwrap(),
+        Err(Rejected::Incomplete)
+    );
+}
+
+fn op_tables() -> String {
+    [
+        equation(&format!("opTable{{}}({})", int(0)), "a{}()", None, ""),
+        equation(
+            &format!("opTable{{}}({})", int(1)),
+            "wrap{}(b{}())",
+            None,
+            "",
+        ),
+        equation(&format!("opTable2{{}}({})", int(0)), "a{}()", None, ""),
+        equation(
+            &format!("opTable2{{}}({})", int(1)),
+            "wrap{}(b{}())",
+            None,
+            "",
+        ),
+        equation("opTable2{}(X:SortInt{})", "b{}()", None, "owise{}()"),
+    ]
+    .join("\n")
+}
+
+#[test]
+fn constructor_valued_tables_are_summaries_with_constructor_leaves() {
+    let d = definition(&op_tables());
+    let summary = Catalog::new(&d)
+        .admit(&term(&d, "opTable2{}(V:SortInt{})"))
+        .unwrap()
+        .unwrap();
+    for (input, expected) in [(0, "a{}()"), (1, "wrap{}(b{}())"), (9, "b{}()")] {
+        assert_eq!(
+            evaluate(&d, &summary, vec![term(&d, &int(input))]),
+            term(&d, expected),
+            "{input}"
+        );
+    }
+}
+
+/// Two tables written independently agree exactly where their rows give the same constructor
+/// term; outside one table's rows, its value is unconstrained.
+#[cfg(feature = "z3")]
+#[test]
+fn independent_constructor_tables_agree_where_their_rows_agree() {
+    use crate::smt::{SmtSolver, Validity, Z3Solver};
+    let d = definition(&op_tables());
+    let solver = Z3Solver::new(&d).unwrap();
+    let agree = Predicate::Equals(
+        term(&d, "opTable{}(X:SortInt{})"),
+        term(&d, "opTable2{}(X:SortInt{})"),
+    );
+    let validity = |upper| {
+        solver.check_predicates(
+            &range(&d, "X", upper),
+            &crate::substitution::Substitution::new(),
+            std::slice::from_ref(&agree),
+        )
+    };
+    assert_eq!(validity(2), Ok(Ok(Validity::Valid)));
+    assert_ne!(validity(3), Ok(Ok(Validity::Valid)));
 }
 
 #[test]

@@ -8,6 +8,16 @@
 //! Partial helpers use the selected domain; total declarations retain an opaque total value
 //! outside the source-safe region. Neither caller bounds nor branch guards become totality. This module does not install summaries as equations or axioms.
 //!
+//! A function equation's row is guarded by its own match and requires, and by the inapplicability
+//! of every function equation of a higher priority (`owise` included): K tries a lower priority
+//! only where no higher one applies. An integer literal argument pattern is the test
+//! `formal = literal`; two such tests of one formal at distinct literals exclude each other. A
+//! declared-total function's value where no row applies is its own uninterpreted application
+//! ([`Decision::Opaque`]); a partial function's is not given ([`Rejected::Incomplete`]).
+//! A value of a sort other than `Int` or `Bool` is admitted only as a free constructor's
+//! application or an injection, over admitted values: the solver reads it as an uninterpreted
+//! congruent head, so two summaries agree where their decisions reach the same constructor term.
+//!
 //! Discovery and decision-tree construction are explicitly bounded. Every new node/candidate
 //! polls the request stop; cancellation is propagated and never cached as ineligibility.
 //! Boolean conjunction/disjunction guards retain both polarities as bounded DAGs. Partitioning
@@ -23,7 +33,7 @@ use k_rust_kore::names::BuiltinSort;
 use rustc_hash::FxHashSet;
 
 use crate::{
-    builtin::read_bool as boolean,
+    builtin::{read_bool as boolean, read_int},
     definedness::ceil_term,
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
@@ -115,6 +125,9 @@ struct Test {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum Decision {
     Value(Term),
+    /// A declared-total function where none of its rows applies: the function's own
+    /// uninterpreted application, constrained by nothing but its totality.
+    Opaque,
     If {
         test: Atom,
         yes: Arc<Decision>,
@@ -266,7 +279,7 @@ impl<'d> Catalog<'d> {
                 .effects
                 .as_ref()
                 .is_some_and(|e| !e.contains(symbol.name.as_ref()))
-            && standard_scalar(self.definition, call.sort())
+            && (standard_scalar(self.definition, call.sort()) || data_sort(call.sort()))
             && !sort_arguments.iter().any(Sort::has_variable)
             && !arguments.iter().any(|arg| arg.sort().has_variable());
         if !eligible {
@@ -384,11 +397,13 @@ impl<'d> Catalog<'d> {
         if self.definition.equation_selection_complete().is_none() {
             return Ok(Err(Rejected::Unsupported));
         }
+        // Each offered rule with whether it is a function equation, whose priority ranks it in
+        // the function's cascade; a simplification is an axiom of every priority alike.
         let mut offered = Vec::new();
         let index = term_index(&formal);
-        for theory in [
-            self.definition.function_theory(),
-            self.definition.simplification_theory(),
+        for (theory, equation) in [
+            (self.definition.function_theory(), true),
+            (self.definition.simplification_theory(), false),
         ] {
             // Refuse a large bucket before the common selector clones its rows. Never
             // truncate that selector's result and mistake the prefix for the full definition.
@@ -406,7 +421,7 @@ impl<'d> Catalog<'d> {
                     if offered.len() == self.limits.rows {
                         return Ok(Err(Rejected::Limit));
                     }
-                    offered.push(rule);
+                    offered.push((rule, equation));
                 }
             }
         }
@@ -422,7 +437,12 @@ impl<'d> Catalog<'d> {
         let mut source_rules = Vec::new();
         let mut dependencies = BTreeSet::new();
         let mut seen = FxHashSet::default();
-        for source in offered {
+        // The negated guards of the function equations of every priority above the current one,
+        // and the current priority with its own guards: `applicable_groups` yields priorities in
+        // ascending order, so a later equation ranks no higher than an earlier one.
+        let mut excluded: Vec<Arc<Guard>> = Vec::new();
+        let mut current: Option<(u8, Vec<Arc<Guard>>)> = None;
+        for (source, equation) in offered {
             admitted!(self.work());
             let apart = rename_apart(&source, &formal.attributes().variables, &[]);
             let rule = apart.as_ref().map_or(source.as_ref(), |(rule, _)| rule);
@@ -440,7 +460,7 @@ impl<'d> Catalog<'d> {
                 } => (substitution, remainder),
                 MatchResult::Undecided(_) => return Ok(Err(Rejected::Unsupported)),
             };
-            if rule.attributes.priority != 50
+            if (!equation && rule.attributes.priority != 50)
                 || rule.attributes.concreteness != Concreteness::Unconstrained
                 || !rule.attributes.executable
                 || !rule.ensures.is_empty()
@@ -482,28 +502,63 @@ impl<'d> Catalog<'d> {
                 guards.push(admitted!(self.guard_of(&predicate, true, 0)));
             }
             for (left, right) in remainder {
-                // Only Boolean literal patterns become finite scalar tests. Other contingent
-                // matches must not be silently promoted to an exhaustive source partition.
-                let (term, value) = if let Some(value) = boolean(&left) {
-                    (right, value)
+                // Only Boolean and integer literal patterns become finite scalar tests. Other
+                // contingent matches must not be silently promoted to an exhaustive source
+                // partition.
+                let (term, test, positive) = if let Some(value) = boolean(&left) {
+                    (right.clone(), Predicate::Term(right), value)
                 } else if let Some(value) = boolean(&right) {
-                    (left, value)
+                    (left.clone(), Predicate::Term(left), value)
+                } else if integer_pair(&left, &right)
+                    && read_int(&left).is_some() != read_int(&right).is_some()
+                {
+                    let term = if read_int(&left).is_some() {
+                        &right
+                    } else {
+                        &left
+                    };
+                    (term.clone(), Predicate::Equals(left, right), true)
                 } else {
                     return Ok(Err(Rejected::Unsupported));
                 };
                 admitted!(self.check_body(&term, &parameters, &mut seen, &mut dependencies, false));
-                guards.push(admitted!(self.guard_of(&Predicate::Term(term), value, 0)));
+                guards.push(admitted!(self.guard_of(&test, positive, 0)));
             }
-            rows.push(Row {
-                guard: Guard::junction(guards, true),
-                value,
-            });
+            let own = Guard::junction(guards, true);
+            let mut guard = own.clone();
+            if equation {
+                let priority = rule.attributes.priority;
+                if current.as_ref().is_some_and(|(rank, _)| *rank != priority) {
+                    let (_, done) = current.take().expect("a current priority");
+                    for applies in done {
+                        excluded.push(admitted!(self.negate(&applies)));
+                    }
+                }
+                current
+                    .get_or_insert_with(|| (priority, Vec::new()))
+                    .1
+                    .push(own);
+                if !excluded.is_empty() {
+                    guard = Guard::junction(
+                        std::iter::once(guard)
+                            .chain(excluded.iter().cloned())
+                            .collect(),
+                        true,
+                    );
+                }
+            }
+            rows.push(Row { guard, value });
             source_rules.push(source);
         }
         let domain_total = domains
             .values()
             .all(|domain: &Arc<[Predicate]>| domain.is_empty());
-        let body = admitted!(self.partition(rows, 0));
+        let body = admitted!(self.partition(rows, declared_total, 0));
+        // A function no row applies to anywhere is its own application everywhere: a summary
+        // would only rename it.
+        if matches!(body.as_ref(), Decision::Opaque) {
+            return Ok(Err(Rejected::Incomplete));
+        }
         Ok(Ok(Arc::new(Summary {
             key,
             parameters,
@@ -532,7 +587,39 @@ impl<'d> Catalog<'d> {
             }
             admitted!(self.work());
             if !standard_scalar(self.definition, term.sort()) {
-                return Ok(Err(Rejected::Unsupported));
+                // A value of another sort is a free constructor's application or an injection,
+                // which the solver reads as an uninterpreted congruent head, or an unhooked
+                // function's call, admitted below as a scalar one is.
+                match term.kind() {
+                    TermKind::Application {
+                        symbol, arguments, ..
+                    } if data_sort(term.sort())
+                        && matches!(symbol.attributes.head_role(), HeadRole::FreeConstructor) =>
+                    {
+                        if arguments.len() > self.remaining {
+                            return Ok(Err(Rejected::Limit));
+                        }
+                        pending.extend(arguments.iter().cloned());
+                        continue;
+                    }
+                    TermKind::Injection { term: child, .. } if data_sort(term.sort()) => {
+                        pending.push(child.clone());
+                        continue;
+                    }
+                    TermKind::Application { symbol, .. }
+                        if data_sort(term.sort())
+                            && symbol.attributes.hook.is_none()
+                            && matches!(symbol.attributes.symbol_type, SymbolType::Function(_)) => {
+                    }
+                    TermKind::Application { .. }
+                    | TermKind::Injection { .. }
+                    | TermKind::And(..)
+                    | TermKind::DomainValue { .. }
+                    | TermKind::Variable(_)
+                    | TermKind::Map { .. }
+                    | TermKind::List { .. }
+                    | TermKind::Set { .. } => return Ok(Err(Rejected::Unsupported)),
+                }
             }
             match term.kind() {
                 TermKind::Variable(v)
@@ -784,11 +871,12 @@ impl<'d> Catalog<'d> {
     /// ```toml algorithm-site
     /// id = "backend.smt.check"
     /// role = "part"
-    /// sites = ["Catalog::partition", "Catalog::split_rows", "Catalog::cofactor", "guard_of", "term_guard", "Guard::junction"]
+    /// sites = ["Catalog::partition", "Catalog::split_rows", "Catalog::cofactor", "Catalog::negate", "guard_of", "term_guard", "Guard::junction"]
     /// ```
     fn partition(
         &mut self,
         mut rows: Vec<Row>,
+        total: bool,
         depth: usize,
     ) -> Stoppable<Result<Arc<Decision>, Rejected>> {
         admitted!(self.work());
@@ -797,7 +885,13 @@ impl<'d> Catalog<'d> {
         }
         rows.retain(|row| !matches!(row.guard.as_ref(), Guard::Constant(false)));
         if rows.is_empty() {
-            return Ok(Err(Rejected::Incomplete));
+            // No row applies: a declared-total function still has a value there, which no
+            // equation constrains; a partial one has none the source gives.
+            return Ok(if total {
+                Ok(Arc::new(Decision::Opaque))
+            } else {
+                Err(Rejected::Incomplete)
+            });
         }
         if rows.len() == 1 && matches!(rows[0].guard.as_ref(), Guard::Constant(true)) {
             return Ok(Ok(Arc::new(Decision::Value(rows[0].value.clone()))));
@@ -828,8 +922,8 @@ impl<'d> Catalog<'d> {
         };
         let yes_rows = admitted!(self.split_rows(&rows, &atom, true));
         let no_rows = admitted!(self.split_rows(&rows, &atom, false));
-        let yes = admitted!(self.partition(yes_rows, depth + 1));
-        let no = admitted!(self.partition(no_rows, depth + 1));
+        let yes = admitted!(self.partition(yes_rows, total, depth + 1));
+        let no = admitted!(self.partition(no_rows, total, depth + 1));
         Ok(Ok(Arc::new(Decision::If {
             test: atom,
             yes,
@@ -886,6 +980,10 @@ impl<'d> Catalog<'d> {
             Guard::Test(test) if &test.atom == atom => {
                 Ok(Ok(Arc::new(Guard::Constant(test.positive == positive))))
             }
+            // Where `T = c` holds, `T = d` fails for every other integer literal `d`.
+            Guard::Test(test) if positive && excludes(atom, &test.atom) => {
+                Ok(Ok(Arc::new(Guard::Constant(!test.positive))))
+            }
             Guard::Test(_) => Ok(Ok(guard.clone())),
             Guard::And(parts) | Guard::Or(parts) => {
                 if parts.len() > self.remaining {
@@ -902,6 +1000,61 @@ impl<'d> Catalog<'d> {
             }
         }
     }
+
+    /// The complement of a guard, by De Morgan's laws down to its tests. Every guard's tests
+    /// are globally defined, so the complement holds exactly where the guard fails.
+    fn negate(&mut self, guard: &Arc<Guard>) -> Stoppable<Result<Arc<Guard>, Rejected>> {
+        admitted!(self.work());
+        match guard.as_ref() {
+            Guard::Constant(value) => Ok(Ok(Arc::new(Guard::Constant(!value)))),
+            Guard::Test(test) => Ok(Ok(Arc::new(Guard::Test(Test {
+                atom: test.atom.clone(),
+                positive: !test.positive,
+            })))),
+            Guard::And(parts) | Guard::Or(parts) => {
+                if parts.len() > self.remaining {
+                    return Ok(Err(Rejected::Limit));
+                }
+                let mut negated = Vec::with_capacity(parts.len());
+                for part in parts {
+                    negated.push(admitted!(self.negate(part)));
+                }
+                Ok(Ok(Guard::junction(
+                    negated,
+                    matches!(guard.as_ref(), Guard::Or(_)),
+                )))
+            }
+        }
+    }
+}
+
+/// Whether `known` and `other` equate one term with two distinct integer literals, so that
+/// `other` fails wherever `known` holds.
+fn excludes(known: &Atom, other: &Atom) -> bool {
+    match (literal_equality(known), literal_equality(other)) {
+        (Some((term, value)), Some((other_term, other_value))) => {
+            term == other_term && value != other_value
+        }
+        _ => false,
+    }
+}
+
+/// The term and the integer literal of an equality test `T = c`.
+fn literal_equality(atom: &Atom) -> Option<(&Term, num_bigint::BigInt)> {
+    let Atom::Equal(a, b) = atom else {
+        return None;
+    };
+    match (read_int(a), read_int(b)) {
+        (None, Some(value)) => Some((a, value)),
+        (Some(value), None) => Some((b, value)),
+        _ => None,
+    }
+}
+
+/// A sort whose values a summary may build from free constructors: not `Int` or `Bool`, and
+/// without sort variables.
+fn data_sort(sort: Sort) -> bool {
+    !scalar(sort) && !sort.has_variable()
 }
 
 fn scalar(sort: Sort) -> bool {

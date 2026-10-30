@@ -303,6 +303,8 @@ impl Planner<'_> {
         }
         let result = match decision {
             Decision::Value(term) => self.term(term, depth + 1),
+            // An unconstrained value has no finite reading; the ordinary translation remains.
+            Decision::Opaque => Ok(None),
             Decision::If { test, yes, no } => {
                 let test = match test {
                     Atom::Bool(term) => self.term(term, depth + 1)?,
