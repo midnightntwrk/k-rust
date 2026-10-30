@@ -75,10 +75,15 @@ const LIGHT: &[&str] = &[
 ///
 /// Every testdata and example definition that compiles, by its definition-level exclusions
 /// (decision 1's census, the load's stack stops, C-10's role-rooted axioms). The census flags
-/// exactly the definitions whose own rules use an implementation-chosen hook: Float arithmetic
-/// (`rulecondfail`, `t12hook`, `t12probe`, `t12unev`) and `String2Bytes` (`t12probe`). Every
-/// comparison on them is unknown. No load counts a stack stop on a 256 MiB thread, and no
-/// definition has an axiom rooted at a collection role symbol.
+/// exactly the definitions whose own rules use a hook it reads: `String2Bytes` (`t12probe`), the
+/// undocumented `KRYPTO.keccak256` (`t13implemented`) and the `String2Bytes`/`Bytes2String` pair
+/// (`runlist/iop`, `runlist/lhs`). Every comparison on them is unknown. No load counts a stack
+/// stop on a 256 MiB thread, and no definition has an axiom rooted at a collection role symbol.
+///
+/// Re-pin kink27 R3-CENSUS-RUNLEVEL: k-rust's classes left the census (a run that reads one is
+/// excluded by its `implementationChosenValues` list), so `rulecondfail`, `t12hook` and `t12unev`,
+/// whose own rules apply only Float arithmetic, `signFloat` and other hooks k-rust's classes or
+/// IEEE 754 determine, are no longer flagged; `t12probe` stays, for its `String2Bytes`.
 ///
 /// Re-pin R0c: deliverable 8 rewrote the Bytes keys of `bytes-map` and both copies of
 /// `collstore` with `encodeBytes("UTF-8", ..)`, so R0b's three `String2Bytes` flags are gone;
@@ -86,10 +91,7 @@ const LIGHT: &[&str] = &[
 /// R0c-fix-1's builtin-file additions, prelude rewrite rules and short-circuit reading flag none
 /// either.
 const IMPLEMENTATION_CHOSEN: &[&str] = &[
-    "testdata/k/rulecondfail.k",
-    "testdata/k/t12hook.k",
     "testdata/k/t12probe.k",
-    "testdata/k/t12unev.k",
     // Re-pin R0c-fix-2: `keccak` is hooked `KRYPTO.keccak256`, which k-rust evaluates and no
     // builtin file documents.
     "testdata/k/t13implemented.k",

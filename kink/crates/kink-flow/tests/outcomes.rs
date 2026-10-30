@@ -1397,6 +1397,17 @@ id = "denominator"
     /// outcome record is written for it; the other
     /// mutations keep their statuses and records, and each record carries the writing process's
     /// memory allowance outside its key and digest (decision 5, finding B-07).
+    ///
+    /// Re-pin kink27 R3-CENSUS-RUNLEVEL: `MAP.choice` is a k-rust class, judged per run by the
+    /// run's `implementationChosenValues` list, not by the census. On `store(1, 2)` the memory is
+    /// empty, so `choice-agrees` takes `choice` of the one binding `2 |-> 1` and `choice-differs`
+    /// of `1 |-> 2`: a map of one item has one choice in every model, k-rust notes none, and each
+    /// run is evidence. `choice-agrees` stores 2 at 1, the baseline's memory, and survives;
+    /// `choice-differs` stores 1 at 1 and is killed by `store`; both are cached as any compared
+    /// status is (before: `unknown`, `implementation-chosen-hook`, never cached). The new
+    /// `choice-of-two` takes `choice` of `1 |-> 2` and `2 |-> 1`, an item the definition leaves
+    /// open, which k-rust notes (class `item`): it is `unknown`, reason `implementation-chosen-value`,
+    /// and never cached.
     #[test]
     #[ignore = "kink"]
     fn an_implementation_chosen_mutant_is_unknown_and_never_cached() {
@@ -1417,31 +1428,43 @@ id = "choice-differs"
   rule = "store"
   find = "M[K <- V]"
   replace = "M[K <- choice(M (K |-> V))]"
+[[mutation]]
+id = "choice-of-two"
+  [[mutation.edit]]
+  rule = "store"
+  find = "M[K <- V]"
+  replace = "M[K <- choice(M (K |-> V) (V |-> K))]"
 "#,
         );
         let (document, ok) = search(&manifest, &mutations, &[]);
         assert!(ok, "{document:#}");
-        for id in ["choice-agrees", "choice-differs"] {
-            let row = mutation(&document, id);
-            assert_eq!(
-                (row["status"].as_str(), row["reason"].as_str()),
-                (Some("unknown"), Some("implementation-chosen-hook")),
-                "{row:#}"
-            );
-            assert_eq!(
-                executed(&document, id),
-                [("store".to_owned(), "unknown".to_owned(), false)],
-                "{row:#}"
-            );
-            assert!(
-                row["executed"][0]["cause"]
-                    .as_str()
-                    .is_some_and(|cause| cause.starts_with("implementation-chosen-hook")),
-                "{row:#}"
-            );
-        }
+        let row = mutation(&document, "choice-of-two");
         assert_eq!(
-            statuses_of(&document, &["value-plus-one", "key-value-swap"]),
+            (row["status"].as_str(), row["reason"].as_str()),
+            (Some("unknown"), Some("implementation-chosen-value")),
+            "{row:#}"
+        );
+        assert_eq!(
+            executed(&document, "choice-of-two"),
+            [("store".to_owned(), "unknown".to_owned(), false)],
+            "{row:#}"
+        );
+        assert!(
+            row["executed"][0]["cause"]
+                .as_str()
+                .is_some_and(|cause| cause.starts_with("implementation-chosen-value")),
+            "{row:#}"
+        );
+        assert_eq!(
+            statuses_of(
+                &document,
+                &[
+                    "value-plus-one",
+                    "key-value-swap",
+                    "choice-agrees",
+                    "choice-differs"
+                ]
+            ),
             [
                 (
                     "value-plus-one".to_owned(),
@@ -1453,13 +1476,20 @@ id = "choice-differs"
                     "killed".to_owned(),
                     Some("store".to_owned())
                 ),
+                ("choice-agrees".to_owned(), "survived".to_owned(), None),
+                (
+                    "choice-differs".to_owned(),
+                    "killed".to_owned(),
+                    Some("store".to_owned())
+                ),
             ]
         );
         if kink_native::execution::SolverProfile::BUILD
             == kink_native::execution::SolverProfile::NoZ3
         {
+            assert!(!outcome_file(&manifest, &document, "choice-of-two").exists());
             for id in ["choice-agrees", "choice-differs"] {
-                assert!(!outcome_file(&manifest, &document, id).exists(), "{id}");
+                assert!(outcome_file(&manifest, &document, id).exists(), "{id}");
             }
             let file = read_json(&outcome_file(&manifest, &document, "value-plus-one"));
             let record = file["records"]

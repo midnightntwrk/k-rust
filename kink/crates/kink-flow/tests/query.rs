@@ -389,6 +389,29 @@ module IMPLCHOSEN
 endmodule
 "#;
 
+const PICK_SPEC: &str = r#"
+// kink27 R3-CENSUS-RUNLEVEL (gap G1): the pattern holds `lst()`, whose equation lists a map's keys
+// in an order the definition leaves open. k-rust lists 1 then 2; the run reaches
+// `keys(ListItem(2) ListItem(1))`, which a model listing 2 then 1 matches. Only the pattern's
+// matching reads the order.
+module PICK-SYNTAX
+  imports INT-SYNTAX
+  imports LIST
+  syntax Prog ::= pair(Int) [symbol(pair)]
+  syntax Prog ::= keys(List) [symbol(keys)]
+  syntax List ::= lst() [function, symbol(lst)]
+endmodule
+module PICK
+  imports PICK-SYNTAX
+  imports INT
+  imports MAP
+  imports LIST
+  configuration <k> $PGM:Prog </k>
+  rule lst() => keys_list((1 |-> 0) (2 |-> 0))
+  rule [pair]: <k> pair(I) => keys(ListItem(I +Int 1) ListItem(I)) </k>
+endmodule
+"#;
+
 fn exclusions() -> DefinitionExclusions {
     DefinitionExclusions::default()
 }
@@ -1146,9 +1169,15 @@ programs = ["add"]
     ///
     /// Re-pin P-2 (P-1-review-1 cosmetic finding): renamed from
     /// `a_census_flagged_definition_gives_hits_and_no_no`, which no longer says what it asserts.
+    ///
+    /// Re-pin kink27 R3-CENSUS-RUNLEVEL: `MAP.keys_list` is a k-rust class, judged per run, so the
+    /// census no longer flags the definition; the would-be `no` is `unknown` for the value the search
+    /// read (`implementation-chosen-value`, on its `implementationChosenValues` list, and on the
+    /// baseline run's) instead of `implementation-chosen-hook`. Renamed from
+    /// `a_census_flagged_definition_gives_no_hit_on_a_marked_match_and_no_no`.
     #[test]
     #[ignore = "kink"]
-    fn a_census_flagged_definition_gives_no_hit_on_a_marked_match_and_no_no() {
+    fn a_marked_search_gives_no_hit_and_no_no() {
         let dir = scratch("census");
         write(&dir.join("implchosen.k"), CENSUS_SPEC);
         write(
@@ -1186,10 +1215,49 @@ programs = ["add"]
             never["cause"]
                 .as_str()
                 .unwrap()
-                .contains("implementation-chosen-hook"),
+                .contains("implementation-chosen-value"),
             "{never:#}"
         );
         // Neither unknown is cached (re-pin probe P-1: at 501f18b9 the hit was, one record).
+        assert_eq!(records(&dir).len(), 0);
+    }
+
+    /// kink27 R3-CENSUS-RUNLEVEL (gap G1): a pattern that holds an equation-head application whose
+    /// normal form reads a value the definition leaves open gives no `no`. `pair(1)` reaches
+    /// `keys(ListItem(2) ListItem(1))`, which reads no open value, so the program's baseline run is
+    /// comparable and the census flags nothing; the pattern `keys(lst())` is matched as `lst()`'s
+    /// normal form, which lists 1 then 2 in k-rust and 2 then 1 in another model of the
+    /// definition, which then matches the reached state. So the answer is not `no`. At this k-rust
+    /// the search leaves that match undecided (an incomplete entry, read before the search's
+    /// `implementationChosenValues` list), so the answer is `unknown` for the undecided match; were
+    /// the match decided against k-rust's order, the matching, which is part of the search, would
+    /// list the mark and the answer would be `unknown` (`implementation-chosen-value`). The
+    /// list-reading rule itself is pinned on hand-built responses by kink-flow's
+    /// `pattern::tests::a_search_that_read_an_open_value_gives_no_no`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_pattern_that_reads_an_open_value_gives_no_no() {
+        let dir = scratch("pick");
+        write(&dir.join("pick.k"), PICK_SPEC);
+        write(
+            &dir.join("FLOW.toml"),
+            "[spec]\nentry = \"pick.k\"\nmain_module = \"PICK\"\nsyntax_module = \
+             \"PICK-SYNTAX\"\n\n[[program]]\nid = \"pair\"\ntext = \"pair(1)\"\n",
+        );
+        write(
+            &dir.join("PATTERNS.toml"),
+            "[[pattern]]\nid = \"listed\"\npattern = \"<k> keys(lst()) </k>\"\n",
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let listed = row(&document, "listed", "pair");
+        assert_eq!(listed["answer"], "unknown", "{listed:#}");
+        let cause = listed["cause"].as_str().unwrap();
+        assert!(
+            cause.contains("match against the pattern was left undecided")
+                || cause.contains("implementation-chosen-value"),
+            "{listed:#}"
+        );
         assert_eq!(records(&dir).len(), 0);
     }
 

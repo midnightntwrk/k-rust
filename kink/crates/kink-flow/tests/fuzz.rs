@@ -516,6 +516,8 @@ module IMPLCHOSEN
   imports INT
   imports MAP
   imports LIST
+  imports BYTES
+  imports STRING
   configuration <k> $PGM:Prog </k>
   rule [start]: <k> start(I) => keys({START}) </k>
   rule [count]: <k> count(I) => keys(ListItem(I)) </k>
@@ -913,10 +915,15 @@ mod kink_tier {
     /// `no-comparable-program`, the program's cause naming the exclusion); one the mutation brings
     /// in makes kink report that mutation `unknown` (`implementation-chosen-hook`). Either refuses
     /// the job before any case, with kink's status and reason.
+    ///
+    /// Re-pin kink27 R3-CENSUS-RUNLEVEL: `keys_list` is a k-rust class, judged per run, and left
+    /// the census, so the hook is `String2Bytes` (its encoding left open, evaluated by k-rust with
+    /// no run-level record), which the census keeps; it is applied to `Int2String(I)` so that the
+    /// constant fold cannot remove it from the rule.
     #[test]
     #[ignore = "kink"]
     fn a_definition_exclusion_refuses_the_job_with_kinks_reason() {
-        let keys = "keys_list((1 |-> I) (2 |-> I))";
+        let keys = "ListItem(lengthBytes(String2Bytes(Int2String(I))))";
         let count_edit = "[[mutation]]\nid = \"count-plus-one\"\n  [[mutation.edit]]\n  rule = \
                           \"IMPLCHOSEN.count\"\n  find = \"ListItem(I)\"\n  replace = \"ListItem(I \
                           +Int 1)\"\n";
@@ -971,7 +978,7 @@ mod kink_tier {
                 refusal["detail"]
                     .as_str()
                     .unwrap()
-                    .contains("MAP.keys_list"),
+                    .contains("BYTES.string2bytes"),
                 "{refusal:#}"
             );
             assert_eq!(document["job"]["status"], status, "{side}");

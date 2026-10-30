@@ -528,10 +528,8 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
         }
         ExecutionFailureKind::ImplementationChosenHook => {
             "implementation-chosen-hook: the mutant uses a hook whose value k-rust chooses \
-             where the definition leaves it open (choice, map and set listing order, \
-             mixed-format or NaN-sign Float, and the hooks k-rust's builtin files leave to the \
-             backend or the environment, such as String2Bytes, Bytes2String, Base2String, \
-             substitution's renamed variables or I/O)"
+             where the definition leaves it open, with no run-level record of the value \
+             (String2Bytes, Bytes2String, and the hooks no builtin file documents)"
                 .into()
         }
         ExecutionFailureKind::ShortCircuitReading => {

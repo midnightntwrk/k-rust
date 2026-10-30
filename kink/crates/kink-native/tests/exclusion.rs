@@ -90,6 +90,16 @@ fn run(side: &ValidatedDefinition, module: &str, program: Pattern) -> AdaptedExe
         .unwrap()
 }
 
+/// The run's `implementationChosenValues` list, as `(hook, class)`.
+fn chosen(execution: &AdaptedExecution) -> Vec<(String, String)> {
+    execution
+        .facts()
+        .implementation_chosen_values
+        .iter()
+        .map(|mark| (mark.hook.clone(), mark.class.clone()))
+        .collect()
+}
+
 /// Every string literal naming a hook (`"NAMESPACE.name"`) written before a `=>` in `text`.
 fn arm_hooks(text: &str) -> BTreeSet<String> {
     text.lines()
@@ -915,15 +925,17 @@ fn unsupported_hook_cases(source: &str) -> Vec<String> {
 ///   test: no evaluator for its namespace (`HookName::kind` is `Other`), or its name on
 ///   `NOT_EVALUATED` (k-rust-backend `builtin/evaluated.rs`).
 ///
-/// For every open hook the inventory does hold, both readings agree. Every census hook but the
-/// console operation `IO.read` has a dispatch arm (`K_RUST_EVALUATED_HOOKS`), and a run-list hook
-/// has none unless it is a console operation or on `NOT_EVALUATED` (an arm that answers
-/// unsupported, as `substMany`'s). What stays in the census is exactly k-rust's
-/// `chosen_value` hooks, the `String2Bytes`/`Bytes2String` pair and the hooks no builtin file
-/// documents. Every run-list hook is a case of k-rust's `unsupported_hook_positions.rs`, which
-/// checks the contract the list rests on in each position (compatibility.md "Backend scope", the
-/// console paragraph, pinned below);
-/// `IO.read` is a case there too, and stays in the census for its class.
+/// For every open hook the inventory does hold, both readings agree. Every census hook has a
+/// dispatch arm (`K_RUST_EVALUATED_HOOKS`), and a run-list hook has none unless it is a console
+/// operation or on `NOT_EVALUATED` (an arm that answers unsupported, as `substMany`'s). What stays
+/// in the census is exactly the `String2Bytes`/`Bytes2String` pair and the hooks no builtin file
+/// documents: since kink27 R3-CENSUS-RUNLEVEL k-rust's `chosen_value` hooks are judged per run by
+/// the run's `implementationChosenValues` list (`IO.read`, a console operation, by its
+/// `unsupportedHooks` list where the request has no console), so each open hook is on exactly one
+/// of the census, `RUN_LIST_HOOKS` and `K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`. Every run-list hook
+/// is a case of k-rust's `unsupported_hook_positions.rs`, which checks the contract the list rests
+/// on in each position (compatibility.md "Backend scope", the console paragraph, pinned below);
+/// `IO.read` is a case there too.
 #[test]
 fn the_run_list_hooks_are_k_rusts_unevaluated_open_hooks() {
     use k_rust_backend::term::names::{HookName, HookNamespace};
@@ -1024,16 +1036,17 @@ fn the_run_list_hooks_are_k_rusts_unevaluated_open_hooks() {
     }
     assert_eq!(
         census,
-        K_RUST_IMPLEMENTATION_CHOSEN_HOOKS
-            .iter()
-            .copied()
-            .chain(["BYTES.string2bytes", "BYTES.bytes2string"])
+        ["BYTES.string2bytes", "BYTES.bytes2string"]
+            .into_iter()
             .chain(UNDOCUMENTED_EVALUATED_HOOKS.iter().copied())
             .collect::<BTreeSet<_>>()
     );
-    assert!(census_hook("IO.read") && execution_only.contains("IO.read"));
+    for hook in K_RUST_IMPLEMENTATION_CHOSEN_HOOKS {
+        assert!(!census_hook(hook), "{hook}");
+    }
+    assert!(!census_hook("IO.read") && execution_only.contains("IO.read"));
     assert_eq!(
-        census.len() + RUN_LIST_HOOKS.len(),
+        census.len() + RUN_LIST_HOOKS.len() + K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.len(),
         IMPLEMENTATION_CHOSEN_HOOKS.len()
     );
     // Every moved hook is a case of k-rust's per-position test.
@@ -1070,6 +1083,60 @@ fn the_console_passage_the_run_list_rests_on_is_pinned() {
             lines: 1,
             digest: "0e21af4d52506fe9e9cdfae85637b1613bc289ac3859c2b4a86dad061e2ee85b",
         }],
+    );
+}
+
+/// kink27 R3-CENSUS-RUNLEVEL: the k-rust passages that let the census leave k-rust's classes
+/// (`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`) to the run's `implementationChosenValues` list, located
+/// by anchor and opening and pinned by digest (`testdata/k/passage.rs`):
+/// - the constant fold leaves every application of a class unfolded, so no class value is in the
+///   compiled definition a run starts from;
+/// - outside `Execution` every class that is a value is withheld (left unevaluated as a defined
+///   value) except `read-count`, whose `#read` a request without a console leaves unsupported;
+/// - the evaluation mode belongs to the request: executions and searches run in `Execution`, every
+///   load and proof route in `Proof`, whatever scope the caller holds;
+/// - a search lists every mark it noted, a pattern's matching included, and a search with an empty
+///   list has the same results and end in every model (the query's `no`, `kink-flow` `pattern`).
+///
+/// A re-pin that changes one, or moves it out of its section, fails here, and the census is read
+/// again against it.
+#[test]
+fn the_passages_the_census_leaves_to_the_run_list_are_pinned() {
+    let passage = |anchor, opening, lines, digest| passage::Passage {
+        file: "docs/compatibility.md",
+        anchor,
+        opening,
+        lines,
+        digest,
+    };
+    passage::assert_pinned(
+        &k_rust_backend().join("../.."),
+        &[
+            passage(
+                "## Implementation-chosen hook values",
+                "The constant fold leaves every application of a class unfolded",
+                1,
+                "2b988e6cd3aa7eebee37844394ee4ea4c30a2dcb65300fcf2b3a67af40fd7a3b",
+            ),
+            passage(
+                "## Implementation-chosen hook values",
+                "Every class that is a value is withheld there except",
+                1,
+                "c9145df507b571c44bdb3aef59f136fcc3c0b0ae1e81a9d4e4e4b929f71c9d21",
+            ),
+            passage(
+                "## Implementation-chosen hook values",
+                "The mode belongs to the request",
+                5,
+                "cbe2700b8c44f4f9c86d4ea5d92d1785d251ab7c6045462891d53ec9cc7aa02c",
+            ),
+            passage(
+                "### Marks in executions",
+                "A search marks its results, witnesses, pattern matches",
+                3,
+                "fdf8ef9133b844f87d3cc910422140e0416a6ea38b8a550eed4943b02eeadaca",
+            ),
+        ],
     );
 }
 
@@ -1432,65 +1499,94 @@ fn every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_on
 }
 
 /// Re-pin R0c deliverable 2 (the R0b reviewer's probe): a rule that applies `Base2String`, whose
-/// letter case domains.md leaves to the backend, flags its definition, so every run on it is
-/// excluded; before R0c the census flagged nothing and the run of `start(255)` was one complete
-/// Stuck leaf `str("ff")`.
+/// letter case domains.md leaves to the backend, excludes every run that reads a letter digit;
+/// before R0c the census flagged nothing and the run of `start(255)` was one complete Stuck leaf
+/// `str("ff")`. Re-pin kink27 R3-CENSUS-RUNLEVEL: `STRING.base2string` is a k-rust class
+/// (`letter-case`), judged per run, so the census no longer flags the definition; `start(255)`
+/// lists the class and is `implementation-chosen-value`, and `start(9)` (`"9"`, no letter digit)
+/// reads a determined value and is not excluded. Before: both `implementation-chosen-hook`.
 #[test]
-fn a_base2string_rule_flags_the_definition() {
+fn a_base2string_rule_excludes_the_runs_that_read_a_letter_digit() {
     on_a_big_stack(|| {
         let (side, module) = fixture("r0c", "base16");
         let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        let [reference] = exclusions.implementation_chosen.as_slice() else {
-            panic!("{exclusions:?}")
-        };
-        assert_eq!(reference.hook, "STRING.base2string");
-        assert_eq!(reference.module, "BASE16");
-        let execution = run(
-            &side,
-            &module,
-            support::app("Lblstart", vec![support::int(255)]),
+        assert!(
+            exclusions.implementation_chosen.is_empty(),
+            "{exclusions:?}"
         );
-        assert_eq!(
-            execution
-                .leaves()
-                .iter()
-                .map(|leaf| leaf.halt)
-                .collect::<Vec<_>>(),
-            [HaltClass::Stuck]
-        );
-        assert_eq!(
-            exclusions.run_exclusion(&execution),
-            Some(Exclusion::ImplementationChosenHook)
-        );
+        for (argument, marked) in [(255, true), (9, false)] {
+            let execution = run(
+                &side,
+                &module,
+                support::app("Lblstart", vec![support::int(argument)]),
+            );
+            assert_eq!(
+                execution
+                    .leaves()
+                    .iter()
+                    .map(|leaf| leaf.halt)
+                    .collect::<Vec<_>>(),
+                [HaltClass::Stuck]
+            );
+            assert_eq!(
+                chosen(&execution),
+                if marked {
+                    vec![("STRING.base2string".to_owned(), "letter-case".to_owned())]
+                } else {
+                    Vec::new()
+                },
+                "start({argument})"
+            );
+            assert_eq!(
+                exclusions.run_exclusion(&execution),
+                marked.then_some(Exclusion::ImplementationChosenValue),
+                "start({argument})"
+            );
+        }
     });
 }
 
-/// Decision 1: a rule that lists a map's keys flags its definition, so every run on it is
-/// excluded, one that never lists keys included; a test's initial state that applies such a hook
-/// flags its run; a definition that only imports MAP is not flagged.
+/// Decision 1, re-pinned by kink27 R3-CENSUS-RUNLEVEL: a rule that lists a map's keys excludes
+/// the runs that read the listing's order, and only those. `MAP.keys_list` is a k-rust class
+/// (`order`), judged per run by the run's `implementationChosenValues` list, so the census no
+/// longer flags the definition: `start(1)` lists two keys and is `implementation-chosen-value`,
+/// `count(3)` lists none and is not excluded (before: both `implementation-chosen-hook`). A
+/// test's initial state that applies the hook is no longer flagged as such
+/// (`state_references_implementation_chosen`): the seed's normalization is part of the run and
+/// marks a listing of two or more keys; `keysfree`'s state lists one binding, a determined listing,
+/// so its run is unmarked and not excluded (before: the state was flagged). A definition that only
+/// imports MAP is not flagged.
 #[test]
-fn an_implementation_chosen_hook_flags_the_definition_or_the_state() {
+fn an_implementation_chosen_hook_excludes_the_runs_that_read_its_value() {
     on_a_big_stack(|| {
         let (side, module) = r0b("implchosen");
         let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-        let [reference] = exclusions.implementation_chosen.as_slice() else {
-            panic!("{exclusions:?}")
-        };
-        assert_eq!(reference.hook, "MAP.keys_list");
-        assert_eq!(reference.module, "IMPLCHOSEN");
-        assert_eq!(
-            exclusions.definition_exclusion(),
-            Some(Exclusion::ImplementationChosenHook)
+        assert!(
+            exclusions.implementation_chosen.is_empty(),
+            "{exclusions:?}"
         );
-        let execution = run(
-            &side,
-            &module,
-            support::app("Lblcount", vec![support::int(3)]),
-        );
-        assert_eq!(
-            exclusions.run_exclusion(&execution),
-            Some(Exclusion::ImplementationChosenHook)
-        );
+        assert_eq!(exclusions.definition_exclusion(), None);
+        for (symbol, argument, marked) in [("Lblstart", 1, true), ("Lblcount", 3, false)] {
+            let execution = run(
+                &side,
+                &module,
+                support::app(symbol, vec![support::int(argument)]),
+            );
+            assert_eq!(
+                chosen(&execution),
+                if marked {
+                    vec![("MAP.keys_list".to_owned(), "order".to_owned())]
+                } else {
+                    Vec::new()
+                },
+                "{symbol}({argument})"
+            );
+            assert_eq!(
+                exclusions.run_exclusion(&execution),
+                marked.then_some(Exclusion::ImplementationChosenValue),
+                "{symbol}({argument})"
+            );
+        }
 
         let (free, free_module) = r0b("keysfree");
         let exclusions = DefinitionExclusions::of_validated(&free, &free_module).unwrap();
@@ -1524,7 +1620,10 @@ fn an_implementation_chosen_hook_flags_the_definition_or_the_state() {
                 ))
             })
             .unwrap();
-        assert!(listed && !unlisted);
+        assert!(!listed && !unlisted);
+        let execution = run(&free, &free_module, keys);
+        assert!(chosen(&execution).is_empty(), "{execution:?}");
+        assert_eq!(exclusions.run_exclusion(&execution), None);
     });
 }
 
@@ -1939,11 +2038,14 @@ mod kink_tier {
     /// beta reduction through `SUBSTITUTION.substOne`. On `run(app(lam(x, lam(y, x)), y))` the
     /// baseline gives `out(lam(y0, y))` and the mutant, which routes the substitution through `y0`,
     /// the alpha-equivalent `out(lam(y1, y))`: the two differ only in the suffix k-rust mints
-    /// (substitution.md 83-88 leaves it to the backend). Both definitions are flagged, so neither
-    /// run is evidence; before R0c-fix-1 neither was flagged and the pair distinguished.
+    /// (substitution.md 83-88 leaves it to the backend). Neither run is evidence; before R0c-fix-1
+    /// neither was flagged and the pair distinguished. Re-pin kink27 R3-CENSUS-RUNLEVEL:
+    /// `SUBSTITUTION.substOne` is a k-rust class (`fresh-name`), judged per run, so the census no
+    /// longer flags either definition; each run lists the class and is `implementation-chosen-value`
+    /// (before: `implementation-chosen-hook`).
     #[test]
     #[ignore = "kink"]
-    fn a_substitution_rule_flags_the_definition() {
+    fn a_substitution_rule_excludes_its_runs_by_their_list() {
         on_a_big_stack(|| {
             let program = parse_pattern(
                 r#"Lblrun{}(Lblapp{}(Lbllam{}(\dv{SortKVar{}}("x"), Lbllam{}(\dv{SortKVar{}}("y"), inj{SortKVar{}, SortExp{}}(\dv{SortKVar{}}("x")))), inj{SortKVar{}, SortExp{}}(\dv{SortKVar{}}("y"))))"#,
@@ -1954,10 +2056,7 @@ mod kink_tier {
                 let (side, module) = fixture("r0c", name);
                 let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
                 assert!(
-                    exclusions
-                        .implementation_chosen
-                        .iter()
-                        .any(|reference| reference.hook == "SUBSTITUTION.substOne"),
+                    exclusions.implementation_chosen.is_empty(),
                     "{name}: {exclusions:?}"
                 );
                 let execution = run(&side, &module, program.clone());
@@ -1967,8 +2066,13 @@ mod kink_tier {
                 assert_eq!(leaf.halt, HaltClass::Stuck, "{name}");
                 finals.push(leaf.branch.state.to_string());
                 assert_eq!(
+                    chosen(&execution),
+                    [("SUBSTITUTION.substOne".to_owned(), "fresh-name".to_owned())],
+                    "{name}"
+                );
+                assert_eq!(
                     exclusions.run_exclusion(&execution),
-                    Some(Exclusion::ImplementationChosenHook),
+                    Some(Exclusion::ImplementationChosenValue),
                     "{name}"
                 );
             }

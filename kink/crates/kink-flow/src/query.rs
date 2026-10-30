@@ -71,8 +71,11 @@ pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// KINK-R4: a match is no hit when the search left a hook application unevaluated, its
 /// `unsupportedHooks` or `allowanceRefusals` list not empty, so a v3 `hit` may no longer be one;
 /// an exploration with such a list is not complete, so a v3 `no` may no longer be one either; and
-/// a `no` needs the definition to have data, its check complete as well as finding-free).
-pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v4";
+/// a `no` needs the definition to have data, its check complete as well as finding-free; v5, kink27
+/// R3-CENSUS-RUNLEVEL: a `no` also needs the search's `implementationChosenValues` empty, since
+/// k-rust's classes are judged per run rather than by the census, so a v4 `no` may no longer be
+/// one).
+pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v5";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
 /// The cache's directory in the cache directory.

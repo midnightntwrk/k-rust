@@ -19,7 +19,9 @@ use k_rust::backend::{
 };
 use k_rust::kompile::CompileOptions;
 use k_rust::kore::ast::Pattern;
-use kink_native::exclusion::{DefinitionExclusions, Exclusion};
+use kink_native::exclusion::{
+    DefinitionExclusions, Exclusion, state_references_implementation_chosen,
+};
 use kink_native::execution::{
     AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, ResultModality,
     ResultRun, SolverProfile,
@@ -517,23 +519,19 @@ mod kink_tier {
     /// carries its mark: the absorbed state-set arrival of the diamond `a(1)` (only `cd` lists two
     /// keys; the `d` leaf comes from the path through `b`) and the vanished candidate `vk` of `v(1)`;
     /// and the initial state's normalization of `e(nk2(1))`, whose `nk2` equation lists two keys, is
-    /// on it too (`nk1` lists one, a determined listing: no mark). Decision 1's census flags the
-    /// definition (its sentences list keys) and stays the run's exclusion, `implementation-chosen-hook`,
-    /// ahead of the list; with the census emptied, as re-pin adoption A-3 would leave it for k-rust's
-    /// classes, the list excludes the same runs (`implementation-chosen-value`) and nothing else.
+    /// on it too (`nk1` lists one, a determined listing: no mark). The list excludes exactly these
+    /// runs (`implementation-chosen-value`). Re-pin kink27 R3-CENSUS-RUNLEVEL: k-rust's classes left
+    /// decision 1's census, so the definition (whose sentences list keys) is no longer flagged and
+    /// the list is each run's exclusion; before, the census excluded every run
+    /// (`implementation-chosen-hook`, ahead of the list), `one key` included, and this test emptied
+    /// the census by hand to read the list.
     #[test]
     #[ignore = "kink"]
-    fn an_open_value_on_the_run_list_excludes_the_run_beside_the_census() {
+    fn an_open_value_on_the_run_list_excludes_the_run() {
         on_a_big_stack(|| {
             let (side, module) = fixture("marks");
             let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
-            assert_eq!(
-                exclusions.definition_exclusion(),
-                Some(Exclusion::ImplementationChosenHook)
-            );
-            let mut without_census = exclusions.clone();
-            without_census.implementation_chosen.clear();
-            assert_eq!(without_census.definition_exclusion(), None);
+            assert_eq!(exclusions.definition_exclusion(), None);
             let nested = |function: &str| {
                 support::app("Lble", vec![support::app(function, vec![support::int(1)])])
             };
@@ -565,11 +563,6 @@ mod kink_tier {
                 }
                 assert_eq!(
                     exclusions.run_exclusion(&execution),
-                    Some(Exclusion::ImplementationChosenHook),
-                    "{name}"
-                );
-                assert_eq!(
-                    without_census.run_exclusion(&execution),
                     marked.then_some(Exclusion::ImplementationChosenValue),
                     "{name}"
                 );
@@ -628,6 +621,135 @@ mod kink_tier {
             let control = run(&side, &module, call("run", 1));
             assert_eq!(control.facts(), &Default::default());
             assert_eq!(exclusions.run_exclusion(&control), None);
+        });
+    }
+
+    /// kink27 R3-CENSUS-RUNLEVEL: k-rust's classes are judged per run. k-rust takes a class value
+    /// only where its evaluator classifies it and notes it on the run's `implementationChosenValues`
+    /// list in an execution, wherever the run reads it (compat "Implementation-chosen hook values",
+    /// pinned by `tests/exclusion.rs` `the_passages_the_census_leaves_to_the_run_list_are_pinned`),
+    /// so the census reads none of them and `classes.k`, one rule per class, is not excluded as a
+    /// whole. Each probe lists its class and is `implementation-chosen-value`: a rule's right-hand
+    /// side (`keys`, `s2l`, `choiceMap`, `choiceSet`, `mixed`, `nan`, `mz`, `b2s`), a literal the
+    /// constant fold leaves unfolded (`lit`), a condition (`cond`), an equation (`eqn`) and the
+    /// initial state's normalization (`done(hex(255))`). Each control reads a determined value (one
+    /// binding, one format, no NaN, no pair of signed zeros, no letter digit) and lists nothing.
+    /// `rd(3)` applies `#read`, which a request without a console leaves unevaluated
+    /// (`unsupported-hook`). A test's initial state that applies a class is not flagged as such
+    /// (`state_references_implementation_chosen`): the seed's normalization runs inside the run.
+    #[test]
+    #[ignore = "kink"]
+    fn every_k_rust_class_is_judged_per_run() {
+        on_a_big_stack(|| {
+            let (side, module) = fixture("classes");
+            let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+            assert!(
+                exclusions.implementation_chosen.is_empty(),
+                "{:?}",
+                exclusions.implementation_chosen
+            );
+            assert_eq!(exclusions.definition_exclusion(), None);
+            let base2string = ("STRING.base2string", "letter-case");
+            let probes = [
+                ("keys", 1, Some(("MAP.keys_list", "order"))),
+                ("s2l", 1, Some(("SET.set2list", "order"))),
+                ("choiceMap", 1, Some(("MAP.choice", "item"))),
+                ("choiceSet", 1, Some(("SET.choice", "item"))),
+                ("mixed", 1, Some(("FLOAT.add", "float-destination"))),
+                ("nan", 0, Some(("FLOAT.sign", "nan-sign"))),
+                ("mz", 0, Some(("FLOAT.min", "signed-zero"))),
+                ("b2s", 255, Some(base2string)),
+                ("lit", 0, Some(base2string)),
+                ("cond", 255, Some(base2string)),
+                ("eqn", 255, Some(base2string)),
+                ("keysOne", 1, None),
+                ("choiceOne", 1, None),
+                ("same", 1, None),
+                ("nan", 1, None),
+                ("mz", 1, None),
+                ("b2s", 9, None),
+                ("cond", 9, None),
+                ("eqn", 9, None),
+            ];
+            let mut failures = Vec::new();
+            let mut judge =
+                |name: String, execution: &AdaptedExecution, mark: Option<(&str, &str)>| {
+                    let listed = execution
+                        .facts()
+                        .implementation_chosen_values
+                        .iter()
+                        .map(|mark| (mark.hook.clone(), mark.class.clone()))
+                        .collect::<Vec<_>>();
+                    let expected = mark
+                        .iter()
+                        .map(|(hook, class)| ((*hook).to_owned(), (*class).to_owned()))
+                        .collect::<Vec<_>>();
+                    let exclusion = exclusions.run_exclusion(execution);
+                    eprintln!("{name}: {listed:?} {exclusion:?}");
+                    if listed != expected
+                        || exclusion != mark.map(|_| Exclusion::ImplementationChosenValue)
+                    {
+                        failures.push(format!("{name}: {listed:?} {exclusion:?}"));
+                    }
+                };
+            for (symbol, argument, mark) in probes {
+                let execution = run(&side, &module, call(symbol, argument));
+                judge(format!("{symbol}({argument})"), &execution, mark);
+            }
+            // The initial state's normalization: the seed evaluates `hex(255)` inside the run.
+            let seeded = k_rust::kore::parser::parse_pattern(
+                r#"Lbldone{}(inj{SortString{}, SortKItem{}}(Lblhex{}(\dv{SortInt{}}("255"))))"#,
+            )
+            .unwrap();
+            let execution = run(&side, &module, seeded);
+            judge("done(hex(255))".to_owned(), &execution, Some(base2string));
+            // `#read` without a console: unsupported, not a class value.
+            let execution = run(&side, &module, call("rd", 3));
+            let facts = execution.facts();
+            let unsupported = facts
+                .unsupported_hooks
+                .iter()
+                .map(|entry| entry.hook.as_str())
+                .collect::<Vec<_>>();
+            eprintln!(
+                "rd(3): {facts:?} {:?}",
+                exclusions.run_exclusion(&execution)
+            );
+            if !facts.implementation_chosen_values.is_empty()
+                || unsupported != ["IO.read"]
+                || exclusions.run_exclusion(&execution) != Some(Exclusion::UnsupportedHook)
+            {
+                failures.push(format!(
+                    "rd(3): {facts:?} {:?}",
+                    exclusions.run_exclusion(&execution)
+                ));
+            }
+            // A state written with `Base2String` itself is no initial-state exclusion.
+            let referenced = backend(&side, &module)
+                .with_solver(None, |definition, _| {
+                    let name = definition
+                        .symbols()
+                        .values()
+                        .find(|symbol| {
+                            symbol.attributes.hook.as_deref() == Some("STRING.base2string")
+                        })
+                        .expect("Base2String is declared")
+                        .name
+                        .to_string();
+                    let written = k_rust::kore::parser::parse_pattern(&format!(
+                        r#"Lbldone{{}}(inj{{SortString{{}}, SortKItem{{}}}}({name}{{}}(\dv{{SortInt{{}}}}("255"), \dv{{SortInt{{}}}}("16"))))"#
+                    ))
+                    .unwrap();
+                    Ok::<_, k_rust::backend::BackendError>(state_references_implementation_chosen(
+                        definition,
+                        &state(written),
+                    ))
+                })
+                .unwrap();
+            if referenced {
+                failures.push("done(Base2String(255, 16)) flags the initial state".to_owned());
+            }
+            assert!(failures.is_empty(), "{failures:#?}");
         });
     }
 }

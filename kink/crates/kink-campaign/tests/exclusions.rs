@@ -396,11 +396,17 @@ mod kink_tier {
         });
     }
 
-    /// The baseline side of each exclusion that a definition or a test's initial state carries:
-    /// decision 1's census (a rule listing a map's keys; an initial state applying `keys_list` over a
-    /// definition with no such rule) and finding C-10 (an equation or a simplification rooted at a
-    /// collection role symbol makes the List or Set terminal no value). Each baseline is refused as
-    /// `BaselineOracleFailed` before any mutant runs; before R0b each was admitted.
+    /// The baseline side of each exclusion that a definition, a test's initial state or a run
+    /// carries: a run that reads a map's keys in an order the definition leaves open, and finding
+    /// C-10 (an equation or a simplification rooted at a collection role symbol makes the List or
+    /// Set terminal no value). Each baseline is refused as `BaselineOracleFailed` before any mutant
+    /// runs; before R0b each was admitted.
+    ///
+    /// Re-pin kink27 R3-CENSUS-RUNLEVEL: `MAP.keys_list` is a k-rust class, judged per run, so
+    /// `implchosen`'s `start(1)` (two keys) is refused for its run's `implementationChosenValues`
+    /// list (`implementation-chosen-value`; before: decision 1's census, `implementation-chosen-hook`),
+    /// and `keysfree` with an initial state applying `keys_list` to one binding, a determined
+    /// listing, is admitted (before: refused for the initial state's hook).
     #[test]
     #[ignore = "kink"]
     fn an_excluded_baseline_is_refused() {
@@ -413,9 +419,8 @@ mod kink_tier {
                 (
                     "implchosen",
                     support::app("Lblstart", vec![support::int(1)]),
-                    Some("implementation-chosen-hook"),
+                    Some("implementation-chosen-value"),
                 ),
-                ("keysfree", keys, Some("implementation-chosen-hook")),
                 (
                     "rolerooted",
                     support::app("Lblstart", vec![support::int(5)]),
@@ -443,16 +448,22 @@ mod kink_tier {
                     assert!(failure.to_string().contains(reason), "{name}: {failure}");
                 }
             }
-            // Control: the same initial-state shape without `keys_list` is admitted.
+            // A definition that only imports MAP is admitted, and so is an initial state that
+            // lists the keys of one binding (no value is left open) or applies no `keys_list`.
             let validator = validator("keysfree");
-            let tests = [test("t", support::app("Lblstart", vec![support::int(1)]))];
-            let campaign = campaign(&validator, "KEYSFREE", &tests);
-            run_campaign(
-                &campaign,
-                &no_mutant(validator.baseline()),
-                ScheduleMode::Full,
-            )
-            .expect("a definition that only imports MAP is admitted");
+            for (id, program) in [
+                ("one binding", keys),
+                ("plain", support::app("Lblstart", vec![support::int(1)])),
+            ] {
+                let tests = [test("t", program)];
+                let campaign = campaign(&validator, "KEYSFREE", &tests);
+                run_campaign(
+                    &campaign,
+                    &no_mutant(validator.baseline()),
+                    ScheduleMode::Full,
+                )
+                .unwrap_or_else(|failure| panic!("{id}: {failure}"));
+            }
         });
     }
 

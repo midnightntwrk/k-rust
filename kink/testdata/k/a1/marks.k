@@ -1,6 +1,7 @@
 // Re-pin adoption A-1 (ADOPTION.md section 2.1): values the definition leaves open that show on
-// k-rust's run-level `implementationChosenValues` list. Every rule here lists a map's keys, so
-// decision 1's census flags the definition; the tests read the list beside it.
+// k-rust's run-level `implementationChosenValues` list. Every rule here lists a map's keys; since
+// kink27 R3-CENSUS-RUNLEVEL decision 1's census does not read k-rust's classes, so the list alone
+// excludes the runs that read an open value.
 // - a(I): the diamond a -> b -> d, a -> c -> d (k-rust docs/compatibility.md, "Marks in
 //   executions"): only `cd` lists two keys, and a state set absorbs one arrival at d.
 // - v(I): `vk` lists two keys and its result is undefined (`10 /Int 0`); `vok` covers every

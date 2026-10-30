@@ -102,7 +102,11 @@
 //! - `no`: the exploration completed (k-rust's `incomplete` list is empty, the watchdog did not
 //!   fire, and the search left no hook application unevaluated, its `unsupportedHooks` and
 //!   `allowanceRefusals` lists empty: KINK-R4 review N2, since such an application's value, or its
-//!   undefinedness, decides successors k-rust did not compute), and also the program's baseline run, kink's plain state-set run of the same initial
+//!   undefinedness, decides successors k-rust did not compute; and the search read no value the
+//!   definition leaves open, its `implementationChosenValues` list empty: kink27
+//!   R3-CENSUS-RUNLEVEL, since k-rust's classes are judged per run rather than by the census, and
+//!   a search lists every class value it took, the pattern's own matching included, so with one
+//!   on the list another model of that value may reach the pattern), and also the program's baseline run, kink's plain state-set run of the same initial
 //!   state under the same budget (the result cache), is `comparable`: complete and free of every
 //!   exclusion kink-campaign reads (a stack stop the run counted, a load stack stop, a
 //!   contradicted claim, an undefined step of the short-circuit reading, an allowance refusal);
@@ -1031,7 +1035,42 @@ fn outcome(
              configurations: {why}, nor which successors the hook's value would give"
         ));
     }
+    // kink27 R3-CENSUS-RUNLEVEL (gap G1): k-rust's classes are judged per run, not by the census.
+    // A search lists every class value it took, on any branch, a vanished candidate and the
+    // pattern's matching included, and only a search whose list is empty has the same results and
+    // end in every model of the definition (compat "Marks in executions"). So no `no` rests on a
+    // search that read one: another model of the value may reach the pattern. A hit is unchanged:
+    // a decided match carries no diagnostic, so no mark is on its own path, and it matches there in
+    // every such model.
+    if let Some(hooks) = chosen_values(&response) {
+        return SearchOutcome::Incomplete(format!(
+            "the exploration found no match, but the search read values the definition leaves \
+             open ({IMPLEMENTATION_CHOSEN_VALUE}: {hooks}), so another model of the definition \
+             may reach the pattern"
+        ));
+    }
     SearchOutcome::Complete
+}
+
+/// The cause a `no` is refused for when the search read a value the definition leaves open.
+const IMPLEMENTATION_CHOSEN_VALUE: &str = "implementation-chosen-value";
+
+/// The hooks of the search response's `implementationChosenValues` list, each with its class, or
+/// `None` when the list is absent or empty (k-rust omits it when empty).
+fn chosen_values(response: &Value) -> Option<String> {
+    let marks = response["implementationChosenValues"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|mark| {
+            format!(
+                "{} ({})",
+                mark["hook"].as_str().unwrap_or("?"),
+                mark["class"].as_str().unwrap_or("?")
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    (!marks.is_empty()).then(|| marks.into_iter().collect::<Vec<_>>().join(", "))
 }
 
 /// The cause a hit is refused for when the search left a hook application unevaluated.
@@ -1350,6 +1389,30 @@ mod tests {
             run(&response(vec![], vec![]), &always),
             SearchOutcome::Complete
         );
+    }
+
+    /// kink27 R3-CENSUS-RUNLEVEL (gap G1): a completed exploration whose response lists a value
+    /// the definition leaves open gives no `no`, since another model of that value may reach the
+    /// pattern; a decided match is still a hit, as a match without a mark on its own path matches
+    /// on that path in every such model. Before the fix the exploration was `Complete`.
+    #[test]
+    fn a_search_that_read_an_open_value_gives_no_no() {
+        let mark = json!([{"hook": "MAP.keys_list", "class": "order"}]);
+        let mut complete = response(vec![], vec![]);
+        complete["implementationChosenValues"] = mark.clone();
+        let outcome = run(&complete, &always);
+        incomplete(&outcome, IMPLEMENTATION_CHOSEN_VALUE);
+        incomplete(&outcome, "MAP.keys_list");
+        let mut matched = response(vec![decided_match()], vec![]);
+        matched["implementationChosenValues"] = mark;
+        assert!(
+            matches!(run(&matched, &always), SearchOutcome::Hit(_)),
+            "a decided match is a hit"
+        );
+        // An empty list is no mark.
+        let mut empty = response(vec![], vec![]);
+        empty["implementationChosenValues"] = json!([]);
+        assert_eq!(run(&empty, &always), SearchOutcome::Complete);
     }
 
     #[test]
