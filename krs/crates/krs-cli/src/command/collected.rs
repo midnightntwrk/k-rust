@@ -1,12 +1,12 @@
-//! Collection without a command: the descriptors a definition's collector reports, and the K or
-//! reference source of any bundle of them, computed in memory by the stages `emit-k` and `expand`
-//! run.
+//! Collection without a command: the descriptors a definition's collector reports, and the K,
+//! reference source or check verdict of any bundle of them, computed in memory by the stages
+//! `emit-k`, `expand` and `check` run.
 //!
 //! A caller that judges many definitions from one collector run (the class tests, which collect
 //! one package of many cases and judge each case from the descriptors of the base and that case)
 //! collects once with [`collect_descriptors`] and then lowers each sub-bundle with
-//! [`CollectedDefinition::emit_k`]. Nothing here reads or writes the result cache: every call
-//! builds and runs the collector.
+//! [`CollectedDefinition::emit_k`], and judges it with [`CollectedDefinition::check`]. Nothing
+//! here reads or writes the result cache: every call builds and runs the collector.
 
 use std::path::Path;
 
@@ -17,8 +17,8 @@ use krs_ir_levels::DefinitionIr;
 
 use super::collector::{build_collector_measured, generate_collector, run_collector};
 use super::{
-    CommandError, CommandRequest, definition_warnings, expand, plan_collector, prepare_bundle,
-    render_emitted, validate_request,
+    CommandError, CommandRequest, check_verdict, definition_warnings, expand, plan_collector,
+    prepare_bundle, render_emitted, validate_request,
 };
 use crate::metadata::cargo_metadata_in;
 use crate::{CollectorPlan, DiagnosticReports};
@@ -107,6 +107,21 @@ impl CollectedDefinition {
             ir: prepared.lowered.definition().clone(),
             warnings,
         })
+    }
+
+    /// Lower `bundle` and judge it as `krs check` without `--backend` does: `emit-k`'s emission,
+    /// every native route's capability table and native compile, and on the `native-rust` route
+    /// the definition load of the run commands. `bundle` is this definition's, or a subset of it.
+    ///
+    /// # Errors
+    ///
+    /// Fails exactly when `krs check` refuses the definition, with its refusal: the note naming
+    /// the route or the command that refuses it, and the warnings of the stages that completed.
+    pub fn check(&self, bundle: DescriptorBundle) -> Result<DiagnosticReports, CommandError> {
+        let mut measurement = Measurement::disabled();
+        let prepared = prepare_bundle(bundle, self.profile, &mut measurement)?;
+        check_verdict(&prepared, None, &mut measurement)
+            .map_err(|error| error.warned(definition_warnings(&prepared)))
     }
 
     /// The reference source `krs expand` prints for `bundle`, this definition's or a subset of it.

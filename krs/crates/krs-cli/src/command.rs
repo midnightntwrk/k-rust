@@ -584,7 +584,34 @@ fn lower_definition(
 }
 
 /// `krs check`: the verdict of every command behind it that needs no
-/// external K toolchain, without writing artifacts.
+/// external K toolchain ([`check_verdict`]), without writing artifacts, and
+/// on a pass the summary or the program-syntax partition.
+fn check(
+    prepared: &PreparedDefinition,
+    backend: Option<Backend>,
+    partition: bool,
+    measurement: &mut Measurement,
+) -> Result<CommandOutcome, CommandError> {
+    let warnings = check_verdict(prepared, backend, measurement)?;
+    let stdout = if partition {
+        prepared.lowered.partition().render()
+    } else {
+        format!(
+            "KRS check passed: {} descriptors, {} semantic modules\n",
+            prepared.bundle.descriptors().len(),
+            prepared.semantic.modules().len()
+        )
+    };
+    Ok(CommandOutcome {
+        stderr: Vec::new(),
+        exit_code: 0,
+        warnings,
+        stdout: stdout.into_bytes(),
+    })
+}
+
+/// The judgement of `krs check`: the warnings of the routes it judges, or the
+/// refusal of the first command that refuses the definition, named.
 ///
 /// A check stands in front of `emit-k`, `build`, and the run commands, so it is
 /// useful exactly to the degree that its verdict predicts theirs; it therefore
@@ -599,12 +626,15 @@ fn lower_definition(
 /// `emit-k`, `build` on either backend, and the run commands all accept the
 /// definition, and a failure names the route and the commands that refuse it.
 /// `--backend B` narrows the claim to `emit-k` and `B`'s route.
-fn check(
+///
+/// [`CollectedDefinition::check`] makes the same judgement of a collected
+/// bundle, so a caller that judges many definitions (the class tests) asks
+/// exactly what `krs check` asks.
+fn check_verdict(
     prepared: &PreparedDefinition,
     backend: Option<Backend>,
-    partition: bool,
     measurement: &mut Measurement,
-) -> Result<CommandOutcome, CommandError> {
+) -> Result<crate::DiagnosticReports, CommandError> {
     let backends = judged_backends(backend)?;
     let several = backend.is_none();
     render_emitted(prepared, measurement)
@@ -622,23 +652,8 @@ fn check(
             route_attributed(refusal, backend, several)
         });
     }
-    let warnings = measurement.timings.try_span("check.routes", |timings| {
+    measurement.timings.try_span("check.routes", |timings| {
         judge_routes(prepared, &backends, several, timings)
-    })?;
-    let stdout = if partition {
-        prepared.lowered.partition().render()
-    } else {
-        format!(
-            "KRS check passed: {} descriptors, {} semantic modules\n",
-            prepared.bundle.descriptors().len(),
-            prepared.semantic.modules().len()
-        )
-    };
-    Ok(CommandOutcome {
-        stderr: Vec::new(),
-        exit_code: 0,
-        warnings,
-        stdout: stdout.into_bytes(),
     })
 }
 
