@@ -288,7 +288,7 @@ mod kink_tier {
             let base = value["definitions"][0].clone();
             let mut definitions = vec![base.clone()];
             for (id, file, module) in [
-                ("float", "float.k", "TB02FLOAT"),
+                ("token-float", "token-float.k", "T12TOKEN"),
                 ("flagged", "t13owk.k", "T13OWK"),
                 ("map", "map.k", "CS12-MAP"),
             ] {
@@ -314,7 +314,7 @@ mod kink_tier {
             let manifest = decode(&value);
             let store = store("mini");
             for (id, stage, reason) in [
-                ("float", "representation", "G-F"),
+                ("token-float", "representation", "G-T"),
                 ("flagged", "declaration-census", "vi-t13"),
                 ("map", "baseline", "baseline-oracle-failed"),
                 ("let-test", "exclusion", "below-floor"),

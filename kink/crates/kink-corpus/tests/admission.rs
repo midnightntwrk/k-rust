@@ -123,8 +123,8 @@ fn committed_refusal_manifests_have_exact_stages_and_reasons() {
 }
 #[test]
 fn every_refusal_stage_and_first_failure() {
-    let mut v = named("float.k", "TB02FLOAT");
-    refused(&v, "representation", "G-F");
+    let mut v = named("token-float.k", "T12TOKEN");
+    refused(&v, "representation", "G-T");
     v["definitions"][0]["id"] = json!("let-test");
     let r = refused(&v, "exclusion", "below-floor");
     assert!(r.record.kompile_warnings.is_none());
@@ -190,6 +190,17 @@ fn every_refusal_stage_and_first_failure() {
     v["definitions"][0]["root"]["path"] =
         json!("testdata/corpus/admission-v1/k-distribution/tests/regression-new/let-test/inner/..");
     refused(&v, "exclusion", "below-floor");
+}
+/// R3-ADMIT-FLOAT: a definition whose rules hold Float literals passes the representation gate;
+/// k-rust stores every Float domain value as the canonical text of its value, so G-F is retired.
+#[test]
+fn a_float_literal_definition_passes_representation() {
+    let r = run(&named("float.k", "TB02FLOAT"));
+    eprintln!("{}", r.record.text());
+    assert_eq!(r.record.value()["representation"], json!("admitted"));
+    if let Some(refusal) = r.record.refusal.as_ref() {
+        assert_ne!(&*refusal.stage, "representation", "{}", r.record.text());
+    }
 }
 #[test]
 fn semantic_input_stage_rejects_decodable_noncanonical_text() {

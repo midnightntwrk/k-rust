@@ -1,11 +1,21 @@
 //! Admission of compiled sides whose token representations support syntactic comparison.
 //!
-//! This is a pure syntax gate (TB-03, VI-T12). It scans every compiled axiom, including
-//! equations, lemmas and generated axioms, alias bodies, and the separately emitted macro and
-//! alias rules, which k-rust prints as bare sentences (TB-03M).
+//! This is a pure syntax gate (TB-03, VI-T12). It refuses the token representations kink does not
+//! admit: a token-creating hook into a builtin or hooked sort (G-T), a String token that is not
+//! one UTF-8 text under both KAST decoders (G-S), and a non-canonical Int literal at a sort hooked
+//! `INT.Int` under another name (G-I). It scans every compiled axiom, including equations, lemmas
+//! and generated axioms, alias bodies, and the separately emitted macro and alias rules, which
+//! k-rust prints as bare sentences (TB-03M).
 //! String tokens are checked in the loaded KAST and in the compiled execution definition, which
 //! holds the tokens kompile creates by constant folding (TB-03 review 1, F1). It does not
-//! rewrite tokens: respelling one literal cannot make it agree with every Float format.
+//! rewrite tokens.
+//!
+//! Float and MInt literals at a sort hooked `FLOAT.Float` or `MINT.MInt` are admitted: k-rust
+//! stores every such domain value as the canonical text of its value on every route
+//! (`docs/compatibility.md`, "Domain values"; pinned by `tests/representation.rs`,
+//! `the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned`), so two such terms
+//! are one term exactly when they denote one value, and kink's comparison of terms compares
+//! values.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -25,11 +35,9 @@ use k_rust::{
 
 use crate::ValidatedDefinition;
 
-/// The five representation premises required before execution.
+/// The three representation premises required before execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RepresentationClause {
-    FloatLiteral,
-    MIntLiteral,
     TokenCreator,
     StringSpelling,
     RenamedIntLiteral,
@@ -38,12 +46,28 @@ pub enum RepresentationClause {
 impl fmt::Display for RepresentationClause {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::FloatLiteral => "G-F",
-            Self::MIntLiteral => "G-M",
             Self::TokenCreator => "G-T",
             Self::StringSpelling => "G-S",
             Self::RenamedIntLiteral => "G-I",
         })
+    }
+}
+
+impl RepresentationClause {
+    /// Why kink refuses a definition by this clause.
+    #[must_use]
+    pub const fn reason(self) -> &'static str {
+        match self {
+            Self::TokenCreator => {
+                "kink does not admit a token-creating hook into a builtin or hooked sort"
+            }
+            Self::StringSpelling => {
+                "kink does not admit a String token that is not one UTF-8 text under both KAST decoders"
+            }
+            Self::RenamedIntLiteral => {
+                "kink does not admit a non-canonical Int literal at a sort hooked INT.Int under another name"
+            }
+        }
     }
 }
 
@@ -60,11 +84,12 @@ impl fmt::Display for RepresentationFinding {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "representation clause {} refused sort {} at sentence UNIQUE_ID={} / source {}; k-rust compares Float/MInt tokens by spelling (VI-T12); respelling does not help",
+            "representation clause {} refused sort {} at sentence UNIQUE_ID={} / source {}: {}",
             self.clause,
             self.sort,
             self.sentence_unique_id.as_deref().unwrap_or("<generated>"),
-            self.source
+            self.source,
+            self.clause.reason()
         )
     }
 }
@@ -258,9 +283,10 @@ fn validate_artifacts(
                         let mut work = vec![pattern.as_ref()];
                         while let Some(node) = work.pop() {
                             if let Pattern::DomainValue { sort, value } = node {
+                                // A domain value of a sort hooked `FLOAT.Float` or `MINT.MInt`
+                                // is stored as the canonical text of its value, so it is
+                                // admitted.
                                 let clause = match sort_hook(sort, &hooks) {
-                                    Some("FLOAT.Float") => Some(RepresentationClause::FloatLiteral),
-                                    Some("MINT.MInt") => Some(RepresentationClause::MIntLiteral),
                                     Some("INT.Int")
                                         if sort_name(sort) != "SortInt"
                                             && !canonical_decimal(value.as_bytes()) =>

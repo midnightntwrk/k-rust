@@ -529,13 +529,14 @@ mod heavy {
     use super::*;
 
     /// The whole sweep: every top-level definition of the fixture directory (the CS-05 load
-    /// census of 69), and the catalogue label pins over all of them.
+    /// census of 70, since R3-ADMIT-FLOAT added `floatzero.k`), and the catalogue label pins over
+    /// all of them.
     #[test]
     #[ignore = "heavy"]
     fn every_top_level_definition_has_a_deterministic_sweep() {
         let names = names();
         let by_fixture = sweep_all(&names.iter().map(String::as_str).collect::<Vec<_>>());
-        assert_eq!(by_fixture.len(), 69, "CS-05 top-level load census");
+        assert_eq!(by_fixture.len(), 70, "CS-05 top-level load census");
         assert_label_pins(&by_fixture, true);
     }
 }

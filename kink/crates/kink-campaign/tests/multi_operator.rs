@@ -474,6 +474,7 @@ mod heavy {
     compiled_catalogue_sweep_of_duplicate_unlabelled: "duplicate_unlabelled.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_effectmem: "effectmem.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_equation_ensures_support: "equation-ensures-support.k" BOTH 0 / 1,
+    compiled_catalogue_sweep_of_floatzero: "floatzero.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_freshgen: "freshgen.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_guardeddiv: "guardeddiv.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_guardedeq: "guardedeq.k" BOTH 0 / 1,

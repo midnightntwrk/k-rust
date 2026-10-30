@@ -62,7 +62,7 @@ fn mini() -> Value {
     let mut value = clean();
     let base = value["definitions"][0].clone();
     for (id, file, module) in [
-        ("float", "float.k", "TB02FLOAT"),
+        ("token-float", "token-float.k", "T12TOKEN"),
         ("flagged", "t13owk.k", "T13OWK"),
         ("map", "map.k", "CS12-MAP"),
     ] {

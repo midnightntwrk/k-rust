@@ -26,9 +26,7 @@ use k_rust::kompile::CompileOptions;
 use kink_native::census::{CensusClass, CensusVerdict, DeclarationCensus, declaration_census};
 use kink_native::coverage::{Authorship, RuleAuthors};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
-use kink_native::representation::{
-    RepresentationClause, RepresentationError, validate_representation,
-};
+use kink_native::representation::validate_representation;
 use kink_native::{NativeFailure, NativeValidator, ValidatedDefinition};
 use serde_json::json;
 
@@ -47,8 +45,9 @@ const PROTECTED: &[&str] = &[
 /// The light tier's definitions: every protected fixture; every fixture with a pinned census
 /// row (the VI-T13 fixtures, including the flagged H and U rows and the inert hook, and the two
 /// TB-02 token-hook fixtures); `t13role.k`, whose compile refusal the census and coverage
-/// checks pin; `tb02float.k`, which the representation gate refuses (FloatLiteral); and
-/// `t13implemented.k` is also the one implementation-chosen-hook exclusion among them.
+/// checks pin; `tb02float.k`, whose Float literals the representation gate admits
+/// (R3-ADMIT-FLOAT; it refused them as FloatLiteral until then); and `t13implemented.k` is also
+/// the one implementation-chosen-hook exclusion among them.
 const LIGHT: &[&str] = &[
     "counter.k",
     "symmem.k",
@@ -475,29 +474,20 @@ fn exclusion_check(name: &str, unit: &Unit, side: &ValidatedDefinition) -> (bool
     (flagged, short_circuit)
 }
 
-/// TB-03's representation gate admits every pre-existing fixture except the two with a Float
-/// literal (`tb02float.k`, `rulecondfail.k`), which it refuses with FloatLiteral.
+/// TB-03's representation gate admits every pre-existing fixture: no pre-existing fixture is
+/// refused. The two with a Float literal (`tb02float.k`, `rulecondfail.k`) were refused with
+/// FloatLiteral until R3-ADMIT-FLOAT retired G-F: k-rust stores a Float literal as the canonical
+/// text of its value.
 fn representation_check(unit: &Unit, compiled: &Result<ValidatedDefinition, NativeFailure>) {
     let (file, module) = (unit.file(), unit.module.as_str());
     let side = compiled
         .as_ref()
         .unwrap_or_else(|error| panic!("{file}/{module} compilation: {error}"));
     let result = validate_representation(side);
-    if matches!(file, "tb02float.k" | "rulecondfail.k") {
-        assert_eq!(
-            match result.unwrap_err() {
-                RepresentationError::Finding(finding) => finding.clause,
-                RepresentationError::KoreParse(error) => panic!("{error}"),
-            },
-            RepresentationClause::FloatLiteral,
-            "{file}/{module}"
-        );
-    } else {
-        assert!(
-            result.is_ok(),
-            "STOP: existing fixture {file}/{module}: {result:?}"
-        );
-    }
+    assert!(
+        result.is_ok(),
+        "STOP: existing fixture {file}/{module}: {result:?}"
+    );
 }
 
 /// Compiles `unit` once and runs its checks, recording what they found in `findings`.
@@ -609,7 +599,7 @@ fn names(units: &[Unit], keep: impl Fn(&Unit) -> bool) -> BTreeSet<String> {
 
 /// The checks on the light subset: every protected fixture is census-natural, maps every rule
 /// author, has no exclusion and passes the representation gate; every pinned census row holds;
-/// t13role.k's compile refusal is pinned; tb02float.k is refused with FloatLiteral; and of these
+/// t13role.k's compile refusal is pinned; tb02float.k passes the representation gate; and of these
 /// definitions exactly t13implemented.k has an implementation-chosen hook.
 #[test]
 fn named_definitions_pass_every_definition_check() {

@@ -21,6 +21,7 @@ use kink_campaign::{
     SideRun, StateProjection, TestCase, TestRun, derive_mutant_report, run_campaign, tally,
 };
 use kink_native::NativeValidator;
+use kink_native::exclusion::Exclusion;
 use kink_native::execution::ExecutionBudget;
 use kink_native::feasibility::TestInitialState;
 use kink_native::step_events::{StepEventSpec, StepObservation};
@@ -2120,7 +2121,14 @@ impl ViResult {
         generation: &CandidateGeneration<'_>,
         mode: ScheduleMode,
     ) -> Self {
-        match run_campaign(campaign, generation, mode) {
+        Self::of_outcome(&run_campaign(campaign, generation, mode))
+    }
+
+    /// The result of one campaign's outcome; the caller keeps the failure for its detail.
+    fn of_outcome(
+        outcome: &Result<kink_campaign::CampaignRun, kink_campaign::CampaignFailure>,
+    ) -> Self {
+        match outcome {
             Err(failure) => Self::Refused(failure.kind()),
             Ok(run) => {
                 let [mutant] = run.mutants.as_slice() else {
@@ -3711,15 +3719,27 @@ fn t12_patch(baseline: &Baseline, rule: &str, edit: &T12Edit) -> Patch {
     Patch::new(edits).expect("representation patch")
 }
 
-/// Deliverable 1: every previously measured equivalent kill is refused before execution.
-/// Accumulate every row before asserting, so failing-first logs contain the complete matrix.
-/// Each row's baseline is refused, so the schedule never reaches a mutant: the kink tier runs
-/// every row in Full, the heavy tier in both schedules. The rows of one fixture share its
-/// validator ([`shared_validator`]).
-fn t12_definition_spelling_routes_are_refused(schedules: &'static [ScheduleMode]) {
+/// Deliverable 1 of TB-03, re-pinned by R3-ADMIT-FLOAT: no previously measured equivalent kill
+/// is a kill. Until R3-ADMIT-FLOAT the representation gate refused every row's baseline (G-F,
+/// G-M). k-rust now stores every Float and MInt domain value as the canonical text of its value
+/// (`docs/compatibility.md`, "Domain values"), so the gate admits them, and each row is measured:
+/// - `A1` (`tb02float.k`, whose own rules apply only `FLOAT.int2float`): the guard `V ==Float 1.0`
+///   holds on the one value the test reaches, `1.0p53x11`, so the mutant takes the baseline's
+///   step and Survives.
+/// - `A2` and `M1` (Z3 profile): the respelled literal names the baseline's element, so the
+///   mutant loads to the baseline's backend definition and Survives. Without Z3 the MInt
+///   fixture is not loadable.
+/// - every `t12probe.k` row: its own rules apply `+Float` and `/Float`, whose value k-rust
+///   chooses, so the census excludes every run on it and the baseline is refused
+///   (`implementation-chosen-hook`) before any mutant runs.
+///
+/// Every row is measured before the first assertion, so failing-first logs contain the complete
+/// matrix. The kink tier runs every row in Full, the heavy tier in both schedules. The rows of one
+/// fixture share its validator ([`shared_validator`]).
+fn t12_definition_spelling_routes_are_not_killed(schedules: &'static [ScheduleMode]) {
     with_stack(move || {
         use T12Edit::{Equality as Eq, Guard as G, Respell as R};
-        let rows = [
+        let routes = [
             (
                 "A1",
                 "tb02float.k",
@@ -3874,8 +3894,8 @@ fn t12_definition_spelling_routes_are_refused(schedules: &'static [ScheduleMode]
         } else {
             "portable"
         };
-        let mut failures = Vec::new();
-        for (id, fixture, module, label, edit, start, arg) in rows {
+        let mut rows = Vec::new();
+        for (id, fixture, module, label, edit, start, arg) in routes {
             if id == "M1" && !cfg!(feature = "z3") {
                 let path = std::path::Path::new(support::DIR).join(fixture);
                 let mut resolver = |_: &str, required: &str| {
@@ -3921,27 +3941,41 @@ fn t12_definition_spelling_routes_are_refused(schedules: &'static [ScheduleMode]
                 budget: BUDGET,
             };
             for &mode in schedules {
-                let failure = run_campaign(&campaign, &generation, mode)
-                    .expect_err("representation gate refuses the baseline");
-                let detail = failure.to_string();
-                for text in [
-                    if id == "M1" { "G-M" } else { "G-F" },
-                    if id == "M1" { "SortMInt" } else { "SortFloat" },
-                    "sentence UNIQUE_ID=",
-                    "source",
-                    "k-rust compares Float/MInt tokens by spelling (VI-T12); respelling does not help",
-                ] {
-                    assert!(detail.contains(text), "{id}: {detail}");
-                }
-                let result = ViResult::Refused(failure.kind());
-                eprintln!("TB03 {profile} {id} {mode:?}: {result:?}");
-                let expected = ViResult::Refused(CampaignFailureKind::BaselineOracleFailed);
-                if result != expected {
-                    failures.push(format!("{id} {mode:?}: {result:?}"));
-                }
+                let outcome = run_campaign(&campaign, &generation, mode);
+                let result = ViResult::of_outcome(&outcome);
+                let exclusion = outcome
+                    .as_ref()
+                    .err()
+                    .and_then(|failure| failure.exclusion());
+                let detail = outcome.as_ref().err().map(ToString::to_string);
+                eprintln!("TB03 {profile} {id} {mode:?}: {result:?} {exclusion:?} {detail:?}");
+                rows.push((id, fixture, mode, result, exclusion));
             }
         }
-        assert!(failures.is_empty(), "representation routes: {failures:?}");
+        for (id, fixture, mode, result, exclusion) in rows {
+            assert!(!result.killed(), "STOP: {id} {mode:?}: {result:?}");
+            if fixture == "t12probe.k" {
+                assert_eq!(
+                    (result, exclusion),
+                    (
+                        ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
+                        Some(Exclusion::ImplementationChosenHook)
+                    ),
+                    "{id} {mode:?}"
+                );
+            } else {
+                assert!(
+                    matches!(
+                        result,
+                        ViResult::Ran {
+                            status: MutantStatus::Survived,
+                            ..
+                        }
+                    ),
+                    "{id} {mode:?}: {result:?}"
+                );
+            }
+        }
     });
 }
 
@@ -8949,10 +8983,15 @@ mod kink_tier {
         });
     }
 
-    /// Strict G-F refuses symbolic unevaluated calls too; no definite separation becomes a kill.
+    /// No definite separation of a respelled argument of an unevaluated Float call becomes a kill.
+    /// Re-pin R3-ADMIT-FLOAT: the representation gate no longer refuses the Float literals (G-F
+    /// retired: k-rust stores each as the canonical text of its value, so the respelling
+    /// `1.0`/`1.00` would load to the baseline's definition were it admitted); `t12unev.k`'s own
+    /// rules apply `*Float`, whose value k-rust chooses, so the census excludes every run on it
+    /// and the baseline is refused (`implementation-chosen-hook`).
     #[test]
     #[ignore = "kink"]
-    fn audit_vi_t12_unevaluated_hook_controls_are_refused() {
+    fn audit_vi_t12_unevaluated_hook_controls_are_not_killed() {
         with_stack(|| {
             let validator =
                 NativeValidator::bind(support::load("t12unev.k"), CompileOptions::default());
@@ -8995,11 +9034,20 @@ mod kink_tier {
                     budget: BUDGET,
                 };
                 for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                    let result = ViResult::of(&campaign, &generation, mode);
-                    eprintln!("TB03 {id} {mode:?}: {result:?}");
+                    let outcome = run_campaign(&campaign, &generation, mode);
+                    let result = ViResult::of_outcome(&outcome);
+                    let exclusion = outcome
+                        .as_ref()
+                        .err()
+                        .and_then(|failure| failure.exclusion());
+                    eprintln!("TB03 {id} {mode:?}: {result:?} {exclusion:?}");
                     assert_eq!(
-                        result,
-                        ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                        (result, exclusion),
+                        (
+                            ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
+                            Some(Exclusion::ImplementationChosenHook)
+                        ),
+                        "{id} {mode:?}"
                     );
                 }
             }
@@ -9417,9 +9465,11 @@ mod kink_tier {
 
     /// TB-03M (TB-03 review 2): macro and alias rules reach `macros_kore` as bare sentences. A clean
     /// macro or alias definition now runs its campaign, and an equivalent mutant is never Killed; a
-    /// Float literal in a macro body is refused by G-F, and a constant-folded String in a macro body
-    /// by G-S, instead of by the earlier KORE parse failure. Every row is measured before the first
-    /// assertion (complete failing-first logs).
+    /// constant-folded String in a macro body is refused by G-S, instead of by the earlier KORE
+    /// parse failure. Re-pin R3-ADMIT-FLOAT: a Float literal in a macro body is admitted (G-F
+    /// retired: k-rust stores it as the canonical text of its value), so `macro-float` runs its
+    /// campaign as the clean rows do and its equivalent mutant Survives. Every row is measured
+    /// before the first assertion (complete failing-first logs).
     #[test]
     #[ignore = "kink"]
     fn audit_vi_t12_macros_campaigns() {
@@ -9478,7 +9528,7 @@ mod kink_tier {
                 assert!(!result.killed(), "STOP: {id} {mode:?}: {result:?}");
                 match id {
                     // macro-inline is not classified Equivalent: the edited rule's identity differs.
-                    "macro-owise" | "macro-inline" | "alias-owise" => assert_eq!(
+                    "macro-owise" | "macro-inline" | "alias-owise" | "macro-float" => assert_eq!(
                         result,
                         ViResult::Ran {
                             tests: vec![(id.into(), TestRun::Compared(vec![A]))],
@@ -9487,19 +9537,78 @@ mod kink_tier {
                         },
                         "{id} {mode:?}"
                     ),
-                    "macro-float" | "macro-fold" => {
+                    "macro-fold" => {
                         assert_eq!(
                             result,
                             ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
                             "{id} {mode:?}"
                         );
-                        let clause = if id == "macro-float" { "G-F" } else { "G-S" };
                         assert!(
-                            detail.is_some_and(|detail| detail.contains(clause)),
+                            detail.is_some_and(|detail| detail.contains("G-S")),
                             "{id} {mode:?}"
                         );
                     }
                     _ => unreachable!(),
+                }
+            }
+        });
+    }
+
+    /// R3-ADMIT-FLOAT: k-rust stores every Float domain value as the canonical text of its value,
+    /// so kink compares Float literals by value. On `floatzero.k` from `start(0)` (the binary64
+    /// zero), a respelling of `point`'s `0.0` that names the same element (`0.00e5`,
+    /// `0e+00p53x11`) Survives, and one that names another element is killed: `-0.0` is the other
+    /// signed zero and `0.0f` the binary32 zero, so the test's zero takes `pointow` instead.
+    /// Every row is measured before the first assertion.
+    #[test]
+    #[ignore = "kink"]
+    fn float_literal_spellings_are_compared_by_value() {
+        with_stack(|| {
+            let validator = shared_validator("floatzero.k", "FLOATZERO");
+            let baseline = validator.baseline();
+            let label = "FLOATZERO.point";
+            let tests = [case(
+                "zero",
+                support::initial_state(app("start", vec![support::int(0)]), "SortProg"),
+                &[whole_term()],
+            )];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "FLOATZERO",
+                observation: &[],
+                classify: &tv01_classify,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            let mut rows = Vec::new();
+            for (to, same) in [
+                ("0.00e5", true),
+                ("0e+00p53x11", true),
+                ("-0.0", false),
+                ("0.0f", false),
+            ] {
+                let patch = t12_patch(baseline, label, &T12Edit::Respell("0.0", to));
+                let generation = fixed(baseline, &[(label, &[0])], "r3-float-value", &patch);
+                for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let result = ViResult::of(&campaign, &generation, mode);
+                    eprintln!("R3-FLOAT 0.0 -> {to} {mode:?}: {result:?}");
+                    rows.push((to, same, mode, result));
+                }
+            }
+            for (to, same, mode, result) in rows {
+                if same {
+                    assert_eq!(
+                        result,
+                        ViResult::Ran {
+                            tests: vec![("zero".into(), TestRun::Compared(vec![A]))],
+                            status: MutantStatus::Survived,
+                            killing: vec![]
+                        },
+                        "{to} {mode:?}"
+                    );
+                } else {
+                    assert!(result.killed(), "{to} {mode:?}: {result:?}");
+                    result.assert_justified(&format!("{to} {mode:?}"));
                 }
             }
         });
@@ -9557,8 +9666,8 @@ mod kink_tier {
 
     #[test]
     #[ignore = "kink"]
-    fn audit_vi_t12_definition_spelling_routes_are_refused() {
-        t12_definition_spelling_routes_are_refused(&[ScheduleMode::Full]);
+    fn audit_vi_t12_definition_spelling_routes_are_not_killed() {
+        t12_definition_spelling_routes_are_not_killed(&[ScheduleMode::Full]);
     }
 }
 
@@ -9617,7 +9726,10 @@ mod heavy {
 
     #[test]
     #[ignore = "heavy"]
-    fn audit_vi_t12_definition_spelling_routes_are_refused() {
-        t12_definition_spelling_routes_are_refused(&[ScheduleMode::Full, ScheduleMode::FirstKill]);
+    fn audit_vi_t12_definition_spelling_routes_are_not_killed() {
+        t12_definition_spelling_routes_are_not_killed(&[
+            ScheduleMode::Full,
+            ScheduleMode::FirstKill,
+        ]);
     }
 }

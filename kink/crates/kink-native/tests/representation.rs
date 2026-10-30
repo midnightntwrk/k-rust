@@ -1,5 +1,7 @@
 //! Clause-level representation premises and the pre-existing fixture admission boundary.
 
+#[path = "../../../testdata/k/passage.rs"]
+mod passage;
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
@@ -106,13 +108,15 @@ fn loaded(token: Option<&str>) -> Definition {
 
 #[test]
 fn every_literal_axiom_kind_and_nested_position_is_scanned() {
-    for (sort, hook, clause) in [
+    for (sort, hook, value, clause) in [
+        ("SortFloat", "FLOAT.Float", "1.0", None),
+        ("SortMInt", "MINT.MInt", "1p8", None),
         (
-            "SortFloat",
-            "FLOAT.Float",
-            RepresentationClause::FloatLiteral,
+            "SortOtherInt",
+            "INT.Int",
+            "007",
+            Some(RepresentationClause::RenamedIntLiteral),
         ),
-        ("SortMInt", "MINT.MInt", RepresentationClause::MIntLiteral),
     ] {
         let declarations = format!(
             r#"hooked-sort {sort}{{}} [hook{{}}("{hook}")] symbol wrap{{}}({sort}{{}}):{sort}{{}} [hook{{}}("FLOAT.abs")]"#
@@ -124,38 +128,41 @@ fn every_literal_axiom_kind_and_nested_position_is_scanned() {
             "",
         ] {
             for pattern in [
-                format!(r#"\dv{{{sort}{{}}}}("1.0")"#),
-                format!(r#"wrap{{}}(\dv{{{sort}{{}}}}("1.0"))"#),
+                format!(r#"\dv{{{sort}{{}}}}("{value}")"#),
+                format!(r#"wrap{{}}(\dv{{{sort}{{}}}}("{value}"))"#),
                 format!(
-                    r#"\equals{{{sort}{{}},{sort}{{}}}}(\dv{{{sort}{{}}}}("1.0"), X:{sort}{{}})"#
+                    r#"\equals{{{sort}{{}},{sort}{{}}}}(\dv{{{sort}{{}}}}("{value}"), X:{sort}{{}})"#
                 ),
             ] {
                 let definition = kore(
                     &declarations,
                     &format!("axiom{{}} {pattern} [{attributes}]"),
                 );
-                let finding =
-                    validate_representation_ast(&definition, None, &loaded(None)).unwrap_err();
+                let result = validate_representation_ast(&definition, None, &loaded(None));
+                let Some(clause) = clause else {
+                    assert!(result.is_ok(), "{pattern} [{attributes}]: {result:?}");
+                    continue;
+                };
+                let finding = result.unwrap_err();
                 assert_eq!(finding.clause, clause);
                 assert_eq!(finding.sort, sort);
                 assert!(finding.source.contains("MAIN sentence"));
-                assert!(finding.to_string().contains("respelling does not help"));
-                assert!(
-                    finding
-                        .to_string()
-                        .contains("k-rust compares Float/MInt tokens by spelling (VI-T12)")
-                );
+                assert!(finding.to_string().contains(clause.reason()));
             }
         }
         let definition = kore(&declarations, &format!("axiom{{}} X:{sort}{{}} []"));
         assert!(validate_representation_ast(&definition, None, &loaded(None)).is_ok());
         let macro_definition = kore(
             "",
-            &format!(r#"axiom{{}} \dv{{{sort}{{}}}}("1.0") [UNIQUE'Unds'ID{{}}("macro-id")]"#),
+            &format!(r#"axiom{{}} \dv{{{sort}{{}}}}("{value}") [UNIQUE'Unds'ID{{}}("macro-id")]"#),
         );
-        let finding =
-            validate_representation_ast(&definition, Some(&macro_definition), &loaded(None))
-                .unwrap_err();
+        let result =
+            validate_representation_ast(&definition, Some(&macro_definition), &loaded(None));
+        let Some(clause) = clause else {
+            assert!(result.is_ok(), "{sort} macro: {result:?}");
+            continue;
+        };
+        let finding = result.unwrap_err();
         assert_eq!(finding.clause, clause);
         assert_eq!(finding.sentence_unique_id.as_deref(), Some("macro-id"));
     }
@@ -163,9 +170,14 @@ fn every_literal_axiom_kind_and_nested_position_is_scanned() {
 
 #[test]
 fn renamed_hooked_sorts_and_collection_key_literals_are_scanned() {
-    for (hook, clause) in [
-        ("FLOAT.Float", RepresentationClause::FloatLiteral),
-        ("MINT.MInt", RepresentationClause::MIntLiteral),
+    for (hook, value, clause) in [
+        ("FLOAT.Float", "1", None),
+        ("MINT.MInt", "1", None),
+        (
+            "INT.Int",
+            "01",
+            Some(RepresentationClause::RenamedIntLiteral),
+        ),
     ] {
         let declarations = format!(
             r#"hooked-sort SortRenamed{{}} [hook{{}}("{hook}")] sort SortMap{{}} [] symbol item{{}}(SortRenamed{{}}):SortMap{{}} []"#
@@ -173,14 +185,13 @@ fn renamed_hooked_sorts_and_collection_key_literals_are_scanned() {
         for head in ["item", "setItem"] {
             let definition = kore(
                 &declarations,
-                &format!(r#"axiom{{}} {head}{{}}(\dv{{SortRenamed{{}}}}("1")) []"#),
+                &format!(r#"axiom{{}} {head}{{}}(\dv{{SortRenamed{{}}}}("{value}")) []"#),
             );
-            assert_eq!(
-                validate_representation_ast(&definition, None, &loaded(None))
-                    .unwrap_err()
-                    .clause,
-                clause
-            );
+            let result = validate_representation_ast(&definition, None, &loaded(None));
+            match clause {
+                None => assert!(result.is_ok(), "{hook} {head}: {result:?}"),
+                Some(clause) => assert_eq!(result.unwrap_err().clause, clause, "{hook} {head}"),
+            }
         }
     }
 }
@@ -402,14 +413,14 @@ fn token_creator_clause_overlaps_the_existing_input_definition_refusal() {
 #[test]
 fn syntax_axioms_share_the_hook_registry_and_parse_failures_are_typed() {
     let declarations = format!("[] module MAIN {DECLARATIONS} endmodule []");
-    let axiom = r#"[] module SYNTAX axiom{} \dv{SortFloat{}}("1.0") [UNIQUE'Unds'ID{}("syntax-id")] endmodule []"#;
+    let axiom = r#"[] module SYNTAX axiom{} \dv{SortOtherInt{}}("007") [UNIQUE'Unds'ID{}("syntax-id")] endmodule []"#;
     for (syntax, macros) in [(axiom, ""), ("", axiom)] {
         let error =
             validate_representation_kore(&declarations, syntax, macros, &loaded(None)).unwrap_err();
         let RepresentationError::Finding(finding) = error else {
             panic!("expected literal finding")
         };
-        assert_eq!(finding.clause, RepresentationClause::FloatLiteral);
+        assert_eq!(finding.clause, RepresentationClause::RenamedIntLiteral);
         assert_eq!(finding.sentence_unique_id.as_deref(), Some("syntax-id"));
     }
     for (definition, syntax, macros) in [
@@ -475,13 +486,12 @@ fn review1_compiled_string_domain_values_must_be_utf8() {
     assert!(validate_representation_ast(&definition, None, &loaded(None)).is_ok());
 }
 
-/// TB-03 review 1 minor: alias bodies are unfolded into axioms by the backend, so G-F, G-M,
-/// G-I and the String rule scan them too (kompile emits no alias at 927b9ce6).
+/// TB-03 review 1 minor: alias bodies are unfolded into axioms by the backend, so G-I and the
+/// String rule scan them too (kompile emits no alias at 927b9ce6). Float and MInt literals of a
+/// hooked sort are admitted there as anywhere else (R3-ADMIT-FLOAT).
 #[test]
 fn review1_alias_declaration_bodies_are_scanned() {
     for (sort, value, clause) in [
-        ("SortFloat", "1.0", RepresentationClause::FloatLiteral),
-        ("SortMInt", "1p8", RepresentationClause::MIntLiteral),
         (
             "SortOtherInt",
             "007",
@@ -515,6 +525,16 @@ fn review1_alias_declaration_bodies_are_scanned() {
         r#"alias lit{}() : SortOtherInt{} where lit{}() := \dv{SortOtherInt{}}("7") []"#,
     );
     assert!(validate_representation_ast(&definition, None, &loaded(None)).is_ok());
+    for (sort, value) in [("SortFloat", "1.0"), ("SortMInt", "1p8")] {
+        let definition = kore(
+            DECLARATIONS,
+            &format!(
+                r#"alias lit{{}}() : {sort}{{}} where lit{{}}() := \dv{{{sort}{{}}}}("{value}") []"#
+            ),
+        );
+        let result = validate_representation_ast(&definition, None, &loaded(None));
+        assert!(result.is_ok(), "{sort}: {result:?}");
+    }
 }
 
 /// TB-03 review 1 F2: a test-written value of a renamed INT.Int-hooked sort must be canonical
@@ -567,21 +587,24 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
     // review1_compiled_string_domain_values_must_be_utf8.
     let string = r#"axiom{} \dv{SortText{}}("\xe9") [UNIQUE'Unds'ID{}("macro-id")]"#;
     let alias = r#"alias lit{}() : SortFloat{} where lit{}() := \dv{SortFloat{}}("1.0") [UNIQUE'Unds'ID{}("macro-id")]"#;
+    let renamed_alias = r#"alias lit{}() : SortOtherInt{} where lit{}() := \dv{SortOtherInt{}}("007") [UNIQUE'Unds'ID{}("macro-id")]"#;
     for (text, clause) in [
-        (format!("{float}\n"), RepresentationClause::FloatLiteral),
         (
-            format!("{clean}\n{float}\n"),
-            RepresentationClause::FloatLiteral,
+            format!("{renamed}\n"),
+            RepresentationClause::RenamedIntLiteral,
         ),
         (
-            format!("{clean}\n// comment\n{mint}"),
-            RepresentationClause::MIntLiteral,
+            format!("{clean}\n// comment\n{renamed}"),
+            RepresentationClause::RenamedIntLiteral,
         ),
         (
             format!("{clean}\n{renamed}\n"),
             RepresentationClause::RenamedIntLiteral,
         ),
-        (format!("{alias}\n"), RepresentationClause::FloatLiteral),
+        (
+            format!("{renamed_alias}\n"),
+            RepresentationClause::RenamedIntLiteral,
+        ),
     ] {
         match validate_representation_kore(&declarations, "", &text, &loaded(None)) {
             Err(RepresentationError::Finding(finding)) => {
@@ -602,6 +625,11 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
         &format!("{clean}\n"),
         &format!("{clean}\n{clean}"),
         &format!("{clean}\n{string}\n"),
+        // Float and MInt literals of a hooked sort are admitted (R3-ADMIT-FLOAT).
+        &format!("{float}\n"),
+        &format!("{clean}\n{float}\n"),
+        &format!("{clean}\n// comment\n{mint}"),
+        &format!("{alias}\n"),
     ] {
         assert_eq!(
             validate_representation_kore(&declarations, "", text, &loaded(None)),
@@ -629,14 +657,96 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
     }
 }
 
+/// R3-ADMIT-FLOAT: G-F and G-M are retired. k-rust builds every domain value of a sort hooked
+/// `FLOAT.Float` or `MINT.MInt` as the canonical text of its value on every route
+/// (`docs/compatibility.md`, "Domain values"), so two spellings of one element are one term and
+/// two elements stay two terms: the gate admits every spelling, including ones that name the
+/// same element (`1.0`/`1.0e0`, `1p8`/`01p8`, `-1p8`) and ones that name other elements of the
+/// format (`-0.0`, `NaN`, `Infinity`, `1.0p53x11`, `0.5f`).
+#[test]
+fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
+    for (sort, value) in [
+        ("SortFloat", "1.0"),
+        ("SortFloat", "1.0e0"),
+        ("SortFloat", "-0.0"),
+        ("SortFloat", "NaN"),
+        ("SortFloat", "Infinity"),
+        ("SortFloat", "1.0p53x11"),
+        ("SortFloat", "0.5f"),
+        ("SortMInt", "1p8"),
+        ("SortMInt", "01p8"),
+        ("SortMInt", "-1p8"),
+    ] {
+        let definition = kore(
+            DECLARATIONS,
+            &format!(r#"axiom{{}} \dv{{{sort}{{}}}}("{value}") []"#),
+        );
+        let result = validate_representation_ast(&definition, None, &loaded(None));
+        assert!(result.is_ok(), "{sort} {value}: {result:?}");
+    }
+}
+
+/// R3-ADMIT-FLOAT: the passages of k-rust's contract that Float and MInt admission rests on.
+/// The first four say that every route stores a Float or MInt domain value as the canonical text
+/// of its value, so kink compares those terms by value; the last two are the readings that decide
+/// which value a Float literal names (roundTiesToEven at a tie, one NaN per format), which kink
+/// takes on as premises (kink README, decision D-3). A change of any of them fails here, and the
+/// admission is read again against it.
+#[test]
+fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
+    let passage = |anchor, opening, digest| passage::Passage {
+        file: "docs/compatibility.md",
+        anchor,
+        opening,
+        lines: 1,
+        digest,
+    };
+    passage::assert_pinned(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.."),
+        &[
+            passage(
+                "## Domain values",
+                "The backend reads every domain value it holds by the hook",
+                "48b47c78acc5068302fccee48f225f945e260fd93a11193d6fe1953468bab93d",
+            ),
+            passage(
+                "## Domain values",
+                "Every route validates a text for its sort's kind",
+                "9840cb13d02403ca457b8abe2c93bfeb1b6e0cc20099977a7b580523bab7ed47",
+            ),
+            passage(
+                "## Domain values",
+                "The backend stores every machine-integer domain value",
+                "6651ae404df97ea3d3a1b681a3ff30b7f1eccad4e0396a37eee0b3c09aa2d84c",
+            ),
+            passage(
+                "## Domain values",
+                "The backend stores every domain value of a sort hooked `FLOAT.Float`",
+                "efdbb72ddfa511c671393734e94341b95568ca609bf72eca5e1dd4b8cc665915",
+            ),
+            passage(
+                "## Backend scope",
+                "k-rust's reading: where the `FLOAT` text says \"nearest\"",
+                "5ced7c0469227b09b101b8660e53b41210923ff4891511cb918d71ec67f4496d",
+            ),
+            passage(
+                "## Backend scope",
+                "k-rust's reading: every spelling of `NaN` in one format",
+                "793378856555a4fc7386b32d9f2aecfcbc5f5fcaac896a9e2a9c7af4261c1df2",
+            ),
+        ],
+    );
+}
+
 mod kink_tier {
     use super::*;
 
     /// TB-03M (TB-03 review 2): kompile emits macro and alias rules to `macros_kore` as bare
     /// sentences, without a module wrapper. The gate parses that form and scans every macro
-    /// sentence: the clean macro and alias modules are admitted, a Float literal that occurs only in
-    /// an unused macro body is refused by G-F, and a constant-folded String in a macro body is
-    /// refused by G-S. Every row is measured before the first assertion.
+    /// sentence: the clean macro and alias modules are admitted, the Float literal that occurs only
+    /// in an unused macro body is admitted (a Float literal of a hooked sort is stored as the
+    /// canonical text of its value; R3-ADMIT-FLOAT), and a constant-folded String in a macro body
+    /// is refused by G-S. Every row is measured before the first assertion.
     #[test]
     #[ignore = "kink"]
     fn audit_vi_t12_macros_compiled_sentences_are_scanned() {
@@ -675,8 +785,7 @@ mod kink_tier {
             match module {
                 "T12MACRO" | "T12ALIAS" => assert_eq!(result, Ok(()), "{module}"),
                 "T12MACROFLOAT" => {
-                    assert_eq!(result, Err("G-F".to_owned()), "{module}");
-                    // The Float literal is only in the macro sentence.
+                    assert_eq!(result, Ok(()), "{module}");
                     assert_eq!(without_macros, Ok(()), "{module}");
                 }
                 "T12MACROFOLD" => assert_eq!(result, Err("G-S".to_owned()), "{module}"),
