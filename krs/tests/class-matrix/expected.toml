@@ -110,6 +110,11 @@ code = "krs::analysis::ambiguous-operator"
 doc = "`A | B` in a result, a condition or an initializer, where `|` is the bitwise operator"
 advice = "none"
 
+[class.anonymous-rest-in-map-literal]
+code = "krs::syntax::invalid-expression-notation"
+doc = "an anonymous `..` in a `map![..]` that is a literal (anywhere in a readable record, and where a `cells!` result builds a map that no subject map frames): a literal's entries are written over the map its rest names, and `..` names none (NT-19)"
+advice = "none"
+
 [class.anywhere-outside-term-rule]
 code = "krs::syntax::invalid-rule-key"
 doc = "`anywhere` on a sentence that is no term-shaped transition: it makes a transition rewrite its subject's root application wherever it occurs, which a configuration-shaped rule (it matches cells, which occur only at their place), a function's equation (which applies wherever its application occurs already) and the other forms do not have"
@@ -1051,6 +1056,14 @@ at = "spelling"
 match = 'import/alias/subject-root-binding/Go()'
 class = "unbound-name"
 at = "item"
+
+# anonymous-rest-in-map-literal (NT-19): a map literal with an anonymous rest in the Set collection's
+# instance: in a readable record's subject and result, where `map![..]` is a literal, and in a
+# `cells!` result, which builds the instance's map
+[[refuse]]
+match = '{readable-run/{result,subject}/bag/{\{ Obj \{ key: x\, m: map![x -> y\, ..] \}\, .. \},\{ Obj \{ key: 1\, m: map![1 -> 2\, ..] \}\, .. \}},cells-run/result/bag/\{ k::fragment![crate::Obj \{ key: x\, m: k::map![x -> y\, ..] \}]\, ..instances0 \}}'
+class = "anonymous-rest-in-map-literal"
+at = "spelling"
 
 [accept]
 
@@ -3722,4 +3735,759 @@ rule [case-TAG]:
 <stmt> V0:Stmt </stmt>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+# The run families (NT-19): each readable record and `cells!` rule again on the run base, which K7
+# runs. A twin of a machine-base case (`readable-run/..` of `readable/..`) is refused by the twin's
+# rules and accepted where the twin is; its K names its own command, so it has its own entry, and
+# the twins' `same_k_as` pairs hold between the run cases too. The Set collection `bag`'s cases have
+# no twin: an instance written whole is looked up as the set's element and one whose map writes
+# `{ k -> v, .. }` (`map![k -> v, ..]` in a `cells!` rule) selects (decision D1a), both accepted, and
+# so is a result that writes an instance.
+
+[accept."cells-run/result/bag/{ k::fragment![crate::Obj { key: k::builtin::int::add(x, 1), m: k::map![x -> y] }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(.Bag => <bag>
+<key> V0:Int +Int 1 </key>
+<m> V0:Int |-> V1:Int </m>
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/bag/{ k::fragment![crate::Obj { key: x, m: k::map![x -> k::builtin::int::add(y, 1)] }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(.Bag => <bag>
+<key> V0:Int </key>
+<m> V0:Int |-> V1:Int +Int 1 </m>
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/bag/{ k::fragment![crate::Obj { key: x, m: k::map![x -> y] }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(.Bag => <bag>
+<key> V0:Int </key>
+<m> V0:Int |-> V1:Int </m>
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/counter/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(<counter> V2:Int </counter> => .Bag)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/counter/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<counter> V2:Int => V0:Int </counter>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> V2:Map => .Map [ V0:Int <- 1 ] [ V1:Int <- 2 ] </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
+same_k_as = ["cells-run/result/env/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> V2:Map => .Map [ V0:Int <- 1 ] [ V1:Int <- 2 ] </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/env/k::configuration::Cell(k::map![x -> y])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<env> V2:Map => V0:Int |-> V1:Int </env>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/frame/k::fragment![crate::Frame { ret: x }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <ret> V0:Int </ret> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/job/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<queue>
+<job>
+<payload> _ => V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/k/k::configuration::KCell()"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/k/k::configuration::KCell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => V0:Int </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/pc/k::configuration::Cell(0)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => 0 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/pc/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => V0:Int </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/stack/k::configuration::Cell([x, y])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stack> V2:List => ListItem(V0:Int) ListItem(V1:Int) </stack>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+<m> 1 |-> 2 ... </m>
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2] }], instances0 @ .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+<m> 1 |-> 2 </m>
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> k::builtin::int::add(1, 1)] }], instances0 @ .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+<m> 1 |-> V0:Int </m>
+</bag>
+requires V0:Int ==K (1 +Int 1)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/bag/{ k::fragment![crate::Obj { key: k::builtin::int::add(0, 1), m: k::map![1 -> 2] }], instances0 @ .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> V0:Int </key>
+<m> 1 |-> 2 </m>
+</bag>
+requires V0:Int ==K (0 +Int 1)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/counter/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> V0:Int </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/env/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> _ </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/env/k::configuration::Cell(k::map![y -> x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> V0:KItem |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/env/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/frame/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+_
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/frame/k::fragment![crate::Frame { ret: x }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <ret> V0:Int </ret> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/frame/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+V0:FrameCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<payload> V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/k/k::configuration::KCell()"]
+k = """
+rule [case-TAG]:
+<k> .K </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."cells-run/subject/k/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> V0:KItem ... </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."cells-run/subject/pc/k::configuration::Cell(0)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> 0 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/pc/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> _ </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/pc/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> V0:Int </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/stack/k::configuration::Cell([x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/stack/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> _ </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/stack/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/result/bag/{ Obj { key: k::builtin::int::add(x, 1), m: map![x -> y] }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(.Bag => <bag>
+<key> V0:Int +Int 1 </key>
+<m> .Map [ V0:Int <- V1:Int ] </m>
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/bag/{ Obj { key: x, m: map![x -> k::builtin::int::add(y, 1)] }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(.Bag => <bag>
+<key> V0:Int </key>
+<m> .Map [ V0:Int <- V1:Int +Int 1 ] </m>
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/bag/{ Obj { key: x, m: map![x -> y] }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(.Bag => <bag>
+<key> V0:Int </key>
+<m> .Map [ V0:Int <- V1:Int ] </m>
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/counter/None"]
+same_k_as = ["cells-run/result/counter/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(<counter> V2:Int </counter> => .Bag)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/counter/Some(x)"]
+same_k_as = ["cells-run/result/counter/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<counter> V2:Int => V0:Int </counter>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/frame/Frame { ret: x }"]
+same_k_as = ["cells-run/result/frame/k::fragment![crate::Frame { ret: x }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <ret> V0:Int </ret> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/job/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<queue>
+(<job>
+<payload> _ </payload>
+...
+</job> => .Bag)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/job/[Job { payload: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<queue>
+(<job>
+<payload> _ </payload>
+...
+</job> => .Bag)
+(.Bag => <job>
+<payload> V0:Int </payload>
+...
+</job>)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/k/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/k/[Job { payload: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => <job> <payload> V0:Int </payload> </job> ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/k/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => V0:Int ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/pc/0"]
+same_k_as = ["cells-run/result/pc/k::configuration::Cell(0)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => 0 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/pc/x"]
+same_k_as = ["cells-run/result/pc/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> V2:Int => V0:Int </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/result/stack/[]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<stack> V2:List => .List </stack>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"]
+
+[accept."readable-run/subject/bag/{ Obj { key: 1, m: map![1 -> 2] }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+<m> V0:Map </m>
+</bag>
+requires V0:Map ==K .Map [ 1 <- 2 ]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/bag/{ Obj { key: 1, m: map![1 -> k::builtin::int::add(1, 1)] }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+<m> V0:Map </m>
+</bag>
+requires V0:Map ==K .Map [ 1 <- 1 +Int 1 ]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/bag/{ Obj { key: k::builtin::int::add(0, 1), m: map![1 -> 2] }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> V0:Int </key>
+<m> V1:Map </m>
+</bag>
+requires (V0:Int ==K (0 +Int 1)) andThenBool (V1:Map ==K .Map [ 1 <- 2 ])
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/counter/Some(x)"]
+same_k_as = ["cells-run/subject/counter/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> V0:Int </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/env/x"]
+same_k_as = ["cells-run/subject/env/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/env/{ y -> x, .. }"]
+same_k_as = ["cells-run/subject/env/k::configuration::Cell(k::map![y -> x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> V0:KItem |-> V1:KItem ... </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/frame/Frame { ret: x }"]
+same_k_as = ["cells-run/subject/frame/k::fragment![crate::Frame { ret: x }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <ret> V0:Int </ret> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/frame/x"]
+same_k_as = ["cells-run/subject/frame/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+V0:FrameCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/job/[Job { payload: x, .. }, ..]"]
+same_k_as = ["cells-run/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<payload> V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/job/[]"]
+
+[accept."readable-run/subject/k/[Job { payload: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> <job> <payload> V0:Int </payload> </job> ... </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."readable-run/subject/k/[]"]
+same_k_as = ["cells-run/subject/k/k::configuration::KCell()"]
+k = """
+rule [case-TAG]:
+<k> .K </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."readable-run/subject/k/[x, ..]"]
+same_k_as = ["cells-run/subject/k/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> V0:KItem ... </k>
+<pc> _ => 1 </pc>
+"""
+
+[accept."readable-run/subject/pc/0"]
+same_k_as = ["cells-run/subject/pc/k::configuration::Cell(0)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> 0 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/pc/x"]
+same_k_as = ["cells-run/subject/pc/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> V0:Int </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/stack/[.., Job { payload: 0, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List ListItem(<job> <payload> 0 </payload> </job>) </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/stack/[Job { payload: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(<job> <payload> V0:Int </payload> </job>) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/stack/[]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/stack/[x, ..]"]
+same_k_as = ["cells-run/subject/stack/k::configuration::Cell([x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/stack/x"]
+same_k_as = ["cells-run/subject/stack/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/subject/bag/{ Obj { key: 1, m: map![k::builtin::int::add(0, 1) -> 2] }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+<m> V0:Map </m>
+</bag>
+requires V0:Map ==K .Map [ 0 +Int 1 <- 2 ]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable-run/result/bag/{ Obj { key: x, m: map![k::builtin::int::add(x, 1) -> y] }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(.Bag => <bag>
+<key> V0:Int </key>
+<m> .Map [ V0:Int +Int 1 <- V1:Int ] </m>
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![k::builtin::int::add(0, 1) -> 2] }], instances0 @ .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+<m> V0:Int |-> 2 </m>
+</bag>
+requires V0:Int ==K (0 +Int 1)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/result/bag/{ k::fragment![crate::Obj { key: x, m: k::map![k::builtin::int::add(x, 1) -> y] }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(.Bag => <bag>
+<key> V0:Int </key>
+<m> V0:Int +Int 1 |-> V1:Int </m>
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
