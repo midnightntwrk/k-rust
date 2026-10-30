@@ -161,7 +161,7 @@ A second, hand-written model of the same layer (for a model checker, say) is a s
   - *A decreasing measure* (every step decreases a quantity) proves some properties with one obligation per rule, as termination measures do today, but many properties have no such measure; richer disciplines such as session types (§6) are meant to cover more.
   **Open (§9, question 3):** liveness under fairness as its own branch, designed when a customer's property needs it.
 - **Exploration is not proof.**
-  Finding a bad schedule is a search over runs; k-rust's engine searches K definitions, and model checkers such as TLA+'s or Quint's search their own models.
+  Finding a bad schedule is a search over runs; k-rust's engine searches K definitions (its fuzzer, §10, searches inputs), and model checkers such as TLA+'s or Quint's search their own models.
   Whether a separate model checker earns its place is open; if it does, the principle of §4 applies: its model is generated from the K definition, or proved equal to it.
 
 ## 6. Session types
@@ -230,3 +230,41 @@ Each answer is the recommendation Sebastien gave the go-ahead to on 2026-10-29; 
 2. Which kinds of waiting may be an acceptable ending (§2)? **Working answer:** waiting on the environment yes, waiting on another process of the configuration no. It answers `product.md` §8 question 3 as well.
 3. Liveness under fairness: its own branch, or covered by one example in the first design? **Working answer:** its own branch, designed when a customer needs it.
 4. §8's order and owners. **Working answer:** the order as written; step 1 B; step 2 B; step 3 core (done) and B (the "always P" line); step 4 C for confluence, B for soundness and the invariants; step 5 B, with C for confluence; step 6 later.
+
+## 10. Refuting an obligation before proving it, and the testing tools that exist
+
+Status: a **direction**, written by the kink session on 2026-10-30 from a discussion with Sebastien; not decided, and not on §8's order.
+The docs site does not present it (Sebastien, 2026-10-30): its fuzzing section is about growing a test corpus, and k2lean's part of the site is still to be written.
+
+**Why.** Much of the time, a proof is stuck because its statement is false: a missing side condition, an empty map, a negative chain id.
+k2lean already meets such statements (`product.md` §6: `countAllOccurrences` equation 2, 6 of KEVM's 22 Set/Map simplifications without well-formedness) and wants every refuted obligation reported as refuted (`product.md` §3.2, items 5 and 6), which today is written case by case.
+An agent proving open cases gains most: a refutation found in seconds stops it working on a goal that is false.
+
+**What k-rust and kink already have** (read these before building a generator or a counterexample search in k2lean):
+- **`krust fuzz`** (`crates/k-rust-fuzz`; guide `docs/fuzzing.md`, reference `crates/k-rust-fuzz/README.md`) searches for values of *holes* so that a run of the K definition reaches a *target*.
+  - **Holes:** literal spans of a program the author wrote, configuration variables (`$NAME`), or, in the library API only, free variables of a KORE initial pattern.
+  - **Targets:** a rule; a K pattern, at the final configuration or at any state, on one path or all paths; or a differential, which compares two definitions' ends on one input.
+  - **Search:** sort-directed generators, a dictionary, a coverage climb, a corpus, a solver-backed proposer (`solve`) and shrinking.
+  - **Results:** deterministic and replayable, with a witness file. A witness is a concrete input that a re-run confirmed. "No witness" is never a proof that none exists.
+  - It searches the K definition, never the Lean.
+- **`kink-flow fuzz`** (`kink/crates/kink-flow`) runs the same search inside a kink flow, and kink confirms the witness. kink itself does mutation testing and builds the corpus that tells two definitions apart (§4).
+- **The backend's critical-pair check** (`k_rust_backend::data_term`; `docs/compatibility.md`, and `docs/fuzzing.md`, "Not comparable at setup") searches small ground terms for an input at which two equations give different results, and reports it as a genuine finding.
+- **k-rust's prover:** when a claim fails, the configurations it could not finish are where to look for a counterexample.
+
+**Which obligations a search can refute:**
+
+| Obligation (§1) | A refutation is | What exists |
+|---|---|---|
+| An equation, or two overlapping equations | a ground input where the two sides differ | the critical-pair check, for pairs; an equation against its hook through the check's hook pairs. Extend that search for single equations rather than start another |
+| One program's runs (a claim) | a concrete run of the claim's program that misses the target | a pattern target on that program, with its symbolic values as holes |
+| Every reachable state, whole-run safety | a program that reaches a bad state | a pattern target at any state, over a template |
+| Two definitions (`relate`, `refine`) | one input with different ends | the differential target. It compares only ends that are data in both definitions, with no translation between their constructors |
+| Two runs of one definition (`terminal_unique`, noninterference) | one input with two different ends; two inputs that agree on public values and differ in public output | not built. An all-paths run lists every end of one input, but no target asks for two different ones, and no target pairs two inputs |
+| One step, per rule (invariant preservation, no stuck states, the per-rule cases of noninterference and `refine`) | a configuration that satisfies the premise, from which the rule's step breaks the conclusion | **not reachable by program search.** The fuzzer visits only states that some program reaches, while a stuck invariant proof is usually about a true invariant that is not inductive: it fails only at states no program reaches. This needs configurations generated under the premise. KORE-pattern holes and the sort-directed generators are reusable for that; a premise over a whole configuration is not built. Generation could equally run in Lean, on the executable `step` that `Adequacy` ties to `Step` |
+
+The per-rule row is where most of k2lean's open cases are, and the one the existing tools do not reach.
+The rows above it are mostly recipes over what exists: an agent writes the stuck statement as a target and runs the fuzzer.
+Turning a witness, which is a K input, into a Lean refutation stays k2lean's part.
+
+**Experiment that would make it real:** take `countAllOccurrences` equation 2 and one open per-rule case of a fixture, and see what the existing tools find for each: the critical-pair check for the equation, a pattern target or KORE-pattern holes for the case.
+The result decides whether this is a recipe in the docs or a feature, and on which side (fuzzer or k2lean) configuration generation belongs.
