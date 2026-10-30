@@ -73,7 +73,7 @@ use kink_flow::{
     mutation::{MutationList, resolve},
     results::{execution_budget, fixed_oracles},
 };
-use kink_native::bridge::{BridgeContext, paths_from_execution_values};
+use kink_native::bridge::{BridgeContext, paths_from_execution_existing};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
 use kink_native::execution::{
     AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, ResultModality,
@@ -382,7 +382,8 @@ fn compare_side(
             "{id}"
         );
         // The state-slot inputs: the bridged paths with their classified terminals, and how the
-        // collection stopped.
+        // collection stopped, read as the runner's state slots read them: terminal values, and the
+        // existence of an undefined step's pre-step configuration (kink27 R3-UNDEF-BRIDGE).
         let bridged = |backend: &mut k_rust::backend::Backend, execution: &AdaptedExecution| {
             backend
                 .with_solver(None, |definition, solver| {
@@ -392,7 +393,7 @@ fn compare_side(
                         TestInitialState::of_test(state),
                     );
                     Ok::<_, k_rust::backend::BackendError>(
-                        paths_from_execution_values(
+                        paths_from_execution_existing(
                             execution,
                             &BridgeContext {
                                 test_id: program,
@@ -400,6 +401,7 @@ fn compare_side(
                                 sorts: &sorts,
                             },
                             &|term| decider.terminal_value(term),
+                            &|term| decider.configuration_exists(term),
                         )
                         .map(|bridged| {
                             let paths = bridged

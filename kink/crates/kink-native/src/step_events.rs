@@ -266,6 +266,21 @@ fn is_injection(pattern: &Pattern) -> bool {
     matches!(pattern, Pattern::Application { symbol, .. } if symbol.name == "inj")
 }
 
+/// Whether `term` holds an application of a symbol that `definition` declares a collection
+/// symbol (one with collection metadata).
+fn holds_collection_symbol(definition: &BackendDefinition, term: &Pattern) -> bool {
+    let mut found = false;
+    k_rust::kore::walk::for_each_post_order(term, |node| {
+        if let Pattern::Application { symbol, .. } = node {
+            found |= definition
+                .symbols()
+                .get(symbol.name.as_str())
+                .is_some_and(|s| s.attributes.collection.is_some());
+        }
+    });
+    found
+}
+
 /// The sort of `pattern` when its syntax fixes it: a variable, a domain value, an injection's
 /// target, or an application of a symbol without sort variables. `None` otherwise.
 fn determined_sort(definition: &BackendDefinition, pattern: &Pattern) -> Option<InternalSort> {
@@ -661,16 +676,35 @@ impl<'a> ObservationDecider<'a> {
     ///   `ground_defined` does not decide;
     /// - a domain value without an injective codec, or an injection that is not strict: the
     ///   read-back term may not be the term k-rust built, so k-rust's answer may be about
-    ///   another term.
+    ///   another term;
+    /// - a collection symbol (of the leaf or the shared definition) while collections are not
+    ///   trusted ([`Self::trusting_collections`], finding C-10): `ground_defined`'s collection
+    ///   obligations (distinct Map keys and Set elements) read k-rust's builtin collection model,
+    ///   and a definition with an axiom rooted at a collection role symbol states facts of its
+    ///   collection terms that this model does not read, so a collection term there need not
+    ///   denote what its structure shows, and k-rust's answer may not be about the term's
+    ///   meaning in the theory. Whether such an axiom can make a keys-apart map undefined is not
+    ///   decided here; the guard fails closed, as [`Self::terminal_value`] does.
     ///
     /// `ground_defined` counts an irreducible hooked `value-production` application as existing
     /// whether or not its hook ran; every run whose k-rust lists hold an unsupported hook or an
     /// allowance refusal is excluded before a side is formed (`run_exclusion`), so no verdict
     /// rests on that answer. It runs in proof mode, so it never reads an implementation-chosen
     /// value.
+    ///
+    /// The term is internalized without a stack sized for it and without catching a panic, unlike
+    /// kink-flow's `defined_state`: the adapter's feasibility (`leaf_feasibility`) already
+    /// internalized the same leaf state on the same definition, so this adds no stack or
+    /// verification hazard of its own.
     pub fn configuration_exists(&self, term: &Pattern) -> bool {
         let definition = self.leaf_definition;
         if !term.free_variables().is_empty() {
+            return false;
+        }
+        if !self.collections_trusted
+            && (holds_collection_symbol(definition, term)
+                || holds_collection_symbol(self.definition, term))
+        {
             return false;
         }
         let mut conjunction = false;
@@ -747,17 +781,7 @@ impl<'a> ObservationDecider<'a> {
     }
 
     fn has_collection_symbol(&self, term: &Pattern) -> bool {
-        let mut found = false;
-        k_rust::kore::walk::for_each_post_order(term, |node| {
-            if let Pattern::Application { symbol, .. } = node {
-                found |= self
-                    .definition
-                    .symbols()
-                    .get(symbol.name.as_str())
-                    .is_some_and(|s| s.attributes.collection.is_some());
-            }
-        });
-        found
+        holds_collection_symbol(self.definition, term)
     }
 
     /// The value of `term` at the sort `expected`, or the first node, in pre-order, that fails
@@ -1410,5 +1434,68 @@ mod tests {
         assert!(!decider.configuration_exists(&pattern(r"Lblh{}(Lbla{}())")));
         assert!(!decider.configuration_exists(&pattern(r"\and{SortS{}}(Lbla{}(), Lbla{}())")));
         assert!(!decider.configuration_exists(&pattern(r"Lblg{}(X:SortS{})")));
+    }
+
+    /// kink27 R3-UNDEF-BRIDGE fix round 1 (review should-fix 2): existence is asked of the leaf
+    /// definition, not the shared one (A-12: a mutant's leaf is judged by the mutant's theory).
+    /// `g(a)` exists where `g` is total, so the answer follows the leaf definition's declaration
+    /// whichever way the shared one declares `g`. Each read-back guard is load-bearing: k-rust's
+    /// own `ground_defined` holds of the refused terms, and kink refuses them because the
+    /// read-back term may not be the term k-rust built (a non-ASCII String domain value has no
+    /// injective codec; an identity injection is not strict).
+    #[test]
+    fn configuration_exists_reads_the_leaf_definition_behind_the_read_back_guards() {
+        let declarations = |g: &str| {
+            format!(
+                r#"[]
+                module MAIN
+                    sort SortS{{}} []
+                    hooked-sort SortString{{}} [hook{{}}("STRING.String"), hasDomainValues{{}}()]
+                    symbol Lbla{{}}() : SortS{{}} [constructor{{}}()]
+                    symbol Lblg{{}}(SortS{{}}) : SortS{{}} [function{{}}(){g}]
+                    symbol Lbls{{}}(SortString{{}}) : SortS{{}} [function{{}}(), total{{}}()]
+                    symbol inj{{From, To}}(From) : To [sortInjection{{}}()]
+                endmodule []"#
+            )
+        };
+        let internalize = |g: &str| {
+            BackendDefinition::internalize(
+                &k_rust::kore::parser::parse_definition(&declarations(g)).expect("KORE"),
+                "MAIN",
+            )
+            .expect("definition")
+        };
+        let total = internalize(", total{}()");
+        let partial = internalize("");
+        let pattern = |text: &str| k_rust::kore::parser::parse_pattern(text).expect("pattern");
+        let applied = pattern(r"Lblg{}(Lbla{}())");
+        let initial = TestInitialState::of_test(&applied);
+        let solver = &k_rust_backend::smt::NoSolver;
+        assert!(
+            ObservationDecider::for_leaves_of(&partial, &total, solver, initial)
+                .configuration_exists(&applied),
+            "the leaf definition declares g total"
+        );
+        assert!(
+            !ObservationDecider::for_leaves_of(&total, &partial, solver, initial)
+                .configuration_exists(&applied),
+            "only the shared definition declares g total"
+        );
+
+        let decider = ObservationDecider::new(&total, solver, initial);
+        let k_rust_defined = |term: &Pattern| {
+            total
+                .admit_unverified(term, &[])
+                .internalize_term()
+                .is_ok_and(|internal| total.ground_defined(&internal))
+        };
+        let ascii = pattern(r#"Lbls{}(\dv{SortString{}}("A"))"#);
+        assert!(decider.configuration_exists(&ascii));
+        let accented = pattern(r#"Lbls{}(\dv{SortString{}}("\u00e9"))"#);
+        assert!(k_rust_defined(&accented));
+        assert!(!decider.configuration_exists(&accented));
+        let identity = pattern(r"Lblg{}(inj{SortS{}, SortS{}}(Lbla{}()))");
+        assert!(k_rust_defined(&identity));
+        assert!(!decider.configuration_exists(&identity));
     }
 }

@@ -1243,12 +1243,20 @@ endmodule
     ///   and exit stop tell from the baseline's empty sets. Known divergence (module
     ///   documentation): the fuzz's comparable conditions still read the undefined step's term as
     ///   an end that must be data, and refuse the run `end-not-data`.
-    /// - `hgo(1)`'s configuration holds `h(1)`, which k-rust does not show defined: kink cannot
-    ///   tell an instance-less run from the empty set of ends, so the row stays `unknown`.
+    /// - `hgo(1)` builds the partial `h(1)`, whose definedness k-rust does not decide: it records
+    ///   it (`\ceil(h(1))`, or its negation) in the path condition, so the run's undefined steps
+    ///   are taken from states that carry a path condition, which kink does not show feasible.
+    ///   No such leaf is one ground term without a path condition, its existence is never asked,
+    ///   and the row stays `unknown`: kink cannot tell an instance-less run from the empty set of
+    ///   ends.
     ///
     /// Fails if kink requires the pre-step configuration to be a terminal value (`one` is
-    /// `unknown` and `out-defined` survives), or if it completes a leaf whose configuration is not
-    /// shown to exist (`partial` is decided).
+    /// `unknown` and `out-defined` survives), or if it completes an undefined step whose
+    /// pre-step state carries a path condition kink did not show feasible (`partial` is decided).
+    /// The other direction, that a ground leaf without a path condition whose configuration is
+    /// not shown to exist stays incomplete, is pinned by the bridge and step_events unit rows and,
+    /// end to end, by `tests/results.rs`
+    /// (`kink_tier::an_undefined_step_over_a_map_needs_trusted_collections`).
     #[test]
     #[ignore = "kink"]
     fn an_undefined_steps_configuration_need_only_exist() {

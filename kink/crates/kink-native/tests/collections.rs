@@ -462,6 +462,12 @@ fn the_first_non_value_is_the_first_node_whose_own_test_fails() {
                 ObservationDecider::new(definition, solver, TestInitialState::of_test(&initial))
                     .trusting_collections(false);
             assert_eq!(distrusted.terminal_value(&put), None);
+            // kink27 R3-UNDEF-BRIDGE fix round 1: nor is its existence read (finding C-10, review
+            // should-fix 1). The ground two-entry Map with keys shown apart exists for k-rust, and
+            // k-rust's collection obligations read its builtin collection model, which an axiom
+            // rooted at a collection role symbol may contradict: kink fails closed.
+            assert!(decider.configuration_exists(&put));
+            assert!(!distrusted.configuration_exists(&put));
             let failure = distrusted.first_non_value(&put).expect("not trusted");
             assert_eq!(failure.test, LocalTest::TrustedCollections, "{failure:?}");
             assert!(

@@ -623,8 +623,9 @@ impl<'a> BaselineRunner<'a> {
                                      defined on this definition, or kink cannot read it back \
                                      exactly (it may hold an application of a function not \
                                      declared total that no equation reduced, map keys or set \
-                                     elements not shown apart, or a domain value without an \
-                                     injective codec)",
+                                     elements not shown apart, a collection term of a definition \
+                                     with an axiom rooted at a collection role symbol, or a \
+                                     domain value without an injective codec)",
                                     leaf_name(leaf)
                                 )));
                             }

@@ -1008,6 +1008,137 @@ text = 'h(opaque(1), 2)'
         assert!(rows(&fourth).iter().all(|(_, _, cached)| *cached));
     }
 
+    /// kink27 R3-UNDEF-BRIDGE fix round 1 (review should-fix 1, finding C-10): an undefined step
+    /// taken from a configuration holding a ground two-entry Map with distinct Int keys. Without a
+    /// collection axiom the configuration is a terminal value and the run is `comparable`, with no
+    /// final configuration. With a simplification rooted at the Map element role symbol, which
+    /// k-rust neither applies nor reports, kink does not trust what a collection term denotes:
+    /// the configuration has no terminal value, and its existence is not read either, because
+    /// k-rust's collection obligations read its builtin collection model, which such an axiom may
+    /// contradict. The run stays `unknown`, named by the undefined-step cause. Fails if
+    /// `configuration_exists` ignores collection trust, or answers `true` for a configuration it
+    /// does not show to exist (the end-to-end pin of that direction; review probe 2).
+    #[test]
+    #[ignore = "kink"]
+    fn an_undefined_step_over_a_map_needs_trusted_collections() {
+        let flow = |name: &str, axiom: &str| {
+            let dir = scratch(name);
+            write(
+                &dir.join("mu.k"),
+                &format!(
+                    "module MU-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+endmodule
+
+module MU
+  imports MU-SYNTAX
+  imports INT
+  imports MAP
+  syntax KItem ::= step(Int) [symbol(step)]
+  configuration <k> $PGM:Pgm </k> <store> .Map </store> <out> 0 </out>
+  rule [go]:   <k> go(N) => step(N) </k> <store> _ => (1 |-> 10) (2 |-> 20) </store>
+  rule [step]: <k> step(N) => .K </k> <out> _ => N /Int 0 </out>
+{axiom}endmodule
+"
+                ),
+            );
+            write(
+                &dir.join("FLOW.toml"),
+                "[spec]\nentry = \"mu.k\"\nmain_module = \"MU\"\nsyntax_module = \"MU-SYNTAX\"\n\n\
+                 [[program]]\nid = \"one\"\ntext = \"go(1)\"\n",
+            );
+            let manifest = dir.join("FLOW.toml");
+            let (document, status) = run(&manifest, false);
+            assert_eq!(status, EXIT_OK, "{document:#}");
+            (manifest, document)
+        };
+
+        let (manifest, trusted) = flow("undefined-map-trusted", "");
+        assert_eq!(rows(&trusted), expect(&[("one", "comparable", false)]));
+        let record = read_json(&record_path(&manifest, &trusted, "one"));
+        assert_eq!(record["final_configuration"], json!([]), "{record:#}");
+
+        let (_, distrusted) = flow(
+            "undefined-map-distrusted",
+            "  rule [rolesimp]: (7 |-> 7) => (8 |-> 8) [simplification]\n",
+        );
+        assert_eq!(rows(&distrusted), expect(&[("one", "unknown", false)]));
+        let cause = distrusted["programs"][0]["cause"].as_str().unwrap();
+        assert!(
+            cause.contains(
+                "every path ended, but the configuration an undefined step is taken from is not \
+                 shown to exist: in the trivial leaf at depth 1, k-rust does not show it defined"
+            ) && cause.contains(
+                "a collection term of a definition with an axiom rooted at a collection role symbol"
+            ),
+            "{cause}"
+        );
+    }
+
+    /// kink27 R3-UNDEF-BRIDGE fix round 1 (review probe 1): the halt of an undefined step on a
+    /// ground configuration that is not rigid. `go(1)` writes `g(1)` to `<log>`, with `g` total
+    /// and no equation for it, so `g(1)` exists but its value is open. From `step(1)`, `bad` is
+    /// undefined on every instance (`1 /Int 0`), and `ok` applies on exactly the instances where
+    /// `g(1)` is `1`. An undefined step's leaf may complete only where no rule has a defined
+    /// successor on any of its instances, so k-rust must not drop `ok` because `g(1)` is not
+    /// syntactically `1`: either it splits on `g(1) == 1`, and the undefined step's leaf carries
+    /// that path condition, or it stops undecided. Either way the baseline is never `comparable`
+    /// with the empty set of final configurations, and the mutant that makes `bad` defined is not
+    /// killed by that empty set.
+    #[test]
+    #[ignore = "kink"]
+    fn an_undefined_step_beside_a_rule_on_an_open_value_keeps_that_rule() {
+        let dir = scratch("undefined-open-value");
+        write(
+            &dir.join("ur.k"),
+            "module UR-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+endmodule
+
+module UR
+  imports UR-SYNTAX
+  imports INT
+  syntax Int ::= g(Int) [function, total, symbol(g)]
+  syntax KItem ::= step(Int) [symbol(step)] | \"done\"
+  configuration <k> $PGM:Pgm </k> <log> 0 </log> <out> 0 </out>
+  rule [go]:  <k> go(N) => step(N) </k> <log> _ => g(N) </log>
+  rule [bad]: <k> step(N) => .K </k> <out> _ => N /Int 0 </out>
+  rule [ok]:  <k> step(_) => done </k> <log> 1 </log>
+endmodule
+",
+        );
+        let manifest = dir.join("FLOW.toml");
+        write(
+            &manifest,
+            "[spec]\nentry = \"ur.k\"\nmain_module = \"UR\"\nsyntax_module = \"UR-SYNTAX\"\n\n\
+             [[program]]\nid = \"one\"\ntext = \"go(1)\"\n",
+        );
+        let mutations = dir.join("MUTATIONS.toml");
+        write(
+            &mutations,
+            "[[mutation]]\nid = \"bad-defined\"\n[[mutation.edit]]\nrule = \"UR.bad\"\n\
+             find = \"N /Int 0\"\nreplace = \"N\"\n",
+        );
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        // At this k-rust pin the run stops `indeterminate` at depth 1, so the row is `unknown`.
+        if document["programs"][0]["class"] == "comparable" {
+            let record = read_json(&record_path(&manifest, &document, "one"));
+            assert_ne!(record["final_configuration"], json!([]), "{record:#}");
+        }
+        let (searched, status) = kink_flow::cli::run(
+            &manifest,
+            &mutations,
+            &kink_flow::search::RunOptions::default(),
+        );
+        assert_ne!(
+            searched["mutations"][0]["status"], "killed",
+            "{status} {searched:#}"
+        );
+    }
+
     #[test]
     #[ignore = "kink"]
     fn a_ground_map_is_comparable_and_covers_its_rule() {

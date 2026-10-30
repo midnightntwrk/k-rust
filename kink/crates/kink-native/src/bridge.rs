@@ -26,7 +26,8 @@
 //! (`ensures`, right-hand-side definedness) is `\bottom` there. It is complete when its pre-step
 //! configuration is shown to exist: its state is feasible, or it is one ground term without a
 //! path condition that has a terminal value or that k-rust shows defined on the leaf's definition
-//! ([`ObservationDecider::configuration_exists`]). No judgement reads its term as data, so it
+//! ([`ObservationDecider::configuration_exists`]; it refuses every term with a collection symbol
+//! where collections are not trusted, finding C-10, as TV-01 does). No judgement reads its term as data, so it
 //! needs no terminal value; it needs an instance, because its prefix is real and an
 //! all-undefined run is the empty set of ends (kink27 R3-UNDEF-BRIDGE). Its stop is
 //! [`PathStop::UndefinedStep`] and its pre-step term (its terminal value when it has one) is
@@ -427,9 +428,11 @@ fn diagnosed(leaf: &crate::execution::AdaptedLeaf) -> bool {
 }
 
 /// The stop of a leaf with halt class `halt`, before its state is read, or the contract
-/// violation it is. `None` is a stuck or trivial leaf: it is complete when its state is a ground
-/// term, or when the adapter's evidence completes it (see the module documentation), and
-/// `SolverUnknown` otherwise, because a symbolic or constrained leaf may be infeasible.
+/// violation it is. `None` is a stuck or trivial leaf: it is complete as `complete_term` says (a
+/// stuck leaf needs a feasible or decided state and a terminal value; a trivial leaf needs a
+/// feasible state, or one ground term without a path condition that has a terminal value or is
+/// shown to exist), and `SolverUnknown` otherwise, because a symbolic or constrained leaf may be
+/// infeasible.
 /// An `Indeterminate` leaf is `BackendLimit` here; [`indeterminate_stop`]
 /// refines it by its cause. A requested depth bound keeps its limit stop only for a decided or
 /// feasible state (see `decided_stop`); a breadth-bound or work-bound leaf is `BackendLimit`,
@@ -493,8 +496,10 @@ pub(crate) const fn decided_stop(stop: PathStop, feasible: bool) -> PathStop {
 /// leaf's state when it is decided (see `SplitState::decided_term`); for a stuck or trivial leaf
 /// that is its terminal term. `feasible` says the adapter showed the state feasible; it keeps a
 /// limit stop real. `complete_term` is the term of a stuck or trivial leaf that is not decided
-/// but complete: its state is feasible (see the module documentation). A stuck terminal is
-/// classified by `classify`; a trivial one is an undefined step.
+/// but complete, by `complete_term`'s contract: a stuck leaf's state is feasible and its term has
+/// a terminal value; a trivial leaf's state is feasible, or it is one ground term without a path
+/// condition that has a terminal value or that is shown to exist. A stuck terminal is classified
+/// by `classify`; a trivial one is an undefined step.
 pub(crate) fn leaf_path(
     halt: HaltClass,
     decided: Option<Pattern>,
@@ -681,8 +686,10 @@ const fn collection_stop(stop: PathStop) -> CollectionStop {
     }
 }
 
-/// The term of a leaf's state whose terminal value [`paths_from_execution_values`] reads, for
-/// a diagnosis of why it has none (kink-flow, fz26 KINK-CAUSE-SUBTERM).
+/// The term of a leaf's state that the bridge reads, for a diagnosis of why the leaf is not
+/// complete (kink-flow, fz26 KINK-CAUSE-SUBTERM): for a stuck leaf, the term whose terminal value
+/// it reads; for a trivial leaf, the term whose terminal value or existence
+/// ([`paths_from_execution_existing`]) it reads (`complete_term`'s contract).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LeafTerm {
     /// The leaf adds no path ([`discarded`]).

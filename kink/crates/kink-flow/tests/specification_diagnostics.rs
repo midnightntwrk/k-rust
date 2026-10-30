@@ -71,9 +71,11 @@ id = "ok-through-td"
   replace = "val(td(X -Int 1))"
 "#;
 
-/// The leaf-shape hint `results` gives a refused baseline whose leaves all ended and that no
-/// exclusion explains: never the cause of an excluded baseline.
-const LEAF_SHAPE_HINT: &str = "a final configuration is not a value kink can compare";
+/// The prefix shared by the leaf-shape hints `results` gives a refused baseline whose leaves all
+/// ended and that no exclusion explains (a final configuration that is not a value kink can
+/// compare, or the configuration an undefined step is taken from that is not shown to exist):
+/// never the cause of an excluded baseline.
+const LEAF_SHAPE_HINT: &str = "every path ended, but";
 
 fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
