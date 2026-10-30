@@ -3,7 +3,9 @@
 `expected.toml` states the expected outcome of every case that `krs_test_support::class_matrix`
 generates: one construct in one slot of an accepted base, for readable records and claims, `cells!`
 rules, initializers, the strict-subsort axis, every term shape at the term positions of every
-sentence form, the module-import axis, and every sentence attribute on every sentence form. `pending.toml` lists the cases known not to conform.
+sentence form, the module-import axis, every sentence attribute on every sentence form, and the
+readable records and `cells!` rules again on the run base, which K7 runs (the run families, K7
+below). `pending.toml` lists the cases known not to conform.
 The schema and the rules that read both files are documented in the `class_matrix` module.
 
 For the term families (`terms/..`, `import/..`, `notation/..`) and the attribute axis (`attrs/..`,
@@ -75,7 +77,8 @@ refused construct is the one a depth-2 case's construct stands in.
 
 **Size.** The term family is 5,063 cases, the import axis 172 and the attribute axis (`attrs/..`,
 18 forms × 26 attributes, 26 malformed attributes and 20 extra cases, in the first shard of the
-fast tier) 514, of 6,587 in all, and
+fast tier) 514, the run families (`readable-run/..` 193 and `cells-run/..` 192, in the first shard
+of the fast tier too) 385, of 6,972 in all, and
 the notation family (`notation/..`: the term family's positions, templates and oracle for the
 collection notation, `m[k]`, `s.contains(x)`, `map![k -> v]` and `set![x]`, and the calls it
 denotes) 2,862. The generator caps
@@ -192,11 +195,67 @@ the descriptors of the base and its own. A case is judged by
   keeps claims in the fixture gates); a context alias acts only through a production strict in
   it, which neither the base nor a case declares; a `#[k::function(internal)]` shorthand and a
   constant have no program syntax and no base sentence can name the case's: these have no driver.
-  Nor have the readable, claim and `cells!` families: their cells start at the machine and typed
-  bases' fixed values, and those bases have no driver commands yet.
+  Nor have the readable, claim and `cells!` families on the machine and typed bases, whose cells
+  start at fixed values and which have no driver commands; the run families run the readable
+  records and the `cells!` rules instead (claims stay a prover's).
   `cargo test -p krs-test-support --test k7` lists the spellings without a witness, a value or a
   counter-witness and the slots without a driver, with their reasons, counts every case's K7
   status (each skip reason, and the counter runs), and pins a plan of each driver kind.
+
+  *The run families* (`readable-run/..`, `cells-run/..`, the shard `runs`) are the readable
+  records' and the `cells!` rules' slot templates and spellings instantiated again on the run base
+  (`Base::Run`, `class_matrix::machine::run_base`): the machine base's cells under the same names
+  and declarations, a Set collection `shelf.bag` whose instances hold a map cell (`Obj { key: Int,
+  m: Map }`), and driver commands that each set one cell up in one step, at priority 10, apart from
+  the cases': `then(a, b)`, `skip`, `setpc`, `setstack`, `setenv`, `setret`, `setcounter` (one rule
+  for a present optional cell and one, at 11, that creates an absent one, so the plans do not
+  depend on how the cell starts), `dropcounter`, `addjob` and `addobj`, with the terms base's map
+  and list makers. One slot list is instantiated twice rather than copied: each template writes
+  the same item on both bases, so a spelling the family gains reaches the run base by
+  construction, and the machine base's cases, and the K they record, stay as they are. A run
+  case's *twin* is the machine-base case of the same slot and spelling: the table matches the
+  twin's ID against the refusal rules (`table::twin`), so twins are refused alike, and each run case
+  has an accept entry of its own, whose K is its twin's byte for byte (`cargo test -p
+  krs-test-support --test class_matrix every_run_case_is_expected_what_its_twin_is` checks both);
+  a twin of a pending case is pending under its twin's finding. The Set collection's spellings
+  have no twin (the machine base has no Set collection): an instance whose map cell is exact
+  (`map![1 -> 2]` in a readable record, a literal there; `k::map![1 -> 2]` in a `cells!` fragment,
+  the cell's map), one whose key is computed, two whose exact map computes its value or its key,
+  each looked up as the set's element (decision D1a, NT-10's review M1), one whose map reads an
+  entry and leaves the others open (`{ 1 -> 2, .. }`, `k::map![1 -> 2, ..]`), which selects, and in
+  a readable record the literal `map![1 -> 2, ..]`, whose anonymous rest names no map (the class
+  `anonymous-rest-in-map-literal`); on the result side, an instance written with each.
+
+  Their plans (`class_matrix::config_drivers`) state what each spelling denotes in its cell. A
+  subject case's witness is written by the driver commands before the case's command
+  (`then(setpc(0), cNAME)`, three steps that leave the computation cell empty), or is the start
+  configuration where every value is one (a binder, `_`, a group record of binders); its
+  counter-witness, run apart, must stop before the command (`then(setpc(1), cNAME)` takes two
+  steps). A result case's program first writes a value the subject's `old` matches and no result
+  writes, then applies its command with `x` = 1 and `y` = 2 (`y` = 1 for a map whose two keys may be
+  equal, whose later entry is the map's): `then(setpc(5), cNAME(1, 2))` ends with `pc = 1`. The
+  computation cell's subject case holds no command, so its program is the witness (`go`, a
+  computation with an item; `skip`, which empties it) and the run ends with `pc = 1`; its result
+  case writes the computation after `then(cNAME(1, 2), go)`, whose `go` is the rest. A run reads a
+  leaf by its path (`frame.ret`), a repeated cell by its instances' children (`queue.job[payload]`
+  a List collection's in order, `shelf.bag{key,m}` a Set collection's as a set, each instance named
+  after the collection), and an optional cell the state does not hold as `absent`. Claims stay
+  without a driver (a prover's), and a spelling written in another kind's notation than its cell's
+  denotes nothing there. `cargo test -p krs-test-support --test k7` pins each run family's statuses
+  by reason and count (`RUN_STATUSES`), the cases without a witness, a value or a counter-witness
+  (`RUN_UNSTATED`: a cell record as a computation or list item, which no program writes; `_` and an
+  anonymous rest in a result whose subject reads the cell whole; `x`, an `Int`, at a cell of another
+  sort; a map literal's anonymous rest; a binder, `_`, `..` alone or a record of binders, which
+  every value matches), and a plan of each kind (`the_run_drivers_write_their_programs_and_cells`).
+
+  The run families are a shard of their own, so the `readable` and `cells` shards hold the cases
+  they held before. On 2026-10-31, at 15 workers under a load of 11 to 85 from other work, `runs`
+  (385 cases, 75 accepted, 72 judged by K6 in 14 checks) took 61 s, with K7 (69 programs and their
+  counter runs in 0.3 s of worker time) and without it alike, while `readable` took 64 s and
+  `cells` 55 s, as before (66 s and 56 s). No case of the run families deviates at K7; their reds
+  are their twins' (each pending under its twin's finding) and the Set collection's two, NT-19-1
+  (a `cells!` result's map literal with an anonymous rest answers another code than a readable
+  record's) and NT-19-2 (a readable record cannot read an instance's map cell with `..`).
 
   *Running*: where K6's check loads the definition the run commands load (on the `native-rust`
   route, `krs_cli::CollectedDefinition::check_visiting`), each accepted case's program is
@@ -327,7 +386,7 @@ failed item leaves its imports unused (`unused_imports`), which no proc macro ca
 second error, and which `krs check` relays away. Its entry is keyed by the mutation,
 `entry/attribute/cell`.
 
-Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `notation`, `attrs`, `k4`, `k5`), and choose the worker count yourself
+Run one shard (`readable`, `cells`, `runs`, `init`, `terms`, `import`, `notation`, `attrs`, `k4`, `k5`), and choose the worker count yourself
 when the default (from the available memory, 3 GiB per worker) does not suit:
 
 ```sh
@@ -353,7 +412,7 @@ tag written `TAG` (for an initializer, its `configuration`), is written by the r
 hand:
 
 ```sh
-scripts/krs-class.sh --record --shard readable --shard cells --shard init --shard terms --shard import --shard notation
+scripts/krs-class.sh --record --shard readable --shard cells --shard runs --shard init --shard terms --shard import --shard notation
 ```
 
 It writes `k` for every accepted case that the table does not refuse (the oracle included),
