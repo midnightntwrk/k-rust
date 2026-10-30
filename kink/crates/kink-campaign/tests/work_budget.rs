@@ -10,7 +10,7 @@
 mod support;
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
@@ -204,7 +204,9 @@ fn the_limit_is_factor_times_baseline_work_plus_floor() {
 
 /// The step's `1` becomes `-1`: `count(3)` counts up forever. Without a work budget its run is
 /// stopped by the time bound (`Timeout`); under a calibrated budget it ends in a work-bound leaf
-/// long before, and the mutant is `Unknown`, never killed. The time bound is waited for once, in
+/// long before, and the mutant is `Unknown`, never killed. That the work budget, not the clock,
+/// stopped the bounded run is its outcome: a run the clock stops is `Failed(TimeLimit)`, so no
+/// elapsed time is compared (a wall-time bound fails under load). The time bound is waited for once, in
 /// Full: the test has one test case, so FirstKill runs it as Full does;
 /// `heavy::a_mutant_that_never_ends_times_out_unbounded_in_first_kill` waits for it in FirstKill.
 #[test]
@@ -222,13 +224,7 @@ fn a_mutant_that_never_ends_is_unknown_under_a_work_budget() {
         );
         assert_never_ends_unbounded(&unbounded);
         for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-            let started = Instant::now();
             let bounded = run(&campaign, &generation, schedule, calibrated(4, 100));
-            assert!(
-                started.elapsed() < Duration::from_secs(3),
-                "{:?}",
-                started.elapsed()
-            );
             assert_never_ends_bounded(&bounded, &unbounded);
         }
     });
@@ -259,8 +255,7 @@ mod heavy {
     use super::*;
 
     /// `a_mutant_that_never_ends_is_unknown_under_a_work_budget` in FirstKill: the unbounded run
-    /// waits for the time bound, and the bounded run keeps its baseline. (The bounded run's
-    /// elapsed time is checked in the light tier, in the wall-clock test group.)
+    /// waits for the time bound, and the bounded run keeps its baseline.
     #[test]
     #[ignore = "heavy"]
     fn a_mutant_that_never_ends_times_out_unbounded_in_first_kill() {

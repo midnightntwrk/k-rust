@@ -51,11 +51,6 @@ success-output = "final"
 # below names kink packages, binaries and test paths only; `kink/scripts/kink-tier.py lint` fails
 # when one of them stops matching a test.
 #
-# kink-campaign: the work-bounded run must stop within 3 s where the time-bounded one times out.
-[[profile.default.overrides]]
-filter = 'package(kink-campaign) & binary(work_budget) & test(=a_mutant_that_never_ends_is_unknown_under_a_work_budget)'
-test-group = "wall-clock"
-
 # kink-flow: the work-bounded run must finish within 30 s; and the slow program's recorded wall
 # time must exceed the fast one's.
 [[profile.default.overrides]]
