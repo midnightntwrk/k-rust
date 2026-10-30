@@ -144,10 +144,13 @@ In scope:
   The second is not built yet: kink asks k-rust for no condition records (`collect_conditions: None`, kink-native `execution::request`), and `matched` holds a rule whatever the verdict, so no kink document tells a rule whose `requires` held on every instance a run reached from one whose `requires` also failed on some instance, and no reach mode targets a failed `requires`.
   `krust fuzz`'s summary lists the rewrite rules whose condition the campaign's cases reached but which never applied (k-rust-fuzz `write_coverage`): the rules the first outcome is missing for, not the second outcome.
 
+- **Heating and cooling rules** that kompile generates from a `strict` or `seqstrict` production attribute or a `context` sentence. They compute steps, so they are in scope, attributed to the authored attribute or `context`, which is what a mutation of evaluation order edits. Not built yet: `results` lists `rule` sentences only, so they have no row.
+
 Out of scope, each for its reason:
 
 - **Simplification, `symbolic` and ceil equations.** They state facts about functions and compute no step; a mutant of one is a claim edit (claims are premises, "What a kill trusts", above).
   `results` does not leave them out yet: they are in kink-native's coverage domain and k-rust records them when a run applies them, so `results` gives each a status, and an `uncovered` row can be one of them, which no program needs to reach.
+- **Overload axioms kompile generates** (an equation between an overloaded symbol's application and its overload's, through an injection). They state that the overloads agree and compute no step of their own. The authored equations of an overloaded function are in scope (above).
 - **Macros and aliases.** They are expanded at compile time, so their rules are the expanded ones, covered where they occur.
   `results` lists such a rule as `no-coverage-signal`, never `uncovered` (`results::rules`; k-rust's coverage never names a macro or alias rule).
 - **Syntax productions.** Parsing the corpus covers them. `results` lists `rule` sentences only, so a production has no row.
