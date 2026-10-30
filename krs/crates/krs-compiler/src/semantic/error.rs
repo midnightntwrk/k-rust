@@ -676,20 +676,21 @@ pub enum DescriptorLoweringError {
         item: Option<Box<StableItemId>>,
     },
     /// An alias or desugar clause does not expand a production of its own
-    /// mode, or an alias or desugar production has no clause (KF-028).
+    /// mode, or an alias or desugar production has no clause (KF-028), or a
+    /// clause's subject holds below its root an alias or desugar production's
+    /// application whose expansion needs a value (NT-14).
     InvalidStaticClause {
         /// Stable reason naming the clause or production and the fix.
         reason: String,
-        /// Sole exact authored range of the clause's root (its name when the root has none) or
-        /// the production marker.
+        /// Sole exact authored range of the clause's root (its name when the root has none), the
+        /// production marker, or the static application below the root.
         range: Option<Box<SourceRange>>,
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
     /// An alias clause's subject holds below its root what printing, which builds the subject
     /// from what the clause's result matched, cannot build: a set's concatenation (a map's of
-    /// more than one entry), whose parts the match may bind overlapping, or an alias or desugar
-    /// production's application, which forward expansion replaces first (NT-8).
+    /// more than one entry), whose parts the match may bind overlapping (NT-8).
     IrreversibleAlias {
         /// Stable reason naming the clause, what printing would write, and the fix.
         reason: String,

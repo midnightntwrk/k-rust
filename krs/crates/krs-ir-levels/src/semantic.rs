@@ -730,6 +730,13 @@ impl SemanticModule {
         self.spec
     }
 
+    /// Replaces the module's rules.
+    #[must_use]
+    pub fn with_rules(mut self, rules: Vec<SemanticRule>) -> Self {
+        self.rules = SortedByKey::new(rules);
+        self
+    }
+
     /// Sets the module's named lexicals (`k::lexical!`).
     #[must_use]
     pub fn with_lexicals(mut self, lexicals: Vec<krs_ir::LexicalSentence>) -> Self {
@@ -1662,6 +1669,65 @@ impl SemanticRule {
     #[must_use]
     pub fn variables(&self) -> &[SemanticVariable] {
         &self.variables
+    }
+    /// Returns a static clause as KRS emits it (KF-028), in this rule's place
+    /// or beside it: under `id`, with `from` as the left side of its term
+    /// rewrite, `variables` as its binders, and every other node's origin
+    /// mapped by `origin` (kept for the rule it replaces, given fresh
+    /// source-map keys for a sibling). `None` for a rule with no term rewrite
+    /// or a single-body rule's (KF-011), or one with a part no static clause
+    /// has: a label, a condition, a priority, an evaluation or a claim's,
+    /// an equation's or a simplification's keys.
+    #[must_use]
+    pub fn restated(
+        &self,
+        id: StableItemId,
+        from: SemanticTerm,
+        variables: Vec<SemanticVariable>,
+        origin: &mut impl FnMut(&NodeOrigin) -> NodeOrigin,
+    ) -> Option<Self> {
+        let crate::ir_level::RuleContent::Term { kind, body } = &self.content else {
+            return None;
+        };
+        if self.label.is_some()
+            || self.requires.is_some()
+            || self.priority.is_some()
+            || self.simplification.is_some()
+            || self.claim.is_some()
+            || self.nondet_group.is_some()
+            || self.anywhere.is_some()
+            || !self.existentials.is_empty()
+            || self.ensures.is_some()
+            || !self.fresh.is_empty()
+            || self.restriction.is_some()
+            || self.function_context.is_some()
+            || self.evaluation.is_some()
+        {
+            return None;
+        }
+        let body = body.with_from(from, origin)?;
+        let unbound_variables =
+            self.unbound_variables
+                .as_ref()
+                .map(|unbound| crate::IrUnboundVariables {
+                    origin: origin(&unbound.origin),
+                    variables: unbound
+                        .variables
+                        .iter()
+                        .map(|variable| crate::IrUnboundVariable {
+                            origin: origin(&variable.origin),
+                            id: variable.id.clone(),
+                        })
+                        .collect(),
+                });
+        Some(Self {
+            origin: origin(&self.origin),
+            id,
+            unbound_variables,
+            variables,
+            content: crate::ir_level::RuleContent::Term { kind: *kind, body },
+            ..self.clone()
+        })
     }
     /// Borrows the term rewrite, when present.
     #[must_use]

@@ -238,10 +238,11 @@ fn a_construct_printing_cannot_build_is_refused_in_an_alias_subject() {
 /// Below an alias subject's root, what a term's head tells is refused at the term once names and
 /// sorts are resolved: a set's concatenation, which forward matches only disjoint parts and whose
 /// parts the result's match may bind overlapping (on main `bs(1, set::item(1))` printed
-/// `elems(SetItem ( 1 ) SetItem ( 1 ))`, no set), and an alias's or a desugar's application,
-/// which forward expansion replaces before the clause is tried (on main a program's
-/// `ns(1, zero())` stayed unexpanded, and `b1(1)` printed as it). A reference-code subject spells
-/// no map's concatenation: `map![..]` there is the update it denotes.
+/// `elems(SetItem ( 1 ) SetItem ( 1 ))`, no set). An alias's or a desugar's application there is
+/// written expanded, where the expansion needs no value, and refused otherwise (NT-14,
+/// `static_subjects.rs`); a function's application is refused at the construct. A
+/// reference-code subject spells no map's concatenation: `map![..]` there is the update it
+/// denotes.
 #[test]
 fn what_a_head_tells_is_refused_below_an_alias_subject_root() {
     expect_test::expect![[r"
@@ -250,12 +251,6 @@ fn what_a_head_tells_is_refused_below_an_alias_subject_root() {
         --> src/lib.rs:70:29
         set-concatenation-items:
         error[krs::analysis::irreversible-alias]: alias clause `elems`: a set's concatenation matches only a set whose parts are disjoint, a test the backward reading cannot make: when a result is printed, each term the clause's result matches prints as its subject, built from what the match bound, and parts that overlap print as a concatenation that denotes no set (`SetItem ( 1 ) SetItem ( 1 )`); write `#[k::desugar]` for an expansion that runs one way
-        --> src/lib.rs:70:29
-        nested-alias:
-        error[krs::analysis::irreversible-alias]: alias clause `whole`: `Al::Zero` is marked `#[k::alias]`, so forward its application is expanded before this clause is tried, and the clause never applies; backward, the term its result matches would print with `Al::Zero` unexpanded, as no term the clause expands to: write the term `Al::Zero` expands to instead, or `#[k::desugar]` for an expansion that runs one way
-        --> src/lib.rs:70:29
-        nested-desugar:
-        error[krs::analysis::irreversible-alias]: alias clause `whole`: `Sugar::Nought` is marked `#[k::desugar]`, so forward its application is expanded before this clause is tried, and the clause never applies; backward, the term its result matches would print with `Sugar::Nought` unexpanded, as no term the clause expands to: write the term `Sugar::Nought` expands to instead, or `#[k::desugar]` for an expansion that runs one way
         --> src/lib.rs:70:29"]]
     .assert_eq(&refusals([
         (
@@ -265,14 +260,6 @@ fn what_a_head_tells_is_refused_below_an_alias_subject_root() {
         (
             "set-concatenation-items",
             "#[k::alias]\nfn elems(k::term![Al::Elems(set::concat(set::item(x), set::item(y)))]: Term<Value>) -> Term<Value> {\n    Data::Two(x, [y])\n}\n",
-        ),
-        (
-            "nested-alias",
-            "#[k::alias]\nfn whole(k::term![Al::Whole(Al::Zero())]: Term<Value>) -> Term<Value> {\n    Data::Box(0)\n}\n",
-        ),
-        (
-            "nested-desugar",
-            "#[k::alias]\nfn whole(k::term![Al::Whole(Sugar::Nought())]: Term<Value>) -> Term<Value> {\n    Data::Box(0)\n}\n",
         ),
     ]));
 }

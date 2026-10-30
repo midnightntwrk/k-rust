@@ -989,6 +989,27 @@ impl<L: IrLevel> IrRewrite<L> {
             local: Some(Box::new(term)),
         }
     }
+    /// Returns this rewrite with `from` as its left side and every other
+    /// node's origin mapped by `origin`, its sort and the right side's shape
+    /// kept; `None` for a single-body rule's (KF-011), whose left side is an
+    /// image of its authored term.
+    #[must_use]
+    pub fn with_from(
+        &self,
+        from: IrTerm<L>,
+        origin: &mut impl FnMut(&NodeOrigin) -> NodeOrigin,
+    ) -> Option<Self> {
+        if self.local.is_some() {
+            return None;
+        }
+        Some(Self {
+            origin: origin(&self.origin),
+            sort: self.sort.clone(),
+            from: Box::new(from),
+            to: Box::new(self.to.map_origins(origin)),
+            local: None,
+        })
+    }
     /// Returns the authored term of a single-body rule (KF-011), or `None`
     /// for an ordinary rewrite.
     #[must_use]
@@ -1400,6 +1421,104 @@ impl<L: IrLevel> IrTerm<L> {
     #[must_use]
     pub const fn kind(&self) -> &IrTermKind<L> {
         &self.kind
+    }
+    /// Returns a term of this one's origin and sort, of `kind`: this term with
+    /// its node, or its children, replaced.
+    #[must_use]
+    pub fn with_kind(&self, kind: IrTermKind<L>) -> Self {
+        Self {
+            origin: self.origin.clone(),
+            sort: self.sort.clone(),
+            kind,
+        }
+    }
+    /// Returns this term with `origin` as its node's origin, its children
+    /// kept.
+    #[must_use]
+    pub fn with_origin(mut self, origin: NodeOrigin) -> Self {
+        self.origin = origin;
+        self
+    }
+    /// Returns this term with every node's origin mapped by `origin`, its
+    /// shape and sorts kept: a copy of a term placed where its own source-map
+    /// keys are already taken.
+    #[must_use]
+    pub fn map_origins(&self, origin: &mut impl FnMut(&NodeOrigin) -> NodeOrigin) -> Self {
+        let kind = match &self.kind {
+            IrTermKind::Variable { .. } | IrTermKind::Token { .. } => self.kind.clone(),
+            IrTermKind::Application {
+                application,
+                arguments,
+                instance,
+                head_instance_fixed,
+            } => IrTermKind::Application {
+                application: application.clone(),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| argument.map_origins(origin))
+                    .collect(),
+                instance: instance.clone(),
+                head_instance_fixed: *head_instance_fixed,
+            },
+            IrTermKind::KSequence { item_sort, items } => IrTermKind::KSequence {
+                item_sort: item_sort.clone(),
+                items: items.iter().map(|item| item.map_origins(origin)).collect(),
+            },
+            IrTermKind::Map(operands) => IrTermKind::Map(Box::new(infallible(
+                operands.try_map_ref(|term| Ok(term.map_origins(origin))),
+            ))),
+            IrTermKind::List(operands) => IrTermKind::List(Box::new(infallible(
+                operands.try_map_ref(|term| Ok(term.map_origins(origin))),
+            ))),
+            IrTermKind::Set(operands) => IrTermKind::Set(Box::new(infallible(
+                operands.try_map_ref(|term| Ok(term.map_origins(origin))),
+            ))),
+            IrTermKind::Cell { cell, children } => IrTermKind::Cell {
+                cell: cell.clone(),
+                children: children
+                    .iter()
+                    .map(|child| child.map_origins(origin))
+                    .collect(),
+            },
+            IrTermKind::Rewrite { from, to } => IrTermKind::Rewrite {
+                from: Box::new(from.map_origins(origin)),
+                to: Box::new(to.map_origins(origin)),
+            },
+            IrTermKind::As { alias, pattern } => IrTermKind::As {
+                alias: alias.clone(),
+                pattern: Box::new(pattern.map_origins(origin)),
+            },
+            IrTermKind::Or { alternatives } => IrTermKind::Or {
+                alternatives: infallible(
+                    alternatives.try_map_ref(|term| Ok(term.map_origins(origin))),
+                ),
+            },
+            IrTermKind::Matches {
+                subject,
+                pattern,
+                binds,
+            } => IrTermKind::Matches {
+                subject: Box::new(subject.map_origins(origin)),
+                pattern: Box::new(pattern.map_origins(origin)),
+                binds: binds.clone(),
+            },
+            IrTermKind::Let {
+                pattern,
+                value,
+                body,
+                binds,
+            } => IrTermKind::Let {
+                pattern: Box::new(pattern.map_origins(origin)),
+                value: Box::new(value.map_origins(origin)),
+                body: Box::new(body.map_origins(origin)),
+                binds: binds.clone(),
+            },
+        };
+        Self {
+            origin: origin(&self.origin),
+            sort: self.sort.clone(),
+            kind,
+        }
     }
     /// Returns the direct subterms, in source order.
     #[must_use]

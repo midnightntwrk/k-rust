@@ -348,7 +348,7 @@ pub fn lower_descriptor_bundle(
     or_positions::check_or_pattern_positions(&modules)?;
     list_patterns::check_list_patterns(&modules)?;
     restriction::check_smt_lemmas(&modules)?;
-    statics::check_static_clauses(&modules)?;
+    let modules = statics::static_clauses(modules, &semantic_sort_parents)?;
     visibility::check_proof_visibility(&modules)?;
     spec_modules::check_spec_lemmas(&modules)?;
     spec_modules::check_spec_identifiers(&modules)?;
