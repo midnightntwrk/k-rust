@@ -3722,9 +3722,15 @@ impl Grammar {
             .as_deref()
             .expect("a production in an associativity relation has a parse label");
         let side = if left_child { "left" } else { "right" };
+        // A bracket is excluded by no associativity relation (`NodeShape::ordered_as_operand`).
         let label = |node: &PackedTerm| match &node.node {
             PackedNode::Production { production, .. } => {
-                self.productions[*production].parse_label.as_deref()
+                let production = &self.productions[*production];
+                production
+                    .shape()
+                    .ordered_as_operand()
+                    .then_some(production.parse_label.as_deref())
+                    .flatten()
             }
             PackedNode::Term(_)
             | PackedNode::Ambiguity(_)

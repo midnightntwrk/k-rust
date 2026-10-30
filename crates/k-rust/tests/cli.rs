@@ -18723,6 +18723,100 @@ endmodule
     );
 }
 
+/// A bracket is delimited on both sides, so as an operand it takes part in no ambiguity that a
+/// priority or associativity relation resolves: no relation excludes it, and both parsers accept
+/// a program that brackets a phrase of lesser priority, whichever priority group the bracket
+/// production is declared in. This IMP declares its `BExp` bracket in the group below `!` and its
+/// `AExp` bracket in the group below `*`.
+#[cfg(unix)]
+#[test]
+fn a_bracket_is_never_excluded_as_an_operand_by_either_parser() {
+    const IMP: &str = r#"
+module IMP-SYNTAX
+  imports BOOL-SYNTAX
+  imports INT-SYNTAX
+  imports ID-SYNTAX
+  syntax AExp  ::= Int | Id
+                 | AExp "*" AExp              [symbol(_*_), left]
+                 > AExp "+" AExp              [symbol(_+_), left]
+                 | "(" AExp ")"               [bracket]
+  syntax BExp  ::= Bool
+                 | AExp "<=" AExp             [symbol(_<=_)]
+                 | "!" BExp                   [symbol(!_)]
+                 > BExp "&&" BExp             [symbol(_&&_), left]
+                 | "(" BExp ")"               [bracket]
+  syntax Block ::= "{" "}"                    [symbol({})]
+                 | "{" Stmt "}"               [symbol({_})]
+  syntax Stmt  ::= Block
+                 | Id "=" AExp ";"            [symbol(_=_;)]
+                 | "while" "(" BExp ")" Block [symbol(while(_)_)]
+                 > Stmt Stmt                  [symbol(__), left]
+  syntax Pgm ::= "int" Ids ";" Stmt           [symbol(int_;_)]
+  syntax Ids ::= List{Id,","}                 [symbol(_,_)]
+endmodule
+module IMP
+  imports IMP-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    assert_parsers_give_each_program_one_term(
+        IMP,
+        "IMP",
+        "IMP-SYNTAX",
+        &owned_programs(&[
+            ("int n; n = 3; while (!(n <= 0)) { n = n + -1; }", true),
+            ("int n; while (!((n <= 0))) { }", true),
+            ("int n; while (!((n <= 0) && true)) { }", true),
+            ("int n; while (true && (true && false)) { }", true),
+            ("int a, b, c; a = (a + b) * c;", true),
+            ("int a, b, c; a = ((a + b)) * c;", true),
+            ("int a, b, c; a = a * (b + (c + a));", true),
+            (
+                "int n; n = 3; while (!(n <= 0)) { n = n + -1; n = n; } n = 0;",
+                true,
+            ),
+            ("int a, b, c; a = a * b + c;", true),
+            ("int a; a = (a + a;", false),
+        ]),
+    );
+}
+
+/// The associativity half of `a_bracket_is_never_excluded_as_an_operand_by_either_parser`: a
+/// bracket declared in a `left` or a `non-assoc` group with the operator it brackets stands on
+/// either side of that operator in both parsers.
+#[cfg(unix)]
+#[test]
+fn a_bracket_in_an_associativity_group_is_never_excluded_by_either_parser() {
+    const ASSOCIATIVITY: &str = r#"
+module ASSOC-SYNTAX
+  syntax Exp ::= "x" [symbol(x)]
+  syntax Exp ::= left: Exp "-" Exp [symbol(minus)]
+                     | "(" Exp ")" [bracket]
+  syntax Cmp ::= Exp
+  syntax Cmp ::= non-assoc: Cmp "<" Cmp [symbol(lt)]
+                          | "[" Cmp "]" [bracket]
+  syntax Pgm ::= Cmp
+endmodule
+module ASSOC
+  imports ASSOC-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    assert_parsers_give_each_program_one_term(
+        ASSOCIATIVITY,
+        "ASSOC",
+        "ASSOC-SYNTAX",
+        &owned_programs(&[
+            ("x - (x - x)", true),
+            ("x - ((x - x))", true),
+            ("x - x - x", true),
+            ("[x < x] < x", true),
+            ("x < [x < x]", true),
+            ("x < x < x", false),
+        ]),
+    );
+}
+
 /// A sort that declares `[locations]` asks that each term of it a program denotes be wrapped in
 /// `#location`, the symbol `K-LOCATIONS` declares. Without that module in the main module's view
 /// only `krun` needs the symbol, to build its configuration, and only for a program holding a

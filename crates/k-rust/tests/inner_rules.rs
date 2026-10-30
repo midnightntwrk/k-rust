@@ -833,6 +833,73 @@ fn a_rule_body_whose_arrow_user_syntax_reuses_reads_as_the_rewrite() {
     }
 }
 
+/// A bracket is delimited on both sides, so as an operand it takes part in no ambiguity that a
+/// priority or associativity relation resolves, and no relation excludes it, in a rule body as in
+/// a program: the brackets below are declared in the group below `!` and `*`, and in a `left`
+/// and a `non-assoc` group with the operator they bracket, and each bracketed phrase is the one
+/// reading of its body.
+#[test]
+fn a_bracket_is_never_excluded_by_a_priority_or_associativity_relation_in_a_rule_body() {
+    let source = |rule: &str| {
+        format!(
+            r#"module MAIN
+  syntax AExp ::= "a" [symbol(a)] | "b" [symbol(b)]
+                | AExp "*" AExp [symbol(times), left]
+                > AExp "+" AExp [symbol(plus), left]
+                | "(" AExp ")" [bracket]
+  syntax BExp ::= "t" [symbol(t)]
+                | AExp "<=" AExp [symbol(le)]
+                | "!" BExp [symbol(not)]
+                > BExp "&&" BExp [symbol(and), left]
+                | "(" BExp ")" [bracket]
+  syntax Exp ::= "x" [symbol(x)]
+  syntax Exp ::= left: Exp "-" Exp [symbol(minus)]
+                     | "<|" Exp "|>" [bracket]
+  syntax Cmp ::= Exp
+  syntax Cmp ::= non-assoc: Cmp "<" Cmp [symbol(lt)]
+                          | "<<" Cmp ">>" [bracket]
+  rule {rule}
+endmodule
+"#
+        )
+    };
+    for (rule, expected) in [
+        ("! (a <= b) => t", "not(le(a(.KList),b(.KList)))=>t(.KList)"),
+        (
+            "! ((a <= b)) => t",
+            "not(le(a(.KList),b(.KList)))=>t(.KList)",
+        ),
+        (
+            "! (! t && t) => t",
+            "not(and(not(t(.KList)),t(.KList)))=>t(.KList)",
+        ),
+        (
+            "(a + b) * a => a",
+            "times(plus(a(.KList),b(.KList)),a(.KList))=>a(.KList)",
+        ),
+        (
+            "((a + b)) * a => a",
+            "times(plus(a(.KList),b(.KList)),a(.KList))=>a(.KList)",
+        ),
+        (
+            "x - <|x - x|> => x",
+            "minus(x(.KList),minus(x(.KList),x(.KList)))=>x(.KList)",
+        ),
+        (
+            "<<x < x>> < x => x",
+            "lt(lt(x(.KList),x(.KList)),x(.KList))=>x(.KList)",
+        ),
+        (
+            "x < <<x < x>> => x",
+            "lt(x(.KList),lt(x(.KList),x(.KList)))=>x(.KList)",
+        ),
+    ] {
+        let definition = resolve_rule_bubbles(&lowered(&source(rule)))
+            .unwrap_or_else(|error| panic!("{rule}: {error}"));
+        assert_eq!(only_rule_body(&definition), expected, "{rule}");
+    }
+}
+
 /// The rule's own rewrite is preferred wherever it stands, not only at the body's root: in an
 /// argument, the text `a => a` has a rewrite reading and an `arrow` reading at the same place, and
 /// the rewrite is what the rule means there, whether or not an invalid reading (`(a => a) + a`, a

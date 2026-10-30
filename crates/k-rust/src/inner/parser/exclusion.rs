@@ -115,6 +115,17 @@ impl NodeShape<'_> {
         !self.token && !self.record && !self.passes_child_through()
     }
 
+    /// Whether a priority or associativity relation may exclude a node of this production as
+    /// the operand of another. Such a relation chooses between readings of one text, as
+    /// `! a && b` reads `(! a) && b` or `! (a && b)`. A bracket is delimited by its own terminals
+    /// on both sides, so the phrase inside it is the bracket's child in every reading and the
+    /// bracket, as an operand, takes part in no such choice: excluding it would only remove the
+    /// text's one reading, which brackets a phrase of lesser priority precisely so that it can
+    /// stand there. Every other production is ordered by the relations.
+    pub(crate) fn ordered_as_operand(&self) -> bool {
+        !self.bracket
+    }
+
     /// The side at which the relation filter judges the child at `position` (1-based, among
     /// the children) of a node of this production that has `child_count` children, or `None`
     /// where it judges none. This is the filter's one position selection: the node judges
@@ -218,8 +229,10 @@ impl Exclusions {
 
     /// The exclusion that rejects a node of `child` as the child of a node of `parent` on
     /// `side`, if any. Both nodes are judged by their parse labels; a node without one is in no
-    /// relation. `side` comes from the parent's [`NodeShape::judged_side`], and the child is a
-    /// node judged where it stands ([`NodeShape::judged_as_child`]).
+    /// relation, and a bracket is excluded by no priority or associativity relation
+    /// ([`NodeShape::ordered_as_operand`]). `side` comes from the parent's
+    /// [`NodeShape::judged_side`], and the child is a node judged where it stands
+    /// ([`NodeShape::judged_as_child`]).
     pub(crate) fn violation(
         &self,
         parent: &NodeShape<'_>,
@@ -257,6 +270,9 @@ impl Exclusions {
             && child.last_nonterminal
         {
             return Some(Exclusion::CastPriority);
+        }
+        if !child.ordered_as_operand() {
+            return None;
         }
         if self.priorities.less_than(parent_label, child_label) {
             return Some(Exclusion::Priority);

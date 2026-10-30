@@ -549,6 +549,16 @@ In grammars that hold K's own rewrite, sequence or `#let` productions, both excl
 This diverges from the pinned K, whose generated parser judges the operand of a labelled production with one nonterminal and no terminal: with `syntax Top ::= Exp [symbol(wrap)]` and `syntax priority wrap > plus`, it rejects `x + x * x` as a `Top`, which its own `kast` reads as `wrap(plus(x, mul(x, x)))`; krust's generated parser and in-process parsing both read it so.
 (`generated_and_in_process_parsers_give_each_program_one_term` in [cli.rs](../crates/k-rust/tests/cli.rs); `exported_operands_are_restricted_by_the_in_process_exclusions` in [grammar.rs](../crates/k-rust/src/bison/grammar.rs).)
 
+A bracket node is never excluded as an operand by a priority or associativity relation, whichever priority group declares its production and whichever associativity group holds it.
+Such a relation chooses between readings of one text, as `! a && b` reads `(! a) && b` or `! (a && b)`.
+A bracket is delimited by its own terminals on both sides, so the phrase inside it is the bracket's child in every reading, and the bracket node as an operand takes part in no such choice: excluding it only removes the text's one reading and defeats the bracket's purpose, writing a phrase of lesser priority where it would otherwise be refused.
+With `syntax BExp ::= "!" BExp > BExp "&&" BExp | "(" BExp ")" [bracket]`, which declares the bracket in the group below `!`, `!(n <= 0)` is `!_(_<=_(n, 0))`; with `syntax Exp ::= left: Exp "-" Exp | "(" Exp ")" [bracket]`, `x - (x - x)` reads its bracket as the right child of `-`.
+Both parsers read this from `inner::Exclusions`, so it holds in programs and rule bodies alike and acceptance does not depend on which parser reads the text.
+The scope and cast exclusions do not reach a bracket, which is no rewrite, sequence or `#let` and ends with a terminal, and a bracket still judges its own child where its `applyPriority` names it.
+Only brackets are exempt: another production whose text is closed on the side facing its parent, such as a prefix operator below an infix one, is still judged, because exempting it can let a text read two ways.
+This diverges from the pinned K, whose `kast` refuses `int n; n = 3; while (!(n <= 0)) { n = n + -1; }` over such a definition (`Cannot use (_)_IMP-SYNTAX_BExp_BExp as an immediate child of !_`), the text's only reading.
+(`a_bracket_is_never_excluded_as_an_operand_by_either_parser` in [cli.rs](../crates/k-rust/tests/cli.rs); `a_bracket_is_never_excluded_by_a_priority_or_associativity_relation_in_a_rule_body` in [inner_rules.rs](../crates/k-rust/tests/inner_rules.rs).)
+
 ## Rule bodies over user syntax that reuses a rewrite token
 
 In a rule body, `=>`, `~>` and `#let ... #in` are the rule's own structure, not operators of the user's language, and each means something only where its parent gives it a scope; a reading that puts one elsewhere (`(a => b) + a`, a rewrite below `+`) denotes no term and is dropped like any reading that breaks a priority, cast or associativity relation.
