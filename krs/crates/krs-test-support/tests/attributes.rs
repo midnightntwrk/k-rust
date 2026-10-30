@@ -414,6 +414,37 @@ fn k7_shows_what_each_accepted_attribute_does() {
     assert_eq!(forms("Anywhere"), ["local-rule", "rule", "sort-rule"]);
 }
 
+/// A class whose code's registry summary advises a form names an advised case: the registry's
+/// own text is advice the full tier's messages may not show (`class_matrix::advice`).
+#[test]
+fn a_class_whose_registry_summary_advises_names_an_advised_case() {
+    use krs_test_support::class_matrix::advice::advised_in_message;
+    use krs_test_support::class_matrix::table::Table;
+    let read = |file: &str| {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/class-matrix")
+            .join(file);
+        std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+    };
+    let table = Table::parse(&read("expected.toml")).unwrap_or_else(|errors| panic!("{errors:#?}"));
+    let unadvised = table
+        .classes
+        .iter()
+        .filter_map(|(name, class)| {
+            let summary = krs_diagnostic::codes::info(&class.code)?.summary;
+            let form = advised_in_message(summary)?;
+            class
+                .advice
+                .is_none()
+                .then(|| format!("{name} ({}: `{form}`)", class.code))
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        unadvised.is_empty(),
+        "classes whose code's summary advises a form and that name no advised case: {unadvised:?}"
+    );
+}
+
 #[test]
 #[ignore = "prints the form each message of a file advises, one message a line"]
 fn advice_detector_over_messages() {

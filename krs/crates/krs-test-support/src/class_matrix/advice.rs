@@ -7,8 +7,8 @@
 //! - its message holds, after an advice verb in the imperative ([`VERBS`]: `write`, `mark`,
 //!   `declare`, `bind`, `place`, ..), at the start of a clause, a code span in the same clause
 //!   ("..; write `map![k -> v, ..m]`", "mark the production `#[k::alias]`"), or says how the
-//!   refused construct *is written* or how a pattern *writes* it ("`counter` is written
-//!   `Some(..)`", "a pattern writes `int::add` as the call `int::add(..)`");
+//!   refused construct *is written* (the form right after the verb) or how a pattern *writes* it
+//!   ("`counter` is written `Some(..)`", "a pattern writes `int::add` as the call `int::add(..)`");
 //! - or one of its help lines does, or shows a form at its end after a colon ("a rule for any
 //!   term of a sort is a `for Sort` clause, ..: `k::rules! { for KItem; .. }`").
 //!
@@ -74,7 +74,10 @@ pub fn advised_in_message(message: &str) -> Option<&str> {
             let clause_start =
                 starts_clause(prose, start) && !(at > 0 && prose[..start].trim().is_empty());
             let imperative = VERBS.contains(&word) && clause_start;
-            let descriptive = (word == "written" && prose[..start].trim_end().ends_with(" is"))
+            // `X is written `F``: the form right after the verb (not `is written without `F``).
+            let descriptive = (word == "written"
+                && prose[..start].trim_end().ends_with(" is")
+                && prose[start + word.len()..].trim().is_empty())
                 || (word == "writes" && prose[..start].trim_end().ends_with("pattern"));
             if !(imperative || descriptive) {
                 continue;
