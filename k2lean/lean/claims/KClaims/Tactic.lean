@@ -339,12 +339,46 @@ def closeAll (closer : TSyntax `tactic) (gs : Array MVarId) : TacticM Bool := do
     catch _ => return false
   return true
 
-/-- Solve an existential/conjunctive goal (a target, or a claim instance): unify equations
-first, then close what remains. -/
+/-- A witness's equation `f args = some ?x` with `args` known, solved by the value it names: a
+hypothesis with the same left-hand side (a partial function has one value), or, where `args`
+are closed, the evaluation of `f args`. `false` when neither gives it (nothing assigned). -/
+def solveWitness (g : MVarId) : MetaM Bool := g.withContext do
+  let t ← instantiateMVars (← g.getType)
+  let some (_, a, b) := t.eq? | return false
+  unless !a.hasExprMVar && b.isAppOfArity ``Option.some 2 && b.appArg!.isMVar do return false
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let some (_, a', b') := (← instantiateMVars d.type).eq? | continue
+    unless (← instantiateMVars a') == a do continue
+    let s ← saveState
+    if ← isDefEq b b' then
+      g.assign d.toExpr
+      return true
+    s.restore
+  if a.hasFVar then return false
+  let s ← saveState
+  if ← isDefEq a b then
+    g.assign (← mkEqRefl a)
+    return true
+  s.restore
+  return false
+
+/-- Solve an existential/conjunctive goal (a target, or a claim instance): the witnesses that
+partial functions' values name first, since the other equations may apply a function to them
+(`f ?x` reduces only once `?x` is known); then unify equations, then close what remains. -/
 def solveConj (closer : TSyntax `tactic) (g : MVarId) : TacticM Bool := do
   let s ← saveState
   let ok ← g.withContext do
     let (ws, gs) ← peel g #[] #[]
+    -- to a fixpoint: one witness may be an argument of another's function (`tmod ?r 8`)
+    let mut gs := gs
+    let mut progress := true
+    while progress do
+      progress := false
+      let mut left := #[]
+      for gi in gs do
+        if ← solveWitness gi then progress := true else left := left.push gi
+      gs := left
     let mut rest := #[]
     for gi in gs do
       let t ← instantiateMVars (← gi.getType)
