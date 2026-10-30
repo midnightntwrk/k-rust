@@ -42,7 +42,10 @@ from a slot's root, so a case's position is data the oracle reads, never parsed 
 Besides the constructs of the product's table, the catalog applies the terms base's two static
 productions, `Cmd::Dz()` (marked `#[k::desugar]`, expanding to `Cmd::Pair(2, 3)`) and `Cmd::Az()`
 (marked `#[k::alias]`, to `Cmd::Pair(4, 5)`), at the matched positions of depth 1 below a subject's
-root (`terms/desugar/subject/Cmd::Dz()`): the construct of NT-8-4 and NT-8 M2. The oracle reads
+root (`terms/desugar/subject/Cmd::Dz()`): the construct of NT-8-4 and NT-8 M2. A desugar's or an
+alias's result root whose sort is not below its production's (a Bool, a String, a map, a `KItem`
+term at a `Stmt` production) is the mistake `static-result-sort`, which `expected.toml` refuses
+by the spelling's sort. The oracle reads
 their application as the value it expands to (decision NT-14: a static application below a
 desugar's or an alias's subject root expands when the expansion needs no value, as a ground
 one's never does), and `cargo test -p krs-test-support --test k7` names a static production the
@@ -152,28 +155,39 @@ the descriptors of the base and its own. A case is judged by
   why (a computed term matches no evaluated term; a pattern builds nothing; `{ let y @
   Cmd::Hold(_) = x; y }` has no value at `x` = 1), and the openers compose them: the witness of
   `y @ HOLE` is the hole's, of `set::item(HOLE)` the set of it, the value of `Size(HOLE)` the
-  unevaluated `Size` of the hole's. A disagreement with KRS is a finding, triaged as an oracle or
-  a product bug.
+  unevaluated `Size` of the hole's (`Size` has no equation, so it serves as a wrapper the run
+  shows the hole's value in; `Size(x)` itself has no stated value). A spelling a pattern reads
+  also has a *counter-witness* where one exists, a ground term it must not match (`Cmd::Hold(x)`
+  must not match `Cmd::Pair(0, 0)`, `y @ Cmd::Hold(_)` neither): its case runs a second program on
+  it, which must stop before the case's sentence, so a pattern lowered too loosely is caught. A
+  disagreement with KRS is a finding, triaged as an oracle or a product bug.
 
   *Drivers* (`class_matrix/terms/drivers.rs`), one per slot, write the program that applies the
   case's sentence and state the cells the run ends with. A rule's command is applied to the
   witness (`Cmd::NAME(x, HOLE)` takes `cNAME(1, w)` and ends with `hold(1)`) or read for its
   value (`cNAME(1, 0)` ends with `hold(v)`); a condition's value decides whether the rule
-  applies; a map key, a list or cons element and a collection's instance are first set up by the
+  applies, and a condition with no value at `x` = 1 (`{ let Cmd::Hold(_) = x; true }`) does not
+  hold; a map key and a set's element, a Set collection's instance included, read as decision D2
+  reads them: a computed one is looked up by its value (`set::item(int::add(x, 1))` takes
+  `sone(2)`), a selection by its witness; a map key, a list or cons element and a collection's instance are first set up by the
   terms base's driver commands (`then(setenv(..), cNAME(1, 0))`), one step each at priority 10,
   so that no driver rule overlaps a case's; an equation's function is applied from the base's
   rules `call(a, b) => hold(probe(a, b))` and `sizeof(a) => hold(size(a))`; a context heats the
   token `word`, which is no `KResult`; a desugar's or an alias's subject is written in the program,
-  which the run's parse expands, and its result read in the expansion; an initializer is read
-  before any step. Values the program grammar cannot write (a map, a set, a list, `$x`,
+  which the run's parse expands, and its result read in the expansion; an initializer, of the
+  term family or of the configuration families' `init` (the machine and typed bases, with `$PGM`
+  bound to `go` and `-c ANY=1`), is read before any step, each cell's stated value compared. Values the program grammar cannot write (a map, a set, a list, `$x`,
   `Wrap::<KItem>(..)`) are written through the base's makers, functions that build exactly them,
   which a static clause's expansion meets unevaluated, so a witness only a maker writes is no
   witness for a desugar's or an alias's subject. Claims and simplifications need a prover (L4
   keeps claims in the fixture gates); a context alias acts only through a production strict in
   it, which neither the base nor a case declares; a `#[k::function(internal)]` shorthand and a
   constant have no program syntax and no base sentence can name the case's: these have no driver.
-  `cargo test -p krs-test-support --test k7` lists the spellings without a witness or a value
-  and the slots without a driver, with their reasons, and pins a plan of each driver kind.
+  Nor have the readable, claim and `cells!` families: their cells start at the machine and typed
+  bases' fixed values, and those bases have no driver commands yet.
+  `cargo test -p krs-test-support --test k7` lists the spellings without a witness, a value or a
+  counter-witness and the slots without a driver, with their reasons, counts every case's K7
+  status (each skip reason, and the counter runs), and pins a plan of each driver kind.
 
   *Running*: where K6's check loads the definition the run commands load (on the `native-rust`
   route, `krs_cli::CollectedDefinition::check_visiting`), each accepted case's program is
@@ -182,12 +196,17 @@ the descriptors of the base and its own. A case is judged by
   passes; a case K6 refuses is not run. The run is bounded by the driver's step count, so a
   sentence that applies again to what it wrote is observed after its application, and by a time
   limit per program (`KRS_CLASS_RUN_SECONDS`, 60 by default), enforced by cancelling the
-  backend's request. Each case's command is its own, so only its sentence can take its program;
+  backend's request: the program's configuration (its parse, the expansion of its desugars and
+  aliases) and its run are one cancellable request (`k7_bounds_a_program_whose_expansion_or_run_does_not_end`
+  shows an initializer that does not end giving a deviation at the limit). A panic of a run is its
+  case's verdict, and the cases after it run on a definition apart. Each case's command is its own, so only its sentence can take its program;
   a sentence that holds no command of its own (a subject's root: a context's, an equation's, a
   simplification's) could take another case's, so where one shares K6's check with other cases,
   it and the others are run on definitions apart. The final cells are decoded
   (`StateView::value`) and compared with the plan's terms. A deviation is keyed `k7/<case ID>`:
-  `not applied: N of M steps, then HALT; CELLS`, `applied where it should not`, `failed: ERROR`
+  `not applied: N of M steps, then HALT; CELLS`, `no defined result: ..` (a sentence matched and
+  its result has no value), `applied where it should not`, `counter-witness `PROGRAM`: ..` (the
+  counter run's deviation), `failed: ERROR`
   (the program's parse or expansion, or the run), `time limit: ..`, `no configuration
   (\bottom)`, or `another value: CELLS, where the plan states CELLS`. Each shard prints how many
   programs K7 ran, in how much worker time, and what it checked of each case K6 accepted: a
