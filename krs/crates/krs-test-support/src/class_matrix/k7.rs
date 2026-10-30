@@ -334,9 +334,13 @@ pub enum Meaning {
     /// A value the generator does not state, with the reason: K7 checks only that the sentence
     /// applied.
     Unstated(&'static str),
-    /// No value: the term is undefined under the binders' values, or is no term (a pattern-only
-    /// construct, a predicate), with the reason. K7 checks nothing at a position that builds it.
+    /// No value: the term is undefined under the binders' values, with the reason. K7 checks
+    /// nothing at a position that builds it, but where it is a condition, which then does not
+    /// hold, so the sentence must not apply.
     Undefined(&'static str),
+    /// No term: a pattern-only construct, a predicate, an anonymous variable or a cell fragment,
+    /// which builds no value of the position, with the reason. K7 checks nothing where it is built.
+    NoTerm(&'static str),
 }
 
 /// What K7 checks of a case that it runs.

@@ -29,7 +29,9 @@ fn every_spelling_states_its_witness_and_its_value_or_why_not() {
                 .or_default()
                 .push(format!("{family} {}", meaning.text));
         }
-        if let Meaning::Undefined(reason) | Meaning::Unstated(reason) = meaning.value {
+        if let Meaning::Undefined(reason) | Meaning::Unstated(reason) | Meaning::NoTerm(reason) =
+            meaning.value
+        {
             missing
                 .entry(format!("no value: {reason}"))
                 .or_default()
@@ -54,6 +56,7 @@ fn every_spelling_states_its_witness_and_its_value_or_why_not() {
 }
 
 const MISSING: &[&str] = &[
+    "no value: Size is partial and the base gives it no equation, so the definition names no value of its application: terms Size(x)",
     "no value: a cell fragment, which no term of a KItem position is: terms k::fragment![crate::Frame { ret: 1 }]",
     "no value: a matching-logic predicate, which only a prover reads: terms k::ml::exists(|v: Int| k::ml::equals(v, 0))",
     "no value: a pattern, which names or tests a term and builds none: terms _ | terms y @ Cmd::Hold(_) | terms Cmd::Go() | Cmd::Hold(_) | terms Cmd::Pair { a: x, .. } | terms [x, ..]",
@@ -114,6 +117,123 @@ const UNDRIVEN: &[&str] = &[
     "the function is internal: it has no program syntax, and no base sentence can name the case's function: shorthand/result-root | shorthand/result",
 ];
 
+/// Every case's K7 status, a skip by its kind and reason, with its count, and the cases that
+/// run a counter-witness: a change that moves cases into a skip, or out of a counter run, fails
+/// here, whatever reason the skip gives.
+#[test]
+fn every_cases_k7_status_is_counted() {
+    let cases = class_matrix::cases();
+    let mut statuses = BTreeMap::<String, usize>::new();
+    for case in &cases {
+        let status = match &case.k7 {
+            K7::Run(run) => format!("runs, {}", run.status.name()),
+            K7::Skip(skip) => format!("{}: {}", skip.kind.name(), skip.reason),
+        };
+        *statuses.entry(status).or_default() += 1;
+        if case.k7_counter.is_some() {
+            *statuses
+                .entry("runs a counter-witness".to_owned())
+                .or_default() += 1;
+        }
+    }
+    let listed = statuses
+        .iter()
+        .map(|(status, count)| format!("{count} {status}"))
+        .collect::<Vec<_>>();
+    assert_eq!(listed, STATUSES, "{listed:#?}");
+}
+
+const STATUSES: &[&str] = &[
+    "766 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
+    "152 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
+    "156 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
+    "382 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
+    "75 no driver: the base applies no function but Probe and Size from a rule",
+    "152 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
+    "674 no driver: the readable, claim and `cells!` families read cells the machine and typed bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
+    "5 no value: Size is partial and the base gives it no equation, so the definition names no value of its application",
+    "33 no value: a cell fragment, which no term of a KItem position is",
+    "107 no value: a matching-logic predicate, which only a prover reads",
+    "170 no value: a pattern, which names or tests a term and builds none",
+    "34 no value: an anonymous variable, which names no value",
+    "5 no value: the condition's stated value, \"s\", is no Bool",
+    "5 no value: the condition's stated value, $x, is no Bool",
+    "5 no value: the condition's stated value, -1, is no Bool",
+    "5 no value: the condition's stated value, -2, is no Bool",
+    "55 no value: the condition's stated value, 1, is no Bool",
+    "5 no value: the condition's stated value, 1.5, is no Bool",
+    "20 no value: the condition's stated value, 2, is no Bool",
+    "5 no value: the condition's stated value, 3, is no Bool",
+    "14 no value: the condition's stated value, Cmd::Go(), is no Bool",
+    "9 no value: the condition's stated value, Cmd::Hold(1), is no Bool",
+    "5 no value: the condition's stated value, Wrap(1), is no Bool",
+    "10 no value: the condition's stated value, [1], is no Bool",
+    "5 no value: the condition's stated value, b\"ab\", is no Bool",
+    "10 no value: the condition's stated value, map{0 -> 1}, is no Bool",
+    "10 no value: the condition's stated value, map{1 -> 1, 2 -> 3}, is no Bool",
+    "25 no value: the condition's stated value, map{1 -> 1}, is no Bool",
+    "10 no value: the condition's stated value, map{}, is no Bool",
+    "35 no value: the condition's stated value, set{1}, is no Bool",
+    "10 no value: the condition's stated value, set{}, is no Bool",
+    "5 no value: the condition's stated value, word, is no Bool",
+    "56 no value: the empty map has no entry at 1",
+    "194 no value: the let's pattern does not match x = 1",
+    "28 no value: the update's base, x = 1, is no Pair",
+    "56 no value: x = 1 is no Bool",
+    "43 no witness: a cell fragment, which no term of a KItem position is",
+    "1748 no witness: a computed term, which no evaluated term is",
+    "43 no witness: a matching-logic predicate, which only a prover reads",
+    "4 no witness: a program writes $x only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "4 no witness: a program writes Wrap(1) only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "4 no witness: a program writes [1] only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "8 no witness: a program writes map{} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "1 no witness: a program writes set{1, Cmd::Hold(1)} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "14 no witness: a program writes set{1} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "8 no witness: a program writes set{} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "76 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
+    "3 no witness: the program would hold a value the generator does not state",
+    "1002 runs a counter-witness",
+    "1252 runs, liveness",
+    "2425 runs, value",
+];
+
+/// The pattern spellings (those with a witness) without a counter-witness, by reason; no pattern
+/// spelling may keep the default, `no counter-witness is stated`.
+#[test]
+fn every_pattern_spelling_states_a_counter_witness_or_why_not() {
+    let mut missing = BTreeMap::<String, Vec<String>>::new();
+    for meaning in class_matrix::spelling_meanings() {
+        if meaning.witness.is_err() {
+            continue;
+        }
+        if let Err(reason) = meaning.counter {
+            missing.entry(reason.to_owned()).or_default().push(format!(
+                "{} {}",
+                meaning.family.name(),
+                meaning.text
+            ));
+        }
+    }
+    assert!(
+        !missing.contains_key("no counter-witness is stated"),
+        "{:?}",
+        missing.get("no counter-witness is stated")
+    );
+    let listed = missing
+        .iter()
+        .map(|(reason, spellings)| format!("{reason}: {}", spellings.join(" | ")))
+        .collect::<Vec<_>>();
+    assert_eq!(listed, COUNTERLESS, "{listed:#?}");
+}
+
+const COUNTERLESS: &[&str] = &[
+    "`_` matches every term: terms _",
+    "a binder matches every term where it is the only occurrence of its name: terms x",
+    "a program writes no Id but `$x`, through its maker: terms k::id!(\"$x\")",
+    "its alternative `x` matches every term where the template does not bind `x`: terms x | 1",
+    "its left side `_` matches every term: terms k::rewrite!(_ => 1)",
+];
+
 /// Each production of the terms base that a static clause expands (a `Cmd` variant marked
 /// `#[k::desugar]` or `#[k::alias]`) is applied by a spelling, so a static production kind the
 /// base gains without a spelling is named here.
@@ -121,19 +241,31 @@ const UNDRIVEN: &[&str] = &[
 fn every_static_production_of_the_terms_base_has_a_spelling() {
     let base = Base::Terms.preamble();
     let cases = class_matrix::cases();
+    // The variants of `Cmd` whose attributes mark them, read from the parsed base, so that a
+    // marker's place among the variant's attributes does not matter.
+    let file = syn::parse_file(&base).expect("the terms base parses");
     let mut marked = Vec::new();
-    for line in base.lines() {
-        let line = line.trim();
-        for marker in ["#[k::desugar]", "#[k::alias]"] {
-            if line.starts_with("#[k::syntax(")
-                && let Some((_, variant)) = line.split_once(marker)
-            {
-                let name = variant
-                    .trim()
-                    .split(|character: char| !character.is_alphanumeric())
-                    .next()
-                    .unwrap_or_default();
-                marked.push((marker, name.to_owned()));
+    for item in &file.items {
+        let syn::Item::Enum(family) = item else {
+            continue;
+        };
+        if family.ident != "Cmd" {
+            continue;
+        }
+        for variant in &family.variants {
+            for attribute in &variant.attrs {
+                let path = attribute.path();
+                let segments = path
+                    .segments
+                    .iter()
+                    .map(|segment| segment.ident.to_string())
+                    .collect::<Vec<_>>();
+                let attribute_name = match segments.as_slice() {
+                    [facade, name] if facade == "k" && name == "desugar" => "#[k::desugar]",
+                    [facade, name] if facade == "k" && name == "alias" => "#[k::alias]",
+                    _ => continue,
+                };
+                marked.push((attribute_name, variant.ident.to_string()));
             }
         }
     }
@@ -160,6 +292,10 @@ fn every_static_production_of_the_terms_base_has_a_spelling() {
 /// driver: a matched hole, a built one, a key set up before the command, a condition, an
 /// equation applied from a rule, a static clause, and an initializer.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One pinned plan per driver kind, each a few lines."
+)]
 fn the_drivers_write_their_programs_and_cells() {
     let cases = class_matrix::cases();
     let plan = |id: &str| {
@@ -249,6 +385,53 @@ fn the_drivers_write_their_programs_and_cells() {
             format!("{}, env = map{{1 -> Cmd::Hold(1)}}", k("")),
             Status::Value
         )
+    );
+    // A computed set element is looked up by its value, as a key is (D2).
+    assert_eq!(
+        plan("terms/rule/subject/set-element/k::builtin::int::add(x, 1)"),
+        (
+            "NAME(1, sone(2))".to_owned(),
+            1,
+            k("Cmd::Hold(1)"),
+            Status::Value
+        )
+    );
+    assert_eq!(
+        plan("terms/readable/set-instance-child/x + 1"),
+        (
+            "then(addtoken(hold(2)), NAME(1, 0))".to_owned(),
+            3,
+            k(""),
+            Status::Value
+        )
+    );
+    // A condition with no value at x = 1 does not hold: the rule must not apply.
+    assert_eq!(
+        plan("terms/rule/guard/let-pattern/Cmd::Hold(x)"),
+        (
+            "NAME(1, 0)".to_owned(),
+            0,
+            k("Cmd::NAME(1, 0)"),
+            Status::Value
+        )
+    );
+    // A counter-witness's run stops before the case's sentence.
+    let case = term_case(&cases, "terms/rule/subject/Cmd::Hold(x)");
+    let counter = case
+        .k7_counter
+        .as_ref()
+        .expect("Cmd::Hold(x) has a counter-witness");
+    let terminal = case
+        .command()
+        .expect("a rule case has a command")
+        .terminal();
+    assert_eq!(
+        (
+            counter.program.replace(&terminal, "NAME"),
+            counter.depth,
+            counter.steps
+        ),
+        ("NAME(1, pair(0, 0))".to_owned(), 1, 0)
     );
     assert_eq!(
         plan("terms/init/variable-item/x + 1"),

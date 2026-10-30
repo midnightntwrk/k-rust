@@ -443,6 +443,10 @@ pub struct Case {
     /// What K7 runs the case on, and what the run must show ([`k7`]); a case of a family K7 has
     /// no drivers for says so.
     pub k7: k7::K7,
+    /// A run of the case's program on a counter-witness of its construct, a ground term the
+    /// construct must not match, which must not apply the case's sentence; `None` where the
+    /// construct has none or its slot reads no witness.
+    pub k7_counter: Option<k7::Run>,
     /// Whether the case's sentence holds no command of its own: a subject's root, which can take
     /// what another case's program holds, so K7 runs it, and the cases beside it, on definitions
     /// apart.
@@ -655,6 +659,8 @@ pub struct SpellingMeaning {
     pub witness: Result<k7::Ground, &'static str>,
     /// What it denotes where it is built.
     pub value: k7::Meaning,
+    /// A ground term it must not match where a pattern reads it, or why none is stated.
+    pub counter: Result<k7::Ground, &'static str>,
 }
 
 /// What every spelling of the term families matches and denotes, `x` being 1.
@@ -765,9 +771,11 @@ impl CaseSpec {
             term: None,
             k7: k7::K7::skip(
                 k7::SkipKind::Form,
-                "K7 drives the term families only: the configuration families' cells start from \
-                 the machine base's initializer, which no driver command sets up",
+                "the readable, claim and `cells!` families read cells the machine and typed bases \
+                 start at fixed values, and those bases have no driver commands to set them up \
+                 (a claim needs a prover besides)",
             ),
+            k7_counter: None,
             unkeyed: false,
             item: item.text.clone(),
             spelling,

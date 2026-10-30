@@ -3,6 +3,7 @@
 
 use std::sync::LazyLock;
 
+use super::k7::{Ground, K7, Run, Status};
 use super::{
     Base, BaseText, Case, CaseSpec, CellKind, Command, Family, ItemBuilder, OwnReason, Packaging,
     Side,
@@ -384,7 +385,119 @@ fn cell_value(kind: CellKind, value: &str) -> Case {
             }
         },
     );
-    spec.finish(Packaging::Own(OwnReason::Initializer), &item)
+    let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+    case.k7 = machine_start(&[(machine_cell(kind), machine_value(kind, value))], &[]);
+    case
+}
+
+/// The program every initializer case starts with, `go`, which `pgm` is.
+fn go() -> Ground {
+    Ground::ctor("Cmd::Go", Vec::new())
+}
+
+/// What the machine base's cells hold when the run starts, by cell path: the base's own
+/// initializer's values with the program `go`. The collection `job` starts with no instance and
+/// is not read; the optional `counter` is read only by the case that writes it, so that one
+/// finding about optional cells (NT-12-6) stays with that case.
+fn machine_cells() -> Vec<(&'static str, Ground)> {
+    vec![
+        ("k", Ground::Seq(vec![go()])),
+        ("pc", Ground::Int(0)),
+        ("stack", Ground::List(Vec::new())),
+        ("env", Ground::map(Vec::new())),
+        ("frame.ret", Ground::Int(0)),
+    ]
+}
+
+/// What `value` gives the cell of `kind` when the run starts with the program `go`, or `None`
+/// where the generator states nothing: a value of another kind's notation (refused), the absent
+/// optional cell (no value to read), and a collection's instance template (the collection starts
+/// empty).
+fn machine_value(kind: CellKind, value: &str) -> Option<Ground> {
+    let items = |items: Vec<Ground>| match kind {
+        CellKind::KSequence => Some(Ground::Seq(items)),
+        CellKind::List => Some(Ground::List(items)),
+        _ => None,
+    };
+    match (kind, value) {
+        (CellKind::KSequence, "pgm" | "k::k![pgm]")
+        | (CellKind::KSequence | CellKind::List, "[pgm]") => items(vec![go()]),
+        (CellKind::KSequence, "k::k![]") | (CellKind::KSequence | CellKind::List, "[]") => {
+            items(Vec::new())
+        }
+        (CellKind::KSequence, "k::k![0]" | "0") | (CellKind::KSequence | CellKind::List, "[0]") => {
+            items(vec![Ground::Int(0)])
+        }
+        (CellKind::KSequence, "k::k![Cmd::Go(), ..pgm]") => items(vec![go(), go()]),
+        (CellKind::List, "list::empty()") => items(Vec::new()),
+        (CellKind::Leaf | CellKind::Optional, "0" | "Some(0)")
+        | (CellKind::Group, "Frame { ret: 0 }") => Some(Ground::Int(0)),
+        (CellKind::Map, "k::map![]" | "k::builtin::map::empty()") => Some(Ground::map(Vec::new())),
+        (CellKind::Map, "k::map![0 -> 1]") => {
+            Some(Ground::map(vec![(Ground::Int(0), Ground::Int(1))]))
+        }
+        // Two entries whose keys are `pgm` (`go`) and 0, each written over the map before it.
+        (
+            CellKind::Map,
+            "k::map![pgm -> 1, 0 -> 2]"
+            | "k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2)",
+        ) => Some(Ground::map(vec![
+            (go(), Ground::Int(1)),
+            (Ground::Int(0), Ground::Int(2)),
+        ])),
+        _ => None,
+    }
+}
+
+/// K7's plan for an initializer case: the run starts with the program `go` and the
+/// configuration variables `variables`, takes no step, and the cells hold the machine base's
+/// values (`machine_cells`) with `changed` in place of theirs: a changed cell's value where
+/// the generator states it, the cell left unread where it does not.
+fn machine_start(changed: &[(&str, Option<Ground>)], variables: &[(&str, &str)]) -> K7 {
+    start_with(machine_cells(), changed, variables)
+}
+
+fn start_with(
+    cells: Vec<(&'static str, Ground)>,
+    changed: &[(&str, Option<Ground>)],
+    variables: &[(&str, &str)],
+) -> K7 {
+    let mut status = Status::Value;
+    let mut read = Vec::new();
+    let mut cells = cells;
+    // A changed cell the base's list does not read (an optional cell) is read where its value is
+    // stated.
+    for (changed, value) in changed {
+        if value.is_some()
+            && !cells
+                .iter()
+                .any(|(cell, _)| cell == changed || cell.starts_with(&format!("{changed}.")))
+        {
+            cells.push((changed, Ground::Any));
+        }
+    }
+    for (cell, value) in cells {
+        // A group cell's child is read by its path below the group: `frame.ret` for `frame`.
+        let changed_value = changed
+            .iter()
+            .find(|(changed, _)| *changed == cell || cell.starts_with(&format!("{changed}.")));
+        match changed_value {
+            Some((_, Some(value))) => read.push((cell.to_owned(), value.clone())),
+            Some((_, None)) => status = Status::Liveness,
+            None => read.push((cell.to_owned(), value)),
+        }
+    }
+    K7::Run(Run {
+        program: "go".to_owned(),
+        variables: variables
+            .iter()
+            .map(|(name, text)| ((*name).to_owned(), (*text).to_owned()))
+            .collect(),
+        depth: 0,
+        steps: 0,
+        cells: read,
+        status,
+    })
 }
 
 /// The field-order axis: a Rust struct literal's field order has no meaning, so every
@@ -421,7 +534,9 @@ fn field_order(cases: &mut Vec<Case>) {
         let range = start.expect("the base has fields")..end;
         item.spelling = Some(range.clone());
         item.entry = Some(range);
-        cases.push(spec.finish(Packaging::Own(OwnReason::Initializer), &item));
+        let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+        case.k7 = machine_start(&[], &[]);
+        cases.push(case);
     }
     cases.push(nested_reversed());
 }
@@ -454,7 +569,11 @@ fn nested_reversed() -> Case {
             }
         },
     );
-    spec.finish(Packaging::Own(OwnReason::Initializer), &item)
+    let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+    let mut cells = machine_cells();
+    cells.push(("frame.aux", Ground::Int(1)));
+    case.k7 = start_with(cells, &[], &[]);
+    case
 }
 
 /// The machine's initializer up to its first field.
@@ -799,5 +918,41 @@ fn typed_initializer(cell: &str, content: &str) -> Case {
             item.entry = Some(start..item.text.len());
         },
     );
-    spec.finish(Packaging::Own(OwnReason::Initializer), &item)
+    let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
+    case.k7 = typed_start(cell, content);
+    case
+}
+
+/// K7's plan for a typed initializer case: the run starts with the program `go` and `ANY` bound
+/// to 1, takes no step, and the typed cells hold the typed base's values with `content`'s in
+/// `cell` (the collection `slot` starts empty and is not read).
+fn typed_start(cell: &str, content: &str) -> K7 {
+    let unit = || Ground::ctor("Val::Unit", Vec::new());
+    let value = match content {
+        "1" | "any" => Ground::Int(1),
+        "Val::Unit()" => unit(),
+        _ => go(),
+    };
+    let any_moved = cell == "any" && content != "any";
+    let k = if any_moved {
+        vec![go(), Ground::Int(1)]
+    } else {
+        vec![go()]
+    };
+    let cells = vec![
+        ("k", Ground::Seq(k)),
+        ("leaf", unit()),
+        ("stmt", go()),
+        ("any", Ground::Int(1)),
+        ("list", Ground::List(Vec::new())),
+        ("map", Ground::map(Vec::new())),
+        ("boxed.inner", unit()),
+    ];
+    let changed = match cell {
+        "list" => Some(Ground::List(vec![value])),
+        "map" => Some(Ground::map(vec![(Ground::Int(0), value)])),
+        "slot" => return start_with(cells, &[], &[("ANY", "1")]),
+        _ => Some(value),
+    };
+    start_with(cells, &[(cell, changed)], &[("ANY", "1")])
 }

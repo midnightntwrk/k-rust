@@ -385,6 +385,9 @@ struct Spelling {
     witness: Result<Ground, &'static str>,
     /// What the spelling denotes where it is built.
     value: Meaning,
+    /// A ground term the spelling must not match where a pattern reads it (a counter-witness),
+    /// or why none is stated.
+    counter: Result<Ground, &'static str>,
     /// Whether the spelling, read as a pattern, matches 1, the value of `x`: what a `let`
     /// pattern or a `k::matches!` over `x` decides.
     matches_x: bool,
@@ -443,6 +446,38 @@ impl Spelling {
         }
     }
 
+    /// The spelling, which is no term, for `reason`.
+    fn no_term(self, reason: &'static str) -> Self {
+        Self {
+            value: Meaning::NoTerm(reason),
+            ..self
+        }
+    }
+
+    /// The spelling, whose value the generator does not state, for `reason`.
+    fn unstated(self, reason: &'static str) -> Self {
+        Self {
+            value: Meaning::Unstated(reason),
+            ..self
+        }
+    }
+
+    /// The spelling, which must not match `counter`.
+    fn refuting(self, counter: Ground) -> Self {
+        Self {
+            counter: Ok(counter),
+            ..self
+        }
+    }
+
+    /// The spelling, which has no counter-witness, for `reason`.
+    fn unrefuted(self, reason: &'static str) -> Self {
+        Self {
+            counter: Err(reason),
+            ..self
+        }
+    }
+
     /// The spelling, which matches 1, the value of `x`.
     fn matches_x(self) -> Self {
         Self {
@@ -462,6 +497,10 @@ impl Spelling {
 /// holds an unevaluated application.
 const COMPUTED: &str = "a computed term, which no evaluated term is";
 
+/// Why a bare binder has no counter-witness: it matches every term where it is the only
+/// occurrence of its name.
+const BINDER: &str = "a binder matches every term where it is the only occurrence of its name";
+
 /// What a pattern-only construct denotes: nothing, as it tests or names a matched term.
 const PATTERN_ONLY: &str = "a pattern, which names or tests a term and builds none";
 
@@ -472,6 +511,7 @@ fn spelling(text: &'static str, nodes: &[Node]) -> Spelling {
         nodes: nodes.to_vec(),
         witness: Err("no witness is stated"),
         value: Meaning::Undefined("no value is stated"),
+        counter: Err("no counter-witness is stated"),
         matches_x: false,
         below_root_only: false,
     }
@@ -516,16 +556,16 @@ fn binary(text: &'static str, notation: Notation) -> Spelling {
 fn spellings() -> Vec<Spelling> {
     let mut spellings = vec![
         // Reference: a binder, and a zero-argument variant named by its path alone.
-        spelling("x", &[node(C::Reference, &[])])
+        spelling("x", &[node(C::Reference, &[])]).unrefuted(BINDER)
             .value(int(1))
             .matches_x(),
-        spelling("Cmd::Go", &[node(C::Constructor, &[])]).value(go()),
+        spelling("Cmd::Go", &[node(C::Constructor, &[])]).refuting(hold(int(0))).value(go()),
         // Application: a variant with no argument and with one, a builtin and a user function.
-        spelling("Cmd::Go()", &[node(C::Constructor, &[])]).value(go()),
+        spelling("Cmd::Go()", &[node(C::Constructor, &[])]).refuting(hold(int(0))).value(go()),
         spelling(
             "Cmd::Hold(x)",
             &[node(C::Constructor, &[]), node(C::Reference, &[Argument])],
-        )
+        ).refuting(pair(int(0), int(0)))
         .value(hold(int(1))),
         spelling(
             "k::builtin::int::add(1, 2)",
@@ -545,31 +585,31 @@ fn spellings() -> Vec<Spelling> {
             ],
         )
         .unmatched(COMPUTED)
-        // `Size` is partial and the base gives it no equation: its application is no value
-        // the definition names, and stays as written.
-        .denoting(Ground::unevaluated("size", vec![int(1)])),
+        .unstated(
+            "Size is partial and the base gives it no equation, so the definition names no value of its application",
+        ),
         // Literal: Int, negative Int, Bool, String, Float.
-        spelling("1", &[node(C::Literal, &[])])
+        spelling("1", &[node(C::Literal, &[])]).refuting(int(2))
             .value(int(1))
             .matches_x(),
-        spelling("-1", &[node(C::Literal, &[])]).value(int(-1)),
-        spelling("true", &[node(C::Literal, &[])]).value(Ground::Bool(true)),
-        spelling("\"s\"", &[node(C::Literal, &[])]).value(Ground::string("s")),
-        spelling("1.5", &[node(C::Literal, &[])]).value(Ground::float(1.5)),
+        spelling("-1", &[node(C::Literal, &[])]).refuting(int(1)).value(int(-1)),
+        spelling("true", &[node(C::Literal, &[])]).refuting(Ground::Bool(false)).value(Ground::Bool(true)),
+        spelling("\"s\"", &[node(C::Literal, &[])]).refuting(Ground::string("t")).value(Ground::string("s")),
+        spelling("1.5", &[node(C::Literal, &[])]).refuting(Ground::float(2.5)).value(Ground::float(1.5)),
         // Wildcard.
-        spelling("_", &[node(C::Wildcard, &[])])
+        spelling("_", &[node(C::Wildcard, &[])]).unrefuted("`_` matches every term")
             .matching(int(0))
-            .undefined(PATTERN_ONLY)
+            .no_term(PATTERN_ONLY)
             .matches_x(),
         // The token islands.
-        spelling("k::id!(\"$x\")", &[node(C::IdToken, &[])]).value(Ground::token("Id", "$x")),
-        spelling("k::bytes!(b\"ab\")", &[node(C::BytesToken, &[])])
+        spelling("k::id!(\"$x\")", &[node(C::IdToken, &[])]).unrefuted("a program writes no Id but `$x`, through its maker").value(Ground::token("Id", "$x")),
+        spelling("k::bytes!(b\"ab\")", &[node(C::BytesToken, &[])]).refuting(Ground::Bytes(b"ba".to_vec()))
             .value(Ground::Bytes(b"ab".to_vec())),
-        spelling("k::anonymous!(Int, \"_V\")", &[node(C::Anonymous, &[])])
+        spelling("k::anonymous!(Int, \"_V\")", &[node(C::Anonymous, &[])]).refuting(go())
             .matching(int(0))
-            .undefined("an anonymous variable, which names no value")
+            .no_term("an anonymous variable, which names no value")
             .matches_x(),
-        spelling("k::lexeme!(Word, \"word\")", &[node(C::Lexeme, &[])])
+        spelling("k::lexeme!(Word, \"word\")", &[node(C::Lexeme, &[])]).refuting(Ground::token("Word", "wa"))
             .value(Ground::token("Word", "word")),
         // OrBool, Cell, SortTest.
         spelling(
@@ -587,7 +627,7 @@ fn spellings() -> Vec<Spelling> {
             &[node(C::Fragment, &[]), node(C::Literal, &[FragmentField])],
         )
         .unmatched("a cell fragment, which no term of a KItem position is")
-        .undefined("a cell fragment, which no term of a KItem position is"),
+        .no_term("a cell fragment, which no term of a KItem position is"),
         spelling(
             "k::is!(Int, x)",
             &[
@@ -614,9 +654,9 @@ fn spellings() -> Vec<Spelling> {
                 node(C::Constructor, &[AsBody]),
                 node(C::Wildcard, &[AsBody, Argument]),
             ],
-        )
+        ).refuting(pair(int(0), int(0)))
         .matching(hold(int(0)))
-        .undefined(PATTERN_ONLY),
+        .no_term(PATTERN_ONLY),
         spelling(
             "Cmd::Go() | Cmd::Hold(_)",
             &[
@@ -625,9 +665,9 @@ fn spellings() -> Vec<Spelling> {
                 node(C::Constructor, &[OrBranch]),
                 node(C::Wildcard, &[OrBranch, Argument]),
             ],
-        )
+        ).refuting(pair(int(0), int(0)))
         .matching(go())
-        .undefined(PATTERN_ONLY),
+        .no_term(PATTERN_ONLY),
         spelling(
             "k::matches!(x, Cmd::Hold(_))",
             &[
@@ -660,7 +700,7 @@ fn spellings() -> Vec<Spelling> {
             ],
         )
         .unmatched("a matching-logic predicate, which only a prover reads")
-        .undefined("a matching-logic predicate, which only a prover reads"),
+        .no_term("a matching-logic predicate, which only a prover reads"),
         spelling(
             "k::rewrite!(_ => 1)",
             &[
@@ -668,7 +708,7 @@ fn spellings() -> Vec<Spelling> {
                 node(C::Wildcard, &[RewriteLeft]),
                 node(C::Literal, &[RewriteRight]),
             ],
-        ) // The rewrite's sides: the term its `_` matches, and the 1 it writes there.
+        ).unrefuted("its left side `_` matches every term") // The rewrite's sides: the term its `_` matches, and the 1 it writes there.
         .matching(int(0))
         .denoting(int(1)),
         // A `let` pattern's alias and alternatives.
@@ -713,9 +753,9 @@ fn spellings() -> Vec<Spelling> {
         spelling(
             "Cmd::Pair { a: x, .. }",
             &[node(C::OpenRecord, &[]), node(C::Reference, &[Argument])],
-        )
+        ).refuting(hold(int(0)))
         .matching(pair(int(1), int(0)))
-        .undefined(PATTERN_ONLY),
+        .no_term(PATTERN_ONLY),
         // A turbofish instance of the parametric `Wrap`: the marker in reference code, the sort
         // in a readable clause.
         Spelling {
@@ -725,7 +765,8 @@ fn spellings() -> Vec<Spelling> {
                 &[node(C::Turbofish, &[]), node(C::Reference, &[Argument])],
             )
         }
-        .value(Ground::ctor("Wrap", vec![int(1)])),
+        .value(Ground::ctor("Wrap", vec![int(1)]))
+        .refuting(hold(int(0))),
         // The notation forms (`krs_syntax::notation`), each with the call it denotes: a binary
         // operator of each class, the connectives, the unary operators over a term the
         // position does not sort (`!x` and `-x` over a `KItem` choose no domain), and a method.
@@ -806,7 +847,7 @@ fn spellings() -> Vec<Spelling> {
         spelling(
             "k::builtin::set::item(x)",
             &[node(C::Constructor, &[]), node(C::Reference, &[SetElement])],
-        )
+        ).refuting(Ground::set(Vec::new()))
         .value(Ground::set(vec![int(1)])),
         // `|` over operands a domain takes: the bitwise operator where a term is computed, the
         // alternatives' spelling where a pattern is read, its operands the branches.
@@ -817,7 +858,7 @@ fn spellings() -> Vec<Spelling> {
                 node(C::Reference, &[OrBranch]),
                 node(C::Literal, &[OrBranch]),
             ],
-        ) // Alternatives where a pattern reads it, `x` (bound to 1) or 1; the bitwise or of 1 and 1
+        ).unrefuted("its alternative `x` matches every term where the template does not bind `x`") // Alternatives where a pattern reads it, `x` (bound to 1) or 1; the bitwise or of 1 and 1
         // where it is built.
         .matching(int(1))
         .denoting(int(1))
@@ -850,7 +891,8 @@ fn spellings() -> Vec<Spelling> {
             ],
         )
         .matching(Ground::List(vec![int(1)]))
-        .undefined(PATTERN_ONLY),
+        .no_term(PATTERN_ONLY)
+        .refuting(Ground::List(Vec::new())),
     );
     spellings.extend(static_spellings());
     spellings
@@ -981,9 +1023,15 @@ fn collection_meaning(spelling: Spelling) -> Spelling {
         | "k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))" => {
             computed.denoting(Ground::set(vec![one()]))
         }
-        "map![]" | "k::builtin::map::empty()" => computed.value(Ground::map(Vec::new())),
-        "set![x]" | "k::builtin::set::item(x)" => computed.value(Ground::set(vec![one()])),
-        "set![]" | "k::builtin::set::empty()" => computed.value(Ground::set(Vec::new())),
+        "map![]" | "k::builtin::map::empty()" => computed
+            .value(Ground::map(Vec::new()))
+            .refuting(Ground::map(vec![(one(), one())])),
+        "set![x]" | "k::builtin::set::item(x)" => computed
+            .value(Ground::set(vec![one()]))
+            .refuting(Ground::set(Vec::new())),
+        "set![]" | "k::builtin::set::empty()" => computed
+            .value(Ground::set(Vec::new()))
+            .refuting(Ground::set(vec![one()])),
         other => unreachable!("the collection spelling {other} has no stated meaning"),
     }
 }
@@ -1130,12 +1178,15 @@ fn literal_spellings() -> Vec<Spelling> {
 /// The constructs of the import axis: bare variants, which only a module-level import names.
 fn imported_spellings() -> Vec<Spelling> {
     vec![
-        spelling("Go()", &[node(C::Constructor, &[])]).value(go()),
+        spelling("Go()", &[node(C::Constructor, &[])])
+            .value(go())
+            .refuting(hold(int(0))),
         spelling(
             "Hold(x)",
             &[node(C::Constructor, &[]), node(C::Reference, &[Argument])],
         )
-        .value(hold(int(1))),
+        .value(hold(int(1)))
+        .refuting(pair(int(0), int(0))),
     ]
 }
 
@@ -1153,8 +1204,12 @@ fn static_spellings() -> Vec<Spelling> {
         ..spelling(text, &[node(C::StaticApplication, &[])])
     };
     vec![
-        application("Cmd::Dz()").value(pair(int(2), int(3))),
-        application("Cmd::Az()").value(pair(int(4), int(5))),
+        application("Cmd::Dz()")
+            .value(pair(int(2), int(3)))
+            .refuting(pair(int(2), int(4))),
+        application("Cmd::Az()")
+            .value(pair(int(4), int(5)))
+            .refuting(pair(int(4), int(6))),
     ]
 }
 
@@ -2598,6 +2653,7 @@ pub(super) fn meanings() -> Vec<super::SpellingMeaning> {
                 text: spelling.text,
                 witness: spelling.witness,
                 value: spelling.value,
+                counter: spelling.counter,
             })
             .collect::<Vec<_>>()
     };
@@ -2652,6 +2708,7 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     let tag = spec.tag();
     let command = Command::with_fields(&spec.id(), slot.arity, "KItem").marked(slot.marker);
     let plan = drivers::plan(slot, spelling, &command);
+    let counter = drivers::counter_plan(slot, spelling, &command);
     let template = slot
         .template
         .replace("TAG", &tag)
@@ -2689,6 +2746,7 @@ fn case(family: Family, slot: &Slot, spelling: &Spelling) -> Case {
     let mut case = spec.finish(packaging, &item);
     case.rustc_parses = slot.rustc_parses;
     case.k7 = plan;
+    case.k7_counter = counter;
     // A subject's root holds no command of the case's own: its sentence can take what another
     // case's program holds.
     case.unkeyed = slot.side == Side::Subject && slot.path.is_empty();

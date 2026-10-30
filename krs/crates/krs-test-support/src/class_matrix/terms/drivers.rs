@@ -16,6 +16,8 @@
 //! sentences that hold no command of their own (a subject's root) are run apart
 //! ([`super::super::Case::unkeyed`]).
 
+use std::cell::Cell;
+
 use super::super::Command;
 use super::super::k7::{Ground, K7, Meaning, Run, SkipKind, Status};
 use super::{Side, Slot, Spelling, go, hold, int, pair};
@@ -28,11 +30,15 @@ struct Hole {
 
 type Read = Result<Hole, K7>;
 
-/// What a slot's driver reads of its case.
+/// What a slot's driver reads of its case. In counter mode the hole's witness is the spelling's
+/// counter-witness, a term it must not match.
 struct Driver<'a> {
     slot: &'a Slot,
     spelling: &'a Spelling,
     command: &'a Command,
+    counter: bool,
+    /// Whether the plan read the hole's witness, the only reading a counter-witness replaces.
+    read_witness: Cell<bool>,
 }
 
 /// Why a form has no driver, if it has none.
@@ -62,12 +68,46 @@ pub(super) fn plan(slot: &Slot, spelling: &Spelling, command: &Command) -> K7 {
     if let Some(reason) = undriven(slot) {
         return K7::skip(SkipKind::Form, reason);
     }
-    let driver = Driver {
-        slot,
-        spelling,
-        command,
+    Driver::new(slot, spelling, command, false)
+        .plan()
+        .unwrap_or_else(|skip| skip)
+}
+
+/// K7's counter plan for `spelling` at `slot`: the case's program on the spelling's
+/// counter-witness, where its plan reads the witness, which must not apply the case's sentence.
+/// The run takes one step fewer than the sentence's plan (it stops before the sentence), and an
+/// equation's call leaves `Probe` unevaluated. None for a static clause, whose production a program
+/// that does not match its subject is left unexpanded, an error rather than an observation.
+pub(super) fn counter_plan(slot: &Slot, spelling: &Spelling, command: &Command) -> Option<Run> {
+    if undriven(slot).is_some() || matches!(slot.form, "desugar" | "alias") {
+        return None;
+    }
+    let driver = Driver::new(slot, spelling, command, true);
+    let K7::Run(mut run) = driver.plan().ok()? else {
+        return None;
     };
-    driver.plan().unwrap_or_else(|skip| skip)
+    if !driver.read_witness.get() {
+        return None;
+    }
+    if matches!(slot.form, "equation" | "table") {
+        return Some(run);
+    }
+    run.steps = run.steps.checked_sub(1)?;
+    run.cells = Vec::new();
+    run.status = Status::Liveness;
+    Some(run)
+}
+
+impl<'a> Driver<'a> {
+    fn new(slot: &'a Slot, spelling: &'a Spelling, command: &'a Command, counter: bool) -> Self {
+        Self {
+            slot,
+            spelling,
+            command,
+            counter,
+            read_witness: Cell::new(false),
+        }
+    }
 }
 
 impl Driver<'_> {
@@ -76,19 +116,57 @@ impl Driver<'_> {
         Ground::ctor(&format!("Cmd::{}", self.command.name), fields)
     }
 
+    /// The spelling's own witness, or in counter mode its counter-witness.
+    fn own_witness(&self) -> Result<Ground, K7> {
+        self.read_witness.set(true);
+        let (witness, kind) = if self.counter {
+            (&self.spelling.counter, SkipKind::Witness)
+        } else {
+            (&self.spelling.witness, SkipKind::Witness)
+        };
+        witness.clone().map_err(|reason| K7::skip(kind, reason))
+    }
+
+    /// A set's element where a pattern reads it, which reads as a key does (decision D2): the
+    /// spelling's value, looked up, where it denotes one, and its witness otherwise.
+    fn element(&self) -> Read {
+        if !self.counter
+            && let Meaning::Value(value) = &self.spelling.value
+            && *value != Ground::Any
+        {
+            return Ok(Hole {
+                term: value.clone(),
+                status: Status::Value,
+            });
+        }
+        Ok(Hole {
+            term: self.own_witness()?,
+            status: Status::Liveness,
+        })
+    }
+
     /// The witness of the hole, where a pattern reads it: the spelling's, inside what the opener
     /// writes around it.
     fn witness(&self) -> Read {
-        let witness = self
-            .spelling
-            .witness
-            .clone()
-            .map_err(|reason| K7::skip(SkipKind::Witness, reason))?;
+        if self.slot.opener == Some("set-element") {
+            let element = self.element()?;
+            return Ok(Hole {
+                term: Ground::set(vec![element.term]),
+                status: element.status,
+            });
+        }
+        let witness = self.own_witness()?;
         let term = match self.slot.opener {
+            // A counter-witness `Cmd::Go()` would match the other alternative.
+            Some("or-branch") if self.counter && witness == go() => {
+                return Err(K7::skip(
+                    SkipKind::Witness,
+                    "the counter-witness is the other alternative, Cmd::Go()",
+                ));
+            }
             None | Some("as-body" | "or-branch" | "rewrite-left") => witness,
             // `z`, a name nothing else binds, is any term: 0.
             Some("beside-fresh") => pair(witness, int(0)),
-            Some("set-element") => Ground::set(vec![witness]),
             Some("set-element-beside-fresh") => Ground::set(vec![pair(witness, int(0))]),
             Some("set-concat") => Ground::set(vec![int(1), witness]),
             Some(opener) => {
@@ -104,11 +182,19 @@ impl Driver<'_> {
         })
     }
 
-    /// What the hole denotes where it is built: the spelling's value, inside what the opener
+    /// What the hole denotes where it is built: the spelling's meaning, inside what the opener
     /// writes around it.
-    fn value(&self) -> Read {
+    fn meaning(&self) -> Result<Meaning, K7> {
         let spelling = &self.spelling.value;
-        let meaning = match self.slot.opener {
+        // `Size(HOLE)` reads the hole inside an application of `Size`, which no equation of the
+        // base evaluates, so it stays as written around the hole's value: `Size` is no value
+        // here, only a wrapper the run shows the hole's value in.
+        let wrapped = |wrap: fn(Ground) -> Ground| match spelling {
+            Meaning::Value(value) => Meaning::Value(wrap(value.clone())),
+            Meaning::Unstated(_) => Meaning::Value(wrap(Ground::Any)),
+            other => other.clone(),
+        };
+        Ok(match self.slot.opener {
             None | Some("let-body" | "rewrite-right") => spelling.clone(),
             // `{ let HOLE = x; BODY }` is BODY where the pattern matches x = 1, and undefined
             // where it does not.
@@ -121,24 +207,11 @@ impl Driver<'_> {
             }
             Some("let-pattern") => Meaning::Undefined("the let's pattern does not match x = 1"),
             Some("matches-pattern") => Meaning::Value(Ground::Bool(self.spelling.matches_x)),
-            // `Size(HOLE)`: `Size` has no equation, and its application stays as written.
-            Some("function-argument") => match spelling {
-                Meaning::Value(value) => {
-                    Meaning::Value(Ground::unevaluated("size", vec![value.clone()]))
-                }
-                Meaning::Unstated(_) => {
-                    Meaning::Value(Ground::unevaluated("size", vec![Ground::Any]))
-                }
-                undefined @ Meaning::Undefined(_) => undefined.clone(),
-            },
+            Some("function-argument") => wrapped(|value| Ground::unevaluated("size", vec![value])),
             // `Cmd::Pair { a: HOLE, ..p }` over the matched `p`, `pair(5, 6)`.
-            Some("update-field") => match spelling {
-                Meaning::Value(value) => Meaning::Value(pair(value.clone(), int(6))),
-                Meaning::Unstated(_) => Meaning::Value(pair(Ground::Any, int(6))),
-                undefined @ Meaning::Undefined(_) => undefined.clone(),
-            },
+            Some("update-field") => wrapped(|value| pair(value, int(6))),
             Some("closure-body") => {
-                Meaning::Undefined("a matching-logic predicate, which only a prover reads")
+                Meaning::NoTerm("a matching-logic predicate, which only a prover reads")
             }
             Some(opener) => {
                 return Err(K7::skip(
@@ -146,10 +219,14 @@ impl Driver<'_> {
                     format!("the {opener} opener reads its hole as a pattern"),
                 ));
             }
-        };
-        match meaning {
+        })
+    }
+
+    /// What the hole denotes where it is built, and what K7 checks of it.
+    fn value(&self) -> Read {
+        match self.meaning()? {
             Meaning::Value(term) => Ok(Hole {
-                status: if term == Ground::Any || contains_any(&term) {
+                status: if contains_any(&term) {
                     Status::Liveness
                 } else {
                     Status::Value
@@ -160,38 +237,37 @@ impl Driver<'_> {
                 term: Ground::Any,
                 status: Status::Liveness,
             }),
-            Meaning::Undefined(reason) => Err(K7::skip(SkipKind::Value, reason)),
+            Meaning::Undefined(reason) | Meaning::NoTerm(reason) => {
+                Err(K7::skip(SkipKind::Value, reason))
+            }
         }
     }
 
     /// A map key in a pattern: computed and looked up, or matched (a selection). A depth-1 key
-    /// is its spelling's value where the spelling denotes one, its witness otherwise; a key an
-    /// opener writes is a selection below `@`, `|` or a name nothing else binds, and computed
-    /// below a `let`, a `k::matches!`, a function and a record update.
+    /// reads as a set's element does ([`Self::element`]); a key an opener writes is a selection
+    /// below `@`, `|` or a name nothing else binds, and computed below a `let`, a `k::matches!`,
+    /// a function and a record update.
     fn key(&self) -> Read {
         match self.slot.opener {
-            None => match self.value() {
-                Ok(hole) if hole.term != Ground::Any => Ok(hole),
-                Ok(_) | Err(_) => self.witness().map_err(|_| {
-                    K7::skip(
-                        SkipKind::Value,
-                        "the key has neither a stated value nor a witness",
-                    )
-                }),
-            },
+            None => self.element(),
             Some("as-body" | "or-branch" | "beside-fresh") => self.witness(),
             Some(_) => self.value(),
         }
     }
 
-    /// The condition's value, a `Bool` the driver predicts the sentence by.
+    /// The condition's value, a `Bool` the driver predicts the sentence by. A condition with no
+    /// value under the binders' values does not hold, so the sentence must not apply.
     fn guard(&self) -> Result<bool, K7> {
-        match self.value()?.term {
-            Ground::Bool(value) => Ok(value),
-            other => Err(K7::skip(
+        match self.meaning()? {
+            Meaning::Value(Ground::Bool(value)) => Ok(value),
+            Meaning::Undefined(_) => Ok(false),
+            Meaning::Value(other) => Err(K7::skip(
                 SkipKind::Value,
                 format!("the condition's stated value, {other}, is no Bool"),
             )),
+            Meaning::Unstated(reason) | Meaning::NoTerm(reason) => {
+                Err(K7::skip(SkipKind::Value, reason))
+            }
         }
     }
 
@@ -203,6 +279,12 @@ impl Driver<'_> {
         cells: Vec<(&str, Ground)>,
         status: Status,
     ) -> Result<K7, K7> {
+        if contains_any(program) {
+            return Err(K7::skip(
+                SkipKind::Witness,
+                "the program would hold a value the generator does not state",
+            ));
+        }
         let program = program.program().ok_or_else(|| {
             K7::skip(
                 SkipKind::Witness,
@@ -483,12 +565,13 @@ impl Driver<'_> {
                     witness.status,
                 )
             }
+            // A Set collection's instance is the set's element, read as a key is (D2): the
+            // instance holding a computed spelling is looked up by its value.
             ("readable", "collection-child" | "set-instance-child") => {
-                let witness = self.witness()?;
-                let command = if position == "collection-child" {
-                    "AddMember"
+                let (witness, command) = if position == "collection-child" {
+                    (self.witness()?, "AddMember")
                 } else {
-                    "AddToken"
+                    (self.element()?, "AddToken")
                 };
                 Self::set_up(
                     setup(command, vec![hold(witness.term)]),
@@ -547,21 +630,24 @@ impl Driver<'_> {
                 "the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
             )),
             // `Probe(Cmd::NAME(), ..)`, applied by the base's rule `call(a, b) => hold(probe(a, b))`.
-            ("equation" | "table", "subject") => {
+            // `Probe(Cmd::NAME(), HOLE)`: the call's result is 0 where the equation applies; a
+            // counter-witness leaves the application of `Probe` as written.
+            ("equation" | "table", "subject" | "subject-depth-2") => {
                 let witness = self.witness()?;
+                let argument = if position == "subject" {
+                    witness.term
+                } else {
+                    hold(witness.term)
+                };
+                let result = if self.counter {
+                    Ground::unevaluated("probe", vec![self.command(Vec::new()), argument.clone()])
+                } else {
+                    int(0)
+                };
                 Self::applied(
-                    &call(witness.term),
+                    &call(argument),
                     1,
-                    vec![k(vec![hold(int(0))])],
-                    witness.status,
-                )
-            }
-            ("equation" | "table", "subject-depth-2") => {
-                let witness = self.witness()?;
-                Self::applied(
-                    &call(hold(witness.term)),
-                    1,
-                    vec![k(vec![hold(int(0))])],
+                    vec![k(vec![hold(result)])],
                     witness.status,
                 )
             }
