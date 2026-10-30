@@ -503,6 +503,66 @@ mod tests {
         );
     }
 
+    /// R1-SIMPLE: a known-key pattern whose pair one-way matching decides (here a stored map of
+    /// literals, as SIMPLE's `<store>` is at a variable lookup) is matched by that matching: its
+    /// bindings are the subject's own entries and it states no condition, so a build without a
+    /// solver decides it. The source observation is a recovery for a subject that matching
+    /// leaves open; offered first, it stated `\ceil` and equality guards over the typed
+    /// projection of each looked-up value, which only a solver discharged.
+    #[test]
+    fn a_pair_that_matching_decides_is_matched_without_observation_guards() {
+        use crate::{
+            rewrite::{RecoveredMatch, recover_indeterminate_match},
+            simplify::SimplificationOptions,
+            smt::NoSolver,
+        };
+        let definition = load(SOURCE);
+        let pattern = fixed_pattern(&definition);
+        let subject = term(
+            &definition,
+            r#"concat{}(item{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("0")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("7"))),item{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("1")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("8"))))"#,
+        );
+        let recovered = recover_indeterminate_match(
+            &definition,
+            &pattern.attributes().variables,
+            Substitution::new(),
+            vec![(pattern.clone(), subject)],
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+        .unwrap();
+        let RecoveredMatch::Matched {
+            solution,
+            remainder,
+        } = recovered
+        else {
+            panic!("a pair that matching decides must match")
+        };
+        assert!(remainder.is_empty(), "{remainder:?}");
+        assert!(
+            solution.conditions().is_empty(),
+            "{:?}",
+            solution.conditions()
+        );
+        assert_eq!(
+            solution
+                .substitution()
+                .get(&Variable::new("X", Sort::simple("SortInt"))),
+            Some(&Term::int(7))
+        );
+        assert_eq!(
+            solution
+                .substitution()
+                .get(&Variable::new("R", Sort::simple("SortMap"))),
+            Some(&term(
+                &definition,
+                r#"item{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("1")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("8")))"#
+            ))
+        );
+    }
+
     #[test]
     fn source_obstructions_effects_and_unbound_function_inverses_decline() {
         let definition = load(SOURCE);

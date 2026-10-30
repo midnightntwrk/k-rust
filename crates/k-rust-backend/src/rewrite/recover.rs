@@ -136,6 +136,31 @@ fn recover_by_simplifying_pairs(
         matched.conjoin(simplified_subject.conditions);
         let simplified_subject = simplified_subject.term;
 
+        // One-way matching of the simplified pair comes first when the two sides share no
+        // variable (a shared variable is unified below instead). Its success is a complete
+        // match: the pattern's instance under its bindings is the subject, so nothing is left
+        // to state. A source observation (a list view or a known-key map frame) would bind the
+        // same variables to observations of the subject's parts and state their definedness
+        // and equality to those parts, all entailed by that success but, over a typed
+        // projection, decided only by a solver. The observations recover a pair that matching
+        // leaves open; they are offered only when it does not succeed.
+        let disjoint = simplified_pattern
+            .attributes()
+            .variables
+            .is_disjoint(&simplified_subject.attributes().variables);
+        let mut plain = disjoint.then(|| {
+            match_terms_in_definition(
+                MatchMode::Rewrite,
+                definition,
+                &simplified_pattern,
+                &simplified_subject,
+            )
+        });
+        if let Some(MatchResult::Success(found)) = &plain {
+            matched.bind(found);
+            continue;
+        }
+
         let observation = if let Some(view) = crate::observation::lists::match_view(
             definition,
             &simplified_pattern,
@@ -225,11 +250,7 @@ fn recover_by_simplifying_pairs(
             }
         }
 
-        if !simplified_pattern
-            .attributes()
-            .variables
-            .is_disjoint(&simplified_subject.attributes().variables)
-        {
+        if !disjoint {
             match unify_from(
                 definition,
                 matched.clone(),
@@ -263,12 +284,16 @@ fn recover_by_simplifying_pairs(
             }
         }
 
-        let pair_remainder = match match_terms_in_definition(
-            MatchMode::Rewrite,
-            definition,
-            &simplified_pattern,
-            &simplified_subject,
-        ) {
+        // A disjoint pair's matching result is the one computed above: nothing since has
+        // changed the pair.
+        let pair_remainder = match plain.take().unwrap_or_else(|| {
+            match_terms_in_definition(
+                MatchMode::Rewrite,
+                definition,
+                &simplified_pattern,
+                &simplified_subject,
+            )
+        }) {
             MatchResult::Success(found) => {
                 matched.bind(&found);
                 continue;
