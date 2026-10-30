@@ -3,11 +3,12 @@
 `expected.toml` states the expected outcome of every case that `krs_test_support::class_matrix`
 generates: one construct in one slot of an accepted base, for readable records and claims, `cells!`
 rules, initializers, the strict-subsort axis, every term shape at the term positions of every
-sentence form, and the module-import axis. `pending.toml` lists the cases known not to conform.
+sentence form, the module-import axis, and every sentence attribute on every sentence form. `pending.toml` lists the cases known not to conform.
 The schema and the rules that read both files are documented in the `class_matrix` module.
 
-For the term families (`terms/..`, `import/..`, `notation/..`), the outcome comes from the oracle
-(`class_matrix::oracle`), not from refusal rules. Each term case carries its position (the form,
+For the term families (`terms/..`, `import/..`, `notation/..`) and the attribute axis (`attrs/..`,
+K8 below), the outcome comes from the oracle (`class_matrix::oracle`, `class_matrix::attributes`),
+not from refusal rules. Each term case carries its position (the form,
 the slot, what a term there means: matched, evaluated, built or a guard, its root role and its
 nesting) and its construct's nodes as data, and the oracle states, per construct, where the
 construct means something and which mistake it is elsewhere. The precedence for a term case:
@@ -50,7 +51,12 @@ their application as the value it expands to (decision NT-14: a static applicati
 desugar's or an alias's subject root expands when the expansion needs no value, as a ground
 one's never does), and `cargo test -p krs-test-support --test k7` names a static production the
 base gains without a spelling. The slot `terms/cells/result-map-framed/..` writes one key under two
-spellings over the map a framed `cells!` subject leaves (`map![x -> 1, (x) -> HOLE, ..rest]`).
+spellings over the map a framed `cells!` subject leaves (`map![x -> 1, (x) -> HOLE, ..rest]`); the
+slot `terms/cells/result-map-whole/..` writes an entry over a map the subject binds whole
+(`map![x -> HOLE, ..m]` over `Cell(m)`, the form the class `framed-map-unmatched-key` advises),
+and `terms/cells/result-map-framed-key/..` writes a key the framed subject does not match over the
+remainder it leaves (`map![HOLE -> 1, ..rest]` over `map![x -> v, rest @ ..]`, finding NT-9-1 at a
+key other than `x`).
 
 A map key reads by its parent (decision D2): a key of a map in a pattern is evaluated, and a
 pattern-only construct there selects an entry by matching the map's evaluated keys while a computed
@@ -67,17 +73,20 @@ on every term case, and a case they disagree on must be pending.
 A refusal of the oracle lies at the spelling, or at the entry (the outer construct's text) when the
 refused construct is the one a depth-2 case's construct stands in.
 
-**Size.** The term family is 5,059 cases and the import axis 168, of 6,064 in all, and
+**Size.** The term family is 5,063 cases, the import axis 172 and the attribute axis (`attrs/..`,
+18 forms × 22 attributes and 26 malformed attributes, in the first shard of the fast tier) 422, of
+6,494 in all, and
 the notation family (`notation/..`: the term family's positions, templates and oracle for the
 collection notation, `m[k]`, `s.contains(x)`, `map![k -> v]` and `set![x]`, and the calls it
 denotes) 2,862. The generator caps
 each shard of the fast tier at `FRONT_CASE_CAP` (6,000), whose documentation argues the fast tier's
 budget (7.5 ms a case single-threaded); the notation family and the term family are shards of
 their own (`FRONT_SHARDS`), one test of `class_front` each. The full tier's `terms` shard takes about 5
-minutes with 22 workers, and its `notation` shard about 3. The term families' accept entries are most of the table, so they live in
-`accepted-terms.toml`, in `expected.toml`'s accept schema and written by the same record mode;
-`expected.toml` keeps the classes, the refusal rules and the other families' accept entries, and
-holds no term case's entry (`class_matrix::table`).
+minutes with 22 workers, its `notation` shard about 3, and its `attrs` shard about one. The accept
+entries of the families the oracle judges (the term families and the attribute axis) are most of
+the table, so they live in `accepted-terms.toml`, in `expected.toml`'s accept schema and written by
+the same record mode; `expected.toml` keeps the classes, the refusal rules and the other families'
+accept entries, and holds none of theirs (`class_matrix::table`).
 
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:
@@ -219,6 +228,59 @@ the descriptors of the base and its own. A case is judged by
   checks apart 4.1 s, 870 in `notation` 5.2 s, 99 in `import` 0.6 s and 1 check apart 2.2 s; each
   shard's wall time with and without K7 was within the noise of a loaded host (`terms` 356 s and
   364 s, `notation` 206 s and 205 s, at 15 workers).
+- K8, the attribute axis and the advice check (`class_matrix::attributes`, `class_matrix::advice`).
+
+  *Attributes × forms.* The `attrs` family (`attrs/FORM/ATTRIBUTE`, a shard of its own) writes
+  every attribute an author can write on a sentence on every sentence form: each key of a
+  sentence's marker (`#[k::rule(owise)]`, `#[k::equation(concrete)]`, `#[k::claim(all_paths,
+  trusted)]`, `#[k::desugar(unbound_variables = [y])]`, ..) and each helper beside it
+  (`#[k::requires(..)]` holding and failing, `#[k::ensures(..)]`, `#[k::exists(..)]`,
+  `#[k::fresh(..)]`, the retired `#[k::priority(..)]`), each with a representative well-formed
+  value, on each of the term family's 18 slot forms, written on the form's subject slot template
+  with the marker's own keys removed; and a few malformed values (a value of the wrong shape or
+  range, a key written twice, an unknown key, a missing key) and keys that cannot stand together
+  (`owise` with `priority`, `heat` with `cool`, ..). The attribute list is read from the product:
+  `cargo test -p krs-test-support --test attributes` parses `krs-syntax`'s attribute parsers and
+  fails on a key they recognize that no attribute of the axis writes (or the other way round),
+  and on an attribute macro of `krs_syntax::surface::AttributeMacro` that is neither a sentence's
+  marker or helper nor a declaration's. What each pair means is the oracle's statement
+  (`attributes::means`), from what the attribute denotes on that kind of sentence; a refused
+  pair is judged by K2 like any case (one author error, at the attribute), with the class the
+  oracle states (`attributes::expected`). An accepted pair runs by K7 where its form has a
+  driver, and the run shows what the attribute does: a condition that does not hold, and
+  `symbolic` on concrete values, leave the sentence unapplied; `owise` beside a sibling at
+  `priority = 60` applies where the sibling does not, and its counter run, where both match,
+  shows the sibling's result; `priority = 20` beside a sibling at `priority = 30` wins where
+  both match; `heat` applies where its hole is no result (`word`) and not at `1`, `cool` the
+  other way round; an anywhere rule applies below `hold(..)` as the configuration is built; a
+  label, `nondet` (beside a sibling of its group), a restriction, `ensures`, an existential or a
+  fresh value leave the sentence applying as its slot's driver states. The terms base's driver
+  rules have priority 10, before every case's (20) and sibling's (30, 60), and match only the
+  driver commands, which no case's sentence does: a case's priority neither shares a priority
+  with them nor is applied after one of them at the case's command.
+
+  *Advice.* A class whose refusal advises a rewrite carries `advice = "<case ID>"`, a case that
+  writes the advised form, which the table must accept (a table error otherwise). What advises a
+  rewrite is decided mechanically (`class_matrix::advice`): a message holding, after an advice
+  verb in the imperative at a clause's start (`write`, `mark`, `declare`, `bind`, `place`, `add`,
+  ..), a code span in the same clause, or saying how the refused construct `is written` (the form
+  right after the verb) or how a pattern `writes` it; or a help line doing so, or showing a form at
+  its end after a colon (the `for Sort` clause a whole-subject `_` is pointed to). The registry's
+  summaries are read the same way: `cargo test -p krs-test-support --test attributes` fails on a
+  class whose code's summary advises a form and that names no advised case. K8 judges, keyed
+  `k8/<case ID>`: each class's advised case, which must be accepted, pass K6 and run as K7 states
+  where it ran
+  (`advice of CLASS: refused: ..`, `.. K6: ..`, `.. K7: ..`); and each case a class refuses as the
+  table expects whose error advises a rewrite while its class names no advised case (`CLASS
+  advises `FORM` and names no advised case`).
+
+  K8 costs its own shard and a scan: on 2026-10-31, under a load of about 20 to 60 from other
+  work, `attrs` (422 cases, 101 accepted) took 68 s at 15 workers, K6 46 checks in 45 s of worker
+  time and K7 73 programs in 0.5 s; the advice check reads each refused case's errors, below
+  measurement. The existing shards gained 8 cases (4 in `terms`, 4 in `import`) and took
+  `readable` 66 s, `cells` 57 s, `init` 75 s, `import` 66 s, `notation` 203 s and `terms` 358 s at
+  15 workers, each no longer than its last run on main (NT-12's, on 2026-10-30, under a heavier
+  load: 120, 93, 129, 68, 236 and 665 s).
 
 The `k4` shard compares KRS's sort judges with k-rust's subsort relations of each base's emitted
 definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, and those about
@@ -232,7 +294,7 @@ failed item leaves its imports unused (`unused_imports`), which no proc macro ca
 second error, and which `krs check` relays away. Its entry is keyed by the mutation,
 `entry/attribute/cell`.
 
-Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `notation`, `k4`, `k5`), and choose the worker count yourself
+Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `notation`, `attrs`, `k4`, `k5`), and choose the worker count yourself
 when the default (from the available memory, 3 GiB per worker) does not suit:
 
 ```sh
@@ -268,7 +330,7 @@ creating its `[accept."ID"]` entry if needed, and keeps `same_k_as`. Review the 
 ## Pending entries
 
 A case that deviates fails the suite until `pending.toml` records it, keyed by the test and the case
-(`readable/result/pc/None` for K2, `k1/..`, `k3/..`, `k6/..` and `k7/..` for K1, K3, K6 and K7), with the finding that owns it (`unassigned` while none does) and the
+(`readable/result/pc/None` for K2, `k1/..`, `k3/..`, `k6/..`, `k7/..` and `k8/..` for K1, K3, K6, K7 and K8), with the finding that owns it (`unassigned` while none does) and the
 deviation exactly as the harness prints it. `KRS_CLASS_OUT` writes the entries of every unrecorded
 deviation to `<shard>.pending.toml`, with `finding = "unassigned"`, for review. A pending case that
 conforms, or deviates differently, also fails: remove its entry, or record the new deviation.

@@ -469,7 +469,8 @@ paths = [
 # krs/tests/class-matrix/expected.toml, with the known failures in pending.toml, each accepted
 # case's definition against the judgement `krs check` makes on the native routes (K6: krust's
 # compile on both backends and the run commands' definition load), each such case's program run on
-# that compile as `krs run` runs it, against the generator's witnesses and values (K7), and KRS's
+# that compile as `krs run` runs it, against the generator's witnesses and values (K7), every
+# sentence attribute on every sentence form and each class's advised rewrite (K8), and KRS's
 # sort judges against k-rust's subsort relations of each base's emitted definition (the adapter,
 # the loader, and the relations). It observes the code from the macros to the emitted K, the
 # generator and its table, and through K6 and K7 krust, krs-exec and the native code `krs check`
