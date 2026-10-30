@@ -33,7 +33,7 @@ The default build is the Z3 profile ("Gate", below), under which the outcome and
 2. **Corpus with cached results.** Write concrete programs for it in `FLOW.toml`.
    `kink-flow results` runs each new or changed program once on the specification,
    caches its final configuration, and lists the rules no comparable program reaches (`uncovered`).
-   Write programs until no rule is uncovered.
+   Write programs until no rule in scope is uncovered ("What coverage covers", below).
 3. **Mutation list.** Write `MUTATIONS.toml`: edits of rules that are likely to expose bugs,
    either single edits (one `+Int` becomes `-Int`) or correlated edits (several rules changed together as one mutation).
    `kink-flow results FLOW.toml --mutations MUTATIONS.toml` (and every run report) lists the rules no mutation targets yet (`untargeted_rules`, with each rule's K text and how to address it).
@@ -122,6 +122,37 @@ The same command looks for a program that reaches an uncovered rule (`--reach FI
 Append the fragment and run `kink-flow run --only MUTATION`: only `run` decides the kill, with its own oracle.
 The fuzz refuses up front what `run` could not confirm: a mutation `run` refuses, a definition exclusion on either side, a mutant that parses the template differently from kink's input (a `[macro]` edit), and a definition whose full critical-pair check has a finding you have not named (`--assume-joined NAME`, then `[spec] assume_joined`; every assumed name is printed beside the fragment as a premise, genuine ones flagged).
 Each candidate's input is checked against kink's own assembly of the fragment, and the document warns about a template whose program is not comparable or does not reach the edited rule in the last run, suggesting the reaching programs as templates ([`crates/kink-flow/README.md`](crates/kink-flow/README.md), "Killing a survivor with `fuzz`").
+
+### What coverage covers
+
+Coverage, in `kink-flow results` and in the fuzz's reach job, is meant to cover the parts of the specification that compute a step, since those are what a mutation edits and a program can tell apart.
+This is the boundary (kink27 R2-COVERAGE-DOCS); each item in scope says whether it is built today and which function builds it.
+
+In scope:
+
+- **Rewrite rules.** Built.
+  `kink-flow results` lists every authored `rule` sentence (kink-flow `results::rules`) and gives it status `uncovered` when no comparable program's baseline run reached it.
+  `reached_by` is k-rust's `matched` (kink-native `TestCoverage::of_run`): the run began to decide the rule's `requires` for an instance whose left-hand side matched, whatever the verdict, or applied the rule.
+  `kink-flow fuzz --reach` targets one (kink-flow `resolve_reach`), as `krust fuzz --reach-rule` does (k-rust-fuzz `resolve_rule_recorded`).
+- **Function equations**, `owise`, `anywhere` and the equations of an overloaded function included. Built in `results`, not built yet in the fuzz.
+  `results` lists and covers an equation as it does a rewrite rule: kink-native's coverage domain (`coverage_domain`) holds every axiom of the compiled `definition.kore` but `smt-lemma` and `non-executable` ones (macro and alias rules are compiled apart, into `macros.kore`), and k-rust records an equation in `matched` and `applied` wherever a run applied it (k-rust `RunCoverageOutput`).
+  Those lists also hold an equation that the load-time discharge of a reached rule's definedness used, which the run never evaluated, so `reached_by` can list a program for an equation it did not evaluate.
+  That is why the fuzz does not target an equation yet: `kink-flow fuzz --reach` refuses one as `equation-target` (`resolve_reach`) and `krust fuzz --reach-rule` as an equation (`TargetProblem::Equation`, in `resolve_rule_recorded`; finding REACH-EQUATIONS).
+  Target a rewrite rule whose step evaluates the function instead.
+- **A rule's `requires`, counted as two outcomes**: the rule applied, and the rule was reached and did not apply.
+  The first is built as a listing and as a fuzz target, not as a status: `fired_by` lists the programs that fired the rule (for a rewrite rule, some path takes its step, k-rust `committed`; for an equation, an instance gave a result, `applied`; kink-native `TestCoverage::of_run`), and `kink-flow fuzz --reach RULE --fired` targets it for a rewrite rule, but the status reads `reached_by` alone, so a rule some program reached and none fired is `covered`.
+  The second is not built yet: kink asks k-rust for no condition records (`collect_conditions: None`, kink-native `execution::request`), and `matched` holds a rule whatever the verdict, so no kink document tells a rule whose `requires` held on every instance a run reached from one whose `requires` also failed on some instance, and no reach mode targets a failed `requires`.
+  `krust fuzz`'s summary lists the rewrite rules whose condition the campaign's cases reached but which never applied (k-rust-fuzz `write_coverage`): the rules the first outcome is missing for, not the second outcome.
+
+Out of scope, each for its reason:
+
+- **Simplification, `symbolic` and ceil equations.** They state facts about functions and compute no step; a mutant of one is a claim edit (claims are premises, "What a kill trusts", above).
+  `results` does not leave them out yet: they are in kink-native's coverage domain and k-rust records them when a run applies them, so `results` gives each a status, and an `uncovered` row can be one of them, which no program needs to reach.
+- **Macros and aliases.** They are expanded at compile time, so their rules are the expanded ones, covered where they occur.
+  `results` lists such a rule as `no-coverage-signal`, never `uncovered` (`results::rules`; k-rust's coverage never names a macro or alias rule).
+- **Syntax productions.** Parsing the corpus covers them. `results` lists `rule` sentences only, so a production has no row.
+- **Hooks.** They are the backend's code, not the specification's; they are no axioms, and k-rust's coverage never names one.
+- **The initial configuration.** Every run uses it. The `configuration` sentence has no row.
 
 ### Commands
 

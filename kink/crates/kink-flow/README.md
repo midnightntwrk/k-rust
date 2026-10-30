@@ -200,6 +200,9 @@ lower-priority or `owise` rule fire. The record holds the reached, applied and f
 A `non-executable` rule is one k-rust never runs (it internalizes executable axioms only), so no program can reach it:
 since re-pin L2-1-tail it has status `no-coverage-signal` with reason `a non-executable rule: k-rust never runs it, so no
 program can reach it`, never `uncovered`; before, it was listed `uncovered`, as a next program to write.
+What coverage is meant to cover, what it is not and why, and what is not built yet are stated once in [kink's README](../../README.md#what-coverage-covers), "What coverage covers":
+an `uncovered` row can be a simplification, `symbolic` or ceil equation, which is out of scope and needs no program,
+and no field shows a `requires` that was reached and did not apply.
 
 `untargeted_rules` is the mutation-side analogue of rule coverage: with `--mutations MUTATIONS.toml`,
 every authored rule that no mutation of that list targets (only mutations that resolve count; an
