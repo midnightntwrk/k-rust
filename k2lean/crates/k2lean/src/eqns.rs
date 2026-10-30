@@ -5,7 +5,8 @@
 //!
 //! An equation `φ → f(p̄) = r` is stated over the variables of `p̄`, `φ` and `r`. Partial
 //! subterms make both sides `Option`-valued (`⊥` is `none`; matching logic's `\equals` holds
-//! between two `⊥`s). An `owise` equation also assumes that no competing equation applies.
+//! between two `⊥`s). An equation also assumes that no equation of a smaller priority applies
+//! (`owise` is priority 200).
 //!
 //! An equation of a hooked function (one the prelude implements) also assumes that each of its
 //! variables of a `Set` or `Map` sort is well formed (`wf_premises`): K's variables of these
@@ -129,7 +130,6 @@ pub fn equation_theorems(
         }
         // the equations K writes; their overload variants (`funcs::equations_modulo_overloads`)
         // are arms of the definition, which the normalizers in the statements already cover
-        let comps: Vec<&Equation> = es.iter().filter(|e| !e.owise && e.variant == 0).collect();
         for (i, e) in es.iter().filter(|e| e.variant == 0).enumerate() {
             let what = format!("{} equation {}", names::demangle(f), i + 1);
             let mut normalizers = Vec::new();
@@ -154,7 +154,14 @@ pub fn equation_theorems(
             } else {
                 vec![]
             };
-            let comps = if e.owise { &comps[..] } else { &[] };
+            // an equation applies only where no equation of a smaller priority does (`owise` is
+            // priority 200): the KORE axiom of a prioritized equation states its value without
+            // that condition, which the cascade's order realizes, so its statement assumes it
+            let comps: Vec<&Equation> = es
+                .iter()
+                .filter(|c| c.variant == 0 && c.priority < e.priority)
+                .collect();
+            let comps = &comps[..];
             // a no-match premise reads a competitor's pattern through the normalizers, while the
             // definition's arms match the representation (its overload variants, EQ-17), only
             // when the pattern has an overloaded symbol: there a value that is no K value can
@@ -1550,6 +1557,42 @@ mod tests {
         ), "{o}");
         // a statement that names no generated definition unfolds none
         assert!(o.contains("theorem Simp.s_0123456789ab (b : Bool) :\n    (b && true) = b := by\n  intros\n  first\n  | k2l_eqn_a []\n  | (k2l_eqn_b []; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])\n  | (k2l_eqn_c [])\n"));
+    }
+
+    /// `prio` (`tests/fixtures/prio`): an equation of a later priority assumes that no earlier one
+    /// applies, whether K writes it `owise` or `priority(N)`.
+    #[test]
+    fn an_equation_assumes_the_earlier_priorities() {
+        let def = crate::funcs::tests::fixture("prio");
+        let (m, g) = crate::funcs::tests::generated(&def);
+        let eqs = crate::funcs::equations_modulo_overloads(&def, &m);
+        let st = equation_theorems(&def, &m, &g.fns, &eqs);
+        let of = |n: &str| st.iter().find(|s| s.name == n).unwrap();
+        let ranked = of("Eqn.«ranked(_)_PRIO_Int_Int_2»");
+        assert!(
+            ranked
+                .statement
+                .contains("(howise0 : Gen0 = (0 : Int) → False) :"),
+            "{}",
+            ranked.statement
+        );
+        let table = of("Eqn.«table(_)_PRIO_Int_Int_3»");
+        assert!(
+            table
+                .statement
+                .contains("(howise0 : Gen0 = (0 : Int) → False)")
+                && table
+                    .statement
+                    .contains("(howise1 : Gen0 = (1 : Int) → False)"),
+            "{}",
+            table.statement
+        );
+        // the rows of one priority need no premise
+        assert!(
+            !of("Eqn.«field(_)_PRIO_Int_Int_3»")
+                .statement
+                .contains("howise")
+        );
     }
 
     #[test]
