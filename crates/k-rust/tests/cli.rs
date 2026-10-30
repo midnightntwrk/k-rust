@@ -18723,11 +18723,14 @@ endmodule
     );
 }
 
-/// A bracket is delimited on both sides, so as an operand it takes part in no ambiguity that a
-/// priority or associativity relation resolves: no relation excludes it, and both parsers accept
-/// a program that brackets a phrase of lesser priority, whichever priority group the bracket
-/// production is declared in. This IMP declares its `BExp` bracket in the group below `!` and its
-/// `AExp` bracket in the group below `*`.
+/// A bracket whose operand is enclosed by its terminals is a closed phrase, so as an operand it
+/// takes part in no ambiguity at its own boundary: no relation excludes it, and both parsers
+/// accept a program that brackets a phrase of lesser priority, whichever priority group the
+/// bracket production is declared in. This IMP declares its `BExp` bracket in the group below `!`
+/// and its `AExp` bracket in the group below `*`. The generated parser here is the LR one; the
+/// nested `!(!(n <= 0) && true)` is in `only_an_enclosed_bracket_is_exempt_from_the_relations_in_either_parser`,
+/// read by the GLR one, because the LR parser rejects bracket-free `!true && true` over this
+/// grammar's exported conflicts (`docs/compatibility.md`, "Generated parser disambiguation").
 #[cfg(unix)]
 #[test]
 fn a_bracket_is_never_excluded_as_an_operand_by_either_parser() {
@@ -18814,6 +18817,216 @@ endmodule
             ("x < [x < x]", true),
             ("x < x < x", false),
         ]),
+    );
+}
+
+/// The readings the GLR generated parser (`kcompile --gen-glr-bison-parser`) and the in-process
+/// parser (`krun --depth 0`) give each program over a definition whose `<k>` cell holds a `Pgm`,
+/// each pinned: no reading where both reject the program, one where both accept it with that
+/// term, and every reading of an ambiguous program, which the GLR parser prints merged and the
+/// in-process parser reports as a parsing ambiguity. A reading is written as [`program_term`]
+/// writes a term, so these definitions use symbols without characters that KORE escapes.
+#[cfg(unix)]
+fn assert_glr_and_in_process_readings(
+    definition_source: &str,
+    main_module: &str,
+    programs: &[(&str, &[&str])],
+) {
+    /// A reading as the in-process ambiguity report writes it (`mul(a(.KList),b(.KList))`),
+    /// rewritten as [`program_term`] writes it (`Lblmul(Lbla(),Lblb())`).
+    fn reported_reading(kast: &str) -> String {
+        let mut reading = String::new();
+        let mut at_symbol = true;
+        for character in kast.replace(".KList", "").chars() {
+            if at_symbol && character.is_ascii_alphanumeric() {
+                reading.push_str("Lbl");
+            }
+            at_symbol = matches!(character, '(' | ',');
+            reading.push(character);
+        }
+        reading
+    }
+    let (root, definition) = fixture();
+    fs::write(&definition, definition_source).unwrap();
+    let kompiled = root.join("kompiled");
+    let compiled = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", definition.to_str().unwrap()])
+        .args(["--main-module", main_module, "--syntax-module"])
+        .arg(format!("{main_module}-SYNTAX"))
+        .arg("--output-directory")
+        .arg(&kompiled)
+        .arg("--gen-glr-bison-parser")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let input = root.join("program.pgm");
+    let mut failures = Vec::new();
+    for (program, expected) in programs {
+        let expected = expected
+            .iter()
+            .map(|reading| (*reading).to_owned())
+            .collect::<BTreeSet<_>>();
+        fs::write(&input, program).unwrap();
+        let generated = Command::new(kompiled.join("parser_PGM"))
+            .arg(&input)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let generated = if generated.status.success() {
+            readings(&parse_pattern(&String::from_utf8_lossy(&generated.stdout)).unwrap())
+        } else {
+            BTreeSet::new()
+        };
+        let run = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .arg("krun")
+            .arg("--definition")
+            .arg(&kompiled)
+            .args(["--sort", "Pgm", "--depth", "0", "--output", "kore"])
+            .arg(&input)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let in_process = if run.status.success() {
+            let configuration = parse_pattern(&String::from_utf8_lossy(&run.stdout)).unwrap();
+            BTreeSet::from([program_term(
+                k_cell_program(&configuration).expect("a <k> cell"),
+            )])
+        } else {
+            let stderr = String::from_utf8_lossy(&run.stderr);
+            assert!(
+                stderr.contains("could not parse program"),
+                "{program:?}: {stderr}"
+            );
+            if stderr.contains("Parsing ambiguity") {
+                stderr
+                    .lines()
+                    .filter(|line| line.starts_with("    "))
+                    .map(|line| reported_reading(line.trim()))
+                    .collect()
+            } else {
+                BTreeSet::new()
+            }
+        };
+        if generated != expected || in_process != expected {
+            failures.push(format!(
+                "{program:?}:\n  expected   {expected:?}\n  generated  {generated:?}\n  in-process {in_process:?}"
+            ));
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The bracket exemption of `a_bracket_is_never_excluded_as_an_operand_by_either_parser` holds
+/// for a bracket whose operand is enclosed by its terminals, and only for it:
+/// - the IMP layout, with the bracket declared below `!` and below `*`, gives each bracketed
+///   program its one term, including the nested `!(!(n <= 0) && true)`;
+/// - a one-sided bracket (`"<" Exp`, `Exp ">"`) leaves its operand open on one side, takes part
+///   in the readings there, and is still ordered by the relations: `< a + b * c` and
+///   `a * b + c >` have the one reading the priorities choose;
+/// - an enclosed bracket's group does not resolve an ambiguity that its parent operators leave
+///   open: `(b)` denotes `b`, so with `*` and `+` unrelated `a * (b) + c` reads both ways, as
+///   `a * b + c` does.
+#[cfg(unix)]
+#[test]
+fn only_an_enclosed_bracket_is_exempt_from_the_relations_in_either_parser() {
+    const IMP: &str = r#"
+module IMP-SYNTAX
+  syntax AExp ::= "a" [symbol(a)] | "b" [symbol(b)] | "c" [symbol(c)]
+                | "n" [symbol(n)] | "0" [symbol(zero)]
+                | AExp "*" AExp [symbol(mul), left]
+                > AExp "+" AExp [symbol(plus), left]
+                | "(" AExp ")" [bracket]
+  syntax BExp ::= "true" [symbol(tt)]
+                | AExp "<=" AExp [symbol(le)]
+                | "!" BExp [symbol(not)]
+                > BExp "&&" BExp [symbol(and), left]
+                | "(" BExp ")" [bracket]
+  syntax Pgm ::= AExp | BExp
+endmodule
+module IMP
+  imports IMP-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    assert_glr_and_in_process_readings(
+        IMP,
+        "IMP",
+        &[
+            ("!(n <= 0)", &["Lblnot(Lblle(Lbln(),Lblzero()))"]),
+            (
+                "!(!(n <= 0) && true)",
+                &["Lblnot(Lbland(Lblnot(Lblle(Lbln(),Lblzero())),Lbltt()))"],
+            ),
+            (
+                "! n <= 0 && true",
+                &["Lbland(Lblnot(Lblle(Lbln(),Lblzero())),Lbltt())"],
+            ),
+            ("(a + b) * c", &["Lblmul(Lblplus(Lbla(),Lblb()),Lblc())"]),
+            ("((a + b)) * c", &["Lblmul(Lblplus(Lbla(),Lblb()),Lblc())"]),
+            ("a * b + c", &["Lblplus(Lblmul(Lbla(),Lblb()),Lblc())"]),
+            ("(a + b", &[]),
+        ],
+    );
+    for (operand, program, reading) in [
+        (
+            r#""<" Exp"#,
+            "< a + b * c",
+            "Lblplus(Lbla(),Lblmul(Lblb(),Lblc()))",
+        ),
+        (
+            r#"Exp ">""#,
+            "a * b + c >",
+            "Lblplus(Lblmul(Lbla(),Lblb()),Lblc())",
+        ),
+    ] {
+        let one_sided = format!(
+            r#"
+module ONE-SYNTAX
+  syntax Exp ::= "a" [symbol(a)] | "b" [symbol(b)] | "c" [symbol(c)]
+               | Exp "*" Exp [symbol(mul), left]
+               > Exp "+" Exp [symbol(plus), left]
+               > {operand} [bracket]
+  syntax Pgm ::= Exp
+endmodule
+module ONE
+  imports ONE-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#
+        );
+        assert_glr_and_in_process_readings(&one_sided, "ONE", &[(program, &[reading])]);
+    }
+    const UNRELATED: &str = r#"
+module UNRELATED-SYNTAX
+  syntax Exp ::= "a" [symbol(a)] | "b" [symbol(b)] | "c" [symbol(c)]
+               | Exp "*" Exp [symbol(mul), left]
+               > "(" Exp ")" [bracket]
+  syntax Exp ::= Exp "+" Exp [symbol(plus), left]
+  syntax Pgm ::= Exp
+endmodule
+module UNRELATED
+  imports UNRELATED-SYNTAX
+  configuration <k> $PGM:Pgm </k>
+endmodule
+"#;
+    let both_ways = [
+        "Lblmul(Lbla(),Lblplus(Lblb(),Lblc()))",
+        "Lblplus(Lblmul(Lbla(),Lblb()),Lblc())",
+    ];
+    assert_glr_and_in_process_readings(
+        UNRELATED,
+        "UNRELATED",
+        &[
+            ("a * b + c", &both_ways),
+            ("a * (b) + c", &both_ways),
+            ("a * (b + c)", &["Lblmul(Lbla(),Lblplus(Lblb(),Lblc()))"]),
+        ],
     );
 }
 
@@ -19116,6 +19329,40 @@ fn program_term(pattern: &Pattern) -> String {
     }
 }
 
+/// The terms a term printed by the GLR generated parser stands for: each way to choose one of the
+/// readings it merges (`Lblamb`) at every merge, written as [`program_term`] writes a term, with
+/// every injection removed.
+#[cfg(unix)]
+fn readings(pattern: &Pattern) -> BTreeSet<String> {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        return BTreeSet::from([pattern.to_string()]);
+    };
+    if symbol.name == "Lblamb" {
+        return arguments.iter().flat_map(readings).collect();
+    }
+    if symbol.name == "inj" {
+        return readings(&arguments[0]);
+    }
+    arguments
+        .iter()
+        .fold(BTreeSet::from([Vec::new()]), |prefixes, argument| {
+            let readings = readings(argument);
+            prefixes
+                .iter()
+                .flat_map(|prefix| {
+                    readings.iter().map(move |reading| {
+                        let mut arguments: Vec<String> = prefix.clone();
+                        arguments.push(reading.clone());
+                        arguments
+                    })
+                })
+                .collect()
+        })
+        .into_iter()
+        .map(|arguments| format!("{}({})", symbol.name, arguments.join(",")))
+        .collect()
+}
+
 /// The program inside the `<k>` cell of an initial configuration: `kseq{}(T, dotk{}())`'s `T`.
 #[cfg(unix)]
 fn k_cell_program(pattern: &Pattern) -> Option<&Pattern> {
@@ -19210,33 +19457,6 @@ module LISTS
   configuration <k> $PGM:Pgm </k>
 endmodule
 "#;
-    /// The terms a printed term with merged readings stands for.
-    fn readings(pattern: &Pattern) -> BTreeSet<String> {
-        let Pattern::Application { symbol, arguments } = pattern else {
-            return BTreeSet::from([pattern.to_string()]);
-        };
-        if symbol.name == "Lblamb" {
-            return arguments.iter().flat_map(readings).collect();
-        }
-        arguments
-            .iter()
-            .fold(BTreeSet::from([Vec::new()]), |prefixes, argument| {
-                let readings = readings(argument);
-                prefixes
-                    .iter()
-                    .flat_map(|prefix| {
-                        readings.iter().map(move |reading| {
-                            let mut arguments: Vec<String> = prefix.clone();
-                            arguments.push(reading.clone());
-                            arguments
-                        })
-                    })
-                    .collect()
-            })
-            .into_iter()
-            .map(|arguments| format!("{}({})", symbol.name, arguments.join(",")))
-            .collect()
-    }
     /// Every pair tree over `count` consecutive `x`.
     fn pairs(count: usize, x: &str) -> Vec<String> {
         if count == 1 {

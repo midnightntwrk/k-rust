@@ -117,13 +117,18 @@ impl NodeShape<'_> {
 
     /// Whether a priority or associativity relation may exclude a node of this production as
     /// the operand of another. Such a relation chooses between readings of one text, as
-    /// `! a && b` reads `(! a) && b` or `! (a && b)`. A bracket is delimited by its own terminals
-    /// on both sides, so the phrase inside it is the bracket's child in every reading and the
-    /// bracket, as an operand, takes part in no such choice: excluding it would only remove the
-    /// text's one reading, which brackets a phrase of lesser priority precisely so that it can
-    /// stand there. Every other production is ordered by the relations.
+    /// `! a && b` reads `(! a) && b` or `! (a && b)`. An enclosed bracket, whose operand has a
+    /// terminal of the bracket on each side, is a closed phrase: its child is the same in every
+    /// reading, so no ambiguity arises at its own boundary, and `( b )` denotes `b`, so it takes
+    /// part in the same readings as `b` would. Excluding it can therefore only remove a reading
+    /// that the bracket wrote on purpose, a phrase of lesser priority standing where it would
+    /// otherwise be refused; it cannot be needed to resolve an ambiguity, and it no longer
+    /// resolves one that the parent operators' own relations leave open (`a * (b) + c` is as
+    /// ambiguous as `a * b + c` where `*` and `+` are unrelated). A one-sided bracket
+    /// (`"<" Exp [bracket]`) leaves its operand open on one side, takes part in the readings
+    /// at that side, and is ordered like every other production.
     pub(crate) fn ordered_as_operand(&self) -> bool {
-        !self.bracket
+        !(self.bracket && !self.first_nonterminal && !self.last_nonterminal)
     }
 
     /// The side at which the relation filter judges the child at `position` (1-based, among
@@ -229,7 +234,7 @@ impl Exclusions {
 
     /// The exclusion that rejects a node of `child` as the child of a node of `parent` on
     /// `side`, if any. Both nodes are judged by their parse labels; a node without one is in no
-    /// relation, and a bracket is excluded by no priority or associativity relation
+    /// relation, and an enclosed bracket is excluded by no priority or associativity relation
     /// ([`NodeShape::ordered_as_operand`]). `side` comes from the parent's
     /// [`NodeShape::judged_side`], and the child is a node judged where it stands
     /// ([`NodeShape::judged_as_child`]).

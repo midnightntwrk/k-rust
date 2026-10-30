@@ -833,11 +833,13 @@ fn a_rule_body_whose_arrow_user_syntax_reuses_reads_as_the_rewrite() {
     }
 }
 
-/// A bracket is delimited on both sides, so as an operand it takes part in no ambiguity that a
-/// priority or associativity relation resolves, and no relation excludes it, in a rule body as in
-/// a program: the brackets below are declared in the group below `!` and `*`, and in a `left`
-/// and a `non-assoc` group with the operator they bracket, and each bracketed phrase is the one
-/// reading of its body.
+/// A bracket whose operand is enclosed by its terminals is a closed phrase, so as an operand it
+/// takes part in no ambiguity at its own boundary, and no relation excludes it, in a rule body as
+/// in a program: the enclosed brackets below are declared in the group below `!` and `*`, and in
+/// a `left` and a `non-assoc` group with the operator they bracket, and each bracketed phrase is
+/// the one reading of its body. A one-sided bracket (`"<:" Sid`, `Sid ":>"`) leaves its operand
+/// open on one side and is still ordered by the relations, so the priorities choose the one
+/// reading of the phrase it brackets.
 #[test]
 fn a_bracket_is_never_excluded_by_a_priority_or_associativity_relation_in_a_rule_body() {
     let source = |rule: &str| {
@@ -858,6 +860,11 @@ fn a_bracket_is_never_excluded_by_a_priority_or_associativity_relation_in_a_rule
   syntax Cmp ::= Exp
   syntax Cmp ::= non-assoc: Cmp "<" Cmp [symbol(lt)]
                           | "<<" Cmp ">>" [bracket]
+  syntax Sid ::= "p" [symbol(p)] | "q" [symbol(q)]
+               | Sid "**" Sid [symbol(st), left]
+               > Sid "++" Sid [symbol(pl), left]
+               > "<:" Sid [bracket]
+               | Sid ":>" [bracket]
   rule {rule}
 endmodule
 "#
@@ -892,6 +899,14 @@ endmodule
         (
             "x < <<x < x>> => x",
             "lt(x(.KList),lt(x(.KList),x(.KList)))=>x(.KList)",
+        ),
+        (
+            "<: p ++ q ** p => p",
+            "pl(p(.KList),st(q(.KList),p(.KList)))=>p(.KList)",
+        ),
+        (
+            "p ** q ++ p :> => p",
+            "pl(st(p(.KList),q(.KList)),p(.KList))=>p(.KList)",
         ),
     ] {
         let definition = resolve_rule_bubbles(&lowered(&source(rule)))
