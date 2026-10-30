@@ -9,8 +9,8 @@
 #
 # A pending case that conforms, or deviates differently, fails until this file records it; see
 # `class_matrix::pending`. Keys: a case ID (K2, read by both tiers), `full/ID` (K2 where the full
-# tier observes a case otherwise than the front), `k1/ID`, `k3/ID`, `lattice/..` (K4) and
-# `entry/..` (K5).
+# tier observes a case otherwise than the front), `k1/ID`, `k3/ID`, `k6/ID`, `lattice/..` (K4)
+# and `entry/..` (K5).
 
 # S0-8: the coverage lint's sort graph lacks the implicit `S ≤ KItem` edges
 
@@ -5801,3 +5801,401 @@ deviation = "krs::expand::let-outside-term @ spelling"
 ["terms/claim/subject/{ let y @ Cmd::Hold(_) = x; y }"]
 finding = "NT-7-1"
 deviation = "krs::expand::let-outside-term @ spelling"
+
+# NT-8-2 (K6): a function, a sort projection, a collection literal or a collection method in an
+# alias's or a desugar's subject. A static clause's subject is the left side of a rewrite rule read
+# forward, so it is matched, and every KRS stage admits the construct there, but no native route
+# compiles a rule whose left side applies a function or a projection outside a collection's key,
+# value or element (`IllegalFunctionOnLhs`, and the projection's message for `k::project!`): no
+# `krs build`, `krs run` or `krs prove` can use the definition. Owned by NT-14.
+
+["k6/notation/alias/subject/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs, IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::list::item(x).len()"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::list::item(x)[0]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs, IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::list::size(k::builtin::list::item(x))"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::map::empty().contains_key(x)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::map::empty().update(x, 1)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::map::empty()[x]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs, IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::map::get(k::builtin::map::empty(), x)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs, IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::set::item(x).to_list()"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::set::to_list(k::builtin::set::item(x))"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/map![0 -> 1]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/map![x -> 1, ..k::builtin::map::empty()]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/map![x -> 1, 2 -> 3]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/set![x, ..k::builtin::set::empty()]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/alias/subject/set![x, 1]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs, IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::list::item(x).len()"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::list::item(x)[0]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs, IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::list::size(k::builtin::list::item(x))"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::map::empty().contains_key(x)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::map::empty().update(x, 1)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::map::empty()[x]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs, IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::map::get(k::builtin::map::empty(), x)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs, IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::set::item(x).to_list()"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::set::to_list(k::builtin::set::item(x))"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/map![0 -> 1]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/map![x -> 1, ..k::builtin::map::empty()]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/map![x -> 1, 2 -> 3]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/set![x, ..k::builtin::set::empty()]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/desugar/subject/set![x, 1]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/alias/subject/Size(x)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/alias/subject/k::builtin::int::add(1, 2)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/alias/subject/k::builtin::int::add(x, 1)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/alias/subject/k::map![x -> 1]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/alias/subject/k::project!(Int, x)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/alias/subject/map![x -> 1]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/desugar/subject/Size(x)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/desugar/subject/k::builtin::int::add(1, 2)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/desugar/subject/k::builtin::int::add(x, 1)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/desugar/subject/k::map![x -> 1]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/desugar/subject/k::project!(Int, x)"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/desugar/subject/map![x -> 1]"]
+finding = "NT-8-2"
+deviation = "every native route IllegalFunctionOnLhs"
+
+# NT-11-1 (K6): a sort projection in a pattern's map key or set element: `k::project!(Int, x)`,
+# and an index read (`m[k]`, `l[i]`, `map::get`, `list::get`), which reads its value through a
+# projection to its declared sort. By decision D2 a key or element of a matched collection is
+# evaluated and the entry it computes is looked up, and KRS emits `{T}:>S |-> V` there; the native
+# routes read a function application by value in that position but refuse a projection anywhere
+# on a left side ("Illegal sort projection .. on LHS of rule"). The emitted K states what D2 says;
+# the refusal is the native routes' (or the position table should refuse a projection in a matched
+# key until they read it): no `krs` command can use the definition today.
+
+["k6/notation/cells/map-key/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/cells/map-key/k::builtin::list::item(x)[0]"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/cells/map-key/k::builtin::map::empty()[x]"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/cells/map-key/k::builtin::map::get(k::builtin::map::empty(), x)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/readable/map-key/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/readable/map-key/k::builtin::list::item(x)[0]"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/readable/map-key/k::builtin::map::empty()[x]"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/readable/map-key/k::builtin::map::get(k::builtin::map::empty(), x)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/readable/map-key/update-field/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/readable/map-key/update-field/k::builtin::list::item(x)[0]"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/readable/map-key/update-field/k::builtin::map::empty()[x]"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/readable/map-key/update-field/k::builtin::map::get(k::builtin::map::empty(), x)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/rule/subject/set-element/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/rule/subject/set-element/k::builtin::list::item(x)[0]"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/rule/subject/set-element/k::builtin::map::empty()[x]"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/notation/rule/subject/set-element/k::builtin::map::get(k::builtin::map::empty(), x)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/cells/map-key/k::project!(Int, x)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/readable/map-key/k::project!(Int, x)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+["k6/terms/readable/map-key/update-field/k::project!(Int, x)"]
+finding = "NT-11-1"
+deviation = "every native route IllegalFunctionOnLhs"
+
+# NT-11-2 (K6): a collection's construction at the root of a `#[k::rule]` fn's or a context's
+# subject: `set::item(x)`, `set![x]`, `set![]`, `map![]` and the empty-collection calls. These are
+# K's collection functions (`SetItem`, `.Set`, `.Map`), whose applications their equations evaluate,
+# so no rewrite step meets one at a rule's or a context's root, as for any function at a matched
+# root (T3.10a). KRS admits them; the native routes refuse the rule (its `Set` or `Map` subject
+# meets a `Stmt` result, "not a subsort of the sort Set its position requires") and the context
+# ("Cannot compile a context rooted at `SetItem`"). Looks like a KRS acceptance gap: the position
+# table reads these spellings as constructors at a matched root.
+
+["k6/notation/context/subject-root/k::builtin::set::item(x)"]
+finding = "NT-11-2"
+deviation = "every native route InvalidContext"
+
+["k6/notation/context/subject-root/set![x]"]
+finding = "NT-11-2"
+deviation = "every native route InvalidContext"
+
+["k6/notation/rule/subject-root/k::builtin::map::empty()"]
+finding = "NT-11-2"
+deviation = "every native route krs::native::compile"
+
+["k6/notation/rule/subject-root/k::builtin::set::empty()"]
+finding = "NT-11-2"
+deviation = "every native route krs::native::compile"
+
+["k6/notation/rule/subject-root/k::builtin::set::item(x)"]
+finding = "NT-11-2"
+deviation = "every native route krs::native::compile"
+
+["k6/notation/rule/subject-root/map![]"]
+finding = "NT-11-2"
+deviation = "every native route krs::native::compile"
+
+["k6/notation/rule/subject-root/set![]"]
+finding = "NT-11-2"
+deviation = "every native route krs::native::compile"
+
+["k6/notation/rule/subject-root/set![x]"]
+finding = "NT-11-2"
+deviation = "every native route krs::native::compile"
+
+["k6/terms/context/subject-root/k::builtin::set::item(x)"]
+finding = "NT-11-2"
+deviation = "every native route InvalidContext"
+
+["k6/terms/rule/subject-root/k::builtin::set::item(x)"]
+finding = "NT-11-2"
+deviation = "every native route krs::native::compile"
+
+# NT-11-3 (K6): a `for Stmt` clause whose whole subject is `Cmd::Go`/`Go()`, the term its result
+# also is. The clause is the rewrite `go => go`, but KRS emits `rule <k> go ... </k>` with no
+# rewrite, and the native routes refuse a rule with none ("Rules must have at least one rewrite").
+# A KRS emission bug: the rule written is a step that changes nothing, and the K KRS writes is not
+# that rule; KRS should emit the rewrite or refuse the clause with an author code.
+
+["k6/import/sort-rule/subject-root-term/Go()"]
+finding = "NT-11-3"
+deviation = "every native route InvalidRewrite"
+
+["k6/import/sort-rule/subject-root/Go()"]
+finding = "NT-11-3"
+deviation = "every native route InvalidRewrite"
+
+["k6/terms/sort-rule/subject-root-term/Cmd::Go"]
+finding = "NT-11-3"
+deviation = "every native route InvalidRewrite"
+
+["k6/terms/sort-rule/subject-root-term/Cmd::Go()"]
+finding = "NT-11-3"
+deviation = "every native route InvalidRewrite"
+
+["k6/terms/sort-rule/subject-root/Cmd::Go"]
+finding = "NT-11-3"
+deviation = "every native route InvalidRewrite"
+
+["k6/terms/sort-rule/subject-root/Cmd::Go()"]
+finding = "NT-11-3"
+deviation = "every native route InvalidRewrite"
+
+# NT-11-4 (K6): a `#[k::rule]` fn whose result root is a group fragment,
+# `k::fragment![crate::Frame { ret: 1 }]`, while its subject is a `Stmt` command: KRS emits
+# `cTAG(..) => <frame> <ret> 1 </ret> </frame>`, a rewrite from a `Stmt` to a cell, which the native
+# routes refuse ("Cell completion cannot place the symbol .. of sort Stmt"). The two sides of a
+# rewrite share no sort, so this looks like a KRS acceptance gap (its sort judges admit a cell
+# fragment as a term rule's result), not a native limitation.
+
+["k6/terms/rule/result-root/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "NT-11-4"
+deviation = "every native route InvalidCellConcretization"
