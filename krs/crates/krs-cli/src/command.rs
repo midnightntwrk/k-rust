@@ -592,7 +592,7 @@ fn check(
     partition: bool,
     measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
-    let warnings = check_verdict(prepared, backend, measurement)?;
+    let warnings = check_verdict(prepared, backend, None, measurement)?;
     let stdout = if partition {
         prepared.lowered.partition().render()
     } else {
@@ -633,6 +633,7 @@ fn check(
 fn check_verdict(
     prepared: &PreparedDefinition,
     backend: Option<Backend>,
+    visit: Option<LoadVisit<'_>>,
     measurement: &mut Measurement,
 ) -> Result<crate::DiagnosticReports, CommandError> {
     let backends = judged_backends(backend)?;
@@ -653,9 +654,15 @@ fn check_verdict(
         });
     }
     measurement.timings.try_span("check.routes", |timings| {
-        judge_routes(prepared, &backends, several, timings)
+        judge_routes(prepared, &backends, several, visit, timings)
     })
 }
+
+/// A visit of the definition the run commands load, made where the check loads it on the
+/// `native-rust` route ([`exec::judge`]), on its worker, once the load succeeds: the class tests
+/// run programs on it (K7), so a program runs on the compile the check judged. `krs check` makes
+/// none.
+pub type LoadVisit<'a> = &'a (dyn Fn(&mut krs_exec::Semantics) + Sync);
 
 /// Judges each of `backends`' native routes and returns their warnings, or
 /// the first refusal in `backends` order with the warnings of the routes that
@@ -672,6 +679,7 @@ fn judge_routes(
     prepared: &PreparedDefinition,
     backends: &[Backend],
     several: bool,
+    visit: Option<LoadVisit<'_>>,
     timings: &mut Timings,
 ) -> Result<crate::DiagnosticReports, CommandError> {
     let definition = prepared.lowered.definition();
@@ -723,7 +731,7 @@ fn judge_routes(
         if let Some(failed) = route_timings.failed_span() {
             timings.mark_failed(failed);
         }
-        match judge_route(prepared, backend, compiled, timings) {
+        match judge_route(prepared, backend, compiled, visit, timings) {
             Ok(route_warnings) => extend_unique(&mut warnings, route_warnings),
             Err(error) if refusal.is_none() => {
                 refusal = Some(if several && every {
@@ -747,13 +755,14 @@ fn judge_route(
     prepared: &PreparedDefinition,
     backend: Backend,
     compiled: Result<(CompiledArtifacts, ConfigurationContext), DefinitionCompileError>,
+    visit: Option<LoadVisit<'_>>,
     timings: &mut Timings,
 ) -> Result<crate::DiagnosticReports, CommandError> {
     let (artifacts, context, warnings) = finish_native(prepared, backend, compiled, timings)?;
     if Route::native(backend) == Route::NativeRust {
         timings
             .try_span("check.load", |timings| {
-                exec::judge(prepared, artifacts, context, timings)
+                exec::judge(prepared, artifacts, context, visit, timings)
             })
             .map_err(|error| {
                 error.attributed(

@@ -111,7 +111,7 @@ pub(super) fn verify(
             let load = require_route(prepared.lowered.definition(), Route::NativeRust)
                 .and_then(|()| compile_native(prepared, backend, &mut timings))
                 .and_then(|(artifacts, context, _)| {
-                    exec::judge(prepared, artifacts, context, &mut timings)
+                    exec::judge(prepared, artifacts, context, None, &mut timings)
                 });
             verdicts.push((
                 "the definition load of krs run, search, and prove".to_owned(),

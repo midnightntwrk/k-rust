@@ -224,10 +224,13 @@ pub(super) fn execute(
 ///
 /// `artifacts` and `context` are the definition's symbolic (Haskell-dialect) compile, the one
 /// [`CompiledStage::compile`] makes; this function runs on the same worker stack as the run commands.
+/// Once the definition is loaded, `visit` is made on it there, before the spec modules are loaded,
+/// as the run commands' semantics stand before their program is read.
 pub(super) fn judge(
     prepared: &PreparedDefinition,
     artifacts: krs_k_rust::CompiledArtifacts,
     context: krs_k_rust::ConfigurationContext,
+    visit: Option<super::LoadVisit<'_>>,
     timings: &mut krs_ir::measure::Timings,
 ) -> Result<(), CommandError> {
     let definition = prepared.lowered.definition();
@@ -239,6 +242,9 @@ pub(super) fn judge(
                 let stage = CompiledStage::from_compiled(artifacts, context);
                 let mut semantics = Semantics::from_stage(definition, stage, None, timings)
                     .map_err(Failure::Exec)?;
+                if let Some(visit) = visit {
+                    visit(&mut semantics);
+                }
                 let fresh = StageReuse {
                     cache: None,
                     restore: false,

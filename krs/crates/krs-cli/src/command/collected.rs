@@ -17,8 +17,8 @@ use krs_ir_levels::DefinitionIr;
 
 use super::collector::{build_collector_measured, generate_collector, run_collector};
 use super::{
-    CommandError, CommandRequest, check_verdict, definition_warnings, expand, plan_collector,
-    prepare_bundle, render_emitted, validate_request,
+    CommandError, CommandRequest, LoadVisit, check_verdict, definition_warnings, expand,
+    plan_collector, prepare_bundle, render_emitted, validate_request,
 };
 use crate::metadata::cargo_metadata_in;
 use crate::{CollectorPlan, DiagnosticReports};
@@ -118,9 +118,26 @@ impl CollectedDefinition {
     /// Fails exactly when `krs check` refuses the definition, with its refusal: the note naming
     /// the route or the command that refuses it, and the warnings of the stages that completed.
     pub fn check(&self, bundle: DescriptorBundle) -> Result<DiagnosticReports, CommandError> {
+        self.check_visiting(bundle, None)
+    }
+
+    /// [`Self::check`], and where the check loads the definition the run commands load (on the
+    /// `native-rust` route), `visit` made on it once loaded, on the check's worker: a program
+    /// configured and run there runs as `krs run` runs it, on the compile the check judged.
+    /// `visit` is made before the verdict is known; a caller reads what it saw only when the
+    /// check passes.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::check`] fails.
+    pub fn check_visiting(
+        &self,
+        bundle: DescriptorBundle,
+        visit: Option<LoadVisit<'_>>,
+    ) -> Result<DiagnosticReports, CommandError> {
         let mut measurement = Measurement::disabled();
         let prepared = prepare_bundle(bundle, self.profile, &mut measurement)?;
-        check_verdict(&prepared, None, &mut measurement)
+        check_verdict(&prepared, None, visit, &mut measurement)
             .map_err(|error| error.warned(definition_warnings(&prepared)))
     }
 

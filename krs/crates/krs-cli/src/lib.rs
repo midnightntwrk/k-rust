@@ -24,8 +24,8 @@ mod render;
 
 pub use command::{
     CollectedDefinition, ColorChoice, Command, CommandError, CommandKind, CommandOutcome,
-    CommandRequest, EmittedDefinition, MessageFormat, ParseRequest, ProgramSource, ProveRequest,
-    RunRequest, SearchRequest, TermOutput, collect_descriptors, execute_command,
+    CommandRequest, EmittedDefinition, LoadVisit, MessageFormat, ParseRequest, ProgramSource,
+    ProveRequest, RunRequest, SearchRequest, TermOutput, collect_descriptors, execute_command,
     execute_command_measured, execute_command_reported,
 };
 pub use diagnostic::{
