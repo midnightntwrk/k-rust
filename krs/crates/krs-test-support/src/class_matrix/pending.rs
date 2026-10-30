@@ -33,6 +33,7 @@
 //! - [`CLOSURE`], `k3/CASE`: K3's verdict on the source `krs expand` prints for the case;
 //! - [`NATIVE`], `k6/CASE`: K6's verdict on the definition the accepted case emits, judged as
 //!   `krs check` judges it on the native routes;
+//! - [`RUN`], `k7/CASE`: K7's verdict on the case's program, run on that definition;
 //! - [`FULL`], `full/CASE`: the full tier's deviation of a case that the front refuses and the
 //!   full tier observes otherwise (rustc adds an error to the front's, say). The full tier reads
 //!   it in place of `CASE`'s entry.
@@ -57,11 +58,14 @@ pub const CLOSURE: &str = "k3/";
 /// The ID prefix of the full tier's K6 entries, `k6/CASE`.
 pub const NATIVE: &str = "k6/";
 
+/// The ID prefix of the full tier's K7 entries, `k7/CASE`.
+pub const RUN: &str = "k7/";
+
 /// The ID prefix of a case's entry that only the full tier reads, `full/CASE`.
 pub const FULL: &str = "full/";
 
 /// The case an entry's ID names: the ID itself, or the ID after [`KEYS`], [`CLOSURE`],
-/// [`NATIVE`] or [`FULL`]; `None` for a [`LATTICE`] entry, which names no case.
+/// [`NATIVE`], [`RUN`] or [`FULL`]; `None` for a [`LATTICE`] entry, which names no case.
 #[must_use]
 pub fn case_of(id: &str) -> Option<&str> {
     if id.starts_with(LATTICE) {
@@ -71,6 +75,7 @@ pub fn case_of(id: &str) -> Option<&str> {
         id.strip_prefix(KEYS)
             .or_else(|| id.strip_prefix(CLOSURE))
             .or_else(|| id.strip_prefix(NATIVE))
+            .or_else(|| id.strip_prefix(RUN))
             .or_else(|| id.strip_prefix(FULL))
             .unwrap_or(id),
     )

@@ -699,6 +699,10 @@ pub enum Construct {
     Fresh,
     /// A constructor application, a unit constructor's path included.
     Constructor,
+    /// An application of a static production, one a `#[k::desugar]` or `#[k::alias]` clause
+    /// expands (`Cmd::Dz()`): a constructor application to the syntax, and its expansion where a
+    /// term is read.
+    StaticApplication,
     /// A constructor application whose turbofish names its parametric production's instance,
     /// `Wrap::<KItem>(x)`.
     Turbofish,
@@ -754,10 +758,11 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 42] = [
+    pub const ALL: [Self; 43] = [
         Self::Reference,
         Self::Fresh,
         Self::Constructor,
+        Self::StaticApplication,
         Self::Turbofish,
         Self::Literal,
         Self::FunctionApplication,

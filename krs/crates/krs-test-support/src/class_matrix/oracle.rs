@@ -377,13 +377,18 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
     }
     match construct {
         // A value denotes itself wherever a term stands, but at a root that is a function's
-        // application or a static clause's production ([`value_at_root`]); a collection literal
+        // application or a static clause's production ([`value_at_root`]). A static production's
+        // application denotes its expansion: KRS expands it in a rule's pattern as it emits the
+        // rule, and (decision NT-14) below a desugar's or an alias's subject root wherever the
+        // expansion needs no value, as a ground application's never does, so it is a value too.
+        // A collection literal
         // that denotes a value, the empty collection or a set's singleton, is one, as its call
         // `map::empty()` or `set::item(x)` is; and a turbofish names the instance of a parametric
         // constructor's application, a value as any constructor's, an initializer's too.
         Construct::Reference
         | Construct::Fresh
         | Construct::Constructor
+        | Construct::StaticApplication
         | Construct::Literal
         | Construct::IdToken
         | Construct::BytesToken

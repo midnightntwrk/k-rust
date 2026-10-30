@@ -71,6 +71,7 @@
 mod cells;
 pub mod entry_points;
 pub mod invariants;
+pub mod k7;
 mod machine;
 pub mod oracle;
 pub mod pending;
@@ -90,17 +91,18 @@ use std::ops::Range;
 pub const FRONT_CASE_CAP: usize = 6_000;
 
 /// The shards of the fast tier, each the families one of its tests runs, and each within
-/// [`FRONT_CASE_CAP`]: the collection notation's term cases are a shard of their own.
-pub const FRONT_SHARDS: [&[Family]; 2] = [
+/// [`FRONT_CASE_CAP`]: the collection notation's term cases are a shard of their own, and so,
+/// since NT-12's static productions took the first shard past the cap, are the term family's.
+pub const FRONT_SHARDS: [&[Family]; 3] = [
     &[
         Family::Readable,
         Family::Claim,
         Family::Cells,
         Family::Init,
-        Family::Terms,
         Family::Import,
     ],
     &[Family::Notation],
+    &[Family::Terms],
 ];
 
 /// The family a case belongs to: its form, which fixes its base and its templates.
@@ -438,6 +440,13 @@ pub struct Case {
     /// A term case's position and its construct's nodes, which the oracle reads
     /// ([`Case::oracle`]); `None` outside the term families.
     pub term: Option<positions::TermCase>,
+    /// What K7 runs the case on, and what the run must show ([`k7`]); a case of a family K7 has
+    /// no drivers for says so.
+    pub k7: k7::K7,
+    /// Whether the case's sentence holds no command of its own: a subject's root, which can take
+    /// what another case's program holds, so K7 runs it, and the cases beside it, on definitions
+    /// apart.
+    pub unkeyed: bool,
     item: String,
     spelling: Range<usize>,
     entry: Range<usize>,
@@ -635,6 +644,25 @@ pub fn cases() -> Vec<Case> {
     cases
 }
 
+/// What a spelling of the term families matches and denotes, as K7 reads it ([`k7`]).
+#[derive(Clone, Debug)]
+pub struct SpellingMeaning {
+    /// The spelling's family.
+    pub family: Family,
+    /// The spelling, as reference code writes it.
+    pub text: &'static str,
+    /// A ground term it matches where a pattern reads it, or why none is.
+    pub witness: Result<k7::Ground, &'static str>,
+    /// What it denotes where it is built.
+    pub value: k7::Meaning,
+}
+
+/// What every spelling of the term families matches and denotes, `x` being 1.
+#[must_use]
+pub fn spelling_meanings() -> Vec<SpellingMeaning> {
+    terms::meanings()
+}
+
 /// An item under construction: its text and the ranges recorded in it.
 struct ItemBuilder {
     text: String,
@@ -735,6 +763,12 @@ impl CaseSpec {
             packaging,
             rustc_parses: false,
             term: None,
+            k7: k7::K7::skip(
+                k7::SkipKind::Form,
+                "K7 drives the term families only: the configuration families' cells start from \
+                 the machine base's initializer, which no driver command sets up",
+            ),
+            unkeyed: false,
             item: item.text.clone(),
             spelling,
             entry,

@@ -699,12 +699,17 @@ fn every_notation_case_meets_the_front_invariants_and_keys_its_payloads() {
     front(class_matrix::FRONT_SHARDS[1]);
 }
 
+#[test]
+fn every_term_case_meets_the_front_invariants_and_keys_its_payloads() {
+    front(class_matrix::FRONT_SHARDS[2]);
+}
+
 /// One test runs each shard: a shard added to `FRONT_SHARDS` needs its test here.
 #[test]
 fn each_shard_of_the_fast_tier_has_its_test() {
     assert_eq!(
         class_matrix::FRONT_SHARDS.len(),
-        2,
+        3,
         "a shard of the fast tier has no test that runs it"
     );
 }
