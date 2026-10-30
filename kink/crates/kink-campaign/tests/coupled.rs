@@ -9162,6 +9162,15 @@ mod kink_tier {
     }
 
     /// A literal inserted only by the mutant is Unknown, without executing the refused side.
+    ///
+    /// Re-pin kink27 R3-CENSUS-RUNLEVEL (ADOPTION D-8): k-rust's classes left decision 1's census,
+    /// so the baseline t12hook.k is admitted (its `square(1)` run reads no class value: one Float
+    /// format, no sign, min or max), and since R3-ADMIT-FLOAT the representation gate admits the
+    /// mutant's Float literal `1.0` (G-F retired). The mutant replaces `Int2Float(I *Int I, 53, 11)`
+    /// by `1.0`, the same binary64 value on the one input `square`'s guard admits (`I ==Int 1`), so
+    /// its run agrees and the mutant Survives. The name keeps the test's history: before R0b the
+    /// mutant was Unknown (`RepresentationRefused`), between R0b and this re-pin the baseline was
+    /// refused (`implementation-chosen-hook`).
     #[test]
     #[ignore = "kink"]
     fn audit_vi_t12_mutant_only_literal_is_unknown() {
@@ -9194,16 +9203,21 @@ mod kink_tier {
                 tests: &tests,
                 budget: BUDGET,
             };
+            let mut rows = Vec::new();
             for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
                 let result = ViResult::of(&campaign, &generation, mode);
                 eprintln!("TB03 mutant-only {mode:?}: {result:?}");
-                // Re-pin R0b (decision 1, finding E-10): the baseline t12hook.k applies Float
-                // arithmetic in its own rules, so it is refused (`implementation-chosen-hook`) before
-                // the mutant is prepared. Before: Ran, the mutant Unknown (RepresentationRefused) with
-                // no test run.
+                rows.push((mode, result));
+            }
+            for (mode, result) in rows {
                 assert_eq!(
                     result,
-                    ViResult::Refused(CampaignFailureKind::BaselineOracleFailed)
+                    ViResult::Ran {
+                        tests: vec![("mutant-only".into(), TestRun::Compared(vec![A]))],
+                        status: MutantStatus::Survived,
+                        killing: vec![],
+                    },
+                    "{mode:?}"
                 );
             }
         });
