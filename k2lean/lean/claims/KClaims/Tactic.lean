@@ -4,6 +4,7 @@ import KClaims.Exec
 import KClaims.Succ
 import KClaims.StepInv
 import KClaims.SimpAttr
+import KClaims.MapLoc
 import KPrelude.Hooks
 import KPrelude.Coll
 import KPrelude.InvColl
@@ -326,7 +327,11 @@ def closeAll (closer : TSyntax `tactic) (gs : Array MVarId) : TacticM Bool := do
   for g in gs do
     if ← g.isAssigned then continue
     let t ← instantiateMVars (← g.getType)
-    if t.hasExprMVar then return false
+    -- metavariables only as the value of a partial function, `f args = some ?x`, which the
+    -- closer finds (`kc_assumption`)
+    if t.hasExprMVar then
+      let some (_, a, b) := t.eq? | return false
+      unless !a.hasExprMVar && b.isAppOfArity ``Option.some 2 && b.appArg!.isMVar do return false
     setGoals [g]
     try
       evalTactic closer
@@ -347,13 +352,19 @@ def solveConj (closer : TSyntax `tactic) (g : MVarId) : TacticM Bool := do
       | some (_, a, b) =>
         if ← isDefEq a b then
           gi.assign (← mkEqRefl a)
-        else
-          unless ← structUnify a b do return false
+        else if ← structUnify a b then
           rest := rest.push gi
+        else if (← instantiateMVars a).isAppOf ``KPrelude.MapHook.concat then
+          -- a map pattern of the target over a frame (`K |-> V REST`): `concat` does not
+          -- evaluate on the frame, so the closer proves it (`kc_assumption`, `kc_map`)
+          rest := rest.push gi
+        else return false
       | none => rest := rest.push gi
+    -- a witness may be chosen by the closer (the value of a partial function, `kc_assumption`)
+    unless ← closeAll closer rest do return false
     for w in ws do
       if (← instantiateMVars w).hasExprMVar then return false
-    closeAll closer rest
+    return true
   unless ok do s.restore
   return ok
 
@@ -401,6 +412,269 @@ def refutable (t : Expr) : MetaM Bool := do
     unless w.getAppFn.isConst && (← isConstructorApp w) do return false
   return true
 
+/-- `concat (element k v) r`: `k`, `v`, `r` (a match of one binding of a map). -/
+def elemConcat? (a : Expr) : Option (Expr × Expr × Expr) := do
+  guard (a.isAppOf ``KPrelude.MapHook.concat)
+  let x := a.getArg! (a.getAppNumArgs - 2)
+  guard (x.isAppOf ``KPrelude.MapHook.element)
+  return (x.getArg! (x.getAppNumArgs - 2), x.getArg! (x.getAppNumArgs - 1), a.appArg!)
+
+/-- The description of the map `m` in the context before `before`: the first hypothesis
+`concat A B = some m` (a claim's map pattern, or a rule's match located earlier). -/
+def mapDesc? (m : Expr) (before? : Option FVarId := none) : MetaM (Option (LocalDecl × Expr × Expr)) := do
+  for d in ← getLCtx do
+    if before? == some d.fvarId then break
+    if d.isImplementationDetail then continue
+    let some (_, a, b) := (← instantiateMVars d.type).eq? | continue
+    unless a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 do continue
+    unless (← instantiateMVars b.appArg!) == m do continue
+    return some (d, a.getArg! (a.getAppNumArgs - 2), a.appArg!)
+  return none
+
+/-- Apply `lem` to `g`; its new goals, or `none` (state restored) when it does not apply. -/
+def applyOr (g : MVarId) (lem : Expr) : MetaM (Option (List MVarId)) := do
+  let s ← saveState
+  try return some (← g.apply lem) catch _ => s.restore; return none
+
+/-- `WF m`, from how `m` is built or described. -/
+partial def proveWF (g : MVarId) : MetaM Bool := g.withContext do
+  let ty ← instantiateMVars (← g.getType)
+  unless ty.isAppOf ``KPrelude.MapHook.WF do
+    return (← try g.assumption; pure true catch _ => pure false)
+  let m ← instantiateMVars ty.appArg!
+  let s ← saveState
+  if m.isFVar then
+    if let some (hd, _, _) ← mapDesc? m then
+      if (← applyOr g (← mkAppM ``KClaims.MapLoc.wf_of_concat #[hd.toExpr])).isSome then return true
+    try g.assumption; return true catch _ => s.restore; return false
+  for (c, lem) in [(``KPrelude.MapHook.remove, ``KPrelude.MapHook.wf_remove),
+      (``KPrelude.MapHook.update, ``KPrelude.MapHook.wf_update)] do
+    if m.isAppOf c then
+      let some gs ← applyOr g (← mkConstWithFreshMVarLevels lem) | return false
+      for g' in gs do
+        unless ← g'.isAssigned do
+          unless ← proveWF g' do s.restore; return false
+      return true
+  -- one binding or none, also as the literal `kc_norm` evaluates them to
+  for lem in [``KPrelude.MapHook.wf_element, ``KPrelude.MapHook.wf_unit] do
+    if let some [] ← applyOr g (← mkConstWithFreshMVarLevels lem) then return true
+  -- a literal: its executable check evaluates
+  if let some [g'] ← applyOr g (← mkAppM ``Iff.mp #[← mkAppM ``KPrelude.MapHook.wfb_iff #[m]]) then
+    try g'.refl; return true catch _ => pure ()
+  s.restore
+  return false
+
+/-- `lookup m k = some v`, `k` and `v` unified with a binding of `m`'s description (the first
+that fits, depth first). -/
+partial def proveLookup (g : MVarId) (before? : Option FVarId := none) : MetaM Bool := g.withContext do
+  let some (_, l, _) := (← instantiateMVars (← g.getType)).eq? | return false
+  unless l.isAppOf ``KPrelude.MapHook.lookup do return false
+  let m ← instantiateMVars (l.getArg! (l.getAppNumArgs - 2))
+  unless m.isFVar do
+    -- one binding, also as the literal `kc_norm` evaluates it to
+    if (← applyOr g (← mkConstWithFreshMVarLevels ``KClaims.MapLoc.lookup_self)).isSome then return true
+    -- a literal at a key that compares (a closed term): the lookup evaluates
+    let k ← instantiateMVars l.appArg!
+    if k.hasFVar || k.hasExprMVar then return false
+    let some (_, _, r) := (← instantiateMVars (← g.getType)).eq? | return false
+    -- the value as a term (a projection of the evaluated pair reduced), then the evaluation
+    let lk ← whnfD l
+    unless lk.isAppOfArity ``Option.some 2 do return false
+    let s ← saveState
+    try
+      unless ← isDefEq r (← mkAppM ``Option.some #[← whnfCore lk.appArg!]) do s.restore; return false
+      g.refl; return true
+    catch _ => s.restore; return false
+  let some (hd, _, _) ← mapDesc? m before? | return false
+  for lem in [``KClaims.MapLoc.lookup_left, ``KClaims.MapLoc.lookup_right] do
+    let s ← saveState
+    if let some [g'] ← applyOr g (← mkAppM lem #[hd.toExpr]) then
+      if ← proveLookup g' before? then return true
+    s.restore
+  return false
+
+/-- `lookup r k = none` for the rest of a binding just taken (`remove m k`) or the empty map
+(a declaration's fresh location put in an empty store). -/
+def proveLookupNone (g : MVarId) : MetaM Bool := g.withContext do
+  let some (_, l, _) := (← instantiateMVars (← g.getType)).eq? | return false
+  let r ← instantiateMVars (l.getArg! (l.getAppNumArgs - 2))
+  if r.isAppOf ``KPrelude.MapHook.remove then
+    let some gs ← applyOr g (← mkConstWithFreshMVarLevels ``KPrelude.MapHook.lookup_remove_self) | return false
+    for g' in gs do
+      unless ← g'.isAssigned do
+        unless ← proveWF g' do return false
+    return true
+  -- the empty map, also as the literal `kc_norm` evaluates it to
+  return (← applyOr g (← mkConstWithFreshMVarLevels ``KClaims.MapLoc.lookup_unit)).isSome
+
+/-- Locate the binding of a rule's match `h : concat (element k v) r = some m` in the claim's
+description of `m` (`KClaims.MapLoc`): against one binding, its key and value are the binding's
+and the rest is empty; against `A B`, it is in one side, which the other does not bind (two
+cases); the empty map has none. The equations this yields are then opened as any others. `none`
+when `m` is not described (a frame of the claim, which the rule reads). -/
+def locateMap (g : MVarId) (h : LocalDecl) (a b : Expr) : MetaM (Option (List MVarId)) := g.withContext do
+  unless b.isAppOfArity ``Option.some 2 do return none
+  let m ← instantiateMVars b.appArg!
+  let note (pf : Expr) : MetaM (MVarId × FVarId) := do
+    let g' ← g.assert `kcloc (← inferType pf) pf
+    let (fv, g'') ← g'.intro1P
+    return (g'', fv)
+  if a.isAppOf ``KPrelude.MapHook.concat then
+    let x := a.getArg! (a.getAppNumArgs - 2)
+    let y := a.appArg!
+    -- an empty side: the match is the other side
+    if x.isAppOf ``KPrelude.MapHook.unit then
+      return some [(← note (← mkAppM ``KClaims.MapLoc.of_unit_rest #[h.toExpr])).1]
+    if y.isAppOf ``KPrelude.MapHook.unit then
+      return some [(← note (← mkAppM ``KClaims.MapLoc.of_unit_right #[h.toExpr])).1]
+  let some (k, v, _) := elemConcat? a | return none
+  -- a key the description binds, found as `kc_map` finds it (unification of the keys): the
+  -- value and the rest follow, with no case split
+  let found ← do
+    let s ← saveState
+    let v₀ ← mkFreshExprMVar (← inferType v)
+    let hl ← mkFreshExprMVar (← mkEq (← mkAppM ``KPrelude.MapHook.lookup #[m, k]) (← mkAppM ``Option.some #[v₀]))
+    if ← proveLookup hl.mvarId! h.fvarId then
+      pure (some (← mkAppM ``KClaims.MapLoc.of_found #[h.toExpr, ← instantiateMVars hl]))
+    else s.restore; pure none
+  if let some pf := found then return some [(← note pf).1]
+  -- a literal map (`kc_norm` evaluates `element k v` to the carrier's list of one binding)
+  let x := a.getArg! (a.getAppNumArgs - 2)
+  let xs := x.getAppArgs
+  let unitE := mkAppN (mkConst ``KPrelude.MapHook.unit x.getAppFn.constLevels!) xs[:xs.size - 2]
+  let (m, h) ← do
+    if m.isAppOf ``KPrelude.MapHook.element || m.isAppOf ``KPrelude.MapHook.unit || m.isFVar then
+      pure (m, h.toExpr)
+    else
+      let k₀ ← mkFreshExprMVar (← inferType xs[xs.size - 2]!)
+      let v₀ ← mkFreshExprMVar (← inferType xs[xs.size - 1]!)
+      let elemE := mkAppN x.getAppFn (xs[:xs.size - 2] ++ #[k₀, v₀])
+      let m' ← if ← isDefEq m elemE then instantiateMVars elemE
+        else if ← isDefEq m unitE then pure unitE else pure m
+      pure (m', ← mkExpectedTypeHint h.toExpr (← mkEq a (← mkAppM ``Option.some #[m'])))
+  if m.isAppOf ``KPrelude.MapHook.element then
+    return some [(← note (← mkAppM ``KClaims.MapLoc.of_element #[h])).1]
+  if m.isAppOf ``KPrelude.MapHook.unit then
+    g.assign (← mkFalseElim (← g.getType) (← mkAppM ``KClaims.MapLoc.of_unit #[h]))
+    return some []
+  -- a literal of several bindings: where the lookup at the rule's key evaluates, that is the
+  -- binding (`of_lookup`); else one of its pairs (`kcmem`, split by `memStep`)
+  unless m.isFVar do
+    if !k.hasFVar && !k.hasExprMVar then
+      let lk ← whnfD (← mkAppM ``KPrelude.MapHook.lookup #[m, k])
+      if lk.isAppOf ``Option.some || lk.isAppOf ``Option.none then
+        return some [(← note (← mkAppM ``KClaims.MapLoc.of_lookup #[h])).1]
+    let tl ← mkAppM ``KPrelude.ListIso.toList #[m]
+    let tl' ← whnfD tl
+    unless tl'.isAppOfArity ``List.cons 3 do return none
+    let pf ← mkAppM ``KClaims.MapLoc.of_list #[h, ← mkEqRefl tl]
+    let g' ← g.assert `kcloc (← inferType pf) pf
+    let (fv, g'') ← g'.intro1P
+    let subs ← g''.cases fv
+    let some sub := subs[0]? | return some []
+    let g3 ← sub.mvarId.withContext do
+      let mut g3 := sub.mvarId
+      for d in ← getLCtx do
+        if (← instantiateMVars d.type).isAppOf ``Membership.mem then
+          g3 ← g3.withContext do
+            let g4 ← g3.assert `kcmem d.type d.toExpr
+            let (_, g5) ← g4.intro1P
+            g5.clear d.fvarId
+      pure g3
+    return some [g3]
+  if m.isFVar then
+    let some (hd, _, _) ← mapDesc? m (h.getAppFn.fvarId?) | return none
+    let (g', fv) ← note (← mkAppM ``KClaims.MapLoc.of_concat #[hd.toExpr, h])
+    return some ((← g'.cases fv).toList.map (·.mvarId))
+  return none
+
+/-- A rule's list pattern `h : concat (element x) t = l` against a list `l` whose elements
+evaluate (a cell's literal list): `x` is its first element and `t` the rest (`ListLoc.of_cons`),
+and against the empty list there is no match (`ListLoc.of_nil`). -/
+def locateList (g : MVarId) (h : LocalDecl) (a b : Expr) : MetaM (Option (List MVarId)) := g.withContext do
+  unless a.isAppOf ``KPrelude.ListHook.concat do return none
+  let x := a.getArg! (a.getAppNumArgs - 2)
+  unless x.isAppOf ``KPrelude.ListHook.element do return none
+  if b.isFVar then return none
+  let tl ← mkAppM ``KPrelude.ListIso.toList #[b]
+  let tl' ← whnfD tl
+  if tl'.isAppOfArity ``List.nil 1 then
+    let pf ← mkAppM ``KClaims.ListLoc.of_nil #[h.toExpr, ← mkEqRefl tl]
+    g.assign (← mkFalseElim (← g.getType) pf)
+    return some []
+  if tl'.isAppOfArity ``List.cons 3 then
+    let hl ← mkExpectedTypeHint (← mkEqRefl tl) (← mkEq tl tl')
+    let pf ← mkAppM ``KClaims.ListLoc.of_cons #[h.toExpr, hl]
+    let g' ← g.assert `kcloc (← inferType pf) pf
+    let (_, g'') ← g'.intro1P
+    return some [g'']
+  return none
+
+/-- `kcmem : p ∈ l` with `l` a literal list (a located binding, `locateMap`): `p` is its first
+element, or in the rest; none of the empty list. -/
+def memStep (g : MVarId) (h : LocalDecl) : MetaM (Option (List MVarId)) := g.withContext do
+  unless h.userName == `kcmem do return none
+  let t ← instantiateMVars h.type
+  unless t.isAppOf ``Membership.mem do return none
+  -- `Membership.mem l p` (the collection first)
+  let l := t.getArg! (t.getAppNumArgs - 2)
+  let l' ← whnfD l
+  if l'.isAppOfArity ``List.nil 1 then
+    let ne ← mkAppOptM ``List.not_mem_nil #[none, some t.appArg!]
+    g.assign (← mkFalseElim (← g.getType) (mkApp ne h.toExpr))
+    return some []
+  unless l'.isAppOfArity ``List.cons 3 do return none
+  let h' ← mkExpectedTypeHint h.toExpr (← mkAppM ``Membership.mem #[l', t.appArg!])
+  let pf ← mkAppM ``List.eq_or_mem_of_mem_cons #[h']
+  let g' ← g.assert `kcmemor (← inferType pf) pf
+  let (fv, g'') ← g'.intro1P
+  let g'' ← g''.clear h.fvarId
+  let subs ← g''.cases fv
+  let mut out := #[]
+  for sub in subs do
+    -- the second case's membership keeps the name, for the next split
+    let g3 ← sub.mvarId.withContext do
+      for d in ← getLCtx do
+        if !d.isImplementationDetail && (← instantiateMVars d.type).isAppOf ``Membership.mem then
+          return ← sub.mvarId.withContext do
+            let g4 ← sub.mvarId.assert `kcmem d.type d.toExpr
+            let (_, g5) ← g4.intro1P
+            g5.clear d.fvarId
+      pure sub.mvarId
+    out := out.push g3
+  return some out.toList
+
+/-- `h : concat A B = some x` with an earlier `concat A B = some y`: one map has one value, so
+`x = y` (a rule that reads a binding and writes it back leaves its map as it was). -/
+def sameMap (g : MVarId) (h : LocalDecl) (a b : Expr) : MetaM (Option (List MVarId)) := g.withContext do
+  unless a.isAppOf ``KPrelude.MapHook.concat && b.isAppOfArity ``Option.some 2 do return none
+  let a ← instantiateMVars a
+  for d in ← getLCtx do
+    if d.fvarId == h.fvarId then break
+    if d.isImplementationDetail then continue
+    let some (_, a', b') := (← instantiateMVars d.type).eq? | continue
+    unless b'.isAppOfArity ``Option.some 2 && (← instantiateMVars a') == a do continue
+    if (← instantiateMVars b') == (← instantiateMVars b) then return none
+    let pf ← mkAppM ``Option.some.inj #[← mkEqTrans (← mkEqSymm d.toExpr) h.toExpr]
+    let g' ← g.assert `kcsame (← inferType pf) pf
+    let (_, g'') ← g'.intro1P
+    return some [g'']
+  return none
+
+/-- `lookup m k = none` where the description of `m` binds `k` (`proveLookup`): the binding is
+there (a case of `MapLoc.of_concat` that puts a key on the side that does not bind it). -/
+def lookupNoneContra (g : MVarId) (h : LocalDecl) (a b : Expr) : MetaM Bool := g.withContext do
+  unless a.isAppOf ``KPrelude.MapHook.lookup && b.isAppOf ``Option.none do return false
+  let s ← saveState
+  let some vty := (← whnfR (← inferType b)).app1? ``Option | return false
+  let v₀ ← mkFreshExprMVar vty
+  let hl ← mkFreshExprMVar (← mkEq a (← mkAppM ``Option.some #[v₀]))
+  unless ← proveLookup hl.mvarId! h.fvarId do s.restore; return false
+  -- `some v₀ = none`
+  let e ← mkEqTrans (← mkEqSymm (← instantiateMVars hl)) h.toExpr
+  g.assign (← mkNoConfusion (← g.getType) e)
+  return true
+
 /-- One opening step on some hypothesis of `g`: `∃` and `∧` are destructured, an equation with
 a variable side is substituted, an equation `f … = some x` is evaluated by `cases`, a Boolean
 condition is simplified to a proposition. `none` if no hypothesis needs it. -/
@@ -423,6 +697,11 @@ def openStep (g : MVarId) (tried : Array FVarId) : TacticM (Option (List MVarId 
         if !(← exprDependsOn b a.fvarId!) then substable := true
       if substable then
         try return some ([← Lean.Meta.subst g ldecl.fvarId], tried) catch _ => pure ()
+      -- a rule's match of a map the claim describes (`locateMap`)
+      if let some gs ← sameMap g ldecl a b then return some (gs, tried.push ldecl.fvarId)
+      if let some gs ← locateMap g ldecl a b then return some (gs, tried.push ldecl.fvarId)
+      if ← lookupNoneContra g ldecl a b then return some ([], tried)
+      if let some gs ← locateList g ldecl a b then return some (gs, tried.push ldecl.fvarId)
       if (← whnfR ty).isConstOf ``Bool then
         setGoals [g]
         try
@@ -440,6 +719,7 @@ def openStep (g : MVarId) (tried : Array FVarId) : TacticM (Option (List MVarId 
         catch _ => pure ()
       return some ([g], tried.push ldecl.fvarId)
     | _ =>
+      if let some gs ← memStep g ldecl then return some (gs, tried)
       -- an inductive predicate whose indices are constructor applications: inversion refutes
       -- the case when no constructor of the predicate has those indices
       if ← refutable t then
@@ -457,6 +737,12 @@ partial def openAll (g : MVarId) (tried : Array FVarId := #[]) (fuel : Nat := 20
   match ← openStep g tried with
   | none => return [g]
   | some (gs, tried) => return (← gs.mapM fun g => openAll g tried (fuel - 1)).flatten
+
+/-- `kc_open`: `openAll` on the main goal (the premises of a case of a rule, opened as `tryRel`
+opens them). -/
+elab "kc_open" : tactic => do
+  let g ← getMainGoal
+  setGoals (← openAll g)
 
 /-- Whether `ty` is a sort of the arity-indexed term family (`NS.Term t`, design.md §2.1), where
 a sort's values are not the family's constructors: `familyCases` enumerates them. -/
@@ -812,12 +1098,30 @@ elab "kc_whnf_contra" : tactic => liftMetaFinishingTactic fun g => g.withContext
     if ← g'.contradictionCore {} then return
   throwError "kc_whnf_contra: no equation hypothesis relates two different constructors"
 
+/-- `kc_list_contra`: close the goal when a hypothesis matches `ListItem(X) REST` against the
+empty list (a stream rule's pattern at a `<k>`-less cell `.List`, after `kc_norm` evaluated it to
+the carrier's empty literal): `ListLoc.concat_element_ne_unit`. -/
+elab "kc_list_contra" : tactic => liftMetaFinishingTactic fun g => g.withContext do
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let some (_, a, b) := (← instantiateMVars d.type).eq? | continue
+    unless a.isAppOf ``KPrelude.ListHook.concat do continue
+    let x := a.getArg! (a.getAppNumArgs - 2)
+    unless x.isAppOf ``KPrelude.ListHook.element do continue
+    let ne ← mkAppM ``KClaims.ListLoc.concat_element_ne_unit #[x.appArg!, a.appArg!]
+    let some (_, _, u) := (← instantiateMVars (← inferType ne)).ne? | continue
+    unless ← isDefEq b u do continue
+    g.assign (← mkFalseElim (← g.getType) (mkApp ne d.toExpr))
+    return
+  throwError "kc_list_contra: no list match against the empty list"
+
 /-- A case of `cases` on a relation whose premises contradict each other (a rule whose left-hand
 side unifies with the configuration but whose requires is false there). -/
 def closeSpurious (g : MVarId) : TacticM Bool := do
   closesWithin g (← `(tactic| first
     | contradiction
     | kc_whnf_contra
+    | kc_list_contra
     | (exfalso; simp_all; done)
     | (exfalso; simp_all [kc_simp]; done)
     | (exfalso; simp [kc_simp] at * <;> omega)))
@@ -825,7 +1129,8 @@ def closeSpurious (g : MVarId) : TacticM Bool := do
 /-- Whether `ty` is a priority premise `∀ j, j < i → ¬ A j c` (a rule of a later rank: no rule of
 an earlier rank applies); its `A`. -/
 def priorityApp? (ty : Expr) : MetaM (Option Name) :=
-  forallTelescopeReducing ty fun xs b => do
+  -- exactly the two binders: a telescope through `¬ A j c` would open it as a third
+  forallBoundedTelescope ty (some 2) fun xs b => do
     -- (the nested action would run before the size test: a separate test)
     unless xs.size == 2 do return none
     unless (← whnfR (← inferType xs[0]!)).isConstOf ``Nat do return none
@@ -857,9 +1162,10 @@ partial def nextOf? (r : Expr) : MetaM (Option (Expr × Expr)) := do
   return none
 
 /-- The tactic for a priority premise `∀ j, j < i → ¬ App j c`: every case of `App j c` is
-contradictory (its premises opened first, as for `Step`'s cases). -/
+contradictory: by its rank, by its premises as they stand, or once they are opened as `Step`'s
+cases are (`kc_open`: a stream rule's list pattern against the cell's list, say). -/
 def priorityTac : TacticM (TSyntax `tactic) :=
-  `(tactic| (intro j hj ha; cases ha <;> first | omega | contradiction | kc_whnf_contra | (exfalso; simp_all; done) | (exfalso; simp_all [kc_simp]; done)))
+  `(tactic| (intro j hj ha; cases ha <;> first | omega | contradiction | kc_whnf_contra | kc_list_contra | (kc_open <;> (first | contradiction | kc_whnf_contra | (exfalso; simp_all; done))) | (exfalso; simp_all; done) | (exfalso; simp_all [kc_simp]; done)))
 
 /-- A step of `R` from `c` by rule `ctor` (a constructor of `R`, `NS.Step.x`) through its
 executable matcher `NS.Rules.x`, when that reduces to a successor: the matcher's proof is of
@@ -1078,8 +1384,50 @@ partial def explore (cfg : Cfg) (gs0 : List MVarId) (fuel : Nat) : TacticM (List
 
 end
 
+/-- `kc_map`: a rule's match of a map, `concat (element k v) r = some m`, proved from the map's
+description. With `m` known (the left-hand side's map), the binding is one of the description's,
+unified with `k` and `v`, and `r` is `remove m k` (`MapLoc.take`); with `m` to be found (the
+right-hand side's map), the binding is put beside `r`, which does not bind `k`
+(`MapLoc.build`). -/
+elab "kc_map" : tactic => liftMetaFinishingTactic fun g => g.withContext do
+  let some (_, a, b) := (← instantiateMVars (← g.getType)).eq? | throwError "kc_map: not a map match"
+  let some _ := elemConcat? a | throwError "kc_map: not a map match"
+  unless b.isAppOfArity ``Option.some 2 do throwError "kc_map: not a map match"
+  let m ← instantiateMVars b.appArg!
+  let lem := if m.isMVar then ``KClaims.MapLoc.build else ``KClaims.MapLoc.take
+  let some gs ← applyOr g (← mkConstWithFreshMVarLevels lem) | throwError "kc_map: {lem} does not apply"
+  for g' in gs do
+    if ← g'.isAssigned then continue
+    let ty ← instantiateMVars (← g'.getType)
+    let ok ← if ty.isAppOf ``KPrelude.MapHook.WF then proveWF g'
+      else if lem == ``KClaims.MapLoc.build then proveLookupNone g' else proveLookup g'
+    unless ok do throwError "kc_map: no binding of the description fits{indentExpr ty}"
+
+/-- `kc_assumption`: a hypothesis that is the goal (a map pattern of the target over a frame,
+which the rule's match or the claim left as a hypothesis), for a goal without metavariables, or
+`f args = some ?x` with `args` known: a partial function has one value, so the hypothesis gives
+the only `?x`. Other goals with metavariables are left to the tactics that choose their values. -/
+elab "kc_assumption" : tactic => liftMetaFinishingTactic fun g => g.withContext do
+  let t ← instantiateMVars (← g.getType)
+  let some (_, a, b) := t.eq? | throwError "kc_assumption: not an equation"
+  if t.hasExprMVar then
+    unless !a.hasExprMVar && b.isAppOfArity ``Option.some 2 && b.appArg!.isMVar do
+      throwError "kc_assumption: metavariables"
+  -- only a hypothesis with the same left-hand side (syntactically): unifying the goal with every
+  -- hypothesis costs more than the rest of a step where the configuration is large
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let some (_, a', b') := (← instantiateMVars d.type).eq? | continue
+    unless (← instantiateMVars a') == a do continue
+    if ← isDefEq b b' then
+      g.assign d.toExpr
+      return
+  throwError "kc_assumption: no hypothesis"
+
 /-- The default closing tactic for target, map, arithmetic and `ensures` goals. -/
 macro "kc_close" : tactic => `(tactic| first
+  | kc_assumption
+  | kc_map
   | rfl
   | decide
   | (kc_norm; simp only [kc_simp, Option.some.injEq, reduceCtorEq] at *; done)
