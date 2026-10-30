@@ -1187,9 +1187,12 @@ endmodule
 /// Discarded operands whose evaluation does not end (`k_rust_backend::deferred`): the equation of
 /// `loopi()` is never applied, wherever the definedness of the operand a conditional discards is
 /// decided, in the simplifier or in preparing a solver query that reads it (its domain reading,
-/// `docs/compatibility.md`). No bounded step that decides a deferred atom applies it either: its
-/// right-hand side is an application of `loopi` again, which decides nothing. A count above zero
-/// is the start of the evaluation that does not end, cut off only by a budget.
+/// `docs/compatibility.md`), the admission of the finite summaries of the functions it calls
+/// included: `guardLoop` and `nestedGuardLoop` discard a call of a function whose guard holds
+/// `loopi()` under a partial hook, which that admission reads. No bounded step that decides a
+/// deferred atom applies it either: its right-hand side is an application of `loopi` again,
+/// which decides nothing. A count above zero is the start of the evaluation that does not end,
+/// cut off only by a budget.
 mod discarded {
     use super::*;
 
@@ -1204,13 +1207,23 @@ module LEAK
                | "divLoop" "(" ")" [symbol(divLoop)]
                | "modLoop" "(" ")" [symbol(modLoop)]
                | "mapLoop" "(" ")" [symbol(mapLoop)]
+               | "guardLoop" "(" ")" [symbol(guardLoop)]
+               | "nestedGuardLoop" "(" ")" [symbol(nestedGuardLoop)]
   syntax Int ::= loopi() [function, symbol(loopi)]
+               | q(Int) [function, symbol(q)]
+               | qn(Int) [function, symbol(qn)]
   rule [loop]: loopi() => loopi() +Int 1
+  rule q(X) => 1 requires (1 /Int loopi()) >Int X
+  rule q(_) => 2 [owise]
+  rule qn(X) => 1 requires (1 /Int (1 /Int loopi())) >Int X
+  rule qn(_) => 2 [owise]
   configuration <k> $PGM:Exp </k>
   rule iteLoop() => #if true #then 1 #else loopi() #fi
   rule divLoop() => #if true #then 1 #else 1 /Int loopi() #fi
   rule modLoop() => #if true #then 1 #else 1 %Int loopi() #fi
   rule mapLoop() => #if true #then 1 #else size(loopi() |-> 1 2 |-> 2) #fi
+  rule guardLoop() => #if true #then 1 #else 1 /Int q(0) #fi
+  rule nestedGuardLoop() => #if true #then 1 #else 1 /Int qn(0) #fi
 endmodule
 "#;
 
@@ -1224,7 +1237,14 @@ endmodule
             .find(|(label, _)| label == "LEAK.loop")
             .expect("the labelled equation of loopi")
             .1;
-        for program in ["iteLoop", "divLoop", "modLoop", "mapLoop"] {
+        for program in [
+            "iteLoop",
+            "divLoop",
+            "modLoop",
+            "mapLoop",
+            "guardLoop",
+            "nestedGuardLoop",
+        ] {
             let state = format!(
                 "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortExp{{}}, SortKItem{{}}}}(Lbl{program}{{}}()), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}({}))",
                 int(0)

@@ -41,8 +41,6 @@ use crate::{
         Concreteness, Predicate, RewriteRule, RuleRhs, TermIndex, applicable_groups, rename_apart,
         term_index,
     },
-    simplify::{SimplificationError, SimplificationOptions, simplify_predicates_with_solver},
-    smt::NoSolver,
     stop::{self, Stoppable},
     substitution::substitute,
     term::{
@@ -674,35 +672,21 @@ impl<'d> Catalog<'d> {
                             Ok(conditions) => conditions,
                             Err(_) => return Ok(Err(Rejected::Partial)),
                         };
-                        if !obligations.is_empty() {
-                            match simplify_predicates_with_solver(
+                        // The test's global definedness is decided by builtin hooks alone, with
+                        // no equation of the definition: the term is the definition's, and
+                        // preparing a query must end whatever its equations do. A ground
+                        // condition such as `2 =/=Int 0` folds to `true`; a condition only an
+                        // equation would decide rejects the summary, which leaves the solver less
+                        // informed and never wrong. The arguments' own definedness is checked
+                        // below (`allow_partial` is false for them too).
+                        if !obligations.is_empty()
+                            && !crate::deferred::hooks_establish(
                                 self.definition,
                                 &obligations,
-                                &[],
-                                SimplificationOptions {
-                                    max_iterations: 64,
-                                    ..SimplificationOptions::default()
-                                },
-                                &NoSolver,
-                            )? {
-                                Ok(predicates)
-                                    if predicates.is_empty()
-                                        || predicates.iter().all(|p| *p == Predicate::True) => {}
-                                Ok(_) => return Ok(Err(Rejected::Partial)),
-                                Err(error) => {
-                                    return Ok(Err(
-                                        if matches!(
-                                            error,
-                                            SimplificationError::IterationLimit { .. }
-                                                | SimplificationError::PredicateIterationLimit { .. }
-                                        ) {
-                                            Rejected::Limit
-                                        } else {
-                                            Rejected::Unsupported
-                                        },
-                                    ));
-                                }
-                            }
+                                arguments,
+                            )?
+                        {
+                            return Ok(Err(Rejected::Partial));
                         }
                         pending.extend(arguments.iter().cloned());
                     }

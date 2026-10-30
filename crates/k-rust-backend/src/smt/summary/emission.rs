@@ -369,7 +369,27 @@ fn emit(
     Ok(Ok(true))
 }
 
+/// Admit and emit the finite summaries of the functions a query calls.
+///
+/// Admission reads the definition's ceil conditions as stated
+/// (`crate::definedness::with_stated_ceil_conditions`), as the domain reading does, and decides a
+/// partition test's definedness by builtin hooks alone (`Catalog::check_body`): it applies no
+/// equation of the definition. The query's terms may hold an operand a conditional discards
+/// (`crate::deferred`), and the guards of the functions they call may hold an application whose
+/// evaluation does not end; preparing the query must end whatever the equations do.
 pub(in crate::smt) fn prepare(
+    source: &Source,
+    state: &mut TranslationState,
+    known: &[Predicate],
+    substitution: &Substitution,
+    checked: &[Predicate],
+) -> Stoppable<Result<(), TranslationError>> {
+    crate::definedness::with_stated_ceil_conditions(|| {
+        prepare_stated(source, state, known, substitution, checked)
+    })
+}
+
+fn prepare_stated(
     source: &Source,
     state: &mut TranslationState,
     known: &[Predicate],

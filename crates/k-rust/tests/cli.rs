@@ -5377,11 +5377,14 @@ fn a_discarded_diverging_operand_is_not_evaluated() {
             )],
         );
     }
+    // The map's `\ceil` keeps `loopi()` as a key, which is what makes it entail `\ceil(loopi())`.
     let output = bounded_krun(&leak, "Exp", "mapLoop()", &["-w", "all"]);
     assert_value_under(
         &output,
         one,
-        &["\\ceil{SortMap{}, SortGeneratedTopCell{}}("],
+        &[
+            r#"\ceil{SortMap{}, SortGeneratedTopCell{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(Lblloopi{}())"#,
+        ],
     );
     fs::remove_dir_all(root).unwrap();
 }

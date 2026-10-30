@@ -1,6 +1,7 @@
 //! Admission controls use actual internalized equations, attributes, matching and domain rules.
 
 use super::*;
+use crate::simplify::SimplificationOptions;
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 use k_rust_kore::kore::{ast::Pattern, printer::Printer};
 

@@ -1048,9 +1048,10 @@ thread_local! {
 /// A stated right-hand side is the same condition as its simplified form (simplifying only
 /// refines it, [`simplified_ceil_condition`]), so the analysis states the same definedness; a
 /// `requires` that only simplification would decide leaves the opaque `\ceil`, which is weaker
-/// and still exact. The solver's domain reading runs in this scope (`smt::functional`): preparing
-/// a query reads the query's terms and must not evaluate them, since among them may be an operand
-/// a conditional discards (`crate::deferred`), whose evaluation need not end.
+/// and still exact. The solver's domain reading (`smt::functional`) and the admission of finite
+/// summaries (`smt::summary`) run in this scope: preparing a query reads the query's terms and the
+/// definition's and must not evaluate them, since among them may be an operand a conditional
+/// discards (`crate::deferred`), or a guard of a function it calls, whose evaluation need not end.
 pub(crate) fn with_stated_ceil_conditions<R>(body: impl FnOnce() -> R) -> R {
     struct Restore(bool);
     impl Drop for Restore {

@@ -22,8 +22,10 @@
 //! through its domain reading (`smt::functional`): the stated condition of the ceil equation of
 //! each partial head, never simplified (`definedness::with_stated_ceil_conditions`), the domains
 //! of the strict children, and the finite summaries of pure, non-recursive functions
-//! (`smt::summary`), whose construction is explicitly bounded; where that reading does not reach,
-//! `\ceil(t)` is an opaque atom. It applies no equation to `t`. Each of these steps is bounded by
+//! (`smt::summary`), whose construction is explicitly bounded, reads ceil conditions as stated
+//! and decides a guard's definedness by builtin hooks alone; where that reading does not reach,
+//! `\ceil(t)` is an opaque atom. Preparing the query applies no equation of the definition, to
+//! `t` or to the definition's own terms. Each of these steps is bounded by
 //! the size of the atom's subject, by one selection scan per application, or by the summary
 //! limits, and none repeats on its own result, so deciding an atom terminates whatever the
 //! definition's equations do.
@@ -1103,6 +1105,22 @@ pub(crate) fn fold_hooks_or_keep(
             Folded::Term(term.clone())
         }
     }
+}
+
+/// Whether [`fold_hooks`] of their terms decides every one of `predicates` true
+/// ([`fold_predicate`]), applying no equation of the definition: the `\ceil` of one of `siblings`
+/// counts as holding, so a caller passes only terms whose definedness it establishes otherwise.
+pub(crate) fn hooks_establish(
+    definition: &BackendDefinition,
+    predicates: &[Predicate],
+    siblings: &[Term],
+) -> Stoppable<bool> {
+    for predicate in predicates {
+        if fold_predicate(definition, predicate, siblings)? != Some(true) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// The truth of `predicate`, an instantiated condition, when [`fold_hooks`] of its terms decides
