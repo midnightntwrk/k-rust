@@ -6382,9 +6382,12 @@ deviation = "failed: the instance of `wrap` in `wrap(#token(\"1\",\"Int\"))` is 
 # NT-12-3 (K7): an alias's or a desugar's result root of a sort the production's sort is not above
 # (the production `cTAG(..)` is a `Stmt`, the result `"s"`, `true`, `1.5`, a token, a map, a set or
 # a list): KRS accepts the clause and emits `rule cTAG(..) => "s"`, and a program's expansion of the
-# production is the projection `{"s"}:>Stmt` (`project:Stmt`), which has no value. A static clause
-# says its production's application is its result, which a term of another sort cannot be (an
-# `Int` result, a `Value`, runs as stated): a KRS acceptance gap, for KRS to refuse at the result.
+# production where a `Stmt` stands (the program's root) is the projection `{"s"}:>Stmt`
+# (`project:Stmt`), which has no value; where a `KItem` stands (`hold(cTAG)`) it is `"s"`. A static
+# clause says its production's application is its result, which a term of another sort cannot be
+# wherever the production's sort is required (an `Int` result, a `Value`, runs as stated): a KRS
+# acceptance gap, for KRS to refuse at the result. Probe: `#[k::desugar] Cp() => "s"`, `cp` and
+# `hold(cp)`.
 
 ["k7/notation/alias/result-root-ground/k::builtin::map::empty()"]
 finding = "NT-12-3"

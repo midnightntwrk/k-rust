@@ -39,6 +39,16 @@ from a slot's root, so a case's position is data the oracle reads, never parsed 
   evaluated, built, guard): `terms/sort-rule/result/let-body/Size(x)` is `Size(x)` as a `let`
   block's result in a `for Stmt` clause's result.
 
+Besides the constructs of the product's table, the catalog applies the terms base's two static
+productions, `Cmd::Dz()` (marked `#[k::desugar]`, expanding to `Cmd::Pair(2, 3)`) and `Cmd::Az()`
+(marked `#[k::alias]`, to `Cmd::Pair(4, 5)`), at the matched positions of depth 1 below a subject's
+root (`terms/desugar/subject/Cmd::Dz()`): the construct of NT-8-4 and NT-8 M2. The oracle reads
+their application as the value it expands to (decision NT-14: a static application below a
+desugar's or an alias's subject root expands when the expansion needs no value, as a ground
+one's never does), and `cargo test -p krs-test-support --test k7` names a static production the
+base gains without a spelling. The slot `terms/cells/result-map-framed/..` writes one key under two
+spellings over the map a framed `cells!` subject leaves (`map![x -> 1, (x) -> HOLE, ..rest]`).
+
 A map key reads by its parent (decision D2): a key of a map in a pattern is evaluated, and a
 pattern-only construct there selects an entry by matching the map's evaluated keys while a computed
 one is looked up; a key of a map that is built is built. A position keeps every collection entry it
@@ -54,13 +64,13 @@ on every term case, and a case they disagree on must be pending.
 A refusal of the oracle lies at the spelling, or at the entry (the outer construct's text) when the
 refused construct is the one a depth-2 case's construct stands in.
 
-**Size.** The term family is about 5,000 cases and the import axis 162, of about 5,950 in all, and
+**Size.** The term family is 5,059 cases and the import axis 168, of 6,064 in all, and
 the notation family (`notation/..`: the term family's positions, templates and oracle for the
 collection notation, `m[k]`, `s.contains(x)`, `map![k -> v]` and `set![x]`, and the calls it
 denotes) 2,862. The generator caps
 each shard of the fast tier at `FRONT_CASE_CAP` (6,000), whose documentation argues the fast tier's
-budget (7.5 ms a case single-threaded); the notation family is a shard of its own
-(`FRONT_SHARDS`), one test of `class_front` each. The full tier's `terms` shard takes about 5
+budget (7.5 ms a case single-threaded); the notation family and the term family are shards of
+their own (`FRONT_SHARDS`), one test of `class_front` each. The full tier's `terms` shard takes about 5
 minutes with 22 workers, and its `notation` shard about 3. The term families' accept entries are most of the table, so they live in
 `accepted-terms.toml`, in `expected.toml`'s accept schema and written by the same record mode;
 `expected.toml` keeps the classes, the refusal rules and the other families' accept entries, and
@@ -127,7 +137,69 @@ the descriptors of the base and its own. A case is judged by
   together is judged case by case. Each shard prints how many cases K6 judged, in how many checks,
   and the workers' time they took. `KRS_CLASS_NATIVE=0` skips K6, and `KRS_CLASS_NATIVE=alone`
   judges every case alone, which must give the same verdicts. K6 compiles natively, so the tier
-  links the Z3 release `Krs.lock` pins (`KRS_Z3_LIB`, or the Nix store).
+  links the Z3 release `Krs.lock` pins (`KRS_Z3_LIB`, or the Nix store);
+- K7, once K6 accepts the case: the case runs, and its sentence applies, with the value the
+  generator states. Accepted K is K some command can load; K7 asks whether it does anything, and
+  the right thing: a rule that never applies, a program that cannot be expanded and a built term
+  with another value all look accepted to K1 to K6.
+
+  *Witnesses and values* (`class_matrix::k7`, the spellings in `class_matrix/terms.rs`) are
+  generator data, stated from what each construct denotes, never from what KRS emits or runs,
+  with the templates' binders at fixed values (`x` is 1): a spelling's *witness* is a ground term
+  it matches (`Cmd::Hold(x)` matches `Cmd::Hold(1)`, `_` matches `0`), its *value* what it denotes
+  where it is built (`x + 1` is 2, `map![x -> 1, 2 -> 3]` the map `{1 ↦ 1, 2 ↦ 3}`,
+  `set![x, 1]` the set `{1}`, `k::matches!(x, Cmd::Hold(_))` false). A spelling with none says
+  why (a computed term matches no evaluated term; a pattern builds nothing; `{ let y @
+  Cmd::Hold(_) = x; y }` has no value at `x` = 1), and the openers compose them: the witness of
+  `y @ HOLE` is the hole's, of `set::item(HOLE)` the set of it, the value of `Size(HOLE)` the
+  unevaluated `Size` of the hole's. A disagreement with KRS is a finding, triaged as an oracle or
+  a product bug.
+
+  *Drivers* (`class_matrix/terms/drivers.rs`), one per slot, write the program that applies the
+  case's sentence and state the cells the run ends with. A rule's command is applied to the
+  witness (`Cmd::NAME(x, HOLE)` takes `cNAME(1, w)` and ends with `hold(1)`) or read for its
+  value (`cNAME(1, 0)` ends with `hold(v)`); a condition's value decides whether the rule
+  applies; a map key, a list or cons element and a collection's instance are first set up by the
+  terms base's driver commands (`then(setenv(..), cNAME(1, 0))`), one step each at priority 10,
+  so that no driver rule overlaps a case's; an equation's function is applied from the base's
+  rules `call(a, b) => hold(probe(a, b))` and `sizeof(a) => hold(size(a))`; a context heats the
+  token `word`, which is no `KResult`; a desugar's or an alias's subject is written in the program,
+  which the run's parse expands, and its result read in the expansion; an initializer is read
+  before any step. Values the program grammar cannot write (a map, a set, a list, `$x`,
+  `Wrap::<KItem>(..)`) are written through the base's makers, functions that build exactly them,
+  which a static clause's expansion meets unevaluated, so a witness only a maker writes is no
+  witness for a desugar's or an alias's subject. Claims and simplifications need a prover (L4
+  keeps claims in the fixture gates); a context alias acts only through a production strict in
+  it, which neither the base nor a case declares; a `#[k::function(internal)]` shorthand and a
+  constant have no program syntax and no base sentence can name the case's: these have no driver.
+  `cargo test -p krs-test-support --test k7` lists the spellings without a witness or a value
+  and the slots without a driver, with their reasons, and pins a plan of each driver kind.
+
+  *Running*: where K6's check loads the definition the run commands load (on the `native-rust`
+  route, `krs_cli::CollectedDefinition::check_visiting`), each accepted case's program is
+  configured and run there exactly as `krs run` reads a file (`Semantics::configure`, then
+  `Semantics::run`), on the compile K6 judged, and the run's verdicts are kept when the check
+  passes; a case K6 refuses is not run. The run is bounded by the driver's step count, so a
+  sentence that applies again to what it wrote is observed after its application, and by a time
+  limit per program (`KRS_CLASS_RUN_SECONDS`, 60 by default), enforced by cancelling the
+  backend's request. Each case's command is its own, so only its sentence can take its program;
+  a sentence that holds no command of its own (a subject's root: a context's, an equation's, a
+  simplification's) could take another case's, so where one shares K6's check with other cases,
+  it and the others are run on definitions apart. The final cells are decoded
+  (`StateView::value`) and compared with the plan's terms. A deviation is keyed `k7/<case ID>`:
+  `not applied: N of M steps, then HALT; CELLS`, `applied where it should not`, `failed: ERROR`
+  (the program's parse or expansion, or the run), `time limit: ..`, `no configuration
+  (\bottom)`, or `another value: CELLS, where the plan states CELLS`. Each shard prints how many
+  programs K7 ran, in how much worker time, and what it checked of each case K6 accepted: a
+  stated `value`, `liveness` only (a witness, or a value the generator does not state), or why
+  nothing (`no driver`, `no witness`, `no value`). `KRS_CLASS_RUN=0` skips K7; without K6
+  (`KRS_CLASS_NATIVE=0`) it does not run, and says so.
+
+  K7 runs on K6's compile, so it costs its programs' runs (a few milliseconds each) and the
+  checks apart: on 2026-10-30, 1,489 programs in the `terms` shard took 9.5 s of worker time and 2
+  checks apart 4.1 s, 870 in `notation` 5.2 s, 99 in `import` 0.6 s and 1 check apart 2.2 s; each
+  shard's wall time with and without K7 was within the noise of a loaded host (`terms` 356 s and
+  364 s, `notation` 206 s and 205 s, at 15 workers).
 
 The `k4` shard compares KRS's sort judges with k-rust's subsort relations of each base's emitted
 definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, and those about
@@ -177,7 +249,7 @@ creating its `[accept."ID"]` entry if needed, and keeps `same_k_as`. Review the 
 ## Pending entries
 
 A case that deviates fails the suite until `pending.toml` records it, keyed by the test and the case
-(`readable/result/pc/None` for K2, `k1/..`, `k3/..` and `k6/..` for K1, K3 and K6), with the finding that owns it (`unassigned` while none does) and the
+(`readable/result/pc/None` for K2, `k1/..`, `k3/..`, `k6/..` and `k7/..` for K1, K3, K6 and K7), with the finding that owns it (`unassigned` while none does) and the
 deviation exactly as the harness prints it. `KRS_CLASS_OUT` writes the entries of every unrecorded
 deviation to `<shard>.pending.toml`, with `finding = "unassigned"`, for review. A pending case that
 conforms, or deviates differently, also fails: remove its entry, or record the new deviation.

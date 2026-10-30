@@ -2,8 +2,8 @@
 # The class tests' full tier, gate krs-class (krs/crates/krs-cli/tests/class_matrix.rs): every case
 # that krs_test_support::class_matrix generates, through Cargo, rustc, the collector and emit-k's
 # lowering, judged by the table-free invariants and krs/tests/class-matrix/expected.toml, and each
-# accepted case's definition judged as `krs check` judges it on the native routes (K6), with the
-# known failures in krs/tests/class-matrix/pending.toml.
+# accepted case's definition judged as `krs check` judges it on the native routes (K6) and its
+# program run on that compile (K7), with the known failures in krs/tests/class-matrix/pending.toml.
 set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -24,7 +24,8 @@ and the pending entries of each unrecorded deviation (see the test's documentati
 the K of every accepted case that no refusal rule covers into krs/tests/class-matrix/expected.toml,
 a term family's case (terms/.., import/.., notation/..) into krs/tests/class-matrix/accepted-terms.toml, for
 review as a diff. KRS_CLASS_NATIVE=0 skips K6 and KRS_CLASS_NATIVE=alone judges each accepted case
-alone (KRS_CLASS_CLOSURE=0 skips K3). K6 compiles natively,
+alone (KRS_CLASS_CLOSURE=0 skips K3); KRS_CLASS_RUN=0 skips K7, which runs on K6's compile, and
+KRS_CLASS_RUN_SECONDS is its time limit per program (default 60). K6 compiles natively,
 as \`krs check\` does, so the test links the Z3 release krs/Krs.lock pins, found through KRS_Z3_LIB
 or the Nix store (KRS_NIX_STORE, default /nix/store). Exit status 0
 when every case conforms or is pending as recorded, 1 otherwise, 2 on a usage error.
