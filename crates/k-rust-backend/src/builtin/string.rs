@@ -12,6 +12,7 @@ use super::{
     int_term, read_int,
 };
 use crate::{
+    choice_sampling,
     definition::DomainValueBound,
     externalize,
     term::{
@@ -330,6 +331,14 @@ fn base_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     let Some(base) = read_base(&base) else {
         return Ok(BuiltinResult::Bottom);
     };
+    if let Some(seed) = choice_sampling::seed()
+        && choice_sampling::bit(seed)
+    {
+        // The other letter case, one per model: digits and the sign read the same in both.
+        return Ok(BuiltinResult::Value(string_term(
+            value.to_str_radix(base).to_ascii_uppercase(),
+        )));
+    }
     Ok(BuiltinResult::Value(string_term(value.to_str_radix(base))))
 }
 

@@ -392,6 +392,11 @@ pub(crate) struct ExecutionEvaluationContext {
 }
 
 impl ExecutionEvaluationContext {
+    /// How many bytes of console input are left to read.
+    pub(crate) fn remaining(&self) -> usize {
+        self.state.input.len().saturating_sub(self.state.cursor)
+    }
+
     pub(crate) fn read(&mut self, maximum: usize) -> &[u8] {
         let start = self.state.cursor;
         let end = start.saturating_add(maximum).min(self.state.input.len());

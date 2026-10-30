@@ -35,6 +35,7 @@ use super::{
     values_differ,
 };
 use crate::{
+    choice_sampling,
     matching::SortGraph,
     term::{Items, MapDefinition, Term, TermKind, chunked::Item},
 };
@@ -174,7 +175,13 @@ fn choice(arguments: &[Term]) -> HookResult<BuiltinResult> {
             let (key, _) = entries.get(0).expect("a one-binding map's entry");
             BuiltinResult::Value(key.clone())
         }
-        _ => match ordered_entries(&arguments[0]).and_then(|(_, entries)| entries.first()) {
+        _ => match ordered_entries(&arguments[0]).and_then(|(_, entries)| {
+            if let Some(seed) = choice_sampling::seed() {
+                entries.get(choice_sampling::item(seed, entries.len()))
+            } else {
+                entries.first()
+            }
+        }) {
             Some((key, _)) => BuiltinResult::Value(key.clone()),
             None => BuiltinResult::NotApplicable,
         },
@@ -669,7 +676,15 @@ fn keys_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Opt
     let Some(into) = result.list(None) else {
         return Ok(None);
     };
-    let keys = entries.iter().map(|(key, _)| key.clone()).collect();
+    let keys = if let Some(seed) = choice_sampling::seed()
+        && entries.len() >= 2
+    {
+        choice_sampling::permuted(seed, entries)
+            .map(|(key, _)| key.clone())
+            .collect()
+    } else {
+        entries.iter().map(|(key, _)| key.clone()).collect()
+    };
     Ok(into
         .owned_elements(keys, &definition.key_sort)
         .and_then(|keys| into.build(keys, None)))
@@ -705,7 +720,15 @@ fn values(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Option
     let Some(into) = result.list(None) else {
         return Ok(None);
     };
-    let values = entries.iter().map(|(_, value)| value.clone()).collect();
+    let values = if let Some(seed) = choice_sampling::seed()
+        && entries.len() >= 2
+    {
+        choice_sampling::permuted(seed, entries)
+            .map(|(_, value)| value.clone())
+            .collect()
+    } else {
+        entries.iter().map(|(_, value)| value.clone()).collect()
+    };
     Ok(into
         .owned_elements(values, &definition.value_sort)
         .and_then(|values| into.build(values, None)))

@@ -43,6 +43,7 @@ use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 
 use crate::{
     allowance::Allowance,
+    choice_sampling,
     definition::BackendDefinition,
     evaluation::EvaluationMode,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
@@ -1162,7 +1163,18 @@ fn io_read(
         ));
     };
     // Each byte read is one character, the code point of its value, as for `IO.getc`.
-    let bytes = execution.read(maximum);
+    let bytes = if let Some(seed) = choice_sampling::seed() {
+        // How many of the characters available a read takes is open (class `read-count`): under
+        // a `choice_sampling` seed, a read that would take two or more takes fewer.
+        let available = maximum.min(execution.remaining());
+        if available >= 2 {
+            execution.read(choice_sampling::read_count(seed, available))
+        } else {
+            execution.read(maximum)
+        }
+    } else {
+        execution.read(maximum)
+    };
     Ok(BuiltinResult::Value(inject_result(
         Term::string(console_text(bytes)),
         result_sort,

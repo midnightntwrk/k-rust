@@ -62,6 +62,10 @@ check-normal-forms = []
 # evaluations so that a test can compare the simplifier with and without it. For tests; off in
 # every normal build, where reuse is always on and the switch costs nothing.
 test-switches = []
+# A seeded chooser (`choice_sampling::with_seed`) that makes every site computing an
+# implementation-chosen value take another admitted value, to test that every unmarked run is
+# model-independent. For tests; no shipped crate enables it, and without a seed it changes nothing.
+choice-sampling = []
 # Check the canonical Float text against MPFR (`builtin/float/canonical/mpfr_oracle.rs`). For
 # tests; CI runs it, and no other build links MPFR.
 mpfr-oracle = ["dep:rug"]

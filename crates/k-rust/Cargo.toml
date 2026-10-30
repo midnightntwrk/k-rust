@@ -23,6 +23,10 @@ required-features = ["cli", "measure"]
 name = "generative-compile"
 required-features = ["cli", "generative-harness"]
 
+[[test]]
+name = "choice_sampling"
+required-features = ["choice-sampling"]
+
 [dependencies]
 clap = { workspace = true, optional = true }
 k-rust-backend.workspace = true
@@ -80,6 +84,9 @@ kompile-invariant-checks = []
 # Build the opt-in generative compile harness (`examples/generative-compile.rs`); it only gates
 # that example, so `cargo test` and `cargo clippy --all-targets` skip it unless requested.
 generative-harness = []
+# The backend's seeded chooser of implementation-chosen values (`k-rust-backend` feature
+# `choice-sampling`), for the test `choice_sampling`; no shipped crate enables it.
+choice-sampling = ["k-rust-backend/choice-sampling"]
 measure = ["k-rust-kore/measure", "k-rust-backend/measure", "dep:libc"]
 z3-inference = ["dep:z3", "k-rust-backend/z3"]
 z3-inference-gh-release = [

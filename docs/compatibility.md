@@ -1993,6 +1993,8 @@ A search's set of results and its end carry no other model-invariance guarantee:
 
 The tests are in [implementation_chosen.rs](../crates/k-rust/tests/implementation_chosen.rs), `a_served_read_notes_the_facts_of_its_evaluation` in [deferred.rs](../crates/k-rust-backend/src/deferred.rs) and `a_served_record_notes_the_path_facts_of_its_evaluation_again` in [simplify.rs](../crates/k-rust-backend/src/simplify.rs).
 
+The guarantees rest on every computing site noting its mark, which a test-only chooser checks: under the cargo feature `choice-sampling` of `k-rust-backend` (enabled by no shipped crate), `choice_sampling::with_seed` makes each site compute another value the definition admits (another listing order and item, the other letter case, NaN sign and zero, a shorter read; renamed binders, another association and a binary32 destination are not sampled yet), and every run without a mark must be unchanged ([choice_sampling.rs](../crates/k-rust/tests/choice_sampling.rs) for one probe per class; kink-flow's `choice_sampling` test over kink's corpora).
+
 ## ECDSA recovery on invalid input
 
 `KRYPTO.ecdsaRecover` and `SECP256K1.ecdsaRecover`, k-rust's name for it ([Cryptographic hooks](#cryptographic-hooks)), share one evaluator in [krypto.rs](../crates/k-rust-backend/src/builtin/krypto.rs).

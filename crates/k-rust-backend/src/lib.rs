@@ -11,6 +11,7 @@ mod verify;
 
 pub mod allowance;
 pub mod builtin;
+pub mod choice_sampling;
 pub mod claim;
 pub mod condition;
 pub mod confluence;

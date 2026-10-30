@@ -11,7 +11,10 @@ use super::{
     BuiltinError, BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity,
     int_term, read_int,
 };
-use crate::term::{DomainKind, Sort, Term, TermKind};
+use crate::{
+    choice_sampling,
+    term::{DomainKind, Sort, Term, TermKind},
+};
 
 mod canonical;
 mod root;
@@ -593,11 +596,29 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
         ),
         // Rounding to nearest never changes a sign (a negative literal that underflows is -0),
         // and the only NaN literal is `NaN`, without a sign.
+        // Under a `choice_sampling` seed, a NaN's sign bit, which the definition leaves open
+        // (`nan_sign`), is the one the seed chooses.
         "FLOAT.sign" => from_token(
             hook,
             arguments,
-            |value| bool_term(value.is_sign_negative()),
-            |body, _| bool_term(body.starts_with('-')),
+            |value| {
+                if let Some(seed) = choice_sampling::seed()
+                    && value.is_nan()
+                {
+                    bool_term(choice_sampling::bit(seed))
+                } else {
+                    bool_term(value.is_sign_negative())
+                }
+            },
+            |body, _| {
+                if let Some(seed) = choice_sampling::seed()
+                    && body == "NaN"
+                {
+                    bool_term(choice_sampling::bit(seed))
+                } else {
+                    bool_term(body.starts_with('-'))
+                }
+            },
         ),
         "FLOAT.isNaN" => from_token(
             hook,
@@ -1040,7 +1061,14 @@ fn minimum_f32(left: f32, right: f32) -> f32 {
     } else if right < left {
         right
     } else if left == 0.0 && (left.is_sign_negative() || right.is_sign_negative()) {
-        -0.0
+        if let Some(seed) = choice_sampling::seed()
+            && left.is_sign_negative() != right.is_sign_negative()
+            && choice_sampling::bit(seed)
+        {
+            0.0
+        } else {
+            -0.0
+        }
     } else {
         left
     }
@@ -1054,7 +1082,14 @@ fn maximum_f32(left: f32, right: f32) -> f32 {
     } else if right > left {
         right
     } else if left == 0.0 && (!left.is_sign_negative() || !right.is_sign_negative()) {
-        0.0
+        if let Some(seed) = choice_sampling::seed()
+            && left.is_sign_negative() != right.is_sign_negative()
+            && choice_sampling::bit(seed)
+        {
+            -0.0
+        } else {
+            0.0
+        }
     } else {
         left
     }
@@ -1068,7 +1103,14 @@ fn minimum_f64(left: f64, right: f64) -> f64 {
     } else if right < left {
         right
     } else if left == 0.0 && (left.is_sign_negative() || right.is_sign_negative()) {
-        -0.0
+        if let Some(seed) = choice_sampling::seed()
+            && left.is_sign_negative() != right.is_sign_negative()
+            && choice_sampling::bit(seed)
+        {
+            0.0
+        } else {
+            -0.0
+        }
     } else {
         left
     }
@@ -1082,7 +1124,14 @@ fn maximum_f64(left: f64, right: f64) -> f64 {
     } else if right > left {
         right
     } else if left == 0.0 && (!left.is_sign_negative() || !right.is_sign_negative()) {
-        0.0
+        if let Some(seed) = choice_sampling::seed()
+            && left.is_sign_negative() != right.is_sign_negative()
+            && choice_sampling::bit(seed)
+        {
+            -0.0
+        } else {
+            0.0
+        }
     } else {
         left
     }

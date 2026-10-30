@@ -28,6 +28,7 @@ use super::{
     expect_arity, int_term, values_differ,
 };
 use crate::{
+    choice_sampling,
     matching::SortGraph,
     term::{Items, SetDefinition, Term, TermKind},
 };
@@ -100,7 +101,13 @@ fn choice(arguments: &[Term]) -> HookResult<BuiltinResult> {
                 .expect("a one-element set's element")
                 .clone(),
         ),
-        _ => match concrete_set(&arguments[0]).and_then(|(_, elements)| elements.first()) {
+        _ => match concrete_set(&arguments[0]).and_then(|(_, elements)| {
+            if let Some(seed) = choice_sampling::seed() {
+                elements.get(choice_sampling::item(seed, elements.len()))
+            } else {
+                elements.first()
+            }
+        }) {
             Some(element) => BuiltinResult::Value(element.clone()),
             None => BuiltinResult::NotApplicable,
         },
@@ -328,6 +335,16 @@ fn to_list(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Optio
     let Some(into) = result.list(None) else {
         return Ok(None);
     };
+    if let Some(seed) = choice_sampling::seed()
+        && elements.len() >= 2
+    {
+        return Ok(into
+            .elements(
+                choice_sampling::permuted(seed, elements),
+                &definition.element_sort,
+            )
+            .and_then(|elements| into.build(elements, None)));
+    }
     Ok(into
         .elements(elements, &definition.element_sort)
         .and_then(|elements| into.build(elements, None)))
