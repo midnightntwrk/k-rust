@@ -514,6 +514,12 @@ pub(crate) fn impure_outcome(
         .map(|impure| DeferredOutcome::new(&impure, IMPURE_UNDER_OBLIGATION))
 }
 
+/// Whether `term` holds an impure application, without noting it anywhere: unlike
+/// [`impure_outcome`], which builds the outcome a step reports and notes it in the run record.
+pub(crate) fn holds_impure_application(definition: &BackendDefinition, term: &Term) -> bool {
+    impure_subterm(definition, term).is_some()
+}
+
 /// The first impure application in `term`, if any.
 fn impure_subterm(definition: &BackendDefinition, term: &Term) -> Option<Term> {
     let mut pending = vec![term];

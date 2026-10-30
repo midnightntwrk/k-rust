@@ -344,3 +344,82 @@ fn the_cases_are_hooks_without_an_evaluator_and_hold_every_console_operation() {
         );
     }
 }
+
+/// R1-SIMPLE: the converse. A definition whose rules project the result of an effect over a
+/// rule variable, as the prelude's stream rules do (`{#getc(N)}:>Int` and
+/// `{#write(N, S) ~> N}:>Int`), has no entry on the list of a run that never applies those
+/// rules: nothing needed the effects' values. The load's discharge of rewrite-rule definedness
+/// reads such a right-hand side over the rule's variables; the projection's ceil equation
+/// instantiated at the effect's application would state a predicate over the effect's result,
+/// which only performing the effect decides, and simplifying it met the application unevaluated
+/// at load, listing `IO.getc` and `IO.write` on every run. A run that applies the rule on a
+/// constructor-like argument needs the value, and lists the hook as met by the run.
+#[test]
+fn an_effect_under_a_projection_in_a_rule_no_run_applies_is_on_no_run_list() {
+    let source = r#"module MAIN
+  imports DOMAINS
+  imports K-IO
+  syntax Pgm ::= go(Int) | get(Int) | put(Int, String)
+  configuration <k> $PGM:Pgm </k> <r> 0 </r>
+  rule <k> go(N) => .K ... </k> <r> _ => N </r>
+  rule <k> get(N) => .K ... </k> <r> _ => {#getc(N)}:>Int </r>
+  rule <k> put(N, S) => .K ... </k> <r> _ => {#write(N, S) ~> N}:>Int </r>
+endmodule
+"#;
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("main.k", source.to_owned()),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..CompilationBackend::Rust.load_options()
+        },
+    )
+    .unwrap_or_else(|error| panic!("load: {error}"));
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("compile: {error}"));
+    let frontend = loaded.into_definition();
+    let grammar = ProgramGrammar::new(&frontend).unwrap();
+    let mut backend = Backend::new(
+        &artifacts.definition_kore,
+        "MAIN",
+        BackendOptions::default(),
+    )
+    .unwrap();
+    for (program, listed) in [("go(1)", None), ("get(0)", Some("IO.getc"))] {
+        let mut assembler = ConfigurationAssembler::new(
+            &grammar,
+            "MAIN",
+            "MAIN",
+            &artifacts.configuration_variables,
+        );
+        assembler.program(&Sort::new("Pgm"), program).unwrap();
+        let result = backend
+            .execute(ExecuteRequest {
+                strategy: ExecutionStrategy::All,
+                ..ExecuteRequest::new(assembler.finish().unwrap())
+            })
+            .unwrap_or_else(|error| panic!("{program}: {error}"));
+        let entries = result
+            .unsupported_hooks
+            .iter()
+            .map(|entry| {
+                (
+                    entry.hook.clone(),
+                    serde_json::to_value(entry.observed_in).unwrap().to_string(),
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            entries,
+            listed
+                .map(|hook| (hook.to_owned(), r#""run""#.to_owned()))
+                .into_iter()
+                .collect(),
+            "{program}"
+        );
+    }
+}

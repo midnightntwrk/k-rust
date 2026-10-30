@@ -1289,6 +1289,20 @@ fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<
                 let Instance::Usable(substitution) = instance else {
                     continue;
                 };
+                // A binding that holds an effect (`impure`, or an `IO` operation) is the result
+                // of performing it, which no predicate over the instance states: the condition
+                // would be a predicate over a value only the effect's performance gives, as
+                // `\ceil(project:Int(#getc(N)))` would become `\exists V. #getc(N) = inj(V)`.
+                // The ceil of such an application stays its own atom, as for an operand that
+                // is not evaluated (`crate::deferred`, `IMPURE_UNDER_OBLIGATION`); simplifying
+                // the condition would also meet the effect's application unevaluated where no
+                // run needs its value (the load's discharge of a rule's right-hand side).
+                if substitution
+                    .values()
+                    .any(|value| crate::deferred::holds_impure_application(definition, value))
+                {
+                    continue;
+                }
                 #[expect(
                     clippy::disallowed_methods,
                     reason = "the right-hand side of an unconditional ceil equation's usable instance; ceil_term_node states the definedness of the arguments, which implies that of every binding the instance's checks let through"
