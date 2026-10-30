@@ -4,6 +4,7 @@ import KPrelude.Ext
 import KPrelude.HookLaws
 import KPrelude.EqBase
 import KPrelude.FamilyCases
+import KPrelude.EqnAttr
 
 /-!
 # Tactics used by generated proofs

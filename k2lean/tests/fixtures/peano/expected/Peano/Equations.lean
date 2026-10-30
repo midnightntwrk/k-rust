@@ -18,6 +18,7 @@ namespace Peano
 open KPrelude
 
 /-- _|Set__SET_Set_Set_Set equation 1 -/
+@[k2l_equation]
 theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet)
     (hwf0 : KPrelude.SetHook.WF S1)
     (hwf1 : KPrelude.SetHook.WF S2) :
@@ -30,6 +31,7 @@ theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet)
   | (k2l_eqn_c [])
 
 /-- double(_)_PEANO_Nat_Nat equation 1 -/
+@[k2l_equation]
 theorem Eqn.«double(_)_PEANO_Nat_Nat_1» (N : SortNat) :
     K.«double(_)_PEANO_Nat_Nat» N = (Option.bind (K.«plus(_,_)_PEANO_Nat_Nat_Nat» N N) fun r => some r) := by
   intros
@@ -41,30 +43,35 @@ theorem Eqn.«double(_)_PEANO_Nat_Nat_1» (N : SortNat) :
   | (unfold K.«double(_)_PEANO_Nat_Nat» K.«double(_)_PEANO_Nat_Nat».rule1; k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
 
 /-- even(_)_PEANO_B_Nat equation 1 -/
+@[k2l_equation]
 theorem Eqn.«even(_)_PEANO_B_Nat_1» :
     K.«even(_)_PEANO_B_Nat» SortNat.z = some SortB.tt := by
   intros
   k2l_eqn_r K.«even(_)_PEANO_B_Nat» []
 
 /-- even(_)_PEANO_B_Nat equation 2 -/
+@[k2l_equation]
 theorem Eqn.«even(_)_PEANO_B_Nat_2» (N : SortNat) :
     K.«even(_)_PEANO_B_Nat» (SortNat.«s(_)» N) = (Option.bind (K.«odd(_)_PEANO_B_Nat» N) fun r => some r) := by
   intros
   k2l_eqn_r K.«even(_)_PEANO_B_Nat» []
 
 /-- odd(_)_PEANO_B_Nat equation 1 -/
+@[k2l_equation]
 theorem Eqn.«odd(_)_PEANO_B_Nat_1» :
     K.«odd(_)_PEANO_B_Nat» SortNat.z = some SortB.ff := by
   intros
   k2l_eqn_r K.«odd(_)_PEANO_B_Nat» []
 
 /-- odd(_)_PEANO_B_Nat equation 2 -/
+@[k2l_equation]
 theorem Eqn.«odd(_)_PEANO_B_Nat_2» (N : SortNat) :
     K.«odd(_)_PEANO_B_Nat» (SortNat.«s(_)» N) = (Option.bind (K.«even(_)_PEANO_B_Nat» N) fun r => some r) := by
   intros
   k2l_eqn_r K.«odd(_)_PEANO_B_Nat» []
 
 /-- pick(_,_)_PEANO_Nat_B_Nat equation 1 -/
+@[k2l_equation]
 theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_1» (N : SortNat) :
     K.«pick(_,_)_PEANO_Nat_B_Nat» SortB.tt N = (Option.bind (K.«double(_)_PEANO_Nat_Nat» N) fun r => some r) := by
   intros
@@ -76,6 +83,7 @@ theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_1» (N : SortNat) :
   | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
 
 /-- pick(_,_)_PEANO_Nat_B_Nat equation 2 -/
+@[k2l_equation]
 theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_2» (Gen0 : SortB) (N : SortNat)
     (howise0 : ∀ (o0_N : SortNat), Gen0 = SortB.tt → N = o0_N → False) :
     K.«pick(_,_)_PEANO_Nat_B_Nat» Gen0 N = some N := by
@@ -89,18 +97,21 @@ theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_2» (Gen0 : SortB) (N : SortNat)
   | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_o [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
 
 /-- plus(_,_)_PEANO_Nat_Nat_Nat equation 1 -/
+@[k2l_equation]
 theorem Eqn.«plus(_,_)_PEANO_Nat_Nat_Nat_1» (M : SortNat) :
     K.«plus(_,_)_PEANO_Nat_Nat_Nat» SortNat.z M = some M := by
   intros
   k2l_eqn_r K.«plus(_,_)_PEANO_Nat_Nat_Nat» []
 
 /-- plus(_,_)_PEANO_Nat_Nat_Nat equation 2 -/
+@[k2l_equation]
 theorem Eqn.«plus(_,_)_PEANO_Nat_Nat_Nat_2» (M : SortNat) (N : SortNat) :
     K.«plus(_,_)_PEANO_Nat_Nat_Nat» (SortNat.«s(_)» N) M = (Option.bind (K.«plus(_,_)_PEANO_Nat_Nat_Nat» N M) fun r => some (SortNat.«s(_)» r)) := by
   intros
   k2l_eqn_r K.«plus(_,_)_PEANO_Nat_Nat_Nat» []
 
 /-- pushList equation 1 -/
+@[k2l_equation]
 theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
     KPrelude.ListHook.push K_1 L1 = KPrelude.ListHook.concat (KPrelude.ListHook.element K_1) L1 := by
   intros

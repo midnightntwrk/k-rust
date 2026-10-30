@@ -170,11 +170,14 @@ fn module_files(file: &std::path::Path) -> Vec<(PathBuf, String)> {
 
 /// The theorem of `lines` (a generated file) that an error at line `line` (1-based) is in: the
 /// last `theorem` line at or before it, unless the error is on the lines that open a declaration
-/// before its `theorem` keyword (its doc comment, a `set_option … in`), where Lean reports an
+/// before its `theorem` keyword (its doc comment, an attribute, a `set_option … in`), where Lean reports an
 /// error of the whole declaration, such as a proof out of heartbeats; then the theorem they open.
 fn failed_theorem(lines: &[&str], line: usize) -> Option<String> {
-    let opens =
-        |l: &str| l.starts_with("/--") || (l.starts_with("set_option ") && l.ends_with(" in"));
+    let opens = |l: &str| {
+        l.starts_with("/--")
+            || l.starts_with("@[")
+            || (l.starts_with("set_option ") && l.ends_with(" in"))
+    };
     let mut i = line.checked_sub(1)?;
     if lines.get(i).is_some_and(|l| opens(l)) {
         while lines.get(i).is_some_and(|l| opens(l)) {
@@ -1470,7 +1473,7 @@ mod tests {
     /// theorem's before it.
     #[test]
     fn failed_theorem_at_declaration_start() {
-        let text = "/-- a -/\ntheorem Eqn.a_1 :\n    1 = 1 := by\n  rfl\n\nset_option maxHeartbeats 400000 in\n/-- b -/\ntheorem Eqn.b_1 :\n    1 = 1 := by\n  rfl\n";
+        let text = "/-- a -/\ntheorem Eqn.a_1 :\n    1 = 1 := by\n  rfl\n\nset_option maxHeartbeats 400000 in\n/-- b -/\n@[k2l_equation]\ntheorem Eqn.b_1 :\n    1 = 1 := by\n  rfl\n";
         let lines: Vec<&str> = text.lines().collect();
         let at = |n| failed_theorem(&lines, n);
         assert_eq!(at(1).as_deref(), Some("Eqn.a_1"));
@@ -1478,7 +1481,8 @@ mod tests {
         assert_eq!(at(5).as_deref(), Some("Eqn.a_1"));
         assert_eq!(at(6).as_deref(), Some("Eqn.b_1"));
         assert_eq!(at(7).as_deref(), Some("Eqn.b_1"));
-        assert_eq!(at(10).as_deref(), Some("Eqn.b_1"));
+        assert_eq!(at(8).as_deref(), Some("Eqn.b_1"));
+        assert_eq!(at(11).as_deref(), Some("Eqn.b_1"));
     }
 
     /// An `Equations.lean` written in parts: the errors of each part name its theorems, and an

@@ -9,6 +9,7 @@ import KPrelude.Hooks
 import KPrelude.Coll
 import KPrelude.InvColl
 import KPrelude.FamilyCases
+import KPrelude.Tactic
 
 /-!
 # Symbolic execution tactics for generated claims
@@ -298,7 +299,10 @@ def whnfDOpen (e : Expr) : MetaM Expr := do
 /-- Assign metavariables by matching constructor structure; leaves are left for the closing
 tactic. `false` when the two sides cannot be made equal by arithmetic at the leaves: different
 constructors, or a non-leaf position where a side is neither a constructor application nor a
-metavariable (a variable of the claim against a constructor, say). -/
+metavariable (a variable of the claim against a constructor, say). A function's value that does
+not reduce (its arguments symbolic: `expectedOperand (x / 8 % 8)`) against a value without
+metavariables is a leaf too, which the closing tactic may prove from the facts (`kc_index_split`
+compares two tables at a symbolic index). -/
 partial def structUnify (a b : Expr) : MetaM Bool := do
   let a ← instantiateMVars a
   let b ← instantiateMVars b
@@ -308,9 +312,14 @@ partial def structUnify (a b : Expr) : MetaM Bool := do
   if ← isLeafType (← inferType a) then return true
   let a' ← whnfDOpen a
   let b' ← whnfDOpen b
+  let env ← getEnv
+  let ctor (e : Expr) : Bool := match e.getAppFn with
+    | .const n _ => (env.find? n matches some (.ctorInfo _))
+    | _ => false
+  let call (e : Expr) : Bool := e.getAppFn.isConst && !ctor e
   match a'.getAppFn, b'.getAppFn with
   | .const na _, .const nb _ =>
-    match (← getEnv).find? na, (← getEnv).find? nb with
+    match env.find? na, env.find? nb with
     | some (.ctorInfo ci), some (.ctorInfo _) =>
       if na != nb then return false
       let xs := a'.getAppArgs
@@ -319,8 +328,8 @@ partial def structUnify (a b : Expr) : MetaM Bool := do
       for i in [ci.numParams:xs.size] do
         unless ← structUnify xs[i]! ys[i]! do return false
       return true
-    | _, _ => return false
-  | _, _ => return false
+    | _, _ => return (call a' || call b') && !a.hasExprMVar && !b.hasExprMVar
+  | _, _ => return (call a' || call b') && !a.hasExprMVar && !b.hasExprMVar
 
 /-- Close goals `gs` with `closer`, in order; `false` (and nothing assigned) if one fails. -/
 def closeAll (closer : TSyntax `tactic) (gs : Array MVarId) : TacticM Bool := do
@@ -341,7 +350,9 @@ def closeAll (closer : TSyntax `tactic) (gs : Array MVarId) : TacticM Bool := do
 
 /-- A witness's equation `f args = some ?x` with `args` known, solved by the value it names: a
 hypothesis with the same left-hand side (a partial function has one value), or, where `args`
-are closed, the evaluation of `f args`. `false` when neither gives it (nothing assigned). -/
+are closed, the evaluation of `f args`, or, for a hook (`KPrelude.…`, whose definedness its
+literal arguments decide: `tdiv x 8`), its value at symbolic arguments. `false` when none gives
+it (nothing assigned). -/
 def solveWitness (g : MVarId) : MetaM Bool := g.withContext do
   let t ← instantiateMVars (← g.getType)
   let some (_, a, b) := t.eq? | return false
@@ -355,7 +366,17 @@ def solveWitness (g : MVarId) : MetaM Bool := g.withContext do
       g.assign d.toExpr
       return true
     s.restore
-  if a.hasFVar then return false
+  if a.hasFVar then
+    let .const f _ := a.getAppFn | return false
+    unless (`KPrelude).isPrefixOf f do return false
+    let v ← whnfD a
+    unless v.isAppOfArity ``Option.some 2 do return false
+    let s ← saveState
+    if ← isDefEq b v then
+      g.assign (← mkEqRefl a)
+      return true
+    s.restore
+    return false
   let s ← saveState
   if ← isDefEq a b then
     g.assign (← mkEqRefl a)
@@ -709,6 +730,46 @@ def lookupNoneContra (g : MVarId) (h : LocalDecl) (a b : Expr) : MetaM Bool := g
   g.assign (← mkNoConfusion (← g.getType) e)
   return true
 
+/-- `h : f args = v` where `f args` does not reduce (its arguments symbolic): `h` rewritten with a
+proved equation of `f` (`@[k2l_equation]`) whose premises follow from the facts (`k2l_arith_omega`,
+after the premises' own binders), as K evaluates a function by the equation whose `requires`
+holds; its right-hand side then opens like any other value. An equation whose right-hand side
+applies `f` again is not used, so that the opening ends. `none` when no equation applies. -/
+def byEquation (g : MVarId) (h : LocalDecl) (a : Expr) : TacticM (Option MVarId) := g.withContext do
+  let .const f _ := a.getAppFn | return none
+  let goals ← getGoals
+  try byEquationCore g h a f finally setGoals goals
+
+where
+  byEquationCore (g : MVarId) (h : LocalDecl) (a : Expr) (f : Name) : TacticM (Option MVarId) := do
+  for thm in KPrelude.equationsOf (← getEnv) f do
+    let s ← saveState
+    let r ← observing? do
+      let c ← mkConstWithFreshMVarLevels thm
+      let (ms, _, ty) ← forallMetaTelescopeReducing (← inferType c)
+      let some (_, lhs, rhs) := ty.eq? | failure
+      if (rhs.find? (·.isConstOf f)).isSome then failure
+      unless ← isDefEq lhs a do failure
+      for m in ms do
+        if ← m.mvarId!.isAssigned then continue
+        -- a premise; a value the left-hand side does not determine is no use
+        unless ← isProp (← inferType m) do failure
+        setGoals [m.mvarId!]
+        evalTactic (← `(tactic| (intros; k2l_arith_omega)))
+        unless (← getUnsolvedGoals).isEmpty do failure
+      return ← instantiateMVars (mkAppN c ms)
+    match r with
+    | some eqn =>
+      if eqn.hasExprMVar then s.restore; continue
+      -- `h' : rhs = v`
+      let h' ← mkEqTrans (← mkEqSymm eqn) h.toExpr
+      let g' ← g.assert h.userName (← inferType h') h'
+      let g' ← g'.tryClear h.fvarId
+      let (_, g'') ← g'.intro1P
+      return some g''
+    | none => s.restore
+  return none
+
 /-- One opening step on some hypothesis of `g`: `∃` and `∧` are destructured, an equation with
 a variable side is substituted, an equation `f … = some x` is evaluated by `cases`, a Boolean
 condition is simplified to a proposition. `none` if no hypothesis needs it. -/
@@ -751,6 +812,19 @@ def openStep (g : MVarId) (tried : Array FVarId) : TacticM (Option (List MVarId 
           let subs ← g.cases ldecl.fvarId
           return some (subs.toList.map (·.mvarId), tried)
         catch _ => pure ()
+      -- a value bound by a partial call, `(g x).bind k = some v`: the call has a value `y`, and
+      -- `k y = some v` (an equation's right-hand side, below)
+      let ai ← instantiateMVars a
+      if ai.isAppOf ``Option.bind && b.isAppOfArity ``Option.some 2 then
+        let hs ← Term.exprToSyntax ldecl.toExpr
+        let pf ← Term.elabTerm (← `(Option.bind_eq_some_iff.mp $hs)) none
+        Term.synthesizeSyntheticMVarsNoPostponing
+        let pf ← instantiateMVars pf
+        let g' ← g.assert ldecl.userName (← inferType pf) pf
+        let g' ← g'.tryClear ldecl.fvarId
+        let (_, g'') ← g'.intro1P
+        return some ([g''], tried)
+      if let some g' ← byEquation g ldecl ai then return some ([g'], tried)
       return some ([g], tried.push ldecl.fvarId)
     | _ =>
       if let some gs ← memStep g ldecl then return some (gs, tried)
@@ -1458,6 +1532,55 @@ elab "kc_assumption" : tactic => liftMetaFinishingTactic fun g => g.withContext 
       return
   throwError "kc_assumption: no hypothesis"
 
+/-- `kc_index_split`: close the goal by cases on a table's index, a remainder `e % c` by a literal
+`c` of at most 64 (a field of bits, `x / 8 % 8`), into its `c` values, each case closed by
+evaluation (`simp_all`), splitting another index where one remains: two tables compared at a
+symbolic index agree where they agree at each of its values. The remainders are first written as
+`%` and `/` (`tmod`/`tdiv` of nonnegative values, shifts by literals). Fails, with nothing
+changed, unless every case closes. -/
+partial def indexSplit (fuel : Nat) : TacticM Unit := do
+  let s ← saveState
+  try
+    evalTactic (← `(tactic| (simp_all [kc_simp]; done)))
+    return
+  catch _ => s.restore
+  if fuel == 0 then throwError "kc_index_split: no case split closes the goal"
+  let g ← getMainGoal
+  let some (t, c) ← g.withContext do
+      -- the remainders by a small literal, at `Int` (or a sort abbreviation of it)
+      let cands ← IO.mkRef (#[] : Array Expr)
+      for e in #[← g.getType] ++ (← getLCtx).decls.toArray.filterMap (fun d? => d?.bind fun d =>
+          if d.isImplementationDetail then none else some d.type) do
+        (← instantiateMVars e).forEach fun x => do
+          if x.isAppOfArity ``HMod.hMod 6 && !x.hasLooseBVars
+              && (x.getArg! 5).int?.any (fun c => 2 ≤ c && c ≤ 64) && (x.getArg! 4).int?.isNone then
+            cands.modify (·.push x)
+      for x in ← cands.get do
+        if (← whnfR (x.getArg! 0)).isConstOf ``Int then
+          return some (x, ((x.getArg! 5).int?.getD 0).toNat)
+      return none
+    | throwError "kc_index_split: no index"
+  let ts ← g.withContext <| Term.exprToSyntax t
+  let hk := mkIdent `hidx
+  for k in [0:c] do
+    let ks := Syntax.mkNumLit (toString k)
+    evalTactic (← `(tactic| by_cases $hk:ident : $ts = $ks))
+    let pos :: neg :: _ ← getGoals | throwError "kc_index_split: by_cases"
+    setGoals [pos]
+    evalTactic (← `(tactic| simp only [$hk:ident] at *))
+    indexSplit (fuel - 1)
+    setGoals [neg]
+  evalTactic (← `(tactic| k2l_int_omega))
+
+elab "kc_index_split" : tactic => do
+  let s ← saveState
+  try
+    evalTactic (← `(tactic| try simp (disch := k2l_int_omega) only [Int.tdiv_eq_ediv_of_nonneg,
+      Int.tmod_eq_emod_of_nonneg, Int.shiftRight_eq_div_pow, Int.reduceToNat, Int.reducePow,
+      Nat.reducePow, Int.reduceNatCast, Nat.ToInt.natCast_ofNat, Int.cast_ofNat_Int, Int.ediv_one] at *))
+    indexSplit 3
+  catch e => s.restore; throw e
+
 /-- The default closing tactic for target, map, arithmetic and `ensures` goals. -/
 macro "kc_close" : tactic => `(tactic| first
   | kc_assumption
@@ -1467,7 +1590,8 @@ macro "kc_close" : tactic => `(tactic| first
   | (kc_norm; simp only [kc_simp, Option.some.injEq, reduceCtorEq] at *; done)
   | (kc_norm; simp [kc_simp] at * <;> omega)
   | (kc_norm; simp_all [kc_simp]; done)
-  | (kc_norm; simp [kc_simp] at *; grind [Int.tdiv_eq_ediv_of_nonneg, Int.mul_nonneg]))
+  | (kc_norm; simp [kc_simp] at *; grind [Int.tdiv_eq_ediv_of_nonneg, Int.mul_nonneg])
+  | (kc_norm; kc_index_split))
 
 syntax kcCircs := &" circ " "[" ident,* "]"
 syntax kcLemmas := " using " "[" term,* "]"

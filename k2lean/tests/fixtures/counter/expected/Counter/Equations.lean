@@ -18,6 +18,7 @@ namespace Counter
 open KPrelude
 
 /-- _andBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._andBool__1 (B : SortBool) :
     KPrelude.BoolHook.and true B = B := by
   intros
@@ -28,6 +29,7 @@ theorem Eqn._andBool__1 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _andBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._andBool__2 (Gen0 : SortBool) :
     KPrelude.BoolHook.and false Gen0 = false := by
   intros
@@ -38,6 +40,7 @@ theorem Eqn._andBool__2 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _andThenBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._andThenBool__1 (K_1 : SortBool) :
     KPrelude.BoolHook.and true K_1 = K_1 := by
   intros
@@ -48,6 +51,7 @@ theorem Eqn._andThenBool__1 (K_1 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _andThenBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._andThenBool__2 (Gen0 : SortBool) :
     KPrelude.BoolHook.and false Gen0 = false := by
   intros
@@ -58,6 +62,7 @@ theorem Eqn._andThenBool__2 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _divInt_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._divInt__1 (I1 : SortInt) (I2 : SortInt)
     (hreq0 : KPrelude.IntHook.ne I2 (0 : Int) = true) :
     KPrelude.IntHook.ediv I1 I2 = (Option.bind (KPrelude.IntHook.emod I1 I2) fun r => (Option.bind (KPrelude.IntHook.tdiv (KPrelude.IntHook.sub I1 r) I2) fun r_1 => some r_1)) := by
@@ -69,6 +74,7 @@ theorem Eqn._divInt__1 (I1 : SortInt) (I2 : SortInt)
   | (k2l_eqn_c [])
 
 /-- _impliesBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._impliesBool__1 (B : SortBool) :
     KPrelude.BoolHook.implies true B = B := by
   intros
@@ -79,6 +85,7 @@ theorem Eqn._impliesBool__1 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _impliesBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._impliesBool__2 (Gen0 : SortBool) :
     KPrelude.BoolHook.implies false Gen0 = true := by
   intros
@@ -89,6 +96,7 @@ theorem Eqn._impliesBool__2 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _orBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._orBool__1 (Gen0 : SortBool) :
     KPrelude.BoolHook.or true Gen0 = true := by
   intros
@@ -99,6 +107,7 @@ theorem Eqn._orBool__1 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _orBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._orBool__2 (B : SortBool) :
     KPrelude.BoolHook.or false B = B := by
   intros
@@ -109,6 +118,7 @@ theorem Eqn._orBool__2 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _orElseBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._orElseBool__1 (Gen0 : SortBool) :
     KPrelude.BoolHook.or true Gen0 = true := by
   intros
@@ -119,6 +129,7 @@ theorem Eqn._orElseBool__1 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _orElseBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._orElseBool__2 (K_1 : SortBool) :
     KPrelude.BoolHook.or false K_1 = K_1 := by
   intros
@@ -129,6 +140,7 @@ theorem Eqn._orElseBool__2 (K_1 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _xorBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._xorBool__1 (B : SortBool) :
     KPrelude.BoolHook.xor false B = B := by
   intros
@@ -139,6 +151,7 @@ theorem Eqn._xorBool__1 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _xorBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._xorBool__2 (B : SortBool) :
     KPrelude.BoolHook.xor B B = false := by
   intros
@@ -149,6 +162,7 @@ theorem Eqn._xorBool__2 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _=/=Bool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn.«_=/=Bool__1» (B1 : SortBool) (B2 : SortBool) :
     KPrelude.BoolHook.ne B1 B2 = KPrelude.BoolHook.not (KPrelude.BoolHook.eq B1 B2) := by
   intros
@@ -159,6 +173,7 @@ theorem Eqn.«_=/=Bool__1» (B1 : SortBool) (B2 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _=/=Int_ equation 1 -/
+@[k2l_equation]
 theorem Eqn.«_=/=Int__1» (I1 : SortInt) (I2 : SortInt) :
     KPrelude.IntHook.ne I1 I2 = KPrelude.BoolHook.not (KPrelude.IntHook.eq I1 I2) := by
   intros
@@ -169,6 +184,7 @@ theorem Eqn.«_=/=Int__1» (I1 : SortInt) (I2 : SortInt) :
   | (k2l_eqn_c [])
 
 /-- _=/=K_ equation 1 -/
+@[k2l_equation]
 theorem Eqn.«_=/=K__1» (K1 : SortK) (K2 : SortK) :
     KPrelude.KEqHook.ne K1 K2 = KPrelude.BoolHook.not (KPrelude.KEqHook.eq K1 K2) := by
   intros
@@ -179,6 +195,7 @@ theorem Eqn.«_=/=K__1» (K1 : SortK) (K2 : SortK) :
   | (k2l_eqn_c [])
 
 /-- _|Set__SET_Set_Set_Set equation 1 -/
+@[k2l_equation]
 theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet)
     (hwf0 : KPrelude.SetHook.WF S1)
     (hwf1 : KPrelude.SetHook.WF S2) :
@@ -191,6 +208,7 @@ theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet)
   | (k2l_eqn_c [])
 
 /-- bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int equation 1 -/
+@[k2l_equation]
 theorem Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (IDX : SortInt) (LEN : SortInt) :
     KPrelude.IntHook.bitRange I IDX LEN = (Option.bind (KPrelude.IntHook.shr I IDX) fun r => (Option.bind (KPrelude.IntHook.shl (1 : Int) LEN) fun r_1 => (Option.bind (KPrelude.IntHook.emod r r_1) fun r_3 => some r_3))) := by
   intros
@@ -201,6 +219,7 @@ theorem Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (I
   | (k2l_eqn_c [])
 
 /-- get(_,_)_COUNTER_Int_Map_Id equation 1 -/
+@[k2l_equation]
 theorem Eqn.«get(_,_)_COUNTER_Int_Map_Id_1» (M : SortMap) (X : SortId)
     (hreq0 : (Option.bind (KPrelude.MapHook.lookup M (SortKItem.inj_Id X)) fun r => some (KPrelude.BoolHook.and (KPrelude.MapHook.inKeys (SortKItem.inj_Id X) M) (K.isInt (SortK.kseq r SortK.dotk)))) = some true) :
     K.«get(_,_)_COUNTER_Int_Map_Id» M X = (Option.bind (KPrelude.MapHook.lookup M (SortKItem.inj_Id X)) fun r_1 => (Option.bind (K.«project:Int» (SortK.kseq r_1 SortK.dotk)) fun r_3 => some r_3)) := by
@@ -213,6 +232,7 @@ theorem Eqn.«get(_,_)_COUNTER_Int_Map_Id_1» (M : SortMap) (X : SortId)
   | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_c [K.isInt.rule1, K.isInt, K.«project:Int».rule1, K.«project:Int», K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
 
 /-- get(_,_)_COUNTER_Int_Map_Id equation 2 -/
+@[k2l_equation]
 theorem Eqn.«get(_,_)_COUNTER_Int_Map_Id_2» (Gen0 : SortMap) (Gen1 : SortId)
     (howise0 : ∀ (o0_M : SortMap) (o0_X : SortId), Gen0 = o0_M → Gen1 = o0_X → (Option.bind (KPrelude.MapHook.lookup o0_M (SortKItem.inj_Id o0_X)) fun r => some (KPrelude.BoolHook.and (KPrelude.MapHook.inKeys (SortKItem.inj_Id o0_X) o0_M) (K.isInt (SortK.kseq r SortK.dotk)))) = some true → False) :
     K.«get(_,_)_COUNTER_Int_Map_Id» Gen0 Gen1 = some (0 : Int) := by
@@ -226,6 +246,7 @@ theorem Eqn.«get(_,_)_COUNTER_Int_Map_Id_2» (Gen0 : SortMap) (Gen1 : SortId)
   | (unfold K.«get(_,_)_COUNTER_Int_Map_Id» K.«get(_,_)_COUNTER_Int_Map_Id».rule1 K.«get(_,_)_COUNTER_Int_Map_Id».rule2; k2l_eqn_o [K.isInt.rule1, K.isInt, K.«get(_,_)_COUNTER_Int_Map_Id».rule1, K.«get(_,_)_COUNTER_Int_Map_Id».rule2, K.«get(_,_)_COUNTER_Int_Map_Id»])
 
 /-- isInt equation 1 -/
+@[k2l_equation]
 theorem Eqn.isInt_1 (Int : SortInt) :
     K.isInt (SortK.kseq (SortKItem.inj_Int Int) SortK.dotk) = true := by
   intros
@@ -237,6 +258,7 @@ theorem Eqn.isInt_1 (Int : SortInt) :
   | (unfold K.isInt K.isInt.rule1; k2l_eqn_c [K.isInt.rule1, K.isInt])
 
 /-- isInt equation 2 -/
+@[k2l_equation]
 theorem Eqn.isInt_2 (K_1 : SortK)
     (howise0 : ∀ (o0_Int : SortInt), K_1 = SortK.kseq (SortKItem.inj_Int o0_Int) SortK.dotk → False) :
     K.isInt K_1 = false := by
@@ -250,6 +272,7 @@ theorem Eqn.isInt_2 (K_1 : SortK)
   | (unfold K.isInt K.isInt.rule1; k2l_eqn_o [K.isInt.rule1, K.isInt])
 
 /-- minInt(_,_)_INT-COMMON_Int_Int_Int equation 1 -/
+@[k2l_equation]
 theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_1» (I1 : SortInt) (I2 : SortInt)
     (hreq0 : KPrelude.IntHook.lt I1 I2 = true) :
     KPrelude.IntHook.min I1 I2 = I1 := by
@@ -261,6 +284,7 @@ theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_1» (I1 : SortInt) (I2 : SortIn
   | (k2l_eqn_c [])
 
 /-- minInt(_,_)_INT-COMMON_Int_Int_Int equation 2 -/
+@[k2l_equation]
 theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_2» (I1 : SortInt) (I2 : SortInt)
     (hreq0 : KPrelude.IntHook.ge I1 I2 = true) :
     KPrelude.IntHook.min I1 I2 = I2 := by
@@ -272,6 +296,7 @@ theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_2» (I1 : SortInt) (I2 : SortIn
   | (k2l_eqn_c [])
 
 /-- notBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn.notBool__1 :
     KPrelude.BoolHook.not true = false := by
   intros
@@ -282,6 +307,7 @@ theorem Eqn.notBool__1 :
   | (k2l_eqn_c [])
 
 /-- notBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn.notBool__2 :
     KPrelude.BoolHook.not false = true := by
   intros
@@ -292,6 +318,7 @@ theorem Eqn.notBool__2 :
   | (k2l_eqn_c [])
 
 /-- project:Int equation 1 -/
+@[k2l_equation]
 theorem Eqn.«project:Int_1» (K_1 : SortInt) :
     K.«project:Int» (SortK.kseq (SortKItem.inj_Int K_1) SortK.dotk) = some K_1 := by
   intros
@@ -303,6 +330,7 @@ theorem Eqn.«project:Int_1» (K_1 : SortInt) :
   | (unfold K.«project:Int» K.«project:Int».rule1; k2l_eqn_c [K.«project:Int».rule1, K.«project:Int»])
 
 /-- pushList equation 1 -/
+@[k2l_equation]
 theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
     KPrelude.ListHook.push K_1 L1 = KPrelude.ListHook.concat (KPrelude.ListHook.element K_1) L1 := by
   intros
@@ -313,6 +341,7 @@ theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
   | (k2l_eqn_c [])
 
 /-- signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int equation 1 -/
+@[k2l_equation]
 theorem Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (IDX : SortInt) (LEN : SortInt) :
     KPrelude.IntHook.signExtendBitRange I IDX LEN = (Option.bind (KPrelude.IntHook.bitRange I IDX LEN) fun r => (Option.bind (KPrelude.IntHook.shl (1 : Int) (KPrelude.IntHook.sub LEN (1 : Int))) fun r_1 => (Option.bind (KPrelude.IntHook.shl (1 : Int) LEN) fun r_3 => (Option.bind (KPrelude.IntHook.emod (KPrelude.IntHook.add r r_1) r_3) fun r_5 => (Option.bind (KPrelude.IntHook.shl (1 : Int) (KPrelude.IntHook.sub LEN (1 : Int))) fun r_7 => some (KPrelude.IntHook.sub r_5 r_7)))))) := by
   intros

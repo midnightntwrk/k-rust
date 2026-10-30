@@ -7,6 +7,7 @@ import KPrelude.Run
 import KPrelude.Rules
 import KPrelude.FamilyCases
 import KPrelude.Tactic
+import KPrelude.EqnAttr
 import KPrelude.LeafEq
 import KPrelude.Delab
 import KPrelude.Ext

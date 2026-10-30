@@ -1364,8 +1364,14 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
                 Some(h) if *h != budget.default => format!("set_option maxHeartbeats {h} in\n"),
                 _ => String::new(),
             };
+            // a K equation's theorem is one a claim's proof may rewrite with (`k2l_equation`)
+            let attr = if s.name.starts_with("Eqn.") {
+                "@[k2l_equation]\n"
+            } else {
+                ""
+            };
             o.push_str(&format!(
-                "{own_budget}/-- {} -/\ntheorem {}{} := {tac}\n\n",
+                "{own_budget}/-- {} -/\n{attr}theorem {}{} := {tac}\n\n",
                 s.what, s.name, s.statement
             ));
         }

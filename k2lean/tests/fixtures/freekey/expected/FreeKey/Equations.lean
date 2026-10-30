@@ -18,6 +18,7 @@ namespace FreeKey
 open KPrelude
 
 /-- _andBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._andBool__1 (B : SortBool) :
     KPrelude.BoolHook.and true B = B := by
   intros
@@ -28,6 +29,7 @@ theorem Eqn._andBool__1 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _andBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._andBool__2 (Gen0 : SortBool) :
     KPrelude.BoolHook.and false Gen0 = false := by
   intros
@@ -38,6 +40,7 @@ theorem Eqn._andBool__2 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _andThenBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._andThenBool__1 (K_1 : SortBool) :
     KPrelude.BoolHook.and true K_1 = K_1 := by
   intros
@@ -48,6 +51,7 @@ theorem Eqn._andThenBool__1 (K_1 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _andThenBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._andThenBool__2 (Gen0 : SortBool) :
     KPrelude.BoolHook.and false Gen0 = false := by
   intros
@@ -58,6 +62,7 @@ theorem Eqn._andThenBool__2 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _divInt_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._divInt__1 (I1 : SortInt) (I2 : SortInt)
     (hreq0 : KPrelude.IntHook.ne I2 (0 : Int) = true) :
     KPrelude.IntHook.ediv I1 I2 = (Option.bind (KPrelude.IntHook.emod I1 I2) fun r => (Option.bind (KPrelude.IntHook.tdiv (KPrelude.IntHook.sub I1 r) I2) fun r_1 => some r_1)) := by
@@ -69,6 +74,7 @@ theorem Eqn._divInt__1 (I1 : SortInt) (I2 : SortInt)
   | (k2l_eqn_c [])
 
 /-- _impliesBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._impliesBool__1 (B : SortBool) :
     KPrelude.BoolHook.implies true B = B := by
   intros
@@ -79,6 +85,7 @@ theorem Eqn._impliesBool__1 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _impliesBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._impliesBool__2 (Gen0 : SortBool) :
     KPrelude.BoolHook.implies false Gen0 = true := by
   intros
@@ -89,6 +96,7 @@ theorem Eqn._impliesBool__2 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _orBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._orBool__1 (Gen0 : SortBool) :
     KPrelude.BoolHook.or true Gen0 = true := by
   intros
@@ -99,6 +107,7 @@ theorem Eqn._orBool__1 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _orBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._orBool__2 (B : SortBool) :
     KPrelude.BoolHook.or false B = B := by
   intros
@@ -109,6 +118,7 @@ theorem Eqn._orBool__2 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _orElseBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._orElseBool__1 (Gen0 : SortBool) :
     KPrelude.BoolHook.or true Gen0 = true := by
   intros
@@ -119,6 +129,7 @@ theorem Eqn._orElseBool__1 (Gen0 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _orElseBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._orElseBool__2 (K_1 : SortBool) :
     KPrelude.BoolHook.or false K_1 = K_1 := by
   intros
@@ -129,6 +140,7 @@ theorem Eqn._orElseBool__2 (K_1 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _xorBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn._xorBool__1 (B : SortBool) :
     KPrelude.BoolHook.xor false B = B := by
   intros
@@ -139,6 +151,7 @@ theorem Eqn._xorBool__1 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _xorBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn._xorBool__2 (B : SortBool) :
     KPrelude.BoolHook.xor B B = false := by
   intros
@@ -149,6 +162,7 @@ theorem Eqn._xorBool__2 (B : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _=/=Bool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn.«_=/=Bool__1» (B1 : SortBool) (B2 : SortBool) :
     KPrelude.BoolHook.ne B1 B2 = KPrelude.BoolHook.not (KPrelude.BoolHook.eq B1 B2) := by
   intros
@@ -159,6 +173,7 @@ theorem Eqn.«_=/=Bool__1» (B1 : SortBool) (B2 : SortBool) :
   | (k2l_eqn_c [])
 
 /-- _=/=Int_ equation 1 -/
+@[k2l_equation]
 theorem Eqn.«_=/=Int__1» (I1 : SortInt) (I2 : SortInt) :
     KPrelude.IntHook.ne I1 I2 = KPrelude.BoolHook.not (KPrelude.IntHook.eq I1 I2) := by
   intros
@@ -169,6 +184,7 @@ theorem Eqn.«_=/=Int__1» (I1 : SortInt) (I2 : SortInt) :
   | (k2l_eqn_c [])
 
 /-- _=/=K_ equation 1 -/
+@[k2l_equation]
 theorem Eqn.«_=/=K__1» (K1 : SortK) (K2 : SortK) :
     KPrelude.KEqHook.ne K1 K2 = KPrelude.BoolHook.not (KPrelude.KEqHook.eq K1 K2) := by
   intros
@@ -179,6 +195,7 @@ theorem Eqn.«_=/=K__1» (K1 : SortK) (K2 : SortK) :
   | (k2l_eqn_c [])
 
 /-- _|Set__SET_Set_Set_Set equation 1 -/
+@[k2l_equation]
 theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet)
     (hwf0 : KPrelude.SetHook.WF S1)
     (hwf1 : KPrelude.SetHook.WF S2) :
@@ -191,12 +208,14 @@ theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet)
   | (k2l_eqn_c [])
 
 /-- allNat(_)_FREEKEY_Bool_Map equation 1 -/
+@[k2l_equation]
 theorem Eqn.«allNat(_)_FREEKEY_Bool_Map_1» :
     K.«allNat(_)_FREEKEY_Bool_Map» KPrelude.MapHook.unit = some true := by
   intros
   k2l_eqn_r K.«allNat(_)_FREEKEY_Bool_Map» []
 
 /-- bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int equation 1 -/
+@[k2l_equation]
 theorem Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (IDX : SortInt) (LEN : SortInt) :
     KPrelude.IntHook.bitRange I IDX LEN = (Option.bind (KPrelude.IntHook.shr I IDX) fun r => (Option.bind (KPrelude.IntHook.shl (1 : Int) LEN) fun r_1 => (Option.bind (KPrelude.IntHook.emod r r_1) fun r_3 => some r_3))) := by
   intros
@@ -207,6 +226,7 @@ theorem Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (I
   | (k2l_eqn_c [])
 
 /-- hasNeg(_)_FREEKEY_Bool_Map equation 2 -/
+@[k2l_equation]
 theorem Eqn.«hasNeg(_)_FREEKEY_Bool_Map_2» (Gen0 : SortMap)
     (howise0 : ∀ (o0_Gen0 : SortKItem) (o0_Gen1 : SortMap) (o0_V : SortInt), KPrelude.MapHook.concat (KPrelude.MapHook.element o0_Gen0 (SortKItem.inj_Int o0_V)) o0_Gen1 = some Gen0 → KPrelude.IntHook.lt o0_V (0 : Int) = true → False) :
     K.«hasNeg(_)_FREEKEY_Bool_Map» Gen0 = false := by
@@ -220,6 +240,7 @@ theorem Eqn.«hasNeg(_)_FREEKEY_Bool_Map_2» (Gen0 : SortMap)
   | (unfold K.«hasNeg(_)_FREEKEY_Bool_Map» K.«hasNeg(_)_FREEKEY_Bool_Map».rule1; k2l_eqn_o [K.«hasNeg(_)_FREEKEY_Bool_Map».rule1, K.«hasNeg(_)_FREEKEY_Bool_Map»])
 
 /-- isNat(_)_FREEKEY_Bool_KItem equation 1 -/
+@[k2l_equation]
 theorem Eqn.«isNat(_)_FREEKEY_Bool_KItem_1» (I : SortInt) :
     K.«isNat(_)_FREEKEY_Bool_KItem» (SortKItem.inj_Int I) = KPrelude.IntHook.ge I (0 : Int) := by
   intros
@@ -231,6 +252,7 @@ theorem Eqn.«isNat(_)_FREEKEY_Bool_KItem_1» (I : SortInt) :
   | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_c [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
 
 /-- isNat(_)_FREEKEY_Bool_KItem equation 2 -/
+@[k2l_equation]
 theorem Eqn.«isNat(_)_FREEKEY_Bool_KItem_2» (Gen0 : SortKItem)
     (howise0 : ∀ (o0_I : SortInt), Gen0 = SortKItem.inj_Int o0_I → False) :
     K.«isNat(_)_FREEKEY_Bool_KItem» Gen0 = false := by
@@ -244,12 +266,14 @@ theorem Eqn.«isNat(_)_FREEKEY_Bool_KItem_2» (Gen0 : SortKItem)
   | (unfold K.«isNat(_)_FREEKEY_Bool_KItem» K.«isNat(_)_FREEKEY_Bool_KItem».rule1; k2l_eqn_o [K.«isNat(_)_FREEKEY_Bool_KItem».rule1, K.«isNat(_)_FREEKEY_Bool_KItem»])
 
 /-- jobsOk(_)_FREEKEY_Bool_JobsCell equation 1 -/
+@[k2l_equation]
 theorem Eqn.«jobsOk(_)_FREEKEY_Bool_JobsCell_1» :
     K.«jobsOk(_)_FREEKEY_Bool_JobsCell» (SortJobsCell.«<jobs>» KPrelude.MapHook.unit) = some true := by
   intros
   k2l_eqn_r K.«jobsOk(_)_FREEKEY_Bool_JobsCell» []
 
 /-- minInt(_,_)_INT-COMMON_Int_Int_Int equation 1 -/
+@[k2l_equation]
 theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_1» (I1 : SortInt) (I2 : SortInt)
     (hreq0 : KPrelude.IntHook.lt I1 I2 = true) :
     KPrelude.IntHook.min I1 I2 = I1 := by
@@ -261,6 +285,7 @@ theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_1» (I1 : SortInt) (I2 : SortIn
   | (k2l_eqn_c [])
 
 /-- minInt(_,_)_INT-COMMON_Int_Int_Int equation 2 -/
+@[k2l_equation]
 theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_2» (I1 : SortInt) (I2 : SortInt)
     (hreq0 : KPrelude.IntHook.ge I1 I2 = true) :
     KPrelude.IntHook.min I1 I2 = I2 := by
@@ -272,6 +297,7 @@ theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_2» (I1 : SortInt) (I2 : SortIn
   | (k2l_eqn_c [])
 
 /-- notBool_ equation 1 -/
+@[k2l_equation]
 theorem Eqn.notBool__1 :
     KPrelude.BoolHook.not true = false := by
   intros
@@ -282,6 +308,7 @@ theorem Eqn.notBool__1 :
   | (k2l_eqn_c [])
 
 /-- notBool_ equation 2 -/
+@[k2l_equation]
 theorem Eqn.notBool__2 :
     KPrelude.BoolHook.not false = true := by
   intros
@@ -292,6 +319,7 @@ theorem Eqn.notBool__2 :
   | (k2l_eqn_c [])
 
 /-- pushList equation 1 -/
+@[k2l_equation]
 theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
     KPrelude.ListHook.push K_1 L1 = KPrelude.ListHook.concat (KPrelude.ListHook.element K_1) L1 := by
   intros
@@ -302,6 +330,7 @@ theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
   | (k2l_eqn_c [])
 
 /-- signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int equation 1 -/
+@[k2l_equation]
 theorem Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (IDX : SortInt) (LEN : SortInt) :
     KPrelude.IntHook.signExtendBitRange I IDX LEN = (Option.bind (KPrelude.IntHook.bitRange I IDX LEN) fun r => (Option.bind (KPrelude.IntHook.shl (1 : Int) (KPrelude.IntHook.sub LEN (1 : Int))) fun r_1 => (Option.bind (KPrelude.IntHook.shl (1 : Int) LEN) fun r_3 => (Option.bind (KPrelude.IntHook.emod (KPrelude.IntHook.add r r_1) r_3) fun r_5 => (Option.bind (KPrelude.IntHook.shl (1 : Int) (KPrelude.IntHook.sub LEN (1 : Int))) fun r_7 => some (KPrelude.IntHook.sub r_5 r_7)))))) := by
   intros
@@ -312,6 +341,7 @@ theorem Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : S
   | (k2l_eqn_c [])
 
 /-- takeSum(_,_)_FREEKEY_Int_Int_Map equation 1 -/
+@[k2l_equation]
 theorem Eqn.«takeSum(_,_)_FREEKEY_Int_Int_Map_1» (Gen0 : SortMap) (N : SortInt)
     (hreq0 : KPrelude.IntHook.le N (0 : Int) = true) :
     K.«takeSum(_,_)_FREEKEY_Int_Int_Map» N Gen0 = some (0 : Int) := by
@@ -319,12 +349,14 @@ theorem Eqn.«takeSum(_,_)_FREEKEY_Int_Int_Map_1» (Gen0 : SortMap) (N : SortInt
   k2l_eqn_r K.«takeSum(_,_)_FREEKEY_Int_Int_Map» []
 
 /-- total(_)_FREEKEY_Int_WorkerCellMap equation 1 -/
+@[k2l_equation]
 theorem Eqn.«total(_)_FREEKEY_Int_WorkerCellMap_1» :
     K.«total(_)_FREEKEY_Int_WorkerCellMap» KPrelude.MapHook.unit = some (0 : Int) := by
   intros
   k2l_eqn_r K.«total(_)_FREEKEY_Int_WorkerCellMap» []
 
 /-- twoPos(_)_FREEKEY_Bool_Map equation 2 -/
+@[k2l_equation]
 theorem Eqn.«twoPos(_)_FREEKEY_Bool_Map_2» (Gen0 : SortMap)
     (howise0 : ∀ (o0_Gen0 : SortKItem) (o0_Gen1 : SortKItem) (o0_Gen2 : SortMap) (o0_V1 : SortInt) (o0_V2 : SortInt), (Option.bind (KPrelude.MapHook.concat (KPrelude.MapHook.element o0_Gen0 (SortKItem.inj_Int o0_V1)) (KPrelude.MapHook.element o0_Gen1 (SortKItem.inj_Int o0_V2)) : Option SortMap) fun r => KPrelude.MapHook.concat r o0_Gen2) = some Gen0 → KPrelude.BoolHook.and (KPrelude.IntHook.gt o0_V1 (0 : Int)) (KPrelude.IntHook.gt o0_V2 (0 : Int)) = true → False) :
     K.«twoPos(_)_FREEKEY_Bool_Map» Gen0 = false := by
