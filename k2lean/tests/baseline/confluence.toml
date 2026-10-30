@@ -1186,7 +1186,7 @@ preserve = []
 
 [demo.HandoffConf]
 tier = "light"
-guarded = 42
+guarded = 46
 preserve = []
 
 [demo.HandoffConf.slots]
@@ -1211,7 +1211,7 @@ preserve = []
 
 [demo.HandoffSeqRel]
 tier = "light"
-guarded = 44
+guarded = 50
 preserve = []
 
 [demo.DrfConf]
