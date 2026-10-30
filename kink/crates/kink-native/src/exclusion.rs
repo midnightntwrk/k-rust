@@ -64,7 +64,12 @@
 //!   unevaluated as a defined value everywhere else (the constant fold, the load, every proof
 //!   route; compat "Implementation-chosen hook values", pinned by the kink-native test
 //!   `the_passages_the_census_leaves_to_the_run_list_are_pinned`), so a run whose list is empty
-//!   read no class value and decision 1's census need not read the classes.
+//!   read no class value and decision 1's census need not read the classes (`#read`, class
+//!   `read-count`, takes no value without a console and is on `unsupportedHooks` instead). A run
+//!   with an empty list still rests on k-rust's stated readings of the values it does compute:
+//!   since the census no longer refuses Float arithmetic, a kill through `+Float`, `-Float`,
+//!   `*Float` or `/Float` on symbolic operands rests on roundTiesToEven and one NaN per format
+//!   (kink README, premises P-F1, P-F3 and P-F4).
 //! - [`Exclusion::ImplementationChosenHook`]: the definition references a hook for which k-rust
 //!   chooses a value the definition leaves open (re-pin decision 1, findings D-10, E-10, E-11):
 //!   kills are relative to the definition, not to k-rust's model of it. The hooks are k-rust's
@@ -169,9 +174,11 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
 /// reads only the open hooks k-rust evaluates without a record ([`census_hook`]); the others
 /// ([`RUN_LIST_HOOKS`]) are judged per run through `unsupportedHooks`. Both only narrow what is
 /// excluded. v4 (kink27 R3-CENSUS-RUNLEVEL): k-rust's classes
-/// ([`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`]) leave the census and the initial-state check
-/// ([`state_references_implementation_chosen`]); a run that reads one is excluded by its list
-/// (`implementation-chosen-value`). Only narrows.
+/// ([`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`]) leave the census and, `IO.read` aside, the
+/// initial-state check ([`state_references_implementation_chosen`]); a run that reads one is
+/// excluded by its list (`implementation-chosen-value`). It narrows what is excluded, and so
+/// widens what a kill rests on: a run's Float arithmetic, which the census used to refuse, is
+/// read through k-rust's roundTiesToEven and one NaN per format (kink README, P-F1, P-F3, P-F4).
 pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v4";
 
 /// The hooks for which k-rust 8f8ad57c5 says it may compute a value the definition leaves open,
@@ -198,8 +205,11 @@ pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion
 /// the load, proof routes, `ground_defined`, kink's feasibility checks). `read-count` is the one
 /// class not withheld: `#read` needs a console, which kink's requests do not attach, so a run that
 /// needs its value lists it on `unsupportedHooks` (with a console it is marked in every mode). So
-/// neither the census ([`census_hook`]) nor the initial-state check
-/// ([`state_references_implementation_chosen`]) reads them.
+/// the census ([`census_hook`]) reads none of them, and the initial-state check
+/// ([`state_references_implementation_chosen`]) reads only `IO.read`, as it reads the other
+/// console operations: without a console `#read` takes no value and notes no mark, so the
+/// mark-based argument does not reach it, and the run-list contract names the positions of a rule
+/// or equation, not the initial state.
 pub const K_RUST_IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "MAP.keys_list",
     "MAP.values",
@@ -1756,11 +1766,13 @@ fn allowance_refusal(leaf: &AdaptedLeaf) -> bool {
 
 /// Whether `state`, a test's initial state, applies a symbol with an implementation-chosen hook
 /// of `definition`: such a run evaluates a value the definition leaves open, whatever the
-/// definition's own sentences say. k-rust's classes ([`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`]) are
-/// not read (kink27 R3-CENSUS-RUNLEVEL): the initial state's normalization is part of the run,
-/// which notes every class value it takes on its `implementationChosenValues` list. The
-/// run-list hooks ([`RUN_LIST_HOOKS`]) are still read, since the contract they rest on names the
-/// positions of a rule or equation, not the initial state.
+/// definition's own sentences say. k-rust's classes ([`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`]) other
+/// than `IO.read` are not read (kink27 R3-CENSUS-RUNLEVEL): k-rust withholds each of their
+/// values outside an execution, and the initial state's normalization is part of the run, which
+/// notes every class value it takes on its `implementationChosenValues` list. `IO.read` and the
+/// other run-list hooks ([`RUN_LIST_HOOKS`]) are still read: `#read` takes no value without a
+/// console, so no mark guards it, and the contract the run-list hooks rest on names the positions
+/// of a rule or equation, not the initial state.
 #[must_use]
 pub fn state_references_implementation_chosen(
     definition: &BackendDefinition,
@@ -1775,7 +1787,8 @@ pub fn state_references_implementation_chosen(
                 .and_then(|symbol| symbol.attributes.hook.as_deref())
                 .is_some_and(|hook| {
                     IMPLEMENTATION_CHOSEN_HOOKS.contains(&hook)
-                        && !K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(&hook)
+                        && (hook == "IO.read"
+                            || !K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(&hook))
                 });
         }
     });

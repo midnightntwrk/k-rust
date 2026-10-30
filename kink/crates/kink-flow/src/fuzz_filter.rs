@@ -68,8 +68,11 @@
 //!   feasible and judge), leaf diagnostics (kink makes a diagnosed leaf incomplete), a halt
 //!   outside the bridge's contract, a configuration that does not parse, a side kink-native could
 //!   not reach, the mutant's single path of a one-path campaign (which is not its set of ends),
-//!   an added end under `work_factor`, a `trivial` leaf kink does not show to exist, and
-//!   everything after a pattern's first match are left to kink's confirmation.
+//!   an added end under `work_factor`, a `trivial` leaf kink does not show to exist, everything
+//!   after a pattern's first match, and the run's `implementationChosenValues` list (since kink27
+//!   R3-CENSUS-RUNLEVEL a definition that applies a k-rust class reaches fuzz jobs; the filter
+//!   judges leaves and halts, not that list, so it can keep a witness kink refuses as
+//!   `implementation-chosen-value`) are left to kink's confirmation.
 //!
 //! **Identity.** [`KinkJudgement::id`] names [`FILTER_VERSION`] (this composition: the deciders,
 //! the leaves, the cause tokens, the repair), the `KINK_IDENTITY` components it composes or

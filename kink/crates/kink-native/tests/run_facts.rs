@@ -630,13 +630,19 @@ mod kink_tier {
     /// pinned by `tests/exclusion.rs` `the_passages_the_census_leaves_to_the_run_list_are_pinned`),
     /// so the census reads none of them and `classes.k`, one rule per class, is not excluded as a
     /// whole. Each probe lists its class and is `implementation-chosen-value`: a rule's right-hand
-    /// side (`keys`, `s2l`, `choiceMap`, `choiceSet`, `mixed`, `nan`, `mz`, `b2s`), a literal the
-    /// constant fold leaves unfolded (`lit`), a condition (`cond`), an equation (`eqn`) and the
-    /// initial state's normalization (`done(hex(255))`). Each control reads a determined value (one
-    /// binding, one format, no NaN, no pair of signed zeros, no letter digit) and lists nothing.
-    /// `rd(3)` applies `#read`, which a request without a console leaves unevaluated
-    /// (`unsupported-hook`). A test's initial state that applies a class is not flagged as such
+    /// side (`keys`, `vals`, `s2l`, `choiceMap`, `choiceSet`, `mixed`, `mdiv`, `nan`, `mz`, `mx`,
+    /// `b2s`), a literal the constant fold leaves unfolded (`lit`), a condition (`cond`), an
+    /// equation (`eqn`), an equation's condition (`req`) and the initial state's normalization
+    /// (`done(hex(255))`). Each control reads a determined value (one binding, one format, no NaN,
+    /// no pair of signed zeros, no letter digit) and lists nothing; `req(9)` selects `isff`'s
+    /// `owise` equation after a condition that read `"9"`. `rd(3)` applies `#read`, which a request
+    /// without a console leaves unevaluated (`unsupported-hook`). A test's initial state that applies
+    /// a class withheld outside an execution is not flagged as such
     /// (`state_references_implementation_chosen`): the seed's normalization runs inside the run.
+    /// Fix round 1 (review should-fix 3 and 4), the positive controls of that check: a state
+    /// applying `#read` (class `read-count`, which without a console takes no value and notes no
+    /// mark) or `Float2String` (a run-list hook) is flagged, and the run from `done(#read(0, 3))`
+    /// lists `IO.read` on `unsupportedHooks` and no class value.
     #[test]
     #[ignore = "kink"]
     fn every_k_rust_class_is_judged_per_run() {
@@ -652,24 +658,30 @@ mod kink_tier {
             let base2string = ("STRING.base2string", "letter-case");
             let probes = [
                 ("keys", 1, Some(("MAP.keys_list", "order"))),
+                ("vals", 1, Some(("MAP.values", "order"))),
                 ("s2l", 1, Some(("SET.set2list", "order"))),
                 ("choiceMap", 1, Some(("MAP.choice", "item"))),
                 ("choiceSet", 1, Some(("SET.choice", "item"))),
                 ("mixed", 1, Some(("FLOAT.add", "float-destination"))),
+                ("mdiv", 1, Some(("FLOAT.div", "float-destination"))),
                 ("nan", 0, Some(("FLOAT.sign", "nan-sign"))),
                 ("mz", 0, Some(("FLOAT.min", "signed-zero"))),
+                ("mx", 0, Some(("FLOAT.max", "signed-zero"))),
                 ("b2s", 255, Some(base2string)),
                 ("lit", 0, Some(base2string)),
                 ("cond", 255, Some(base2string)),
                 ("eqn", 255, Some(base2string)),
+                ("req", 255, Some(base2string)),
                 ("keysOne", 1, None),
                 ("choiceOne", 1, None),
                 ("same", 1, None),
                 ("nan", 1, None),
                 ("mz", 1, None),
+                ("mx", 1, None),
                 ("b2s", 9, None),
                 ("cond", 9, None),
                 ("eqn", 9, None),
+                ("req", 9, None),
             ];
             let mut failures = Vec::new();
             let mut judge =
@@ -724,30 +736,93 @@ mod kink_tier {
                     exclusions.run_exclusion(&execution)
                 ));
             }
-            // A state written with `Base2String` itself is no initial-state exclusion.
-            let referenced = backend(&side, &module)
+            // A state written with `Base2String` itself is no initial-state exclusion; one written
+            // with `#read` or `Float2String` is (the check's positive controls).
+            let written = |name: &str, arguments: &str| {
+                k_rust::kore::parser::parse_pattern(&format!(
+                    r#"Lbldone{{}}(inj{{{SORT}, SortKItem{{}}}}({name}{{}}({arguments})))"#,
+                    SORT = if name.contains("read") {
+                        "SortIOString{}"
+                    } else {
+                        "SortString{}"
+                    },
+                ))
+                .unwrap()
+            };
+            let (flags, read) = backend(&side, &module)
                 .with_solver(None, |definition, _| {
-                    let name = definition
-                        .symbols()
-                        .values()
-                        .find(|symbol| {
-                            symbol.attributes.hook.as_deref() == Some("STRING.base2string")
-                        })
-                        .expect("Base2String is declared")
-                        .name
-                        .to_string();
-                    let written = k_rust::kore::parser::parse_pattern(&format!(
-                        r#"Lbldone{{}}(inj{{SortString{{}}, SortKItem{{}}}}({name}{{}}(\dv{{SortInt{{}}}}("255"), \dv{{SortInt{{}}}}("16"))))"#
-                    ))
-                    .unwrap();
-                    Ok::<_, k_rust::backend::BackendError>(state_references_implementation_chosen(
-                        definition,
-                        &state(written),
-                    ))
+                    let symbol_of = |hook: &str| {
+                        definition
+                            .symbols()
+                            .values()
+                            .find(|symbol| symbol.attributes.hook.as_deref() == Some(hook))
+                            .unwrap_or_else(|| panic!("{hook} is declared"))
+                            .name
+                            .to_string()
+                    };
+                    let int = |value: &str| format!(r#"\dv{{SortInt{{}}}}("{value}")"#);
+                    let float = format!(
+                        "{}{{}}({}, {}, {})",
+                        symbol_of("FLOAT.int2float"),
+                        int("1"),
+                        int("53"),
+                        int("11")
+                    );
+                    let read = written(
+                        &symbol_of("IO.read"),
+                        &format!("{}, {}", int("0"), int("3")),
+                    );
+                    let flags = [
+                        (
+                            "Base2String(255, 16)",
+                            written(
+                                &symbol_of("STRING.base2string"),
+                                &format!("{}, {}", int("255"), int("16")),
+                            ),
+                            false,
+                        ),
+                        ("#read(0, 3)", read.clone(), true),
+                        (
+                            "Float2String(Int2Float(1, 53, 11))",
+                            written(&symbol_of("STRING.float2string"), &float),
+                            true,
+                        ),
+                    ]
+                    .map(|(name, written, expected)| {
+                        (
+                            name,
+                            state_references_implementation_chosen(definition, &state(written)),
+                            expected,
+                        )
+                    });
+                    Ok::<_, k_rust::backend::BackendError>((flags, read))
                 })
                 .unwrap();
-            if referenced {
-                failures.push("done(Base2String(255, 16)) flags the initial state".to_owned());
+            for (name, flagged, expected) in flags {
+                eprintln!("done({name}) flags the initial state: {flagged}");
+                if flagged != expected {
+                    failures.push(format!("done({name}) flags the initial state: {flagged}"));
+                }
+            }
+            let execution = run(&side, &module, read);
+            let facts = execution.facts();
+            let unsupported = facts
+                .unsupported_hooks
+                .iter()
+                .map(|entry| entry.hook.as_str())
+                .collect::<Vec<_>>();
+            eprintln!(
+                "done(#read(0, 3)): {facts:?} {:?}",
+                exclusions.run_exclusion(&execution)
+            );
+            if !facts.implementation_chosen_values.is_empty()
+                || unsupported != ["IO.read"]
+                || exclusions.run_exclusion(&execution) != Some(Exclusion::UnsupportedHook)
+            {
+                failures.push(format!(
+                    "done(#read(0, 3)): {facts:?} {:?}",
+                    exclusions.run_exclusion(&execution)
+                ));
             }
             assert!(failures.is_empty(), "{failures:#?}");
         });

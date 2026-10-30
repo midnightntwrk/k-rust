@@ -1042,6 +1042,18 @@ fn outcome(
     // search that read one: another model of the value may reach the pattern. A hit is unchanged:
     // a decided match carries no diagnostic, so no mark is on its own path, and it matches there in
     // every such model.
+    // A present field that is not a list is not read as an empty one, which would make a final
+    // no of it (as for `matches` and `incomplete` above).
+    if response
+        .get("implementationChosenValues")
+        .is_some_and(|marks| !marks.is_array())
+    {
+        return SearchOutcome::Failed(
+            "k-rust's search result has an `implementationChosenValues` field that is not a list, \
+             so kink cannot read it"
+                .to_owned(),
+        );
+    }
     if let Some(hooks) = chosen_values(&response) {
         return SearchOutcome::Incomplete(format!(
             "the exploration found no match, but the search read values the definition leaves \
@@ -1056,7 +1068,8 @@ fn outcome(
 const IMPLEMENTATION_CHOSEN_VALUE: &str = "implementation-chosen-value";
 
 /// The hooks of the search response's `implementationChosenValues` list, each with its class, or
-/// `None` when the list is absent or empty (k-rust omits it when empty).
+/// `None` when the list is absent or empty (k-rust omits it when empty). The caller refuses a
+/// present field that is not a list before it asks.
 fn chosen_values(response: &Value) -> Option<String> {
     let marks = response["implementationChosenValues"]
         .as_array()
@@ -1413,6 +1426,16 @@ mod tests {
         let mut empty = response(vec![], vec![]);
         empty["implementationChosenValues"] = json!([]);
         assert_eq!(run(&empty, &always), SearchOutcome::Complete);
+        // A present field that is not a list is no list, so no no (fix round 1).
+        for malformed in [json!({}), json!(null), json!("MAP.keys_list")] {
+            let mut shape = response(vec![], vec![]);
+            shape["implementationChosenValues"] = malformed.clone();
+            let outcome = run(&shape, &always);
+            assert!(
+                matches!(&outcome, SearchOutcome::Failed(why) if why.contains("implementationChosenValues")),
+                "{malformed}: {outcome:?}"
+            );
+        }
     }
 
     #[test]

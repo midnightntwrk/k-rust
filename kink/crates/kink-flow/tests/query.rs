@@ -1222,21 +1222,23 @@ programs = ["add"]
         assert_eq!(records(&dir).len(), 0);
     }
 
-    /// kink27 R3-CENSUS-RUNLEVEL (gap G1): a pattern that holds an equation-head application whose
-    /// normal form reads a value the definition leaves open gives no `no`. `pair(1)` reaches
-    /// `keys(ListItem(2) ListItem(1))`, which reads no open value, so the program's baseline run is
-    /// comparable and the census flags nothing; the pattern `keys(lst())` is matched as `lst()`'s
-    /// normal form, which lists 1 then 2 in k-rust and 2 then 1 in another model of the
-    /// definition, which then matches the reached state. So the answer is not `no`. At this k-rust
-    /// the search leaves that match undecided (an incomplete entry, read before the search's
-    /// `implementationChosenValues` list), so the answer is `unknown` for the undecided match; were
-    /// the match decided against k-rust's order, the matching, which is part of the search, would
-    /// list the mark and the answer would be `unknown` (`implementation-chosen-value`). The
-    /// list-reading rule itself is pinned on hand-built responses by kink-flow's
-    /// `pattern::tests::a_search_that_read_an_open_value_gives_no_no`.
+    /// kink27 R3-CENSUS-RUNLEVEL: the undecided-match route of a pattern whose match would read a
+    /// value the definition leaves open. This is not gap G1's regression test, which is kink-flow's
+    /// unit test `pattern::tests::a_search_that_read_an_open_value_gives_no_no` on hand-built
+    /// responses; this test passes at the base too. `pair(1)` reaches `keys(ListItem(2) ListItem(1))`,
+    /// which reads no open value, so the program's baseline run is comparable and the census flags
+    /// nothing; the pattern `keys(lst())` holds `lst()`, whose normal form lists 1 then 2 in k-rust
+    /// and 2 then 1 in another model of the definition, which then matches the reached state. At
+    /// this k-rust the search leaves that match undecided (an incomplete entry, read before the
+    /// search's `implementationChosenValues` list): k-rust's matcher does not normalize the
+    /// pattern's function application to a class value, so the answer is `unknown` for the
+    /// undecided match and no mark is listed. No end-to-end route to G1 is known at this pin, so
+    /// G1 is defensive here. Were the match decided at a later k-rust, the matching, part of the
+    /// search, would list the mark and the answer must be `unknown` (`implementation-chosen-value`);
+    /// this test then fails and is re-pinned as G1's end-to-end test.
     #[test]
     #[ignore = "kink"]
-    fn a_pattern_that_reads_an_open_value_gives_no_no() {
+    fn a_pattern_whose_match_would_read_an_open_value_is_left_undecided() {
         let dir = scratch("pick");
         write(&dir.join("pick.k"), PICK_SPEC);
         write(
@@ -1254,8 +1256,7 @@ programs = ["add"]
         assert_eq!(listed["answer"], "unknown", "{listed:#}");
         let cause = listed["cause"].as_str().unwrap();
         assert!(
-            cause.contains("match against the pattern was left undecided")
-                || cause.contains("implementation-chosen-value"),
+            cause.contains("match against the pattern was left undecided"),
             "{listed:#}"
         );
         assert_eq!(records(&dir).len(), 0);

@@ -82,8 +82,8 @@ const LIGHT: &[&str] = &[
 ///
 /// Re-pin kink27 R3-CENSUS-RUNLEVEL: k-rust's classes left the census (a run that reads one is
 /// excluded by its `implementationChosenValues` list), so `rulecondfail`, `t12hook` and `t12unev`,
-/// whose own rules apply only Float arithmetic, `signFloat` and other hooks k-rust's classes or
-/// IEEE 754 determine, are no longer flagged; `t12probe` stays, for its `String2Bytes`.
+/// whose own rules apply only Float arithmetic and other hooks k-rust's classes or IEEE 754
+/// determine, are no longer flagged; `t12probe` stays, for its `String2Bytes`.
 ///
 /// Re-pin R0c: deliverable 8 rewrote the Bytes keys of `bytes-map` and both copies of
 /// `collstore` with `encodeBytes("UTF-8", ..)`, so R0b's three `String2Bytes` flags are gone;

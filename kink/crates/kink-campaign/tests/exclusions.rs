@@ -91,7 +91,7 @@ fn campaign<'a>(
     }
 }
 
-/// The paths of every `Int` token `token` in the rule labelled `rule`.
+/// The paths of every token `token` in the rule labelled `rule`.
 fn tokens(baseline: &Baseline, rule: &str, token: &str) -> Vec<TermRef> {
     fn walk(
         b: &Baseline,
@@ -128,15 +128,27 @@ fn tokens(baseline: &Baseline, rule: &str, token: &str) -> Vec<TermRef> {
 
 /// The one-candidate generation whose patch replaces the only `1` of `rule` by `0`.
 fn one_to_zero<'b>(baseline: &'b Baseline, rule: &str) -> CandidateGeneration<'b> {
-    let [at] = tokens(baseline, rule, "1")
+    respell(baseline, rule, "1", "0", "Int")
+}
+
+/// The one-candidate generation whose patch replaces the only token `from` of `rule` by the token
+/// `to` of sort `sort`.
+fn respell<'b>(
+    baseline: &'b Baseline,
+    rule: &str,
+    from: &str,
+    to: &str,
+    sort: &str,
+) -> CandidateGeneration<'b> {
+    let [at] = tokens(baseline, rule, from)
         .try_into()
-        .expect("one literal 1");
+        .unwrap_or_else(|_| panic!("one literal {from}"));
     let patch = Patch::new(vec![Edit::ReplaceTerm {
         expected: baseline.term(&at).unwrap().clone(),
         at,
         replacement: Term::Token {
-            token: "0".into(),
-            sort: Sort::new("Int"),
+            token: to.into(),
+            sort: Sort::new(sort),
         },
     }])
     .unwrap();
@@ -406,7 +418,11 @@ mod kink_tier {
     /// `implchosen`'s `start(1)` (two keys) is refused for its run's `implementationChosenValues`
     /// list (`implementation-chosen-value`; before: decision 1's census, `implementation-chosen-hook`),
     /// and `keysfree` with an initial state applying `keys_list` to one binding, a determined
-    /// listing, is admitted (before: refused for the initial state's hook).
+    /// listing, is admitted (before: refused for the initial state's hook). Fix round 1 (review
+    /// should-fix 3): an initial state that applies a hook the initial-state check keeps is still
+    /// refused for it, `implementation-chosen-hook`: `refusals`' `val(lengthBytes(String2Bytes("a")))`
+    /// reads the encoding `String2Bytes` chooses, which k-rust evaluates with no run-level record,
+    /// so the run's lists are empty and only the initial state's check excludes it.
     #[test]
     #[ignore = "kink"]
     fn an_excluded_baseline_is_refused() {
@@ -463,6 +479,65 @@ mod kink_tier {
                     ScheduleMode::Full,
                 )
                 .unwrap_or_else(|failure| panic!("{id}: {failure}"));
+            }
+            // An initial state that applies `String2Bytes` is refused for that hook.
+            let encoded = parse_pattern(
+                r#"Lblval{}(LbllengthBytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Int'Unds'Bytes{}(LblString2Bytes'LParUndsRParUnds'BYTES-HOOKED'Unds'Bytes'Unds'String{}(\dv{SortString{}}("a"))))"#,
+            )
+            .unwrap();
+            let validator = a1_validator("refusals");
+            let tests = [test("t", encoded)];
+            let failure = run_campaign(
+                &campaign(&validator, "REFUSALS", &tests),
+                &no_mutant(validator.baseline()),
+                ScheduleMode::Full,
+            )
+            .expect_err("an initial state applying String2Bytes is refused");
+            assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
+            assert!(
+                failure.to_string().contains("implementation-chosen-hook"),
+                "{failure}"
+            );
+        });
+    }
+
+    /// kink27 R3-CENSUS-RUNLEVEL fix round 1 (review should-fix 1): a kill that rests on k-rust's
+    /// reading of one NaN per format (kink README, premise P-F3), through arithmetic on symbolic
+    /// operands. `a1/onenan.k`'s `go(0)` compares, by `==K`, the NaN of `0.0 /Float 0.0` with the
+    /// NaN of `Infinity -Float Infinity`; under P-F3 they are one term and the baseline ends in
+    /// `done(7)`. The mutant respells `2.0` to `-2.0`, which turns the second argument into an
+    /// infinity, and ends in `done(0)` in every model; in a model where two NaNs computed by
+    /// different operations differ, the baseline ends in `done(0)` too and nothing distinguishes.
+    /// Neither run reads a k-rust class value (one format, no sign, min or max), so both lists are
+    /// empty, the census admits the definition, and the kill stands in both schedules. Before this
+    /// ticket the census refused the baseline (`implementation-chosen-hook`, for `FLOAT.div` and
+    /// `FLOAT.sub`), so P-F3 carried no run-time kill. This pins the kill as long as D-3 accepts
+    /// the reading; a decision against it changes this test's expected status.
+    #[test]
+    #[ignore = "kink"]
+    fn a_kill_through_two_computed_nans_rests_on_one_nan_per_format() {
+        on_a_big_stack(|| {
+            let validator = a1_validator("onenan");
+            let generation = respell(validator.baseline(), "ONENAN.go", "2.0", "-2.0", "Float");
+            let tests = [test("go", support::app("Lblgo", vec![support::int(0)]))];
+            for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                let run = run_campaign(
+                    &campaign(&validator, "ONENAN", &tests),
+                    &generation,
+                    schedule,
+                )
+                .unwrap_or_else(|failure| panic!("{schedule:?}: {failure}"));
+                let [mutant] = run.mutants.as_slice() else {
+                    panic!("one mutant")
+                };
+                eprintln!("ONENAN {schedule:?}: {:?}", mutant.report);
+                assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
+                assert_eq!(
+                    mutant.report.killing_test_ids,
+                    vec!["go".to_owned()],
+                    "{schedule:?}"
+                );
+                assert_clean(&run, mutant, "go");
             }
         });
     }
