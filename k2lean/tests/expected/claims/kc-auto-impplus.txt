@@ -1,3 +1,10 @@
 info: KImpPlusClaims/ImpplusSpec.lean:36:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.add.holds: 5 configurations, 4 rule steps, 0 splits, 0 claim applications, 0 open
 info: KImpPlusClaims/ImpplusSpec.lean:58:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.«add-both».holds: 20 configurations, 18 rule steps, 0 splits, 0 claim applications, 0 open
 info: KImpPlusClaims/ImpplusSpec.lean:80:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.block.holds: 9 configurations, 8 rule steps, 0 splits, 0 claim applications, 0 open
+info: KImpPlusClaims/ImpplusSpec.lean:102:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.«add-frame».holds: 5 configurations, 4 rule steps, 0 splits, 0 claim applications, 0 open
+info: KImpPlusClaims/ImpplusSpec.lean:124:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.«add-id».holds: 5 configurations, 4 rule steps, 0 splits, 0 claim applications, 0 open
+info: KImpPlusClaims/ImpplusSpec.lean:146:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.«var-one».holds: 8 configurations, 7 rule steps, 0 splits, 0 claim applications, 0 open
+info: KImpPlusClaims/ImpplusSpec.lean:172:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.«var-rest».holds: 8 configurations, 7 rule steps, 0 splits, 0 claim applications, 0 open
+info: KImpPlusClaims/ImpplusSpec.lean:200:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.look.holds: 5 configurations, 4 rule steps, 0 splits, 0 claim applications, 0 open
+info: KImpPlusClaims/ImpplusSpec.lean:222:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.decl.holds: 3 configurations, 2 rule steps, 0 splits, 0 claim applications, 0 open
+info: KImpPlusClaims/ImpplusSpec.lean:248:2: kc_auto KImpPlusClaims.ImpplusSpec.Inst.«assign-rest».holds: 5 configurations, 4 rule steps, 0 splits, 0 claim applications, 0 open

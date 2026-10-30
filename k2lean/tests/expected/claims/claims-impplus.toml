@@ -14,3 +14,38 @@ label = "IMPPLUS-SPEC.block"
 stated = true
 all_path = true
 
+[[claim]]
+label = "IMPPLUS-SPEC.add-frame"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMPPLUS-SPEC.add-id"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMPPLUS-SPEC.var-one"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMPPLUS-SPEC.var-rest"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMPPLUS-SPEC.look"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMPPLUS-SPEC.decl"
+stated = true
+all_path = true
+
+[[claim]]
+label = "IMPPLUS-SPEC.assign-rest"
+stated = true
+all_path = true
+
