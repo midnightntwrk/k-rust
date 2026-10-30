@@ -8477,7 +8477,13 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 # `{ k -> v, .. }`, this form. The `cells!` rule reads it (`cells-run/subject/bag/{ k::fragment![
 # crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }` is accepted, and K7 shows it
 # applies to the object `{1 -> 2, 3 -> 4}` and not to `{1 -> 3}`), and language.mdx states that a
-# computed instance's map cell with `..` leaves entries open. Probe: the case.
+# computed instance's map cell with `..` leaves entries open. Probe: the case. It is also K8's: the
+# class `anonymous-rest-in-map-literal` advises this case, whose form its refusal proposes, and the
+# case is refused.
+
+["k8/readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"]
+finding = "NT-19-2"
+deviation = "advice of anonymous-rest-in-map-literal: refused: krs::syntax::rust-syntax"
 
 ["readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"]
 finding = "NT-19-2"

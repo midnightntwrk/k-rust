@@ -113,7 +113,7 @@ advice = "none"
 [class.anonymous-rest-in-map-literal]
 code = "krs::syntax::invalid-expression-notation"
 doc = "an anonymous `..` in a `map![..]` that is a literal (anywhere in a readable record, and where a `cells!` result builds a map that no subject map frames): a literal's entries are written over the map its rest names, and `..` names none (NT-19)"
-advice = "none"
+advice = "readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"
 
 [class.anywhere-outside-term-rule]
 code = "krs::syntax::invalid-rule-key"
@@ -4490,4 +4490,28 @@ rule [case-TAG]:
 </bag>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable-run/subject/bag/{ Obj { key: 1, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, .. }], instances0 @ .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> 1 </key>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
