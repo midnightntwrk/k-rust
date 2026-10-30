@@ -600,10 +600,40 @@ fn trusted_claims_are_pinned() {
 /// 6058eb6bb rewrote its abstraction sentence ("pure total contexts" became "pure functional
 /// contexts ... with separate source-aware partial domains"), which the WORD-03 review below rests
 /// on, so the contract must be read again by that change's owner; the test stays red there.
+///
+/// Re-pin kink27 R1-TRUST (main `d3e259fe1`): the definedness-faithful passage is read again and
+/// re-pinned at 2974-2976 (moved down 20 lines by later documentation). Its first two lines are
+/// byte-identical: the SMT reading trusts exactly that each `smt-hook` is exact where its symbol
+/// is defined, each `smt-lemma` axiom and the user's SMT prelude, which the `smt-hook` and
+/// `smt-lemma` rows and the prelude premise cover. Only the third line changed: congruence UFs
+/// now also cover pure partial functions, each with a value UF and a separate Boolean domain UF
+/// (the paragraph 6058eb6bb rewrote, 2947-2957). What kink concludes from the passage is that the
+/// abstraction trusts no author assertion beyond those rows, and that still holds from the
+/// semantics. Take a K valuation `v` that satisfies the predicate. A pure function's application
+/// (no effect, binder, macro or alias) denotes at most one element and depends on its arguments
+/// only, so reading its value UF as the K value where the application is defined (any value
+/// elsewhere) and its domain UF as the application's definedness interprets both as functions of
+/// the arguments: forward congruence on defined arguments and domain congruence hold, and the
+/// interpretation extends `v`. The domain UF stands for the application's `\ceil`, read as the
+/// definedness walk reads it (`apply_ceil_equation`'s condition and the arguments' strict
+/// domains, k-rust-backend `smt/functional.rs` `domain_plan`), so it states what the definition
+/// already states: a ceil equation, compiler-derived from the mutant's own sorts (a sort
+/// projection's exact image, as freeness is) or an author's ceil lemma, which the
+/// `simplification` row withdraws when its support is touched; a hook's builtin domain, a hooked
+/// symbol's own equations being refused (`hooked-equation`); a field of a sole-constructor sort,
+/// from the compiler's no-junk axiom and the field's one equation, a function rule or a lemma
+/// the `simplification` row withdraws. Whether a head is partial is the `total` and `functional`
+/// rows' attribute, withdrawn alike, and withdrawing one only adds a domain UF to the head, which
+/// weakens the query. So every author assertion the new reading consumes is already a row. A
+/// satisfying interpretation is still no K model ("Automatic congruence is an approximation",
+/// 2959), and kink reads no solver model as evidence. Whether 6058eb6bb's code meets this
+/// passage (a domain condition stronger than the definition's, an unknown decided wrongly) is
+/// k-rust's soundness, not a claim a mutant can lose: kink27 R1-SOUND judges it, and a
+/// restriction of the commit that rewrites this passage again needs it read again.
 // WORD-03 also reviews the SMT-03 congruence paragraph: a K valuation extends to the
-// query-local UF interpretation of a pure total context. No constructor injectivity or
-// model exactness follows. The trusted hook/lemma/prelude sentence is unchanged; the old
-// following abstraction sentence is now two sentences. Pin that reviewed three-line passage.
+// query-local UF interpretation of a pure functional context (re-read at R1-TRUST above: value
+// and domain UFs). No constructor injectivity, map law or model exactness follows. The trusted
+// hook/lemma/prelude sentence is unchanged. Pin that reviewed three-line passage.
 // The total and coverage passages are byte-identical and moved by the added scalar/map docs.
 // WORD-03: both SMT passages remain byte-identical after domains/literal/helper/word
 // emission changes; their SHA-256 pins are unchanged. Source-derived functions are readings
@@ -671,9 +701,9 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     ),
     (
         "docs/compatibility.md",
-        2954,
-        2956,
-        "f6903f637e690922ed6a2cd8af2171ab7a1b0c9dfe9315004e6a1fc7955cac9f",
+        2974,
+        2976,
+        "06f1bdd33226940c3a77f600bf937ac94fe8601e4099065edee67ce69d9a612a",
     ),
     (
         "docs/backend-port.md",

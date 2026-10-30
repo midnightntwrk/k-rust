@@ -73,7 +73,9 @@
 //!   (`BackendDefinition::ground_defined`, fz26 KRUST-ANYWHERE-HEAD: ground, and its definedness
 //!   walk owes nothing; every application's symbol is a constructor, a function the definition
 //!   declares total, or a `value-production` symbol, such as SIMPLE's `_[_]`, whose application
-//!   no equation of its head can reach, which that declaration makes a value of its sort; every
+//!   no equation of its head can reach, which that declaration makes a value of its sort, or a
+//!   partial application k-rust's source-checked observation catalog shows defined (a compiler
+//!   sort projection on its exact image, a field of a one-constructor sort; kink27 R1-TRUST); every
 //!   collection a map or set whose keys k-rust shows apart, or a list, over such subterms; it
 //!   accepts every state the stored `ceil_free` attribute, read before, accepts) and hold no
 //!   term-level `\and` anywhere (the walk owes nothing for `\and(a, a)`, but kink refuses every

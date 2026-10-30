@@ -411,6 +411,32 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// POST-01 renames that branch from `RecoveredLiteral` to `LiteralCandidate`: eligibility is
 /// checked lazily only by term-equation application. The ceil consumers still take the same
 /// unknown branch, and their only changed bytes are the variant name.
+///
+/// kink27 R1-TRUST (main `d3e259fe1`): `apply_ceil_equation` changed. 6058eb6bb made it
+/// `pub(crate)` (the SMT domain reading, `smt/functional.rs` `domain_plan`, calls it), and four
+/// later commits put four source-checked observation domains before the ceil equations (the
+/// selector of 68e362935, the map lookup of c6cf8ffcb, the product field of fdb3ac1a5, the list
+/// prefix of 0ce3c27e8); every other pinned passage is byte-identical. What kink reads from the
+/// walk is one-sided: `ground_defined` true makes a matched state a hit (kink-flow `pattern`),
+/// false makes it `unknown`, never `no`; and the answer is a function of the term and the
+/// definition. Both still hold. The map lookup and list routes return a `Term` condition (key
+/// membership, a length bound), never `\top`, so they only owe; their contracts decline where a
+/// source ceil or value row is offered at the head, where the old step would have read it. The
+/// selector route returns `\bot` where the input is decided off the image, which only owes, and
+/// owes nothing where the input is an instance `E[v]` of the compiler's exact image-domain
+/// equation `\ceil(project:S(X)) = \exists V. X = E[V]` (witness `V := v`, `v` a subterm the walk
+/// checks), which is what that unconditional ceil equation states and which the catalog accepts
+/// only with its forward and inverse equations and no competing row. The product route owes
+/// nothing for a field `f(p)` of a sort whose complete no-junk axiom has one constructor `c`
+/// (`sole_constructor_heads`, no equation head building the sort) when `f`'s one row is the
+/// unconditional `f(c(X1, ..., Xn)) = Xi`: every element `p` is some `c(a1, ..., an)`, so `f(p)` is
+/// `ai`, which exists; the walk still owes `p`'s own definedness. Each new `\top` thus rests on the
+/// definition's equations and compiler-derived axioms, or on a lemma the `simplification` row of
+/// `TRUSTED_CLAIMS` withdraws when its support is touched (a field row may be a lemma); none reads
+/// a solver, a budget or the run, and each catalog is built once from the loaded definition. So
+/// kink's reading is unchanged: some states move from `unknown` to `hit`, through k-rust's revision
+/// in kink's identity, and no kink identity constant moves. The entry functions of the four
+/// routes, and the selector and product catalogs where their `\top` is decided, are pinned too.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -418,6 +444,11 @@ fn the_data_judgement_kink_reads_is_pinned() {
         include_str!("../../../../crates/k-rust-backend/src/instance_normal.rs");
     const DEFINEDNESS: &str = include_str!("../../../../crates/k-rust-backend/src/definedness.rs");
     const DEFINITION: &str = include_str!("../../../../crates/k-rust-backend/src/definition.rs");
+    const OBSERVATION: &str = include_str!("../../../../crates/k-rust-backend/src/observation.rs");
+    const PRODUCTS: &str =
+        include_str!("../../../../crates/k-rust-backend/src/observation/products.rs");
+    const MAPS: &str = include_str!("../../../../crates/k-rust-backend/src/observation/maps.rs");
+    const LISTS: &str = include_str!("../../../../crates/k-rust-backend/src/observation/lists.rs");
     let between = |source: &'static str, from: &str, to: &str| {
         let start = source.find(from).unwrap_or_else(|| panic!("no {from:?}"));
         let end = source[start..]
@@ -482,7 +513,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             "ceil_term_node",
         ),
         (
-            between(DEFINEDNESS, "\nfn apply_ceil_equation(", "\n}\n"),
+            between(DEFINEDNESS, "\npub(crate) fn apply_ceil_equation(", "\n}\n"),
             "apply_ceil_equation",
         ),
         (
@@ -508,6 +539,29 @@ fn the_data_judgement_kink_reads_is_pinned() {
         (
             method(DEFINITION, "pub(crate) ", "is_value_production"),
             "is_value_production",
+        ),
+        (
+            between(OBSERVATION, "\npub(crate) fn selector_domain(", "\n}\n"),
+            "selector_domain",
+        ),
+        (method(OBSERVATION, "", "checked"), "selector_checked"),
+        (
+            between(MAPS, "\npub(crate) fn lookup_domain(", "\n}\n"),
+            "map_lookup_domain",
+        ),
+        (
+            between(PRODUCTS, "\npub(crate) fn field_domain(", "\n}\n"),
+            "field_domain",
+        ),
+        (
+            method(PRODUCTS, "pub(crate) ", "field_is_defined"),
+            "field_is_defined",
+        ),
+        (method(PRODUCTS, "", "of"), "products_of"),
+        (method(PRODUCTS, "", "field"), "products_field"),
+        (
+            between(LISTS, "\npub(crate) fn domain(", "\n}\n"),
+            "list_domain",
         ),
     ]
     .map(|(text, name)| (name, kink_patch::sha256(text.as_bytes()).to_string()));
@@ -576,7 +630,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "apply_ceil_equation",
-                "6199c329297d5f2f2954005da6eee99501989ae454cd039a7a7f4151ef365e03"
+                "0e9041cf3b6de533b7699ab7d9aa1cd5cb138e50a43fd157d89fe592e716f886"
             ),
             (
                 "value_production_ceil_equations",
@@ -593,6 +647,38 @@ fn the_data_judgement_kink_reads_is_pinned() {
             (
                 "is_value_production",
                 "b35a7fdec3a4e3f90cf62576ee1d6bfb8c88caa34e4959a933a123cb9cc3eb0d"
+            ),
+            (
+                "selector_domain",
+                "2d64355a28e2020a6a2b3ece5928a3bf09da2fc2a5dda29a99e1941babedb3bb"
+            ),
+            (
+                "selector_checked",
+                "c6f70063aaa675077a71b24b28969178f5bf2100fa1394e4c113742ffd500c9a"
+            ),
+            (
+                "map_lookup_domain",
+                "97b2c11b6ccd85bfeb0be4c137fdbf26458cfa2468150e252902d220cc20b921"
+            ),
+            (
+                "field_domain",
+                "fd84dbb05b2014f541e23ef36a25be358481ae08abd85d00d4769ffe8f9d456b"
+            ),
+            (
+                "field_is_defined",
+                "e29266cc06b0ac4694a4cb1338d31c9adeaa8da6faaeab7d445dde620187a7f8"
+            ),
+            (
+                "products_of",
+                "1ee21a33e8074b00bb2d99c320889ec2c54461afbe9e7818270162fafe9628a4"
+            ),
+            (
+                "products_field",
+                "86d58aff8f9ce789b754d01d2efb70109b15ef16aee356ad742c565dea5a1c45"
+            ),
+            (
+                "list_domain",
+                "087ac753d0e9aaf6dc400bbb8c3a6865ef27f5a64ed91ba744bc2f585ad694d0"
             ),
         ]
         .map(|(name, digest)| (name, digest.to_owned()))
