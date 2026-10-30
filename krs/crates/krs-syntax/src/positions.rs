@@ -145,6 +145,12 @@ impl Form {
         matches!(self, Self::Alias)
     }
 
+    /// Whether the form's subject is matched against a program's terms as they are written: a
+    /// static clause's, which static expansion matches before anything evaluates.
+    const fn matches_terms_as_written(self) -> bool {
+        matches!(self, Self::Alias | Self::Desugar)
+    }
+
     /// Whether the form is a single-body rule, whose subject is kept as it is outside its
     /// `k::rewrite!` islands.
     const fn is_single_body(self) -> bool {
@@ -353,6 +359,17 @@ impl Position {
             && self.form.matches_evaluated_terms()
             && (!self.nesting.in_map_key || self.nesting.in_selected_key))
             || self.in_local_pattern()
+    }
+
+    /// Whether the construct is matched against a program's terms as they are written: in a
+    /// static clause's subject, which static expansion matches before anything evaluates. A
+    /// construct that computes would match only its own spelling there (`Foo(x + 1)` the program
+    /// `foo(y + 1)`, not `foo(1 + y)`), where everywhere else it denotes its value.
+    #[must_use]
+    pub const fn matches_terms_as_written(self) -> bool {
+        matches!(self.slot, Slot::Subject)
+            && self.form.matches_terms_as_written()
+            && !self.in_local_pattern()
     }
 
     /// Whether the construct stands in a braced collection instance of a pattern over evaluated
@@ -818,14 +835,13 @@ pub enum Rule {
     /// `alternatives-outside-pattern`: outside a pattern, `A | B` is the bitwise operator, whose
     /// operand sorts choose its domain.
     AlternativesOutsidePattern,
-    /// `concatenation-in-alias-subject`: whether an application in an alias clause's subject is
-    /// a set's concatenation, which printing may write over overlapping parts.
-    ConcatenationInAliasSubject,
     /// `constant-applies-function`: whether an application in a constant's value applies a
     /// function.
     ConstantAppliesFunction,
     /// `function-in-pattern`: whether an application where a pattern matches a term applies a
-    /// function, and, at an equation's slot root, whether that root is the subject's.
+    /// function, and, at an equation's slot root, whether that root is the subject's. In an
+    /// alias clause's subject the compiler also tells a set's concatenation by its head
+    /// (`concatenation-in-alias-subject`), which printing may write over overlapping parts.
     FunctionInPattern,
     /// `ml-in-condition`: a matching-logic predicate in the condition of a transition or an
     /// equation, which the compiler recognizes for every connective alike.
@@ -844,9 +860,8 @@ pub enum Rule {
 
 impl Rule {
     /// Every rule.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 7] = [
         Self::AlternativesOutsidePattern,
-        Self::ConcatenationInAliasSubject,
         Self::ConstantAppliesFunction,
         Self::FunctionInPattern,
         Self::MlInCondition,
@@ -860,7 +875,6 @@ impl Rule {
     pub const fn name(self) -> &'static str {
         match self {
             Self::AlternativesOutsidePattern => "alternatives-outside-pattern",
-            Self::ConcatenationInAliasSubject => "concatenation-in-alias-subject",
             Self::ConstantAppliesFunction => "constant-applies-function",
             Self::FunctionInPattern => "function-in-pattern",
             Self::MlInCondition => "ml-in-condition",
@@ -1001,15 +1015,18 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
             }
         }
         // A sort test applies the sort's generated predicate or projection, a function: a pattern
-        // over evaluated terms never meets it, while a simplification's, a claim's and a static
-        // clause's subjects hold applications, and a key computes it.
+        // over evaluated terms never meets it, a static clause's subject would match its spelling
+        // rather than its value, while a simplification's and a claim's subjects hold
+        // applications, and a key computes it.
         // In a key over evaluated terms, whether the whole key is computed or selects an entry
         // by matching takes its names: the compiler decides. So does a braced collection
         // instance's type and names.
         Construct::SortTest => {
             if position.reads_by_collection_type() {
                 After(Rule::SortTestInPattern)
-            } else if position.matches_evaluated_terms() && !looked_up {
+            } else if position.matches_terms_as_written()
+                || (position.matches_evaluated_terms() && !looked_up)
+            {
                 Refuse(Class::SortTestInPattern)
             } else if in_pattern_key && form.matches_evaluated_terms() {
                 After(Rule::SortTestInPattern)
@@ -1080,17 +1097,18 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // computed and looked up, and the application with it, when nothing in it outside the
         // constructs that compute selects an entry by matching (a name nothing else binds, `_`, an
         // alias, alternatives, an open record); otherwise it is matched: that takes the key's
-        // names, and a set's element is told by its head, so the compiler decides both. An alias
-        // clause's subject is built backwards too: an application reads both ways, but a set's
-        // concatenation matches only disjoint parts, which printing cannot make sure of, and its
-        // head tells it.
+        // names, and a set's element is told by its head, so the compiler decides both. A static
+        // clause's subject is matched against a program as written, where a function's
+        // application would stand for its spelling, a key's or a set element's too, since nothing
+        // is looked up there (decision NT-11-5); the compiler tells a function from a
+        // constructor, and in an alias clause's subject, which is built backwards too, a set's
+        // concatenation, which matches only disjoint parts printing cannot make sure of.
         Construct::FunctionApplication => {
             if position.matches_evaluated_terms()
+                || position.matches_terms_as_written()
                 || (in_pattern_key && form.matches_evaluated_terms())
             {
                 After(Rule::FunctionInPattern)
-            } else if built_backwards {
-                After(Rule::ConcatenationInAliasSubject)
             } else {
                 Admit
             }

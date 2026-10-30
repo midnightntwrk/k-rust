@@ -50,6 +50,16 @@
 //! name below a function application reads a value and binds none.
 //! Otherwise it is a selection, matched, and a function there never matches.
 //! [`key_names`] decides both.
+//!
+//! An alias's or a desugar clause's subject is matched by static expansion
+//! against a program's terms as they are written, before anything evaluates
+//! ([`static_subject`]). Below its root an application of a function would
+//! match only its own spelling: `Foo(x + 1)` would expand the program
+//! `foo(y + 1)` but not `foo(1 + y)`, where everywhere else the two denote
+//! one value (decision NT-11-5). So a function there is refused too, a set's
+//! element and a collection's entries included, since nothing is looked up
+//! there; the root is the production the clause expands, which
+//! `statics` judges.
 
 use std::collections::BTreeMap;
 
@@ -89,6 +99,7 @@ pub(super) fn check_function_patterns(
             place: Place::Pattern,
         };
         sentence_patterns(descriptor.payload(), &patterns)
+            .and_then(|()| static_subject(descriptor.payload(), &patterns))
             .map_err(|found| refusal(descriptor, &found))?;
         key_names::check(descriptor, catalog, declarations)?;
     }
@@ -137,6 +148,29 @@ pub(super) fn matches_evaluated_sentence(payload: &DescriptorPayload) -> bool {
         DescriptorPayload::ContextAlias(_) => true,
         _ => false,
     }
+}
+
+/// Checks the subject of an alias or a desugar clause below its root, which
+/// static expansion matches against a program's terms as they are written. A
+/// root that is no production the clause expands is `statics`'s to report.
+fn static_subject<'t>(
+    payload: &'t DescriptorPayload,
+    patterns: &Patterns<'_>,
+) -> Result<(), Found<'t>> {
+    let DescriptorPayload::StructuredRule(rule) = payload else {
+        return Ok(());
+    };
+    if !matches!(
+        rule.sentence_kind,
+        SentenceKind::Alias | SentenceKind::Desugar
+    ) {
+        return Ok(());
+    }
+    let written = Patterns {
+        place: Place::AsWritten(rule.sentence_kind),
+        ..*patterns
+    };
+    written.static_root(&rule.subject)
 }
 
 /// Checks the patterns of a sentence whose subject every term it applies to
@@ -216,6 +250,14 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
         }
     };
     let reason = match (found.place, found.root) {
+        (Place::AsWritten(kind), _) => format!(
+            "{function} stands in the subject of {clause}, which static expansion matches against a program's terms as they are written, before anything evaluates: there an application stands for its own spelling, not for the value it denotes everywhere else (`f(x + 1)` would expand the program `f(y + 1)` but not `f(1 + y)`), so the clause would rewrite some spellings of a value and not others: to rewrite a computation, write a rule (`#[k::rule]`) or the function's equation (`#[k::equation]`); to expand a term a program writes, write it with constructors",
+            clause = if kind == SentenceKind::Alias {
+                "an alias clause"
+            } else {
+                "a desugar clause"
+            },
+        ),
         (Place::Local, _) => format!(
             "{function} stands in a `let` or `k::matches!` pattern, which matches the value its term computed; a function application denotes the value evaluation produces, and a computed value has its functions evaluated, so this pattern describes a term that never occurs and never matches: match a variable here and compare it with the application (`==`), or apply the function in the value"
         ),
@@ -315,6 +357,10 @@ enum Place {
     Instance(Option<CellCollectionType>),
     /// A `let` or `k::matches!` pattern.
     Local,
+    /// An alias's or a desugar clause's subject below its root, of that
+    /// sentence kind, which static expansion matches against a program's
+    /// terms as they are written.
+    AsWritten(SentenceKind),
 }
 
 /// A construct that computes, which a pattern never meets.
@@ -371,11 +417,38 @@ struct Found<'t> {
 }
 
 impl Patterns<'_> {
-    /// These patterns, matching a collection's values and elements.
+    /// These patterns, matching a collection's values and elements; a
+    /// subject matched as written reads them as written too.
     const fn entries(self) -> Self {
+        if matches!(self.place, Place::AsWritten(_)) {
+            return self;
+        }
         Self {
             place: Place::Entry,
             ..self
+        }
+    }
+
+    /// A static clause's subject root: its arguments, when it is a
+    /// production's application.
+    fn static_root<'t>(&self, root: &'t DescriptorTerm) -> Result<(), Found<'t>> {
+        match root {
+            DescriptorTerm::Application {
+                reference,
+                arguments,
+                ..
+            } if matches!(
+                applied_function(&reference.application, self.catalog),
+                Applied::Constructor
+            ) =>
+            {
+                arguments.iter().try_for_each(|argument| {
+                    let (TermArgumentRef::Positional { value }
+                    | TermArgumentRef::Named { value, .. }) = argument;
+                    self.term(value, None)
+                })
+            }
+            _ => Ok(()),
         }
     }
 
@@ -486,6 +559,9 @@ impl Patterns<'_> {
                     });
                 }
                 let below = match applied_function(&reference.application, self.catalog) {
+                    // Nothing is looked up in a subject matched as written:
+                    // a set's or a map's operands are matched as they are.
+                    Applied::Collection if matches!(self.place, Place::AsWritten(_)) => *self,
                     // A set's elements are its keys ([`key_names`]); the
                     // other operands of its concatenation are the sets it
                     // holds besides them, matched as any term is.

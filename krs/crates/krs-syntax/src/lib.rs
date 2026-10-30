@@ -44,9 +44,9 @@ pub use attribute::{
     ConstructorsAttribute, ContextAliasAttribute, ContextAttribute, DesugarAttribute,
     EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionHook, FunctionSmt,
     FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag, PriorityAttribute,
-    ProductionKeys, RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute,
-    SimplificationAttribute, SortAttribute, SpecModuleAttribute, SpecModuleItem, StaticMode,
-    StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
+    ProductionKeys, RECURSIVE_ON_CLAUSE, REQUIRES_ON_ALIAS_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE,
+    RestrictionKey, RuleAttribute, SimplificationAttribute, SortAttribute, SpecModuleAttribute,
+    SpecModuleItem, StaticMode, StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
     UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable, UnboundVariables,
     VariantSyntaxAttribute, default_function_syntax, validate_spec_module_name,
 };

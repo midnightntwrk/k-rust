@@ -281,20 +281,22 @@ fn what_a_head_tells_is_refused_below_an_alias_subject_root() {
 /// mistake is told after the clauses are matched with their productions has no other.
 const OTHER_CLAUSES: &str = "#[k::alias]\nfn whole(k::term![Al::Whole(a)]: Term<Value>) -> Term<Value> {\n    Data::One(a)\n}\n\n#[k::alias]\nfn items(k::term![Al::Items([x, rest @ ..])]: Term<Value>) -> Term<Value> {\n    Data::Two(x, rest)\n}\n\n#[k::alias]\nfn elems(k::term![Al::Elems(set::item(x))]: Term<Value>) -> Term<Value> {\n    Data::Two(x, [])\n}\n\n";
 
-/// What the alias clauses' two-way reading admits but a tool refuses, or a mistake an internal
-/// code reports. A function's application in an alias subject reads both ways (built, it is the
-/// application the clause expands back), but k-rust's native routes refuse a function on any rule's
-/// left side (finding NT-8-2). `#[k::requires]` on an alias clause is an author's mistake reported
-/// as a KRS bug (finding NT-8-3).
+/// A function's application in an alias subject would stand for its spelling, which static
+/// expansion matches as written, rather than its value (finding NT-8-2, decided with NT-11-5):
+/// it is refused at the application, as in a desugar's subject, with what to write instead (on
+/// main KRS emitted it and every native route refused it, `IllegalFunctionOnLhs`).
+/// `#[k::requires]` on an alias clause, which K applies unconditionally, is refused at the
+/// attribute, as on a desugar clause (finding NT-8-3; on main the internal
+/// `krs::collect::provenance-mismatch`).
 #[test]
-fn what_the_tools_refuse_in_an_alias_clause_is_pinned() {
+fn a_function_or_a_condition_on_an_alias_clause_is_refused() {
     expect_test::expect![[r"
         function-in-subject:
-        error[IllegalFunctionOnLhs]: Illegal function symbol size on LHS of rule: a rewrite rule reads a function application by value only inside a key, value or element of a collection. Consider adding `simplification` attribute to the rule if this is intended.
-        --> src/lib.rs:85:4
+        error[krs::analysis::function-in-pattern]: the function `Size` stands in the subject of an alias clause, which static expansion matches against a program's terms as they are written, before anything evaluates: there an application stands for its own spelling, not for the value it denotes everywhere else (`f(x + 1)` would expand the program `f(y + 1)` but not `f(1 + y)`), so the clause would rewrite some spellings of a value and not others: to rewrite a computation, write a rule (`#[k::rule]`) or the function's equation (`#[k::equation]`); to expand a term a program writes, write it with constructors
+        --> src/lib.rs:85:29
         requires:
-        error[krs::collect::provenance-mismatch]: internal error (a KRS bug): invalid stable grammar descriptor: invalid term: static alias and desugar clauses cannot carry requires conditions
-        --> src/lib.rs:86:4"]]
+        error[krs::syntax::invalid-rule-key]: an alias clause has no `#[k::requires]`: K rewrites the definition and the program with it once, before anything runs, and prints each term its result matches back as its subject, so there is nothing to test a condition against
+        --> src/lib.rs:85:6"]]
     .assert_eq(&refusals([
         (
             "function-in-subject",

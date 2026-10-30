@@ -269,7 +269,13 @@ pub(crate) fn alias(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     krs_syntax::AliasAttribute::parse_tokens(attributes)?;
-    if syn::parse2::<ItemFn>(item.clone()).is_ok() {
+    if let Ok(function) = syn::parse2::<ItemFn>(item.clone()) {
+        if let Some(requires) = requires_helper(&function) {
+            return Err(requires_on_static_clause(
+                krs_syntax::REQUIRES_ON_ALIAS_CLAUSE,
+                Some(requires),
+            ));
+        }
         return ordinary_rule(env, item, krs_syntax::RuleSentence::Alias);
     }
     // The misplaced helper is the invocation itself.
@@ -288,17 +294,11 @@ pub(crate) fn desugar(
 ) -> crate::Result<TokenStream> {
     let desugar = krs_syntax::DesugarAttribute::parse_tokens(attributes)?;
     if let Ok(function) = syn::parse2::<ItemFn>(item.clone()) {
-        if let Some(requires) = function
-            .attrs
-            .iter()
-            .find(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Requires))
-        {
-            let name = requires
-                .path()
-                .segments
-                .last()
-                .expect("helper attributes have a final path segment");
-            return Err(requires_on_desugar(Some(name.ident.span())));
+        if let Some(requires) = requires_helper(&function) {
+            return Err(requires_on_static_clause(
+                krs_syntax::REQUIRES_ON_DESUGAR_CLAUSE,
+                Some(requires),
+            ));
         }
         let rule = krs_syntax::RuleItem::parse_desugar_tokens(item, &desugar)?;
         return expand_ordinary_rule(
@@ -316,13 +316,26 @@ pub(crate) fn desugar(
     ))
 }
 
-/// `#[k::requires]` on a desugar clause (KF-028).
-/// `span` is the `#[k::requires]` attribute; `None` when it is the invocation being expanded.
-fn requires_on_desugar(span: Option<Span>) -> ExpandError {
+/// The span of the name of a `#[k::requires]` helper on a static clause fn, if it has one.
+fn requires_helper(function: &ItemFn) -> Option<Span> {
+    let requires = function
+        .attrs
+        .iter()
+        .find(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Requires))?;
+    let name = requires
+        .path()
+        .segments
+        .last()
+        .expect("helper attributes have a final path segment");
+    Some(name.ident.span())
+}
+
+/// `#[k::requires]` on an alias or a desugar clause (KF-028), which K applies unconditionally:
+/// `reason` says why for the clause's mode. `span` is the `#[k::requires]` attribute; `None` when
+/// it is the invocation being expanded.
+fn requires_on_static_clause(reason: &'static str, span: Option<Span>) -> ExpandError {
     let error = krs_diagnostic::ToDiagnostic::to_diagnostic(&krs_syntax::SyntaxError::new(
-        krs_syntax::SyntaxErrorKind::InvalidRuleKey {
-            reason: krs_syntax::REQUIRES_ON_DESUGAR_CLAUSE,
-        },
+        krs_syntax::SyntaxErrorKind::InvalidRuleKey { reason },
         span.unwrap_or_else(Span::call_site),
     ));
     match span {
@@ -1335,13 +1348,21 @@ pub(crate) fn orphan_rule_helper(
     }
     if entry == AttributeMacro::Requires {
         let mut function: ItemFn = syn::parse2(item)?;
-        if function
-            .attrs
-            .iter()
-            .any(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Desugar))
-        {
-            // The misplaced `#[k::requires]` is the invocation itself.
-            return Err(requires_on_desugar(None));
+        for (marker, reason) in [
+            (
+                AttributeMacro::Desugar,
+                krs_syntax::REQUIRES_ON_DESUGAR_CLAUSE,
+            ),
+            (AttributeMacro::Alias, krs_syntax::REQUIRES_ON_ALIAS_CLAUSE),
+        ] {
+            if function
+                .attrs
+                .iter()
+                .any(|attribute| helper_entry(attribute.path()) == Some(marker))
+            {
+                // The misplaced `#[k::requires]` is the invocation itself.
+                return Err(requires_on_static_clause(reason, None));
+            }
         }
         if let Some((index, outer)) =
             function

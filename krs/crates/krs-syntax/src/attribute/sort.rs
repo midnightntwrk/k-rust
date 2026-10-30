@@ -822,6 +822,9 @@ pub const RECURSIVE_ON_CLAUSE: &str = "recursion is a property of the production
 /// The diagnostic for `#[k::requires]` on a desugar clause.
 pub const REQUIRES_ON_DESUGAR_CLAUSE: &str = "a desugar clause has no `#[k::requires]`: K rewrites the definition and the program with it once, before anything runs, so there is nothing to test a condition against";
 
+/// The diagnostic for `#[k::requires]` on an alias clause.
+pub const REQUIRES_ON_ALIAS_CLAUSE: &str = "an alias clause has no `#[k::requires]`: K rewrites the definition and the program with it once, before anything runs, and prints each term its result matches back as its subject, so there is nothing to test a condition against";
+
 /// Validated payload of a static production marker (KF-028): `#[k::alias]`,
 /// `#[k::alias(recursive)]`, `#[k::desugar]`, or `#[k::desugar(recursive)]`
 /// on a variant or after `#[k::constructor(...)]`.

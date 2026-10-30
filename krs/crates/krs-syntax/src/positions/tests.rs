@@ -264,6 +264,8 @@ fn a_function_application_where_a_rule_or_an_equation_matches_is_left_to_the_com
         Form::EquationTable,
         Form::Context,
         Form::ContextAlias,
+        Form::Alias,
+        Form::Desugar,
     ] {
         let subject = Position::root(form, Slot::Subject);
         assert_eq!(
@@ -277,24 +279,13 @@ fn a_function_application_where_a_rule_or_an_equation_matches_is_left_to_the_com
             "{form:?}"
         );
     }
-    for form in [
-        Form::Simplification,
-        Form::ReadableClaim,
-        Form::CellsClaim,
-        Form::Alias,
-        Form::Desugar,
-    ] {
-        let application = if form == Form::Alias {
-            Admission::After(Rule::ConcatenationInAliasSubject)
-        } else {
-            Admission::Admit
-        };
+    for form in [Form::Simplification, Form::ReadableClaim, Form::CellsClaim] {
         assert_eq!(
             admits(
                 Position::root(form, Slot::Subject),
                 Construct::FunctionApplication
             ),
-            application,
+            Admission::Admit,
             "{form:?}"
         );
         // A sort test is an application, which these subjects hold.
@@ -351,12 +342,17 @@ fn an_alias_subject_is_built_backwards_and_refuses_what_only_matches() {
             "{construct:?}"
         );
     }
-    // An application is read both ways (built backwards, it is the term the clause expands
-    // back), though the native routes refuse a function on a rule's left side today (finding
-    // NT-8-2); a set's concatenation, which matches only disjoint parts, is told by its head.
+    // A static clause's subject matches a program as written, where a function's application
+    // or a sort test would stand for its spelling (decision NT-11-5): the compiler tells a
+    // function, and a set's concatenation, which matches only disjoint parts, by its head.
+    assert!(subject.matches_terms_as_written());
     assert_eq!(
         admits(subject, Construct::FunctionApplication),
-        Admission::After(Rule::ConcatenationInAliasSubject)
+        Admission::After(Rule::FunctionInPattern)
+    );
+    assert_eq!(
+        admits(subject, Construct::SortTest),
+        Admission::Refuse(Class::SortTestInPattern)
     );
     // A desugar clause runs one way, and its result is built only once.
     let desugar = Position::root(Form::Desugar, Slot::Subject);
