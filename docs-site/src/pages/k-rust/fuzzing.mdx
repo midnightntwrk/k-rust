@@ -326,6 +326,7 @@ kink-flow fuzz FLOW.toml TEMPLATES.toml --template bang-holes --reach imp.k:50 -
 
 kink counts a program as reaching a rule only when its run on every path ends in values kink can compare, so the witness must end naturally, on every path, in data.
 Only rewrite rules can be targets: a function's equation is refused before any case (`equation-target`), although `results` lists it; write a program that calls the function and target a rewrite rule that uses its result.
+Which rules coverage is meant to cover, and which reach targets are not built yet, are stated in [kink's README, section "What coverage covers"](https://github.com/midnightntwrk/k-rust/blob/main/kink/README.md#what-coverage-covers): an `uncovered` simplification, `symbolic` or ceil equation is out of scope and needs no witness.
 
 ## Hit a pattern
 
