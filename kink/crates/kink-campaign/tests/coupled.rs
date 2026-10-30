@@ -9790,8 +9790,13 @@ mod kink_tier {
     /// roundTiesToEven (kink README, premises P-F1 and P-F4), which the census, reading only the
     /// compiled rules, never sees. FLOATMIXED's `0.1f +Float 0.2` sums a binary32 and a binary64
     /// literal, whose result format only an execution chooses, so kompile leaves `FLOAT.add`
-    /// applied, and the census excludes the definition (`implementation-chosen-hook`) before any
-    /// mutant runs.
+    /// applied.
+    ///
+    /// Re-pin kink27 R3-CENSUS-RUNLEVEL: `FLOAT.add` is a k-rust class (`float-destination`),
+    /// judged per run, so the census no longer flags FLOATMIXED; the baseline's run from `mixed(0)`
+    /// evaluates the mixed sum, notes it on its `implementationChosenValues` list and is excluded
+    /// (`implementation-chosen-value`), so the baseline is still refused before any mutant runs.
+    /// Before: the census excluded the definition (`implementation-chosen-hook`).
     #[test]
     #[ignore = "kink"]
     fn folded_float_literals_are_admitted_and_mixed_formats_are_not() {
@@ -9883,16 +9888,12 @@ mod kink_tier {
                         result.assert_justified(&context);
                     }
                     _ => {
-                        assert_eq!(
-                            census,
-                            Some(Exclusion::ImplementationChosenHook),
-                            "{context}"
-                        );
+                        assert_eq!(census, None, "{context}");
                         assert_eq!(
                             (result, exclusion),
                             (
                                 ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
-                                Some(Exclusion::ImplementationChosenHook)
+                                Some(Exclusion::ImplementationChosenValue)
                             ),
                             "{context}"
                         );
