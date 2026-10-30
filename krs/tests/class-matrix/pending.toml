@@ -9,8 +9,8 @@
 #
 # A pending case that conforms, or deviates differently, fails until this file records it; see
 # `class_matrix::pending`. Keys: a case ID (K2, read by both tiers), `full/ID` (K2 where the full
-# tier observes a case otherwise than the front), `k1/ID`, `k3/ID`, `k6/ID`, `k7/ID`, `lattice/..` (K4)
-# and `entry/..` (K5).
+# tier observes a case otherwise than the front), `k1/ID`, `k3/ID`, `k6/ID`, `k7/ID`, `k8/ID` (K8's
+# advice check), `lattice/..` (K4) and `entry/..` (K5).
 
 # S0-8: the coverage lint's sort graph lacks the implicit `S ≤ KItem` edges. The count of the
 # terms and imported bases follows their sorts: 13 pairs at 18 sorts, 16 after `6d5995805` (NT-3,
@@ -6751,3 +6751,334 @@ deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = k[map{0 
 ["k7/init/env/k::map![pgm -> 1, 0 -> 2]"]
 finding = "NT-12-7"
 deviation = "another value: k = k[Cmd::Go()], pc = 0, stack = [], env = k[map{0 -> 2, Cmd::Go() -> 1}], frame.ret = 0, where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{0 -> 2, Cmd::Go() -> 1}, frame.ret = 0"
+
+
+# K8 (NT-13): the attribute axis's cases (`attrs/..`), the terms slot writing NT-9-1's key, and the
+# advice check's verdicts (`k8/..`), grouped by finding. First run on main `580dca4a2`.
+
+# NT-8-3 (K8): `#[k::requires]` on an alias clause, which has no meaning there (an alias rewrites
+# every application of its production as a term is read, and prints back, unconditionally), is
+# reported under the internal `krs::collect::provenance-mismatch` at the item ("static alias and
+# desugar clauses cannot carry requires conditions"), where a desugar clause's is
+# `krs::syntax::invalid-rule-key` at the attribute. Probe: `attrs/alias/#[k::requires(k::is!(Int, x))]`.
+
+["attrs/alias/#[k::requires(k::is!(Int, x))]"]
+finding = "NT-8-3"
+deviation = "krs::collect::provenance-mismatch @ item"
+
+["attrs/alias/#[k::requires(k::is!(Word, x))]"]
+finding = "NT-8-3"
+deviation = "krs::collect::provenance-mismatch @ item"
+
+
+# NT-9-1 (K8's generated case): a framed `cells!` result writing a key the subject did not match,
+# over the remainder: `map![HOLE -> 1, ..rest]` over `map![x -> v, rest @ ..]` at a key other than
+# `x`, refused at the key (`krs::analysis::invalid-term`) advising `map![k -> v, ..m]` over
+# `Cell(m)` (class `framed-map-unmatched-key`, advised case `terms/cells/result-map-whole/..`).
+
+["import/cells/result-map-framed-key/Go()"]
+finding = "NT-9-1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["import/cells/result-map-framed-key/Hold(x)"]
+finding = "NT-9-1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["terms/cells/result-map-framed-key/1"]
+finding = "NT-9-1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+
+# NT-12-5 (K8, advice): `alternatives-in-alias-subject`'s advice, "write one alias clause per
+# alternative, .., or `#[k::desugar]`", names a desugar clause with the alternatives in its subject,
+# `terms/desugar/subject/Cmd::Go() | Cmd::Hold(_)`, which KRS accepts and whose `#Or` subject never
+# expands a program (NT-12-5's K7 deviation): the advised form, as written, does not do what it says.
+
+["k8/terms/desugar/subject/Cmd::Go() | Cmd::Hold(_)"]
+finding = "NT-12-5"
+deviation = "advice of alternatives-in-alias-subject: K7: failed: invalid executable state: invalid executable input: macro or alias symbol 'LblcmdC54ff3ba4' survived expansion"
+
+
+# NT-12-6 (K8, advice): `none-in-initializer`'s advice is "write Some(<template>) and add
+# `initial` if the cell starts present"; its advised case, `init/counter/Some(0)`, writes `Some(0)` on
+# the machine base's `counter`, declared `multiplicity = "?"` without `initial`, and K7 states the
+# cell present, NT-12-6's deviation. By the message, the cell starts absent without `initial`: a
+# datum for NT-12-6's triage (the oracle's statement or the product), which NT-18 decides.
+
+["k8/init/counter/Some(0)"]
+finding = "NT-12-6"
+deviation = "advice of none-in-initializer: K7: another value: k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = <the state holds no cell `counter`>, where the plan states k = k[Cmd::Go()], pc = 0, stack = [], env = map{}, frame.ret = 0, counter = 0"
+
+
+# NT-13-1 (K8): a key a claim's `#[k::claim(..)]` does not take (`owise`, `heat`, `concrete`, an
+# unknown one) and the claim keys' own malformed values and pairs (`trusted = true`, `trusted,
+# circularity`, `one_path, circularity`) are reported under `krs::syntax::rust-syntax` ("unknown
+# claim argument", the claim parser's `syn::Error`), the code of a Rust token parse that failed,
+# where the other sentence markers answer `unknown-argument`, `invalid-argument-value` or
+# `invalid-rule-key` at the key. Probe: `#[k::claim(all_paths, owise)]` on a `cells!` claim.
+
+["attrs/cells-claim/anywhere"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/bogus"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/concrete"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/cool, hole = x"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/heat, hole = x"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/nondet = gTAG"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/one_path, circularity"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/owise"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/priority = 20"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/recursive"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/result = KResult"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/smt_lemma"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/symbolic"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/trusted = true"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/cells-claim/trusted, circularity"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/anywhere"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/concrete"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/cool, hole = x"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/heat, hole = x"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/nondet = gTAG"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/owise"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/priority = 20"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/recursive"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/result = KResult"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/smt_lemma"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/claim/symbolic"]
+finding = "NT-13-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+
+# NT-13-2 (K8): a label is refused on an equation, a simplification, a table row
+# (`#[k::equation(label = ..)]`, `#[k::simplification(label = ..)]`: unknown argument) and a
+# `k::claims!` clause ("labelled by its name: rename the clause"), where a rule fn, a single-body
+# rule, a `k::rules!` clause, a `cells!` rule and claim and a context take one; a label names a
+# sentence whatever its kind, overriding the name its syntax gives it by default. Probe:
+# `#[k::equation(label = "named")]`.
+
+["attrs/claim/label = \"named-TAG\""]
+finding = "NT-13-2"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["attrs/equation/label = \"named-TAG\""]
+finding = "NT-13-2"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/simplification/label = \"named-TAG\""]
+finding = "NT-13-2"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+["attrs/table/label = \"named-TAG\""]
+finding = "NT-13-2"
+deviation = "krs::syntax::unknown-argument @ spelling"
+
+
+# NT-13-3 (K8): a single-body rule refuses `#[k::ensures]` ("write a rule with a result"), and
+# `#[k::exists(n: Int)]`/`#[k::fresh(l: Int)]` whose name a `k::rewrite!` writes are refused at
+# that use ("`n` on the right of `k::rewrite!` is not bound by the rule's left image"), outside the
+# attribute: a single-body rule is a transition step, whose after-state these state. Probe:
+# `#[k::fresh(l: Int)] fn r(k::term![Cmd::C(k::rewrite!(x => Cmd::Hold(l)), _)]: Term<Stmt>) {}`.
+
+["attrs/cells-local/#[k::ensures(k::is!(Int, x))]"]
+finding = "NT-13-3"
+deviation = "krs::syntax::invalid-local-rewrite @ spelling"
+
+["attrs/cells-local/#[k::exists(n: Int)]"]
+finding = "NT-13-3"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["attrs/cells-local/#[k::fresh(l: Int)]"]
+finding = "NT-13-3"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["attrs/local-rule/#[k::ensures(k::is!(Int, x))]"]
+finding = "NT-13-3"
+deviation = "krs::syntax::invalid-local-rewrite @ spelling"
+
+["attrs/local-rule/#[k::exists(n: Int)]"]
+finding = "NT-13-3"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["attrs/local-rule/#[k::fresh(l: Int)]"]
+finding = "NT-13-3"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+
+# NT-13-4 (K8): `anywhere` is refused on a `for Sort` clause, which is term-shaped ("write it
+# term-shaped with #[k::rule(anywhere)] fn"), and on a single-body rule ("never an anywhere rule"),
+# whose error lies outside the attribute; both rewrite their subject's root application, which an
+# anywhere rule rewrites wherever it occurs. Probe: `#[k::rule(anywhere)] r: Cmd::C(x, _) => Cmd::Hold(x);` in `for Stmt`.
+
+["attrs/local-rule/anywhere"]
+finding = "NT-13-4"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+
+["attrs/sort-rule/anywhere"]
+finding = "NT-13-4"
+deviation = "krs::syntax::invalid-rule-key @ spelling"
+
+
+# NT-13-5 (K8): a placement mistake answered under another mistake's code: a context's
+# `#[k::ensures]`/`#[k::exists]` under `krs::syntax::invalid-local-rewrite` ("a context takes no
+# `#[k::exists]`, `#[k::ensures]`, or `#[k::fresh]`"), the code of a misplaced `k::rewrite!`,
+# where an equation's is `existential-placement`; a readable claim's `#[k::fresh]` under
+# `unsupported-rule-signature`, where a `cells!` claim's is `fresh-placement`. Probe:
+# `#[k::context(hole = h)] #[k::ensures(..)]`.
+
+["attrs/claim/#[k::fresh(l: Int)]"]
+finding = "NT-13-5"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+
+["attrs/context/#[k::ensures(k::is!(Int, x))]"]
+finding = "NT-13-5"
+deviation = "krs::syntax::invalid-local-rewrite @ spelling"
+
+["attrs/context/#[k::exists(n: Int)]"]
+finding = "NT-13-5"
+deviation = "krs::syntax::invalid-local-rewrite @ spelling"
+
+
+# NT-13-6 (K8): a helper (`#[k::requires]`, `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]`) on a
+# `#[k::constant]` is passed through to its own macro, whose "expected `fn`" is reported as
+# `krs::syntax::rust-syntax` at the whole item, outside the attribute; the constant's grammar takes
+# no helper. Probe: `#[k::constant] #[k::requires(true)] pub const K: Stmt = Cmd::Hold(1);`.
+
+["attrs/constant/#[k::ensures(k::is!(Int, x))]"]
+finding = "NT-13-6"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["attrs/constant/#[k::exists(n: Int)]"]
+finding = "NT-13-6"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["attrs/constant/#[k::fresh(l: Int)]"]
+finding = "NT-13-6"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["attrs/constant/#[k::requires(k::is!(Int, x))]"]
+finding = "NT-13-6"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["attrs/constant/#[k::requires(k::is!(Word, x))]"]
+finding = "NT-13-6"
+deviation = "krs::syntax::rust-syntax @ item"
+
+
+# NT-13-7 (K8): `#[k::exists]` on a transition is accepted and emitted with an existential result;
+# the `native-llvm` route refuses it with a capability error ("rules that introduce symbolic
+# values"), which is the route's honest limit, but `krs check` without `--backend`, K6's
+# judgement, then fails, so no accepted case of it runs (K7). Not a product bug by the lenses
+# (a route that cannot carry it refuses with a capability error); the question is K6's: whether a
+# case some native route builds and the others refuse by capability passes. Proposal: K6 accepts
+# where every refusal is a capability code and one route builds it, and K7 runs on that route.
+
+["k6/attrs/cells/#[k::exists(n: Int)]"]
+finding = "NT-13-7"
+deviation = "native-llvm krs::capability::unavailable"
+
+["k6/attrs/readable/#[k::exists(n: Int)]"]
+finding = "NT-13-7"
+deviation = "native-llvm krs::capability::unavailable"
+
+["k6/attrs/rule/#[k::exists(n: Int)]"]
+finding = "NT-13-7"
+deviation = "native-llvm krs::capability::unavailable"
+
+["k6/attrs/sort-rule/#[k::exists(n: Int)]"]
+finding = "NT-13-7"
+deviation = "native-llvm krs::capability::unavailable"
+
+
+# NT-13-8 (K8, advice): a function shorthand's `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]` and
+# `#[k::priority]` are refused advising "write the struct and `#[k::equation]` fns instead", a
+# form that is refused for the same helper (`existential-outside-step`, `fresh-outside-step`,
+# `retired-attribute`): no accepted case writes the advice, so the class names none.
+
+["k8/attrs/shorthand/#[k::ensures(k::is!(Int, x))]"]
+finding = "NT-13-8"
+deviation = "helper-on-shorthand advises `#[k::equation]` and names no advised case"
+
+["k8/attrs/shorthand/#[k::exists(n: Int)]"]
+finding = "NT-13-8"
+deviation = "helper-on-shorthand advises `#[k::equation]` and names no advised case"
+
+["k8/attrs/shorthand/#[k::fresh(l: Int)]"]
+finding = "NT-13-8"
+deviation = "helper-on-shorthand advises `#[k::equation]` and names no advised case"
+
+["k8/attrs/shorthand/#[k::priority(20)]"]
+finding = "NT-13-8"
+deviation = "helper-on-shorthand advises `#[k::equation]` and names no advised case"
