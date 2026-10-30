@@ -507,6 +507,18 @@ fn without_unique_ids(mut definition: Definition) -> Definition {
 
 /// A label on an axiom without a `UNIQUE_ID` is the rule's id, which keys the guard against a
 /// side condition re-entering its own rule: D' keeps it, and removing it changes the result.
+///
+/// The guard is keyed by the rule's id and the subject: while `s2`'s condition is simplified at
+/// `f(0)`, the condition of a rule with `s2`'s id at `f(0)` is not simplified there but left as it
+/// is, for the solver alone to decide. With labels, `s1` has its own id, applies to `f(0)` inside
+/// `s2`'s condition, and `s2` gives `10`. Without labels every axiom of the definition has the
+/// same id, so `s1`'s condition `g(2) ==Int 0` is left unsimplified inside `s2`'s condition, the
+/// solver does not decide it, `s2`'s condition stays open, and `s1` alone gives `20`.
+/// `g` is recursive so that only the simplifier, which unfolds `g(2)` equation by equation, decides
+/// that condition: the solver reads a function application through a finite summary of its
+/// equations, and a recursive function has none, so it sees `g(2)` as an opaque value.
+/// With a non-recursive `g` the solver decides the unsimplified condition from `g`'s summary, `s2`
+/// applies either way, and the label would no longer be observable here.
 #[test]
 fn a_label_that_is_a_rules_id_is_kept() {
     let compiled = Compiled::new(
@@ -515,11 +527,12 @@ module RE
   imports INT
   syntax KItem ::= run(Int) | res(Int)
   syntax Int ::= f(Int) [function]
-  syntax Int ::= g(Int) [function, total]
+  syntax Int ::= g(Int) [function]
   configuration <k> $PGM:KItem </k>
-  rule g(_) => 0
+  rule g(0) => 0
+  rule g(N) => g(N -Int 1) requires N >Int 0
   rule <k> run(I) => res(f(I)) </k>
-  rule [s1]: f(X) => 20 requires g(X) ==Int 0 [simplification(40)]
+  rule [s1]: f(X) => 20 requires g(X +Int 2) ==Int 0 [simplification(40)]
   rule [s2]: f(X) => 10 requires f(X) ==Int 20 [simplification(30)]
 endmodule
 ",
@@ -532,11 +545,21 @@ endmodule
             .map(|(state, ..)| state)
             .collect::<Vec<_>>()
     };
+    // The only leaf is `res(N)`, and `N` is the one domain value of the `<k>` cell.
+    let value = |states: &[String]| {
+        assert_eq!(states.len(), 1, "{states:?}");
+        assert!(states[0].contains("Lblres'LParUndsRParUnds'RE'Unds'KItem'Unds'Int"));
+        ["10", "20"]
+            .into_iter()
+            .find(|n| states[0].contains(&format!(r#""value":"{n}""#)))
+            .unwrap_or_else(|| panic!("{states:?}"))
+    };
     let labels_as_ids = without_unique_ids(compiled.definition());
     let expected = result(compiled.definition());
+    assert_eq!(value(&expected), "10");
     assert_eq!(result(labels_as_ids.clone()), expected);
     assert_eq!(result(reduce(labels_as_ids.clone())), expected);
     let mut unlabelled = labels_as_ids;
     strip_definition(&mut unlabelled, &[ExecutionRole::RuleName]);
-    assert_ne!(result(unlabelled), expected);
+    assert_eq!(value(&result(unlabelled)), "20");
 }
