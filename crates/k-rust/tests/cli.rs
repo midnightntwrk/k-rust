@@ -17322,7 +17322,12 @@ fn kcompile_writes_parseable_kore_outputs() {
         );
         assert!(source.contains("Source("));
         if name == "definition.kore" {
-            assert_eq!(source.matches("simplification{}()").count(), 3);
+            // Three simplifications of the definition, and the conditional inverse of each of
+            // the five sort projections the compiler generates (`Bool`, `Exp`, `Int`, `K` and
+            // `KItem`), which states it as a simplification.
+            assert_eq!(source.matches("simplification{}()").count(), 3 + 5);
+            assert_eq!(source.matches(".selector-inverse\"").count(), 5);
+            assert_eq!(source.matches("symbol Lblproject'Coln'").count(), 5);
         }
     }
     assert!(

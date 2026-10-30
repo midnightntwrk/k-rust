@@ -352,13 +352,22 @@ const CENSUS_AT_501F18B9: [&str; 88] = [
 /// is in them), and domains.md declares the hook. The file's digest is pinned: a re-pin that
 /// changes the prelude text sweeps it again (README "What a kill trusts"; handoff R0c lists each
 /// hook with its lines).
+///
+/// Re-pin R1-PINS (kink27): k-rust 0da031036 is the only change to domains.md since the last
+/// sweep. It adds two definedness rules to `INT-SYMBOLIC-KORE` (lines 1395 and 1398): `divInt`
+/// is defined where its divisor is nonzero and `bitRangeInt` where its offset and length are
+/// nonnegative, each together with its operands. Both state a domain the file already gives
+/// (divInt's "Division by zero is `#False`", and `bitRangeInt`'s defining equation through
+/// `>>Int` and `<<Int`, whose negative amounts are `#False`), declare no hook and change no hook's
+/// text, so no value becomes open or fixed: the open hooks are the same, and each citation after
+/// line 1394 moved by two lines.
 #[test]
 fn domains_md_leaves_these_hook_values_open() {
     let path = k_rust_backend().join("../k-rust/builtin/domains.md");
     let text = std::fs::read_to_string(&path).unwrap();
     assert_eq!(
         kink_patch::sha256(text.as_bytes()).to_string(),
-        "eb5b7c3cd001d5fe3cbd481598bb53c3abfd417c409135276008d50edf79aa0d",
+        "574450e9c15431156336b7851f0e5b8b0944dc49db2b8425cbb919bb141d337b",
         "domains.md changed: sweep it again for hook values it leaves open"
     );
     let lines = text.lines().collect::<Vec<_>>();
@@ -389,8 +398,8 @@ fn domains_md_leaves_these_hook_values_open() {
             .all(|hook| !K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(hook))
     );
     // Deliverable 8 rests on `encodeBytes` with a named encoding: domains.md names its
-    // encodings (line 2012), so it is not on the list.
-    assert!(lines[2011].contains("using `UTF-8`"), "{}", lines[2011]);
+    // encodings (line 2014), so it is not on the list.
+    assert!(lines[2013].contains("using `UTF-8`"), "{}", lines[2013]);
     assert!(!IMPLEMENTATION_CHOSEN_HOOKS.contains(&"BYTES.encodeBytes"));
 }
 
@@ -399,7 +408,7 @@ fn domains_md_leaves_these_hook_values_open() {
 const BUILTIN_FILES: [(&str, &str); 9] = [
     (
         "domains.md",
-        "eb5b7c3cd001d5fe3cbd481598bb53c3abfd417c409135276008d50edf79aa0d",
+        "574450e9c15431156336b7851f0e5b8b0944dc49db2b8425cbb919bb141d337b",
     ),
     (
         "ffi.md",
@@ -506,14 +515,14 @@ fn builtin_files_leave_these_hook_values_open() {
             "BUFFER.empty",
             "domains.md: the empty StringBuffer (impure for mutability)",
         ),
-        ("IO.log", "domains.md:2660-2690: returns `.K` (returnsUnit)"),
+        ("IO.log", "domains.md:2662-2692: returns `.K` (returnsUnit)"),
         (
             "IO.logString",
-            "domains.md:2660-2690: returns `.K` (returnsUnit)",
+            "domains.md:2662-2692: returns `.K` (returnsUnit)",
         ),
         (
             "IO.traceTerm",
-            "domains.md:2660-2690: returns `.K` (returnsUnit)",
+            "domains.md:2662-2692: returns `.K` (returnsUnit)",
         ),
         ("K.K", "kast.md: a sort hook, no value"),
         ("K.KItem", "kast.md: a sort hook, no value"),

@@ -712,9 +712,13 @@ fn collect_sentence_provenance(
             }
         }
         if entry.input_addresses.is_empty() {
+            // A selector contract takes its forward equation's generating pass: its emitted
+            // attributes carry the injected copy's receipt, which names sort injection.
+            let forward = super::module_to_kore::selectors::contract_forward_id(id);
             entry.generated_by = entry
                 .generated_by
                 .or(generating_passes.get(id).copied())
+                .or(forward.and_then(|forward| generating_passes.get(forward).copied()))
                 .or(attributes.origin_record().map(|record| record.pass));
         } else {
             entry.generated_by = None;

@@ -453,12 +453,138 @@ mod offered {
     fn levels(catalog: &[(String, String)], result: &ExecutionResult) -> Levels {
         let coverage = result.coverage.as_ref().expect("coverage was asked for");
         let offered = coverage.offered.as_ref().expect("offered was asked for");
-        let labels = |ids: &[String]| super::labels_in("OFFER.", catalog, ids);
+        let contracts = selector_contracts();
+        let labels = |ids: &[String]| {
+            super::labels_in("OFFER.", catalog, ids)
+                .into_iter()
+                .map(|label| {
+                    label
+                        .strip_prefix("other:")
+                        .and_then(|id| contracts.get(id))
+                        .cloned()
+                        .unwrap_or(label)
+                })
+                .collect()
+        };
         (
             labels(&coverage.applied),
             labels(&coverage.matched),
             labels(offered),
         )
+    }
+
+    /// The conditional inverses of the compiler's projections into `KItem` and `Prog`, as
+    /// [`selector_contracts`] names them. They are equations of the compiled definition that
+    /// no author wrote. Their left-hand side, `kseq(project:KItem(I), dotk)` and
+    /// `kseq(inj(project:Prog(I)), dotk)`, has a function application below its root, so its
+    /// match against a one-item sequence of a `Prog` that holds an unevaluated application is
+    /// left undecided, which counts as a match: the run offers them at that site, and `offered`
+    /// lists them, as it lists any axiom. A reader addressed to an author does not ask for them
+    /// (`the_offered_selector_inverses_have_no_author`).
+    const SELECTOR_INVERSES: [&str; 2] = [
+        "generated:Lblproject'Coln'KItem.selector-inverse",
+        "generated:Lblproject'Coln'Prog.selector-inverse",
+    ];
+
+    fn with_selector_inverses(list: &[&str]) -> BTreeSet<String> {
+        &names(list) | &names(&SELECTOR_INVERSES)
+    }
+
+    /// Each compiler selector contract of `OFFER` (`<id>.selector-domain`,
+    /// `<id>.selector-inverse`, emitted beside a generated sort projection's equation `<id>`) by
+    /// id, named `generated:<projection symbol>.<suffix>` after the projection its axiom states.
+    fn selector_contracts() -> std::collections::BTreeMap<String, String> {
+        use k_rust::kore::{
+            ast::{Pattern, Sentence},
+            parser::parse_definition,
+        };
+        fn projection(pattern: &Pattern) -> Option<String> {
+            match pattern {
+                Pattern::Application { symbol, arguments } => {
+                    if symbol.name.starts_with("Lblproject'Coln'") {
+                        Some(symbol.name.to_string())
+                    } else {
+                        arguments.iter().find_map(projection)
+                    }
+                }
+                Pattern::Implies { left, right, .. } | Pattern::Equals { left, right, .. } => {
+                    projection(left).or_else(|| projection(right))
+                }
+                Pattern::Ceil { argument, .. } => projection(argument),
+                _ => None,
+            }
+        }
+        let definition = parse_definition(&definition_kore()).unwrap();
+        let mut contracts = std::collections::BTreeMap::new();
+        for sentence in definition
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+        {
+            let Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            let id = attributes.0.iter().find_map(|attribute| match attribute {
+                Pattern::Application { symbol, arguments } if symbol.name == "UNIQUE'Unds'ID" => {
+                    match arguments.as_slice() {
+                        [Pattern::String(id)] => id.as_utf8().ok().map(str::to_owned),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            });
+            let Some(id) = id else { continue };
+            for suffix in [".selector-domain", ".selector-inverse"] {
+                if id.ends_with(suffix) {
+                    let symbol =
+                        projection(pattern).expect("a selector contract names its projection");
+                    contracts.insert(id.clone(), format!("generated:{symbol}{suffix}"));
+                }
+            }
+        }
+        contracts
+    }
+
+    /// The selector inverses a run offers are compiler-generated: the rule catalog gives them no
+    /// written origin (no source or location) and no label, so a reader that addresses an author by written position
+    /// (the fuzz's targets) never names them, and their compiled provenance has no input
+    /// sentence (`kompile_passes`, `emitted_sentence_provenance_matches_kore_ids_with_unimported_prelude_modules`).
+    #[test]
+    fn the_offered_selector_inverses_have_no_author() {
+        let backend = backend();
+        let contracts = selector_contracts();
+        let catalog = backend.rule_catalog(None).unwrap();
+        for name in SELECTOR_INVERSES {
+            let (id, _) = contracts
+                .iter()
+                .find(|(_, contract)| *contract == name)
+                .expect("the definition states the contract");
+            let entry = catalog
+                .iter()
+                .find(|entry| &entry.id == id)
+                .expect("the backend loaded the contract");
+            assert_eq!(
+                entry.kind,
+                k_rust::backend::CompiledRuleKind::Simplification,
+                "{name}"
+            );
+            // Its origin is its place in the KORE definition, with no written source or
+            // location.
+            assert!(
+                entry
+                    .origins
+                    .iter()
+                    .all(|origin| origin.source.is_none() && origin.location.is_none()),
+                "{name}: {:?}",
+                entry.origins
+            );
+            assert_eq!(entry.label, None, "{name}");
+        }
     }
 
     fn run(
@@ -597,7 +723,7 @@ mod offered {
         assert_eq!(used.len(), 1, "{applied:?}");
         assert_eq!(matched, applied);
         assert_eq!(applied, &names(&["c"]) | &used);
-        assert_eq!(offered, &names(&["c"]) | &equations);
+        assert_eq!(offered, &with_selector_inverses(&["c"]) | &equations);
     }
 
     /// (d) An `owise` equation behind an applied equation is offered; an equation whose
@@ -618,7 +744,7 @@ mod offered {
             (
                 names(&["d", "fd1"]),
                 names(&["d", "fd1"]),
-                names(&["d", "fd1", "fdOw"])
+                with_selector_inverses(&["d", "fd1", "fdOw"])
             )
         );
         let result = run(
@@ -630,7 +756,11 @@ mod offered {
         let (applied, matched, offered) = levels(&catalog, &result);
         assert_eq!(applied, names(&["d", "fdOw"]));
         assert_eq!(matched, names(&["d", "fdOw"]));
-        assert_eq!(offered, names(&["d", "fdOw"]), "fd1 does not match fd(5)");
+        assert_eq!(
+            offered,
+            with_selector_inverses(&["d", "fdOw"]),
+            "fd1 does not match fd(5)"
+        );
     }
 
     /// (e) A `concrete` equation with an empty `requires`, set aside on a symbolic argument with
@@ -648,7 +778,11 @@ mod offered {
         );
         assert_eq!(
             levels(&catalog, &result),
-            (names(&["e"]), names(&["e"]), names(&["e", "feC", "feOw"]))
+            (
+                names(&["e"]),
+                names(&["e"]),
+                with_selector_inverses(&["e", "feC", "feOw"])
+            )
         );
     }
 
@@ -772,7 +906,10 @@ mod offered {
                             .collect::<BTreeSet<_>>()
                     };
                     assert_eq!(own(matched), names(&["hFresh", "hKeys"]));
-                    assert_eq!(own(offered), names(&["hFresh", "hLow", "hKeys", "hOw"]));
+                    assert_eq!(
+                        own(offered),
+                        with_selector_inverses(&["hFresh", "hLow", "hKeys", "hOw"])
+                    );
                 }
             }
         }
@@ -833,7 +970,7 @@ mod offered {
         let (applied, matched, offered) = levels(&catalog, &result);
         assert_eq!(applied, names(&["k", "pdk50"]));
         assert_eq!(matched, names(&["k", "pdk50"]));
-        assert_eq!(offered, names(&["k", "pdk50", "pdk60"]));
+        assert_eq!(offered, with_selector_inverses(&["k", "pdk50", "pdk60"]));
     }
 }
 

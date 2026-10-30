@@ -6,6 +6,18 @@
 
 use super::*;
 
+/// The suffixes of a contract's `UNIQUE_ID` after its forward equation's: the exact domain, then
+/// the conditional inverse.
+const CONTRACT_SUFFIXES: [&str; 2] = ["selector-domain", "selector-inverse"];
+
+/// The `UNIQUE_ID` of the forward equation a selector contract `id` was emitted beside, when
+/// `id` is a contract's. A contract is generated from the sort projection, as its forward
+/// equation is, so its provenance names the pass that generated that equation.
+pub(crate) fn contract_forward_id(id: &str) -> Option<&str> {
+    let (forward, suffix) = id.rsplit_once('.')?;
+    CONTRACT_SUFFIXES.contains(&suffix).then_some(forward)
+}
+
 /// Companion axioms of a canonical generated sort projection's identity equation.
 /// The marker selects this compiler feature; the checked identity supplies its embedding.
 pub(super) fn contracts(
@@ -134,16 +146,17 @@ pub(super) fn contracts(
         result_sort: predicate_sort.clone(),
         argument: Box::new(application.clone()),
     };
-    let image = Pattern::Exists {
-        sort: predicate_sort.clone(),
-        variable: Box::new(value.clone()),
-        body: Box::new(Pattern::Equals {
+    // A generated binder: K3 holds, since `is_embedding` found `value` in the embedding.
+    let image = super::binders::generated_exists(
+        predicate_sort.clone(),
+        value.clone(),
+        Pattern::Equals {
             operand_sort: Box::new(input_sort.clone()),
             result_sort: predicate_sort.clone(),
             left: Box::new(Pattern::Variable(input.clone())),
             right: Box::new(embedding.clone()),
-        }),
-    };
+        },
+    );
     let reconstructed = embedding
         .substitute_free(value, &application)
         .expect("an embedding has no binders");
@@ -173,8 +186,8 @@ pub(super) fn contracts(
         }),
     };
     Ok([
-        ("selector-domain", domain_axiom),
-        ("selector-inverse", inverse_axiom),
+        (CONTRACT_SUFFIXES[0], domain_axiom),
+        (CONTRACT_SUFFIXES[1], inverse_axiom),
     ]
     .into_iter()
     .map(|(suffix, pattern)| {

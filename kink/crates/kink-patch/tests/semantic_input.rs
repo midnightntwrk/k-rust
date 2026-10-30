@@ -13,18 +13,24 @@ use kink_patch::{SemanticInput, SemanticInputError, structure_sha256};
 /// bdad0af15, 760930379, finding E-09) and the two default-layout regexes of builtin kast.md
 /// (k-rust df11bc569, 4df229f70); the user modules are equal. The compiled KORE is unchanged
 /// (`compiled_kore_is_unchanged_by_the_provenance_move`).
+///
+/// Re-pin R1-PINS (kink27): both digests moved again with k-rust 0da031036, which added two
+/// definedness rules to the prelude's domains.md: the semantic input and the KAST definition
+/// carry the prelude's sentences and their positions. With domains.md as before 0da031036 (and
+/// nothing else reverted) every old digest here comes back, so no other change reaches them; the
+/// compiler change 68e362935 cannot, since both are read before compilation.
 #[test]
 fn literal_digests() {
     for (name, artifact, structure) in [
         (
             "counter.k",
-            "a7181f8fe5cad482a4b76e0bfb506e1eb00b55f354f87a1b1684442cd740bb49",
-            "f71bf625e0ba7b96ef9377c0b9bf550b57210b0422ce294df7146bd334649e2a",
+            "62a4040f3541ac0103c4ecf81f6a5236d9af8308aabd4a098ac5465fa2d13076",
+            "5f79568049266724077205cf15b6b072fdc77df041b3bc55fb82f5b495a29c96",
         ),
         (
             "symmem.k",
-            "31458cc30035f03ed69d43a180358989867e952b570b81a031c4fb4fe4d03fe4",
-            "149d73dc878819b0974b7aabcad4402ada7f0ef90b6d1531e16b5ed92ef7d8af",
+            "67492253f7d2e31d8a5c4b887460b640767c3574afad5f719d0b570bedd7871e",
+            "3e0f4593cdab0530587e9832ec5adc1b7d7d556d44124cc7e7602149a54e906a",
         ),
     ] {
         let baseline = support::load(name);
@@ -46,20 +52,26 @@ fn literal_digests() {
 /// k-rust 927b9ce6 (stage-1 trial, scratch-E/dump-old); 501f18b9 compiles the same bytes. The
 /// definition read back from its semantic input compiles to artifacts equal to the original's
 /// (formerly `read_back_compilation_is_equal`, which compiled the same three definitions).
+///
+/// Re-pin R1-PINS (kink27): the compiled KORE moved with k-rust 0da031036 (two `#Ceil` rules
+/// of domains.md's `INT-SYMBOLIC-KORE`) and 68e362935 (each generated sort projection's
+/// equation now comes with its exact domain and its conditional inverse, `<id>.selector-domain`
+/// and `<id>.selector-inverse`). With domains.md as before 0da031036 and the selector contracts
+/// not emitted, every old digest here comes back, so no other change reaches them.
 #[test]
 fn compiled_kore_is_unchanged_by_the_provenance_move_and_by_a_read_back() {
     for (name, kore) in [
         (
             "counter.k",
-            "aafd92147714ace030b35666daed4c0fa0646dc9ee91fa89e49765f448debc52",
+            "6e47a5d098ce9b14065010722cdc40d6d031a021142070bd3c7228e718f73f16",
         ),
         (
             "symmem.k",
-            "fc4fb79cdfa2d2426fa89547b2c57defacbcace95c7aee64baceae935a1a17b8",
+            "ca2066a0b01fde0634ca211822ad850185f2f483f8890512158425758ca012c1",
         ),
         (
             "guardedmem.k",
-            "6554be06977a8fb574a60d3eb5daf8fff91c9db675f26121ac74361a35b5941a",
+            "1f1b3a5b479abc3fa1136edbcc835ec4770ab0746db510246b27286734e19a52",
         ),
     ] {
         let baseline = support::load(name);

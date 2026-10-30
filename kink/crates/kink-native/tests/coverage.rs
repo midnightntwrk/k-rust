@@ -247,6 +247,36 @@ fn coverage_pins() {
     });
 }
 
+/// Re-pin R1-PINS (kink27): since k-rust 68e362935 a generated sort projection's equation
+/// `<id>` comes with two compiler contracts, `<id>.selector-domain` and `<id>.selector-inverse`
+/// (its exact domain and its conditional inverse). k-rust's run coverage records them like any
+/// axiom (the inverse is a simplification a run can offer, match and apply), but no author wrote
+/// them: they have no input sentence, and the authors map gives them the generating pass, as it
+/// gives the projection equation itself. So a run that reaches one lists it under `unmapped`,
+/// never among `sentences`, and no written rule's ids ([`RuleAuthors::ids_of`]) include one:
+/// kink never asks an author to cover them.
+#[test]
+fn compiler_selector_contracts_have_no_author() {
+    with_stack(|| {
+        let (_validator, counter) = compile("counter.k");
+        let authors = RuleAuthors::of(&counter);
+        let mut contracts = 0;
+        for (id, authorship) in authors.iter() {
+            let Some(forward) = id
+                .strip_suffix(".selector-domain")
+                .or_else(|| id.strip_suffix(".selector-inverse"))
+            else {
+                continue;
+            };
+            contracts += 1;
+            let generated = Authorship::Unmapped("generate-sort-projections".to_owned());
+            assert_eq!(authorship, &generated, "{id}");
+            assert_eq!(authors.get(forward), Some(&generated), "{forward}");
+        }
+        assert!(contracts > 0, "counter.k compiles some selector contracts");
+    });
+}
+
 /// A user `strict` production's heating and cooling rules have no written rule: their ids map
 /// to the production's Compile address. A run that heats and cools covers them.
 #[test]

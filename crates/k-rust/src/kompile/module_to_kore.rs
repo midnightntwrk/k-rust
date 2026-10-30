@@ -32,7 +32,7 @@ pub(super) use equations::predicate_at;
 mod binders;
 mod equations;
 mod roles;
-mod selectors;
+pub(super) mod selectors;
 
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 use super::invariants::emitted::{EmittedTheory, emitted_from};

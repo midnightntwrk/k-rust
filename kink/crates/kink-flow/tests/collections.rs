@@ -268,7 +268,7 @@ mod kink_tier {
     /// Re-pin R0c (deliverable 8, decision 1 "keep, rewrite fixtures"): R0b refused every row here
     /// (BaselineOracleFailed, implementation-chosen-hook) because collstore's `bytesKey` rule built
     /// its key with `String2Bytes`, whose value domains.md leaves open. The rule now uses
-    /// `encodeBytes("UTF-8", S)` (domains.md:2012 names the encoding; k-rust bytes.rs:116-130), the
+    /// `encodeBytes("UTF-8", S)` (domains.md:2014 names the encoding; k-rust bytes.rs:116-130), the
     /// census flags nothing, and the rows are back to their R0a values: R6, R7, R9, R11, R13 and R14
     /// killed again, none of them by a run that reaches `bytesKey` (only `byteskey` does, R12, which
     /// stays refused: a Bytes-keyed Map is not a value kink compares).

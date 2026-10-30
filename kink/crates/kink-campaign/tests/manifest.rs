@@ -705,13 +705,15 @@ mod kink_tier {
             // sources' positions (finding E-09's identity offset map) and builtin kast.md's layout
             // regexes (k-rust df11bc569, 4df229f70); compiled KORE is unchanged (kink-patch
             // semantic_input.rs literal_digests, compiled_kore_is_unchanged_by_the_provenance_move).
+            // Re-pin R1-PINS (kink27): both moved with domains.md's two added definedness rules
+            // (k-rust 0da031036), as kink-patch's literal_digests explains.
             assert_eq!(
                 original.value()["baseline"]["semantic_input_sha256"],
-                "a7181f8fe5cad482a4b76e0bfb506e1eb00b55f354f87a1b1684442cd740bb49"
+                "62a4040f3541ac0103c4ecf81f6a5236d9af8308aabd4a098ac5465fa2d13076"
             );
             assert_eq!(
                 original.value()["baseline"]["structure_sha256"],
-                "f71bf625e0ba7b96ef9377c0b9bf550b57210b0422ce294df7146bd334649e2a"
+                "5f79568049266724077205cf15b6b072fdc77df041b3bc55fb82f5b495a29c96"
             );
             let mutants = original.value()["mutants"].as_array().unwrap();
             assert_eq!(mutants.len(), 4);
@@ -807,13 +809,15 @@ mod kink_tier {
             // sources' positions (finding E-09's identity offset map) and builtin kast.md's layout
             // regexes (k-rust df11bc569, 4df229f70); compiled KORE is unchanged (kink-patch
             // semantic_input.rs literal_digests, compiled_kore_is_unchanged_by_the_provenance_move).
+            // Re-pin R1-PINS (kink27): both moved with domains.md's two added definedness rules
+            // (k-rust 0da031036), as kink-patch's literal_digests explains.
             assert_eq!(
                 manifest.value()["baseline"]["semantic_input_sha256"],
-                "31458cc30035f03ed69d43a180358989867e952b570b81a031c4fb4fe4d03fe4"
+                "67492253f7d2e31d8a5c4b887460b640767c3574afad5f719d0b570bedd7871e"
             );
             assert_eq!(
                 manifest.value()["baseline"]["structure_sha256"],
-                "149d73dc878819b0974b7aabcad4402ada7f0ef90b6d1531e16b5ed92ef7d8af"
+                "3e0f4593cdab0530587e9832ec5adc1b7d7d556d44124cc7e7602149a54e906a"
             );
             assert_eq!(manifest.value()["mutants"].as_array().unwrap().len(), 1);
             let patch = &generation.candidates()[0].patch;

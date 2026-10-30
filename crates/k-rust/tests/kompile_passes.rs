@@ -11776,6 +11776,19 @@ fn equal_content_rules_keep_their_own_addresses_under_one_unique_id() {
     );
 }
 
+/// The `UNIQUE_ID` of every sentence `kore` writes. The printer may break the attribute after
+/// its opening parenthesis (a long id, such as a compiler selector contract's
+/// `<id>.selector-domain`), so the string literal is read after any whitespace.
+fn emitted_unique_ids(kore: &str) -> impl Iterator<Item = String> + '_ {
+    kore.split("UNIQUE'Unds'ID{}(").skip(1).map(|rest| {
+        let literal = rest
+            .trim_start()
+            .strip_prefix('"')
+            .expect("a string literal id");
+        literal.split('"').next().unwrap().to_owned()
+    })
+}
+
 #[test]
 fn emitted_sentence_provenance_matches_kore_ids_with_unimported_prelude_modules() {
     let source = "module MAIN\n  imports INT\n  syntax Exp ::= Int | e() | f() [macro]\n  rule e() => 5\n  rule f() => e()\nendmodule\n";
@@ -11795,8 +11808,7 @@ fn emitted_sentence_provenance_matches_kore_ids_with_unimported_prelude_modules(
     let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
     let emitted_ids = [&artifacts.definition_kore, &artifacts.macros_kore]
         .into_iter()
-        .flat_map(|kore| kore.split("UNIQUE'Unds'ID{}(\"").skip(1))
-        .map(|rest| rest.split('"').next().unwrap().to_owned())
+        .flat_map(|kore| emitted_unique_ids(kore))
         .collect::<BTreeSet<_>>();
     assert!(!artifacts.macros_kore.trim().is_empty());
     let resolved = ResolvedDefinition::resolve(&artifacts.execution_definition).unwrap();
@@ -11825,6 +11837,30 @@ fn emitted_sentence_provenance_matches_kore_ids_with_unimported_prelude_modules(
             .collect::<BTreeSet<_>>(),
         emitted_ids
     );
+    // A sort projection's selector contracts (`<id>.selector-domain`, `<id>.selector-inverse`)
+    // have no author: like the forward equation `<id>` they come from, no input sentence is
+    // behind them and the sort-projection pass generated them, which is how a coverage reader
+    // keeps them out of what it asks an author to cover.
+    let contracts = emitted_ids
+        .iter()
+        .filter_map(|id| {
+            id.strip_suffix(".selector-domain")
+                .or_else(|| id.strip_suffix(".selector-inverse"))
+                .map(|forward| (id, forward))
+        })
+        .collect::<Vec<_>>();
+    assert!(!contracts.is_empty());
+    for (id, forward) in contracts {
+        for id in [id.as_str(), forward] {
+            let provenance = &artifacts.sentence_provenance[id];
+            assert!(provenance.input_addresses.is_empty(), "{id}");
+            assert_eq!(
+                provenance.generated_by,
+                Some(GeneratingPass::GenerateSortProjections),
+                "{id}"
+            );
+        }
+    }
 }
 
 #[cfg(feature = "z3-inference")]
@@ -11865,12 +11901,7 @@ fn emitted_sentence_provenance_includes_proof_claims() {
         },
     )
     .unwrap();
-    let emitted_ids = artifacts
-        .definition_kore
-        .split("UNIQUE'Unds'ID{}(\"")
-        .skip(1)
-        .map(|rest| rest.split('"').next().unwrap().to_owned())
-        .collect::<BTreeSet<_>>();
+    let emitted_ids = emitted_unique_ids(&artifacts.definition_kore).collect::<BTreeSet<_>>();
     let claim_id = artifacts
         .execution_definition
         .modules

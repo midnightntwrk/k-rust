@@ -197,7 +197,7 @@ fn row(
         // Re-pin R0c (deliverable 8, decision 1 "keep, rewrite fixtures"): R0b refused C2 and
         // C3 (BaselineOracleFailed, implementation-chosen-hook) because collstore.k's `bytesKey`
         // rule built its key with `String2Bytes`, whose value domains.md leaves open. The rule
-        // now uses `encodeBytes("UTF-8", S)` (domains.md:2012 names the encoding; k-rust
+        // now uses `encodeBytes("UTF-8", S)` (domains.md:2014 names the encoding; k-rust
         // bytes.rs:116-130), so the census flags nothing and the rows are back to their R0a
         // values: C2 Survived [A, A], C3 Unknown [U, U]. Neither program reaches `bytesKey`.
         let Some((status, outcomes)) = &expected else {
