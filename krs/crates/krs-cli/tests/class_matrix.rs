@@ -995,3 +995,78 @@ fn k5() {
         shard.failures.join("\n")
     );
 }
+
+/// A machine of one computation cell for K7's bound, with `extra` declarations after it.
+fn bound_source(commands: &str, initial: &str, extra: &str) -> String {
+    format!(
+        "use k::builtin::{{Int, KSequence}};\nuse k::{{KItem, KResult, Term}};\n\nk::sorts! {{\n    Stmt;\n}}\n\n#[k::constructors(sort = Stmt, result = KResult)]\n#[rustfmt::skip]\npub enum Cmd {{\n    #[k::syntax(\"go\")] Go(),\n    #[k::syntax(\"hold({{a}})\")] Hold {{ a: KItem }},\n{commands}}}\n\n#[k::configuration]\npub struct Machine {{\n    #[k::cell]\n    pub k: KSequence,\n}}\n\nimpl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {{\n        Self {{ k: k::k![{initial}] }}\n    }}\n}}\n{extra}"
+    )
+}
+
+/// K7's bound: a program whose expansion does not end, a desugar that rewrites its own
+/// application into a larger one, and an initial configuration whose evaluation does not end, a
+/// function that calls itself on a larger argument, each give a deviation within the run's time
+/// limit, not a hung worker: the program's parse and expansion and its run are one request,
+/// cancelled at the limit.
+#[test]
+#[ignore = "builds two packages and compiles them natively; run it with the class tier's environment"]
+fn k7_bounds_a_program_whose_expansion_or_run_does_not_end() {
+    use krs_test_support::class_matrix::k7::{Run, Status};
+    let limit = std::time::Duration::from_secs(5);
+    let scratch = tempfile::tempdir().expect("the scratch directory is created");
+    let settings = Settings {
+        workers: 1,
+        batch: 1,
+        scratch: scratch.path().to_path_buf(),
+        closure: false,
+        native: NativeMode::Batched,
+        refused_by_table: BTreeSet::new(),
+        run: Some(limit),
+    };
+    let spin = bound_source(
+        "    #[k::syntax(\"spin({a})\")] #[k::desugar] Spin { a: KItem },\n",
+        "pgm",
+        "\n#[k::desugar]\nfn spin(k::term![Cmd::Spin(x)]: Term<Stmt>) -> Term<Stmt> {\n    Cmd::Spin(Cmd::Hold(x))\n}\n",
+    );
+    let count = bound_source(
+        "",
+        "pgm, Count(0)",
+        "\n#[k::function(partial, syntax = \"count({a})\")]\npub fn Count(a: Term<Int>) -> Term<Int> {\n    Count(a + 1)\n}\n",
+    );
+    for (name, source, program) in [("spin", spin, "spin(go)"), ("count", count, "go")] {
+        let collected = pipeline::collect_source(&settings, name, &source)
+            .unwrap_or_else(|error| panic!("{name} collects: {error}"));
+        let plan = Run {
+            program: program.to_owned(),
+            variables: Vec::new(),
+            depth: 0,
+            steps: 0,
+            cells: Vec::new(),
+            status: Status::Liveness,
+        };
+        let ran = Mutex::new(None);
+        let visit = |semantics: &mut krs_exec::Semantics| {
+            let started = std::time::Instant::now();
+            let verdict = runs::run_case(semantics, &plan, limit);
+            *ran.lock().expect("not poisoned") = Some((verdict, started.elapsed()));
+        };
+        let checked = collected.check_visiting(collected.bundle.clone(), Some(&visit));
+        let (verdict, elapsed) = ran
+            .into_inner()
+            .expect("not poisoned")
+            .unwrap_or_else(|| panic!("{name}: no run ({checked:?})"));
+        eprintln!(
+            "[krs-class] K7 bound, {name}: {} in {elapsed:?}",
+            verdict.signature()
+        );
+        assert!(
+            matches!(verdict, Ran::Deviates(_)),
+            "{name}: {}",
+            verdict.signature()
+        );
+        assert!(
+            elapsed < limit * 2,
+            "{name}: the run took {elapsed:?}, past its limit of {limit:?}"
+        );
+    }
+}

@@ -291,6 +291,13 @@ struct NativeRun<'a> {
     run: Option<Duration>,
 }
 
+/// K7's verdicts made on one loaded definition, and the cases a panic left unrun there.
+#[derive(Default)]
+struct Runs {
+    ran: Mutex<BTreeMap<String, Ran>>,
+    left: Mutex<Vec<String>>,
+}
+
 /// K6's and K7's verdicts on the cases of a batch, by ID.
 #[derive(Default)]
 struct Verdicts {
@@ -511,8 +518,8 @@ impl Worker<'_> {
         } else {
             Vec::new()
         };
-        let ran = Mutex::new(BTreeMap::new());
-        let visit = |semantics: &mut Semantics| self.run_all(semantics, &runnable, &ran);
+        let runs = Runs::default();
+        let visit = |semantics: &mut Semantics| self.run_all(semantics, &runnable, &runs);
         let started = Instant::now();
         let checked = catch_unwind(AssertUnwindSafe(|| {
             collected.check_visiting(bundle, (!runnable.is_empty()).then_some(&visit))
@@ -543,8 +550,7 @@ impl Worker<'_> {
                 for placed in cases {
                     out.native.insert(placed.case.id.clone(), Native::Accepted);
                 }
-                out.ran
-                    .extend(ran.into_inner().expect("the runs are not poisoned"));
+                self.keep_runs(collected, all, cases, runs, out);
                 if !together {
                     self.run_apart(collected, all, cases, out);
                 }
@@ -576,34 +582,72 @@ impl Worker<'_> {
     }
 
     /// K7 over `cases`, on the definition `semantics` loaded: each case's plan, run within the time
-    /// limit; a panic of a run is its verdict.
-    fn run_all(
-        &self,
-        semantics: &mut Semantics,
-        cases: &[&Placed<'_>],
-        ran: &Mutex<BTreeMap<String, Ran>>,
-    ) {
+    /// limit, and where it conforms its counter-witness's plan, which must not apply. A panic of a
+    /// run is its case's verdict, and the semantics it left is not used again: the cases after it
+    /// are left to be run apart ([`Self::keep_runs`]).
+    fn run_all(&self, semantics: &mut Semantics, cases: &[&Placed<'_>], runs: &Runs) {
         let Some(run) = self.native else {
             return;
         };
         let Some(limit) = run.run else {
             return;
         };
-        for placed in cases {
+        for (index, placed) in cases.iter().enumerate() {
             let K7::Run(plan) = &placed.case.k7 else {
                 continue;
             };
             let started = Instant::now();
-            let verdict = catch_unwind(AssertUnwindSafe(|| run_case(semantics, plan, limit)))
-                .unwrap_or_else(|panic| {
-                    Ran::Deviates(format!("panic: {}", panic_message(&*panic)))
-                });
+            let mut panicked = false;
+            let mut once = |plan| {
+                catch_unwind(AssertUnwindSafe(|| run_case(semantics, plan, limit))).unwrap_or_else(
+                    |panic| {
+                        panicked = true;
+                        Ran::Deviates(format!("panic: {}", panic_message(&*panic)))
+                    },
+                )
+            };
+            let mut verdict = once(plan);
+            if let (Ran::Conforms(_), Some(counter)) = (&verdict, &placed.case.k7_counter)
+                && let Ran::Deviates(deviation) = once(counter)
+            {
+                verdict = Ran::Deviates(format!(
+                    "counter-witness `{}`: {deviation}",
+                    counter.program
+                ));
+            }
             let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
             run.cost.runs.fetch_add(1, Ordering::Relaxed);
             run.cost.run_nanos.fetch_add(elapsed, Ordering::Relaxed);
-            ran.lock()
+            runs.ran
+                .lock()
                 .expect("the runs are not poisoned")
                 .insert(placed.case.id.clone(), verdict);
+            if panicked {
+                runs.left.lock().expect("the runs are not poisoned").extend(
+                    cases[index + 1..]
+                        .iter()
+                        .map(|placed| placed.case.id.clone()),
+                );
+                return;
+            }
+        }
+    }
+
+    /// Keep the runs of an accepted check of `cases`, and run each case a panic left unrun on a
+    /// definition of its own.
+    fn keep_runs(
+        &self,
+        collected: &CollectedDefinition,
+        all: &[Placed<'_>],
+        cases: &[&Placed<'_>],
+        runs: Runs,
+        out: &mut Verdicts,
+    ) {
+        out.ran
+            .extend(runs.ran.into_inner().expect("the runs are not poisoned"));
+        let left = runs.left.into_inner().expect("the runs are not poisoned");
+        for placed in cases.iter().filter(|placed| left.contains(&placed.case.id)) {
+            self.run_on(collected, all, &[*placed], out);
         }
     }
 
@@ -616,9 +660,9 @@ impl Worker<'_> {
         cases: &[&Placed<'_>],
         out: &mut Verdicts,
     ) {
-        let Some(run) = self.native else {
+        if self.native.is_none() {
             return;
-        };
+        }
         let keyed = cases
             .iter()
             .filter(|placed| !placed.case.unkeyed)
@@ -632,45 +676,57 @@ impl Worker<'_> {
                 .map(|placed| vec![*placed]),
         );
         for set in sets {
-            let runnable = runnable(&set, run);
-            if runnable.is_empty() {
-                continue;
-            }
-            let ids = set
-                .iter()
-                .map(|placed| placed.case.id.as_str())
-                .collect::<BTreeSet<_>>();
-            let bundle = sub_bundle_of(&collected.bundle, all, |placed| {
-                ids.contains(placed.case.id.as_str())
-            });
-            let ran = Mutex::new(BTreeMap::new());
-            let visit = |semantics: &mut Semantics| self.run_all(semantics, &runnable, &ran);
-            let started = Instant::now();
-            let checked = catch_unwind(AssertUnwindSafe(|| {
-                collected.check_visiting(bundle, Some(&visit))
-            }));
-            let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
-            run.cost.apart_checks.fetch_add(1, Ordering::Relaxed);
-            run.cost.apart_nanos.fetch_add(elapsed, Ordering::Relaxed);
-            match checked {
-                Ok(Ok(_)) => out
-                    .ran
-                    .extend(ran.into_inner().expect("the runs are not poisoned")),
-                // Accepted together, refused apart: no definition of the case's own to run on.
-                refused => {
-                    let why = match refused {
-                        Ok(Err(error)) => native_signature(&error),
-                        Err(panic) => format!("panic: {}", panic_message(&*panic)),
-                        Ok(Ok(_)) => unreachable!("an accepted check is matched above"),
-                    };
-                    for placed in &runnable {
-                        out.ran.insert(
-                            placed.case.id.clone(),
-                            Ran::Deviates(format!(
-                                "K6 accepts the case beside the others of its batch, but refuses it apart: {why}"
-                            )),
-                        );
-                    }
+            self.run_on(collected, all, &set, out);
+        }
+    }
+
+    /// K7 over `set` on the definition of the base and `set` alone, made by a check of its own.
+    fn run_on(
+        &self,
+        collected: &CollectedDefinition,
+        all: &[Placed<'_>],
+        set: &[&Placed<'_>],
+        out: &mut Verdicts,
+    ) {
+        let Some(run) = self.native else {
+            return;
+        };
+        let runnable = runnable(set, run);
+        if runnable.is_empty() {
+            return;
+        }
+        let ids = set
+            .iter()
+            .map(|placed| placed.case.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let bundle = sub_bundle_of(&collected.bundle, all, |placed| {
+            ids.contains(placed.case.id.as_str())
+        });
+        let runs = Runs::default();
+        let visit = |semantics: &mut Semantics| self.run_all(semantics, &runnable, &runs);
+        let started = Instant::now();
+        let checked = catch_unwind(AssertUnwindSafe(|| {
+            collected.check_visiting(bundle, Some(&visit))
+        }));
+        let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        run.cost.apart_checks.fetch_add(1, Ordering::Relaxed);
+        run.cost.apart_nanos.fetch_add(elapsed, Ordering::Relaxed);
+        match checked {
+            Ok(Ok(_)) => self.keep_runs(collected, all, &runnable, runs, out),
+            // Accepted together, refused apart: no definition of the case's own to run on.
+            refused => {
+                let why = match refused {
+                    Ok(Err(error)) => native_signature(&error),
+                    Err(panic) => format!("panic: {}", panic_message(&*panic)),
+                    Ok(Ok(_)) => unreachable!("an accepted check is matched above"),
+                };
+                for placed in &runnable {
+                    out.ran.insert(
+                        placed.case.id.clone(),
+                        Ran::Deviates(format!(
+                            "K6 accepts the case beside the others of its batch, but refuses it apart: {why}"
+                        )),
+                    );
                 }
             }
         }

@@ -14,7 +14,8 @@ use std::time::Duration;
 use k_rust::backend::CancellationToken;
 use k_rust::kore::ast::Pattern;
 use krs_exec::{
-    ConfigInputs, ProgramInput, RunOptions, RunReport, Semantics, SortRef, Value, ValueIndex, View,
+    ConfigInputs, Halt, ProgramInput, RunOptions, RunReport, Semantics, SortRef, Value, ValueIndex,
+    View,
 };
 use krs_test_support::class_matrix::k7::{Ground, Run, Status};
 
@@ -52,11 +53,7 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration) -> Ran {
             .collect(),
         stdin: None,
     };
-    let report = match semantics
-        .configure(&inputs)
-        .map_err(|error| format!("failed: {}", first_line(&error.to_string())))
-        .and_then(|state| bounded(semantics, &state, run.depth, limit))
-    {
+    let report = match bounded(semantics, &inputs, run.depth, limit) {
         Ok(report) => report,
         Err(deviation) => return Ran::Deviates(deviation),
     };
@@ -89,7 +86,7 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration) -> Ran {
         .iter()
         .map(|(cell, expected)| {
             let value = view.value(cell).map_or_else(
-                |error| Ground::Opaque(format!("{error:?}")),
+                |error| Ground::Opaque(error.to_string()),
                 |value| ground(index, &value),
             );
             (cell, expected, value)
@@ -98,11 +95,12 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration) -> Ran {
     verdict(run, &report, &observed)
 }
 
-/// Run `state` within `depth` steps and `limit`, cancelling the backend's request from a
-/// watchdog thread at the limit; the report, or the deviation.
+/// Configure `inputs` and run the state within `depth` steps, both within `limit`: the program's
+/// parse and expansion and the run are one request of the backend's, cancelled from a watchdog
+/// thread at the limit. The report, or the deviation.
 fn bounded(
     semantics: &mut Semantics,
-    state: &krs_exec::State,
+    inputs: &ConfigInputs,
     depth: u64,
     limit: Duration,
 ) -> Result<RunReport, String> {
@@ -117,20 +115,25 @@ fn bounded(
         })
     };
     let report = token.scope(|| {
-        semantics.run(
-            state,
-            RunOptions {
-                depth: Some(depth),
-                trace: false,
-            },
-        )
+        let state = semantics
+            .configure(inputs)
+            .map_err(|error| format!("failed: {}", first_line(&error.to_string())))?;
+        semantics
+            .run(
+                &state,
+                RunOptions {
+                    depth: Some(depth),
+                    trace: false,
+                },
+            )
+            .map_err(|error| format!("failed: {}", first_line(&error.to_string())))
     });
     let _ = done.send(());
     let _ = watchdog.join();
     if token.is_cancelled() {
         return Err(format!("time limit: no end within {} s", limit.as_secs()));
     }
-    report.map_err(|error| format!("failed: {}", first_line(&error.to_string())))
+    report
 }
 
 /// K7's verdict on a run that ended after `report.steps` steps with the cells `observed`, each
@@ -140,9 +143,23 @@ fn verdict(run: &Run, report: &RunReport, observed: &[(&String, &Ground, Ground)
         observed.iter().map(side).collect::<Vec<_>>().join(", ")
     };
     let shown = show(|(cell, _, value)| format!("{cell} = {value}"));
+    // The cells, after a separator, where the plan reads any.
+    let cells = if shown.is_empty() {
+        String::new()
+    } else {
+        format!("; {shown}")
+    };
+    // A rule that matched and whose result has no value ends the run undefined, which is no
+    // stuck rule.
+    if report.steps < run.steps && report.halt == Halt::Undefined {
+        return Ran::Deviates(format!(
+            "no defined result: after {} of {} steps, the next state is undefined{cells}",
+            report.steps, run.steps,
+        ));
+    }
     if report.steps < run.steps {
         return Ran::Deviates(format!(
-            "not applied: {} of {} steps, then {}; {shown}",
+            "not applied: {} of {} steps, then {}{cells}",
             report.steps,
             run.steps,
             report.halt.as_str(),
@@ -150,7 +167,7 @@ fn verdict(run: &Run, report: &RunReport, observed: &[(&String, &Ground, Ground)
     }
     if report.steps > run.steps {
         return Ran::Deviates(format!(
-            "applied where it should not: {} steps where the plan takes {}; {shown}",
+            "applied where it should not: {} steps where the plan takes {}{cells}",
             report.steps, run.steps,
         ));
     }
@@ -195,7 +212,7 @@ fn ground(index: &ValueIndex, value: &Value) -> Ground {
         Value::Token { sort, text } => Ground::Token {
             sort: match sort {
                 SortRef::Declared(decl) => local(decl.path()).to_owned(),
-                SortRef::Builtin(builtin) => format!("{builtin:?}"),
+                SortRef::Builtin(builtin) => builtin.k_name().to_owned(),
             },
             text: text.clone(),
         },
