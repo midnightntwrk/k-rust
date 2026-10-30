@@ -77,8 +77,8 @@ refused construct is the one a depth-2 case's construct stands in.
 
 **Size.** The term family is 5,063 cases, the import axis 172 and the attribute axis (`attrs/..`,
 18 forms × 26 attributes, 26 malformed attributes and 20 extra cases, in the first shard of the
-fast tier) 514, the run families (`readable-run/..` 193 and `cells-run/..` 192, in the first shard
-of the fast tier too) 385, of 6,972 in all, and
+fast tier) 514, the run families (`readable-run/..` 194 and `cells-run/..` 193, in the first shard
+of the fast tier too) 387, of 6,974 in all, and
 the notation family (`notation/..`: the term family's positions, templates and oracle for the
 collection notation, `m[k]`, `s.contains(x)`, `map![k -> v]` and `set![x]`, and the calls it
 denotes) 2,862. The generator caps
@@ -169,9 +169,17 @@ the descriptors of the base and its own. A case is judged by
   `y @ HOLE` is the hole's, of `set::item(HOLE)` the set of it, the value of `Size(HOLE)` the
   unevaluated `Size` of the hole's (`Size` has no equation, so it serves as a wrapper the run
   shows the hole's value in; `Size(x)` itself has no stated value). A spelling a pattern reads
-  also has a *counter-witness* where one exists, a ground term it must not match (`Cmd::Hold(x)`
-  must not match `Cmd::Pair(0, 0)`, `y @ Cmd::Hold(_)` neither): its case runs a second program on
-  it, which must stop before the case's sentence, so a pattern lowered too loosely is caught. A
+  also has *counter-witnesses* where they exist, ground terms it must not match (`Cmd::Hold(x)`
+  must not match `Cmd::Pair(0, 0)`, `y @ Cmd::Hold(_)` neither): its case runs a program on each,
+  which must stop before the case's sentence, so a pattern lowered too loosely is caught. A
+  collection a pattern reads exactly has a counter-witness with an item more (`set::item(x)` must
+  match neither `{}` nor `{1, 2}`, `map![]` not `{1 ↦ 1}`), and one it reads with `..` a witness
+  with an item more than it writes (`[x, ..]` matches `[1, 2]`): so is the collection the hole
+  stands in, where the slot leaves it open (a map read's `..`: the driver writes `{k ↦ 0, 99 ↦ 0}`;
+  a list's, `[w, 99]`; a collection's other instances, added first) or reads it exactly (a set's
+  singleton around the hole: a counter run on `{w, 99}`). So a lowering that reads an exact
+  collection as open, or an open one as exact, does not run as stated
+  (`every_term_collection_spelling_follows_the_rule`, the plans pinned beside it). A
   disagreement with KRS is a finding, triaged as an oracle or a product bug.
 
   *Drivers* (`class_matrix/terms/drivers.rs`), one per slot, write the program that applies the
@@ -209,7 +217,8 @@ the descriptors of the base and its own. A case is judged by
   m: Map }`), and driver commands that each set one cell up in one step, at priority 10, apart from
   the cases': `then(a, b)`, `skip`, `setpc`, `setstack`, `setenv`, `setret`, `setcounter` (one rule
   for a present optional cell and one, at 11, that creates an absent one, so the plans do not
-  depend on how the cell starts), `dropcounter`, `addjob` and `addobj`, with the terms base's map
+  depend on how the cell starts), `dropcounter`, `addjob`, `addobj` and `pushjob` (a `Job` cell
+  record as the computation's first item, as a readable result writes one), with the terms base's map
   and list makers. One slot list is instantiated twice rather than copied: each template writes
   the same item on both bases, so a spelling the family gains reaches the run base by
   construction, and the machine base's cases, and the K they record, stay as they are. A run
@@ -222,16 +231,27 @@ the descriptors of the base and its own. A case is judged by
   (`map![1 -> 2]` in a readable record, a literal there; `k::map![1 -> 2]` in a `cells!` fragment,
   the cell's map), one whose key is computed, two whose exact map computes its value or its key,
   each looked up as the set's element (decision D1a, NT-10's review M1), one whose map reads an
-  entry and leaves the others open (`{ 1 -> 2, .. }`, `k::map![1 -> 2, ..]`), which selects, and in
-  a readable record the literal `map![1 -> 2, ..]`, whose anonymous rest names no map (the class
-  `anonymous-rest-in-map-literal`); on the result side, an instance written with each.
+  entry and leaves the others open (`{ 1 -> 2, .. }`, `k::map![1 -> 2, ..]`) and an instance record
+  with `..` (`Obj { key: 1, .. }`), which select, and in a readable record the literal
+  `map![1 -> 2, ..]`, whose anonymous rest names no map (the class `anonymous-rest-in-map-literal`,
+  which advises the `{ 1 -> 2, .. }` case); on the result side, an instance written with each.
 
   Their plans (`class_matrix::config_drivers`) state what each spelling denotes in its cell. A
   subject case's witness is written by the driver commands before the case's command
   (`then(setpc(0), cNAME)`, three steps that leave the computation cell empty), or is the start
-  configuration where every value is one (a binder, `_`, a group record of binders); its
+  configuration where every value is one (a binder, `_`, a group record of binders); each
   counter-witness, run apart, must stop before the command (`then(setpc(1), cNAME)` takes two
-  steps). A result case's program first writes a value the subject's `old` matches and no result
+  steps). Exact and open, the rule: a spelling that reads a collection whole (`[]`, the map of
+  `Obj { key: 1, m: map![1 -> 2] }`) has a counter-witness with one item more, and one whose `..`
+  leaves items open a witness with more than it writes (`[x, ..]` on `[0, 0]`, `{ y -> x, .. }` on
+  `{1 ↦ 0, 2 ↦ 0}`, `KCell(x, ..)` after `then(go, go)`, two jobs, the object 9 beside the one an
+  instance spelling reads, and for `Obj { key: 1, .. }` a map that is not the template's): each
+  subject plan states the collections it reads (`class_matrix::Reading`), and `cargo test -p
+  krs-test-support --test k7 every_run_spelling_reads_its_collections_by_the_rule` checks the rule
+  on the items its programs write (`RUN_READS`), listing the spellings that read no collection
+  (`RUN_UNREAD`: a binder, `_`, a leaf, an optional cell, a one-child group's record). The
+  machine base's groups and instances have one child, so a record's `..` is tested on
+  `Obj { key: 1, .. }` alone. A result case's program first writes a value the subject's `old` matches and no result
   writes, then applies its command with `x` = 1 and `y` = 2 (`y` = 1 for a map whose two keys may be
   equal, whose later entry is the map's): `then(setpc(5), cNAME(1, 2))` ends with `pc = 1`. The
   computation cell's subject case holds no command, so its program is the witness (`go`, a
@@ -243,19 +263,25 @@ the descriptors of the base and its own. A case is judged by
   without a driver (a prover's), and a spelling written in another kind's notation than its cell's
   denotes nothing there. `cargo test -p krs-test-support --test k7` pins each run family's statuses
   by reason and count (`RUN_STATUSES`), the cases without a witness, a value or a counter-witness
-  (`RUN_UNSTATED`: a cell record as a computation or list item, which no program writes; `_` and an
+  (`RUN_UNSTATED`: a cell record behind the computation's first item, which no driver command
+  writes, and one as a List cell's element, which a readable result reads as instances; `_` and an
   anonymous rest in a result whose subject reads the cell whole; `x`, an `Int`, at a cell of another
   sort; a map literal's anonymous rest; a binder, `_`, `..` alone or a record of binders, which
   every value matches), and a plan of each kind (`the_run_drivers_write_their_programs_and_cells`).
 
   The run families are a shard of their own, so the `readable` and `cells` shards hold the cases
   they held before. On 2026-10-31, at 15 workers under a load of 11 to 85 from other work, `runs`
-  (385 cases, 75 accepted, 72 judged by K6 in 14 checks) took 61 s, with K7 (69 programs and their
+  (387 cases, 77 accepted, 74 judged by K6 in 14 checks) took 61 s, with K7 (72 programs and their
   counter runs in 0.3 s of worker time) and without it alike, while `readable` took 64 s and
   `cells` 55 s, as before (66 s and 56 s). No case of the run families deviates at K7; their reds
-  are their twins' (each pending under its twin's finding) and the Set collection's two, NT-19-1
-  (a `cells!` result's map literal with an anonymous rest answers another code than a readable
-  record's) and NT-19-2 (a readable record cannot read an instance's map cell with `..`).
+  are their twins' (each pending under its twin's finding) and the Set collection's, NT-19-1 (a
+  `cells!` result's map literal with an anonymous rest answers another code than a readable
+  record's) and NT-19-2 (a readable record cannot read an instance's map cell with `..`, which the
+  literal's refusal advises: K2 and K8). A lowering that reads an exact map cell as open, or an
+  open one as exact, is caught by K7: forcing every exact instance map open turns the 4 exact-map
+  instances red, at their counter-witness with an entry more; dropping every subject map's `..`
+  turns red the 3 open maps of the `runs` shard's map and instance subjects and all 73 runnable
+  `terms/{readable,cells}/{map-key,map-value}/..` cases (2026-10-31, in a scratch worktree).
 
   *Running*: where K6's check loads the definition the run commands load (on the `native-rust`
   route, `krs_cli::CollectedDefinition::check_visiting`), each accepted case's program is
@@ -360,8 +386,10 @@ the descriptors of the base and its own. A case is judged by
   printed `unchecked`, as is advice in prose; and a case the table accepts whose refusal advises a
   form (`refused where the table accepts, advising ..`). The unchecked refusals are pinned per
   shard and class (`UNCHECKED` in `krs-cli/tests/class_matrix.rs`; 480 on 2026-10-31, 440 of
-  them in `terms`): a shard whose counts differ fails, so a new class, or a message that adds
-  advice no generated case writes, is reviewed before it is pinned.
+  them in `terms`), and the case shards with none are listed (`NO_UNCHECKED`: `attrs`, `cells`,
+  `import`, `readable`, `runs`): a shard whose counts differ, or that neither lists, fails, so a
+  new class, or a message that adds advice no generated case writes, is reviewed before it is
+  pinned.
 
   K8 costs its own shard and a scan: on 2026-10-31, under a load of about 20 to 80 from other
   work, `attrs` (514 cases, 139 accepted) took 85 s at 15 workers, K6 54 checks in 66 s of worker
