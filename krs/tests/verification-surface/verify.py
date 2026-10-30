@@ -147,6 +147,15 @@ predicate as an object operand, a Bool where a predicate is expected,
 simplification not rooted at `ml::equals` or `ml::ceil`, one whose types
 disagree, and a predicate subject on a transition.
 
+Map cells with symbolic keys (NT-9): `cell-maps` has an `env` map cell and
+four claims whose keys are variables: `sym-one` rewrites the entry of a key
+in a map that holds it alone, `sym-two` in one that also holds a second key,
+`set-get` reads back the map a rule's result wrote, and `unmatched-keys`
+writes two keys the empty start map does not hold, so its emitted end map is
+the update chain `.Map [ A:Int <- 10 ] [ B:Int <- 11 ]`. Every claim is
+proved natively (`krs prove`) and by Java `kprove --claims` on the emitted
+files.
+
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
 replaying the per-user reference cache.
@@ -347,6 +356,18 @@ LESSON_SPEC_FRAGMENT = (
     "    <k> $n = N:Int ; $m = M:Int ; ~> Tail:K => .K ~> Tail:K </k>\n"
     "    <store> S:Map => S:Map [ $n <- N:Int ] [ $m <- M:Int ] </store>\n"
     "endmodule\n"
+)
+
+CELL_MAPS = Fixture(MANIFEST, "krs-verification-surface-cell-maps")
+CELL_MAPS_SPEC = "KRS-CELL-MAPS-SPEC"
+CELL_MAPS_CLAIMS = ("sym-one", "sym-two", "set-get", "unmatched-keys")
+# The `<env>` cell of each claim as emitted: the keys a claim names stay symbolic,
+# and keys the start map does not hold are written as the update chain.
+CELL_MAPS_FRAGMENTS = (
+    "    <env> A:Int |-> 0 => A:Int |-> 10 </env>\n",
+    "    <env> A:Int |-> 0 B:Int |-> 0 => A:Int |-> 10 B:Int |-> 0 </env>\n",
+    "    <env> E:Map => ?After:Map </env>\n",
+    "    <env> .Map => .Map [ A:Int <- 10 ] [ B:Int <- 11 ] </env>\n",
 )
 
 NEGATIVE = (
@@ -1258,6 +1279,28 @@ def verify_lesson_spec(harness: FixtureGate, fixture: Fixture) -> None:
     print(f"PASS {fixture.package}: the spec-only package's {LESSON_SPEC} declares its own token and is proven natively and by kprove")
 
 
+def verify_cell_maps(harness: FixtureGate, fixture: Fixture) -> None:
+    """Claims over a map cell with symbolic keys, proved on both routes (NT-9)."""
+
+    harness.check(fixture)
+    harness.expand(fixture)
+    emitted = harness.emit(fixture)
+    spec = (emitted.directory / "spec.k").read_text(encoding="utf-8")
+    for fragment in CELL_MAPS_FRAGMENTS:
+        if fragment not in spec:
+            raise GateError(f"{fixture.package}: emitted spec.k omits:\n{fragment}")
+    expected = dict.fromkeys(CELL_MAPS_CLAIMS, "proven")
+    native = native_trusted_proof(harness, fixture, CELL_MAPS_SPEC)
+    if native["statuses"] != expected or native["exit"] != 0 or native["warnings"]:
+        raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
+    harness.pins.expect(("cell_map_proofs", fixture.package), native)
+    java = java_claim_proofs(harness, emitted, CELL_MAPS_SPEC, CELL_MAPS_CLAIMS)
+    if java != dict.fromkeys(CELL_MAPS_CLAIMS, True):
+        raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(native['statuses'])}")
+    harness.pins.expect(("cell_map_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: every claim proven natively and by kprove")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -1291,6 +1334,7 @@ def main() -> int:
         verify_spec_modules(harness, IMP_SUM)
         verify_lesson_spec(harness, L22_LESSON)
         verify_ml_predicates(harness, L22)
+        verify_cell_maps(harness, CELL_MAPS)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-verification-surface-{name}"))

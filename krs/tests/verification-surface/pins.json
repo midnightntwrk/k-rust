@@ -4,7 +4,8 @@
     "krs-verification-surface-l21": "e4f64e7deb707255d933166a4e1e7130e6d11ff7d02b950e76a1f52ca18bdd03",
     "krs-verification-surface-l21-readable": "2b92db2200faeeaa3dcbf588a5d6160dfbcc07e59f1564ba3c853e7c11d8fae7",
     "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7",
-    "krs-verification-surface-l22-verification": "e675635a7d37be255111d5a2902c64ba128f80a7402c143d41599120aa1de973"
+    "krs-verification-surface-l22-verification": "e675635a7d37be255111d5a2902c64ba128f80a7402c143d41599120aa1de973",
+    "krs-verification-surface-cell-maps": "3d72b161705022597d336db31c8ded25e93fab02208a6eb6a1b943630eb234c6"
   },
   "emitted": {
     "krs-verification-surface-l21": {
@@ -49,6 +50,10 @@
     "krs-verification-surface-l22-lesson": {
       "definition.k": "f622a6723d8f5c6876233232b4c27aa8a001f9aeeacfcaedd720c23558139a64",
       "spec.k": "468c0248ecac21d91a67760cb8cfe046984ab633fcbf838a664f09840f72d149"
+    },
+    "krs-verification-surface-cell-maps": {
+      "definition.k": "1640404f8b89d224fac0a5f92aa5e0ac7743ed5f6bccb3d2e9d9ea5f7924416c",
+      "spec.k": "c176aa19189e5a7ae639435d53a2df2c2956240feb17544cddfae0ab5b8ca84a"
     }
   },
   "capability_refusals": {
@@ -66,7 +71,8 @@
     "krs-verification-surface-conc-smt-lemma": "a5b1ed5c2ad47d424e1556154728d2919a3f5343d3359aa4da3303524ea68601",
     "krs-verification-surface-imp-sum": "79d0a9d46ca1a177bb29b3bce38c58fca476630a402d193fdfedd472616c5d17",
     "krs-verification-surface-l22-verification": "1688167f61d3576b87aa98cf60d3053461d0fc23310cfe7d1b78cc0f14ddcaaf",
-    "krs-verification-surface-l22-lesson": "d8b100205640d26a22331ceb8d5d982442510021261c0f92ecef32d579501b6f"
+    "krs-verification-surface-l22-lesson": "d8b100205640d26a22331ceb8d5d982442510021261c0f92ecef32d579501b6f",
+    "krs-verification-surface-cell-maps": "9f0d389f6cabffab36afc68c09ba7064acf2f1bc718caf0442c985a3def77277"
   },
   "outcomes": {
     "krs-verification-surface-l21": {
@@ -449,6 +455,29 @@
         "krs prove: 2 of 2 claims proven"
       ],
       "warnings": []
+    }
+  },
+  "cell_map_proofs": {
+    "krs-verification-surface-cell-maps": {
+      "statuses": {
+        "set-get": "proven",
+        "sym-one": "proven",
+        "sym-two": "proven",
+        "unmatched-keys": "proven"
+      },
+      "exit": 0,
+      "summary": [
+        "krs prove: 4 of 4 claims proven"
+      ],
+      "warnings": []
+    }
+  },
+  "cell_map_kprove": {
+    "krs-verification-surface-cell-maps": {
+      "sym-one": true,
+      "sym-two": true,
+      "set-get": true,
+      "unmatched-keys": true
     }
   }
 }

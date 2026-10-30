@@ -112,6 +112,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-verification-surface-cell-maps"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-verification-surface-conc"
 version = "0.1.0"
 dependencies = [

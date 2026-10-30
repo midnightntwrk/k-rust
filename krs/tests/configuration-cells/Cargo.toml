@@ -5,6 +5,7 @@ members = [
     "packages/objects",
     "packages/optional",
     "packages/queue",
+    "packages/set-instances",
     "packages/threads",
 ]
 resolver = "3"

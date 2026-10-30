@@ -7,7 +7,8 @@
     "krs-configuration-cells-threads": "54236db69ae18f2fb2c287024f8cda7c4f6323e54edc5466cfa5155f6a9c9e71",
     "krs-configuration-cells-objects": "8fa40aba16561970ac7d87508e9b81b3e551ff3875d97e3a4b42e72bfb116b8e",
     "krs-configuration-cells-queue": "7f1e1998155b9a78e6db091517dbc68eab134462fcf2cb7f4a974920c11437bc",
-    "krs-configuration-cells-optional-config-var-initial": "1555ca710bc44489fbf4cf3859070ceb000eb210558b6c6adff185a36a9bc99c"
+    "krs-configuration-cells-optional-config-var-initial": "1555ca710bc44489fbf4cf3859070ceb000eb210558b6c6adff185a36a9bc99c",
+    "krs-configuration-cells-set-instances": "b0f2b2c156ce6ea4c959dc5fdc6a11d296d5ea05201fd614629ade71bd509b49"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -30,6 +31,9 @@
     },
     "krs-configuration-cells-optional-config-var-initial": {
       "definition.k": "e08b9503421c82f014651e79236b0ecc1dae82e56e2e4316368ffba21be721b3"
+    },
+    "krs-configuration-cells-set-instances": {
+      "definition.k": "a06619bd2a6233f6e9be4969b3a6653fa91ef5d3d0c612c01e7852eea1a5d5ec"
     }
   },
   "reference_sha256": {
@@ -39,7 +43,8 @@
     "krs-configuration-cells-threads": "4fa00d45562e3d3950153ee61100fbef171acfb9bc996e691ab0d33ead0c321a",
     "krs-configuration-cells-objects": "ee55b73e078490923820b5bd8abfe9712f39e19308b6266a5a21ac9f18f59286",
     "krs-configuration-cells-queue": "4b317808832163506f0859913b5a6a4a257e76b0bab7ece52232e891551a106d",
-    "krs-configuration-cells-optional-config-var-initial": "cf72e17bfd8065dec0ae6a81c07389aa76a455c215cdbee633adc13622798bfe"
+    "krs-configuration-cells-optional-config-var-initial": "cf72e17bfd8065dec0ae6a81c07389aa76a455c215cdbee633adc13622798bfe",
+    "krs-configuration-cells-set-instances": "fac71e59385b4e267727ddba863f9d3d50b7aae1111813e8535a77cd86248b84"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -154,6 +159,192 @@
       "go": {
         "parse": "accepted",
         "run": "5"
+      }
+    },
+    "krs-configuration-cells-set-instances": {
+      "probe-found": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": "<obj> <oid> 3 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "probe-touched": {
+        "parse": "accepted",
+        "run": "probe 2",
+        "cells": {
+          "objects": "<obj> <oid> 3 </oid> <hits> 1 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "probe-empty": {
+        "parse": "accepted",
+        "run": "probe 5",
+        "cells": {
+          "objects": ".ObjCellSet",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "probe-other-touched": {
+        "parse": "accepted",
+        "run": "probe 3",
+        "cells": {
+          "objects": "<obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "drop": {
+        "parse": "accepted",
+        "run": "probe 2",
+        "cells": {
+          "objects": ".ObjCellSet",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "bump": {
+        "parse": "accepted",
+        "run": "probe 2",
+        "cells": {
+          "objects": "<obj> <oid> 3 </oid> <hits> 1 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "next-equal-hits": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": "<obj> <oid> 3 </oid> <hits> 1 </hits> </obj> <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "next-other-hits": {
+        "parse": "accepted",
+        "run": "next 3",
+        "cells": {
+          "objects": "<obj> <oid> 3 </oid> <hits> 1 </hits> </obj> <obj> <oid> 4 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "via": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": ".ObjCellSet",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "check-touched": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": "<obj> <oid> 4 </oid> <hits> 1 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "check-untouched": {
+        "parse": "accepted",
+        "run": "check 2",
+        "cells": {
+          "objects": "<obj> <oid> 4 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "check-zero": {
+        "parse": "accepted",
+        "run": "check 0",
+        "cells": {
+          "objects": "<obj> <oid> 0 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "find": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": "<obj> <oid> 3 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "probe-among-four": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": "<obj> <oid> 1 </oid> <hits> 0 </hits> </obj> <obj> <oid> 2 </oid> <hits> 0 </hits> </obj> <obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 40 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "probe-among-four-reversed": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": "<obj> <oid> 1 </oid> <hits> 0 </hits> </obj> <obj> <oid> 2 </oid> <hits> 0 </hits> </obj> <obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 40 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "dup": {
+        "parse": "accepted",
+        "run": "dup 1",
+        "cells": {
+          "objects": "<obj> <oid> 1 </oid> <hits> 0 </hits> </obj> <obj> <oid> 2 </oid> <hits> 0 </hits> </obj> <obj> <oid> 3 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "dz-zero": {
+        "parse": "accepted",
+        "run": "dz 0",
+        "cells": {
+          "objects": "<obj> <oid> 1 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "dz-five": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": "<obj> <oid> 105 </oid> <hits> 0 </hits> </obj>",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "bags": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": ".ObjCellSet",
+          "sacks": "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>"
+        }
+      },
+      "bags-other-key": {
+        "parse": "accepted",
+        "run": "bags 4",
+        "cells": {
+          "objects": ".ObjCellSet",
+          "sacks": "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>"
+        }
+      },
+      "bagm": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": ".ObjCellSet",
+          "sacks": "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>"
+        }
+      },
+      "bagc": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "objects": ".ObjCellSet",
+          "sacks": ".BagCellSet"
+        }
+      },
+      "bagc-other-key": {
+        "parse": "accepted",
+        "run": "bagc 5",
+        "cells": {
+          "objects": ".ObjCellSet",
+          "sacks": "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>"
+        }
       }
     }
   },

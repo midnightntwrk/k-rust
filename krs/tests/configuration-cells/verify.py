@@ -44,6 +44,12 @@ the outcomes must agree:
   race reaches both `return 2;` and `return 3;` on both routes;
 - `objects`: a `cell_type = "Set"` collection whose instances are created
   with template defaults, updated in place, removed, and matched exactly;
+- `set-instances`: two `cell_type = "Set"` collections whose rules select an
+  instance by values computed from their other bindings (`oid: n + 1`, an id
+  read from an `env` entry, a whole set or map cell built from `n`), beside
+  two equal instances, which a set never holds, and guards; each program ends
+  with the same computation cell and the same `<objects>` and `<sacks>`
+  contents on both routes (NT-10);
 - `queue`: a `cell_type = "List"` collection where `enqueue` appends at
   the back and `dequeue` removes the front, so jobs leave first in first
   out; the emitted back rewrite names the leading instances `_Instances1:Bag`.
@@ -273,6 +279,103 @@ OBJECTS_K = (
     "    </objects>\n",
 )
 
+SET_INSTANCES = Fixture(MANIFEST, "krs-configuration-cells-set-instances")
+# Each program's final computation cell and `<objects>` and `<sacks>` contents.
+SET_INSTANCES_PROGRAMS = (
+    Program(
+        "probe-found", "mk 3 probe 2", "accepted", ".K",
+        cells=(("objects", "<obj> <oid> 3 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "probe-touched", "mk 3 touch 3 probe 2", "accepted", "probe 2",
+        cells=(("objects", "<obj> <oid> 3 </oid> <hits> 1 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "probe-empty", "probe 5", "accepted", "probe 5",
+        cells=(("objects", ".ObjCellSet"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "probe-other-touched", "mk 4 mk 3 touch 4 probe 3", "accepted", "probe 3",
+        cells=(("objects", "<obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "drop", "mk 3 drop 2 probe 2", "accepted", "probe 2",
+        cells=(("objects", ".ObjCellSet"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "bump", "mk 3 bump 2 probe 2", "accepted", "probe 2",
+        cells=(("objects", "<obj> <oid> 3 </oid> <hits> 1 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "next-equal-hits", "mk 3 mk 4 touch 3 touch 4 next 3", "accepted", ".K",
+        cells=(("objects", "<obj> <oid> 3 </oid> <hits> 1 </hits> </obj> <obj> <oid> 4 </oid> <hits> 1 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "next-other-hits", "mk 3 mk 4 touch 3 next 3", "accepted", "next 3",
+        cells=(("objects", "<obj> <oid> 3 </oid> <hits> 1 </hits> </obj> <obj> <oid> 4 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "via", "mk 5 via 1", "accepted", ".K",
+        cells=(("objects", ".ObjCellSet"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "check-touched", "mk 4 touch 4 check 2", "accepted", ".K",
+        cells=(("objects", "<obj> <oid> 4 </oid> <hits> 1 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "check-untouched", "mk 4 check 2", "accepted", "check 2",
+        cells=(("objects", "<obj> <oid> 4 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "check-zero", "mk 0 check 0", "accepted", "check 0",
+        cells=(("objects", "<obj> <oid> 0 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "find", "mk 3 find 2", "accepted", ".K",
+        cells=(("objects", "<obj> <oid> 3 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "probe-among-four", "mk 1 mk 2 mk 3 mk 40 probe 39", "accepted", ".K",
+        cells=(("objects", "<obj> <oid> 1 </oid> <hits> 0 </hits> </obj> <obj> <oid> 2 </oid> <hits> 0 </hits> </obj> <obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 40 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "probe-among-four-reversed", "mk 40 mk 3 mk 2 mk 1 probe 39", "accepted", ".K",
+        cells=(("objects", "<obj> <oid> 1 </oid> <hits> 0 </hits> </obj> <obj> <oid> 2 </oid> <hits> 0 </hits> </obj> <obj> <oid> 3 </oid> <hits> 0 </hits> </obj> <obj> <oid> 40 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "dup", "mk 1 mk 2 mk 3 dup 1", "accepted", "dup 1",
+        cells=(("objects", "<obj> <oid> 1 </oid> <hits> 0 </hits> </obj> <obj> <oid> 2 </oid> <hits> 0 </hits> </obj> <obj> <oid> 3 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "dz-zero", "mk 1 dz 0", "accepted", "dz 0",
+        cells=(("objects", "<obj> <oid> 1 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "dz-five", "mk 105 dz 5", "accepted", ".K",
+        cells=(("objects", "<obj> <oid> 105 </oid> <hits> 0 </hits> </obj>"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "bags", "mkb 5 bags 5", "accepted", ".K",
+        cells=(("objects", ".ObjCellSet"), ("sacks", "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>")),
+    ),
+    Program(
+        "bags-other-key", "mkb 5 bags 4", "accepted", "bags 4",
+        cells=(("objects", ".ObjCellSet"), ("sacks", "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>")),
+    ),
+    Program(
+        "bagm", "mkb 5 bagm 6", "accepted", ".K",
+        cells=(("objects", ".ObjCellSet"), ("sacks", "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>")),
+    ),
+    Program(
+        "bagc", "mkb 5 bagc 4", "accepted", ".K",
+        cells=(("objects", ".ObjCellSet"), ("sacks", ".BagCellSet")),
+    ),
+    Program(
+        "bagc-other-key", "mkb 5 bagc 5", "accepted", "bagc 5",
+        cells=(("objects", ".ObjCellSet"), ("sacks", "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>")),
+    ),
+)
+
 QUEUE = Fixture(MANIFEST, "krs-configuration-cells-queue")
 QUEUE_PROGRAMS = (
     Program("dequeue", "enqueue 1 enqueue 2 enqueue 3 dequeue", "accepted", "1"),
@@ -467,6 +570,14 @@ def main() -> int:
 
         harness.compare(verify_emitted(harness, OBJECTS, OBJECTS_K), OBJECTS_PROGRAMS, sort="Stmt")
         print("PASS objects: Set instances are created with defaults, updated, removed, and matched exactly")
+
+        harness.check(SET_INSTANCES)
+        harness.expand(SET_INSTANCES)
+        harness.compare(harness.emit(SET_INSTANCES), SET_INSTANCES_PROGRAMS, sort="Stmt")
+        print(
+            "PASS set-instances: computed ids, hits, and set and map cells select the same Set instances "
+            "on both routes"
+        )
 
         harness.compare(verify_emitted(harness, QUEUE, QUEUE_K), QUEUE_PROGRAMS, sort="Stmt", search=True)
         print(
