@@ -589,16 +589,24 @@ fn symbolic_binding_values_are_unknown() {
     );
 }
 
-/// An undefined step is its own exit-stop class. It has no exit code, so a declared exit-code cell
-/// is not read. A mutant that makes a stuck or normal terminal an undefined step is
-/// distinguished, and two undefined steps agree. An undefined step is no final result (kink27
-/// R1-UNDEF; finding KINK-UNDEFINED-END, decision D41): its pre-step configuration is reached but
-/// is no result of the program, so a run whose every path takes one has the empty set of final
-/// results, two such runs agree whatever their pre-step configurations, and a stuck baseline at
-/// the mutant's pre-step configuration is a removed end, which distinguishes. In a run with other
-/// terminals the final result holds theirs only.
+/// A row of `an_undefined_step_is_no_end_to_any_state_slot`: its id, the baseline's and the mutant's
+/// terminals, and the outcome under the exit stop and under the two final results.
+type UndefinedRow = (
+    &'static str,
+    Vec<PathInput>,
+    Vec<PathInput>,
+    [OracleOutcome; 2],
+);
+
+/// An undefined step is no end (kink `README.md`, "What a kill trusts"; k-rust
+/// `docs/compatibility.md`, "Undefined steps in proofs"): its configuration is reached, but its
+/// outcome is undefinedness, which is no configuration. No state slot reads its pre-step term or
+/// tells two sides apart by an undefined path; every state slot compares ends only. A run whose
+/// every terminal is an undefined step has the empty set in every state slot, a value, so a
+/// baseline end the mutant lacks distinguishes (a removed end). The single-crash rule and the
+/// free-variable rule read ends only too.
 #[test]
-fn an_undefined_step_is_its_own_exit_stop_class() {
+fn an_undefined_step_is_no_end_to_any_state_slot() {
     let cell = "Lbl'-LT-'exit-code'-GT-'";
     let at = |program: &str| {
         app(
@@ -609,87 +617,125 @@ fn an_undefined_step_is_its_own_exit_stop_class() {
             ],
         )
     };
-    let undefined = single(UndefinedStep, at("divide"));
-    let class = |class, code| normal(OracleValue::ExitStop([ExitStop { class, code }].into()));
-    for projection in [exit_stop(None), exit_stop(Some(cell))] {
+    let paths = StateProjection::TermPaths(vec![vec![0]]);
+    let slots = [
+        (exit_stop(None), OracleKind::ExitStop),
+        (exit_stop(Some(cell)), OracleKind::ExitStop),
+        (StateProjection::WholeTerm, OracleKind::FinalResult),
+        (paths.clone(), OracleKind::FinalResult),
+    ];
+    let empty = |projection: &StateProjection| {
+        normal(match projection {
+            StateProjection::ExitStop { .. } => OracleValue::ExitStop(BTreeSet::new()),
+            StateProjection::WholeTerm => {
+                OracleValue::FinalResult(FinalResult::WholeTerm(BTreeSet::new()))
+            }
+            StateProjection::TermPaths(_) => {
+                OracleValue::FinalResult(FinalResult::TermPaths(BTreeSet::new()))
+            }
+        })
+    };
+    let undefined = |program| terminal(9, UndefinedStep, at(program));
+    for (projection, _) in &slots {
         assert_eq!(
-            state_side(&projection, &undefined),
-            class(TerminalClass::UndefinedStep, None),
+            state_side(projection, &single(UndefinedStep, at("divide"))),
+            empty(projection),
+            "{projection:?}"
+        );
+        let mixed = run(vec![terminal(0, Stuck, at("done")), undefined("divide")]);
+        assert_eq!(
+            state_side(projection, &mixed),
+            state_side(projection, &single(Stuck, at("done"))),
             "{projection:?}"
         );
     }
-    let exit = state_side(&exit_stop(None), &undefined);
+
+    // Each row: the baseline's and the mutant's terminals, and the outcome under the exit stop
+    // (either cell) and the two final results.
+    let stuck = |program| terminal(0, Stuck, at(program));
     #[rustfmt::skip]
-    let rows = [
-        ("stuck-baseline", state_side(&exit_stop(None), &single(Stuck, at("divide"))), Distinguish),
-        ("normal-baseline", state_side(&exit_stop(None), &single(Normal, at("done"))), Distinguish),
-        ("undefined-baseline", exit.clone(), Agree),
-    ];
-    for (id, baseline, expected) in rows {
-        for policy in POLICIES {
-            assert_eq!(
-                compare_supplied(OracleKind::ExitStop, policy, &baseline, &exit),
-                Ok(expected),
-                "{id} under {policy:?}"
-            );
-        }
-    }
-    let whole = |kind, program| state_side(&StateProjection::WholeTerm, &single(kind, at(program)));
-    let empty = normal(OracleValue::FinalResult(FinalResult::WholeTerm(
-        BTreeSet::new(),
-    )));
-    assert_eq!(whole(UndefinedStep, "divide"), empty);
-    #[rustfmt::skip]
-    let rows = [
-        ("stuck-baseline", whole(Stuck, "divide"), whole(UndefinedStep, "divide"), Distinguish),
-        ("undefined-both", whole(UndefinedStep, "divide"), whole(UndefinedStep, "other"), Agree),
+    let rows: [UndefinedRow; 8] = [
+        ("stuck-against-undefined", vec![stuck("divide")], vec![undefined("divide")], [Distinguish, Distinguish]),
+        ("normal-against-undefined", vec![terminal(0, Normal, at("done"))], vec![undefined("done")], [Distinguish, Distinguish]),
+        ("undefined-both", vec![undefined("divide")], vec![undefined("other")], [Agree, Agree]),
+        ("undefined-path-removed", vec![stuck("done"), undefined("divide")], vec![stuck("done")], [Agree, Agree]),
+        ("undefined-path-added", vec![stuck("done")], vec![stuck("done"), undefined("divide")], [Agree, Agree]),
+        ("partly-undefined-both", vec![stuck("done"), undefined("divide")], vec![stuck("done"), undefined("other")], [Agree, Agree]),
+        // A removed end beside an undefined path: the exit stops are both `{Stuck}`.
+        ("end-removed-beside-undefined", vec![stuck("done"), terminal(1, Stuck, at("other"))], vec![stuck("done"), undefined("other")], [Agree, Distinguish]),
+        ("end-added-beside-undefined", vec![stuck("done"), undefined("other")], vec![stuck("done"), terminal(1, Stuck, at("other"))], [Agree, Distinguish]),
     ];
     for (id, baseline, mutant, expected) in rows {
+        let (baseline, mutant) = (run(baseline), run(mutant));
+        for (projection, kind) in &slots {
+            let expected = expected[usize::from(*kind == OracleKind::FinalResult)];
+            for policy in POLICIES {
+                assert_eq!(
+                    compare_supplied(
+                        *kind,
+                        policy,
+                        &state_side(projection, &baseline),
+                        &state_side(projection, &mutant)
+                    ),
+                    Ok(expected),
+                    "{id} {projection:?} under {policy:?}"
+                );
+            }
+        }
+    }
+
+    // The single-crash rule counts ends only: a crash beside an undefined path is that crash.
+    let crash = constant("crash");
+    let crash_and_undefined = run(vec![
+        terminal(0, SemanticCrash, crash.clone()),
+        undefined("divide"),
+    ]);
+    for (projection, kind) in &slots {
+        let lone = state_side(projection, &single(SemanticCrash, crash.clone()));
+        assert_eq!(lone, OracleSide::SemanticCrash(crash.clone()));
+        let side = state_side(projection, &crash_and_undefined);
+        assert_eq!(side, lone, "{projection:?}");
         assert_eq!(
-            compare_supplied(OracleKind::FinalResult, CompareIdentity, &baseline, &mutant),
-            Ok(expected),
-            "{id}"
+            compare_supplied(*kind, CompareIdentity, &lone, &side),
+            Ok(Agree),
+            "{projection:?}"
         );
     }
-    let mixed = run(vec![
-        terminal(0, Stuck, at("done")),
-        terminal(1, UndefinedStep, at("divide")),
+
+    // The free-variable rule reads ends only: a symbolic pre-step term leaves the side a value.
+    let symbolic = app(
+        "top",
+        vec![app(
+            "k",
+            vec![Pattern::Variable(k_rust::kore::ast::Variable {
+                kind: k_rust::kore::ast::VariableKind::Element,
+                name: "X".to_owned(),
+                sort: kore_sort("SortInt"),
+            })],
+        )],
+    );
+    let symbolic_and_end = run(vec![
+        stuck("done"),
+        terminal(1, UndefinedStep, symbolic.clone()),
     ]);
-    assert_eq!(
-        state_side(&StateProjection::WholeTerm, &mixed),
-        whole(Stuck, "done")
-    );
-    let paths = StateProjection::TermPaths(vec![vec![0]]);
-    assert_eq!(
-        state_side(&paths, &mixed),
-        state_side(&paths, &single(Stuck, at("done")))
-    );
-    assert_eq!(
-        state_side(&paths, &single(UndefinedStep, at("divide"))),
-        normal(OracleValue::FinalResult(FinalResult::TermPaths(
-            BTreeSet::new()
-        )))
-    );
-    assert_eq!(
-        state_side(&exit_stop(None), &mixed),
-        normal(OracleValue::ExitStop(
-            [
-                ExitStop {
-                    class: TerminalClass::Stuck,
-                    code: None
-                },
-                ExitStop {
-                    class: TerminalClass::UndefinedStep,
-                    code: None
-                },
-            ]
-            .into()
-        ))
-    );
+    for (projection, _) in &slots {
+        assert_eq!(
+            state_side(projection, &single(UndefinedStep, symbolic.clone())),
+            empty(projection),
+            "{projection:?}"
+        );
+        assert_eq!(
+            state_side(projection, &symbolic_and_end),
+            state_side(projection, &single(Stuck, at("done"))),
+            "{projection:?}"
+        );
+    }
 }
 
 /// A complete terminal term with a free variable stands for every instance of a symbolic run,
-/// not for one value: no state projection reads it, whatever the terminal class.
+/// not for one value: no state projection reads it, whatever the class of the end. An undefined
+/// step's pre-step term is no end and no state projection reads it at all
+/// (`an_undefined_step_is_no_end_to_any_state_slot`).
 #[test]
 fn symbolic_terminal_terms_are_unknown_to_state_oracles() {
     let symbolic = app(
@@ -712,7 +758,7 @@ fn symbolic_terminal_terms_are_unknown_to_state_oracles() {
         StateProjection::WholeTerm,
         StateProjection::TermPaths(vec![vec![0, 0]]),
     ] {
-        for kind in [Normal, Stuck, SemanticCrash, UndefinedStep] {
+        for kind in [Normal, Stuck, SemanticCrash] {
             assert_eq!(
                 state_side(&projection, &single(kind, symbolic.clone())),
                 OracleSide::Unknown,
@@ -1056,7 +1102,6 @@ fn runner_mapping_is_exhaustive() {
     #[rustfmt::skip]
     let halts: [(HaltClass, Result<OracleSide, ExecutionFailureKind>); 14] = [
         (H::Stuck, Ok(value(std::slice::from_ref(&done)))),
-        // An undefined step's final result is its last configuration.
         // kink27 R1-UNDEF: an undefined step is a complete terminal but no end; its whole term is
         // the empty set. Before: its pre-step configuration.
         (H::Trivial, Ok(value(&[]))),
@@ -1203,8 +1248,9 @@ fn runner_mapping_is_exhaustive() {
         }]
         .into(),
     ));
-    // kink27 R1-UNDEF: an empty final result is a value (a run whose every path takes an
-    // undefined step), which a final result with an end distinguishes.
+    // kink27 R1-UNDEF: an empty exit stop or final result is a value (a complete run with
+    // terminals, every one an undefined step), which a side with an end distinguishes. Before the
+    // fix round an empty exit stop was `InvalidKindValue`.
     assert_eq!(
         slot_outcome(
             &state(StateProjection::WholeTerm),
@@ -1213,11 +1259,19 @@ fn runner_mapping_is_exhaustive() {
         ),
         Distinguish
     );
+    let empty_exit = normal(OracleValue::ExitStop(BTreeSet::new()));
+    assert_eq!(
+        slot_outcome(&state(exit_stop(None)), &exit_side, &empty_exit),
+        Distinguish
+    );
+    assert_eq!(
+        slot_outcome(&state(exit_stop(None)), &empty_exit, &empty_exit),
+        Agree
+    );
     #[rustfmt::skip]
     let failures = [
         ("crash-rejected-by-policy", &reject, &complete_side, &crash_side),
         ("value-of-another-kind", &state(exit_stop(None)), &complete_side, &complete_side),
-        ("empty-exit-stop", &state(exit_stop(None)), &exit_side, &normal(OracleValue::ExitStop(BTreeSet::new()))),
     ];
     for (id, declaration, baseline, mutant) in failures {
         assert!(

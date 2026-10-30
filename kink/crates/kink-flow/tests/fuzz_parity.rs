@@ -14,11 +14,12 @@
 //! - (c) on the programs of k-rust-fuzz's `COMPARABLE_ENDS` (`tests/support/mod.rs`), a run the
 //!   fuzz judges comparable is `comparable` in kink's `results`; and on those programs kink-flow's
 //!   witness filter accepts a reach candidate exactly when kink's own confirmation lists it;
-//! - (d) an undefined step is no end (finding KINK-UNDEFINED-END, decision D41): its pre-step
-//!   configuration is reached but is no result of the program, so two definitions that both end
-//!   undefined at different pre-step configurations are killed by neither tool, and a side whose
-//!   every path takes an undefined step has the empty set of ends, which a clean end of the other
-//!   side distinguishes.
+//! - (d) an undefined step is no end (finding KINK-UNDEFINED-END; kink's `README.md`, "What a kill
+//!   trusts"): its configuration is reached, but its outcome is undefinedness, which is no
+//!   configuration, and neither tool takes a verdict from undefinedness itself. So two definitions
+//!   that both end undefined at different pre-step configurations are killed by neither tool, an
+//!   undefined path beside the same ends is no difference, and a side whose every path takes an
+//!   undefined step has the empty set of ends, which a clean end of the other side distinguishes.
 //!
 //! Known divergences, pinned for the final first-principles review, not desired behaviour:
 //! - cond(0): the fuzz holds no end of a definition with an unnamed critical-pair finding to be
@@ -961,18 +962,17 @@ endmodule
                                        [[mutation.edit]]\nrule = \"UE.step\"\nfind = \"N /Int \
                                        0\"\nreplace = \"N\"\n";
 
-    /// (d) An undefined step is no end, for both tools (finding KINK-UNDEFINED-END, decision D41).
-    /// A rule whose right-hand side is `\bottom` at an instance states that the instance has no
-    /// successor in any model: the configuration before the step is reached, but it is no result
-    /// of the program. The baseline ends every run in an undefined step, so its set of ends is
-    /// empty, and both tools judge the run comparable (complete, every leaf a clean end or an
-    /// undefined step).
+    /// (d) An undefined step is no end, for both tools (finding KINK-UNDEFINED-END; kink's
+    /// `README.md`, "What a kill trusts"): the configuration the step is taken from is reached,
+    /// but the step's outcome is undefinedness, which is no configuration. The baseline ends every
+    /// run in an undefined step, so its set of ends is empty, and both tools judge the run
+    /// comparable (complete, every leaf a clean end or an undefined step).
     /// - `log-one` ends every run undefined too, at pre-step configurations that differ in
     ///   `<log>`: both sets of ends are empty, the fuzz finds no witness among the six inputs of the
-    ///   hole's domain, and kink's slots agree (both exit stops are `UndefinedStep`, both whole terms
-    ///   the empty set), so the mutation survives.
+    ///   hole's domain, and kink's slots agree (both exit stops and both whole terms are the empty
+    ///   set), so the mutation survives.
     /// - `out-defined` gives every run a clean end: the fuzz kills by an added end, and kink kills
-    ///   the corpus program by both slots, its baseline whole term the empty set.
+    ///   the corpus program by both slots, its baseline exit stop and whole term the empty set.
     ///
     /// Fails if either tool counts an undefined step's pre-step configuration as an end (a fuzz
     /// witness for `log-one`, or kink killing it), or if an empty set of ends stops being a value
@@ -1057,8 +1057,8 @@ endmodule
         let confirmation = &document["attempts"][0]["confirmation"];
         assert_eq!(confirmation["status"], "killed", "{confirmation:#}");
 
-        // `out-defined`, kink: the corpus program kills by both slots; the baseline's whole term
-        // is the empty set.
+        // `out-defined`, kink: the corpus program kills by both slots; the baseline's exit stop
+        // and whole term are the empty set.
         let mutation = kink_run(&dir, "out-defined");
         assert_eq!(
             (&mutation["status"], &mutation["killer"]),
@@ -1067,10 +1067,128 @@ endmodule
         );
         let slots = &mutation["executed"][0]["slots"];
         assert_eq!(slots["exit-stop"]["outcome"], "distinguish", "{slots:#}");
+        assert_eq!(
+            slots["exit-stop"]["sides"]["baseline"],
+            json!([]),
+            "{slots:#}"
+        );
         assert_eq!(slots["whole-term"]["outcome"], "distinguish", "{slots:#}");
         assert_eq!(
             slots["whole-term"]["sides"]["baseline"],
             json!({"final_configurations": 0}),
+            "{slots:#}"
+        );
+        assert_eq!(
+            slots["whole-term"]["sides"]["mutant"]["final_configurations"], 1,
+            "{slots:#}"
+        );
+    }
+
+    /// `go(N)` reaches `done(N)` through `pa(N)`, and through `pb(N)`, whose step writes
+    /// `N /Int 0` to `<out>`: an undefined step beside an end. `split(N)` ends in `done(N)` or,
+    /// through `edge(N)`, in `done(N +Int 1)`.
+    const UNDEFINED_PATH_K: &str = "module UP-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)] | split(Int) [symbol(split)]
+endmodule
+
+module UP
+  imports UP-SYNTAX
+  imports INT
+  syntax KItem ::= pa(Int) [symbol(pa)] | pb(Int) [symbol(pb)]
+                 | edge(Int) [symbol(edge)] | done(Int) [symbol(done)]
+  configuration <k> $PGM:Pgm </k> <out> 0 </out>
+  rule [toa]:   <k> go(N) => pa(N) </k>
+  rule [tob]:   <k> go(N) => pb(N) </k>
+  rule [adone]: <k> pa(N) => done(N) </k>
+  rule [bdone]: <k> pb(N) => done(N) </k> <out> _ => N /Int 0 </out>
+  rule [sdone]: <k> split(N) => done(N) </k>
+  rule [sedge]: <k> split(N) => edge(N) </k>
+  rule [edge]:  <k> edge(N) => done(N +Int 1) </k>
+endmodule
+";
+
+    /// `pb-defined` makes `pb(N)`'s step defined, ending in `go(N)`'s other end: the mutant
+    /// differs from the baseline only by the undefined path it removes. `edge-undefined` makes
+    /// `edge(N)`'s step undefined: `split(N)` loses the end `done(N +Int 1)` beside its end
+    /// `done(N)`.
+    const UNDEFINED_PATH_MUTATIONS: &str = "[[mutation]]\nid = \"pb-defined\"\n\
+                                            [[mutation.edit]]\nrule = \"UP.bdone\"\nfind = \"N \
+                                            /Int 0\"\nreplace = \"0\"\n\n[[mutation]]\nid = \
+                                            \"edge-undefined\"\n[[mutation.edit]]\nrule = \
+                                            \"UP.edge\"\nfind = \"N +Int 1\"\nreplace = \"N \
+                                            /Int 0\"\n";
+
+    /// (d) An undefined path beside an end is no difference, and an end it replaces is a removed
+    /// end (kink27 R1-UNDEF fix round 1). An undefined step's outcome is undefinedness, which is
+    /// no configuration and no end, and neither tool takes a verdict from undefinedness itself.
+    /// - `pb-defined`: the baseline's `go(1)` has the ends `{done(1)}` and an undefined path, the
+    ///   mutant's the same ends and no undefined path. The fuzz finds no witness among the six
+    ///   inputs of the hole's domain; kink's slots agree on both programs (the exit stops are
+    ///   `{normal}` on both sides), so the mutation survives.
+    /// - `edge-undefined`: `split(1)` ends in `{done(1), done(2)}` in the baseline and in
+    ///   `{done(1)}` and an undefined path in the mutant. kink kills by the whole term (a removed
+    ///   end); the exit stops are `{normal}` on both sides and agree.
+    ///
+    /// Fails if a state slot tells the sides apart by an undefined path (before the fix round the
+    /// exit stop held the class `undefined-step` and killed `pb-defined`), or if an end removed
+    /// beside an undefined path stops distinguishing.
+    #[test]
+    #[ignore = "kink"]
+    fn an_undefined_path_beside_an_unchanged_end_is_no_difference() {
+        let dir = flow(
+            "undefined-path",
+            "up.k",
+            UNDEFINED_PATH_K,
+            "UP",
+            "",
+            &[("one", "go(1)"), ("split", "split(1)")],
+            UNDEFINED_PATH_MUTATIONS,
+        );
+
+        // `pb-defined`, the fuzz: no input gives an added or a removed end.
+        let (document, ok) = kink_flow_fuzz(
+            &dir,
+            HOLE_TEMPLATE,
+            "h",
+            Job::Kill("pb-defined"),
+            options(6, true, true),
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["stopped"], "domain-exhausted", "{document:#}");
+        assert_eq!(document["program"], Value::Null, "{document:#}");
+
+        // `pb-defined`, kink: every slot of both programs agrees.
+        let mutation = kink_run(&dir, "pb-defined");
+        assert_eq!(mutation["status"], "survived", "{mutation:#}");
+        let executed = mutation["executed"].as_array().unwrap();
+        assert_eq!(executed.len(), 2, "{mutation:#}");
+        for entry in executed {
+            assert_eq!(
+                entry["slots"],
+                json!({"exit-stop": {"outcome": "agree"}, "whole-term": {"outcome": "agree"}}),
+                "{mutation:#}"
+            );
+        }
+
+        // `edge-undefined`, kink: `split` kills by the whole term alone.
+        let mutation = kink_run(&dir, "edge-undefined");
+        assert_eq!(
+            (&mutation["status"], &mutation["killer"]),
+            (&json!("killed"), &json!("split")),
+            "{mutation:#}"
+        );
+        let slots = &mutation["executed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["program"] == "split")
+            .unwrap_or_else(|| panic!("{mutation:#}"))["slots"];
+        assert_eq!(slots["exit-stop"], json!({"outcome": "agree"}), "{slots:#}");
+        assert_eq!(slots["whole-term"]["outcome"], "distinguish", "{slots:#}");
+        assert_eq!(
+            slots["whole-term"]["sides"]["baseline"],
+            json!({"final_configurations": 2}),
             "{slots:#}"
         );
         assert_eq!(

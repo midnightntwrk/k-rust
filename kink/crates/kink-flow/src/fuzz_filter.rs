@@ -107,8 +107,10 @@ use crate::results::non_value_text;
 
 /// The version of the filter's composition: which deciders it applies to which leaves, in which
 /// order, its cause tokens and its repair. Bumped when any of them changes. v2 (kink27 R1-UNDEF):
-/// an undefined step's pre-step term is no end, so the cross judgement (4) reads the `stuck`
-/// leaves only.
+/// an undefined step's pre-step term is no end (kink's `README.md`, "What a kill trusts"), so the
+/// cross judgement (4) reads the `stuck` leaves only. The ticket's fix round 1, which stopped
+/// kink's exit stop from telling sides apart by an undefined path, changed no step of the filter;
+/// TV-01 on `trivial` leaves (3) stays until R3-UNDEF-BRIDGE.
 pub const FILTER_VERSION: &str = "kink-flow/witness-filter/v2";
 
 /// The repair candidates a refused hit gets at most ([`repair_candidates`]).

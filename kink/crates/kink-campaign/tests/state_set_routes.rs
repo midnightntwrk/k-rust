@@ -16,7 +16,10 @@
 //! - An undefined step on a merged state (before fz26 KINK-PATHSET-FALLBACK, mixed modality: kink
 //!   replaced a state set with an undefined step by its path set, per side). Two paths to one
 //!   undefined step are one `Trivial` leaf in a state set, so with the single-crash rule a crash
-//!   side is compared with a single undefined-step side, where both path sets refuse.
+//!   side is compared with a side whose every path takes an undefined step, where both path sets
+//!   refuse. Since kink27 R1-UNDEF an undefined step is no end and the single-crash rule counts
+//!   ends only, so the mutant's side is the empty set whatever its number of `Trivial` leaves, and
+//!   the route rests on the baseline's crash multiplicity (route 1) alone.
 //! - Absorbed depth bound: in a state set an earlier stuck leaf stands for a later depth-bound
 //!   leaf of the same configuration (k-rust `docs/backend-port.md`, "Final search depth cuts"),
 //!   which then leaves no leaf, so kink reads the state set as complete where the path set of the
@@ -337,8 +340,8 @@ mod kink_tier {
     /// on a merged state. conv.k's state set is one crash terminal; convz.k (what conv.k's mutant
     /// `mc: 1 -> 0` compiles to) ends both converging paths in one undefined step at depth 2, one
     /// `Trivial` leaf of its state set (two in its path set). Within the one test of the campaign
-    /// the baseline is a `SemanticCrash` side and the mutant a single undefined-step `Normal` side,
-    /// and `CrashPolicy::Distinguish` kills. Both sides as path sets refuse the baseline (route 1).
+    /// the baseline is a `SemanticCrash` side and the mutant a `Normal` side with no end (the empty
+    /// set: an undefined step is no end, kink27 R1-UNDEF), and `CrashPolicy::Distinguish` kills. Both sides as path sets refuse the baseline (route 1).
     /// Before the ticket the mutant's state set was replaced by its path set, so the test compared
     /// a state set with a path set. Premise: decision 3 (the two sides' leaf sets are their sets of
     /// final configurations).
@@ -560,7 +563,12 @@ mod kink_tier {
     /// - `ab(0)` (the record on an absorbed arrival's prefix only): excluded by the list alone, so
     ///   the baseline is refused.
     /// - `cr(0)` (a crash beside a feasible undefined step, under `CompareIdentity`): two
-    ///   terminals in both modalities, so the side is `Unknown` and the baseline is refused.
+    ///   terminals in both modalities, one of them an undefined step, which is no end (kink27
+    ///   R1-UNDEF fix round 1: the single-crash rule counts ends only). So the side is the crash
+    ///   `crash(0)` and the baseline is admitted in both modalities. Before the fix round the rule
+    ///   counted the undefined step, the side was `Unknown` and the baseline was refused in both;
+    ///   an undefined path beside the crash said nothing about the crash, so that refusal was a loss
+    ///   of precision, not a guard.
     #[test]
     #[ignore = "kink"]
     fn the_soundness_guards_admit_a_baseline_alike_in_both_modalities() {
@@ -576,7 +584,7 @@ mod kink_tier {
                 ("Lbltwo", CrashPolicy::Reject, true),
                 ("Lbltc", CrashPolicy::Reject, true),
                 ("Lblab", CrashPolicy::Reject, false),
-                ("Lblcr", CrashPolicy::CompareIdentity, false),
+                ("Lblcr", CrashPolicy::CompareIdentity, true),
             ] {
                 let tests = test("g", symbol, 0, policy);
                 let campaign = Campaign {
@@ -589,7 +597,19 @@ mod kink_tier {
                 };
                 for modality in MODALITIES {
                     let outcome = run(&campaign, &generation, modality);
-                    if kept {
+                    if symbol == "Lblcr" {
+                        let run =
+                            outcome.unwrap_or_else(|e| panic!("{symbol} {modality:?}: {e:?}"));
+                        let side = baseline_side(&run);
+                        let OracleSide::SemanticCrash(term) = side else {
+                            panic!("{symbol} {modality:?}: {side:?}");
+                        };
+                        assert_eq!(
+                            argument_of(term, "Lblcrash").as_deref(),
+                            Some("0"),
+                            "{symbol} {modality:?}"
+                        );
+                    } else if kept {
                         let run =
                             outcome.unwrap_or_else(|e| panic!("{symbol} {modality:?}: {e:?}"));
                         assert_eq!(

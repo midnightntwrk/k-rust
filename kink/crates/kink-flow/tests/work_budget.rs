@@ -200,8 +200,8 @@ mod kink_tier {
     /// fz26 KINK-PATHSET-FALLBACK, S9 (`testdata/flow/diamonds`): `end-guard-dropped` makes
     /// `go(14, 0)` end in one undefined step after 14 converging diamonds. The mutant's state set
     /// is complete in about 60 states, within `4 * W + 10000`, and `by-zero` kills through the
-    /// exit stop (`{Stuck}` against `{UndefinedStep}`) and the whole term (`{go(0, 0)}` against the
-    /// empty set: an undefined step is no end, kink27 R1-UNDEF). Before
+    /// exit stop (`{Stuck}` against the empty set) and the whole term (`{go(0, 0)}` against the
+    /// empty set): an undefined step is no end (kink27 R1-UNDEF), so the mutant has none. Before
     /// the ticket kink replaced that state set by its path set, about 49 000 states, which the work
     /// budget cut: `by-zero` was `unknown` (2554 `trivial` leaves and one `work-bound`), and so
     /// was the mutation.

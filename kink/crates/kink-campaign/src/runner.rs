@@ -38,19 +38,17 @@
 //!   `implementationChosenValues` list (class `fresh-association`), which excludes the run as any
 //!   other entry there does (kink-native [`Exclusion::ImplementationChosenValue`]).
 //! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
-//!   terminal, but no end (kink27 R1-UNDEF; finding KINK-UNDEFINED-END, decision D41). A rewrite
-//!   rule states that each instance of its left-hand side has a successor in its right-hand side,
-//!   so a right-hand side that is `\bottom` at an instance states that the instance has no
-//!   successor in any model, not that the program halts there: the configuration before the step
-//!   is reached, but it is no result of the program. Its exit stop is the class `UndefinedStep`
-//!   without a code, which reads no configuration. A final result ([`StateProjection::WholeTerm`],
-//!   [`StateProjection::TermPaths`]) projects the run's other terminals only, so a side whose
-//!   every path takes an undefined step has the empty set, and a baseline end the mutant lacks
-//!   distinguishes (a removed end), as in k-rust-fuzz's differential. Its pre-step term is not one
-//!   of the run's ends ([`TestEvidence::ends`]), so it is not judged as data under the other
-//!   side's definition either. kink-native's bridge still completes the leaf on the terms of a
-//!   stuck leaf, its term a terminal value (TV-01): no state slot reads that term now, so the
-//!   check costs completeness (a side `Unknown`) where the term is no value, never a kill.
+//!   terminal, but no end (kink27 R1-UNDEF; the reading is stated once in kink's `README.md`, "What
+//!   a kill trusts"). Every state slot projects the run's ends only ([`project`]), and the
+//!   single-crash rule and the free-variable rule above read the ends only: a side whose every
+//!   path takes an undefined step has the empty set in every state slot, a value, so a baseline
+//!   end the mutant lacks distinguishes (a removed end), and an undefined path beside the same
+//!   ends distinguishes nothing. Its pre-step term is not one of the run's ends
+//!   ([`TestEvidence::ends`]), so it is not judged as data under the other side's definition
+//!   either. A pattern slot still observes the step's prefix, whose configurations are reached
+//!   ([`pattern_side`]). kink-native's bridge still completes the leaf on the terms of a stuck
+//!   leaf, its term a terminal value (TV-01): no state slot reads that term, so the check costs
+//!   completeness (a side `Unknown`) where the term is no value, never a kill.
 //! - Every compared end is data under both definitions (fz26 KINK-OVERLOAD-VALUE; kink-native
 //!   [`data_ends`]): a run's terminals are judged under its own definition and facts when the
 //!   run is judged, and each side's terminals ([`TestEvidence::ends`]), pattern bindings and
@@ -400,10 +398,10 @@ pub struct RunOptions {
     /// KINK-PATHSET-FALLBACK removed the per-side replacement of a state set with an undefined,
     /// vacuous or contradicted leaf by its path set). Sides are compared as sets of projected
     /// final configurations, which decision 3 makes the same in both modalities; the
-    /// single-crash rule of [`state_side`] reads the number of terminal leaves, though, so a
-    /// state-set side can be a crash side, or a single undefined-step side, where the path set of
-    /// the same request is `Unknown` or has two leaves (`tests/state_set_routes.rs` routes 1 and
-    /// 2). `PathSet` is the reading at 1ee9955, kept for the modality differential.
+    /// single-crash rule of [`state_side`] reads the number of ends (leaves that are not undefined
+    /// steps), though, so a state-set side can be a crash side where the path set of the same
+    /// request is `Unknown` (`tests/state_set_routes.rs` routes 1 and 2). `PathSet` is the reading
+    /// at 1ee9955, kept for the modality differential.
     pub result_modality: ResultModality,
     /// The work budget of every mutant result run ([`WorkBudget`]).
     pub work: WorkBudget,
@@ -2369,9 +2367,8 @@ fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
 ///
 /// A value-holding state slot whose side has no ends is `Unknown` (review N2): the ends are the
 /// terminals it was projected from, and a producer that omits them cannot be judged. A side whose
-/// every complete path is an undefined step has no ends and is judged: its final result is the
-/// empty set and its exit stop reads no configuration ([`TestEvidence::undefined_steps`], kink27
-/// R1-UNDEF).
+/// every complete path is an undefined step has no ends and is judged: each of its state slots is
+/// the empty set ([`TestEvidence::undefined_steps`], kink27 R1-UNDEF).
 ///
 /// A side with no data facts (`None`), or with a finding left ([`DataEnds::None`]), makes every
 /// end judged under it not data. A failure to reach a definition does too.
@@ -3458,66 +3455,65 @@ pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> Oracl
     else {
         return OracleSide::Error;
     };
-    if terminals
+    // An undefined step is no end (module documentation): every rule below reads the ends only,
+    // so a run whose every terminal is one is a value, the empty set in every state slot.
+    let ends = terminals
+        .into_iter()
+        .filter(|terminal| terminal.kind != ExecutionTerminalKind::UndefinedStep)
+        .collect::<Vec<_>>();
+    if ends
         .iter()
         .any(|terminal| !terminal.state.free_variables().is_empty())
     {
         return OracleSide::Unknown;
     }
-    if terminals
+    if ends
         .iter()
         .any(|terminal| terminal.kind == ExecutionTerminalKind::SemanticCrash)
     {
         // Mixed crash and normal terminal sets are not modelled. A crash is compared by its
         // terminal term, an end like any other, so without its counter content as in
         // `StateProjection::WholeTerm`.
-        return match terminals.as_slice() {
+        return match ends.as_slice() {
             [terminal] => OracleSide::SemanticCrash(counter_erased(&terminal.state).into_owned()),
             _ => OracleSide::Unknown,
         };
     }
-    project(projection, &terminals).map_or(OracleSide::Error, OracleSide::Normal)
+    project(projection, &ends).map_or(OracleSide::Error, OracleSide::Normal)
 }
 
-/// Projects complete, non-crash terminals; `None` is a projection failure. A whole term is the
-/// terminal's configuration with its `<generatedCounter>` content erased
-/// ([`StateProjection::WholeTerm`]), so two terminal sets that differ only in that cell agree.
-/// An undefined step is an exit stop of its own class and no final result: its pre-step
-/// configuration is reached but is no result of the program (kink27 R1-UNDEF, module
-/// documentation), so a final result of a run whose every path takes one is the empty set.
-fn project(projection: &StateProjection, terminals: &[&ExecutionTerminal]) -> Option<OracleValue> {
-    let ends = || {
-        terminals
-            .iter()
-            .filter(|terminal| terminal.kind != ExecutionTerminalKind::UndefinedStep)
-    };
+/// Projects a run's ends: its complete terminals that are neither a crash nor an undefined step
+/// ([`state_side`] removes both); `None` is a projection failure. A whole term is the end's
+/// configuration with its `<generatedCounter>` content erased ([`StateProjection::WholeTerm`]),
+/// so two sets of ends that differ only in that cell agree. Every projection of no ends is the
+/// empty set.
+fn project(projection: &StateProjection, ends: &[&ExecutionTerminal]) -> Option<OracleValue> {
     Some(match projection {
         StateProjection::ExitStop { exit_code_cell } => OracleValue::ExitStop(
-            terminals
-                .iter()
+            ends.iter()
                 .map(|terminal| {
                     Some(ExitStop {
                         class: match terminal.kind {
                             ExecutionTerminalKind::Normal => TerminalClass::Normal,
                             ExecutionTerminalKind::Stuck => TerminalClass::Stuck,
-                            ExecutionTerminalKind::UndefinedStep => TerminalClass::UndefinedStep,
-                            ExecutionTerminalKind::SemanticCrash => return None,
+                            ExecutionTerminalKind::UndefinedStep
+                            | ExecutionTerminalKind::SemanticCrash => return None,
                         },
-                        code: match (exit_code_cell, terminal.kind) {
-                            (_, ExecutionTerminalKind::UndefinedStep) | (None, _) => None,
-                            (Some(cell), _) => Some(exit_code(&terminal.state, cell)?),
+                        code: match exit_code_cell {
+                            None => None,
+                            Some(cell) => Some(exit_code(&terminal.state, cell)?),
                         },
                     })
                 })
                 .collect::<Option<BTreeSet<_>>>()?,
         ),
         StateProjection::WholeTerm => OracleValue::FinalResult(FinalResult::WholeTerm(
-            ends()
+            ends.iter()
                 .map(|terminal| counter_erased(&terminal.state).into_owned())
                 .collect(),
         )),
         StateProjection::TermPaths(paths) => OracleValue::FinalResult(FinalResult::TermPaths(
-            ends()
+            ends.iter()
                 .map(|terminal| {
                     paths
                         .iter()
@@ -3565,7 +3561,9 @@ fn exit_code(term: &Pattern, cell: &str) -> Option<i64> {
 /// The side of a pattern oracle. Exhaustive over `PatternOutcome`.
 ///
 /// A pattern failure is `Error`, never a value that could distinguish. A match needs at
-/// least one witness and every witness on a real prefix; otherwise the side is `Unknown`.
+/// least one witness and every witness on a real prefix; otherwise the side is `Unknown`. A path
+/// that ends in an undefined step is a real prefix: its configurations are reached, and only the
+/// step's outcome is no configuration (kink's `README.md`, "What a kill trusts").
 /// Declared bindings need complete coverage from an exhaustive evaluation; without it the
 /// side is `Unknown`, so a match with bindings never meets a match without them. A witness
 /// with assumptions or a binding term with a free variable also makes declared bindings

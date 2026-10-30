@@ -121,7 +121,7 @@ The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it i
 One JSON record per program, `results/<spec digest>/<program digest>.json`, holds its key
 (result schema version `kink-flow/result/v7`, kink's build identity `kink_build`, kink's semantics identity `kink`, the two digests and the budget), class and cause,
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
-(`run_sha256`, comparable programs only), the final configurations as KORE text (an undefined step's pre-step configuration is none, so a run whose every path takes an undefined step lists none; since v7, kink27 R1-UNDEF), the rule
+(`run_sha256`, comparable programs only), the final configurations as KORE text (an undefined step's pre-step configuration is none, so a run whose every path takes an undefined step lists none, and its baseline row's exit stop holds no class for it; since v7, kink27 R1-UNDEF), the rule
 coverage, `wall_ms`, the wall time of the program's live baseline run (outside the key and
 the run digest; it orders the kill search, see `run`), and, since v5 (re-pin adoption A-1),
 `specification_diagnostics`, the baseline run's contradicted-claim records (see `run`), and
@@ -538,10 +538,10 @@ A mutation row is `{id, note, digest, identity, removed_claims, inconsistent_pai
 | `action` | Null for `killed`; otherwise one sentence saying what the status asks (write a program, fix the mutation, fix the corpus, report it). |
 
 `slots` is an object keyed by oracle slot, `exit-stop` and `whole-term`, each `{outcome}` (`agree`, `distinguish`, `timeout`, `unknown`, `incomparable`, `error`).
-A distinguishing slot also has `sides`: for `exit-stop`, each side's exit-stop kinds, for example `{"baseline": ["normal"], "mutant": ["undefined-step"]}`
-(the flow's classifier makes every ended run `normal`; `undefined-step` is a rule whose result is undefined, such as a division by zero);
+A distinguishing slot also has `sides`: for `exit-stop`, each side's exit-stop kinds, for example `{"baseline": ["normal"], "mutant": []}`
+(the flow's classifier makes every ended run `normal`; an undefined step, a rule whose result is undefined such as a division by zero, is no end and has no kind, so a side whose every path takes one has `[]`, and an undefined path beside the same ends changes no kind);
 for `whole-term`, each side's number of final configurations, `{"baseline": {"final_configurations": 1}, "mutant": {"final_configurations": 1, "kore": [{"text", "truncated"}]}}`
-(an undefined step is no final configuration: its pre-step configuration is reached but is no result of the program, so a side whose every path takes one has `final_configurations: 0`; the root README, "What a kill trusts"),
+(an undefined step's outcome is no configuration, so the configuration it is taken from is no final configuration, and a side whose every path takes one has `final_configurations: 0`; the root README, "What a kill trusts"),
 where `kore`, on the killing program's entry only, holds the mutant's final configurations as KORE text, each cut to 4000 characters (`truncated: true` when cut).
 A cached entry has no evidence at hand: its distinguishing slot has `sides: null`. So has a one-sided kill (the mutant's run reached its work budget, `budget.work_factor`), whose mutant side is `unknown`, not a value.
 No timing, census or side value enters an evidence row, a digest, a key, an outcome record or a hint.

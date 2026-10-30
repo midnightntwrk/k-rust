@@ -30,29 +30,25 @@ pub enum CrashPolicy {
     Distinguish,
 }
 
-/// How a complete, non-crash terminal ended: as the declaration's classifier says for a
-/// configuration to which no rule applies, or an undefined step.
+/// How an end (a complete terminal that is neither a crash nor an undefined step) ended, as the
+/// declaration's classifier says for a configuration to which no rule applies. An undefined step
+/// is no end and has no class: its outcome is undefinedness, which is no configuration (kink27
+/// R1-UNDEF; kink's `README.md`, "What a kill trusts"), so no exit stop tells sides apart by it.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TerminalClass {
     Normal,
     Stuck,
-    /// A rule applies to the last configuration and its result is undefined
-    /// (`kink_pattern::ExecutionTerminalKind::UndefinedStep`). It differs from both other
-    /// classes, so a mutant that makes a step undefined where the baseline completes or is stuck
-    /// is distinguished, and one that removes an undefined step likewise.
-    UndefinedStep,
 }
 
-/// One terminal's exit-stop projection.
+/// One end's exit-stop projection.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ExitStop {
     pub class: TerminalClass,
-    /// The declared exit-code cell's value, or `None` when no cell is declared. An undefined step
-    /// has no exit code: the program did not exit, so its cell is not read and this is `None`.
+    /// The declared exit-code cell's value, or `None` when no cell is declared.
     pub code: Option<i64>,
 }
 
-/// A final-result projection over every terminal of the run.
+/// A final-result projection over every end of the run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FinalResult {
     /// The whole terminal terms.
@@ -92,17 +88,6 @@ impl OracleValue {
             Self::Pattern(_) => OracleKind::ExecutionPattern,
         }
     }
-
-    /// Whether the value is of `kind` and, for an exit stop, names at least one terminal. A final
-    /// result may be empty: an undefined step is a terminal but no end, so a run whose every path
-    /// takes one has no final result (kink27 R1-UNDEF; kink-campaign `runner`).
-    fn is_valid_for(&self, kind: OracleKind) -> bool {
-        self.kind() == kind
-            && match self {
-                Self::ExitStop(stops) => !stops.is_empty(),
-                Self::FinalResult(_) | Self::Pattern(_) => true,
-            }
-    }
 }
 
 /// One exact declaration-scoped semantic side.
@@ -125,9 +110,17 @@ pub enum OracleSide {
 ///
 /// A failed side decides first, in the order error, timeout, unknown. Two crashes
 /// compare by their terminal terms under `crash_policy`. A normal value of another
-/// kind, an empty exit stop, a whole-term value against a term-path value, or a match
-/// with bindings against one without is `InvalidKindValue`. This function performs
-/// no K parsing, projection, solver work, or discovery.
+/// kind, a whole-term value against a term-path value, or a match with bindings against
+/// one without is `InvalidKindValue`. This function performs no K parsing, projection,
+/// solver work, or discovery.
+///
+/// A state value is a set over the run's ends, and a supplier must supply the empty exit stop
+/// or final result only for a run whose exploration is complete, that has at least one complete
+/// terminal, and whose every terminal is an undefined step, which is no end (kink27 R1-UNDEF;
+/// kink's `README.md`, "What a kill trusts"). A run with no terminal, or an exploration that is
+/// not complete, is a failed side (`Error`, `Timeout` or `Unknown`), never the empty set: the
+/// empty set is compared like any other value, so it claims that the run has no end, and a
+/// non-empty set against it distinguishes. kink-campaign's `state_side` supplies sides so.
 pub fn compare_supplied(
     kind: OracleKind,
     crash_policy: CrashPolicy,
@@ -173,13 +166,14 @@ pub fn compare_supplied(
     }
 }
 
+/// An empty exit stop or final result is a value ([`compare_supplied`]).
 fn check_value(kind: OracleKind, value: &OracleValue) -> Result<(), OracleFailure> {
-    if value.is_valid_for(kind) {
+    if value.kind() == kind {
         Ok(())
     } else {
         Err(OracleFailure::new(
             OracleFailureKind::InvalidKindValue,
-            "normal value is empty or belongs to another oracle kind",
+            "normal value belongs to another oracle kind",
         ))
     }
 }

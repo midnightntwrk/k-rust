@@ -235,8 +235,9 @@ mod kink_tier {
                 },
                 // kink27 R1-UNDEF: the baseline is stuck at the second `var x ;`, a genuine end,
                 // while the mutant's step from it builds a map with a repeated key, an undefined
-                // step, which is no end: the mutant's whole term is the empty set and lacks the
-                // baseline's end. Before, it read the pre-step configuration and agreed.
+                // step, which is no end: the mutant's exit stop and whole term are the empty set and
+                // lack the baseline's end. Before, the exit stop read the class `undefined-step` and
+                // the whole term read the pre-step configuration and agreed.
                 Row {
                     id: "R19",
                     mutation: "decl-guard-dropped",

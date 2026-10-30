@@ -1145,13 +1145,13 @@ mod kink_tier {
 
     /// KK-66: dropping `requires I2 =/=Int 0` from guardeddiv's `divide` makes `divide(10, 0)` an
     /// undefined step, since its right-hand side `10 /Int 0` is undefined. The baseline is stuck on
-    /// that term, so the exit-stop oracle distinguishes the classes `Stuck` and `UndefinedStep` and
-    /// kills the mutant. The write/load prefix is real on both sides, so the pattern oracle agrees.
-    /// The baseline's stuck term is an end and the mutant's undefined step is none (kink27
-    /// R1-UNDEF; finding KINK-UNDEFINED-END, decision D41): the mutant's final result is the empty
-    /// set, which lacks the baseline's end, so the final-result oracle distinguishes too (before
-    /// the ticket it read the mutant's pre-step configuration, the same term, and agreed). A
-    /// nonzero divisor agrees everywhere.
+    /// that term, an end; the mutant's undefined step is no end (kink27 R1-UNDEF; kink's
+    /// `README.md`, "What a kill trusts"), so the mutant has no end at all: its exit stop and its
+    /// final result are the empty set, which lack the baseline's end (a removed end), and both
+    /// state oracles distinguish. Before the ticket the exit stop distinguished the classes `Stuck`
+    /// and `UndefinedStep`, and the final result read the mutant's pre-step configuration, the
+    /// same term, and agreed. The write/load prefix is real on both sides, so the pattern oracle
+    /// agrees. A nonzero divisor agrees everywhere.
     #[test]
     #[ignore = "kink"]
     fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
@@ -1235,13 +1235,16 @@ mod kink_tier {
                     [kink_campaign::ExitStop { class, code: None }].into(),
                 ))
             };
-            use kink_campaign::TerminalClass::{Normal, Stuck, UndefinedStep};
+            use kink_campaign::TerminalClass::{Normal, Stuck};
             assert_eq!(sides(&run.baseline[0])[0], class(Stuck));
             assert_eq!(sides(&run.baseline[1])[0], class(Normal));
             let [mutant] = run.mutants.as_slice() else {
                 panic!("one mutant");
             };
-            assert_eq!(sides(&mutant.evidence[0])[0], class(UndefinedStep));
+            assert_eq!(
+                sides(&mutant.evidence[0])[0],
+                OracleSide::Normal(OracleValue::ExitStop(std::collections::BTreeSet::new()))
+            );
             assert_eq!(
                 sides(&mutant.evidence[0])[1],
                 OracleSide::Normal(OracleValue::FinalResult(

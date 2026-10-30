@@ -304,8 +304,8 @@ pub const KORE_CAP: usize = 4000;
 
 /// An executed entry's `slots` (flow F-13): an object keyed by slot name
 /// ([`ORACLE_SLOTS`]), each `{outcome}`, and for a distinguishing slot `sides`: for
-/// `exit-stop` each side's exit-stop kinds (`{"baseline": ["stuck"], "mutant":
-/// ["undefined-step"]}`), for `whole-term` each side's number of final configurations and,
+/// `exit-stop` each side's exit-stop kinds (`{"baseline": ["stuck"], "mutant": []}`: an undefined
+/// step is no end and has no kind), for `whole-term` each side's number of final configurations and,
 /// when `killer_terms` (the killing program's entry), the mutant's final configurations as
 /// KORE text, each capped at [`KORE_CAP`] characters (`{"text", "truncated"}`). `sides` is
 /// null when the evidence is not at hand (a cached outcome), and for a one-sided kill, whose

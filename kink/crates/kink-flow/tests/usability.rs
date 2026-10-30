@@ -565,11 +565,11 @@ mod kink_tier {
     #[ignore = "kink"]
     fn an_exit_stop_kill_names_its_slot_and_both_sides() {
         // F-09's divzero, in small: the mutant's rule applies to 1 / 0 with an undefined result
-        // where the baseline is stuck. The exit stop distinguishes (the baseline's terminal ends
-        // normally under the flow's all-normal classifier, the mutant's is an undefined step). The
-        // whole final configuration distinguishes too: an undefined step is no end (kink27 R1-UNDEF),
-        // so the mutant has no final configuration where the baseline has one; before the ticket it
-        // read the mutant's pre-step configuration, the baseline's stuck one, and agreed.
+        // where the baseline is stuck. An undefined step is no end (kink27 R1-UNDEF), so the mutant
+        // has no end where the baseline has one (`normal` under the flow's all-normal classifier):
+        // the exit stop distinguishes `["normal"]` from `[]`, and the whole final configuration 1
+        // from 0. Before the ticket the exit stop read the mutant's class `undefined-step`, and the
+        // whole term read the mutant's pre-step configuration, the baseline's stuck one, and agreed.
         let dir = fixture("divide", "exit-stop");
         let manifest = dir.join("FLOW.toml");
         let document = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
@@ -588,7 +588,7 @@ mod kink_tier {
             json!({
                 "exit-stop": {
                     "outcome": "distinguish",
-                    "sides": {"baseline": ["normal"], "mutant": ["undefined-step"]}
+                    "sides": {"baseline": ["normal"], "mutant": []}
                 },
                 "whole-term": {
                     "outcome": "distinguish",

@@ -1226,7 +1226,7 @@ mod kink_tier {
             let sides = vec![
                 OracleSide::Normal(OracleValue::ExitStop(
                     [ExitStop {
-                        class: TerminalClass::UndefinedStep,
+                        class: TerminalClass::Stuck,
                         code: None,
                     }]
                     .into(),
@@ -1271,7 +1271,7 @@ mod kink_tier {
             let recorded = &report.value()["baseline"][0]["run"]["sides"];
             assert_eq!(
                 recorded[0],
-                json!({"normal":{"exit-stop":[{"class":"undefined-step","code":null}]}})
+                json!({"normal":{"exit-stop":[{"class":"stuck","code":null}]}})
             );
             assert_eq!(recorded[2]["normal"]["pattern"]["match"][0][0]["name"], "A");
             assert_eq!(

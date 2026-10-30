@@ -1,7 +1,7 @@
 // Flow fixture (F-13): a guarded division. Without the guard, `1 / 0` takes a step whose
-// result is undefined (`1 /Int 0`) where the baseline is stuck: the exit stop distinguishes
-// (stuck against undefined-step) while the whole final configuration agrees (an undefined
-// step's terminal is its pre-step configuration).
+// result is undefined (`1 /Int 0`) where the baseline is stuck. An undefined step is no end
+// (kink27 R1-UNDEF), so the mutant has no end: the exit stop and the whole final configuration
+// both distinguish (a removed end).
 module DIVIDE-SYNTAX
   imports INT-SYNTAX
   syntax Exp ::= Int

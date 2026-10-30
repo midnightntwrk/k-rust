@@ -28,9 +28,8 @@ kink-flow run FLOW.toml MUTATIONS.toml
 - Killers (since flow F-13 the search tries the cheapest programs first): `sum` 7, `arith` 6, `and` 3, `redeclare` 2, `divzero` 1, `primes` 1.
   In the manifest's order (`--order corpus`, as before F-13) they are `sum` 8, `primes` 5, `arith` 3, `and` 2, `divzero` 1, `redeclare` 1;
   the statuses are the same in both orders.
-  `divzero` and `redeclare` kill through the exit-stop oracle (the report's `slots` show `exit-stop` distinguishing, `["normal"]` against `["undefined-step"]`)
-  and, since kink27 R1-UNDEF, through the final configuration too:
-  the baseline is stuck, and the mutant's rule now applies with an undefined result (`1 /Int 0`, a map with a repeated key), which is no end, so the mutant lacks the baseline's final configuration.
+  `divzero` and `redeclare` kill through both state oracles (the report's `slots` show `exit-stop` distinguishing, `["normal"]` against `[]`, and `whole-term` 1 final configuration against 0):
+  the baseline is stuck, and the mutant's rule now applies with an undefined result (`1 /Int 0`, a map with a repeated key), which is no end, so the mutant has no end and lacks the baseline's (kink27 R1-UNDEF; before it, the exit stop read `["undefined-step"]` and the whole term agreed).
 - `collatz` is `timeout` (see below) and cannot kill a mutant. Its cause shows path explosion:
   `when the bound fired k-rust returned 1287 leaves (stuck 1286, cancelled 1), the deepest at depth 505; those leaves had applied 15 of the 17 rules a run can observe`,
   where a mutant that loops forever shows one cancelled leaf tens of thousands of steps deep.

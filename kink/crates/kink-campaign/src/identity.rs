@@ -77,9 +77,16 @@ use std::{path::Path, sync::OnceLock};
 /// `fired_by` now lists in place of `applied_sentences`: a rewrite rule only when some path of the
 /// run takes its step (k-rust `committed`), not when its candidate was rolled back or its step was
 /// undefined; a v5 record has no such member, and its `applied_sentences` hold rules no path took.
-/// v7 (kink27 R1-UNDEF): an undefined step's pre-step configuration is no end, so a record's
-/// whole-term side and `final_configuration` no longer hold it (a run whose every path takes an
-/// undefined step holds the empty set); a v6 record lists it.
+/// v7 (kink27 R1-UNDEF, with its fix round 1): an undefined step is no end (kink's `README.md`,
+/// "What a kill trusts"), so every state side projects a run's ends only. A record's baseline
+/// row no longer holds an undefined step's pre-step configuration in its whole-term side or in
+/// `final_configuration`, nor the exit-stop class `undefined-step` (a run whose every path takes
+/// an undefined step holds the empty set in each state side); a v6 record holds them. Comparison
+/// verdicts moved with it: a whole term or term path that read a pre-step configuration now
+/// reads ends only (a removed end distinguishes where the pre-step configuration equalled the
+/// baseline's end), an exit stop no longer distinguishes by an undefined path alone, and the
+/// single-crash and free-variable rules ignore undefined steps; so campaign reports, memos and
+/// every other store bound to the identity are refused or missed.
 pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v7";
 
 /// One component of [`KINK_IDENTITY`].
