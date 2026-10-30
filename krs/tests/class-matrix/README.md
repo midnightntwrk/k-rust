@@ -74,8 +74,8 @@ A refusal of the oracle lies at the spelling, or at the entry (the outer constru
 refused construct is the one a depth-2 case's construct stands in.
 
 **Size.** The term family is 5,063 cases, the import axis 172 and the attribute axis (`attrs/..`,
-18 forms × 22 attributes and 26 malformed attributes, in the first shard of the fast tier) 422, of
-6,494 in all, and
+18 forms × 26 attributes, 26 malformed attributes and 20 extra cases, in the first shard of the
+fast tier) 514, of 6,587 in all, and
 the notation family (`notation/..`: the term family's positions, templates and oracle for the
 collection notation, `m[k]`, `s.contains(x)`, `map![k -> v]` and `set![x]`, and the calls it
 denotes) 2,862. The generator caps
@@ -232,55 +232,83 @@ the descriptors of the base and its own. A case is judged by
 
   *Attributes × forms.* The `attrs` family (`attrs/FORM/ATTRIBUTE`, a shard of its own) writes
   every attribute an author can write on a sentence on every sentence form: each key of a
-  sentence's marker (`#[k::rule(owise)]`, `#[k::equation(concrete)]`, `#[k::claim(all_paths,
-  trusted)]`, `#[k::desugar(unbound_variables = [y])]`, ..) and each helper beside it
-  (`#[k::requires(..)]` holding and failing, `#[k::ensures(..)]`, `#[k::exists(..)]`,
-  `#[k::fresh(..)]`, the retired `#[k::priority(..)]`), each with a representative well-formed
-  value, on each of the term family's 18 slot forms, written on the form's subject slot template
-  with the marker's own keys removed; and a few malformed values (a value of the wrong shape or
-  range, a key written twice, an unknown key, a missing key) and keys that cannot stand together
-  (`owise` with `priority`, `heat` with `cool`, ..). The attribute list is read from the product:
-  `cargo test -p krs-test-support --test attributes` parses `krs-syntax`'s attribute parsers and
-  fails on a key they recognize that no attribute of the axis writes (or the other way round),
-  and on an attribute macro of `krs_syntax::surface::AttributeMacro` that is neither a sentence's
-  marker or helper nor a declaration's. What each pair means is the oracle's statement
-  (`attributes::means`), from what the attribute denotes on that kind of sentence; a refused
-  pair is judged by K2 like any case (one author error, at the attribute), with the class the
-  oracle states (`attributes::expected`). An accepted pair runs by K7 where its form has a
-  driver, and the run shows what the attribute does: a condition that does not hold, and
-  `symbolic` on concrete values, leave the sentence unapplied; `owise` beside a sibling at
-  `priority = 60` applies where the sibling does not, and its counter run, where both match,
-  shows the sibling's result; `priority = 20` beside a sibling at `priority = 30` wins where
-  both match; `heat` applies where its hole is no result (`word`) and not at `1`, `cool` the
-  other way round; an anywhere rule applies below `hold(..)` as the configuration is built; a
-  label, `nondet` (beside a sibling of its group), a restriction, `ensures`, an existential or a
-  fresh value leave the sentence applying as its slot's driver states. The terms base's driver
-  rules have priority 10, before every case's (20) and sibling's (30, 60), and match only the
-  driver commands, which no case's sentence does: a case's priority neither shares a priority
-  with them nor is applied after one of them at the case's command.
+  sentence's marker (`#[k::rule(owise)]`, `#[k::equation(concrete)]`, `concrete(x)`,
+  `#[k::claim(all_paths, trusted)]`, `#[k::desugar(unbound_variables = [y])]`, `heat, hole = x,
+  result = Word`, ..) and each helper beside it (`#[k::requires(..)]` and `#[k::ensures(..)]`,
+  each holding and failing, `#[k::exists(..)]`, `#[k::fresh(..)]`, the retired
+  `#[k::priority(..)]`), each with a representative well-formed value, on each of the term
+  family's 18 slot forms, written on the form's subject slot template with the marker's own keys
+  removed; a few malformed values (a value of the wrong shape or range, a key written twice, an
+  unknown key, a missing key) and keys that cannot stand together (`owise` with `priority`,
+  `heat` with `cool`, ..); and 20 extra cases (`attributes::EXTRAS`, named by what they write): a
+  helper before its marker, two conditions on one sentence, `#[doc]`, `#[cfg(all())]` and
+  `#[cfg(any())]` on a clause, `recursive` on a static production's own marker, and `smt_lemma`
+  on an equation, a table row and a simplification of a function the case declares with
+  `smtlib`. The attribute list is read from the product: `cargo test -p krs-test-support --test
+  attributes` scans every function of `krs-syntax/src/attribute/` for the literals it compares a
+  key with (a match arm, `==`, `matches!`, directly or through a `&str` constant) and fails on a
+  key no attribute of the axis writes (or the other way round), the functions that parse a
+  declaration's keys listed apart; reads the attribute names the clause macros' takers
+  (`k::rules!`, `k::claims!`, `k::equations!`) recognize, each a sentence macro the axis writes on
+  a clause; and checks that the sentence macros of `krs_syntax::surface::AttributeMacro` are
+  exactly the forms' markers and the axis's helpers, each written where the axis says. What each
+  pair means is the oracle's statement (`attributes::means`), from what the attribute denotes on
+  that kind of sentence; a refused pair is judged by K2 like any case (one author error, at the
+  attribute), with the class the oracle states (`attributes::expected`), which names the mistake
+  whatever the form it is made on (an order on a sentence chosen against none, `owise` on a
+  simplification apart, a restriction outside a function, a key the marker does not take, ..).
+  An accepted pair runs by K7 where its form has a driver, and the run shows what the attribute
+  does: a condition or a postcondition that does not hold, and `symbolic` on concrete values,
+  leave the sentence unapplied; `owise` beside a sibling at `priority = 60` applies where the
+  sibling does not, and its counter run, where both match, shows the sibling's result; beside a
+  sibling at `priority = 30`, `priority = 20` wins where both match and `priority = 40` loses
+  there, opposite winners, so a key dropped from both sentences shows whichever way the tie
+  breaks (`owise` has no such pair: an `owise` sentence never wins where its sibling matches);
+  `heat` applies where its hole is no result (`word`) and not at `1`, `cool` the other way round,
+  and `result = Word` turns that round (it heats `1`, no `Word`, and leaves `word`); an anywhere
+  rule applies below `hold(..)` as the configuration is built; a clause under `#[cfg(any())]`
+  does not apply; a label, `nondet` (beside a sibling of its group), a restriction, `ensures`
+  that holds, an existential or a fresh value leave the sentence applying as its slot's driver
+  states (`concrete` runs on concrete values only: what it restricts needs a symbolic run, which
+  K7 does not make). The terms base's driver rules have priority 10, before every case's (20,
+  40) and sibling's (30, 60), and match only the driver commands, which no case's sentence does:
+  a case's priority neither shares a priority with them nor is applied after one of them at the
+  case's command.
 
-  *Advice.* A class whose refusal advises a rewrite carries `advice = "<case ID>"`, a case that
-  writes the advised form, which the table must accept (a table error otherwise). What advises a
-  rewrite is decided mechanically (`class_matrix::advice`): a message holding, after an advice
-  verb in the imperative at a clause's start (`write`, `mark`, `declare`, `bind`, `place`, `add`,
-  ..), a code span in the same clause, or saying how the refused construct `is written` (the form
-  right after the verb) or how a pattern `writes` it; or a help line doing so, or showing a form at
-  its end after a colon (the `for Sort` clause a whole-subject `_` is pointed to). The registry's
-  summaries are read the same way: `cargo test -p krs-test-support --test attributes` fails on a
-  class whose code's summary advises a form and that names no advised case. K8 judges, keyed
-  `k8/<case ID>`: each class's advised case, which must be accepted, pass K6 and run as K7 states
-  where it ran
-  (`advice of CLASS: refused: ..`, `.. K6: ..`, `.. K7: ..`); and each case a class refuses as the
-  table expects whose error advises a rewrite while its class names no advised case (`CLASS
-  advises `FORM` and names no advised case`).
+  *Advice.* Every class carries `advice`, reviewed against its messages: `"none"` where its
+  refusal advises no rewrite, otherwise the cases that write what it advises, each an ID the
+  table must accept or a template whose `{form}` is the refused case's form
+  (`attrs/{form}/priority = 20`: the retired `#[k::priority(N)]` is advised, on each form, that
+  form's own key), a list where the refusal advises different forms at different sites. What a
+  refusal advises is read mechanically (`class_matrix::advice`), from its message and help lines:
+  an advice verb in the imperative at a clause's start (`write`, `use`, `mark`, `replace ..
+  with`, `move`, `drop`, `remove`, `state`, `split`, .., read whatever its case) and the code span
+  of its clause (not one after `instead of`, `rather than`, `not`, or a `where` or `if` clause),
+  an imperative after `or` being an alternative of the one before; the form a construct `is
+  written` or `is written as`; how something `writes` a thing `as` a form; a help line's form
+  after a colon at its end. The registry's summaries are read the same way (`--test attributes`
+  fails on a class marked `none` whose code's summary advises a form). K8 judges, keyed
+  `k8/<case ID>`: each case a class advises, on the forms where the table accepts it, which must
+  be accepted, pass K6 and run as K7 states where it ran (`advice of CLASS: refused: ..`, `..
+  K6: ..`, `.. K7: ..`); and every refused case, pending ones included, by what its KRS errors
+  advise: a class marked `none` whose refusal advises a form (`CLASS advises none, and its
+  refusal advises ..`, the backstop of the reviewed field); a class whose advised case does not
+  exist or is refused on the refused case's form while the refusal advises (`CLASS advises ID,
+  which the table refuses`); an advised case that does not write the form the refusal proposes
+  (or writes the one it says to drop), compared up to whitespace, with `..` and one-letter names
+  as placeholders, where some generated case writes that form (`CLASS's refusal advises `F`,
+  which ID does not write`); a form no generated case writes is left to the reviewed field and
+  printed `unchecked`, as is advice in prose; and a case the table accepts whose refusal advises a
+  form (`refused where the table accepts, advising ..`).
 
-  K8 costs its own shard and a scan: on 2026-10-31, under a load of about 20 to 60 from other
-  work, `attrs` (422 cases, 101 accepted) took 68 s at 15 workers, K6 46 checks in 45 s of worker
-  time and K7 73 programs in 0.5 s; the advice check reads each refused case's errors, below
-  measurement. The existing shards gained 8 cases (4 in `terms`, 4 in `import`) and took
-  `readable` 66 s, `cells` 57 s, `init` 75 s, `import` 66 s, `notation` 203 s and `terms` 358 s at
-  15 workers, each no longer than its last run on main (NT-12's, on 2026-10-30, under a heavier
-  load: 120, 93, 129, 68, 236 and 665 s).
+  K8 costs its own shard and a scan: on 2026-10-31, under a load of about 20 to 80 from other
+  work, `attrs` (514 cases, 139 accepted) took 85 s at 15 workers, K6 54 checks in 66 s of worker
+  time; the advice check reads each refused case's errors and builds, once a shard, the own text
+  of every accepted case to look a form up in, below measurement beside a shard's builds. The
+  shards took `init` 75 s, `readable` 66 s, `cells` 56 s, `import` 65 s, `notation` 203 s and
+  `terms` 351 s at 15 workers. Of the advice verdicts, 849 refusals follow their class's advised
+  case and 480 propose only forms no generated case writes (`unchecked`, 440 of them in `terms`,
+  mostly `notation-in-pattern`'s calls such as `int::bit_and(..)`).
 
 The `k4` shard compares KRS's sort judges with k-rust's subsort relations of each base's emitted
 definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, and those about
