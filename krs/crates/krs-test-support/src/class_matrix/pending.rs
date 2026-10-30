@@ -27,10 +27,12 @@
 //! under the same rules.
 //!
 //! Both tiers read a case's entry, so for a case the front refuses they must observe it alike.
-//! Three prefixes name a case's entries that only the full tier reads:
+//! Four prefixes name a case's entries that only the full tier reads:
 //! - [`KEYS`], `k1/CASE`: K1's verdict after lowering, on the semantic keys and anchors of the
 //!   collected case;
 //! - [`CLOSURE`], `k3/CASE`: K3's verdict on the source `krs expand` prints for the case;
+//! - [`NATIVE`], `k6/CASE`: K6's verdict on the definition the accepted case emits, judged as
+//!   `krs check` judges it on the native routes;
 //! - [`FULL`], `full/CASE`: the full tier's deviation of a case that the front refuses and the
 //!   full tier observes otherwise (rustc adds an error to the front's, say). The full tier reads
 //!   it in place of `CASE`'s entry.
@@ -52,11 +54,14 @@ pub const KEYS: &str = "k1/";
 /// The ID prefix of the full tier's K3 entries, `k3/CASE`.
 pub const CLOSURE: &str = "k3/";
 
+/// The ID prefix of the full tier's K6 entries, `k6/CASE`.
+pub const NATIVE: &str = "k6/";
+
 /// The ID prefix of a case's entry that only the full tier reads, `full/CASE`.
 pub const FULL: &str = "full/";
 
-/// The case an entry's ID names: the ID itself, or the ID after [`KEYS`], [`CLOSURE`] or
-/// [`FULL`]; `None` for a [`LATTICE`] entry, which names no case.
+/// The case an entry's ID names: the ID itself, or the ID after [`KEYS`], [`CLOSURE`],
+/// [`NATIVE`] or [`FULL`]; `None` for a [`LATTICE`] entry, which names no case.
 #[must_use]
 pub fn case_of(id: &str) -> Option<&str> {
     if id.starts_with(LATTICE) {
@@ -65,6 +70,7 @@ pub fn case_of(id: &str) -> Option<&str> {
     Some(
         id.strip_prefix(KEYS)
             .or_else(|| id.strip_prefix(CLOSURE))
+            .or_else(|| id.strip_prefix(NATIVE))
             .or_else(|| id.strip_prefix(FULL))
             .unwrap_or(id),
     )

@@ -18,6 +18,16 @@
 //! and each case's sentences are emitted from the printed base and the case's printed items, then
 //! compared with the sentences the case added to its own base ([`crate::closure`]).
 //!
+//! K6 follows each collected batch too ([`Worker::check_native`]): it judges each accepted case's
+//! definition as `krs check` judges a definition ([`krs_cli::CollectedDefinition::check`]):
+//! `emit-k`'s emission, every native route's capability table and native compile, and the
+//! `native-rust` route's definition load. The native compile of a base costs far more than a
+//! case's sentences add to it, so the accepted cases of a batch are judged together, as one
+//! definition, when that definition is exactly theirs: its sentences are the base's and each
+//! case's own sentences, as each emits alone. A case's definition is then part of the batch's,
+//! and a refusal is bisected, as a collection failure is, down to the case whose definition alone
+//! is refused; a batch whose cases lower otherwise together is judged case by case.
+//!
 //! Workers run batches concurrently, each with one Cargo target directory reused across its
 //! batches; every batch package is written fresh, under a name derived from its content, so no
 //! build of an earlier batch can stand in for it.
@@ -27,8 +37,9 @@ use std::fs;
 use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use krs_cli::{
     CollectedDefinition, Command, CommandError, CommandRequest, DiagnosticEnvelope,
@@ -80,6 +91,45 @@ pub struct Judged {
     pub additions: Option<Vec<String>>,
     /// K3's verdict, for an accepted case that is no initializer, when the run checks closure.
     pub closure: Option<Closure>,
+    /// K6's verdict, for an accepted case the table does not refuse, when the run judges it.
+    pub native: Option<Native>,
+}
+
+/// How a run judges its accepted cases by K6.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeMode {
+    /// Not at all (`KRS_CLASS_NATIVE=0`).
+    Off,
+    /// The accepted cases of a batch together, bisected on a refusal (the default).
+    Batched,
+    /// Each accepted case alone (`KRS_CLASS_NATIVE=alone`), which the batched verdicts must
+    /// equal.
+    Alone,
+}
+
+/// K6's verdict on the definition an accepted case emits: what `krs check` says of it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Native {
+    /// `emit-k`, `build` on every backend and the run commands' definition load accept it.
+    Accepted,
+    /// A command refuses it, or the judgement panics.
+    Refused {
+        /// [`native_signature`], or the panic's message.
+        signature: String,
+        /// The messages of the refusal's errors, for the reader of the TSV.
+        messages: Vec<String>,
+    },
+}
+
+impl Native {
+    /// The verdict as the pending list records it.
+    #[must_use]
+    pub fn signature(&self) -> String {
+        match self {
+            Self::Accepted => "every native route accepts the definition".to_owned(),
+            Self::Refused { signature, .. } => signature.clone(),
+        }
+    }
 }
 
 impl Judged {
@@ -107,6 +157,11 @@ pub struct Settings {
     pub scratch: PathBuf,
     /// Whether accepted cases are also judged by K3: printed by `krs expand` and emitted again.
     pub closure: bool,
+    /// How accepted cases are judged by K6: their definition judged as `krs check` judges it.
+    pub native: NativeMode,
+    /// The cases the table refuses, which K6 leaves aside even when KRS accepts them: their K is
+    /// K2's deviation, not a definition the table accepts.
+    pub refused_by_table: BTreeSet<String>,
 }
 
 /// Judge every case of `cases` through the pipeline, in ID order.
@@ -119,12 +174,18 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
     let jobs = Mutex::new(batches(cases, settings.batch));
     let judged = Mutex::new(Vec::with_capacity(cases.len()));
     let builds = AtomicUsize::new(0);
+    let cost = NativeCost::default();
     std::thread::scope(|scope| {
         for index in 0..settings.workers.max(1) {
             let worker = Worker {
                 root: settings.scratch.join(format!("worker-{index}")),
                 builds: &builds,
                 closure: settings.closure,
+                native: (settings.native != NativeMode::Off).then_some(NativeRun {
+                    refused_by_table: &settings.refused_by_table,
+                    cost: &cost,
+                    alone: settings.native == NativeMode::Alone,
+                }),
             };
             let jobs = &jobs;
             let judged = &judged;
@@ -152,7 +213,42 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
         judged.len(),
         builds.load(Ordering::Relaxed)
     );
+    if settings.native != NativeMode::Off {
+        let cases = judged
+            .iter()
+            .filter(|judged| judged.native.is_some())
+            .count();
+        let checks = cost.checks.load(Ordering::Relaxed);
+        let time = Duration::from_nanos(cost.nanos.load(Ordering::Relaxed));
+        let each = time / u32::try_from(checks.max(1)).unwrap_or(u32::MAX);
+        eprintln!(
+            "[krs-class] K6 judged {cases} cases ({:?}) in {checks} checks, {} of them in batches that lower otherwise together; {:.1} s of worker time, {:.2} s a check",
+            settings.native,
+            cost.apart.load(Ordering::Relaxed),
+            time.as_secs_f64(),
+            each.as_secs_f64(),
+        );
+    }
     judged
+}
+
+/// What K6 cost a run: the checks it made, the workers' time they took, and the cases judged
+/// alone because their batch lowers otherwise together.
+#[derive(Default)]
+struct NativeCost {
+    checks: AtomicUsize,
+    nanos: AtomicU64,
+    apart: AtomicUsize,
+}
+
+/// A worker's part in K6.
+#[derive(Clone, Copy)]
+struct NativeRun<'a> {
+    /// The cases the table refuses, which K6 leaves aside.
+    refused_by_table: &'a BTreeSet<String>,
+    cost: &'a NativeCost,
+    /// Whether each case is judged alone, never in a batch.
+    alone: bool,
 }
 
 /// Collect `source` alone, as a package in the directory `name` of the scratch, with a target of
@@ -171,6 +267,7 @@ pub fn collect_source(
         root: settings.scratch.join(name),
         builds: &builds,
         closure: false,
+        native: None,
     };
     fs::create_dir_all(&worker.root).expect("the directory is created");
     worker.collect(source)
@@ -198,6 +295,8 @@ struct Worker<'a> {
     root: PathBuf,
     builds: &'a AtomicUsize,
     closure: bool,
+    /// K6's settings, when the run judges it.
+    native: Option<NativeRun<'a>>,
 }
 
 impl Worker<'_> {
@@ -234,6 +333,7 @@ impl Worker<'_> {
                             back_half(&collected, &rendered.cases, placed, base.as_deref())
                         })
                         .collect::<Vec<_>>();
+                    self.check_native(&collected, &rendered.cases, base.as_deref(), &mut judged);
                     if self.closure {
                         self.check_closure(&rendered.cases, &mut judged);
                     }
@@ -274,6 +374,110 @@ impl Worker<'_> {
                         .collect::<BTreeSet<_>>();
                     remaining.retain(|case| !refused_ids.contains(&case.id));
                 }
+            }
+        }
+    }
+
+    /// K6 over a collected batch: the definition of each case that KRS accepted and the table does
+    /// not refuse, the base's descriptors and the case's, judged as `krs check` judges it. The
+    /// cases are judged together when their definition together is exactly theirs
+    /// ([`lowers_as_alone`]), and each alone otherwise.
+    fn check_native(
+        &self,
+        collected: &CollectedDefinition,
+        all: &[Placed<'_>],
+        base: Option<&[String]>,
+        judged: &mut [Judged],
+    ) {
+        let Some(run) = self.native else {
+            return;
+        };
+        let judged_cases = judged
+            .iter()
+            .filter(|judged| {
+                !judged.observed.refused() && !run.refused_by_table.contains(&judged.id)
+            })
+            .map(|judged| judged.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let cases = all
+            .iter()
+            .filter(|placed| judged_cases.contains(placed.case.id.as_str()))
+            .collect::<Vec<_>>();
+        let mut verdicts = BTreeMap::new();
+        if run.alone || cases.len() < 2 || !lowers_as_alone(collected, all, &cases, base, judged) {
+            if cases.len() > 1 && !run.alone {
+                run.cost.apart.fetch_add(cases.len(), Ordering::Relaxed);
+            }
+            for placed in cases {
+                self.native_bisect(collected, all, &[placed], &mut verdicts);
+            }
+        } else {
+            self.native_bisect(collected, all, &cases, &mut verdicts);
+        }
+        for judged in judged {
+            judged.native = verdicts.remove(&judged.id);
+        }
+    }
+
+    /// Judge the definition of the base and `cases` together; on a refusal, each half, down to a
+    /// case alone, whose verdict is its own definition's. An accepted definition that holds a
+    /// case's definition stands for it: a refusal of `krs check` is of a sentence the definition
+    /// has, or of a feature one of its sentences needs, never of a sentence it lacks, so adding
+    /// the other cases' sentences cannot hide one. `KRS_CLASS_NATIVE=alone` judges each case
+    /// alone, which must give the same verdicts.
+    fn native_bisect(
+        &self,
+        collected: &CollectedDefinition,
+        all: &[Placed<'_>],
+        cases: &[&Placed<'_>],
+        out: &mut BTreeMap<String, Native>,
+    ) {
+        let Some(run) = self.native else {
+            return;
+        };
+        let ids = cases
+            .iter()
+            .map(|placed| placed.case.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let bundle = sub_bundle_of(&collected.bundle, all, |placed| {
+            ids.contains(placed.case.id.as_str())
+        });
+        let started = Instant::now();
+        let checked = catch_unwind(AssertUnwindSafe(|| collected.check(bundle)));
+        let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        run.cost.checks.fetch_add(1, Ordering::Relaxed);
+        run.cost.nanos.fetch_add(elapsed, Ordering::Relaxed);
+        let verdict = match checked {
+            Ok(Ok(_)) => Native::Accepted,
+            Ok(Err(error)) => Native::Refused {
+                signature: native_signature(&error),
+                messages: observe_error(&error)
+                    .into_iter()
+                    .filter(|diagnostic| diagnostic.severity == Severity::Error)
+                    .map(|diagnostic| diagnostic.message)
+                    .collect(),
+            },
+            Err(panic) => {
+                let message = panic_message(&*panic);
+                Native::Refused {
+                    signature: format!("panic: {message}"),
+                    messages: vec![message],
+                }
+            }
+        };
+        match (verdict, cases) {
+            (Native::Accepted, _) => {
+                for placed in cases {
+                    out.insert(placed.case.id.clone(), Native::Accepted);
+                }
+            }
+            (refused, [placed]) => {
+                out.insert(placed.case.id.clone(), refused);
+            }
+            (_, _) => {
+                let (left, right) = cases.split_at(cases.len() / 2);
+                self.native_bisect(collected, all, left, out);
+                self.native_bisect(collected, all, right, out);
             }
         }
     }
@@ -340,6 +544,61 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
         .cloned()
         .or_else(|| panic.downcast_ref::<&str>().map(|text| (*text).to_owned()))
         .unwrap_or_else(|| "a panic without a message".to_owned())
+}
+
+/// K6's signature of a refusal of `krs check`: who refuses, from the notes the check adds (the
+/// refusing route by name, `every native route`, `load` for the run commands' definition load,
+/// `emit-k`), then the code of each error, or an uncoded error's message. A refusal's codes name
+/// the mistake without the definition's names, so the signature stays put while the case does.
+fn native_signature(error: &CommandError) -> String {
+    let mut refusers = Vec::new();
+    let mut source = error;
+    loop {
+        match source {
+            CommandError::Warned { source: inner, .. } => source = inner,
+            CommandError::Attributed {
+                note,
+                source: inner,
+            } => {
+                refusers.push(refuser(note));
+                source = inner;
+            }
+            _ => break,
+        }
+    }
+    let errors = observe_error(error)
+        .into_iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .map(|diagnostic| {
+            diagnostic.code.unwrap_or_else(|| {
+                let message = diagnostic.message.lines().next().unwrap_or_default();
+                format!("uncoded: {message}")
+            })
+        })
+        .collect::<Vec<_>>();
+    format!("{} {}", refusers.join(" "), errors.join(", "))
+        .trim()
+        .to_owned()
+}
+
+/// The command or route a note of `krs check` names as refusing: the route a note opens with in
+/// backquotes (`` `native-rust` is the route of .. ``), or the command it names.
+fn refuser(note: &str) -> String {
+    if note.starts_with("every native route") {
+        "every native route".to_owned()
+    } else if note.starts_with("`krs emit-k`") {
+        "emit-k".to_owned()
+    } else if note.starts_with("`krs run`") {
+        "load".to_owned()
+    } else if let Some(route) = note
+        .strip_prefix('`')
+        .and_then(|rest| rest.split_once('`'))
+        .map(|(route, _)| route)
+    {
+        route.to_owned()
+    } else {
+        note.to_owned()
+    }
 }
 
 /// Lower and emit one case of a collected batch from the base's descriptors and its own.
@@ -444,13 +703,60 @@ fn sub_bundle(
     all: &[Placed<'_>],
     placed: Option<&Placed<'_>>,
 ) -> DescriptorBundle {
+    sub_bundle_of(bundle, all, |owner| {
+        placed.is_some_and(|placed| owner.case.id == placed.case.id)
+    })
+}
+
+/// Whether the definition of the base and `cases` together lowers to exactly their sentences:
+/// the base's, and each case's own as it emits them alone (its additions, in `judged`). Only then
+/// is each case's definition part of theirs together.
+fn lowers_as_alone(
+    collected: &CollectedDefinition,
+    all: &[Placed<'_>],
+    cases: &[&Placed<'_>],
+    base: Option<&[String]>,
+    judged: &[Judged],
+) -> bool {
+    let Some(base) = base else {
+        return false;
+    };
+    let ids = cases
+        .iter()
+        .map(|placed| placed.case.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut expected = base.to_vec();
+    for judged in judged
+        .iter()
+        .filter(|judged| ids.contains(judged.id.as_str()))
+    {
+        let Some(additions) = &judged.additions else {
+            return false;
+        };
+        expected.extend(additions.iter().cloned());
+    }
+    let bundle = sub_bundle_of(&collected.bundle, all, |placed| {
+        ids.contains(placed.case.id.as_str())
+    });
+    let Ok(Ok(emitted)) = catch_unwind(AssertUnwindSafe(|| collected.emit_k(bundle))) else {
+        return false;
+    };
+    let mut together = emitted_sentences(&emitted);
+    together.sort();
+    expected.sort();
+    together == expected
+}
+
+/// The descriptors of the base and of the cases `keep` selects ([`owner`]).
+fn sub_bundle_of(
+    bundle: &DescriptorBundle,
+    all: &[Placed<'_>],
+    keep: impl Fn(&Placed<'_>) -> bool,
+) -> DescriptorBundle {
     let descriptors = bundle
         .descriptors()
         .iter()
-        .filter(|descriptor| {
-            owner(descriptor, all)
-                .is_none_or(|owner| placed.is_some_and(|placed| owner.case.id == placed.case.id))
-        })
+        .filter(|descriptor| owner(descriptor, all).is_none_or(&keep))
         .cloned()
         .collect::<Vec<_>>();
     let kept = descriptors
@@ -496,6 +802,7 @@ fn judged(placed: &Placed<'_>, observed: Observed, batch: usize) -> Judged {
         batch,
         additions: None,
         closure: None,
+        native: None,
     }
 }
 

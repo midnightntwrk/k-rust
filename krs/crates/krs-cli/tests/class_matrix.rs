@@ -8,7 +8,9 @@
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
 //! `cells`, `init`, `terms`, `import`, and `notation` (the collection notation at the term
 //! positions), each of which also judges its accepted cases by K3
-//! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`; `k5`, which checks one broken header per entry
+//! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`, and by K6 (the definition an accepted case emits
+//! passes the judgement `krs check` makes on the native routes, [`pipeline`]) unless
+//! `KRS_CLASS_NATIVE=0`; `k5`, which checks one broken header per entry
 //! point ([`mutations`]); and `k4`, which compares KRS's sort judges with
 //! k-rust's lattice on each base's emitted definition ([`lattice`]). Each prints its counts and its red cases per finding
 //! and per step, and fails on a case that deviates and is not pending, a pending case that
@@ -17,7 +19,7 @@
 //! A K2 entry of `pending.toml` is keyed by the case's ID, and the fast tier reads the same entry
 //! for a case the front refuses; where the two tiers observe such a case differently, this tier
 //! reads `full/<case ID>` instead. A K1 entry of this tier, which judges keys after lowering, is
-//! keyed `k1/<case ID>` (`class_matrix::pending`).
+//! keyed `k1/<case ID>`, and a K6 entry `k6/<case ID>` (`class_matrix::pending`).
 //!
 //! The run is set by the environment (the script sets every variable from measured headroom):
 //! - `KRS_CLASS_WORKERS`: concurrent workers, each with one Cargo target (default 1);
@@ -25,6 +27,8 @@
 //! - `KRS_CLASS_SCRATCH`: the workers' directory, kept by the caller; by default each shard uses
 //!   a temporary directory removed when it ends, failure included;
 //! - `KRS_CLASS_FILTER`: a glob over case IDs (`expected.toml`'s syntax) that narrows a shard;
+//! - `KRS_CLASS_NATIVE`: `0` skips K6, `alone` judges each accepted case alone rather than the
+//!   accepted cases of a batch together (the default, `1`), which must give the same verdicts;
 //! - `KRS_CLASS_OUT`: a directory for one TSV line per case and the pending entries of every
 //!   deviation not yet recorded, `<shard>.tsv` and `<shard>.pending.toml`;
 //! - `KRS_CLASS_RECORD=1`: the record mode. Each accepted case that the table does not refuse
@@ -55,7 +59,7 @@ use krs_test_support::class_matrix::invariants::{
     Observed, registry_kind, signature, violations, without_rustc_parse_error,
 };
 use krs_test_support::class_matrix::pending::{
-    CLOSURE, FULL, Judgement, KEYS, LATTICE, Observation, Pending, case_of,
+    CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, case_of,
 };
 use krs_test_support::class_matrix::table::{
     Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, is_term_case,
@@ -63,7 +67,7 @@ use krs_test_support::class_matrix::table::{
 use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
 use closure::{Closure, case_k};
-use pipeline::{Judged, Settings};
+use pipeline::{Judged, Native, NativeMode, Settings};
 
 /// Whether a case no table entry decides fails the suite: the table covers every generated case,
 /// so a new case needs its entry.
@@ -182,6 +186,13 @@ fn settings() -> (Settings, Option<tempfile::TempDir>) {
         batch: number("KRS_CLASS_BATCH", 40),
         scratch,
         closure: variable("KRS_CLASS_CLOSURE").is_none_or(|value| value != "0"),
+        native: match variable("KRS_CLASS_NATIVE").as_deref() {
+            None | Some("1") => NativeMode::Batched,
+            Some("0") => NativeMode::Off,
+            Some("alone") => NativeMode::Alone,
+            Some(other) => panic!("KRS_CLASS_NATIVE={other:?} is not 0, 1 or alone"),
+        },
+        refused_by_table: BTreeSet::new(),
     };
     (settings, guard)
 }
@@ -247,14 +258,15 @@ struct Shard {
 }
 
 impl Shard {
-    /// Add `test`'s verdict on the case `id`, keyed `k1/<ID>` for K1, and for K2 by the case's
-    /// ID, or `full/<ID>` when `pending.toml` has that entry.
+    /// Add `test`'s verdict on the case `id`, keyed `k1/<ID>` for K1, `k3/<ID>` for K3, `k6/<ID>`
+    /// for K6, and for K2 by the case's ID, or `full/<ID>` when `pending.toml` has that entry.
     fn add(&mut self, test: &'static str, id: &str, signature: String, misses: Vec<String>) {
         let full = format!("{FULL}{id}");
         self.verdicts.entry(test).or_default().push(Verdict {
             key: match test {
                 "k1" => format!("{KEYS}{id}"),
                 "k3" => format!("{CLOSURE}{id}"),
+                "k6" => format!("{NATIVE}{id}"),
                 "k5" => id.to_owned(),
                 _ if spec().pending.entries.contains_key(&full) => full,
                 _ => id.to_owned(),
@@ -422,6 +434,8 @@ fn test_of(key: &str) -> &'static str {
         "k1"
     } else if key.starts_with(CLOSURE) {
         "k3"
+    } else if key.starts_with(NATIVE) {
+        "k6"
     } else if key.starts_with("entry/") {
         "k5"
     } else {
@@ -551,6 +565,28 @@ fn k1(shard: &mut Shard, judged: &Judged) {
     }
 }
 
+/// K6: the definition an accepted case emits passes the judgement `krs check` makes, on every
+/// native route. A case K6 did not judge (refused, refused by the table, or a run with
+/// `KRS_CLASS_NATIVE=0`) has no K6 verdict.
+fn k6(shard: &mut Shard, judged: &Judged) {
+    if let Some(native) = &judged.native {
+        let misses = match native {
+            Native::Accepted => Vec::new(),
+            Native::Refused { messages, .. } => {
+                writeln!(
+                    shard.lines,
+                    "k6-refusal\t{}\t{}",
+                    judged.id,
+                    messages.join(" | ").replace(['\n', '\t'], " ")
+                )
+                .expect("writing to a String cannot fail");
+                vec!["`krs check` refuses the definition KRS wrote".to_owned()]
+            }
+        };
+        shard.add("k6", &judged.id, native.signature(), misses);
+    }
+}
+
 /// Each judged case's K once accepted ([`case_k`]), and in the record mode the K to record: every
 /// accepted case's that no refusal rule covers, also made known to [`RECORDED`] before any
 /// `same_k_as` is compared.
@@ -595,7 +631,13 @@ fn shard(name: &str, families: &[Family]) {
     assert!(!cases.is_empty(), "the shard {name} selects no case");
     let spec = spec();
     let resolution = spec.table.resolve_cases(&spec.cases, registry_kind);
-    let (settings, _scratch) = settings();
+    let (mut settings, _scratch) = settings();
+    settings.refused_by_table = resolution
+        .expected
+        .iter()
+        .filter(|(_, expected)| matches!(expected, Expected::Refuse { .. }))
+        .map(|(id, _)| id.clone())
+        .collect();
     let started = std::time::Instant::now();
     let judged = pipeline::judge_all(&cases, &settings);
     let by_id = cases
@@ -640,6 +682,7 @@ fn shard(name: &str, families: &[Family]) {
         k1(&mut shard, judged);
         let pairs = k.as_deref().map_or_else(Vec::new, |k| other_k(expected, k));
         k3(&mut shard, judged, pairs, &mut forms);
+        k6(&mut shard, judged);
     }
     if recording {
         record(&recorded);

@@ -1574,13 +1574,14 @@ deviation = "1 pairs only catalog holds; 0 pairs only coverage holds"
     let prefixed = Pending::parse(
         "[\"k1/a\"]\nfinding = \"F\"\ndeviation = \"d\"\n\n\
          [\"full/b\"]\nfinding = \"F\"\ndeviation = \"d\"\n\n\
+         [\"k6/e\"]\nfinding = \"F\"\ndeviation = \"d\"\n\n\
          [\"lattice/c\"]\nfinding = \"F\"\ndeviation = \"d\"\n",
     )
     .expect("the entries parse");
-    assert_eq!(prefixed.stale(&["a"]), vec!["full/b"]);
+    assert_eq!(prefixed.stale(&["a"]), vec!["full/b", "k6/e"]);
     assert_eq!(
-        ["k1/a", "full/b", "lattice/c", "d"].map(case_of),
-        [Some("a"), Some("b"), None, Some("d")]
+        ["k1/a", "full/b", "k6/e", "lattice/c", "d"].map(case_of),
+        [Some("a"), Some("b"), Some("e"), None, Some("d")]
     );
 
     let errors = Pending::parse(
