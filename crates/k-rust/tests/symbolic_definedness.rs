@@ -1677,7 +1677,7 @@ module DEFPROBE
                   requires notBool (N in_keys(M)) andBool M[I <- 5][N] ==K 5
   rule [fld]:   seq(fld(P), R) => R requires first(P) >Int second(P)
   rule [lget]:  seq(lget(L), R) => R requires L[1] ==K 2 andBool size(L) <=Int 2
-  rule [ldrop]: seq(ldrop(L), R) => R requires size(range(L, 2, 0)) ==Int 0
+  rule [ldrop]: seq(ldrop(L), R) => R requires size(L) <=Int 2 andBool size(range(L, 2, 0)) ==Int 0
   rule [hv]:    seq(hv(X), R) => R requires half(X) ==Int 3
 endmodule
 "#;
@@ -1710,7 +1710,7 @@ fn two_items() -> String {
 
 /// Why the symbolic run of `name` shows its route refuting a defined instance, if it does.
 /// With a solver, the step to `halt` is a depth-1 leaf and no leaf is `Vacuous`; without one,
-/// the step is a depth-1 leaf or every leaf is `Indeterminate`.
+/// the step is a depth-1 leaf or there are leaves and every one is `Indeterminate`.
 fn route_refuted(backend: &mut Backend, name: &str, symbolic: &str) -> Option<String> {
     let leaves = execute(backend, &op(name, symbolic), false);
     let stepped = leaves.iter().any(|leaf| leaf.depth == 1);
@@ -1721,9 +1721,10 @@ fn route_refuted(backend: &mut Backend, name: &str, symbolic: &str) -> Option<St
                 .all(|leaf| leaf.reason != HaltReasonOutput::Vacuous)
     } else {
         stepped
-            || leaves
-                .iter()
-                .all(|leaf| leaf.reason == HaltReasonOutput::Indeterminate)
+            || (!leaves.is_empty()
+                && leaves
+                    .iter()
+                    .all(|leaf| leaf.reason == HaltReasonOutput::Indeterminate))
     };
     (!fine).then(|| format!("{name}({symbolic}): the step to halt is refuted: {leaves:#?}"))
 }
@@ -1840,8 +1841,8 @@ fn observation_domain_routes_a_fixed_list_access_stays_feasible() {
     assert_route("lget", "L:SortList{}", &two_items(), Some(&list_item(1)));
 }
 
-/// `range(L, 2, 0)` is defined where `size(L) >= 2`, and the rule needs `size(L) = 2`, so
-/// `size(L) >= 3` would refute the step.
+/// `range(L, 2, 0)` is defined where `size(L) >= 2`: an off-by-one `size(L) >= 3` would
+/// contradict `size(L) <=Int 2`.
 #[test]
 fn observation_domain_routes_a_fixed_list_drop_stays_feasible() {
     assert_route("ldrop", "L:SortList{}", &two_items(), Some(&list_item(1)));

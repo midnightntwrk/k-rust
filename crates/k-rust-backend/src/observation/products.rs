@@ -411,7 +411,8 @@ impl Products {
 /// Complete no-junk and the admitted field equation cover every defined input value.
 /// The canonical definedness caller retains the input's strict domain.
 ///
-/// `\top` beyond the input's own domain is the weakest condition, so it never refutes a defined instance.
+/// `\top` beyond the input's own domain is exact: every defined `p` is some `c(a1, .., an)`
+/// (complete no-junk), so `f(p) = ai` is defined.
 /// The reconstruction fact `\ceil(p) -> p = c(f1(p), .., fn(p))` that the SMT reading adds
 /// holds of every defined `p` by the same no-junk argument (kink27 R2-DOMAIN-ROUTES).
 pub(crate) fn field_domain(

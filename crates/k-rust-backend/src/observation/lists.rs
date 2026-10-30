@@ -545,7 +545,9 @@ impl BackendDefinition {
 /// Only the selected fixed nonnegative index and front-removal domains are exposed here.
 /// The canonical caller retains every original strict operand's domain.
 ///
-/// On a defined `L`, `L[i]` is defined exactly when `0 <= i < size(L)` and `range(L, k, 0)` exactly when `0 <= k <= size(L)`.
+/// On a defined `L` and for `i >= 0`, `L[i]` is defined exactly when `i < size(L)`
+/// (a negative index counts from the end, so it is not admitted here),
+/// and `range(L, k, 0)` exactly when `0 <= k <= size(L)`.
 /// For the nonnegative literals admitted here, `size(L) >=Int i + 1` and `size(L) >=Int k` are therefore exactly their definedness
 /// (kink27 R2-DOMAIN-ROUTES).
 pub(crate) fn domain(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {

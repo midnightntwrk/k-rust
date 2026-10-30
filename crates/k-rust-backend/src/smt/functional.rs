@@ -525,8 +525,10 @@ pub(super) fn prepare(
 /// It must therefore be equivalent to `\ceil(term)` on defined arguments:
 /// a stronger plan refutes a defined instance, a weaker one an undefined instance.
 /// Its sources are each equivalent: an observation route (argued at each route's function);
-/// an unconditional ceil equation's stated condition, an axiom, with its terms' definedness, implied by the condition itself;
-/// `\top` for a `value-production` application no equation reduces, a total or constructor head, a variable, a domain value or an injection;
+/// an unconditional ceil equation's stated condition, an axiom, with its terms' definedness, implied by the condition itself,
+/// or, for a `value-production` application no equation reduces, a conditional ceil equation's condition whose `requires` is decided true;
+/// `\top` for a `value-production` application no equation reduces (and no ceil equation decides), a total or constructor head, a variable, a domain value, an injection
+/// or a list literal (list concatenation is total);
 /// a map literal's key disjointness; and every child's domain, since every application is strict.
 /// Anything else keeps the opaque `\ceil` (kink27 R2-DOMAIN-ROUTES).
 #[cfg(any(feature = "z3", test))]
