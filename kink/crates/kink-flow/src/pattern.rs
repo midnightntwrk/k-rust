@@ -58,13 +58,15 @@
 //!   reaches (for example an `owise` rule that fired because another rule's condition was
 //!   undefined), which a short-circuiting backend might not reach.
 //!
-//!   **A defined state.** k-rust's match decides the subject's facts, but an undecided fact stays
-//!   a fact about the subject, not a condition of the match (k-rust-backend `search.rs`,
-//!   `match_condition`), and k-rust's results do not assert that a state has an instance
-//!   (`docs/backend-port.md`). A reached state that holds an irreducible application of a function
-//!   not declared total (a user function with no equation for its argument: `f(3)` where `f` has
-//!   an equation for `f(0)` only) denotes no configuration wherever that application is
-//!   undefined, yet the search lists it and its match carries no condition. (A hooked partial
+//!   **A defined state.** A reached state that holds an irreducible application of a function not
+//!   declared total (a user function with no equation for its argument: `f(3)` where `f` has an
+//!   equation for `f(0)` only) denotes no configuration wherever that application is undefined.
+//!   k-rust's search match states each fact of the state's definedness it leaves undecided in its
+//!   condition (k-rust-backend `search.rs`, `SearchMatch::constraints`; `docs/compatibility.md`,
+//!   "Search results"), so the match on such a state carries `\ceil(f(3))` and is not decided
+//!   (above). kink does not rest the hit on that condition alone: it also runs its own check of
+//!   the state, below, which refuses at least what the empty condition refuses on the states a
+//!   hit can have (ground, no predicate). (A hooked partial
 //!   operation k-rust evaluates is not such a case: k-rust evaluates `7 /Int 0` or a lookup of a
 //!   missing map key to bottom, so the step to it has no successor, the state is never reached,
 //!   and the answer is a correct `no`.) So a hit also needs the matched state's term, and with it

@@ -10,9 +10,9 @@
 #[path = "support/execution_sources.rs"]
 #[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
 mod execution_sources;
-use execution_sources::PINNED_PLUGIN_BN128;
 #[cfg(feature = "z3-inference")]
 use execution_sources::{NO_EVALUATOR, SEARCH_BOUND, SIZE_BOUND};
+use execution_sources::{PINNED_PLUGIN_BN128, SEARCH_EXISTS};
 
 use k_rust::{
     backend::{
@@ -120,6 +120,115 @@ fn text(result: &ExecutionResult) -> Vec<String> {
         .iter()
         .map(|leaf| Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap()))
         .collect()
+}
+
+/// A search match denotes `state ∧ condition`, and the condition states each fact of the
+/// state's knowledge (the definedness of its term) that the match leaves undecided. So a match
+/// whose condition and diagnostics are empty has an instance: `g(f(3))` (`f` partial, no
+/// equation for `3`) is matched under `\ceil(f(3))`, while `g(7)`, a total application, and a
+/// map whose keys k-rust shows apart are matched under no condition. A symbolic state whose
+/// definedness rests on its variables is matched under a condition mentioning them. The stated
+/// condition reads back: the state conjoined with it, final itself, is matched under the same
+/// condition.
+#[test]
+fn a_search_match_has_an_empty_condition_only_when_its_state_has_an_instance() {
+    let compiled = compile(SEARCH_EXISTS, "EXISTS", "EXISTS-SYNTAX", "Pgm", "p(3)");
+    let mut backend = Backend::new(&compiled.kore, "EXISTS", BackendOptions::default()).unwrap();
+    let printer = Printer::compact();
+    let compiled_initial = printer.print_pattern(&compiled.initial);
+    let compiled_program = r#"Lblp{}(\dv{SortInt{}}("3"))"#;
+    assert!(
+        compiled_initial.contains(compiled_program),
+        "{compiled_initial}"
+    );
+    let initial = |program: &str| {
+        parse_pattern(&compiled_initial.replace(compiled_program, program)).unwrap()
+    };
+    let print = |pattern: &serde_json::Value| {
+        Printer::compact().print_pattern(&codec::from_value(pattern).unwrap())
+    };
+    // Each final match's state and printed condition.
+    let mut search = |initial: Pattern| {
+        let response = backend
+            .search_pattern(SearchPatternRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchPatternRequest::new(
+                    initial,
+                    parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap(),
+                )
+            })
+            .unwrap();
+        assert!(response.incomplete.is_empty(), "{:?}", response.incomplete);
+        assert!(!response.matches.is_empty());
+        response
+            .matches
+            .iter()
+            .map(|found| {
+                assert!(found.diagnostics.is_empty(), "{:?}", found.diagnostics);
+                (
+                    print(&found.state.state),
+                    found.constraints.iter().map(print).collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let conditions = |matches: &[(String, Vec<String>)]| {
+        matches
+            .iter()
+            .map(|(_, condition)| condition.clone())
+            .collect::<Vec<_>>()
+    };
+
+    let undefined = search(initial(compiled_program));
+    assert_eq!(
+        conditions(&undefined),
+        [[r#"\ceil{SortInt{}, SortGeneratedTopCell{}}(Lblf{}(\dv{SortInt{}}("3")))"#]],
+        "{undefined:?}"
+    );
+
+    for program in [
+        r#"Lblp{}(\dv{SortInt{}}("0"))"#,
+        r#"Lblt{}(\dv{SortInt{}}("3"))"#,
+        r#"Lblm{}(\dv{SortInt{}}("3"))"#,
+        "Lblt{}(VarX:SortInt{})",
+        "Lblm{}(VarX:SortInt{})",
+    ] {
+        let found = search(initial(program));
+        assert!(
+            conditions(&found).iter().all(Vec::is_empty),
+            "{program}: {found:?}"
+        );
+    }
+
+    for (program, variables) in [
+        ("Lblp{}(VarX:SortInt{})", &["Lblf{}(VarX:SortInt{})"][..]),
+        (
+            "Lbln{}(VarX:SortInt{}, VarY:SortInt{})",
+            &["VarX:SortInt{}", "VarY:SortInt{}"][..],
+        ),
+    ] {
+        let found = search(initial(program));
+        for (_, condition) in &found {
+            assert!(!condition.is_empty(), "{program}: {found:?}");
+            for variable in variables {
+                assert!(
+                    condition.iter().any(|conjunct| conjunct.contains(variable)),
+                    "{program}: {found:?}"
+                );
+            }
+        }
+    }
+
+    let [(state, condition)] = undefined.as_slice() else {
+        panic!("expected one match, found {undefined:?}");
+    };
+    let stated = parse_pattern(&format!(
+        "\\and{{SortGeneratedTopCell{{}}}}({state}, {})",
+        condition[0]
+    ))
+    .unwrap();
+    let read_back = search(stated);
+    assert_eq!(conditions(&read_back), [condition.clone()], "{read_back:?}");
 }
 
 /// A function the initial configuration applies that equals `#Bottom` makes the initial

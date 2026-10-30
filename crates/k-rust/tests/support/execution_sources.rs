@@ -141,3 +141,30 @@ module BOUND
   rule <k> f(X) => r(nonpos) </k> requires X <=Int 0
 endmodule
 "#;
+
+/// A reached state holding a partial application no equation decides (`p(3)`: `g(f(3))`), one
+/// the definition decides (`p(0)`), a total application (`t`), and maps whose keys k-rust shows
+/// apart (`m`) or does not (`n(X, Y)`).
+pub const SEARCH_EXISTS: &str = r#"
+module EXISTS-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= p(Int) [symbol(p)] | t(Int) [symbol(t)] | m(Int) [symbol(m)] | n(Int, Int) [symbol(n)]
+endmodule
+
+module EXISTS
+  imports EXISTS-SYNTAX
+  imports INT
+  imports STRING
+  imports MAP
+  configuration <k> $PGM:Pgm </k> <m> .Map </m>
+  syntax KItem ::= g(Int) [symbol(g)] | "stored" [symbol(stored)]
+  syntax Int ::= f(Int) [function, symbol(f)]
+               | h(Int) [function, total, symbol(h)]
+  rule f(0) => 7
+  rule h(0) => 7
+  rule <k> p(I) => g(f(I)) ... </k>
+  rule <k> t(I) => g(h(I)) ... </k>
+  rule <k> m(I) => stored ... </k> <m> _ => (I |-> 1 "a" |-> 2) </m>
+  rule <k> n(I, J) => stored ... </k> <m> _ => (I |-> 1 J |-> 2) </m>
+endmodule
+"#;

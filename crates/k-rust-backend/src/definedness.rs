@@ -1423,7 +1423,8 @@ fn predicates_are_ceil_free(predicates: &[Predicate]) -> bool {
 /// simplifies to `\bottom` means the pattern has no instance, and an assumed false fact would both
 /// hide that and let the simplifier answer anything about the rest. Such a verdict takes the
 /// members not among the constraints through [`knowledge_facts`] and [`UndecidedFacts::decide`],
-/// and assumes only the decided residual.
+/// and assumes only the decided residual; a search match also states the undecided residual in
+/// its condition ([`crate::search::SearchMatch::constraints`]).
 ///
 /// The result is equivalent to `pattern.constraints` on the pattern's instances. It is the
 /// constraints themselves, borrowed, when the term and every constraint term are `ceil_free`, after
@@ -1432,21 +1433,51 @@ pub(crate) fn pattern_knowledge<'a>(
     definition: &BackendDefinition,
     pattern: &'a Pattern,
 ) -> Cow<'a, [Predicate]> {
-    if pattern.term.attributes().ceil_free() && predicates_are_ceil_free(&pattern.constraints) {
-        return Cow::Borrowed(&pattern.constraints);
-    }
     // Facts are consequences of the pattern, so leaving one out only weakens what is known: a
-    // definedness that depends on an impure application in an operand a conditional never
-    // evaluates (`crate::deferred`) is not a fact this states, and the constraints stand as given.
+    // definedness of the term that depends on an impure application in an operand a conditional
+    // never evaluates (`crate::deferred`) is not a fact this states.
+    knowledge_with_term_facts(definition, pattern, |term| {
+        Ok::<_, std::convert::Infallible>(ceil_term(definition, term).unwrap_or_default())
+    })
+    .unwrap_or_else(|never| match never {})
+}
+
+/// [`pattern_knowledge`], or the [`DeferredOutcome`] when the definedness of the term cannot be
+/// stated.
+///
+/// A caller that states the knowledge rather than assuming it (a search match, whose empty
+/// condition says the state has an instance) cannot leave a fact of the term out: its statement
+/// would then claim less than the term obliges, and an empty one would claim an instance of a
+/// term that may be undefined everywhere. A failed `condition_definedness` of the constraints
+/// needs no such outcome: the constraints themselves are stated, and the obligations of their
+/// atoms are consequences of them.
+pub(crate) fn stated_pattern_knowledge<'a>(
+    definition: &BackendDefinition,
+    pattern: &'a Pattern,
+) -> Result<Cow<'a, [Predicate]>, DeferredOutcome> {
+    knowledge_with_term_facts(definition, pattern, |term| ceil_term(definition, term))
+}
+
+/// The knowledge of `pattern`, with the facts of its term from `term_facts`.
+fn knowledge_with_term_facts<'a, E>(
+    definition: &BackendDefinition,
+    pattern: &'a Pattern,
+    term_facts: impl FnOnce(&Term) -> Result<Vec<Predicate>, E>,
+) -> Result<Cow<'a, [Predicate]>, E> {
+    if pattern.term.attributes().ceil_free() && predicates_are_ceil_free(&pattern.constraints) {
+        return Ok(Cow::Borrowed(&pattern.constraints));
+    }
+    // The obligations of an atom are consequences of the atom, so where they cannot be stated
+    // the constraints stand as given.
     let mut knowledge = condition_definedness(definition, pattern.constraints.clone(), &[])
         .unwrap_or_else(|_| pattern.constraints.clone());
     let mut known = knowledge.iter().cloned().collect::<FxHashSet<_>>();
-    for predicate in ceil_term(definition, &pattern.term).unwrap_or_default() {
+    for predicate in term_facts(&pattern.term)? {
         if known.insert(predicate.clone()) {
             knowledge.push(predicate);
         }
     }
-    Cow::Owned(knowledge)
+    Ok(Cow::Owned(knowledge))
 }
 
 /// The members of `knowledge` (a pattern's [`pattern_knowledge`]) that are not among its
@@ -1501,9 +1532,10 @@ impl UndecidedFacts {
     /// no instance: [`FactsVerdict::Refuted`]. Otherwise the simplified facts without their
     /// `\top` members are the residual a decision may take as known, since they are equivalent to
     /// the facts. The decision only refutes: an undecided member stays in the residual, a fact
-    /// about the pattern rather than a condition to discharge. A failed simplification leaves the
-    /// facts undecided and returns them unsimplified, which is sound for the same reason. Empty
-    /// facts return at once, without calling the simplifier.
+    /// about the pattern rather than a condition to discharge; a search match also states the
+    /// undecided residual in its condition ([`crate::search::SearchMatch::constraints`]). A failed
+    /// simplification leaves the facts undecided and returns them unsimplified, which is sound for
+    /// the same reason. Empty facts return at once, without calling the simplifier.
     pub(crate) fn decide(
         self,
         definition: &BackendDefinition,

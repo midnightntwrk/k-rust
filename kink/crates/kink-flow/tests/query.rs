@@ -1267,9 +1267,10 @@ programs = ["add"]
 
     /// F-18 review 1, critical: a hit needs the matched state's term to be defined. A reached state
     /// holding `f(3)`, an application of a partial function no equation reduces, may denote no
-    /// configuration, and k-rust's match does not carry that undecided fact as a condition: it is
-    /// `unknown` (`undefined-state`), never a confirmed claim, and nothing is cached. The same state
-    /// with a total function, and a state holding a map, stay hits.
+    /// configuration, and k-rust's search match states that undecided fact as its condition
+    /// (`\ceil(f(3))`): it is `unknown` (a condition k-rust did not decide), never a confirmed
+    /// claim, and nothing is cached. The same state with a total function, and a state holding a
+    /// map, stay hits.
     #[test]
     #[ignore = "kink"]
     fn a_hit_needs_a_defined_state() {
@@ -1291,7 +1292,10 @@ programs = ["add"]
         assert_eq!(partial["claim"], "unconfirmed");
         assert_eq!(partial["witness"], Value::Null);
         let cause = partial["cause"].as_str().unwrap();
-        assert!(cause.contains("undefined-state"), "{cause}");
+        assert!(
+            cause.contains("under a condition k-rust did not decide"),
+            "{cause}"
+        );
         assert!(cause.contains("(depth 2)"), "{cause}");
         for pattern in ["reaches-100", "never"] {
             assert_eq!(row(&document, pattern, "partial")["answer"], "unknown");
@@ -1326,7 +1330,7 @@ programs = ["add"]
             partial["cause"]
                 .as_str()
                 .unwrap()
-                .contains("undefined-state")
+                .contains("under a condition k-rust did not decide")
         );
 
         let dir = spec_dir(

@@ -16,7 +16,9 @@ use regex::Regex;
 mod execution_sources;
 #[path = "support/line_anchors.rs"]
 mod line_anchors;
-use execution_sources::{NO_EVALUATOR, PINNED_PLUGIN_BN128, SEARCH_BOUND, SIZE_BOUND};
+use execution_sources::{
+    NO_EVALUATOR, PINNED_PLUGIN_BN128, SEARCH_BOUND, SEARCH_EXISTS, SIZE_BOUND,
+};
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
 use proof_sources::{
@@ -23988,6 +23990,36 @@ fn krun_success(source: &str, arguments: &[&str]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+/// A `krun --search` solution states the definedness of its state that the match leaves
+/// undecided: `g(f(3))`, `f` partial with no equation for `3`, is a solution under
+/// `\ceil(f(3))`; `g(h(3))`, `h` total, under no condition.
+#[test]
+fn krun_search_states_the_undecided_definedness_of_a_reached_state() {
+    let search = |program: &str| {
+        krun_success(
+            SEARCH_EXISTS,
+            &[
+                "--main-module",
+                "EXISTS",
+                "--syntax-module",
+                "EXISTS-SYNTAX",
+                "--sort",
+                "Pgm",
+                "--expression",
+                program,
+                "--search-final",
+            ],
+        )
+    };
+    let undefined = search("p(3)");
+    assert!(
+        undefined.contains(r"\ceil{") && undefined.contains(r#"Lblf{}(\dv{SortInt{}}("3"))"#),
+        "{undefined}"
+    );
+    let total = search("t(3)");
+    assert!(!total.contains(r"\ceil{"), "{total}");
 }
 
 #[test]

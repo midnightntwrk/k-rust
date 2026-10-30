@@ -1085,6 +1085,9 @@ pub struct PathSearchResponse<K = Value> {
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub struct SearchMatchOutput<K = Value> {
     pub bindings: Vec<BindingOutput<K>>,
+    /// With `bindings`, the condition under which an instance of `state` is an instance of the
+    /// target, followed by the facts of `state`'s knowledge (the definedness of its term and of
+    /// its constraints' atoms) that the match left undecided.
     pub constraints: Vec<K>,
     pub state: SearchStateOutput<K>,
     /// The backend diagnostics of matching `state` against the target pattern, apart from the
@@ -1124,6 +1127,9 @@ pub struct PatternSearchResponse<K = Value> {
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub struct PathSearchMatchOutput<K = Value> {
     pub bindings: Vec<BindingOutput<K>>,
+    /// With `bindings`, the condition under which an instance of `witness` is an instance of the
+    /// target, followed by the facts of `witness`'s knowledge (the definedness of its term and of
+    /// its constraints' atoms) that the match left undecided.
     pub constraints: Vec<K>,
     pub witness: PathWitnessOutput<K>,
     /// The backend diagnostics of matching `witness` against the target pattern, apart from the

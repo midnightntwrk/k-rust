@@ -108,7 +108,9 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 use crate::{
     builtin::{BuiltinEffect, ChosenValue},
     condition::{eliminate_bindings, instantiate_constraints},
-    definedness::{FactsVerdict, UndecidedFacts, knowledge_facts, pattern_knowledge},
+    definedness::{
+        FactsVerdict, UndecidedFacts, knowledge_facts, pattern_knowledge, stated_pattern_knowledge,
+    },
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     evaluation::{EvaluationMode, EvaluationScope, with_evaluation},
@@ -532,6 +534,10 @@ impl PathSearchResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchMatch {
     pub substitution: Substitution,
+    /// With `substitution`, the condition under which an instance of `state` is an instance of
+    /// the target, followed by the facts of `state`'s knowledge (the definedness of its term and
+    /// of its constraints' atoms) that the match left undecided. Empty, with `diagnostics` empty,
+    /// it says `state` has an instance (docs/compatibility.md, "Search results").
     pub constraints: Vec<Predicate>,
     pub state: SearchState,
     /// The backend diagnostics of matching `state` against the target pattern (the match
@@ -542,6 +548,9 @@ pub struct SearchMatch {
 }
 
 /// The condition under which a subject is an instance of a search pattern.
+///
+/// Its condition is relative to the subject's instances: the subject's undecided facts are
+/// assumed, not stated (a search match states them).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PatternMatch {
     pub substitution: Substitution,
@@ -593,6 +602,7 @@ impl PatternSearchResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PathSearchMatch {
     pub substitution: Substitution,
+    /// As for [`SearchMatch::constraints`], of `witness`.
     pub constraints: Vec<Predicate>,
     pub witness: PathWitness,
     /// The backend diagnostics of matching the witness against the target pattern, kept apart
@@ -634,7 +644,9 @@ impl PatternPathSearchResult {
 /// Match a constrained pattern against each alternative in a disjunction.
 ///
 /// An alternative with no instance by its own definedness (a partial subterm of its term, or an
-/// obligation of its constraints, that is false) has no match.
+/// obligation of its constraints, that is false) has no match. Its condition is relative to the
+/// subject's instances: the subject's undecided facts are assumed, not stated (a search match
+/// states them).
 ///
 /// The result has two layers: the outer `Err` is a [`Stop`], for which no match was decided; the
 /// inner result is the matches, or why one of them could not be decided.
@@ -685,6 +697,7 @@ fn match_disjunction_using(
             options,
             solver,
             retain_unknown,
+            SubjectFacts::Assumed,
         )? {
             Ok(found) => found,
             Err(error) => return Ok(Err(error)),
@@ -3073,6 +3086,7 @@ fn match_search_result(
             simplification_options(options),
             solver,
             false,
+            SubjectFacts::Reported,
         )
     });
     let mut diagnostics = Vec::new();
@@ -3162,6 +3176,7 @@ fn pattern_variables(pattern: &Pattern) -> BTreeSet<crate::term::Variable> {
 /// those ways: an instance of the subject is an instance of the target exactly when it is one
 /// under one of the substitutions. Each way is a match of its own, in the collection solver's
 /// stable order, and an undecided condition of any way leaves the whole match undecided.
+#[allow(clippy::too_many_arguments)]
 fn match_pattern_with_variables(
     definition: &BackendDefinition,
     target: &Pattern,
@@ -3170,6 +3185,7 @@ fn match_pattern_with_variables(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
     retain_unknown: bool,
+    subject_facts: SubjectFacts,
 ) -> Stoppable<Result<Vec<PatternMatch>, PatternMatchError>> {
     let substitutions = match match_terms_in_definition(
         MatchMode::Implies,
@@ -3227,6 +3243,7 @@ fn match_pattern_with_variables(
             options,
             solver,
             retain_unknown,
+            subject_facts,
         )? {
             Ok(Some(found)) => matches.push(found),
             Ok(None) => {}
@@ -3234,6 +3251,20 @@ fn match_pattern_with_variables(
         }
     }
     Ok(Ok(matches))
+}
+
+/// What a match condition says of the facts of its subject: the definedness of the subject's
+/// term and the obligations of its constraints' atoms, which hold on every instance of the
+/// subject (I7).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SubjectFacts {
+    /// The condition is relative to the subject's instances: the facts the match leaves
+    /// undecided are assumed, not stated (`match_disjunction`).
+    Assumed,
+    /// The facts the match leaves undecided are also conjoined to the reported condition (a
+    /// search match), so an empty condition says every fact is established and the subject has
+    /// an instance ([`SearchMatch::constraints`]).
+    Reported,
 }
 
 /// The condition under which `subject` is an instance of `target` under `substitution`, or
@@ -3248,13 +3279,22 @@ fn match_condition(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
     retain_unknown: bool,
+    subject_facts: SubjectFacts,
 ) -> Stoppable<Result<Option<PatternMatch>, PatternMatchError>> {
     // Every instance of the subject satisfies its knowledge (I7): the definedness of its term
     // and the obligations its own constraints state. The target's constraints are instantiated
     // with the definedness of their atoms stated (I1), except where that knowledge already
     // holds it, so the match condition excludes the instances on which a target atom denotes
     // `\bottom`: the solver reads a partial function as a total one and would give it a value.
-    let subject_knowledge = pattern_knowledge(definition, subject);
+    // A reported condition cannot leave a fact of the term out, so a term whose definedness
+    // cannot be stated leaves the match undecided.
+    let subject_knowledge = match subject_facts {
+        SubjectFacts::Assumed => pattern_knowledge(definition, subject),
+        SubjectFacts::Reported => match stated_pattern_knowledge(definition, subject) {
+            Ok(knowledge) => knowledge,
+            Err(outcome) => return Ok(Err(PatternMatchError::Simplification(outcome.into()))),
+        },
+    };
     let mut constraints = subject.constraints.clone();
     match instantiate_constraints(&target.constraints, &substitution)
         .with_definedness(definition, &subject_knowledge)
@@ -3263,9 +3303,10 @@ fn match_condition(
         Err(outcome) => return Ok(Err(PatternMatchError::Simplification(outcome.into()))),
     }
     // The knowledge the subject's constraints do not already carry is decided with the match
-    // condition, not reported in it: it holds on every instance of the subject, which the
-    // match's state carries. The subject's constraints themselves travel in the condition, and
-    // so does a fact that an equation of the target rewrites (`normalize_match_condition`).
+    // condition: it holds on every instance of the subject, which the match's state carries.
+    // What the decision leaves of it is assumed, and stated too under `SubjectFacts::Reported`.
+    // The subject's constraints themselves travel in the condition, and so does a fact that an
+    // equation of the target rewrites (`normalize_match_condition`).
     let facts = knowledge_facts(subject_knowledge, &subject.constraints);
     let (substitution, constraints, facts) = match normalize_match_condition(
         definition,
@@ -3278,14 +3319,22 @@ fn match_condition(
         Ok(normalized) => normalized,
         Err(outcome) => return Ok(Err(PatternMatchError::Simplification(outcome.into()))),
     };
-    // A match reports that an instance exists, so the facts are decided before they are taken as
-    // known (I7'): a refuted fact means the subject has no instance, and so no instance of it
-    // matches. An undecided fact stays a fact about the subject, not a condition of the match.
-    // Only the decided residual is assumed, which leaves the condition's meaning on the subject's
-    // instances unchanged: `F' ∧ simplify(C | F')` is `F' ∧ C`.
+    // The facts are decided before they are taken as known (I7'): a refuted fact means the
+    // subject has no instance, so none of its instances matches. Only the decided residual is
+    // assumed: `F' ∧ simplify(C | F')` is `F' ∧ C` on the subject's instances. A search match
+    // also states it (`SubjectFacts::Reported`): the subject denotes nothing where a fact fails,
+    // so `state ∧ F' ∧ C` is `state ∧ C`, and an empty condition then says every fact is
+    // established. `match_disjunction` only assumes it.
     let facts = match facts.decide(definition, options, solver)? {
         FactsVerdict::Refuted => return Ok(Ok(None)),
         FactsVerdict::NotRefuted(facts) => facts,
+    };
+    // The decisions below (truth, satisfiability, refusal) read the constraints alone; the
+    // residual is stated, not decided, so a residual over an uncomputed application is not
+    // refused.
+    let reported = |constraints: Vec<Predicate>| match subject_facts {
+        SubjectFacts::Assumed => constraints,
+        SubjectFacts::Reported => stated_condition(constraints, facts.as_known()),
     };
     let constraints = match simplify_predicates_with_solver(
         definition,
@@ -3330,7 +3379,7 @@ fn match_condition(
                     )? {
                         RefusedConstraints::Valid(constraints) => Ok(Some(PatternMatch {
                             substitution,
-                            constraints,
+                            constraints: reported(constraints),
                         })),
                         RefusedConstraints::Refuted => Ok(None),
                         RefusedConstraints::Undecided => {
@@ -3344,8 +3393,18 @@ fn match_condition(
 
     Ok(Ok(Some(PatternMatch {
         substitution,
-        constraints,
+        constraints: reported(constraints),
     })))
+}
+
+/// `constraints` followed by the members of `facts` not already among them, in their order.
+fn stated_condition(mut constraints: Vec<Predicate>, facts: &[Predicate]) -> Vec<Predicate> {
+    for fact in facts {
+        if !constraints.contains(fact) {
+            constraints.push(fact.clone());
+        }
+    }
+    constraints
 }
 
 /// What the solver decides of the constraints of a match condition that hold an application
@@ -3501,9 +3560,8 @@ fn normalize_match_condition(
         // No round adds a fact once none remains, so the statuses matter only while some do.
         if !facts.is_empty() {
             if equation_on_every_instance {
-                // A fact whose binding's definedness cannot be stated is left out, which only
-                // weakens the facts.
-                facts = eliminate_bindings(definition, &facts, &binding, &[]).unwrap_or_default();
+                // Fails exactly when the elimination below fails (same walk of the same value).
+                facts = eliminate_bindings(definition, &facts, &binding, &[])?;
             } else {
                 for (holds, constraint) in on_every_instance.iter_mut().zip(&constraints) {
                     if *holds && mentions_variable(constraint, &variable) {
@@ -6466,6 +6524,56 @@ mod tests {
         };
         assert_eq!(witness.pattern, expected, "{witness:#?}");
         assert_eq!(simplification_ids(&witness.trace), Vec::<String>::new());
+    }
+
+    /// The final state `wrap(partial("v"))` denotes `⌈partial("v")⌉ ∧ wrap(partial("v"))`, and
+    /// no equation decides that fact. A search match states it in its condition, so the match's
+    /// empty condition cannot be read as "the state has an instance"; `match_disjunction` keeps
+    /// its condition relative to the subject's instances and assumes it.
+    #[test]
+    fn a_search_match_states_the_undecided_definedness_of_its_state() {
+        let definition = discarded_operand_definition();
+        let options = SearchOptions {
+            search_type: SearchType::Final,
+            ..SearchOptions::default()
+        };
+        let target = pattern(&definition, "X:SortC{}");
+        let undecided = vec![Predicate::Ceil(
+            pattern(&definition, r#"partial{}(\dv{SortS{}}("v"))"#).term,
+        )];
+
+        let states = search_pattern(
+            &definition,
+            pattern(&definition, "start{}()"),
+            &target,
+            options.clone(),
+        );
+        assert!(states.incomplete.is_empty(), "{:?}", states.incomplete);
+        let [found] = states.matches.as_slice() else {
+            panic!("expected one match, found {:?}", states.matches);
+        };
+        assert!(found.state.pattern.constraints.is_empty(), "{found:#?}");
+        assert_eq!(found.constraints, undecided, "{found:#?}");
+
+        let paths = search_pattern_paths(
+            &definition,
+            pattern(&definition, "start{}()"),
+            &target,
+            options,
+        );
+        assert!(paths.incomplete.is_empty(), "{:?}", paths.incomplete);
+        let [witness] = paths.matches.as_slice() else {
+            panic!("expected one match, found {:?}", paths.matches);
+        };
+        assert_eq!(witness.constraints, undecided, "{witness:#?}");
+
+        let relative = match_disjunction(&definition, &target, &[witness.witness.pattern.clone()])
+            .unwrap()
+            .unwrap();
+        let [relative] = relative.as_slice() else {
+            panic!("expected one relative match, found {relative:?}");
+        };
+        assert!(relative.constraints.is_empty(), "{relative:?}");
     }
 
     /// A definition with a partial `divInt` (no `total` attribute, no ceil equation) and a

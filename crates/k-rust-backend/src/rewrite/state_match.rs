@@ -32,6 +32,8 @@
 //! and *undecided* otherwise. A state with constraints is first simplified once more as a leaf
 //! would be (`execute::simplify_leaf_pattern`), which may drop a redundant constraint; a state
 //! without constraints is already in that form.
+//! A search match states the state's undecided facts in its condition; this module's matcher
+//! (`match_disjunction_with_solver`) assumes them, so existence is `ground_defined` here.
 //!
 //! A reach is *clean* when the diagnostics of the path that reached the state, up to the state,
 //! hold nothing the existence of that path may rest on without having been decided: no
