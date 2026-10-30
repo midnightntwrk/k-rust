@@ -260,12 +260,16 @@ An agent proving open cases gains most: a refutation found in seconds stops it w
 | One program's runs (a claim) | a concrete run of the claim's program that misses the target | a pattern target on that program, with its symbolic values as holes |
 | Every reachable state, whole-run safety | a program that reaches a bad state | a pattern target at any state, over a template |
 | Two definitions (`relate`, `refine`) | one input with different ends | the differential target. It compares only ends that are data in both definitions, with no translation between their constructors |
-| Two runs of one definition (`terminal_unique`, noninterference) | one input with two different ends; two inputs that agree on public values and differ in public output | not built. An all-paths run lists every end of one input, but no target asks for two different ones, and no target pairs two inputs |
+| Two runs of one definition (`terminal_unique`, noninterference) | one input with two different ends; two inputs that agree on public values and differ in public output | k2lean replays and the kernel checks such a refutation from an input the author writes (`confluence --witnesses`, `KPrelude/TwoRuns.lean`; `design.md` §3.6). Finding the input is not built: an all-paths run lists every end of one input, but no target asks for two ends that differ under an observation, and no target pairs two inputs |
 | One step, per rule (invariant preservation, no stuck states, the per-rule cases of noninterference and `refine`) | a configuration that satisfies the premise, from which the rule's step breaks the conclusion | **not reachable by program search.** The fuzzer visits only states that some program reaches, while a stuck invariant proof is usually about a true invariant that is not inductive: it fails only at states no program reaches. This needs configurations generated under the premise. KORE-pattern holes and the sort-directed generators are reusable for that; a premise over a whole configuration is not built. Generation could equally run in Lean, on the executable `step` that `Adequacy` ties to `Step` |
 
 The per-rule row is where most of k2lean's open cases are, and the one the existing tools do not reach.
 The rows above it are mostly recipes over what exists: an agent writes the stuck statement as a target and runs the fuzzer.
 Turning a witness, which is a K input, into a Lean refutation stays k2lean's part.
+
+**The boundary for two-run refutations** (Sebastien, 2026-10-31): the search for the input belongs to `krust fuzz`, as a target, and k2lean reads its witness through `--witnesses` as it reads an author's program today.
+The target is open. It needs the observation the theorem compares (a cell, or the part of the configuration that `--obs` names), and for noninterference the relation on inputs (public values equal).
+k2lean's own search over `successors` stays what it is: it finds the two runs from a given input, and it does not search for inputs.
 
 **Experiment that would make it real:** take `countAllOccurrences` equation 2 and one open per-rule case of a fixture, and see what the existing tools find for each: the critical-pair check for the equation, a pattern target or KORE-pattern holes for the case.
 The result decides whether this is a recipe in the docs or a feature, and on which side (fuzzer or k2lean) configuration generation belongs.
