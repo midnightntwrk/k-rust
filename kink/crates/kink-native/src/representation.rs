@@ -14,8 +14,9 @@
 //! stores every such domain value as the canonical text of its value on every route
 //! (`docs/compatibility.md`, "Domain values"; pinned by `tests/representation.rs`,
 //! `the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned`), so two such terms
-//! are one term exactly when they denote one value, and kink's comparison of terms compares
-//! values.
+//! are one term exactly when they denote one value under k-rust's stated readings (kink README,
+//! premises P-F1 to P-F4 and P-M1, decision D-3), and a respelled literal is the same element in
+//! every rule k-rust applies. kink compares no end that holds such a value yet (TV-01).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -285,7 +286,9 @@ fn validate_artifacts(
                             if let Pattern::DomainValue { sort, value } = node {
                                 // A domain value of a sort hooked `FLOAT.Float` or `MINT.MInt`
                                 // is stored as the canonical text of its value, so it is
-                                // admitted.
+                                // admitted: two such terms are one term exactly when they denote
+                                // one value under k-rust's stated readings (kink README, decision
+                                // D-3).
                                 let clause = match sort_hook(sort, &hooks) {
                                     Some("INT.Int")
                                         if sort_name(sort) != "SortInt"

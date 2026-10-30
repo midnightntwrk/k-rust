@@ -3727,8 +3727,11 @@ fn t12_patch(baseline: &Baseline, rule: &str, edit: &T12Edit) -> Patch {
 ///   holds on the one value the test reaches, `1.0p53x11`, so the mutant takes the baseline's
 ///   step and Survives.
 /// - `A2` and `M1` (Z3 profile): the respelled literal names the baseline's element, so the
-///   mutant loads to the baseline's backend definition and Survives. Without Z3 the MInt
-///   fixture is not loadable.
+///   mutant loads to the baseline's backend definition and Survives (M1 by k-rust's MInt reading,
+///   kink README premise P-M1). Without Z3 the MInt fixture is not loadable.
+/// - R3-ADMIT-FLOAT fix round 1: the census refuses the `t12probe.k` rows before any run, so
+///   they exercise no canonicalization; `census_free_float_spelling_routes_are_not_killed` runs
+///   F6, F8, F9, F11, F12 and V5b on census-free rows of `floatzero.k`.
 /// - every `t12probe.k` row: its own rules apply `+Float` and `/Float`, whose value k-rust
 ///   chooses, so the census excludes every run on it and the baseline is refused
 ///   (`implementation-chosen-hook`) before any mutant runs.
@@ -9555,10 +9558,13 @@ mod kink_tier {
     }
 
     /// R3-ADMIT-FLOAT: k-rust stores every Float domain value as the canonical text of its value,
-    /// so kink compares Float literals by value. On `floatzero.k` from `start(0)` (the binary64
-    /// zero), a respelling of `point`'s `0.0` that names the same element (`0.00e5`,
-    /// `0e+00p53x11`) Survives, and one that names another element is killed: `-0.0` is the other
-    /// signed zero and `0.0f` the binary32 zero, so the test's zero takes `pointow` instead.
+    /// so a respelled literal is the same element in every rule k-rust applies. On `floatzero.k`
+    /// from `start(0)` (the binary64 zero), a respelling of `point`'s `0.0` that names the same
+    /// element (`0.00e5`, `0e+00p53x11`) Survives, and one that names another element is killed,
+    /// because the test's zero takes `pointow` instead. The `0.0f` kill is determined by K's text:
+    /// the suffix fixes the format, and `precisionFloat` is a function. The `-0.0` kill rests on
+    /// k-rust's reading that a zero literal keeps the sign written (kink README, premise P-F2): K's
+    /// text reads `-0.0` as the rational 0, which both zeros are equally near.
     /// Every row is measured before the first assertion.
     #[test]
     #[ignore = "kink"]
@@ -9584,7 +9590,9 @@ mod kink_tier {
             for (to, same) in [
                 ("0.00e5", true),
                 ("0e+00p53x11", true),
+                // Premise P-F2 (the sign of a zero literal is the sign written).
                 ("-0.0", false),
+                // Determined by K's text (the format is part of the value).
                 ("0.0f", false),
             ] {
                 let patch = t12_patch(baseline, label, &T12Edit::Respell("0.0", to));
@@ -9609,6 +9617,236 @@ mod kink_tier {
                 } else {
                     assert!(result.killed(), "{to} {mode:?}: {result:?}");
                     result.assert_justified(&format!("{to} {mode:?}"));
+                }
+            }
+        });
+    }
+
+    /// R3-ADMIT-FLOAT fix round 1: the TB-03 routes whose `t12probe.k` rows the census refuses
+    /// (that fixture applies `+Float` and `/Float`), on census-free rows of `floatzero.k` that
+    /// reach their values through `Int2Float`, `rootFloat` and `^Int` only. Each mutant respells
+    /// a literal to another spelling of the element it names, or writes `==K` for `==Float` where
+    /// both sides are one element, so each row runs and Survives, with the baseline's one
+    /// comparison agreeing: the signed-zero respelling (F6), the NaN (F8; one NaN per format,
+    /// premise P-F3), the infinity (F9; 2^1024 rounds to the infinity, premise P-F1's overflow),
+    /// `==K` for `==Float` (F11), a literal in a function equation compared with `==K` (F12), and
+    /// two literals of one value compared with `==K` in a function (V5b). Each route has a
+    /// control that names another element (`NaNf`, the binary32 NaN; `-Infinity`; `2.0`) and is
+    /// killed, so the baseline's test does reach the literal's rule (F6's control is
+    /// `float_literal_spellings_are_compared_by_value`'s `0.0f`). The F8 control's kill rests on
+    /// premise P-F4 (an even root of a negative value is NaN) and the F9 control's on P-F1 (2^1024
+    /// overflows to the infinity). Every row is measured before the first assertion.
+    #[test]
+    #[ignore = "kink"]
+    fn census_free_float_spelling_routes_are_not_killed() {
+        with_stack(|| {
+            use T12Edit::{Equality as Eq, Respell as R};
+            let validator = shared_validator("floatzero.k", "FLOATZERO");
+            let baseline = validator.baseline();
+            let routes = [
+                ("F6", "point", R("0.0", "0e+00p53x11"), "start", 0, true),
+                ("F8", "nanp", R("NaN", "NaNp53x11"), "nans", -1, true),
+                ("F8-control", "nanp", R("NaN", "NaNf"), "nans", -1, false),
+                (
+                    "F9",
+                    "infp",
+                    R("Infinity", "Infinityp53x11"),
+                    "infs",
+                    1024,
+                    true,
+                ),
+                (
+                    "F9-control",
+                    "infp",
+                    R("Infinity", "-Infinity"),
+                    "infs",
+                    1024,
+                    false,
+                ),
+                ("F11", "eqp", Eq("_==K_"), "eqs", 1, true),
+                ("F11-control", "eqp", R("1.0", "2.0"), "eqs", 1, false),
+                (
+                    "F12",
+                    "onee",
+                    R("1.0", "1.0000000000000000e+00p53x11"),
+                    "eqns",
+                    1,
+                    true,
+                ),
+                ("F12-control", "onee", R("1.0", "2.0"), "eqns", 1, false),
+                ("V5b", "lstart", R("1.00", "1.0"), "lstart", 0, true),
+                (
+                    "V5b-control",
+                    "lstart",
+                    R("1.00", "2.0"),
+                    "lstart",
+                    0,
+                    false,
+                ),
+            ];
+            let mut rows = Vec::new();
+            for (id, label, edit, start, arg, same) in routes {
+                let label = format!("FLOATZERO.{label}");
+                let patch = t12_patch(baseline, &label, &edit);
+                let generation = fixed(baseline, &[(&label, &[0])], "r3-float-value", &patch);
+                let tests = [case(
+                    id,
+                    support::initial_state(app(start, vec![support::int(arg)]), "SortProg"),
+                    &[whole_term()],
+                )];
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "FLOATZERO",
+                    observation: &[],
+                    classify: &tv01_classify,
+                    tests: &tests,
+                    budget: BUDGET,
+                };
+                for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let outcome = run_campaign(&campaign, &generation, mode);
+                    let result = ViResult::of_outcome(&outcome);
+                    let detail = outcome.as_ref().err().map(ToString::to_string);
+                    eprintln!("R3-FLOAT census-free {id} {mode:?}: {result:?} {detail:?}");
+                    rows.push((id, same, mode, result));
+                }
+            }
+            for (id, same, mode, result) in rows {
+                if !same {
+                    assert!(result.killed(), "{id} {mode:?}: {result:?}");
+                    result.assert_justified(&format!("{id} {mode:?}"));
+                    continue;
+                }
+                assert!(!result.killed(), "STOP: {id} {mode:?}: {result:?}");
+                assert_eq!(
+                    result,
+                    ViResult::Ran {
+                        tests: vec![(id.into(), TestRun::Compared(vec![A]))],
+                        status: MutantStatus::Survived,
+                        killing: vec![]
+                    },
+                    "{id} {mode:?}"
+                );
+            }
+        });
+    }
+
+    /// R3-ADMIT-FLOAT fix round 1: kompile's constant fold writes Float literals the definition
+    /// does not. `floatzero.k`'s `fold` writes `0.1 +Float 0.2`; kompile folds the binary64 sum
+    /// into a literal, so the compiled definition applies no hook the census reads (its
+    /// definition exclusion is none) and the representation gate admits the literal. From
+    /// `fold(0)` the folded value reaches `fpoint`: a respelling of `fpoint`'s
+    /// `0.30000000000000004` to another decimal of the same binary64 value Survives, and its
+    /// respelling to `0.3` is killed. That kill rests on k-rust's IEEE 754 addition under
+    /// roundTiesToEven (kink README, premises P-F1 and P-F4), which the census, reading only the
+    /// compiled rules, never sees. FLOATMIXED's `0.1f +Float 0.2` sums a binary32 and a binary64
+    /// literal, whose result format only an execution chooses, so kompile leaves `FLOAT.add`
+    /// applied, and the census excludes the definition (`implementation-chosen-hook`) before any
+    /// mutant runs.
+    #[test]
+    #[ignore = "kink"]
+    fn folded_float_literals_are_admitted_and_mixed_formats_are_not() {
+        use kink_native::exclusion::DefinitionExclusions;
+        with_stack(|| {
+            let mut rows = Vec::new();
+            for (module, label, start, to, expected) in [
+                (
+                    "FLOATZERO",
+                    "fpoint",
+                    "fold",
+                    "0.3000000000000000444",
+                    "survived",
+                ),
+                ("FLOATZERO", "fpoint", "fold", "0.3", "killed"),
+                ("FLOATMIXED", "mpoint", "mixed", "0.3", "refused"),
+            ] {
+                let validator = shared_validator("floatzero.k", module);
+                let compiled = validator.compile_baseline().expect("baseline compiles");
+                let exclusions =
+                    DefinitionExclusions::of_validated(&compiled, module).expect("exclusions");
+                let hooks = exclusions
+                    .implementation_chosen
+                    .iter()
+                    .map(|hook| format!("{hook:?}"))
+                    .collect::<Vec<_>>();
+                let baseline = validator.baseline();
+                let label = format!("{module}.{label}");
+                let patch = t12_patch(
+                    baseline,
+                    &label,
+                    &T12Edit::Respell("0.30000000000000004", to),
+                );
+                let generation = fixed(baseline, &[(&label, &[0])], "r3-float-value", &patch);
+                let tests = [case(
+                    "fold",
+                    support::initial_state(app(start, vec![support::int(0)]), "SortProg"),
+                    &[whole_term()],
+                )];
+                let campaign = Campaign {
+                    validator: &validator,
+                    module,
+                    observation: &[],
+                    classify: &tv01_classify,
+                    tests: &tests,
+                    budget: BUDGET,
+                };
+                for mode in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+                    let outcome = run_campaign(&campaign, &generation, mode);
+                    let result = ViResult::of_outcome(&outcome);
+                    let exclusion = outcome
+                        .as_ref()
+                        .err()
+                        .and_then(|failure| failure.exclusion());
+                    eprintln!(
+                        "R3-FLOAT fold {module} -> {to} {mode:?}: {result:?} {exclusion:?} \
+                         census {:?} {hooks:?}",
+                        exclusions.definition_exclusion()
+                    );
+                    rows.push((
+                        module,
+                        to,
+                        expected,
+                        mode,
+                        exclusions.definition_exclusion(),
+                        result,
+                        exclusion,
+                    ));
+                }
+            }
+            for (module, to, expected, mode, census, result, exclusion) in rows {
+                let context = format!("{module} -> {to} {mode:?}");
+                match expected {
+                    "survived" => {
+                        assert_eq!(census, None, "{context}");
+                        assert_eq!(
+                            result,
+                            ViResult::Ran {
+                                tests: vec![("fold".into(), TestRun::Compared(vec![A]))],
+                                status: MutantStatus::Survived,
+                                killing: vec![]
+                            },
+                            "{context}"
+                        );
+                    }
+                    "killed" => {
+                        assert_eq!(census, None, "{context}");
+                        assert!(result.killed(), "{context}: {result:?}");
+                        result.assert_justified(&context);
+                    }
+                    _ => {
+                        assert_eq!(
+                            census,
+                            Some(Exclusion::ImplementationChosenHook),
+                            "{context}"
+                        );
+                        assert_eq!(
+                            (result, exclusion),
+                            (
+                                ViResult::Refused(CampaignFailureKind::BaselineOracleFailed),
+                                Some(Exclusion::ImplementationChosenHook)
+                            ),
+                            "{context}"
+                        );
+                    }
                 }
             }
         });

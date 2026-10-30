@@ -151,7 +151,8 @@ pub fn validate_test_initial_state(
                         sort.hook.as_deref() == Some("FLOAT.Float")))
             {
                 return Err(ExecutionAdapterFailure::InvalidState(
-                    "test state contains a Float domain value without canonical token identity"
+                    "test state contains a Float domain value, which kink does not admit yet \
+                     (R3-FLOAT-VALUES)"
                         .into(),
                 ));
             }
@@ -161,12 +162,15 @@ pub fn validate_test_initial_state(
                         sort.hook.as_deref() == Some("MINT.MInt")))
             {
                 return Err(ExecutionAdapterFailure::InvalidState(
-                    "test state contains a MInt domain value without canonical token identity"
+                    "test state contains a MInt domain value, which kink does not admit yet \
+                     (R3-FLOAT-VALUES)"
                         .into(),
                 ));
             }
-            // k-rust canonicalizes Int text only at SortInt; a renamed INT.Int-hooked sort is
-            // compared by spelling, so only canonical decimal is admitted (TB-03 review 1, F2).
+            // A test state may hold only the canonical decimal of a renamed INT.Int-hooked sort
+            // (TB-03 review 1, F2). k-rust stores every such value as its canonical text
+            // (`docs/compatibility.md`, "Domain values"); the refusal is kept pending its review
+            // with the Float and MInt refusals above (R3-FLOAT-VALUES).
             if let Pattern::DomainValue { sort, value } = node
                 && matches!(sort, Sort::Application { name, .. }
                     if name != "SortInt" && definition.sorts().get(name.as_str()).is_some_and(

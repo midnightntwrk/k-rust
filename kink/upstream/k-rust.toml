@@ -634,6 +634,7 @@ sources = ["k-in-k2 draft/tasks/variable-identity/decisions/VI-T12-options.md", 
 status_at_main = "fixed"
 status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: Term::domain_value_of canonicalizes by the sort's hook (k-rust-backend term.rs:1224-1234, builtin/float/canonical.rs:73-84, definition.rs:2807-2826); documented docs/compatibility.md:633-637; tests term.rs:5000-5033 and src/tests/domain_values.rs:477-521; the frontend does not rewrite Float tokens; commits 9488018c3, 509501710, 2e5d5af84, c164ee13c, 86edb97c6; tb02float.k and t12probe.k not run"
 update_2026_10_17 = "Re-judged at 501f18b9; this row has no handoff id. kink still refuses FLOAT.Float domain values (TB-03, representation.rs FloatLiteral). Since R0b it also excludes any definition whose own rules apply a FLOAT hook whose value k-rust chooses: FLOAT.add, sub, mul, div, min and max of mixed formats, and FLOAT.sign (ANALYSIS decision 1). Whether to retire the TB-03 Float refusal is a kink-side decision; the k-rust request is satisfied."
+update_2026_10_30 = "kink27 R3-ADMIT-FLOAT: kink no longer refuses FLOAT.Float domain values in a definition (representation clause G-F is retired); the update_2026_10_17 sentence that it still does is stale. A respelled literal is the same element in every rule k-rust applies; which element a literal names, and which value kompile's fold writes, rest on k-rust's readings that kink README lists as premises P-F1 to P-F4 (decision D-3). Test states with a Float value are still refused, and an end holding one is not compared (R3-FLOAT-VALUES)."
 
 [[request]]
 id = "mint-domain-value-canonical"
@@ -653,6 +654,7 @@ status_at_main = "fixed"
 status_at_main_basis = "static screen of source at 9ea39ec7 on 2026-10-15: a literal denotes its signed decimal modulo 2^W and its canonical text is the unsigned residue (docs/compatibility.md:629-631; k-rust-backend term.rs:2880-2884, :3044-3098); MINT hooks implemented (builtin/hook_models/mint.rs); commits ac6e0d1ff, e896416d2; t12mint.k not run, and whether the portable build loads MInt rules was not checked"
 where_requested_shape_differs = "Literal semantics confirmed as K's (domains.md MINT.literal): the value is the residue modulo 2^W, so 256p8 and 0p8 are one element, and 0377p8 reads as decimal 377 (121p8). The text is canonicalized, not refused."
 update_2026_10_17 = "Re-judged at 501f18b9; this row has no handoff id. kink's TB-03 MInt refusal stays in place; retiring it is a kink-side decision."
+update_2026_10_30 = "kink27 R3-ADMIT-FLOAT: kink no longer refuses MINT.MInt domain values in a definition (representation clause G-M is retired); the update_2026_10_17 sentence that the refusal stays is stale. where_requested_shape_differs calls the residue and decimal reading K's; domains.md (MINT, Machine integer of bit width and value) does not fix it, and kink README lists it as k-rust's reading, premise P-M1 (decision D-3). Test states with a MInt value are still refused (R3-FLOAT-VALUES)."
 
 [[request]]
 id = "string-hex-escape-code-point"

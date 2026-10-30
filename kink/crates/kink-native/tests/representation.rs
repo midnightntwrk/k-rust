@@ -660,9 +660,13 @@ fn audit_vi_t12_macros_text_is_parsed_in_the_emitted_form() {
 /// R3-ADMIT-FLOAT: G-F and G-M are retired. k-rust builds every domain value of a sort hooked
 /// `FLOAT.Float` or `MINT.MInt` as the canonical text of its value on every route
 /// (`docs/compatibility.md`, "Domain values"), so two spellings of one element are one term and
-/// two elements stay two terms: the gate admits every spelling, including ones that name the
-/// same element (`1.0`/`1.0e0`, `1p8`/`01p8`, `-1p8`) and ones that name other elements of the
-/// format (`-0.0`, `NaN`, `Infinity`, `1.0p53x11`, `0.5f`).
+/// two elements stay two terms. The gate admits every Float and MInt text, and k-rust's load
+/// decides which element it names or refuses it: the Float rows name elements of their format
+/// (`1.0`/`1.0e0` one element, `-0.0`, `NaN`, `Infinity`, `1.0p53x11`, `0.5f` others, by k-rust's
+/// readings, kink README P-F1 to P-F3). At `SortMInt{}`, a sort hooked `MINT.MInt` with no width
+/// argument, load refuses every literal (NoWidth), so those rows show only that the gate does not
+/// decide it; at the parametric `SortMInt{Sort8{}}`, `1p8`, `01p8` and `257p8` name one element,
+/// and `-1p8` and `255p8` another (premise P-M1).
 #[test]
 fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
     for (sort, value) in [
@@ -684,14 +688,31 @@ fn float_and_mint_spellings_are_admitted_where_g_f_refused() {
         let result = validate_representation_ast(&definition, None, &loaded(None));
         assert!(result.is_ok(), "{sort} {value}: {result:?}");
     }
+    let width = r#"
+ hooked-sort SortMInt{S} [hook{}("MINT.MInt")]
+ sort Sort8{} []
+"#;
+    for value in ["1p8", "01p8", "257p8", "-1p8", "255p8"] {
+        let definition = kore(
+            width,
+            &format!(r#"axiom{{}} \dv{{SortMInt{{Sort8{{}}}}}}("{value}") []"#),
+        );
+        let result = validate_representation_ast(&definition, None, &loaded(None));
+        assert!(result.is_ok(), "SortMInt{{Sort8{{}}}} {value}: {result:?}");
+    }
 }
 
 /// R3-ADMIT-FLOAT: the passages of k-rust's contract that Float and MInt admission rests on.
 /// The first four say that every route stores a Float or MInt domain value as the canonical text
-/// of its value, so kink compares those terms by value; the last two are the readings that decide
-/// which value a Float literal names (roundTiesToEven at a tie, one NaN per format), which kink
-/// takes on as premises (kink README, decision D-3). A change of any of them fails here, and the
-/// admission is read again against it.
+/// of its value, so a respelled literal is the same element in every rule k-rust applies. The
+/// others state the readings that decide which element a literal names and which value kompile's
+/// fold writes, which K's text does not fix and kink takes on as premises (kink README, premises
+/// P-F1 to P-F4 and P-M1, decision D-3): IEEE roundTiesToEven with its overflow (Backend scope
+/// and the Float literal paragraph), the sign of a zero literal (the `precisionFloat` paragraph
+/// and the Float literal paragraph), one NaN per format, the residue and decimal reading of an
+/// MInt literal, the fold of binary32/64 `FLOAT` applications over literals, and k-rust's IEEE
+/// arithmetic (the `Float` paragraph of Backend scope, and `rootFloat`'s NaN). A change of any of
+/// them fails here, and the admission is read again against it.
 #[test]
 fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
     let passage = |anchor, opening, digest| passage::Passage {
@@ -733,6 +754,37 @@ fn the_domain_value_passages_float_and_mint_admission_rests_on_are_pinned() {
                 "## Backend scope",
                 "k-rust's reading: every spelling of `NaN` in one format",
                 "793378856555a4fc7386b32d9f2aecfcbc5f5fcaac896a9e2a9c7af4261c1df2",
+            ),
+            // Fix round 1: the passages the further premises rest on.
+            passage(
+                "## Backend scope",
+                "A `Float` is an IEEE 754 value whose precision and exponent width",
+                "6c9e9468529f06e497884d8cbf602a4c8a8304d64c9386ebc634fc03d2d8491c",
+            ),
+            passage(
+                "## Backend scope",
+                "`precisionFloat`, `exponentBitsFloat`, `signFloat` and `isNaN` are evaluated",
+                "04406fecbbe1a33902834983f6620e151ec27fb1106efd9c5b425d934c4fc749",
+            ),
+            passage(
+                "## Domain values",
+                "A machine-integer literal of `MInt{W}`",
+                "a24fb364c8c47aeb758e29034c3c3b47e0c23fbce9260e66eea5279a34a1d1f8",
+            ),
+            passage(
+                "## Domain values",
+                "A `Float` literal names a rational number",
+                "29985a65ce3811f6078b179bf932a108a776dccb3bed69091535423c4c8c93dc",
+            ),
+            passage(
+                "## Constant folding",
+                "The `FLOAT` hooks are folded exactly where the backend computes them",
+                "c1bf025adf14e52c2c558a72b2edf67e5155f0abb83325d078cc0265548feabe",
+            ),
+            passage(
+                "## Hook values at the edges of their domains",
+                "- `rootFloat(F, N)` is \"the Nth integer root\" of `F`",
+                "3c500f7eaf36d7a8cedadfc12e29cbe8d398b12f4bee60a8b74a2b258816e6df",
             ),
         ],
     );
