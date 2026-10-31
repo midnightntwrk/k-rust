@@ -433,7 +433,8 @@ module MAIN
   syntax Int ::= String2PInt(String) [function, hook(STRING.string2token)]
   syntax Pgm ::= upd(Int) | rng(Int) | ul(Int) | ord(String) | s2i(String) | s2b(String, Int)
                | b2s(Int, Int) | dec(Bytes) | tok(String) | get(Int) | make(Int) | chr(Int)
-               | pow(Int) | "cho" | div(Int) | skip(Int) | st(Int, Int, List) | done(KItem)
+               | pow(Int) | "cho" | div(Int) | skip(Int) | st(Int, Int, List) | rpl(Int)
+               | done(KItem)
   configuration <k> $PGM:Pgm </k>
   rule upd(I) => done(ListItem(1) [ I <- 0 ])
   rule rng(I) => done(range(ListItem(1), I, 0))
@@ -452,6 +453,7 @@ module MAIN
   rule div(N) => done(1 /Int N)
   rule skip(I) => done(#if true #then 1 #else size(ListItem(1) [ I <- 0 ]) #fi)
   rule st(I, V, _ [ I <- V ]) => done(0)
+  rule rpl(I) => done(replaceAtBytes(b"\x01\x02\x03", I, b"\x00\x00"))
 endmodule
 "#;
 
@@ -523,7 +525,17 @@ fn a_bottom_outside_a_described_domain_is_marked_and_a_determined_one_is_not() {
         "st(5, 0, ListItem(1))",
         &outside("LIST.update"),
     );
-    for determined in ["get(5)", "make(-1)", "chr(-1)", "pow(-1)", "cho", "div(0)"] {
+    // `replaceAtBytes(B, I, S)` is `#False` where `I + lengthBytes(S)` "is not a valid index":
+    // a negative `I` starts the replacement nowhere the text describes (`rpl(-1)`, `\bottom`
+    // taken), and where `I + lengthBytes(S)` is the length of `B` the two readings of "valid
+    // index" disagree (`rpl(1)`, k-rust's value taken). Below 0 or above the length it is no
+    // index under either reading (`rpl(-3)`, `rpl(2)`).
+    assert_marked(OUTSIDE_BOTTOM, "rpl(-1)", &outside("BYTES.replaceAt"));
+    assert_marked(OUTSIDE_BOTTOM, "rpl(1)", &outside("BYTES.replaceAt"));
+    assert_marked(OUTSIDE_BOTTOM, "rpl(0)", &[]);
+    for determined in [
+        "get(5)", "make(-1)", "chr(-1)", "pow(-1)", "cho", "div(0)", "rpl(2)", "rpl(-3)",
+    ] {
         assert_marked(OUTSIDE_BOTTOM, determined, &[]);
     }
 }

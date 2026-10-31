@@ -348,7 +348,10 @@ fn range(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builtin
     // the list and `fromBack` elements from the back" describes removing counts the list holds;
     // a negative count, or more elements than the list has, is not described. The text states no
     // result length and says nothing there, so it excludes no value (removing every element
-    // there is, say, gives one).
+    // there is, say, gives one). `L[I]` past the end is universal by contrast: "an element of a
+    // list by its integer offset" characterises the value on every offset, as an element at
+    // that offset, which no element satisfies past the end; `range` characterises its result
+    // only by the removal it describes, and past the end no removal is described.
     if front.sign() == Sign::Minus || back.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     }
@@ -431,9 +434,14 @@ fn update(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Builti
         return Ok(BuiltinResult::NotApplicable);
     };
     // Scoped (GAP K2): "a new `List` with a new value at a particular index" describes the
-    // update at an index of the list; a negative index or one past the end is no position of
-    // it, and the text says nothing there. It does not exclude a value: a list holding the new
-    // value at that index exists (the list extended to it, say).
+    // update at an index of the list. An index at or past the end is no position of it, and
+    // the text says nothing there. A negative index is a position only under the convention
+    // "List indexing" states for `L[I]` ("negative indices are -1-indexed from the end"): if
+    // that convention extends to updates, `L[-k <- V]` for `1 <= k <= size(L)` names the update
+    // at `size(L) - k`; the update's section does not restate it and does not say whether it
+    // does, so k-rust leaves it open, which is sound under either reading (the leaf is marked,
+    // and a proof withholds). Neither case excludes a value: a list holding the new value at
+    // that index exists (the list extended to it, say), so `\bottom` is one model's.
     if index.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     }
@@ -502,8 +510,11 @@ fn update_all(arguments: &[Term], result: ResultCollection<'_>) -> HookResult<Bu
     };
     // Scoped (GAP K2), every `\bottom` here: past the end, "Having `index + N > K` yields an
     // exception", which names no value (the text writes `#False` or `#Bottom` where it means
-    // undefinedness), and a negative index is no position of `dest`, at which the text, as for
-    // `L[I <- V]`, describes nothing; with an empty `src` its words even give `dest` itself.
+    // undefinedness). At a negative index "the `N` elements starting at `index`" are elements of
+    // `dest` only under the negative-index convention of "List indexing", which this section,
+    // as `L[I <- V]`'s, does not restate; the text does not say whether it extends here, so
+    // k-rust leaves it open (sound under either reading: marked in an execution, withheld
+    // elsewhere). With an empty `src` the words even give `dest` itself.
     if index.sign() == Sign::Minus {
         return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     }

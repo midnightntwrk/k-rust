@@ -14333,14 +14333,18 @@ endmodule
 /// A partial hook whose description covers only some arguments says nothing of the others, so
 /// `\bottom` and every value of its sort are models there (class `outside-domain`): no claim is
 /// proven from k-rust's `\bottom`. Each `owise` claim holds only in the models that take the
-/// application as undefined, and stays undecided at every scoped site (`L[I <- V]` past the end, `range`, `updateList` past the end
-/// and at a negative index, `ordChar`, `String2Int` and `String2Base` off their syntax, either
-/// radix hook outside `2..36`, `decodeBytes` of an invalid sequence, a partial `String2Token`
-/// naming no element). So do the claims that hold only vacuously, from a `requires` that holds
-/// such an application, even under `--allow-vacuous`. The controls stay proven: an in-range
-/// update, and the sites whose description excludes every value (`L[I]` past the end,
-/// `makeList` of a negative length, `chrChar` of a non-code-point) or whose undefinedness the
-/// text states (`/Int` by zero), where `\bottom` is determined. The claim that `gu(L, 5)`
+/// application as undefined, and stays undecided at every scoped site (`L[I <- V]` past the
+/// end, `range`, `updateList` past the end and at a negative index, `ordChar`, `String2Int` and
+/// `String2Base` off their syntax, either radix hook outside `2..36`, `decodeBytes` of an
+/// invalid sequence, a partial `String2Token` naming no element, `replaceAtBytes` at a negative
+/// index whose end is an index). `replaceAtBytes` up to the end of its `Bytes` (`rpl-tail-*`) is
+/// `#False` under one reading of "valid index" and a value under the other, so neither its `yes`
+/// nor its `owise` claim is proven. So do the claims that hold only vacuously, from a `requires`
+/// that holds such an application, even under `--allow-vacuous`. The controls stay proven: an
+/// in-range update and replacement, and the sites whose description excludes every value
+/// (`L[I]` past the end, `makeList` of a negative length, `chrChar` of a non-code-point) or
+/// whose undefinedness the text states (`/Int` by zero, `replaceAtBytes` whose end is below 0 or
+/// past the length), where `\bottom` is determined. The claim that `gu(L, 5)`
 /// reaches some result (`upd-some`) holds in every model, the yes one where the update has a
 /// value and the `owise` one where it has none, and is proven along both branches: the proof
 /// neither uses the undefinedness nor assumes a value.
@@ -14368,6 +14372,12 @@ module OUTSIDE-SPEC
   claim [make-owise]: <k> gm(-1) => no </k>
   claim [chr-owise]: <k> gc(-1) => no </k>
   claim [div-owise]: <k> gz(0) => no </k>
+  claim [rpl-negative]: <k> gp(b"\x01\x02\x03", -1) => no </k>
+  claim [rpl-tail-yes]: <k> gp(b"\x01\x02\x03", 1) => yes </k>
+  claim [rpl-tail-no]: <k> gp(b"\x01\x02\x03", 1) => no </k>
+  claim [rpl-in-range]: <k> gp(b"\x01\x02\x03", 0) => yes </k>
+  claim [rpl-past]: <k> gp(b"\x01\x02\x03", 2) => no </k>
+  claim [rpl-before]: <k> gp(b"\x01\x02\x03", -3) => no </k>
 endmodule
 "#,
         include_str!("fixtures/outside-domain.k")
@@ -14386,6 +14396,9 @@ endmodule
         "b2s-radix",
         "dec-owise",
         "tok-owise",
+        "rpl-negative",
+        "rpl-tail-yes",
+        "rpl-tail-no",
     ] {
         assert_undecided(&verdicts, claim, &output);
     }
@@ -14396,6 +14409,9 @@ endmodule
         "make-owise",
         "chr-owise",
         "div-owise",
+        "rpl-in-range",
+        "rpl-past",
+        "rpl-before",
     ] {
         assert_eq!(
             claim_verdict(&verdicts, claim, &output),
@@ -14411,13 +14427,15 @@ module VACUOUS-SPEC
   claim [vac-rng]: <k> gu(ListItem(1), 0) => no </k> requires ok(range(ListItem(1), 2, 0))
   claim [vac-ord]: <k> gu(ListItem(1), 0) => no </k> requires ok(ordChar("ab"))
   claim [vac-get]: <k> gu(ListItem(1), 0) => no </k> requires ok(ListItem(1) [ 5 ])
+  claim [vac-rpl]: <k> gu(ListItem(1), 0) => no </k>
+    requires ok(replaceAtBytes(b"\x01\x02\x03", -1, b"\x00\x00"))
 endmodule
 "#,
         include_str!("fixtures/outside-domain.k")
     );
     let (verdicts, output) =
         claim_verdicts_with(&vacuous, "OUTSIDE", "VACUOUS-SPEC", &["--allow-vacuous"]);
-    for claim in ["vac-upd", "vac-rng", "vac-ord"] {
+    for claim in ["vac-upd", "vac-rng", "vac-ord", "vac-rpl"] {
         assert_undecided(&verdicts, claim, &output);
     }
     assert_eq!(

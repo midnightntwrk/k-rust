@@ -127,8 +127,10 @@ pub enum BuiltinResult {
 /// takes it and marks it, every other evaluation leaves the application unevaluated with its
 /// definedness unknown, and at a `total` symbol, where `\bottom` is no model, it is left
 /// unevaluated as a defined value on every route. Each evaluator site that answers
-/// `Undescribed` states why its description is scoped. The BN128 hooks answer `Stated`: every
-/// outcome of theirs, `\bottom` included, is class `curve` by its hook, whatever the label.
+/// `Undescribed` states why its description is scoped. The BN128 hooks answer `Undescribed` too:
+/// the curve is not named, so whether a pair is a point, and with it whether a sum, a multiple or
+/// a pairing is defined, is one model's, and every outcome of theirs is class `curve` by its
+/// hook; at a `total` symbol their `\bottom` is no model either.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Undefinedness {
     /// `\bottom` in every model of the definition.
@@ -593,8 +595,9 @@ impl<'a> HookOutcome<'a> {
 /// says whether the applied symbol is declared `total`, which gives [`ChosenValue::defined`]. The
 /// fold and the evaluation entry read it; a class that needs the value (`LetterCase`,
 /// `ReadCount`, `HexCase`, `OutsideDomain` of the ECDSA hooks, `rootFloat`) does not fire without
-/// it. Of a `\bottom` outcome only the BN128 hooks' (`Curve`) and an
-/// [`Undescribed`](Undefinedness::Undescribed) one (`OutsideDomain`) are classified.
+/// it. Of a `\bottom` outcome only the BN128 hooks' (`Curve`, every one
+/// [`Undescribed`](Undefinedness::Undescribed)) and an `Undescribed` one of the scoped sites
+/// (`OutsideDomain`) are classified.
 ///
 /// - `Order`: `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose
 ///   keys are all constructor-like, and `Set2List(S)` of a closed set of two or more
@@ -635,8 +638,10 @@ impl<'a> HookOutcome<'a> {
 ///   the encoding does not decode, `ordChar` of a string that is not one code point,
 ///   `String2Int` and `String2Base` of a text off the radix's syntax, `String2Base` and
 ///   `Base2String` in a radix outside `2..36`, a partial `String2Token` of a text that names no
-///   element, `L[I <- V]` and `range` out of range, and `updateList` at a negative index or past
-///   the end.
+///   element, `L[I <- V]` and `range` out of range, `updateList` at a negative index or past
+///   the end, and `replaceAtBytes` at a negative index whose end is an index; and the value of
+///   `replaceAtBytes` from a nonnegative index up to the end of its `Bytes`, where the two
+///   readings of "valid index" disagree (`bytes::replaces_up_to_the_end`).
 /// - `FloatRounding`: `Int2Float` of an integer the format does not hold or of 0, `roundFloat`
 ///   of a value the destination does not hold, `Float2Int` at a tie (`float::rounds`), and
 ///   `rootFloat` of a positive finite value whose root is no float (`float::root_open`).
@@ -682,12 +687,17 @@ pub fn chosen_value(
         | "LIST.update"
         | "LIST.range"
         | "LIST.updateAll"
+        | "BYTES.replaceAt"
             if matches!(outcome, HookOutcome::Bottom(Undefinedness::Undescribed)) =>
         {
             Some(ChosenClass::OutsideDomain)
         }
         // Every other `\bottom` is the application's value in every model.
         _ if matches!(outcome, HookOutcome::Bottom(_)) => None,
+        "BYTES.replaceAt" => fires(
+            ChosenClass::OutsideDomain,
+            bytes::replaces_up_to_the_end(arguments),
+        ),
         "MAP.keys_list" | "MAP.values" => {
             fires(ChosenClass::Order, map::lists_several_items(arguments))
         }
@@ -967,7 +977,7 @@ fn evaluate_composed(
         _ => None,
     };
     // Every scoped site's hook is named in `chosen_value`, so its `\bottom` is never taken as
-    // determined.
+    // determined: `outside-domain`, or `curve` for the BN128 hooks, all of whose outcomes are.
     debug_assert!(
         result != BuiltinResult::Bottom(Undefinedness::Undescribed)
             || chosen_value(
@@ -976,7 +986,10 @@ fn evaluate_composed(
                 HookOutcome::Bottom(Undefinedness::Undescribed),
                 total
             )
-            .is_some_and(|chosen| chosen.class == ChosenClass::OutsideDomain),
+            .is_some_and(|chosen| matches!(
+                chosen.class,
+                ChosenClass::OutsideDomain | ChosenClass::Curve
+            )),
         "{hook}: an undescribed \\bottom that chosen_value does not classify"
     );
     if let Some(outcome) = outcome
@@ -5211,6 +5224,7 @@ mod tests {
             "LIST.update",
             "LIST.range",
             "LIST.updateAll",
+            "BYTES.replaceAt",
         ] {
             let chosen = chosen_value(hook, &[], undescribed, false).unwrap();
             assert_eq!(chosen.class, ChosenClass::OutsideDomain, "{hook}");
@@ -5233,10 +5247,37 @@ mod tests {
                 "{hook}"
             );
         }
+        // `replaceAtBytes` up to the end of its `Bytes` from a nonnegative index has a value
+        // under one reading of "valid index" and none under the other: `outside-domain`. Short of
+        // the end it is determined.
+        let replace = |index: i64, source: &[u8]| {
+            [
+                bytes::bytes_term(b"abc"),
+                Term::int(index),
+                bytes::bytes_term(source),
+            ]
+        };
+        let tail = replace(1, b"xy");
+        let value = bytes::bytes_term(b"axy");
+        let chosen =
+            chosen_value("BYTES.replaceAt", &tail, HookOutcome::Value(&value), false).unwrap();
+        assert_eq!(chosen.class, ChosenClass::OutsideDomain);
+        assert!(!chosen.defined && chosen.withheld_in_proof);
+        let inner = replace(0, b"xy");
+        let value = bytes::bytes_term(b"xyc");
+        assert_eq!(
+            chosen_value("BYTES.replaceAt", &inner, HookOutcome::Value(&value), false),
+            None
+        );
+        assert_eq!(
+            evaluate_hook("BYTES.replaceAt", &replace(-1, b"xy")),
+            Ok(Ok(BuiltinResult::Bottom(Undefinedness::Undescribed)))
+        );
         for (hook, arguments) in [
             ("STRING.chr", vec![Term::int(-1)]),
             ("INT.tdiv", vec![Term::int(1), Term::int(0)]),
             ("INT.pow", vec![Term::int(2), Term::int(-1)]),
+            ("BYTES.replaceAt", replace(2, b"xy").to_vec()),
         ] {
             assert_eq!(
                 evaluate_hook(hook, &arguments),
@@ -5255,7 +5296,7 @@ mod tests {
         let point = Term::int(0);
         for hook in ["KRYPTO.bn128add", "KRYPTO.bn128mul", "KRYPTO.bn128ate"] {
             for outcome in [
-                HookOutcome::Bottom(Undefinedness::Stated),
+                HookOutcome::Bottom(Undefinedness::Undescribed),
                 HookOutcome::Value(&point),
                 HookOutcome::Unknown,
             ] {

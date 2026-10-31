@@ -301,6 +301,8 @@ module MAIN
   symbol g1{}(SortInt{}, SortInt{}) : SortG1Point{} [constructor{}()]
   hooked-symbol add{}(SortG1Point{}, SortG1Point{}) : SortG1Point{}
     [function{}(), hook{}("KRYPTO.bn128add")]
+  hooked-symbol totalAdd{}(SortG1Point{}, SortG1Point{}) : SortG1Point{}
+    [function{}(), total{}(), hook{}("KRYPTO.bn128add")]
   hooked-symbol rec{}(SortBytes{}, SortInt{}, SortBytes{}, SortBytes{}) : SortBytes{}
     [function{}(), hook{}("KRYPTO.ecdsaRecover")]
   hooked-symbol totalRec{}(SortBytes{}, SortInt{}, SortBytes{}, SortBytes{}) : SortBytes{}
@@ -361,6 +363,16 @@ fn an_open_outcome_of_a_partial_symbol_is_of_unknown_definedness_outside_an_exec
             "{source}"
         );
     }
+    // A `total` BN128 sum of a non-point is defined in every model, and the curve, which no text
+    // names, decides its value: no route takes k-rust's `\bottom` (GAP K2 fix round 1).
+    let total_sum = sum.replacen("add{}", "totalAdd{}", 1);
+    for mode in [EvaluationMode::Proof, EvaluationMode::Execution] {
+        assert_eq!(
+            definedness(&definition, &total_sum, mode),
+            Predicate::True,
+            "{mode:?}"
+        );
+    }
     assert_eq!(
         definedness(&definition, &sum, EvaluationMode::Execution),
         Predicate::False
@@ -384,6 +396,9 @@ module MAIN
     [function{}(), total{}(), hook{}("STRING.ord")]
   hooked-symbol s2i{}(SortString{}) : SortInt{} [function{}(), hook{}("STRING.string2int")]
   hooked-symbol chr{}(SortInt{}) : SortString{} [function{}(), hook{}("STRING.chr")]
+  hooked-sort SortBytes{} [hook{}("BYTES.Bytes"), hasDomainValues{}()]
+  hooked-symbol rep{}(SortBytes{}, SortInt{}, SortBytes{}) : SortBytes{}
+    [function{}(), hook{}("BYTES.replaceAt")]
 endmodule []"#;
 
 /// GAP K2: where a partial hook's description covers only some arguments, `\bottom` and every
@@ -397,9 +412,42 @@ fn a_bottom_outside_a_described_domain_is_of_unknown_definedness_outside_an_exec
     let syntax = parse_definition(OUTSIDE_BOTTOMS).expect("the fixture parses");
     let definition = BackendDefinition::internalize(&syntax, "MAIN").expect("it internalizes");
     let string = |value: &str| format!(r#"\dv{{SortString{{}}}}("{value}")"#);
+    let rep = |index: i64| {
+        format!(
+            r#"rep{{}}(\dv{{SortBytes{{}}}}("\x01\x02\x03"), \dv{{SortInt{{}}}}("{index}"), \dv{{SortBytes{{}}}}("\x00\x00"))"#
+        )
+    };
+    // `replaceAtBytes` at a negative index (`index + N` an index) and where `index + N` is the
+    // length, at which "valid index" has two readings: of unknown definedness outside an
+    // execution, which takes k-rust's `\bottom` and value. Before the fix round both were
+    // decided.
+    let tail = rep(1);
+    let proof = definedness(&definition, &tail, EvaluationMode::Proof);
+    assert!(
+        !matches!(proof, Predicate::True | Predicate::False),
+        "{tail}: {proof:?}"
+    );
+    assert_eq!(
+        definedness(&definition, &tail, EvaluationMode::Execution),
+        Predicate::True
+    );
+    for (index, defined) in [
+        (0, Predicate::True),
+        (2, Predicate::False),
+        (-3, Predicate::False),
+    ] {
+        for mode in [EvaluationMode::Proof, EvaluationMode::Execution] {
+            assert_eq!(
+                definedness(&definition, &rep(index), mode),
+                defined,
+                "{index} {mode:?}"
+            );
+        }
+    }
     let scoped = [
         format!("ord{{}}({})", string("ab")),
         format!("s2i{{}}({})", string("x")),
+        rep(-1),
     ];
     for source in &scoped {
         let proof = definedness(&definition, source, EvaluationMode::Proof);

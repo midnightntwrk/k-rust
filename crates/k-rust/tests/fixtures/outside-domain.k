@@ -1,7 +1,8 @@
 // Rules whose conditions read a partial hook outside the inputs its description covers, beside
 // controls where the description excludes every value (`L[I]` past the end, `makeList` of a
 // negative length, `chrChar` of a non-code-point) or the text states the undefinedness
-// (`/Int` by zero). Each `yes` rule's condition holds wherever its application is defined
+// (`/Int` by zero, `replaceAtBytes` whose `index + N` is no index under either reading of "valid
+// index"). Each `yes` rule's condition holds wherever its application is defined
 // (`ok` is `total`), so the `owise` rule applies exactly where k-rust takes the application as
 // undefined. `kprove_proves_nothing_from_a_hook_outside_its_described_domain` in cli.rs.
 module OUTSIDE
@@ -13,7 +14,7 @@ module OUTSIDE
   syntax Res ::= "yes" | "no"
   syntax Pgm ::= Res | gu(List, Int) | gr(List, Int) | ga(List, Int) | go(String) | gi(String)
                | gb(String, Int) | gs(Int, Int) | gd(Bytes) | gt(String)
-               | ge(List, Int) | gm(Int) | gc(Int) | gz(Int)
+               | ge(List, Int) | gm(Int) | gc(Int) | gz(Int) | gp(Bytes, Int)
   configuration <k> $PGM:Pgm </k>
   rule gu(L, I) => yes requires ok(L [ I <- 0 ])
   rule gu(_, _) => no [owise]
@@ -41,4 +42,6 @@ module OUTSIDE
   rule gc(_) => no [owise]
   rule gz(N) => yes requires ok(1 /Int N)
   rule gz(_) => no [owise]
+  rule gp(B, I) => yes requires ok(replaceAtBytes(B, I, b"\x00\x00"))
+  rule gp(_, _) => no [owise]
 endmodule

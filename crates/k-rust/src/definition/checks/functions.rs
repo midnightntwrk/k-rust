@@ -28,10 +28,15 @@
 //! `LIST.update` is not a collection constructor: an update `L[I <- V]` is a function of a list,
 //! not a way to write one, so it is admitted on a left-hand side where a function application
 //! is (inside a collection argument of a rewrite rule), and elsewhere on a rewrite rule's
-//! left-hand side in one more shape. A list `S` is an update of some list at `I` with `V`
-//! exactly when `I` indexes `S` and `S` holds `V` there, so a rewrite rule decides that match
-//! by value (with `S` itself as the updated list) as long as nothing reads which list was
-//! updated: the list argument is a variable that occurs nowhere else in the rule, such as `_`.
+//! left-hand side in one more shape. A list `S` that `I` indexes and that holds `V` there is an
+//! update of some list at `I` with `V` in every model (`S` itself); the converse holds only of
+//! updates at an index of their base list, since outside its indices the update is class
+//! `outside-domain` and in some model the update of a shorter list is any `S`. So a rewrite
+//! rule decides the match by value where `S` agrees (with `S` itself as the updated list), and
+//! refutes it elsewhere only in an execution, on k-rust's `\bottom`, marked; every other
+//! evaluation leaves that match undecided (`matching::collections::list_update_cannot_match`
+//! in the backend). Both hold as long as nothing reads which list was updated: the list
+//! argument is a variable that occurs nowhere else in the rule, such as `_`.
 //! The index is read by value, so like the arguments of an application read by value its
 //! variables must be bound elsewhere on the left-hand side; the value is the element `S` holds
 //! there, so it may bind its own variables.

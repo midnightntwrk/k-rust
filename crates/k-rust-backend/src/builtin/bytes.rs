@@ -110,8 +110,8 @@ fn decode_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     // describes the decoding that the named encoding defines, and the encodings define it on
     // the sequences they produce. A sequence no string encodes to is outside it, and the text
     // says nothing there: it does not write `#False` or `#Bottom`, as it does where it means
-    // undefinedness, and decoders of these encodings commonly give a value there (U+FFFD for
-    // each ill-formed subsequence), so the description excludes no value either.
+    // undefinedness, and it characterises no value there that nothing satisfies, so it
+    // excludes no value either.
     Ok(decoded.map(string_term).map_or(
         BuiltinResult::Bottom(Undefinedness::Undescribed),
         BuiltinResult::Value,
@@ -136,6 +136,11 @@ fn encode_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
+/// `B[INDEX <- VALUE]` is "`#False` if `value` is not in the range [0..255] or if `index` is not
+/// a valid index (ie, less than zero or greater than or equal to the length of the `Bytes`
+/// term)": the text defines "valid index" here, for the index of one byte, so both `\bottom`s
+/// below are stated (`Undefinedness::Stated`). Only `replaceAtBytes` applies the phrase to an
+/// end bound ([`replace_at`]).
 fn update(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.update", arguments, 3)?;
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
@@ -157,6 +162,8 @@ fn update(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
+/// `B[INDEX]` is "`#False` if `index` is not a valid index (see above)", the index of one byte
+/// as `B[INDEX <- VALUE]` defines it ([`update`]): its `\bottom` is stated.
 fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.get", arguments, 2)?;
     let Some(bytes) = read_bytes(&arguments[0]) else {
@@ -171,6 +178,10 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(int_term(BigInt::from(*value))))
 }
 
+/// `substrBytes(B, START, END)` "is `#Bottom` if `startIndex <Int 0` or `endIndex <Int
+/// startIndex` or `lengthBytes(B) <Int endIndex`": the text names every argument it leaves
+/// undefined, without the phrase "valid index", so its `\bottom` is stated, and the empty range
+/// at the end (`START == END == lengthBytes(B)`) is the empty `Bytes`.
 fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.substr", arguments, 3)?;
     let Some(bytes) = read_bytes(&arguments[0]) else {
@@ -188,36 +199,74 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(bytes_term(slice)))
 }
 
-/// `replaceAtBytes(DEST, INDEX, SRC)` replaces the bytes of `DEST` in `[INDEX, INDEX + N)`, N the
-/// length of `SRC`; it is `#False` when that range is not inside `DEST`, that is unless
-/// `0 <= INDEX` and `INDEX + N <= lengthBytes(DEST)`, as for `substrBytes`. An empty `SRC` at an
-/// index past the end is therefore undefined, and at the end it changes nothing.
+/// `replaceAtBytes(DEST, INDEX, SRC)`, N the length of `SRC` and K that of `DEST`: "equal to
+/// `dest` except the `N` elements starting at `index` are replaced with the contents of `src`",
+/// and "`#False` if `index` + `N` is not a valid index".
+///
+/// "Valid index" is defined two sections above, for `B[I <- V]`: an index that is not "less than
+/// zero or greater than or equal to the length". The sentence applies it to `index + N`, which
+/// is the end of the replaced range, one past its last element, so it admits two readings: an
+/// element index (`0 <= INDEX + N < K`), under which replacing the tail of `DEST` is `#False`, or
+/// the end bound of a range (`0 <= INDEX + N <= K`), under which it is the described value. The
+/// text does not decide between them, so:
+/// - `INDEX + N < 0` or `INDEX + N > K` is no valid index under either reading: `#False` is
+///   stated (`Undefinedness::Stated`).
+/// - `INDEX < 0` with `0 <= INDEX + N <= K`: "the `N` elements starting at `index`" names no
+///   element of `DEST` at a negative start, so the description says nothing there (and states no
+///   `#False` under the end-bound reading), as `updateList` at a negative index: k-rust's
+///   `\bottom` is one model's (`Undescribed`, class `outside-domain`).
+/// - `0 <= INDEX` and `INDEX + N == K`: the readings disagree, `#False` under one and the
+///   replaced `DEST` under the other, so the outcome is open. The evaluator gives the value, which
+///   [`replaces_up_to_the_end`] makes class `outside-domain` for `chosen_value`: an execution takes
+///   it, marked, and every other evaluation leaves the application of unknown definedness.
+/// - `0 <= INDEX` and `INDEX + N < K`: the described value under both readings.
 fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.replaceAt", arguments, 3)?;
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(index) = read_index(&arguments[1]) else {
+    let Some(index) = read_int(&arguments[1]) else {
         return Ok(BuiltinResult::NotApplicable);
-    };
-    let Some(index) = index else {
-        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
     };
     let Some(replacement) = read_bytes(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let Some(end) = index.checked_add(replacement.len()) else {
+    let end = &index + BigInt::from(replacement.len());
+    if end.sign() == Sign::Minus || end > BigInt::from(bytes.len()) {
         return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
+    }
+    let Some(index) = index.to_usize() else {
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     };
-    let Some(destination) = bytes.get_mut(index..end) else {
-        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
-    };
-    destination.copy_from_slice(&replacement);
+    bytes[index..index + replacement.len()].copy_from_slice(&replacement);
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
+/// Whether `replaceAtBytes(DEST, INDEX, SRC)` replaces up to the end of `DEST` from a
+/// nonnegative `INDEX`, `INDEX + lengthBytes(SRC) == lengthBytes(DEST)`: the arguments at which
+/// the two readings of "valid index" disagree ([`replace_at`]), and the evaluator's value is one
+/// model's.
+pub(super) fn replaces_up_to_the_end(arguments: &[Term]) -> bool {
+    let [destination, index, source] = arguments else {
+        return false;
+    };
+    let (Some(destination), Some(index), Some(source)) = (
+        bytes_value(destination),
+        read_int(index),
+        bytes_value(source),
+    ) else {
+        return false;
+    };
+    index.sign() != Sign::Minus
+        && index + BigInt::from(source.len()) == BigInt::from(destination.len())
+}
+
 /// `padRightBytes` (`left` false) or `padLeftBytes` (`left` true) under the cap that `allowance`
-/// sets ([`bytes_result_cap`]).
+/// sets ([`bytes_result_cap`]). "The result is `#False` if `value` is not in the range
+/// `[0..255]`, or if the length is negative" names the undefined arguments, and no index, so its
+/// `\bottom` is stated. The `MInt` variants of these hooks and of `replaceAtBytes`, `substrBytes`,
+/// `B[I]` and `B[I <- V]` have no evaluator (`evaluated::NOT_EVALUATED`), nor does
+/// `memsetBytes`, whose "`index` + `count` is not a valid index" has the same two readings.
 fn pad(arguments: &[Term], left: bool, allowance: &Allowance) -> HookResult<BuiltinResult> {
     let hook = if left {
         "BYTES.padLeft"
@@ -693,30 +742,40 @@ mod tests {
         );
     }
 
+    /// `#False` where `index + N` is no valid index under either reading of the phrase (below 0
+    /// or above the length); at a negative start whose `index + N` is one, and nowhere the text
+    /// states it, `\bottom` is one model's (`Undescribed`); where `index + N` is the length the
+    /// evaluator's value is the end-bound reading's, of class `outside-domain` there
+    /// ([`replaces_up_to_the_end`]).
     #[test]
     fn replace_at_past_the_end_is_bottom() {
-        assert_eq!(
-            replace_at(&[bytes_term(b"abc"), integer(2), bytes_term(b"xyz")]),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
-        );
-        assert_eq!(
-            replace_at(&[bytes_term(b"abc"), integer(1), bytes_term(b"")]),
-            Ok(BuiltinResult::Value(bytes_term(b"abc")))
-        );
-        assert_eq!(
-            replace_at(&[bytes_term(b"abc"), integer(3), bytes_term(b"x")]),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
-        );
-        // An empty replacement range is inside `abc` at 0 to 3, and not after it.
-        assert_eq!(
-            replace_at(&[bytes_term(b"abc"), integer(3), bytes_term(b"")]),
-            Ok(BuiltinResult::Value(bytes_term(b"abc")))
-        );
-        for index in [4, 100] {
+        let replace = |index: i64, source: &[u8]| {
+            let arguments = [bytes_term(b"abc"), integer(index), bytes_term(source)];
+            (replace_at(&arguments), replaces_up_to_the_end(&arguments))
+        };
+        let stated = BuiltinResult::Bottom(Undefinedness::Stated);
+        let undescribed = BuiltinResult::Bottom(Undefinedness::Undescribed);
+        let value = |bytes: &[u8]| BuiltinResult::Value(bytes_term(bytes));
+        for (index, source, result, open) in [
+            (2, &b"xyz"[..], stated.clone(), false),
+            (3, b"x", stated.clone(), false),
+            (4, b"", stated.clone(), false),
+            (100, b"", stated.clone(), false),
+            (-4, b"xx", stated.clone(), false),
+            (-1, b"", stated.clone(), false),
+            (-1, b"xx", undescribed.clone(), false),
+            (-1, b"xxxx", undescribed.clone(), false),
+            (-2, b"xx", undescribed.clone(), false),
+            (1, b"", value(b"abc"), false),
+            (0, b"xy", value(b"xyc"), false),
+            (1, b"xy", value(b"axy"), true),
+            (0, b"xyz", value(b"xyz"), true),
+            (3, b"", value(b"abc"), true),
+        ] {
             assert_eq!(
-                replace_at(&[bytes_term(b"abc"), integer(index), bytes_term(b"")]),
-                Ok(BuiltinResult::Bottom(Undefinedness::Stated)),
-                "replaceAtBytes(abc, {index}, .Bytes)"
+                replace(index, source),
+                (Ok(result), open),
+                "replaceAtBytes(abc, {index}, {source:?})"
             );
         }
     }

@@ -512,10 +512,19 @@ fn list_update_patterns_rewrite_only_when_the_selected_element_agrees() {
                 RewriteResult::Stuck(subject.clone()),
                 "({index}, {value})"
             );
-            assert_ne!(
-                result(k_rust_backend::evaluation::EvaluationMode::Proof),
-                RewriteResult::Stuck(subject),
-                "({index}, {value})"
+            // In a proof the match is neither refuted nor taken: the step is indeterminate on
+            // a match whose remainder (the base list's update against the subject's list) is
+            // undecided, with the subject unchanged.
+            let proof = result(k_rust_backend::evaluation::EvaluationMode::Proof);
+            assert!(
+                matches!(
+                    &proof,
+                    RewriteResult::Indeterminate {
+                        pattern,
+                        reason: IndeterminateReason::Match { remainder, .. },
+                    } if *pattern == subject && !remainder.is_empty()
+                ),
+                "({index}, {value}): {proof:?}"
             );
         }
     }

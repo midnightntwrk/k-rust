@@ -199,6 +199,17 @@ fn k_rust_backend() -> PathBuf {
 /// `Some` for before it still does on the same outcomes. As for K1, the census is not widened
 /// (none of the eight is a census hook, before or after), so no definition-level status moves; a
 /// run that reaches one of these `\bottom`s is marked and excluded by its list.
+///
+/// GAP K2 fix round 1: `BYTES.replaceAt` joins the `\bottom` arm (a negative index whose end is
+/// an index) and has one arm of its own after the `\bottom` arms, firing on its value from a
+/// nonnegative index up to the end of its `Bytes` (`bytes::replaces_up_to_the_end`, where the two
+/// readings of "valid index" disagree). Before, `chosen_value` answered `None` for every outcome of
+/// `BYTES.replaceAt` (the Float fallthrough helpers name no `BYTES` hook), so both arms only add
+/// outcomes of one hook, and no other hook's arm changed: the classifier narrows nothing.
+/// `BYTES.replaceAt` is no census hook, so, as for the other K2 hooks, no definition-level status
+/// moves, and a run that reads one of its open outcomes is marked and excluded by its list. The
+/// BN128 `\bottom`s are labelled `Undescribed` now, outside `chosen_value`; its BN128 arms read
+/// no label and are unchanged.
 #[test]
 fn implementation_chosen_hooks_are_k_rusts() {
     let backend = k_rust_backend();
@@ -214,8 +225,8 @@ fn implementation_chosen_hooks_are_k_rusts() {
     );
     let nan = function(&float, "nan_sign");
     let zeros = function(&float, "signed_zeros");
-    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP K2; a changed text needs the
-    // hook list re-derived from it.
+    // The exact texts at k-rust 8f8ad57c5, `chosen_value`'s at GAP K2 fix round 1; a changed
+    // text needs the hook list re-derived from it.
     let digests = [
         ("chosen_value", chosen),
         ("float::mixed_destination", mixed),
@@ -229,7 +240,7 @@ fn implementation_chosen_hooks_are_k_rusts() {
         [
             (
                 "chosen_value",
-                "1cff404285e2e81d1f952b5f8c85d1105e8ba2ed049ff08b19856ea7239062a0".to_owned()
+                "17a69b4fb362cf44db5e055f4ff29e1ec0678e9f440242fe40a63a8478492508".to_owned()
             ),
             (
                 "float::mixed_destination",
@@ -358,8 +369,9 @@ const K_RUST_GAP_K1_HOOKS: [&str; 25] = [
 /// The hooks GAP K2 added to k-rust's `chosen_value` (its `outside-domain` `\bottom`s), beside
 /// `STRING.base2string`, which its `letter-case` arm already named; the census has not adopted
 /// them (`implementation_chosen_hooks_are_k_rusts`).
-const K_RUST_GAP_K2_HOOKS: [&str; 8] = [
+const K_RUST_GAP_K2_HOOKS: [&str; 9] = [
     "BYTES.decodeBytes",
+    "BYTES.replaceAt",
     "STRING.ord",
     "STRING.string2int",
     "STRING.string2base",

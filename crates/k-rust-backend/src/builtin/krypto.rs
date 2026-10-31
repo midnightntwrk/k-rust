@@ -329,14 +329,17 @@ fn bn128_add(
 ) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     // A non-point makes the sum undefined whatever the other argument is, so it is checked
-    // before an opaque argument can leave the call unevaluated.
+    // before an opaque argument can leave the call unevaluated. Every BN128 `\bottom` is
+    // `Undescribed`: `krypto.md` names no curve, so which pairs are points is one model's
+    // (class `curve` for every outcome, `chosen_value`), and it says nothing of pairing lists of
+    // different lengths.
     Ok(
         match (
             read_g1(&arguments[0], points),
             read_g1(&arguments[1], points),
         ) {
             (Reading::NotAPoint, _) | (_, Reading::NotAPoint) => {
-                BuiltinResult::Bottom(Undefinedness::Stated)
+                BuiltinResult::Bottom(Undefinedness::Undescribed)
             }
             (Reading::Opaque, _) | (_, Reading::Opaque) => BuiltinResult::NotApplicable,
             (Reading::Value((head, left)), Reading::Value((_, right))) => {
@@ -355,7 +358,7 @@ fn bn128_mul(
     // Every `Int` is a scalar; anything else in the scalar position may denote any `Int`.
     Ok(
         match (read_g1(&arguments[0], points), read_int(&arguments[1])) {
-            (Reading::NotAPoint, _) => BuiltinResult::Bottom(Undefinedness::Stated),
+            (Reading::NotAPoint, _) => BuiltinResult::Bottom(Undefinedness::Undescribed),
             (Reading::Opaque, _) | (_, None) => BuiltinResult::NotApplicable,
             (Reading::Value((head, point)), Some(scalar)) => {
                 BuiltinResult::Value(g1_term(&head, point * g1_scalar(&scalar)))
@@ -450,7 +453,7 @@ fn bn128_ate(
         && g2_list.complete
         && g1_list.elements.len() != g2_list.elements.len()
     {
-        return Ok(BuiltinResult::Bottom(Undefinedness::Stated));
+        return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed));
     }
 
     // Every known element is read before an opaque one can leave the call unevaluated,
@@ -463,7 +466,7 @@ fn bn128_ate(
         crate::stop::check()?;
         match read_g1(element, points) {
             Reading::Value((_, point)) => g1_points.push(point),
-            Reading::NotAPoint => return Ok(BuiltinResult::Bottom(Undefinedness::Stated)),
+            Reading::NotAPoint => return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed)),
             Reading::Opaque => opaque = true,
         }
     }
@@ -472,7 +475,7 @@ fn bn128_ate(
         crate::stop::check()?;
         match read_g2(element, points) {
             Reading::Value(point) => g2_points.push(point),
-            Reading::NotAPoint => return Ok(BuiltinResult::Bottom(Undefinedness::Stated)),
+            Reading::NotAPoint => return Ok(BuiltinResult::Bottom(Undefinedness::Undescribed)),
             Reading::Opaque => opaque = true,
         }
     }
@@ -1457,7 +1460,7 @@ mod tests {
                     g1_point(&symbol, 1.into(), 2.into()),
                 ],
             ),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
 
         // Another `G1Point` constructor is not the point notation.
@@ -1470,7 +1473,7 @@ mod tests {
                     applied(&alternate_symbol, vec![int(1), int(2), int(0)]),
                 ],
             ),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
 
         let symbolic = Term::variable(Variable::new("P", Sort::simple("SortG1Point")));
@@ -1518,7 +1521,7 @@ mod tests {
                     super::super::int_term(2.into()),
                 ],
             ),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             evaluate(
@@ -1693,7 +1696,7 @@ mod tests {
                     point_list(Vec::new()),
                 ],
             ),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             evaluate(
@@ -1703,7 +1706,7 @@ mod tests {
                     point_list(vec![g2_generator(&g2)]),
                 ],
             ),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             evaluate(
@@ -1716,7 +1719,7 @@ mod tests {
                     point_list(vec![g2_generator(&g2)]),
                 ],
             ),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
 
         let definition = match point_list(Vec::new()).kind() {
@@ -1812,11 +1815,11 @@ mod tests {
         );
         assert_eq!(
             evaluate("KRYPTO.bn128add", &[alt_generator(), alt_generator()]),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             evaluate("KRYPTO.bn128mul", &[alt_generator(), int(2)]),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             evaluate("KRYPTO.bn128g2valid", &[alt4_generator]),
@@ -1893,16 +1896,16 @@ mod tests {
         for non_point in [alt_generator(), off_curve()] {
             assert_eq!(
                 evaluate("KRYPTO.bn128add", &[g1_variable(), non_point.clone()]),
-                Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+                Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
             );
             assert_eq!(
                 evaluate("KRYPTO.bn128add", &[non_point, g1_variable()]),
-                Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+                Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
             );
         }
         assert_eq!(
             evaluate("KRYPTO.bn128mul", &[alt_generator(), scalar]),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
 
         let q = || g2_generator(&g2_symbol());
@@ -1911,14 +1914,14 @@ mod tests {
                 "KRYPTO.bn128ate",
                 &[list_with_rest(vec![alt_generator()]), point_list(vec![q()])]
             ),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             evaluate(
                 "KRYPTO.bn128ate",
                 &[point_list(vec![g1_variable()]), point_list(vec![q(), q()])]
             ),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         // A non-point G2 element after an opaque G1 element.
         assert_eq!(
@@ -1929,7 +1932,7 @@ mod tests {
                     point_list(vec![g1_point(&g1_symbol(), 1.into(), 2.into())])
                 ]
             ),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         // Unknown length with only valid or opaque elements stays unevaluated.
         assert_eq!(
@@ -2070,7 +2073,7 @@ mod tests {
         );
         assert_eq!(
             evaluate("KRYPTO.bn128add", &[generator(), alt_generator()]),
-            Ok(BuiltinResult::Bottom(Undefinedness::Stated))
+            Ok(BuiltinResult::Bottom(Undefinedness::Undescribed))
         );
         assert_eq!(
             evaluate("KRYPTO.bn128g2valid", &[g2_generator(&g2_symbol())]),

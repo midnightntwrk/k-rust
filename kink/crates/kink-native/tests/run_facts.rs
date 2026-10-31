@@ -266,6 +266,17 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// GAP K1 re-pin of the mark passage (`draft/kink27/gap`, ticket K1): two sentences changed, and each only adds marks. A mark is noted where the evaluator takes the value or, for class `curve`, its `\bottom`; and the definedness check of a classified application no longer drops the mark of a `curve` or `outside-domain` application of a partial symbol, whose definedness is the pick. The list only grows, so A-1's exclusion of a run with a non-empty list excludes at least what it did, and the guarantee for a run whose list is empty (the passage's last sentence) is unchanged.
 ///
 /// GAP K2 re-pin of the mark passage (ticket K2): only the guarantee sentence changed. The models it quantifies over no longer need to agree with k-rust's `\bottom` of a partial hook outside the inputs its description covers, which is now class `outside-domain`, taken only by an execution and marked there (the step that writes it, a condition or a discarded operand that reads its definedness, a list-update pattern whose match it refutes); they still agree with the two readings k-rust keeps (a literal's value where the literal rule leaves it open, the order of console effects of operands none of which is irrelevant). So the guarantee holds over more models, and the marks that make it hold only grow: A-1's exclusion of a run with a non-empty list excludes at least what it did, and a run whose list is empty has the same leaves in every model the guarantee named before, and in more.
+///
+/// GAP K2 fix round 1 re-pin of the mark passage (26 lines, one added): its first sentence now
+/// names `outside-domain` beside `curve` as a class whose `\bottom` is noted, which K2's code
+/// already did (`builtin::evaluate_composed` notes every classified outcome it takes, a `\bottom`
+/// included), and a new sentence names the one mark site outside the evaluator K2 added, the
+/// matcher's refutation of a list-update pattern (`outside-domain` on `LIST.update`, in
+/// `Execution` at a partial symbol, attributed like the match it decides). Both describe marks
+/// the code noted at K2's head; `BYTES.replaceAt`'s open outcomes (fix round 1) are noted at the
+/// same evaluator site. So the list only grows: A-1's exclusion of a run with a non-empty list
+/// excludes at least what it did, and the guarantee for a run whose list is empty is the K2
+/// sentence, unchanged.
 const A1_PASSAGES: [passage::Passage; 7] = [
     passage::Passage {
         file: "docs/compatibility.md",
@@ -292,8 +303,8 @@ const A1_PASSAGES: [passage::Passage; 7] = [
         file: "docs/compatibility.md",
         anchor: "### Marks in executions",
         opening: "A mark is noted where the evaluator takes",
-        lines: 25,
-        digest: "a3d0fa0556a98068cbbbe55f42551b5294a83a7a80e1b0becd0c49dbd2729cfc",
+        lines: 26,
+        digest: "cbbb3a6b50dac0ea1cfcf4696d81e205c2fa41b2445b71fef48492660adaa2af",
     },
     passage::Passage {
         file: "docs/compatibility.md",
