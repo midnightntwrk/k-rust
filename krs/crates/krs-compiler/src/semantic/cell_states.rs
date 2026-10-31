@@ -169,7 +169,11 @@ fn cell_kind_sort(field: &DescriptorCellField) -> (CellClauseKind, SemanticSortR
 
 /// The content frame of a matched state, and its compatibility with the
 /// result state: a bound tail is reused, an anonymous tail stays anonymous
-/// or is written exactly, an exact state stays exact.
+/// or is written exactly, an exact state stays exact. A map's bound
+/// remainder the result writes exactly, without `..rest`, has been moved: the
+/// result is the cell's whole new content, and the remainder is bound on the
+/// left only, which the rule must then use
+/// (`configuration_rules::moved_remainders_unused_by`).
 fn state_frame(
     descriptor: &Descriptor,
     before: &DescriptorState,
@@ -193,6 +197,14 @@ fn state_frame(
         },
         _ => &ProtocolRuleFrame::Exact,
     });
+    if let ("map", ProtocolRuleFrame::Bind { key, binding }, Some(ProtocolRuleFrame::Exact)) =
+        (family, frame, result_frame)
+    {
+        return Ok(CellContentFrame::MovedMapRemainder {
+            origin: semantic_origin(descriptor, key.clone(), "rule-map-frame")?,
+            binding: SemanticId::new(binding.clone())?,
+        });
+    }
     let compatible = match (frame, result_frame) {
         (_, None)
         | (

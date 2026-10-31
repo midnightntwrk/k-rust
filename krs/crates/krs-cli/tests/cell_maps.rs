@@ -14,8 +14,11 @@
 //! rest), of results over the empty map, over a remainder (bound and anonymous,
 //! a matched key written under two spellings, keys the subject did not match in
 //! a plain cell, an optional cell and a collection instance), over a whole map
-//! the subject bound, and of claims' end states; the error (a key written
-//! twice); the claims' native proofs; and `krs run` where two keys meet.
+//! the subject bound, of an optional cell's and an instance's map written
+//! without `..rest`, which moves the remainder into another cell, and of
+//! claims' end states; the errors (a key written twice, a moved remainder
+//! dropped); the claims' native proofs; and `krs run` where two keys meet and
+//! where a remainder moves.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -60,6 +63,12 @@ pub enum ExpSyntax {
     Optb { a: Int, b: Int },
     #[k::syntax("slotb({a},{b})")]
     Slotb { a: Int, b: Int },
+    #[k::syntax("fill({a},{b},{then})")]
+    Fill { a: Int, b: Int, then: Exp },
+    #[k::syntax("optm({a})")]
+    Optm { a: Int },
+    #[k::syntax("slotm({a})")]
+    Slotm { a: Int },
     #[k::syntax("done")]
     Done,
 }
@@ -368,6 +377,80 @@ fn slotb(
     }
 }
 
+/// Creates the optional cell and an instance whose slots are, both `a -> 1, b -> 2`, then runs
+/// `then`.
+#[k::rule(label = "fill")]
+fn fill(
+    a: Term<Int>,
+    b: Term<Int>,
+    then: Term<Exp>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Fill(a, b, then), tail @ ..),
+        opt: None,
+        Objs::obj: { instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(then, ..tail),
+        opt: Some(k::configuration::Cell(map![a -> 1, b -> 2])),
+        Objs::obj: {
+            k::fragment![crate::Obj { oid: 0, slots: map![a -> 1, b -> 2] }],
+            ..instances0
+        },
+        ..state
+    }
+}
+
+/// An optional cell's map written without `..rest` over its bound remainder: the remainder moves
+/// into `env`.
+#[k::rule(label = "optm")]
+fn optm(
+    a: Term<Int>,
+    e: Term<Map>,
+    v: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Optm(a), tail @ ..),
+        env: k::configuration::Cell(e),
+        opt: Some(k::configuration::Cell(map![a -> v, rest @ ..])),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell({OPTM}),
+        opt: Some(k::configuration::Cell(map![a -> 1])),
+        ..state
+    }
+}
+
+/// The same in a collection instance's child.
+#[k::rule(label = "slotm")]
+fn slotm(
+    a: Term<Int>,
+    e: Term<Map>,
+    v: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(ExpSyntax::Slotm(a), tail @ ..),
+        env: k::configuration::Cell(e),
+        Objs::obj: {
+            me @ k::fragment![crate::Obj { slots: map![a -> v, rest @ ..], .. }],
+            instances0 @ ..
+        },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell({SLOTM}),
+        Objs::obj: {
+            k::fragment![crate::Obj { slots: map![a -> 1], ..me }],
+            ..instances0
+        },
+        ..state
+    }
+}
+
 /// A key the start state did not match written over its remainder: the end map holds `a`
 /// then `b` written over what `moved` leaves, the chain, which covers `a == b`.
 #[k::claim(all_paths, label = "moved-keys")]
@@ -444,12 +527,15 @@ fn unmatched_keys(
 "#;
 
 /// The result maps of the accepted source: two symbolic keys over the empty
-/// map, a key the subject matched written twice over a bound remainder, and a
-/// key the subject matched over an anonymous one.
-const ACCEPTED: [(&str, &str); 3] = [
+/// map, a key the subject matched written twice over a bound remainder, a
+/// key the subject matched over an anonymous one, and the remainders `optm`
+/// and `slotm` move into `env`.
+const ACCEPTED: [(&str, &str); 5] = [
     ("TWO", "map![a -> 1, b -> 2]"),
     ("OVER", "map![a -> 9, (a) -> 10, ..rest]"),
     ("ANON", "map![a -> b]"),
+    ("OPTM", "rest"),
+    ("SLOTM", "rest"),
 ];
 
 fn krs_path() -> String {
@@ -558,6 +644,8 @@ fn a_built_cell_map_emits_the_join_where_it_has_the_value_and_the_chain_otherwis
         <slots> .Map </slots>
         rule [anon]:
         <env> A:Int |-> V:Int => A:Int |-> B:Int ... </env>
+        rule [fill]:
+        <slots> .Map [ A:Int <- 1 ] [ B:Int <- 2 ] </slots>
         rule [fresh]:
         <env> A:Int |-> V:Int Krs_MapRest0:Map => Krs_MapRest0:Map [ A:Int <- 20 ] [ B:Int <- 30 ] </env>
         rule [hex]:
@@ -570,6 +658,9 @@ fn a_built_cell_map_emits_the_join_where_it_has_the_value_and_the_chain_otherwis
         <opt> A:Int |-> V:Int Rest:Map => A:Int |-> 3 Rest:Map </opt>
         rule [optb]:
         <opt> A:Int |-> V:Int Rest:Map => Rest:Map [ B:Int <- V:Int ] </opt>
+        rule [optm]:
+        <env> E:Map => Rest:Map </env>
+        <opt> A:Int |-> V:Int Rest:Map => A:Int |-> 1 </opt>
         rule [over]:
         <env> A:Int |-> V:Int Rest:Map => A:Int |-> 10 Rest:Map </env>
         rule [put]:
@@ -578,6 +669,9 @@ fn a_built_cell_map_emits_the_join_where_it_has_the_value_and_the_chain_otherwis
         <slots> A:Int |-> V:Int Rest:Map => A:Int |-> 5 Rest:Map </slots>
         rule [slotb]:
         <slots> A:Int |-> V:Int Krs_MapRest0:Map => Krs_MapRest0:Map [ A:Int <- 1 ] [ B:Int <- V:Int ] </slots>
+        rule [slotm]:
+        <env> E:Map => Rest:Map </env>
+        <slots> A:Int |-> V:Int Rest:Map => A:Int |-> 1 </slots>
         rule [two]:
         <env> E:Map => .Map [ A:Int <- 1 ] [ B:Int <- 2 ] </env>
         rule [whole]:
@@ -649,7 +743,11 @@ fn a_key_written_twice_is_an_error() {
 /// writes `3` twice, the later value winning; `fresh` does the same over an
 /// anonymous remainder, and `keys` drops the matched `3` and writes two keys
 /// over the remainder, `7` twice for `keys(3,7)`. Under K's join the results
-/// whose key the remainder held had no value.
+/// whose key the remainder held had no value. `fill(3,4,..)` starts the
+/// optional cell and the instance's slots as `3 |-> 1 4 |-> 2`: `optb` and
+/// `slotb` write over the remainder `4 |-> 2` the subject's match of `3`
+/// leaves, `optb(3,4)` rewriting its `4`; `optm` and `slotm` write the cell's
+/// map whole and move that remainder into `env`.
 #[test]
 fn the_later_of_two_equal_keys_wins_at_run_time() {
     let target = shared_fixture_target();
@@ -668,6 +766,13 @@ fn the_later_of_two_equal_keys_wins_at_run_time() {
         ("fresh(3,4)", "3", "4"),
         ("keys(3,4)", "3", "4"),
         ("keys(3,7)", "3", "4"),
+        ("fill(3,4,optb(3,4))", "5", "6"),
+        ("fill(3,4,optb(3,5))", "5", "6"),
+        ("fill(3,4,optb(3,3))", "5", "6"),
+        ("fill(3,4,slotb(3,4))", "5", "6"),
+        ("fill(3,4,slotb(3,5))", "5", "6"),
+        ("fill(3,4,optm(3))", "5", "6"),
+        ("fill(3,4,slotm(3))", "5", "6"),
     ]
     .map(|(program, a, b)| {
         let file = manifest.with_file_name("program.txt");
@@ -691,9 +796,21 @@ fn the_later_of_two_equal_keys_wins_at_run_time() {
             "`krs run {program}` failed ({success}):\n{stdout}\n{stderr}"
         );
         let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
-        let start = flat.find("<env> ").unwrap() + "<env> ".len();
-        let end = start + flat[start..].find(" </env>").unwrap();
-        format!("{program} with A={a} B={b} => env: {}", &flat[start..end])
+        let cell = |name: &str| {
+            let open = format!("<{name}> ");
+            let start = flat
+                .find(&open)
+                .unwrap_or_else(|| panic!("`krs run {program}` wrote no `<{name}>`:\n{flat}"))
+                + open.len();
+            let end = start + flat[start..].find(&format!(" </{name}>")).unwrap();
+            flat[start..end].to_owned()
+        };
+        let filled = if program.starts_with("fill(") {
+            format!(", opt: {}, slots: {}", cell("opt"), cell("slots"))
+        } else {
+            String::new()
+        };
+        format!("{program} with A={a} B={b} => env: {}{filled}", cell("env"))
     });
     expect_test::expect![[r#"
         [
@@ -709,9 +826,38 @@ fn the_later_of_two_equal_keys_wins_at_run_time() {
             "fresh(3,4) with A=3 B=4 => env: 3 |-> 20 4 |-> 30",
             "keys(3,4) with A=3 B=4 => env: 4 |-> 1 7 |-> 3",
             "keys(3,7) with A=3 B=4 => env: 4 |-> 2 7 |-> 3",
+            "fill(3,4,optb(3,4)) with A=5 B=6 => env: 5 |-> 1 6 |-> 2, opt: 4 |-> 1, slots: 3 |-> 1 4 |-> 2",
+            "fill(3,4,optb(3,5)) with A=5 B=6 => env: 5 |-> 1 6 |-> 2, opt: 4 |-> 2 5 |-> 1, slots: 3 |-> 1 4 |-> 2",
+            "fill(3,4,optb(3,3)) with A=5 B=6 => env: 5 |-> 1 6 |-> 2, opt: 3 |-> 1 4 |-> 2, slots: 3 |-> 1 4 |-> 2",
+            "fill(3,4,slotb(3,4)) with A=5 B=6 => env: 5 |-> 1 6 |-> 2, opt: 3 |-> 1 4 |-> 2, slots: 3 |-> 1 4 |-> 1",
+            "fill(3,4,slotb(3,5)) with A=5 B=6 => env: 5 |-> 1 6 |-> 2, opt: 3 |-> 1 4 |-> 2, slots: 3 |-> 1 4 |-> 2 5 |-> 1",
+            "fill(3,4,optm(3)) with A=5 B=6 => env: 4 |-> 2, opt: 3 |-> 1, slots: 3 |-> 1 4 |-> 2",
+            "fill(3,4,slotm(3)) with A=5 B=6 => env: 4 |-> 2, opt: 3 |-> 1 4 |-> 2, slots: 3 |-> 1",
         ]
     "#]]
     .assert_debug_eq(&runs);
+}
+
+/// A remainder an optional cell's or a collection instance's map moves, which
+/// the rule neither puts back nor uses, is an error at the rule, as in a
+/// plain cell: `env` restated unchanged drops it.
+#[test]
+fn a_moved_remainder_the_rule_drops_is_an_error() {
+    let target = shared_fixture_target();
+    let errors =
+        [("OPTM", "e"), ("SLOTM", "e")].map(|replaced| check_error(target.path(), &[replaced]));
+    expect_test::expect![[r#"
+        [
+            (
+                "error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: put it back with `..rest`, or use it in a condition",
+                "optm",
+            ),
+            (
+                "error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: put it back with `..rest`, or use it in a condition",
+                "slotm",
+            ),
+        ]
+    "#]].assert_debug_eq(&errors);
 }
 
 /// The claims prove natively: the end state's join over the keys the start

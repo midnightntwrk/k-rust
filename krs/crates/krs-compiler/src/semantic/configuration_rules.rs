@@ -53,9 +53,10 @@ struct StateRuleTerms<'a> {
     declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
     wildcard_ordinal: usize,
     variables: Vec<SemanticVariable>,
-    /// Computation and map remainders the result does not put back, each
-    /// with its family: the rule moves them, so they must be used elsewhere.
-    moved_remainders: Vec<(SemanticId, AssociativeStateFamily)>,
+    /// Computation remainders the result does not put back: the rule moves
+    /// them, so they must be used elsewhere. A moved map remainder is its
+    /// clause's frame (`CellContentFrame::MovedMapRemainder`).
+    moved_remainders: Vec<SemanticId>,
     /// Whether a cell of a Set collection's instance the pattern looks up is
     /// being lowered ([`super::set_instances`]).
     looking_up: bool,
@@ -1808,16 +1809,11 @@ fn pair_cell_frames(
                 tail.clone(),
             ),
         )?;
-        terms
-            .moved_remainders
-            .push((tail, AssociativeStateFamily::KSequence));
+        terms.moved_remainders.push(tail);
         return Ok(Some((moved, CellContentFrame::Exact)));
     }
     if let Some((rest, key)) = moved_map_remainder(subject_frame, result_frame) {
         let rest = SemanticId::new(rest)?;
-        terms
-            .moved_remainders
-            .push((rest.clone(), AssociativeStateFamily::Map));
         return Ok(Some((
             before.clone(),
             CellContentFrame::MovedMapRemainder {
@@ -1944,15 +1940,28 @@ fn declare_moved_remainders(
     }
 }
 
-/// The moved computation and map remainders no result term uses, each with
-/// its family.
+/// The moved remainders no result term uses, each with its family: the
+/// computation remainders a pattern ends in, and the map remainder of every
+/// clause that binds one on the left only, in any cell, plain, optional or a
+/// collection instance's child.
 fn moved_remainders_unused_by(
     terms: &StateRuleTerms<'_>,
     clauses: &[ConfigurationClause<SemanticId, SemanticTerm>],
 ) -> Vec<(SemanticId, AssociativeStateFamily)> {
+    let moved_maps = clauses
+        .iter()
+        .flat_map(ConfigurationClause::parts)
+        .filter_map(|part| match part.frame() {
+            Some(CellContentFrame::MovedMapRemainder { binding, .. }) => {
+                Some((binding.clone(), AssociativeStateFamily::Map))
+            }
+            _ => None,
+        });
     terms
         .moved_remainders
         .iter()
+        .map(|tail| (tail.clone(), AssociativeStateFamily::KSequence))
+        .chain(moved_maps)
         .filter(|(rest, _)| {
             !clauses
                 .iter()
@@ -1960,7 +1969,6 @@ fn moved_remainders_unused_by(
                 .filter_map(|part| part.post_term())
                 .any(|term| super::evaluation::mentions(term, rest))
         })
-        .cloned()
         .collect()
 }
 
