@@ -2040,10 +2040,8 @@ fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fix
                 "SortStmt",
                 "--params",
                 "(G : ContractSec.SortMap)",
-                "--secure",
-                "secure G",
-                "--low-eq",
-                "lowEq G",
+                "--store-ok",
+                "storeOk",
                 "--checker-name",
                 "ContractSec",
                 "--lev",
@@ -2081,13 +2079,26 @@ fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fix
     let o = run(&full);
     assert!(o.status.success(), "{}", err(&o));
     let read = |f: &str| std::fs::read_to_string(d.join(f)).unwrap();
-    let (ni, levels, stack, proof, rep) = (
+    let (ni, levels, stack, proof, rep, spec) = (
         read("NI.lean"),
         read("Levels.lean"),
         read("Stack.lean"),
         read("Proof.lean"),
         read("ni.toml"),
+        read("Spec.lean"),
     );
+    // the statement's facts from the two definitions: what a store is (the semantics'), which
+    // identifiers are low (the checker's level at the identifier), low equivalence (agreement)
+    for x in [
+        "def secure (G : ContractSec.SortMap) (P : Contract.SortStmt) : Prop :=\n  ContractSec.K.«sec(_,_)_CONTRACTSEC_Bool_Stmt_Map» (tr_SortStmt P) G = some true",
+        "def Good (E : Contract.SortMap) : Prop :=\n  Contract.K.«storeOk(_)_CONTRACT_Bool_Map» E = some true",
+        "def Low (G : ContractSec.SortMap) (X : Contract.SortId) : Prop :=\n  ContractSec.K.«lev(_,_)_CONTRACTSEC_Level_Expr_Map» (tr_SortExpr (Contract.SortExpr.inj_Id X)) G = some ContractSec.SortLevel.lo",
+        "Good E₁ ∧ Good E₂ ∧ MapHook.AgreeOn (Low G) Contract.SortKItem.inj_Id E₁ E₂",
+        "(Contract.Invariant.storeOk_walk E).1 h",
+    ] {
+        assert!(spec.contains(x), "{x}\n{spec}");
+    }
+    assert!(ni.starts_with("import CN.Spec\n"), "{ni}");
     // the statement: the ledger public, the answers private, the disclosed values a premise
     for x in [
         "init : ∀ P L W₁ W₂, secure G P → Rel (Contract.init P L W₁) (Contract.init P L W₂)",
@@ -2159,6 +2170,13 @@ fn noninterference_up_to_disclosure_generates_the_relation_from_the_contract_fix
     let o = run(&["--observe", "ledger,transcript"]);
     assert!(
         !o.status.success() && err(&o).contains("--inputs is required"),
+        "{}",
+        err(&o)
+    );
+    // refused: a hand predicate beside the generated ones
+    let o = run(&[&full[..], &["--secure", "secure G"]].concat());
+    assert!(
+        !o.status.success() && err(&o).contains("generated with --store-ok"),
         "{}",
         err(&o)
     );

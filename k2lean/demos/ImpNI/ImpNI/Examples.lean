@@ -11,8 +11,8 @@ namespace ImpNI.Examples
 
 open KPrelude
 
-def h : KImp.SortId := ⟨"h"⟩
-def l : KImp.SortId := ⟨"l"⟩
+def h : KImpNI.SortId := ⟨"h"⟩
+def l : KImpNI.SortId := ⟨"l"⟩
 
 /-- `h` is high, `l` is low. -/
 def G0 : Lab :=
@@ -20,22 +20,22 @@ def G0 : Lab :=
     (KImpSec.SortKItem.inj_Level .hi)) (KImpSec.SortKItem.inj_Id (tr_SortId l))
     (KImpSec.SortKItem.inj_Level .lo)
 
-def var (X : KImp.SortId) : KImp.SortExpr := .inj_Id X
-def num (n : Int) : KImp.SortExpr := .inj_Int n
+def var (X : KImpNI.SortId) : KImpNI.SortExpr := .inj_Id X
+def num (n : Int) : KImpNI.SortExpr := .inj_Int n
 
 /-- `l = 1; h = l + 1; if (h > 0) h = 2;` -/
-def ok : KImp.SortStmt :=
+def ok : KImpNI.SortStmt :=
   .__ (.«_=_;» l (num 1)) (.__ (.«_=_;» h (.inj_Expr (.«_+_» (var l) (num 1))))
     (.«if(_)_» (.inj_Expr (.«_>_» (var h) (num 0))) (.«_=_;» h (num 2))))
 
 /-- `l = h;` -/
-def explicitFlow : KImp.SortStmt := .«_=_;» l (var h)
+def explicitFlow : KImpNI.SortStmt := .«_=_;» l (var h)
 
 /-- `if (h > 0) l = 1;` -/
-def ifFlow : KImp.SortStmt := .«if(_)_» (.inj_Expr (.«_>_» (var h) (num 0))) (.«_=_;» l (num 1))
+def ifFlow : KImpNI.SortStmt := .«if(_)_» (.inj_Expr (.«_>_» (var h) (num 0))) (.«_=_;» l (num 1))
 
 /-- `while (h > 0) { l = 1; h = 0; }` -/
-def whileFlow : KImp.SortStmt := .«while(_)_» (.inj_Expr (.«_>_» (var h) (num 0)))
+def whileFlow : KImpNI.SortStmt := .«while(_)_» (.inj_Expr (.«_>_» (var h) (num 0)))
   (.«{_}» (.__ (.«_=_;» l (num 1)) (.«_=_;» h (num 0))))
 
 theorem levId_h : levId G0 h = some .hi := by decide
@@ -59,11 +59,6 @@ theorem not_secure_ifFlow : ¬ secure G0 ifFlow := by change ¬ sec G0 _ = some 
 set_option linter.unusedSimpArgs false in
 theorem not_secure_whileFlow : ¬ secure G0 whileFlow := by
   change ¬ sec G0 _ = some true; k2l_sec_eval
-
-theorem good_unit : Good (MapHook.unit : KImp.SortMap) := by
-  refine ⟨MapHook.wf_unit, fun X v hv => ?_⟩
-  rw [MapHook.lookup, MapRepr.lookupR_eq, MapHook.unit, ListIso.toList_ofList] at hv
-  cases hv
 
 /-- The hypotheses of `kimp_noninterference` hold of some programs and stores, and `secure` rejects
 the three classic leaks. -/

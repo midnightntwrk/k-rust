@@ -3,7 +3,8 @@
 // next of the private answers in `<wit>`; the ledger `<ledger>` is public, and every operation on
 // it is recorded in the public `<transcript>`, reads included, as is each `emit`; `disclose(E)`
 // makes `E`'s value public, and records it in `<disclosed>`, a cell no rule reads. Loops have a
-// constant bound. The security checker is the fixture contractsec.
+// constant bound. The security checker is the fixture contractsec. `storeOk` is what a store is,
+// the fact about the store that the noninterference statement reads.
 requires "domains.md"
 
 module CONTRACT-SYNTAX
@@ -40,6 +41,13 @@ module CONTRACT
   imports LIST
 
   syntax Entry ::= rd(Id, Value) | wr(Id, Value) | ev(Value)
+
+  // What a store is (`k2lean noninterference --store-ok storeOk`, demos/ContractNI): every
+  // identifier the store <env> binds holds a Value. `gen --invariant storeOk@env` states it as a
+  // walk over the store's bindings and proves that every rule keeps it.
+  syntax Bool ::= storeOk(Map) [function, total]
+  rule storeOk(.Map) => true
+  rule storeOk((K |-> V) E) => (notBool isId(K) orBool isValue(V)) andBool storeOk(E)
 
   configuration
     <k> $PGM:Stmt </k>

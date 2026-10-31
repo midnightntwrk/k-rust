@@ -1,11 +1,11 @@
 //! `k2lean noninterference`: termination-insensitive noninterference as a scaffold
 //! (`k2lean/docs/design.md`, section 3.7).
 //!
-//! Statement, for a program accepted by a security checker (`secure P`, a hand-module
-//! predicate, typically a K checker's function at the program's translation) and two initial
-//! stores equal on the low part (`lowEq E₁ E₂`, hand module): two runs of `Step` from
-//! `init P E₁` and `init P E₂` that both end in final states (`<k>` empty) end in stores equal on
-//! the low part.
+//! Statement, for a program accepted by a security checker (`secure P`) and two initial stores
+//! equal on the low part (`lowEq E₁ E₂`): two runs of `Step` from `init P E₁` and `init P E₂` that
+//! both end in final states (`<k>` empty) end in stores equal on the low part. With `--store-ok`,
+//! those facts are generated from the two K definitions (`spec`, `NS/Spec.lean`); otherwise they
+//! are a hand module's predicates.
 //!
 //! It is reduced, by `KPrelude.ProductInv.final` and `ProductInv.of_modes`, to a relation `Rel` on
 //! pairs of configurations and three modes of it: `Sync` (both runs step together), `Left` and
@@ -66,12 +66,37 @@ pub fn main(args: &[String]) {
     if lib.ranked && lib.prios.len() > 1 {
         fail("definitions with several priority ranks are not supported");
     }
+    // `--store-ok F`: the statement's facts are generated from the two definitions (`spec`), in
+    // `NS/Spec.lean`, under fixed names, at the labelling `G` that `--params` binds
+    let generated_spec = opt.contains_key("store-ok");
+    if generated_spec {
+        for k in ["hand-module", "secure", "low-eq", "good", "hi-only"] {
+            if opt.contains_key(k) {
+                fail(&format!(
+                    "--{k}: the statement's facts are generated with --store-ok"
+                ));
+            }
+        }
+        if !opt.contains_key("checker-kore") {
+            fail("--store-ok needs the checker (--checker-kore)");
+        }
+    }
     let hand = opt
         .get("hand-module")
         .cloned()
-        .unwrap_or(format!("{ns}.Hand"));
-    let secure = opt.get("secure").cloned().unwrap_or("secure".into());
-    let low = opt.get("low-eq").cloned().unwrap_or("lowEq".into());
+        .unwrap_or(if generated_spec {
+            format!("{ns}.Spec")
+        } else {
+            format!("{ns}.Hand")
+        });
+    let (secure, low) = if generated_spec {
+        ("secure G".to_string(), "lowEq G".to_string())
+    } else {
+        (
+            opt.get("secure").cloned().unwrap_or("secure".into()),
+            opt.get("low-eq").cloned().unwrap_or("lowEq".into()),
+        )
+    };
     let store = get("store-cell");
     let kcell = opt.get("k-cell").cloned().unwrap_or("k".into());
     let pgm = get("program-sort");
@@ -557,6 +582,125 @@ fn statement(
     }
 }
 
+/// The sort the labelling labels: that of the variable `X` that an equation of `--lev` looks up
+/// in its labelling argument (`lev(X:Id, X |-> L _) => L`, the checker's own reading of a label).
+fn labelled_sort(
+    eqs: &[crate::funcs::Equation],
+    hooks: &BTreeMap<String, String>,
+) -> Option<String> {
+    fn looks_up(p: &P, x: &str, hooks: &BTreeMap<String, String>) -> bool {
+        match p {
+            P::App(f, _, args) => {
+                let key = args
+                    .first()
+                    .map(|k| crate::soundness::as_inj(k).map_or(k, |(_, _, t)| t));
+                (hooks.get(f).map(String::as_str) == Some("MAP.element")
+                    && matches!(key, Some(P::Var(y, _)) if y == x))
+                    || args.iter().any(|q| looks_up(q, x, hooks))
+            }
+            P::And(_, ps) => ps.iter().any(|q| looks_up(q, x, hooks)),
+            _ => false,
+        }
+    }
+    eqs.iter().find_map(|e| {
+        let (from, _, P::Var(x, _)) = crate::soundness::as_inj(e.args.first()?)? else {
+            return None;
+        };
+        e.args[1..]
+            .iter()
+            .any(|q| looks_up(q, x, hooks))
+            .then_some(from)
+    })
+}
+
+/// What `Spec.lean` is generated from (`--store-ok`): each of the statement's facts from the
+/// definition that owns it.
+struct Spec<'s> {
+    ns: &'s str,
+    na: &'s str,
+    /// the semantics' function of a store: K name, Lean name, the name of its walk (`Invariant.F_walk`)
+    store_ok: (String, String, String),
+    /// the checker's acceptance: K name, Lean name, the program type, the translation's suffix
+    sec: (String, String, String, String),
+    /// the checker's level of an expression: K name, Lean name, the translation's suffix
+    lev: (String, String, String),
+    lo: &'s str,
+    lab: String,
+    store: String,
+    /// the labelled sort's type, `X` as an expression of `--lev`'s sort, and `X` as a store key
+    key: (String, String, String),
+}
+
+/// `Spec.lean` (`--store-ok`, `docs/design.md` §3.7): the facts the statement of `NI.lean` is
+/// about, each from the definition that owns it. `secure` is the checker's `--sec`; `Good` (a
+/// store) is the semantics' `--store-ok`, a part of its kind 1 invariant whose walk
+/// (`Invariant.F_walk`) gives its element-wise form; `Low` (the observer sees `X`) is the
+/// checker's `--lev` at `X`, at the level of a literal. Low equivalence, agreement at the low
+/// keys of two stores (`MapHook.AgreeOn`, `KPrelude/LowEq.lean`), and `HiOnly`, a store that
+/// changes only at the others, are the definition of noninterference, not a fact of either
+/// language. Then the store lemmas the relation reads.
+fn spec(sp: &Spec) -> String {
+    let Spec {
+        ns,
+        na,
+        lo,
+        lab,
+        store,
+        ..
+    } = sp;
+    let (fk, fl, fb) = &sp.store_ok;
+    let (sk, sl, pt, sx) = &sp.sec;
+    let (lk, ll, lx) = &sp.lev;
+    let (xt, xe, xk) = &sp.key;
+    let walk = format!("{na}.Invariant.{fb}_walk");
+    let test = format!("{na}.Invariant.{fb}_test");
+    let los = lo.rsplit('.').next().unwrap_or(lo);
+    format!(
+        "import {ns}.Tr\nimport {na}.InvariantDefs\nimport KPrelude.LowEq\nimport KPrelude.Scaffold\n\n\
+/-! Generated by `k2lean noninterference`; do not edit.\n\n\
+What the statement of `NI.lean` is about, each fact from the K definition that owns it:\n\
+- `secure G P`: the checker accepts the program at the labelling `G`, `{sk}` of its\n  translation is `true`;\n\
+- `Good E`: `E` is a store, the semantics' `{fk}` is `true` of it (a part of its kind 1\n  invariant, whose walk `{walk}` the lemmas below read);\n\
+- `Low G X`: the observer sees `X`, the checker's `{lk}` gives it the level `{los}`, a\n  literal's.\n\
+Two stores are `lowEq G` when both are stores and they agree at every low `X`\n\
+(`MapHook.AgreeOn`); `HiOnly G E E'` (the relation's) when `E'` is a store that agrees with `E` at\n\
+every low `X`. Then what the relation reads of them. -/\n\n\
+namespace {ns}\n\nopen KPrelude\n\n\
+/-- The checker accepts the program at the labelling `G`. -/\n\
+def secure (G : {lab}) (P : {pt}) : Prop :=\n  {sl} (tr_{sx} P) G = some true\n\n\
+/-- A store: `{fk}` is `true` of it. -/\n\
+def Good (E : {store}) : Prop :=\n  {fl} E = some true\n\n\
+/-- The observer sees `X`: its level is `{los}`. -/\n\
+def Low (G : {lab}) (X : {xt}) : Prop :=\n  {ll} (tr_{lx} {xe}) G = some {lo}\n\n\
+/-- Two stores that agree at every low `X`. -/\n\
+def lowEq (G : {lab}) (E₁ E₂ : {store}) : Prop :=\n  Good E₁ ∧ Good E₂ ∧ MapHook.AgreeOn (Low G) {xk} E₁ E₂\n\n\
+/-- A store that changes only where `X` is not low, and stays a store. -/\n\
+def HiOnly (G : {lab}) (E E' : {store}) : Prop :=\n  Good E' ∧ MapHook.AgreeOn (Low G) {xk} E E'\n\n\
+/-! ## What the relation reads -/\n\n\
+variable {{G : {lab}}} {{E E₁ E₂ E₁' : {store}}}\n\n\
+theorem Good.wf (h : Good E) : MapHook.WF E := (({walk} E).1 h).1\n\n\
+/-- A binding of a store passes the test of `{fk}`. -/\n\
+theorem Good.lookup (h : Good E) {{k v : {na}.SortKItem}} (hk : MapHook.lookup E k = some v) :\n    {test} k v :=\n  \
+MapHook.entry_of_lookup (Q := fun q => {test} q.1 q.2) (({walk} E).1 h).2 hk\n\n\
+theorem Good.update (h : Good E) {{k v : {na}.SortKItem}} (hk : {test} k v) :\n    Good (MapHook.update E k v) :=\n  \
+({walk} _).2 ⟨MapHook.wf_update h.wf, MapHook.entriesOn_update (({walk} E).1 h).2 hk⟩\n\n\
+theorem good_unit : Good (MapHook.unit : {store}) :=\n  ({walk} _).2 ⟨MapHook.wf_unit, MapHook.entriesOn_unit⟩\n\n\
+theorem key_injective : Function.Injective {xk} := fun _ _ h => by cases h; rfl\n\n\
+theorem lowEq_refl (h : Good E) : lowEq G E E := ⟨h, h, .refl⟩\n\n\
+theorem lowEq_symm (h : lowEq G E₁ E₂) : lowEq G E₂ E₁ := ⟨h.2.1, h.1, h.2.2.symm⟩\n\n\
+theorem hiOnly_refl (h : Good E) : HiOnly G E E := ⟨h, .refl⟩\n\n\
+theorem lowEq_hiOnly (h : lowEq G E₁ E₂) (h' : HiOnly G E₁ E₁') : lowEq G E₁' E₂ :=\n  ⟨h'.1, h.2.1, h'.2.symm.trans h.2.2⟩\n\n\
+theorem lowEq_lookup (h : lowEq G E₁ E₂) {{X : {xt}}} (hX : Low G X) :\n    MapHook.lookup E₁ ({xk} X) = MapHook.lookup E₂ ({xk} X) :=\n  h.2.2 X hX\n\n\
+theorem lowEq_update (h : lowEq G E₁ E₂) (X : {xt}) {{v : {na}.SortKItem}} (hv : {test} ({xk} X) v) :\n    \
+lowEq G (MapHook.update E₁ ({xk} X) v) (MapHook.update E₂ ({xk} X) v) :=\n  \
+⟨h.1.update hv, h.2.1.update hv, h.2.2.update key_injective X v⟩\n\n\
+theorem hiOnly_update (h : Good E) {{X : {xt}}} (hX : ¬ Low G X) {{v : {na}.SortKItem}}\n    \
+(hv : {test} ({xk} X) v) : HiOnly G E (MapHook.update E ({xk} X) v) :=\n  \
+⟨h.update hv, .update_high key_injective hX v⟩\n\n\
+end {ns}\n"
+    )
+}
+
 /// What `relation` generated: its inversion lemmas, and the per-rule cases (three per rule) proved
 /// by one tactic or listed as the hand module's.
 struct RelationOut {
@@ -575,8 +719,9 @@ struct RelationOut {
 /// - `Stack.lean`: the two stack typings of `<k>` (`lk`, low; `CK K`, confined over `K`), read
 ///   off the checker and the cooling rules (`plug`), and the three per-rule properties (`CQ`,
 ///   `SQ`, `SameQ`);
-/// - (hand) `Store.lean`: `hiOnly_refl`, `lowEq_symm`, `lowEq_hiOnly`, the store lemmas and the
-///   per-rule cases of `--open`;
+/// - `Spec.lean` (with `--store-ok`, `spec`): the statement's facts and the store lemmas;
+/// - (hand) `Store.lean`: what is particular to the definitions' store and labelling (the label of
+///   an identifier, a value passes the store's test) and the per-rule cases of `--open`;
 /// - `Proof.lean`: each property for every rule (one tactic per property, or the hand case),
 ///   the relation `Rel` and its modes, and every field of `Obligations`.
 fn relation(
@@ -618,7 +763,14 @@ fn relation(
     let (lev_s, sec_s, conf_s) = (find(&get("lev")), find(&get("sec")), find(&get("conf")));
     // `--quiet`: the expressions a confined stack may evaluate (none observable); without it, all
     let quiet_s = opt.get("quiet").map(|q| find(q));
-    let a = snd::load(&get("kore"), name, true, &[]);
+    // `--store-ok`: the semantics' function, generated with the others though no rule calls it
+    let store_ok_s = opt.get("store-ok").map(|f| {
+        let kore = get("kore");
+        let text = std::fs::read_to_string(&kore).unwrap_or_else(|e| fail(&format!("{kore}: {e}")));
+        let def = crate::ir::load(&text).unwrap_or_else(|e| fail(&format!("{kore}: {e}")));
+        crate::invariants::resolve(&def, f).unwrap_or_else(|e| fail(&e))
+    });
+    let a = snd::load(&get("kore"), name, true, store_ok_s.as_slice());
     let mut wanted = vec![lev_s.clone(), sec_s.clone(), conf_s.clone()];
     wanted.extend(quiet_s.clone());
     let b = snd::load(&ckore, &nb, false, &wanted);
@@ -705,6 +857,38 @@ fn relation(
         .iter()
         .find(|c| c.label == store)
         .unwrap_or_else(|| fail(&format!("no cell <{store}> in the top cell")));
+    let spec_text = store_ok_s.as_ref().map(|f| {
+        let d = &a.def.symbols[f];
+        if d.args.len() != 1
+            || snd::sname(&d.args[0]) != store_cell.content
+            || snd::sname(&d.result) != "SortBool"
+        {
+            fail(&format!(
+                "--store-ok {}: a function from <{store}>'s content to Bool",
+                names::demangle(f)
+            ));
+        }
+        let key = eqs
+            .get(&lev.sym)
+            .and_then(|es| labelled_sort(es, &b.m.hooks))
+            .unwrap_or_else(|| {
+                fail("--store-ok: no equation of --lev looks its argument up in the labelling (`lev(X:S, X |-> L _) => L`)")
+            });
+        if !a.m.sorts.contains_key(&key) {
+            fail(&format!("--store-ok: the labelled sort {key} is not a sort of the semantics"));
+        }
+        spec(&Spec {
+            ns,
+            na: &na,
+            store_ok: (names::demangle(f), format!("{na}.{}", a.fns[f].lean), snd::short_name(f)),
+            sec: (names::demangle(&sec.sym), sec.lean_b.clone(), ty(&na, &sec.sort), crate::terms::fsuffix(&sec.sort)),
+            lev: (names::demangle(&lev.sym), lev.lean_b.clone(), crate::terms::fsuffix(&lev.sort)),
+            lo: &lo,
+            lab: ty(&nb, &lev.env),
+            store: ty(&na, &store_cell.content),
+            key: (ty(&na, &key), cx.leaf_value(&key, "X", &lev.sort), format!("{na}.{}", a.m.leaf_ctor("SortKItem", &key))),
+        })
+    });
     let (cools, hole) = snd::coolings(&a, kpos);
     if hole != lev.sort {
         fail("the holes of the cooling rules are expected to be of --lev's sort");
@@ -1446,7 +1630,11 @@ theorem {thm} {{P : {name}.{pgm}}}{}\n    (hP : {secure} P) {{f₁ f₂ : {topt}
     }
 
     let dir = get("out-dir");
-    for (f, text) in [("Levels.lean", &t), ("Stack.lean", &s), ("Proof.lean", &p)] {
+    let mut files = vec![("Levels.lean", &t), ("Stack.lean", &s), ("Proof.lean", &p)];
+    if let Some(sp) = &spec_text {
+        files.push(("Spec.lean", sp));
+    }
+    for (f, text) in files {
         let path = std::path::Path::new(&dir).join(f);
         if let Some(d) = path.parent() {
             std::fs::create_dir_all(d).unwrap_or_else(|e| fail(&format!("{}: {e}", d.display())));

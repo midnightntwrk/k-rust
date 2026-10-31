@@ -291,7 +291,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,19,18,36)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,19,19,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -301,7 +301,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,19,19,36)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,19,20,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -311,7 +311,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,19,20,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,19,21,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -324,7 +324,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -337,7 +337,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -350,7 +350,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,19,25,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -363,7 +363,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,62)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,62)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -373,7 +373,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -387,7 +387,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,65)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,19,29,65)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -400,7 +400,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,19,29,44)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,19,30,44)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -410,7 +410,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,19,30,31)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,19,31,31)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -420,7 +420,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,19,31,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,19,32,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -430,7 +430,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,26,32,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,26,33,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -1378,7 +1378,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,20,42,33)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,20,43,33)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -1391,7 +1391,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,36,42,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,36,43,49)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -1401,10 +1401,20 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,52,42,61)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,52,43,61)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
+  ]
+  symbol LblstoreOk'LParUndsRParUnds'CONTRACT'Unds'Bool'Unds'Map{}(SortMap{}) : SortBool{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,19,48,49)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/contract/contract.k)"
+    ),
+    total{}()
   ]
   symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{}
   [
@@ -1412,7 +1422,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,50,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,58,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -1424,7 +1434,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,50,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,58,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -1436,7 +1446,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,50,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,58,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -1448,7 +1458,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,50,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,58,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -1460,7 +1470,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,50,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,58,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -1472,7 +1482,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,50,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,58,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -1492,7 +1502,7 @@ module CONTRACT
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,50,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,58,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -3143,6 +3153,15 @@ module CONTRACT
       )
     )
     [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortBool{},
+      \equals{SortBool{}, R}(
+        Val:SortBool{},
+        LblstoreOk'LParUndsRParUnds'CONTRACT'Unds'Bool'Unds'Map{}(K0:SortMap{})
+      )
+    )
+    [functional{}()]
   axiom{R}
     \exists{R}(
       Val:SortKCell{},
@@ -7553,6 +7572,57 @@ module CONTRACT
       UNIQUE'Unds'ID{}("6f30a2087d0b19640df005437bc3f4665f41282666a72821b17b16c99ed5afee"),
       owise{}()
     ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortMap{}, R}(X0:SortMap{}, Lbl'Stop'Map{}()), \top{R}())),
+      \equals{SortBool{}, R}(
+        LblstoreOk'LParUndsRParUnds'CONTRACT'Unds'Bool'Unds'Map{}(X0:SortMap{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("53c6cec882a78430ea56c39a4625cc8d1bb3d874c25aa0d65b5cb65b238fea64"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,29)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/contract/contract.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortMap{}, R}(
+            X0:SortMap{},
+            Lbl'Unds'Map'Unds'{}(
+              Lbl'UndsPipe'-'-GT-Unds'{}(VarK:SortKItem{}, VarV:SortKItem{}),
+              VarE:SortMap{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortBool{}, R}(
+        LblstoreOk'LParUndsRParUnds'CONTRACT'Unds'Bool'Unds'Map{}(X0:SortMap{}),
+        \and{SortBool{}}(
+          Lbl'Unds'andBool'Unds'{}(
+            Lbl'Unds'orBool'Unds'{}(
+              LblnotBool'Unds'{}(LblisId{}(kseq{}(VarK:SortKItem{}, dotk{}()))),
+              LblisValue{}(kseq{}(VarV:SortKItem{}, dotk{}()))
+            ),
+            LblstoreOk'LParUndsRParUnds'CONTRACT'Unds'Bool'Unds'Map{}(VarE:SortMap{})
+          ),
+          \top{SortBool{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("87f14fee52b89b7e00b4672262079bb0e028bdba7418c23b574f880791228d50"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(50,3,50,86)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/contract/contract.k)"
+      )
+    ]
   axiom{}
     \rewrites{SortGeneratedTopCell{}}(
       \and{SortGeneratedTopCell{}}(
@@ -7597,7 +7667,7 @@ module CONTRACT
       UNIQUE'Unds'ID{}("9871eda668bbe64bc8151ce523023bb5f8a15640bdf74479f10de50d076a38b1"),
       cool-like{}(),
       label{}("CONTRACT.var"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,52,66)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,66)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -7644,7 +7714,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("149ff890b5254388ad5233333e42afe284a39dbe8c037b4d5cefd905307472ed"),
       label{}("CONTRACT.witness"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(53,3,53,90)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,61,90)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -7711,7 +7781,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("609d7fd4034baf308690b73f8ea23bc3a23aafa9323e282068d8d27371e330eb"),
       label{}("CONTRACT.read"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,55,68)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(62,3,63,68)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -7762,7 +7832,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("90c5f0e5c5a16bac9aa2c87e180079c484e976cdd268a3ea96fed8f2c6ef8ad9"),
       label{}("CONTRACT.disclose"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,56,107)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(64,3,64,107)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -7814,7 +7884,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("835671116dbcce44da5c9d8897324dd268226aa747d761f1d7e2735456b22a19"),
       label{}("CONTRACT.plus"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(57,3,57,58)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(65,3,65,58)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -7866,7 +7936,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("c7871e210afc021b368add0a13bc2039f3dd32d47ffe9a21645296fb2eb40f47"),
       label{}("CONTRACT.lt"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(58,3,58,56)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(66,3,66,56)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -7917,7 +7987,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("267ae76e426ec15c0f0314e68b96ba04f2ffce3f5876428f83ffd72d002b8507"),
       label{}("CONTRACT.assign"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(60,3,60,81)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(68,3,68,81)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -7980,7 +8050,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("9e2517ad783c7002a1fbf31234acca4900561ce5738d6b2ff1b5d44d7ca1c963"),
       label{}("CONTRACT.write"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,62,68)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(69,3,70,68)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8033,7 +8103,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("4964aafdbf38b4f59e2b8ced8c211dfd99705eb6ff771ac694503fcfa423e003"),
       label{}("CONTRACT.emit"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(63,3,63,108)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(71,3,71,108)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8081,7 +8151,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("b20730b1eb74d9dbb5b53a2ee40f65f0af996b366ad75899db4e895c24810153"),
       label{}("CONTRACT.if-true"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(64,3,64,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(72,3,72,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8129,7 +8199,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("e318bda9fa975fbbf27b07eb65989e5c80a7dbbccea5f2c00e7388eb7ed61fba"),
       label{}("CONTRACT.if-false"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(65,3,65,57)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(73,3,73,57)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8190,7 +8260,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("a269de424b021a4efed940ce7ebfa33bc151ffb9cbaea19337f86f86f7bef220"),
       label{}("CONTRACT.repeat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(66,3,66,87)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(74,3,74,87)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8238,7 +8308,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("9c994360e43671e481ce65efa3229cf38a23fcd649358da68711c3e2c377203a"),
       label{}("CONTRACT.repeat-done"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(67,3,67,72)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(75,3,75,72)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8282,7 +8352,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("b4c68b453031f6e0e0ab04e3181409ad5208e96d9f4302fd6122c0001ff0e56e"),
       label{}("CONTRACT.block"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(68,3,68,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(76,3,76,40)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8322,7 +8392,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("17cf27ed48140ad842b6fbecaa5f659ce5cf1c4f70d62fef811f7c7a8857bc17"),
       label{}("CONTRACT.skip"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(69,3,69,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(77,3,77,38)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8372,7 +8442,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("c56bd0000c94c6bb821b7a2ddf331f53384e58e9da4ba4f80cb91dfb24e334ed"),
       label{}("CONTRACT.seq"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(70,3,70,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(78,3,78,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8553,7 +8623,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("72e0af3d284cb027325e5b3a770085dc0ecfb84696cddb5109368e837bf9392a"),
       label{}("CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,19,20,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,19,21,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8616,7 +8686,7 @@ module CONTRACT
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,19,20,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,19,21,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8679,7 +8749,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("864891b1c3e1a5c0f04e6361499c3717aed04db7a36604800b7e6339d55396f0"),
       label{}("CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8745,7 +8815,7 @@ module CONTRACT
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8811,7 +8881,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("cd3e116375c8bb1f2febb5be49ccaf1891fc2ebb7347bda315d37959692717fa"),
       label{}("CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8877,7 +8947,7 @@ module CONTRACT
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8940,7 +9010,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("ec91d49da3995aee42bd6184f78833cb1a0507eb84104f73b555b2276ca4fcc2"),
       label{}("CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9006,7 +9076,7 @@ module CONTRACT
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9072,7 +9142,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("e4c9a6f634523719123449ee2d9b1dfae44c4b77fc3eaa758c2078b3cf2fd130"),
       label{}("CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9138,7 +9208,7 @@ module CONTRACT
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9201,7 +9271,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("cf2a4da4d664193e1cde5f14a03423938fbb87a4f615c8c34000e4584cac79fc"),
       label{}("CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,19,25,46)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,46)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9267,7 +9337,7 @@ module CONTRACT
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,19,25,46)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,46)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9330,7 +9400,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("ff65a2c9974f4095b2ba491941a1edd5a7c7368f2e9660551b39010d8a9ec693"),
       label{}("CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,62)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,62)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9396,7 +9466,7 @@ module CONTRACT
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,62)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,62)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9456,7 +9526,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("43c2d5d2c4dd8ac6ffbec59923fa66eb655edd3c24ce5d11434df6228a4c90f6"),
       label{}("CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9519,7 +9589,7 @@ module CONTRACT
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9584,7 +9654,7 @@ module CONTRACT
     [
       UNIQUE'Unds'ID{}("2d4ee5b349358ecb9b8ca04fbc447cf8b3d6dd298e9fa33722d3a2a0928bd8fb"),
       label{}("CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,65)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,19,29,65)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9652,7 +9722,7 @@ module CONTRACT
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,65)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,19,29,65)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -10900,7 +10970,7 @@ module CONTRACT
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,1,71,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,1,79,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/contract/contract.k)"
   )

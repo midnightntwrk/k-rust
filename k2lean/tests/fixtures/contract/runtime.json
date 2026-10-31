@@ -6,15 +6,15 @@
   "syntax_module": "CONTRACT-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "8aeb506c5e03b7147d9bd2b6a1b127a419639420b8a15078fb4a4af975d74b0f"
+    "sha256": "af4c9860e99b4900116830ffe660d63611693ba955b514e4b8fe4c332e7ea588"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "7f44065db852fa44ae6ecc8c5764eaa4fe3d0247e81c4190a8c96bc59cecda57"
+    "sha256": "42a457a81c269fec3dd52a1f9eff6a617800d29cd6c772c3c21f2f452eaa0509"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "cd0ca4fe212fd7f6a4b0a6f3b6739bc07869674cb6d862749eb1a2076dfa5cbe"
+    "sha256": "40585aab66aeee7be3c685187f0faef40087882f0c4e9d368a562aa678a0ef87"
   },
   "configuration_variables": {
     "LEDGER": "Map",
@@ -151,6 +151,8 @@
     "4879c0fcf6b7d7f3d6b751e4f460f8dced005a44ae5ff600cffcea784cf58795",
     "6f30a2087d0b19640df005437bc3f4665f41282666a72821b17b16c99ed5afee",
     "e7b9d58ded4afa95e6ed6b85751bcda979d4658204e7ae28a4644881101a04d6",
+    "53c6cec882a78430ea56c39a4625cc8d1bb3d874c25aa0d65b5cb65b238fea64",
+    "87f14fee52b89b7e00b4672262079bb0e028bdba7418c23b574f880791228d50",
     "9871eda668bbe64bc8151ce523023bb5f8a15640bdf74479f10de50d076a38b1",
     "149ff890b5254388ad5233333e42afe284a39dbe8c037b4d5cefd905307472ed",
     "609d7fd4034baf308690b73f8ea23bc3a23aafa9323e282068d8d27371e330eb",
