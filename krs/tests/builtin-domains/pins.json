@@ -1026,5 +1026,226 @@
         "kore_floats": "0.100000001e0f"
       }
     }
+  },
+  "implementation_chosen": {
+    "krs-builtin-int-ops": {
+      "add": [],
+      "sub": [],
+      "mul": [],
+      "div": [],
+      "rem": [],
+      "div-euclid": [],
+      "rem-euclid": [],
+      "pow": [],
+      "pow-mod": [],
+      "shift-left": [],
+      "shift-right": [],
+      "bit-and": [],
+      "bit-or": [],
+      "bit-xor": [],
+      "bit-not": [],
+      "min": [],
+      "max": [],
+      "abs": [],
+      "log2": [],
+      "bit-range": [],
+      "sign-extend-bit-range": [],
+      "divides": [],
+      "not-divides": [],
+      "eq": [],
+      "ne": [],
+      "lt": [],
+      "le": [],
+      "gt": [],
+      "ge": []
+    },
+    "krs-builtin-int-sign": {
+      "quot-positive": [],
+      "quot-negative-dividend": [],
+      "quot-negative-divisor": [],
+      "quot-negative-both": [],
+      "sgn-minus-one": [],
+      "sgn-negative": [],
+      "sgn-zero": [],
+      "sgn-positive": [],
+      "div-by-minus-one": [],
+      "div-by-one": []
+    },
+    "krs-builtin-int-sign-unsigned": {
+      "rule-literal": [],
+      "positive": []
+    },
+    "krs-builtin-k-equal": {
+      "if-true": [],
+      "if-false": [],
+      "if-nested": [],
+      "same-terms": [],
+      "same-values": [],
+      "differ": [],
+      "pick-true": [],
+      "pick-false": [],
+      "ite-undefined-branch": []
+    },
+    "krs-builtin-bool-ops": {
+      "not": [],
+      "and": [],
+      "or": [],
+      "xor": [],
+      "implies": [],
+      "implies-vacuous": [],
+      "and-then": [],
+      "or-else": [],
+      "eq": [],
+      "ne": []
+    },
+    "krs-builtin-bytes-ops": {
+      "empty": [],
+      "length": [],
+      "get": [],
+      "update": [],
+      "substr": [],
+      "pad-right": [],
+      "pad-left": [],
+      "concat": [],
+      "reverse": [],
+      "replace-at": [],
+      "from-int": [],
+      "from-int-no-len": [],
+      "to-int-unsigned": [],
+      "to-int-signed": []
+    },
+    "krs-builtin-set-ops": {
+      "difference": [],
+      "intersect": [],
+      "union-size": [],
+      "is-subset": [],
+      "not-subset": [],
+      "contains": [],
+      "to-list": [
+        "SET.set2list order"
+      ],
+      "from-list": [],
+      "list-contains": []
+    },
+    "krs-builtin-map-ops": {
+      "empty": [],
+      "remove": [],
+      "remove-absent": [],
+      "remove-all": [],
+      "keys": [],
+      "keys-absent": [],
+      "keys-list": [
+        "MAP.keys_list order"
+      ],
+      "values": [
+        "MAP.values order"
+      ],
+      "size": [],
+      "update-all": [],
+      "get-or-default": [],
+      "get-or-default-absent": []
+    },
+    "krs-builtin-strings": {
+      "msg": [],
+      "length": [],
+      "length-latin-1": [],
+      "substr": [],
+      "find": [],
+      "find-absent": [],
+      "chr": [],
+      "ord": [],
+      "ord-latin-1": [],
+      "chr-latin-1": [],
+      "from-string-latin-1": [],
+      "from-int": [],
+      "to-int": [],
+      "from-bool": [],
+      "to-bool": [],
+      "eq": [],
+      "lt": [],
+      "not-lt": [],
+      "from-string": [],
+      "to-string": [],
+      "match-literal": [],
+      "match-latin-1": []
+    },
+    "krs-builtin-floats": {
+      "sum-binary64": [],
+      "sum-binary64-exact": [],
+      "sum-binary32": [],
+      "arithmetic": [],
+      "nan-ieee-eq": [],
+      "nan-ieee-ne": [],
+      "nan-term-eq": [],
+      "nan": [],
+      "not-nan": [],
+      "signed-zero-ieee-eq": [],
+      "signed-zero-term-eq": [],
+      "signed-zero-neg": [],
+      "infinite": [],
+      "finite": [],
+      "ordered-nan": [],
+      "ordered-infinity": [],
+      "sqrt": [],
+      "rounding": [],
+      "to-int-tie-down": [],
+      "to-int-tie-up": [],
+      "to-int-tie-negative": [],
+      "from-int": [],
+      "from-int-binary32": [],
+      "round-binary32": [],
+      "max-value": [],
+      "format-binary32": [],
+      "format-binary64": [],
+      "format-binary64-suffix": [],
+      "match-literal": [],
+      "match-binary32": [],
+      "match-infinity": [],
+      "match-negative-infinity": [],
+      "match-negative-zero": [],
+      "negate-binary64": [],
+      "negate-binary32": [],
+      "negate-infinity": [],
+      "negate-nan-binary32": [],
+      "negate-zero": [],
+      "negate-subnormal": []
+    },
+    "krs-builtin-floats-outputs": {
+      "negate-binary64": [],
+      "negate-binary32": [],
+      "negate-infinity": [],
+      "negate-nan-binary32": [],
+      "negate-zero": [],
+      "negate-subnormal": [],
+      "literal-binary64": [],
+      "literal-binary32": []
+    },
+    "krs-builtin-sort-tests": {
+      "chk-int": [],
+      "chk-bool": [],
+      "chk-guard-fails": [],
+      "prj": [],
+      "prj-undefined": [],
+      "unbox": [],
+      "unbox-undefined": [],
+      "isval-value": [],
+      "isval-not-value": [],
+      "nth": [],
+      "kind-int": [],
+      "kind-box": []
+    },
+    "krs-builtin-io": {
+      "sum": []
+    },
+    "krs-builtin-io-log": {
+      "trace": [],
+      "twice": []
+    },
+    "krs-builtin-raw-k": {
+      "double": []
+    },
+    "krs-builtin-raw-hook": {
+      "keccak-abc": []
+    }
   }
 }

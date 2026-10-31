@@ -423,5 +423,67 @@
       "java": "[Error] Inner Parser: Could not find any suitable productions for label helper",
       "native": "{{work}}/induced.k:9:3: could not parse rule in module \"KRS-VISIBILITY-INDUCED\": could not find a production for K label \"helper\" with arity 1"
     }
+  },
+  "implementation_chosen": {
+    "krs-grammar-partition": {
+      "and": [],
+      "unsigned-literal": [],
+      "spaced-negation": []
+    },
+    "krs-grammar-dependency-rules": {
+      "double": []
+    },
+    "krs-grammar-kevm-case": {
+      "emit": []
+    },
+    "krs-grammar-format": {
+      "format": []
+    },
+    "krs-grammar-prefer": {
+      "dangling-else": [],
+      "if-then-else": [],
+      "if-then": []
+    },
+    "krs-grammar-overload": {
+      "lval-access": [],
+      "value-access": []
+    },
+    "krs-grammar-overload-ambiguous": {
+      "value-access": []
+    },
+    "krs-grammar-visibility": {
+      "inc": [],
+      "goto": []
+    },
+    "krs-grammar-memo": {
+      "compute": []
+    },
+    "krs-grammar-tokens": {
+      "call-main": [],
+      "call-foo": [],
+      "call-bar": [],
+      "call-dollar": [],
+      "say-hi": []
+    },
+    "krs-grammar-token-id": {
+      "jump-label": [],
+      "jump-id": []
+    },
+    "krs-grammar-layout": {
+      "comment": [],
+      "multiline": []
+    },
+    "krs-grammar-lists": {
+      "sum-three": [],
+      "sum-one": [],
+      "count-three": []
+    },
+    "krs-grammar-strict-lists": {
+      "left-to-right": [],
+      "mixed": [],
+      "values": [],
+      "empty": [],
+      "nested": []
+    }
   }
 }

@@ -139,5 +139,17 @@
         "origin": "def.production.30bc72c88cd95b6ec2744205"
       }
     ]
+  },
+  "implementation_chosen": {
+    "krs-sorts-algebra-functions": {
+      "go-true": [],
+      "go-false": [],
+      "pick-true": [],
+      "pick-false": []
+    },
+    "krs-sorts-algebra-constructors": {
+      "go": [],
+      "fin": []
+    }
   }
 }

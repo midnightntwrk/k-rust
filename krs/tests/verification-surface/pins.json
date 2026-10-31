@@ -514,5 +514,14 @@
       "found-among-two": true,
       "other-hits": false
     }
+  },
+  "implementation_chosen": {
+    "krs-verification-surface-l21": {
+      "zero": [],
+      "foo": []
+    },
+    "krs-verification-surface-l21-readable": {
+      "zero": []
+    }
   }
 }

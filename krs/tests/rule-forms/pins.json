@@ -990,5 +990,152 @@
         "KRS-CONTEXTS.add"
       ]
     }
+  },
+  "implementation_chosen": {
+    "krs-rule-forms-casts": {
+      "is-expression-int": [],
+      "is-expression-add": [],
+      "is-expression-block": [],
+      "is-expression-bool": [],
+      "bar": [],
+      "bar-not-int": [],
+      "baz": [],
+      "baz-undefined": []
+    },
+    "krs-rule-forms-priority": {
+      "toss": [],
+      "flip": [],
+      "grade-95": [],
+      "grade-85": [],
+      "grade-75": [],
+      "grade-65": [],
+      "grade-10": [],
+      "grade-owise-95": [],
+      "grade-owise-85": [],
+      "grade-owise-75": [],
+      "grade-owise-65": [],
+      "grade-owise-10": []
+    },
+    "krs-rule-forms-nondet": {
+      "toss": [],
+      "strict-order": [],
+      "div": [],
+      "div-zero": []
+    },
+    "krs-rule-forms-anywhere": {
+      "drop": [],
+      "drop-nested": [],
+      "drop-repeated": [],
+      "reassociate": [],
+      "reassociate-nested": []
+    },
+    "krs-rule-forms-fresh": {
+      "alloc-tx": []
+    },
+    "krs-rule-forms-local-rewrite": {
+      "arithmetic-precedence": [],
+      "boolean-precedence": [],
+      "comparison-equality": [],
+      "division-left": [],
+      "division-parenthesized": [],
+      "parentheses-override": [],
+      "short-circuit-precedence": [],
+      "subtraction-left": [],
+      "unary-binding": [],
+      "iterated-unary": [],
+      "initial-environment": [],
+      "lookup-evaluation-order": [],
+      "right-associated-sequence": [],
+      "single-assignment": [],
+      "update-existing": [],
+      "block-sequence": [],
+      "dangling-else": [],
+      "empty-block": [],
+      "explicit-else": [],
+      "if-false": [],
+      "if-true": [],
+      "nested-control": [],
+      "while-followed": [],
+      "undeclared-assignment": []
+    },
+    "krs-rule-forms-restating-imp": {
+      "arithmetic-precedence": [],
+      "boolean-precedence": [],
+      "comparison-equality": [],
+      "division-left": [],
+      "division-parenthesized": [],
+      "parentheses-override": [],
+      "short-circuit-precedence": [],
+      "subtraction-left": [],
+      "unary-binding": [],
+      "iterated-unary": [],
+      "initial-environment": [],
+      "lookup-evaluation-order": [],
+      "right-associated-sequence": [],
+      "single-assignment": [],
+      "update-existing": [],
+      "block-sequence": [],
+      "dangling-else": [],
+      "empty-block": [],
+      "explicit-else": [],
+      "if-false": [],
+      "if-true": [],
+      "nested-control": [],
+      "while-followed": [],
+      "undeclared-assignment": []
+    },
+    "krs-rule-forms-local-term": {
+      "unmark": [],
+      "unmark-twice": [],
+      "unmarked": []
+    },
+    "krs-rule-forms-heat-cool": {
+      "add-left": [],
+      "add-right": [],
+      "and": [],
+      "and-left": [],
+      "and-right": [],
+      "stuck": []
+    },
+    "krs-rule-forms-heat-cool-strict": {
+      "add-left": [],
+      "add-right": [],
+      "and": [],
+      "and-left": [],
+      "and-right": [],
+      "stuck": []
+    },
+    "krs-rule-forms-contexts": {
+      "add-left": [],
+      "add-right": [],
+      "and": [],
+      "and-left": [],
+      "and-right": [],
+      "stuck": []
+    },
+    "krs-rule-forms-contexts-lvalue": {
+      "increment": [],
+      "increment-other": []
+    },
+    "krs-rule-forms-contexts-evaluate": {
+      "twice-name-run": [],
+      "twice-name-translate": [],
+      "twice-sum-run": [],
+      "twice-sum-translate": [],
+      "assign-run": [],
+      "assign-translate": []
+    },
+    "krs-rule-forms-macros": {
+      "unless-false": [],
+      "unless-true": [],
+      "if-else": [],
+      "int-recursive": [],
+      "decl-one-step": [],
+      "nest": [],
+      "twin-match": [],
+      "twin-mismatch": [],
+      "ispair-match": [],
+      "ispair-int": []
+    }
   }
 }

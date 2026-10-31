@@ -400,5 +400,69 @@
     "optional-config-var": [
       "error[krs::analysis::collection-config-var-without-initial]: the `multiplicity = \"?\"` cell `counter` reads a configuration variable, so it starts present although it is not `initial`; add `initial` to its `#[k::cell]` to say so"
     ]
+  },
+  "implementation_chosen": {
+    "krs-configuration-cells-framing": {
+      "done": [],
+      "report": []
+    },
+    "krs-configuration-cells-groups": {
+      "push-pop": [],
+      "save-restore": [],
+      "call-ret": [],
+      "wrap-unwrap": [],
+      "jump": []
+    },
+    "krs-configuration-cells-optional": {
+      "count": [],
+      "stuck": [],
+      "toggle": [],
+      "mark": []
+    },
+    "krs-configuration-cells-threads": {
+      "spawn-join": [],
+      "race": []
+    },
+    "krs-configuration-cells-objects": {
+      "count": [],
+      "default": [],
+      "single": [],
+      "single-stuck": []
+    },
+    "krs-configuration-cells-set-instances": {
+      "probe-found": [],
+      "probe-touched": [],
+      "probe-empty": [],
+      "probe-other-touched": [],
+      "drop": [],
+      "bump": [],
+      "next-equal-hits": [],
+      "next-other-hits": [],
+      "via": [],
+      "check-touched": [],
+      "check-untouched": [],
+      "check-zero": [],
+      "find": [],
+      "probe-among-four": [],
+      "probe-among-four-reversed": [],
+      "dup": [],
+      "dz-zero": [],
+      "dz-five": [],
+      "bags": [],
+      "bags-other-key": [],
+      "bagm": [],
+      "bagc": [],
+      "bagc-other-key": []
+    },
+    "krs-configuration-cells-queue": {
+      "dequeue": [],
+      "fifo": [],
+      "front": [],
+      "pop": [],
+      "retire": []
+    },
+    "krs-configuration-cells-optional-config-var-initial": {
+      "go": []
+    }
   }
 }

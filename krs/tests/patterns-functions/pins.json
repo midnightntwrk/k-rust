@@ -458,5 +458,89 @@
     "krs-patterns-functions-lets": {
       "definition.kore": "krs-gate kore-compare: KORE sentence multisets differ: reference=405, native=403, missing=21, extra=19"
     }
+  },
+  "implementation_chosen": {
+    "krs-patterns-functions-aliases": {
+      "dup": [],
+      "wrap": [],
+      "rest-long": [],
+      "rest-short": []
+    },
+    "krs-patterns-functions-alternatives": {
+      "rgb": [],
+      "rgb-stuck": [],
+      "primary": [],
+      "code-rgb": [],
+      "pick": []
+    },
+    "krs-patterns-functions-matches": {
+      "is-pair": [],
+      "not-pair": [],
+      "boxed": [],
+      "unboxed": [],
+      "twin": [],
+      "not-twin": [],
+      "known": [],
+      "unknown": []
+    },
+    "krs-patterns-functions-lets": {
+      "swap": [],
+      "swap-pair": [],
+      "scale": [],
+      "shadow": [],
+      "positive": [],
+      "scale-refuted": [],
+      "swap-refuted": [],
+      "swap-pair-refuted": []
+    },
+    "krs-patterns-functions-contexts": {
+      "read-bar": [],
+      "read-twice": []
+    },
+    "krs-patterns-functions-sugar": {
+      "byte-of": [],
+      "half-of": [],
+      "reg-of": [],
+      "reg-of-pair": [],
+      "reg-of-other": [],
+      "pick-true": [],
+      "pick-false": []
+    },
+    "krs-patterns-functions-bits": {
+      "decode-inc": [],
+      "decode-dec": [],
+      "decode-jr": [],
+      "decode-halt": [],
+      "decode-ld": [],
+      "decode-alu": [],
+      "decode-push": [],
+      "decode-rst": [],
+      "decode-nop": [],
+      "decode-wide": [],
+      "decode-negative": [],
+      "decode-unlisted": [],
+      "decode-cb-set": [],
+      "decode-cb-rot": [],
+      "kind-low": [],
+      "kind-high": [],
+      "reg-low": [],
+      "reg-high": [],
+      "edge-jr": [],
+      "edge-jr-other": [],
+      "edge-ld": [],
+      "edge-ld-other": [],
+      "edge-push": [],
+      "edge-push-other": [],
+      "imm-addi-negative": [],
+      "imm-addi-max": [],
+      "imm-sw-negative": [],
+      "imm-sw-other": [],
+      "imm-beq-backward": [],
+      "imm-beq-forward": [],
+      "imm-lui-high": [],
+      "imm-lui-low": [],
+      "imm-jal-backward": [],
+      "imm-jal-forward": []
+    }
   }
 }
