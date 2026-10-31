@@ -912,7 +912,7 @@ preserve = []
 
 [demo.TwoConf]
 tier = "light"
-guarded = 169
+guarded = 174
 preserve = []
 
 [demo.TwoConf.slots]
@@ -992,7 +992,7 @@ preserve = []
 "join.key.end.«resume-lit»" = { status = "generic", id = "fc1fa8fc7aa98c23" }
 "join.key.end.«resume-oid»" = { status = "generic", id = "5135abdba42cd2a5" }
 "join.key.new.end" = { status = "generic", id = "ebc534859aa2ca21" }
-"join.key.new.new" = { status = "open", id = "113f4164eb969456" }
+"join.key.new.new" = { status = "refuted", id = "113f4164eb969456" }
 "join.key.new.yield" = { status = "generic", id = "f9e5535a573196fd" }
 "join.key.new.«resume-lit»" = { status = "generic", id = "fd06219099c5e360" }
 "join.key.new.«resume-oid»" = { status = "generic", id = "be600769b2b8bd24" }
@@ -1004,13 +1004,13 @@ preserve = []
 "join.key.«resume-lit».end" = { status = "generic", id = "5d58dbe41ec9ca8b" }
 "join.key.«resume-lit».new" = { status = "generic", id = "08228a57884dc220" }
 "join.key.«resume-lit».yield" = { status = "generic", id = "c74c58210bb2b76e" }
-"join.key.«resume-lit».«resume-lit»" = { status = "open", id = "b643ff1ae1db28b9" }
-"join.key.«resume-lit».«resume-oid»" = { status = "open", id = "5884384cd59b03da" }
+"join.key.«resume-lit».«resume-lit»" = { status = "refuted", id = "b643ff1ae1db28b9" }
+"join.key.«resume-lit».«resume-oid»" = { status = "refuted", id = "5884384cd59b03da" }
 "join.key.«resume-oid».end" = { status = "generic", id = "835a8db20da8dd89" }
 "join.key.«resume-oid».new" = { status = "generic", id = "92f073b002140512" }
 "join.key.«resume-oid».yield" = { status = "generic", id = "8110597a2c936fff" }
-"join.key.«resume-oid».«resume-lit»" = { status = "open", id = "a73c6546fadf7962" }
-"join.key.«resume-oid».«resume-oid»" = { status = "open", id = "8c0e3ba08146fc0f" }
+"join.key.«resume-oid».«resume-lit»" = { status = "refuted", id = "a73c6546fadf7962" }
+"join.key.«resume-oid».«resume-oid»" = { status = "refuted", id = "8c0e3ba08146fc0f" }
 "join.open.fork.fork" = { status = "generic", id = "17b589cc6b343965" }
 "join.same.add.add" = { status = "generic", id = "017e4c65792b695a" }
 "join.same.add.dbl" = { status = "generic", id = "c5d4ad441fe04071" }
@@ -1089,7 +1089,7 @@ preserve = []
 
 [demo.ImpPlusConf]
 tier = "light"
-guarded = 182
+guarded = 204
 preserve = []
 
 [demo.ImpPlusConf.slots]
@@ -1099,16 +1099,16 @@ preserve = []
 "join.flush.«STDOUT-STREAM.stdoutBufferString».«STDOUT-STREAM.stdoutBufferInt»" = { status = "generic", id = "2743a9a497fe6c8d" }
 "join.flush.«STDOUT-STREAM.stdoutBufferString».«STDOUT-STREAM.stdoutBufferString»" = { status = "generic", id = "b980e8a835fde17a" }
 "join.flush.«STDOUT-STREAM.stdoutWrite».«STDOUT-STREAM.stdoutWrite»" = { status = "generic", id = "e6429a17be157ec4" }
-"join.key.«++ X».«++ X»" = { status = "open", id = "0535e2692f893ab6" }
-"join.key.«++ X».«X = I»" = { status = "open", id = "3e28c5d856639db8" }
-"join.key.«++ X».«X:Id»" = { status = "open", id = "92aa5ea243893dd1" }
+"join.key.«++ X».«++ X»" = { status = "refuted", id = "0535e2692f893ab6" }
+"join.key.«++ X».«X = I»" = { status = "refuted", id = "3e28c5d856639db8" }
+"join.key.«++ X».«X:Id»" = { status = "refuted", id = "92aa5ea243893dd1" }
 "join.key.«++ X».«int X, Xs;»" = { status = "generic", id = "8e721edb1cacd569" }
-"join.key.«X = I».«++ X»" = { status = "open", id = "11d2d8e77a41fea4" }
-"join.key.«X = I».«X = I»" = { status = "open", id = "e5cd4b80ee59a5cb" }
-"join.key.«X = I».«X:Id»" = { status = "open", id = "862109b42d6a0131" }
+"join.key.«X = I».«++ X»" = { status = "refuted", id = "11d2d8e77a41fea4" }
+"join.key.«X = I».«X = I»" = { status = "refuted", id = "e5cd4b80ee59a5cb" }
+"join.key.«X = I».«X:Id»" = { status = "refuted", id = "862109b42d6a0131" }
 "join.key.«X = I».«int X, Xs;»" = { status = "open", id = "f1184973d4341636" }
-"join.key.«X:Id».«++ X»" = { status = "open", id = "209e643b8d5efde5" }
-"join.key.«X:Id».«X = I»" = { status = "open", id = "cefd38d7a5526657" }
+"join.key.«X:Id».«++ X»" = { status = "refuted", id = "209e643b8d5efde5" }
+"join.key.«X:Id».«X = I»" = { status = "refuted", id = "cefd38d7a5526657" }
 "join.key.«X:Id».«X:Id»" = { status = "open", id = "2230555378ee6f92" }
 "join.key.«X:Id».«int X, Xs;»" = { status = "open", id = "7cb5ab0b5138a7ec" }
 "join.key.«int X, Xs;».«++ X»" = { status = "generic", id = "c418f2d7fb4311d5" }
@@ -1130,9 +1130,9 @@ preserve = []
 "join.open.«STDIN-STREAM.stdinTrim».«STDIN-STREAM.stdinTrim»" = { status = "open", id = "fd72a227df63d3c4" }
 "join.open.«STDIN-STREAM.stdinTrim».«read() #06fc83»" = { status = "open", id = "bb756cf2602b3639" }
 "join.open.«STDIN-STREAM.stdinTrim».«read() #b407f1»" = { status = "open", id = "eb14178909b2b445" }
-"join.open.«int X, Xs;».«int X, Xs;»" = { status = "open", id = "76ca15ff2ef5051a" }
-"join.open.«int X, Xs;».«spawn S»" = { status = "open", id = "a49c378859eb001b" }
-"join.open.«print(P, AEs);».«print(P, AEs);»" = { status = "open", id = "35aef2f9f3fa5486" }
+"join.open.«int X, Xs;».«int X, Xs;»" = { status = "refuted", id = "76ca15ff2ef5051a" }
+"join.open.«int X, Xs;».«spawn S»" = { status = "refuted", id = "a49c378859eb001b" }
+"join.open.«print(P, AEs);».«print(P, AEs);»" = { status = "refuted", id = "35aef2f9f3fa5486" }
 "join.open.«read() #06fc83».«STDIN-STREAM.stdinParseInt»" = { status = "open", id = "53f5bd98445cd6f4" }
 "join.open.«read() #06fc83».«STDIN-STREAM.stdinParseString»" = { status = "open", id = "a0fcd6bbc63408a9" }
 "join.open.«read() #06fc83».«STDIN-STREAM.stdinTrim»" = { status = "open", id = "5a2729f9a8ea032c" }
@@ -1143,8 +1143,8 @@ preserve = []
 "join.open.«read() #b407f1».«STDIN-STREAM.stdinTrim»" = { status = "open", id = "f08155c4a9e01a6c" }
 "join.open.«read() #b407f1».«read() #06fc83»" = { status = "open", id = "a684f7e399de29aa" }
 "join.open.«read() #b407f1».«read() #b407f1»" = { status = "open", id = "724f64ff24aafe62" }
-"join.open.«spawn S».«int X, Xs;»" = { status = "open", id = "3469928f854e1006" }
-"join.open.«spawn S».«spawn S»" = { status = "open", id = "ff882a61133e1363" }
+"join.open.«spawn S».«int X, Xs;»" = { status = "refuted", id = "3469928f854e1006" }
+"join.open.«spawn S».«spawn S»" = { status = "refuted", id = "ff882a61133e1363" }
 "join.same.«! T».«! T»" = { status = "generic", id = "9babccf7eb0739a1" }
 "join.same.«! T».«IMP-SYNTAX.!__IMP-SYNTAX_BExp_BExp1-heat»" = { status = "generic", id = "7b3940edadf6cc2b" }
 "join.same.«++ X».«++ X»" = { status = "generic", id = "67757c5a3500dada" }
@@ -1181,13 +1181,13 @@ preserve = []
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-cool».«X:Id»" = { status = "generic", id = "931d10eddebeff11" }
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat».«I1 + I2»" = { status = "generic", id = "a655adb11f69e162" }
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat»" = { status = "generic", id = "07996ee9f96ad157" }
-"join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat»" = { status = "open", id = "2e98d7f3adb5a887" }
+"join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat»" = { status = "refuted", id = "2e98d7f3adb5a887" }
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat».«Str1 + Str2»" = { status = "generic", id = "b8f70d234b5d5a97" }
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-cool».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-cool»" = { status = "generic", id = "f5c8640986fead51" }
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-cool».«Rho:Map»" = { status = "generic", id = "469dcd294dc8d5df" }
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-cool».«X:Id»" = { status = "generic", id = "6ef21752e35cddc0" }
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat».«I1 + I2»" = { status = "generic", id = "77148f672d732282" }
-"join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat»" = { status = "open", id = "ed08334881a59215" }
+"join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp1-heat»" = { status = "refuted", id = "ed08334881a59215" }
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat»" = { status = "generic", id = "dc9dcf1c98b9f106" }
 "join.same.«IMP-SYNTAX._+__IMP-SYNTAX_AExp_AExp_AExp2-heat».«Str1 + Str2»" = { status = "generic", id = "0ae68bded9d11ba3" }
 "join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-cool».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-cool»" = { status = "generic", id = "ffb090a91756f1a9" }
@@ -1195,12 +1195,12 @@ preserve = []
 "join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-cool».«X:Id»" = { status = "generic", id = "f206ee4581cd6ab3" }
 "join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat».«I1 / I2»" = { status = "generic", id = "f9df40ee20fa0c29" }
 "join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat»" = { status = "generic", id = "51536180a59a6458" }
-"join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat»" = { status = "open", id = "cd837d3d75c8b31b" }
+"join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat»" = { status = "refuted", id = "cd837d3d75c8b31b" }
 "join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-cool».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-cool»" = { status = "generic", id = "8af3a90eb65ad53e" }
 "join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-cool».«Rho:Map»" = { status = "generic", id = "521aafdc94e6c38a" }
 "join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-cool».«X:Id»" = { status = "generic", id = "039a54d5270ad1b8" }
 "join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat».«I1 / I2»" = { status = "generic", id = "a5bf3d71b6e03b60" }
-"join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat»" = { status = "open", id = "de6ecabf81f34e21" }
+"join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat»" = { status = "refuted", id = "de6ecabf81f34e21" }
 "join.same.«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat».«IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat»" = { status = "generic", id = "4b1c5d2dca88068b" }
 "join.same.«IMP-SYNTAX._;_IMP-SYNTAX_Stmt_AExp1-cool».«IMP-SYNTAX._;_IMP-SYNTAX_Stmt_AExp1-cool»" = { status = "generic", id = "b82aa0cb37a4ae3e" }
 "join.same.«IMP-SYNTAX._;_IMP-SYNTAX_Stmt_AExp1-cool».«Rho:Map»" = { status = "generic", id = "e82ce1cabcfb68f8" }
@@ -1321,8 +1321,8 @@ preserve = []
 [sources.sha256]
 "demos/DrfConf/DrfConf/Legal/Slots.lean" = { tier = "light", sha256 = "b7449467bde558923b8ba3e8f1cd06c8f4eaed147af0e7e310758559f294c3bb" }
 "demos/DrfConf/DrfConf/Legal/Views.lean" = { tier = "light", sha256 = "87a26794eebcd9d7011095506b4844f610e5372d9885da29915788883a3acc05" }
-"demos/DrfConf/DrfConf/Slots.lean" = { tier = "light", sha256 = "03d9e92d0162da080f87bb80ce9bce4e0c21ed91b6d95d0ccf4ef8013042972f" }
-"demos/DrfConf/DrfConf/Views.lean" = { tier = "light", sha256 = "c0a365e9e33f09691cec99f06676d52490cf4ff6e0db76aba0c0256cdd6b6bd9" }
+"demos/DrfConf/DrfConf/Slots.lean" = { tier = "light", sha256 = "f67e4f3691cae91314f0ded78e54c49e0492d42fd98ddb4dad7dbb8dfa0ee4d0" }
+"demos/DrfConf/DrfConf/Views.lean" = { tier = "light", sha256 = "14caa8e6f18e0e8fb87d202d45e581d56f571dd6194092d5482371d292010fcb" }
 "demos/DrfConf/confluence.toml" = { tier = "light", sha256 = "3fda15f4e999c9f5eb23779b166257d8fa3c3bdb9b6eac6d98656bad3497cfde" }
 "demos/DrfConf/legal.toml" = { tier = "light", sha256 = "3e65931c685981d369fb2862b426ea793f84cafe19bee98b4be6f9c75aded0cb" }
 "demos/HandoffConf/HandoffConf/Slots.lean" = { tier = "light", sha256 = "8113e21e0724e55ec975ea312a382e61ad36a3d5292ee90f87597f78c3355849" }
@@ -1330,9 +1330,9 @@ preserve = []
 "demos/HandoffConf/confluence.toml" = { tier = "light", sha256 = "d1139ac197761802cf7be5fcda277dafa7543234aacf2cbbc15f062b5dd8d2f6" }
 "demos/HandoffSeqRel/HandoffSeqRel/Tr.lean" = { tier = "light", sha256 = "bd9a3e8baec99b7cdfd42f722dc80386de93782b906ea98fadf54e753225cf63" }
 "demos/HandoffSeqRel/correspondence.toml" = { tier = "light", sha256 = "54e14cb1653dff4bc76f86ced355c7bf60fdef8742fc3a2a71160d77274275a9" }
-"demos/ImpPlusConf/ImpPlusConf/Slots.lean" = { tier = "light", sha256 = "52a1d1b6f89954f1881af49b5fd018d9fe0c03130830f0cd56020c2c1c2a2186" }
-"demos/ImpPlusConf/ImpPlusConf/Views.lean" = { tier = "light", sha256 = "6c0df2deb5cf2c50822eae79a97d0d0b94ede938dfa759df1f24978c4fdae985" }
-"demos/ImpPlusConf/confluence.toml" = { tier = "light", sha256 = "9b501ad7b8aa53b6260e3e26ed1c2967f6401447a40f0cf0029bd87022374ca8" }
+"demos/ImpPlusConf/ImpPlusConf/Slots.lean" = { tier = "light", sha256 = "e367d1642ab4018eb36d2cd47ebbc3fe58ef4deba5b6944cf9d5e357407d1120" }
+"demos/ImpPlusConf/ImpPlusConf/Views.lean" = { tier = "light", sha256 = "95036791260fd32b48f2748e93eabf8476148b8337121e9feaa724e218c66f16" }
+"demos/ImpPlusConf/confluence.toml" = { tier = "light", sha256 = "40bf917359bdd105e6dec7731226b9c4377033946ad6b9cc6053c1076b0b68f6" }
 "demos/RaceConf/RaceConf/Pairs/Slots.lean" = { tier = "light", sha256 = "fa46db221ea59fcd2420d1cd76fb0db192f5ede4f0d1541c5766690efcea8494" }
 "demos/RaceConf/RaceConf/Pairs/Views.lean" = { tier = "light", sha256 = "354f75fa3c5b5d2711a67dd2b534440b7d10eb36189f7d020cb907b31723ac97" }
 "demos/RaceConf/RaceConf/Slots.lean" = { tier = "light", sha256 = "a5100360df4061d63db7551013e5674d991543c7cdc9ca4642b9006cbe7f523b" }
@@ -1343,9 +1343,9 @@ preserve = []
 "demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "8f60742c131cfccdbcd19515c962caeff8517d0aef27ef925a759a20bbf43cd3" }
 "demos/TwoConf/TwoConf/Legal/Slots.lean" = { tier = "light", sha256 = "c53be9d946c9a1ee06fbfe02203be8b54a02e7861a11c8226f1d18d702d98b81" }
 "demos/TwoConf/TwoConf/Legal/Views.lean" = { tier = "light", sha256 = "d24c5e4a6ad9c1c9b78bc5719994174b377e981d6d2c7ad1d33d4f04104e24f9" }
-"demos/TwoConf/TwoConf/Slots.lean" = { tier = "light", sha256 = "3e72fe044bcea6d3196cf24feb7dee93e99c88d2782080b4c48c42f13f6a97d6" }
-"demos/TwoConf/TwoConf/Views.lean" = { tier = "light", sha256 = "2705434f1a9d0a641d147cc598adb73c889717d1d172bcd6e3b59c773cdb454d" }
-"demos/TwoConf/confluence.toml" = { tier = "light", sha256 = "439fecd420bdc1f51a21a818bf77d270e5a99028bf7f0ebe667dde6513155b27" }
+"demos/TwoConf/TwoConf/Slots.lean" = { tier = "light", sha256 = "4591dccede45e52629ba607836bd22c97c125187c80870541ba5571a7f78f632" }
+"demos/TwoConf/TwoConf/Views.lean" = { tier = "light", sha256 = "64182082affa712cced91780efc30f48d130487209d024a33015d70942aaa3a6" }
+"demos/TwoConf/confluence.toml" = { tier = "light", sha256 = "0405b2438a8ff777cb41e23d387778e5a4fe9fe2c70ddb4bbf06b13d2eaf7729" }
 "demos/TwoConf/legal.toml" = { tier = "light", sha256 = "dad753eab52935b4c1f666c76e30da7959a506e83de0aedce235ef542aab304a" }
 "demos/TwoParamConf/TwoParamConf/Slots.lean" = { tier = "light", sha256 = "dd63e096156036dd81798d75634b0a1083f66ecb6b00f9c593b18f52e0e5dc7e" }
 "demos/TwoParamConf/TwoParamConf/Views.lean" = { tier = "light", sha256 = "ae6995f0adbcb1485de46de775b87f8dc54ac435b52719f290e20298e9f00cae" }
