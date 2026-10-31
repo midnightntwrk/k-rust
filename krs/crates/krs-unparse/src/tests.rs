@@ -229,6 +229,10 @@ module SYNTHETIC
   symbol Lblh{}(SortExp{}) : SortExp{} []
   symbol Lblc{}() : SortExp{} [colors{}("red"), format{}("%cc%r%c!%r"), terminals{}("1")]
   symbol Lblbad{}(SortExp{}) : SortExp{} [format{}("bad %2"), terminals{}("10")]
+  symbol Lblp{}(SortExp{}, SortExp{}) : SortExp{} [format{}("p ( %1 , %2 )"), terminals{}("110101")]
+  symbol Lblk{}(SortExp{}) : SortExp{} [format{}("k ( %1 )"), terminals{}("1101")]
+  sort SortOther{} []
+  symbol Lblo{}() : SortOther{} [format{}("o"), terminals{}("1")]
 endmodule []
 "#;
 
@@ -341,6 +345,108 @@ fn an_alias_whose_result_is_a_variable_is_not_reversed() {
         let printed = unparser.print_kore(&pattern("Lblg{}(Lbla{}())"), &Options::default());
         assert_eq!(printed.text, "g ( a )");
     });
+}
+
+/// An unparser of `axioms`, each `LEFT, RIGHT` of an `alias` axiom.
+fn aliases(axioms: &[&str]) -> Unparser {
+    let macros = axioms
+        .iter()
+        .map(|axiom| format!("axiom{{R}} \\equals{{SortExp{{}}, R}}({axiom}) [alias'Kywd'{{}}()]"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Unparser::from_kore(SYNTHETIC, &macros).expect("synthetic KORE")
+}
+
+fn printed(unparser: &Unparser, term: &str) -> String {
+    unparser
+        .print_kore(&pattern(term), &Options::default())
+        .text
+}
+
+/// A variable that only a later conjunction binds (`p(x, g(x)) => k(g(x))`, emitted as
+/// `p(X, \and(g(X), V)) = k(V)`) takes its value before the left side is printed, in either
+/// order of the subject's arguments.
+#[test]
+fn a_variable_a_later_conjunction_binds_prints_its_value() {
+    let unparser = aliases(&[
+        "Lblp{}(VarX:SortExp{}, \\and{SortExp{}}(Lblg{}(VarX:SortExp{}), VarV:SortExp{})), Lblk{}(VarV:SortExp{})",
+        "Lblp{}(\\and{SortExp{}}(Lblg{}(VarX:SortExp{}), VarV:SortExp{}), VarX:SortExp{}), Lblf{}(VarV:SortExp{})",
+    ]);
+    assert_eq!(
+        printed(&unparser, "Lblk{}(Lblg{}(Lbla{}()))"),
+        "p ( a , g ( a ) )"
+    );
+    assert_eq!(
+        printed(&unparser, "Lblf{}(Lblg{}(Lbla{}()))"),
+        "p ( g ( a ) , a )"
+    );
+}
+
+/// A conjunction inside a conjunct is resolved once the outer one gives it a value, and its
+/// conjuncts must agree too: `p(g(1) #as V, ..)`-like nesting reverses `k(g(1))` and not
+/// `k(g(5))`.
+#[test]
+fn a_nested_conjunction_resolves_and_must_agree() {
+    let unparser = aliases(&[
+        "Lblp{}(\\and{SortExp{}}(Lblg{}(\\and{SortExp{}}(\\dv{SortExp{}}(\"1\"), VarY:SortExp{})), VarV:SortExp{}), VarY:SortExp{}), Lblk{}(VarV:SortExp{})",
+    ]);
+    assert_eq!(
+        printed(&unparser, "Lblk{}(Lblg{}(\\dv{SortExp{}}(\"1\")))"),
+        "p ( g ( 1 ) , 1 )"
+    );
+    assert_eq!(
+        printed(&unparser, "Lblk{}(Lblg{}(\\dv{SortExp{}}(\"5\")))"),
+        "k ( g ( 5 ) )"
+    );
+}
+
+/// A clause whose subject writes a term its own result matches (`fc(kk(1), x) => kk(x)`) prints
+/// `k(5)` once: the term it writes is reversed again only on the chain that applied it, where a
+/// non-recursive alias applies once, and the value the match bound is not reversed again.
+#[test]
+fn a_subject_writing_its_result_head_reverses_once() {
+    on_large_stack(|| {
+        let unparser = aliases(&[
+            "Lblp{}(Lblk{}(\\dv{SortExp{}}(\"1\")), VarX:SortExp{}), Lblk{}(VarX:SortExp{})",
+        ]);
+        assert_eq!(
+            printed(&unparser, "Lblk{}(\\dv{SortExp{}}(\"5\"))"),
+            "p ( k ( 1 ) , 5 )"
+        );
+    });
+}
+
+/// Two clauses whose subjects write each other's result heads (`pa(kk(1), x) => tv(x)`,
+/// `pb(tv(1), x) => kk(x)`) end too: each applies once on the chain.
+#[test]
+fn two_aliases_writing_each_others_heads_end() {
+    on_large_stack(|| {
+        let unparser = aliases(&[
+            "Lblp{}(Lblk{}(\\dv{SortExp{}}(\"1\")), VarX:SortExp{}), Lblg{}(VarX:SortExp{})",
+            "Lblp{}(Lblg{}(\\dv{SortExp{}}(\"1\")), VarX:SortExp{}), Lblk{}(VarX:SortExp{})",
+        ]);
+        assert_eq!(
+            printed(&unparser, "Lblk{}(\\dv{SortExp{}}(\"5\"))"),
+            "p ( p ( k ( 1 ) , 1 ) , 5 )"
+        );
+    });
+}
+
+/// A variable binds only a term of its sort or a subsort, as expansion binds it: `f(X:Other) =
+/// g(X)` reverses `g(o)` and not `g(a)`, an `Exp`.
+#[test]
+fn a_variable_binds_only_a_term_of_its_sort() {
+    let unparser = aliases(&["Lblf{}(VarX:SortOther{}), Lblg{}(VarX:SortOther{})"]);
+    assert_eq!(printed(&unparser, "Lblg{}(Lblo{}())"), "f ( o )");
+    assert_eq!(printed(&unparser, "Lblg{}(Lbla{}())"), "g ( a )");
+}
+
+/// A left side holding a connective other than a conjunction or a domain value has no one term
+/// to print, so it is not reversed.
+#[test]
+fn a_left_side_with_another_connective_is_not_reversed() {
+    let unparser = aliases(&["Lblf{}(\\not{SortExp{}}(VarX:SortExp{})), Lblg{}(VarX:SortExp{})"]);
+    assert_eq!(printed(&unparser, "Lblg{}(Lbla{}())"), "g ( a )");
 }
 
 #[test]

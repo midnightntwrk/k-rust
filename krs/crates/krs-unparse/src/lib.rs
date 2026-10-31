@@ -223,6 +223,30 @@ impl Unparser {
         self
     }
 
+    /// This printer with only the macro axioms whose left-hand side's head symbol (its KORE name,
+    /// `LblcmdAz`) `keep` admits, and every axiom whose left-hand side is no application: the
+    /// printer of a definition without the other axioms' productions' clauses.
+    #[must_use]
+    pub fn retaining_aliases(&self, keep: impl Fn(&str) -> bool) -> Self {
+        let mut printer = self.clone();
+        printer.macros.retain(|rule| {
+            rule.left
+                .as_app()
+                .is_none_or(|app| keep(app.sym.name.as_str()))
+        });
+        printer
+    }
+
+    /// The declared argument sorts of the symbol `name` (its KORE name), as `syntaxDefinition.kore`
+    /// declares them; `None` for a symbol it does not declare.
+    #[must_use]
+    pub fn argument_sorts(&self, name: &str) -> Option<&[k_rust::kore::ast::Sort]> {
+        self.data
+            .declarations
+            .get(name)
+            .map(|declaration| declaration.arguments.as_slice())
+    }
+
     /// Build the printer from the text of `syntaxDefinition.kore` and `macros.kore`.
     ///
     /// # Errors
