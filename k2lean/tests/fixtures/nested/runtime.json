@@ -6,15 +6,15 @@
   "syntax_module": "NESTED-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "de2827272c9a1d69e7b14f42a54bd8a35631c080eac2effa8a2290db8310e5b9"
+    "sha256": "45d71d7204f10acda93bc08ee1b550ba379b17e55280bfda3b3fa2ad8db5cb5a"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "76f0fe283ca6ed0edf5b3f7a1feae98b79b0cb6d5984a5cb0302c8992de35643"
+    "sha256": "ae7aee5cb4f50899cd222d80014c5f7000d54789a4e8ae7d9fb906929d6aeacf"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "7867ffd121d95301bdeeb96ff1adfe484add33cc83f4646796cc73977abc5ecc"
+    "sha256": "0fc28bb5ae8cfbd976e5d698f425671bfc04b7030d88104a8f51b278d1a24db1"
   },
   "configuration_variables": {
     "PGM": "Cmd"

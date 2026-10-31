@@ -3176,6 +3176,42 @@ module NESTED
     [UNIQUE'Unds'ID{}("5872f0d5b8131216db7bc41e2c3a423e55f4b8581589fcbd1bf93b2ca6862d54")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortBool{}, R}(Lblproject'Coln'Bool{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortBool{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortBool{}, SortKItem{}}(VarK:SortBool{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "5872f0d5b8131216db7bc41e2c3a423e55f4b8581589fcbd1bf93b2ca6862d54.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortBool{}, R}(Lblproject'Coln'Bool{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortBool{}, SortKItem{}}(Lblproject'Coln'Bool{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "5872f0d5b8131216db7bc41e2c3a423e55f4b8581589fcbd1bf93b2ca6862d54.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}())),
       \equals{SortK{}, R}(
         Lblproject'Coln'K{}(X0:SortK{}),
@@ -3183,6 +3219,33 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})),
+        \exists{R}(VarK:SortK{}, \equals{SortK{}, R}(SelectorInput:SortK{}, VarK:SortK{}))
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        Lblproject'Coln'K{}(SelectorInput:SortK{}),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -3195,6 +3258,36 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc55be320cd29")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortKItem{},
+          \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(VarK:SortKItem{}, dotk{}()))
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc55be320cd29.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(Lblproject'Coln'KItem{}(SelectorInput:SortK{}), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc55be320cd29.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -4023,6 +4116,39 @@ module NESTED
     [UNIQUE'Unds'ID{}("f316b871091516c401f1d2382cc5f66322602b782c7b01e1aeb6c2ddab50e24b")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortInt{}, R}(Lblproject'Coln'Int{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortInt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortInt{}, SortKItem{}}(VarK:SortInt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "f316b871091516c401f1d2382cc5f66322602b782c7b01e1aeb6c2ddab50e24b.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortInt{}, R}(Lblproject'Coln'Int{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortInt{}, SortKItem{}}(Lblproject'Coln'Int{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "f316b871091516c401f1d2382cc5f66322602b782c7b01e1aeb6c2ddab50e24b.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -4113,6 +4239,42 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("2b75eac5a59779d336e6cf9632bf9ba7d67286f322e753108b34e62f2443efe5")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortList{}, R}(Lblproject'Coln'List{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortList{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortList{}, SortKItem{}}(VarK:SortList{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2b75eac5a59779d336e6cf9632bf9ba7d67286f322e753108b34e62f2443efe5.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortList{}, R}(Lblproject'Coln'List{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortList{}, SortKItem{}}(Lblproject'Coln'List{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2b75eac5a59779d336e6cf9632bf9ba7d67286f322e753108b34e62f2443efe5.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -4223,6 +4385,39 @@ module NESTED
     [UNIQUE'Unds'ID{}("0e7f5070c993161786e314f7199d985afebac9e07b5c784f6f623780c60ce9d0")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortSet{}, R}(Lblproject'Coln'Set{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortSet{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortSet{}, SortKItem{}}(VarK:SortSet{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "0e7f5070c993161786e314f7199d985afebac9e07b5c784f6f623780c60ce9d0.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortSet{}, R}(Lblproject'Coln'Set{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortSet{}, SortKItem{}}(Lblproject'Coln'Set{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "0e7f5070c993161786e314f7199d985afebac9e07b5c784f6f623780c60ce9d0.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -4286,6 +4481,39 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("031237d4aae58d86914d6370d37ccd15f4738378ed780333c59cc81b4f7bc598")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMap{}, R}(Lblproject'Coln'Map{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortMap{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortMap{}, SortKItem{}}(VarK:SortMap{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "031237d4aae58d86914d6370d37ccd15f4738378ed780333c59cc81b4f7bc598.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMap{}, R}(Lblproject'Coln'Map{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortMap{}, SortKItem{}}(Lblproject'Coln'Map{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "031237d4aae58d86914d6370d37ccd15f4738378ed780333c59cc81b4f7bc598.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -4353,6 +4581,39 @@ module NESTED
     [UNIQUE'Unds'ID{}("28ac0095aef028dd02194e8624b62b2105c92f86b27ced851796217772709526")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortCmd{}, R}(Lblproject'Coln'Cmd{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortCmd{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortCmd{}, SortKItem{}}(VarK:SortCmd{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "28ac0095aef028dd02194e8624b62b2105c92f86b27ced851796217772709526.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortCmd{}, R}(Lblproject'Coln'Cmd{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortCmd{}, SortKItem{}}(Lblproject'Coln'Cmd{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "28ac0095aef028dd02194e8624b62b2105c92f86b27ced851796217772709526.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -4366,6 +4627,39 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("cf88a89d6638dd4a8afe166862f665c26f9b89cc1dddc531641961a6d5d392a2")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortNat{}, R}(Lblproject'Coln'Nat{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortNat{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortNat{}, SortKItem{}}(VarK:SortNat{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "cf88a89d6638dd4a8afe166862f665c26f9b89cc1dddc531641961a6d5d392a2.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortNat{}, R}(Lblproject'Coln'Nat{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortNat{}, SortKItem{}}(Lblproject'Coln'Nat{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "cf88a89d6638dd4a8afe166862f665c26f9b89cc1dddc531641961a6d5d392a2.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5169,6 +5463,44 @@ module NESTED
     [UNIQUE'Unds'ID{}("b0fabd8c7c81fe08ebd569aff59747d357e441ae1fcd05d9d594d57e38e3d55e")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGeneratedTopCell{}, R}(Lblproject'Coln'GeneratedTopCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortGeneratedTopCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortGeneratedTopCell{}, SortKItem{}}(VarK:SortGeneratedTopCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "b0fabd8c7c81fe08ebd569aff59747d357e441ae1fcd05d9d594d57e38e3d55e.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGeneratedTopCell{}, R}(Lblproject'Coln'GeneratedTopCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGeneratedTopCell{}, SortKItem{}}(
+            Lblproject'Coln'GeneratedTopCell{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "b0fabd8c7c81fe08ebd569aff59747d357e441ae1fcd05d9d594d57e38e3d55e.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5193,6 +5525,51 @@ module NESTED
     [UNIQUE'Unds'ID{}("2084fac322aa142a07f881814b8a286bf62d5c6d05777b7aa715ccc534cf9a42")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGeneratedTopCellFragment{}, R}(
+          Lblproject'Coln'GeneratedTopCellFragment{}(SelectorInput:SortK{})
+        ),
+        \exists{R}(
+          VarK:SortGeneratedTopCellFragment{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(
+              inj{SortGeneratedTopCellFragment{}, SortKItem{}}(VarK:SortGeneratedTopCellFragment{}),
+              dotk{}()
+            )
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2084fac322aa142a07f881814b8a286bf62d5c6d05777b7aa715ccc534cf9a42.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGeneratedTopCellFragment{}, R}(
+        Lblproject'Coln'GeneratedTopCellFragment{}(SelectorInput:SortK{})
+      ),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGeneratedTopCellFragment{}, SortKItem{}}(
+            Lblproject'Coln'GeneratedTopCellFragment{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2084fac322aa142a07f881814b8a286bf62d5c6d05777b7aa715ccc534cf9a42.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5209,6 +5586,42 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("932a5f9108bb8f154d1a3a2c19b51371ae3089208329891be727e68e2014f83a")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGidCell{}, R}(Lblproject'Coln'GidCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortGidCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortGidCell{}, SortKItem{}}(VarK:SortGidCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "932a5f9108bb8f154d1a3a2c19b51371ae3089208329891be727e68e2014f83a.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGidCell{}, R}(Lblproject'Coln'GidCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGidCell{}, SortKItem{}}(Lblproject'Coln'GidCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "932a5f9108bb8f154d1a3a2c19b51371ae3089208329891be727e68e2014f83a.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5229,6 +5642,42 @@ module NESTED
     [UNIQUE'Unds'ID{}("a85c9f554a96592f996f37691ed286bca554d514c537886ecdba1f61201d8c70")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGidCellOpt{}, R}(Lblproject'Coln'GidCellOpt{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortGidCellOpt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortGidCellOpt{}, SortKItem{}}(VarK:SortGidCellOpt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "a85c9f554a96592f996f37691ed286bca554d514c537886ecdba1f61201d8c70.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGidCellOpt{}, R}(Lblproject'Coln'GidCellOpt{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGidCellOpt{}, SortKItem{}}(Lblproject'Coln'GidCellOpt{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "a85c9f554a96592f996f37691ed286bca554d514c537886ecdba1f61201d8c70.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5245,6 +5694,42 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("127079a6c99a39eaa75c46effc7ff7d4bfe2a6d3db98405efdc932d7a923d56f")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGroupCell{}, R}(Lblproject'Coln'GroupCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortGroupCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortGroupCell{}, SortKItem{}}(VarK:SortGroupCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "127079a6c99a39eaa75c46effc7ff7d4bfe2a6d3db98405efdc932d7a923d56f.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGroupCell{}, R}(Lblproject'Coln'GroupCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGroupCell{}, SortKItem{}}(Lblproject'Coln'GroupCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "127079a6c99a39eaa75c46effc7ff7d4bfe2a6d3db98405efdc932d7a923d56f.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5268,6 +5753,49 @@ module NESTED
     [UNIQUE'Unds'ID{}("869a589ffd59661c791727e2bfbdf61ab9074d9822f3ef287a0a20116e648a9a")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGroupCellFragment{}, R}(
+          Lblproject'Coln'GroupCellFragment{}(SelectorInput:SortK{})
+        ),
+        \exists{R}(
+          VarK:SortGroupCellFragment{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(
+              inj{SortGroupCellFragment{}, SortKItem{}}(VarK:SortGroupCellFragment{}),
+              dotk{}()
+            )
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "869a589ffd59661c791727e2bfbdf61ab9074d9822f3ef287a0a20116e648a9a.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGroupCellFragment{}, R}(Lblproject'Coln'GroupCellFragment{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGroupCellFragment{}, SortKItem{}}(
+            Lblproject'Coln'GroupCellFragment{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "869a589ffd59661c791727e2bfbdf61ab9074d9822f3ef287a0a20116e648a9a.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5286,6 +5814,44 @@ module NESTED
     [UNIQUE'Unds'ID{}("82b50bce3e9e256b49c7d79670456282b12a4b0ddad5d59b845e5487b4241e68")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGroupCellMap{}, R}(Lblproject'Coln'GroupCellMap{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortGroupCellMap{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortGroupCellMap{}, SortKItem{}}(VarK:SortGroupCellMap{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "82b50bce3e9e256b49c7d79670456282b12a4b0ddad5d59b845e5487b4241e68.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGroupCellMap{}, R}(Lblproject'Coln'GroupCellMap{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGroupCellMap{}, SortKItem{}}(
+            Lblproject'Coln'GroupCellMap{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "82b50bce3e9e256b49c7d79670456282b12a4b0ddad5d59b845e5487b4241e68.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5302,6 +5868,42 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("688f44a2555a5ab91828e5613cf6ffb80e42431615e45a41f3c356a1b2cc2acf")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGroupsCell{}, R}(Lblproject'Coln'GroupsCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortGroupsCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortGroupsCell{}, SortKItem{}}(VarK:SortGroupsCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "688f44a2555a5ab91828e5613cf6ffb80e42431615e45a41f3c356a1b2cc2acf.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGroupsCell{}, R}(Lblproject'Coln'GroupsCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGroupsCell{}, SortKItem{}}(Lblproject'Coln'GroupsCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "688f44a2555a5ab91828e5613cf6ffb80e42431615e45a41f3c356a1b2cc2acf.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5328,6 +5930,51 @@ module NESTED
     [UNIQUE'Unds'ID{}("fc36ae31bbfb349f35bc60bd91260139c562d2174bf5dae030382170306227a0")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGroupsCellFragment{}, R}(
+          Lblproject'Coln'GroupsCellFragment{}(SelectorInput:SortK{})
+        ),
+        \exists{R}(
+          VarK:SortGroupsCellFragment{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(
+              inj{SortGroupsCellFragment{}, SortKItem{}}(VarK:SortGroupsCellFragment{}),
+              dotk{}()
+            )
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "fc36ae31bbfb349f35bc60bd91260139c562d2174bf5dae030382170306227a0.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGroupsCellFragment{}, R}(
+        Lblproject'Coln'GroupsCellFragment{}(SelectorInput:SortK{})
+      ),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGroupsCellFragment{}, SortKItem{}}(
+            Lblproject'Coln'GroupsCellFragment{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "fc36ae31bbfb349f35bc60bd91260139c562d2174bf5dae030382170306227a0.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5344,6 +5991,44 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("2c0d2b14dde7dbc2795760b30e5a623dda31c1592db6b096664f910c39b5b939")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGroupsCellOpt{}, R}(Lblproject'Coln'GroupsCellOpt{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortGroupsCellOpt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortGroupsCellOpt{}, SortKItem{}}(VarK:SortGroupsCellOpt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2c0d2b14dde7dbc2795760b30e5a623dda31c1592db6b096664f910c39b5b939.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGroupsCellOpt{}, R}(Lblproject'Coln'GroupsCellOpt{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGroupsCellOpt{}, SortKItem{}}(
+            Lblproject'Coln'GroupsCellOpt{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2c0d2b14dde7dbc2795760b30e5a623dda31c1592db6b096664f910c39b5b939.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5364,6 +6049,42 @@ module NESTED
     [UNIQUE'Unds'ID{}("894c13c4c410f11e35bc3781505aeddde4ff400ddda1daf8b35259dbf0de9a24")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortKCell{}, R}(Lblproject'Coln'KCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortKCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortKCell{}, SortKItem{}}(VarK:SortKCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "894c13c4c410f11e35bc3781505aeddde4ff400ddda1daf8b35259dbf0de9a24.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortKCell{}, R}(Lblproject'Coln'KCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortKCell{}, SortKItem{}}(Lblproject'Coln'KCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "894c13c4c410f11e35bc3781505aeddde4ff400ddda1daf8b35259dbf0de9a24.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5382,6 +6103,42 @@ module NESTED
     [UNIQUE'Unds'ID{}("f684dd78d97feadf0cbcb3cbb8892e0842f137c7b29a904cb2f3fc9755b29b30")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortKCellOpt{}, R}(Lblproject'Coln'KCellOpt{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortKCellOpt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortKCellOpt{}, SortKItem{}}(VarK:SortKCellOpt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "f684dd78d97feadf0cbcb3cbb8892e0842f137c7b29a904cb2f3fc9755b29b30.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortKCellOpt{}, R}(Lblproject'Coln'KCellOpt{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortKCellOpt{}, SortKItem{}}(Lblproject'Coln'KCellOpt{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "f684dd78d97feadf0cbcb3cbb8892e0842f137c7b29a904cb2f3fc9755b29b30.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5398,6 +6155,42 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("2ed3aa20f04d67d72a306300066eb0a43993d91c85acd53e319c5e5b1e046aa4")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMemberCell{}, R}(Lblproject'Coln'MemberCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortMemberCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortMemberCell{}, SortKItem{}}(VarK:SortMemberCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2ed3aa20f04d67d72a306300066eb0a43993d91c85acd53e319c5e5b1e046aa4.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMemberCell{}, R}(Lblproject'Coln'MemberCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortMemberCell{}, SortKItem{}}(Lblproject'Coln'MemberCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2ed3aa20f04d67d72a306300066eb0a43993d91c85acd53e319c5e5b1e046aa4.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5424,6 +6217,51 @@ module NESTED
     [UNIQUE'Unds'ID{}("57143f47b0c95ad5841b8c86948346c82ab715940f54b153f12746ebd71e1a76")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMemberCellFragment{}, R}(
+          Lblproject'Coln'MemberCellFragment{}(SelectorInput:SortK{})
+        ),
+        \exists{R}(
+          VarK:SortMemberCellFragment{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(
+              inj{SortMemberCellFragment{}, SortKItem{}}(VarK:SortMemberCellFragment{}),
+              dotk{}()
+            )
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "57143f47b0c95ad5841b8c86948346c82ab715940f54b153f12746ebd71e1a76.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMemberCellFragment{}, R}(
+        Lblproject'Coln'MemberCellFragment{}(SelectorInput:SortK{})
+      ),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortMemberCellFragment{}, SortKItem{}}(
+            Lblproject'Coln'MemberCellFragment{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "57143f47b0c95ad5841b8c86948346c82ab715940f54b153f12746ebd71e1a76.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5442,6 +6280,44 @@ module NESTED
     [UNIQUE'Unds'ID{}("73e9bd7ef260ca11d91e99da1739a22e8f4d901e524de68a8036fc1b5f2ad819")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMemberCellMap{}, R}(Lblproject'Coln'MemberCellMap{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortMemberCellMap{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortMemberCellMap{}, SortKItem{}}(VarK:SortMemberCellMap{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "73e9bd7ef260ca11d91e99da1739a22e8f4d901e524de68a8036fc1b5f2ad819.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMemberCellMap{}, R}(Lblproject'Coln'MemberCellMap{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortMemberCellMap{}, SortKItem{}}(
+            Lblproject'Coln'MemberCellMap{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "73e9bd7ef260ca11d91e99da1739a22e8f4d901e524de68a8036fc1b5f2ad819.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5458,6 +6334,42 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("a6b8f5938f594bc7e54dfe14ae1ff49bf7e34c94d9c82c791a80280c3aa32234")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMembersCell{}, R}(Lblproject'Coln'MembersCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortMembersCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortMembersCell{}, SortKItem{}}(VarK:SortMembersCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "a6b8f5938f594bc7e54dfe14ae1ff49bf7e34c94d9c82c791a80280c3aa32234.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMembersCell{}, R}(Lblproject'Coln'MembersCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortMembersCell{}, SortKItem{}}(Lblproject'Coln'MembersCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "a6b8f5938f594bc7e54dfe14ae1ff49bf7e34c94d9c82c791a80280c3aa32234.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5484,6 +6396,51 @@ module NESTED
     [UNIQUE'Unds'ID{}("42376d76e2f1463ead5052ce8bb998b644028890a7820581d7e96433ff786a1a")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMembersCellFragment{}, R}(
+          Lblproject'Coln'MembersCellFragment{}(SelectorInput:SortK{})
+        ),
+        \exists{R}(
+          VarK:SortMembersCellFragment{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(
+              inj{SortMembersCellFragment{}, SortKItem{}}(VarK:SortMembersCellFragment{}),
+              dotk{}()
+            )
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "42376d76e2f1463ead5052ce8bb998b644028890a7820581d7e96433ff786a1a.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMembersCellFragment{}, R}(
+        Lblproject'Coln'MembersCellFragment{}(SelectorInput:SortK{})
+      ),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortMembersCellFragment{}, SortKItem{}}(
+            Lblproject'Coln'MembersCellFragment{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "42376d76e2f1463ead5052ce8bb998b644028890a7820581d7e96433ff786a1a.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5500,6 +6457,44 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("ae49e326b9ac1520bed306f2817cc87f81c2f2939722d7fd74debb6ac12d7f2d")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMembersCellOpt{}, R}(Lblproject'Coln'MembersCellOpt{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortMembersCellOpt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortMembersCellOpt{}, SortKItem{}}(VarK:SortMembersCellOpt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "ae49e326b9ac1520bed306f2817cc87f81c2f2939722d7fd74debb6ac12d7f2d.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMembersCellOpt{}, R}(Lblproject'Coln'MembersCellOpt{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortMembersCellOpt{}, SortKItem{}}(
+            Lblproject'Coln'MembersCellOpt{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "ae49e326b9ac1520bed306f2817cc87f81c2f2939722d7fd74debb6ac12d7f2d.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5520,6 +6515,42 @@ module NESTED
     [UNIQUE'Unds'ID{}("809a971a4f145695fc906db5d1a03b9d97add54d6bf01b519c0494569b4f8d7f")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMidCell{}, R}(Lblproject'Coln'MidCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortMidCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortMidCell{}, SortKItem{}}(VarK:SortMidCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "809a971a4f145695fc906db5d1a03b9d97add54d6bf01b519c0494569b4f8d7f.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMidCell{}, R}(Lblproject'Coln'MidCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortMidCell{}, SortKItem{}}(Lblproject'Coln'MidCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "809a971a4f145695fc906db5d1a03b9d97add54d6bf01b519c0494569b4f8d7f.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5536,6 +6567,42 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("e5ccbc63b753821de29ee72741df67203f1499a58b2e7a9def0dfebf487af7e5")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMidCellOpt{}, R}(Lblproject'Coln'MidCellOpt{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortMidCellOpt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortMidCellOpt{}, SortKItem{}}(VarK:SortMidCellOpt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "e5ccbc63b753821de29ee72741df67203f1499a58b2e7a9def0dfebf487af7e5.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMidCellOpt{}, R}(Lblproject'Coln'MidCellOpt{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortMidCellOpt{}, SortKItem{}}(Lblproject'Coln'MidCellOpt{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "e5ccbc63b753821de29ee72741df67203f1499a58b2e7a9def0dfebf487af7e5.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5556,6 +6623,42 @@ module NESTED
     [UNIQUE'Unds'ID{}("dc86e97056ed42cd22ddccebdaba139b74d96f43984055b1e52efd42ad17bbee")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortVCell{}, R}(Lblproject'Coln'VCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortVCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortVCell{}, SortKItem{}}(VarK:SortVCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "dc86e97056ed42cd22ddccebdaba139b74d96f43984055b1e52efd42ad17bbee.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortVCell{}, R}(Lblproject'Coln'VCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortVCell{}, SortKItem{}}(Lblproject'Coln'VCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "dc86e97056ed42cd22ddccebdaba139b74d96f43984055b1e52efd42ad17bbee.selector-inverse"
+      ),
+      simplification{}()
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5572,6 +6675,42 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("23b248dd148a1323844bb86c88e7db9669787f8adc9254de10196215607f5baf")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortVCellOpt{}, R}(Lblproject'Coln'VCellOpt{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortVCellOpt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortVCellOpt{}, SortKItem{}}(VarK:SortVCellOpt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "23b248dd148a1323844bb86c88e7db9669787f8adc9254de10196215607f5baf.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortVCellOpt{}, R}(Lblproject'Coln'VCellOpt{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortVCellOpt{}, SortKItem{}}(Lblproject'Coln'VCellOpt{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "23b248dd148a1323844bb86c88e7db9669787f8adc9254de10196215607f5baf.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5633,6 +6772,51 @@ module NESTED
       )
     )
     [UNIQUE'Unds'ID{}("63453db9d9aa121b63bb877e2fa4998d399ef82d2a1e4b90f87a32ba55401217")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGeneratedCounterCell{}, R}(
+          Lblproject'Coln'GeneratedCounterCell{}(SelectorInput:SortK{})
+        ),
+        \exists{R}(
+          VarK:SortGeneratedCounterCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(
+              inj{SortGeneratedCounterCell{}, SortKItem{}}(VarK:SortGeneratedCounterCell{}),
+              dotk{}()
+            )
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "63453db9d9aa121b63bb877e2fa4998d399ef82d2a1e4b90f87a32ba55401217.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGeneratedCounterCell{}, R}(
+        Lblproject'Coln'GeneratedCounterCell{}(SelectorInput:SortK{})
+      ),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGeneratedCounterCell{}, SortKItem{}}(
+            Lblproject'Coln'GeneratedCounterCell{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "63453db9d9aa121b63bb877e2fa4998d399ef82d2a1e4b90f87a32ba55401217.selector-inverse"
+      ),
+      simplification{}()
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(

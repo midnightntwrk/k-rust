@@ -6,15 +6,15 @@
   "syntax_module": "PICK-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "bd8eda4c7999b77e1240407a681212d7cd58db366f7c811ddd7858d64dd19a46"
+    "sha256": "fbbd82e5ea7d109ce9a0f24d8fd454cee27ad31708aa88de836979ea29e64267"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "492e01bf07d17a60311cf5d83828de014f9d6a558f21c59e7ea82de1e9ed28d7"
+    "sha256": "d8baf135c5463b347133c088e7861334077be0c605fb9b1a36b7c76bd797bdc7"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "7bdab2f7936f29ea35d44fdc288b1a6a7cc73d7da1dc3be3993d557c49910a49"
+    "sha256": "ea513a958d1b43900c5121429e8f5449d4595e053a9295f5724b0391243ee839"
   },
   "configuration_variables": {
     "PGM": "Pgm"

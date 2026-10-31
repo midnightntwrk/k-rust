@@ -6,15 +6,15 @@
   "syntax_module": "WALK-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "aeda76a13153e866aef3117d42c210521cd92112a9d28bbc88831025193ab060"
+    "sha256": "6fa7d99dff6191bf61de0001f5bb9796c9d7f7198ff18653509f98ff84976661"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "85e45b71722475ea30928fec4a0072d7f2c4afc9638bdcd836aae80b496c18c2"
+    "sha256": "fa2a0372f868f458454689af15fdefee30152edef97ce8e47469cead9ee6148b"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "02182edd48eec25a521892ce8425bdd2f04f533bcc79cc4115a6de65d2726a73"
+    "sha256": "eb456d4cf9d2fe2909944c6ed827b44f9da6242fb2ba2c746999b686b083b0dd"
   },
   "configuration_variables": {
     "PGM": "Cmd"

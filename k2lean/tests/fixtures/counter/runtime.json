@@ -6,15 +6,15 @@
   "syntax_module": "COUNTER-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "908b6376cfd07a25e695941749527da1892c8c39f68d2813fe1feb23ee7533cb"
+    "sha256": "f46e42c04c0f876f304786945a7ec4aac41af5862dbd35c9fbc6cf64f75a5a89"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "d5a57609a0b2a023e4094db55be9f2f31bd256627a247e66f69db6c622742073"
+    "sha256": "be4dd30d5effcaec02a3d4056d20c683f71551bf3f04d7a10cca0a827cabe4cf"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "16a9921148094577f395e61ce3e066e62c9636bd4d8d39671b0e9b0b1d4fdb4b"
+    "sha256": "208566cb99a7014f915e81a01dca985b20a52c6d0e34cd8ac98b455b80e7b782"
   },
   "configuration_variables": {
     "PGM": "Pgm"

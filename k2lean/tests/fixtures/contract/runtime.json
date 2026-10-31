@@ -6,15 +6,15 @@
   "syntax_module": "CONTRACT-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "af4c9860e99b4900116830ffe660d63611693ba955b514e4b8fe4c332e7ea588"
+    "sha256": "e182fbb77af26c081f6d4449d79a051f7656fcf6d89265a4452c6a973621cbef"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "42a457a81c269fec3dd52a1f9eff6a617800d29cd6c772c3c21f2f452eaa0509"
+    "sha256": "4263a10ed02be15af5d41f4a049c87f5f974b8d5cfe171c3208e7f679ca1fb1e"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "40585aab66aeee7be3c685187f0faef40087882f0c4e9d368a562aa678a0ef87"
+    "sha256": "a52132e26c1d31c12c1a27830d362d8cd6142365819346fadacfed71764973f6"
   },
   "configuration_variables": {
     "LEDGER": "Map",

@@ -6,15 +6,15 @@
   "syntax_module": "TWOPARAM-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "1c4646805183901a0ff89c8b45acae68d537859eb7bd56a8f3077b5825d2dc2a"
+    "sha256": "c56161174e5cf275935202085e1077e4ae7bc5214941f42fad7ab6e1bc247f62"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "a4ee107414db461dadf7126b41f39cd87e18a3e6c18be65c1cc4441d8f53e7e1"
+    "sha256": "7a5ef2661d2a741882b972d0d008d8140603d778bae4d787275d2f46d0a4262b"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "e066d8bc2e285eb674df8531f3ba9ab51fdb8a0302dcaffac9da7c1778dec5a8"
+    "sha256": "c819a7f8b173174f05dfc42e10a834843df4e9c3b05308453a48c0300d5d7061"
   },
   "configuration_variables": {
     "PGM": "Pgm"

@@ -6,15 +6,15 @@
   "syntax_module": "ALIAS-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "ff97058c7c0dbc448a0b1208aade79f56f831b3d9a4313ec22260d4cb54fe929"
+    "sha256": "8748b04dbca0a618476fe7080e09950c8ea5557252e64381b37f57f6dbe00b78"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "3fe1552233fc9475f53bc206f1e7597403b3e34ac608a542e6580ad2d105f8c9"
+    "sha256": "51ed2ef94baf9ff8b95185507a19b6b583c7febc7ce1d53763f4be306ae4332d"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "8fa4469009720fb41c13d0c061ef41e03281f6d6087718083b6c54134f30dcdd"
+    "sha256": "3820e4867e26e843c811b544b995e49eac4b927721b532d385e119a03ecbbd06"
   },
   "configuration_variables": {
     "PGM": "Pgm"

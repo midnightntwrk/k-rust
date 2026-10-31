@@ -6,15 +6,15 @@
   "syntax_module": "CORO-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "655129f18c050f2366625e31008d00f924c6ef99fdfa9d0043ef250f4df4ae5b"
+    "sha256": "a5f3054697c94a60b70b7cb2c0ab38ca2815b589bf9f65f92a43984121867de8"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "4a36cf07e53979b4d4a3db5afbcdfb8b40a6d99711fd250cca83d85e85f9f6da"
+    "sha256": "c6e10a93444b7686a49061e3bb957b4836b40faed93221a2da3d90e839b00bb1"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "5317872d8ee10226623fa9439da9dedcccd0e9989d9000af00d89aa696d3a34e"
+    "sha256": "d90113ce108a5d2f5c79a04872a753d6261103000f152c6c33125bd74dcd3975"
   },
   "configuration_variables": {
     "PGM": "Pgm"

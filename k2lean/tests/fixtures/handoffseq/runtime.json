@@ -6,15 +6,15 @@
   "syntax_module": "HANDOFFSEQ-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "2babda8278fecee33cfeabc4d8c732ad073bb92db4296b8462c5c4095b799ac9"
+    "sha256": "ab674adfd9c02d9c733368ae6614d0ffcbd3cdc5fd3a89222c480e9dd2ed3b52"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "66536b5b2058514b25551e3692f37559e3d05f8032ea42a0bcb463d44ef4f3bb"
+    "sha256": "977dd552b42db2927a1a2ab121f629d41e5ac0b913a10cf7191b90fd5a19650b"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "6d29133fdf45eb5ee5413b7ecdc7153953760768e639b0ac31367311ce81f85b"
+    "sha256": "914b80ad7aa0ff2bc9878c783bb06e2167c0d30faab34293300a37ca0c810357"
   },
   "configuration_variables": {
     "PGM": "Pgm"

@@ -6,15 +6,15 @@
   "syntax_module": "DRF-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "f1d6534ecb5122a0622123ab83e007e6449ccabef138fe9aa9994f7f0f5d8e6c"
+    "sha256": "3560d21f9062642c2c0ba6791dc220e8a8629770e0c9ff30987bae0ae3b71f5e"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "929c1fda80dba3663c719a4ad108c8794e36e0b6490fa562839279af396d2e06"
+    "sha256": "d5a52610338dca88feb01a793c4aa08887bf5945244eb103d6fc3467e36c0406"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "3c3d7fb9c03114413a59755be0ebba896ebc4611234b373ab5198f25ee900d70"
+    "sha256": "e643ec6111156bff54f98bb8ede3ae1b8ce8b24186beaf4b3050ebfa37a9af3b"
   },
   "configuration_variables": {
     "PGM": "Pgm"

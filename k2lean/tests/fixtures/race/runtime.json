@@ -6,15 +6,15 @@
   "syntax_module": "RACE-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "36d040fa1693ea79ad8b9c9811bf6f0ee6e53cd6d3cea4876d6a30caecc4f8bc"
+    "sha256": "016c20dfcf634474c9e77fdde151593a245c844631b7c047ea4ed08c2c5cbee8"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "bad253ebdbb17ca2be67622813a32e266ebf7b32cf96d6048cde68f7a0b41a14"
+    "sha256": "bf6e2576f09c53b7d71069073836b58f816e4ccd82e856a9eacce0b988d78321"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "f46739622d99e9da80b4761afc3050bd0cb562f93ad2f580501a2e60b9ba0892"
+    "sha256": "bcb02b72f2eecf07e7cd8380a5916c1733dba6db623ee39ed6af1a5c5974e685"
   },
   "configuration_variables": {
     "PGM": "Pgm"

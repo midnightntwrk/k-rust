@@ -6,15 +6,15 @@
   "syntax_module": "DIFF-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "4192266290a3d35dc7dc67e53f80f9b4b392e50e44380da5684def7e249bad9f"
+    "sha256": "aaab478f2e576d1c41de194e95f7cfc1f57b417a9049796073acc44fcfc1299a"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "5bf25848059b760c97cf688b1dfcafe3c509ebaf673819a3c90ecc4fbc5ecbc3"
+    "sha256": "3895e096c6e9d6bb9c24a4df397662fee15eeb864ba00eaabe3616829286555e"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "b4773eefd007bb4eb1559c4775a231500e28b69b7290b40979c0375edf316ec8"
+    "sha256": "ef39c5c8059e6ebe747e714bb15591f909bdfbb422a6cc548a8fa38cfbbe8210"
   },
   "configuration_variables": {
     "PGM": "Pgm"

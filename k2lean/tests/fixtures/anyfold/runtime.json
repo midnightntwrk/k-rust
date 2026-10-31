@@ -6,15 +6,15 @@
   "syntax_module": "ANYFOLD-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "e5d8ca2dcc9574ad167f6b01303a2268219254fcaa785f44e4887d3aff86d01f"
+    "sha256": "fb8dbbabca29e6bf5707d641f1afdd4f4f8bd854bffd15ace998c73c82f9a2c1"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "08473c29ae475ecfb22a866c96e59f5f742747cf9e8e5fd65f4210a8f1f78dea"
+    "sha256": "0bb15b7bbcbd48ab2ccbce927ad56298cfb4765d1bf670261a16b0677905e6bd"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "1e42747e8bd16d5527745ae7a44271b8a21dd44e319db9214bcbe5d3d7b07138"
+    "sha256": "8428f4f3450b03847a7e81c0d638836ffc84982819c48d062b170f38800d1872"
   },
   "configuration_variables": {
     "PGM": "Cmd"

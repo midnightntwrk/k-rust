@@ -6,15 +6,15 @@
   "syntax_module": "OVERLOAD-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "f9c0ae226042239da11b66308fa2e4784e8ce73378122ae4c0242da5cd8a3d32"
+    "sha256": "656ee2c98fb03cc738d520adacf02ed8f36ccfac2469d461006b6a16eca54fa7"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "964892ba233262913c300dae1ef7afcefc8f387cea8ed477acc8c8744f0f551b"
+    "sha256": "f5ccb950b8a66fe11400f005fb6ef76511e481db524b84cfdde71e42558d459f"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "cbc1fd531d19e9c3624e3db20c7e346213a9e99da9c0d38a99dd68d8bd0fe012"
+    "sha256": "868cbc8861c2a4dcac497bdb7dcd0e1ef175af7c85e58ed941289903c8aec19c"
   },
   "configuration_variables": {
     "PGM": "Pgm"

@@ -6,15 +6,15 @@
   "syntax_module": "VMPRI-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "04d9fae7d256a3394691493ecf8dd041c4247e8d9899db9ee6f9e89cb2c55d94"
+    "sha256": "53a8c0d0493c6ac207d13013552d07b6f8ef5da9af5e6e3e62ae058266698a08"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "37a7f26c7e7c8200c4d377ba5a6738d97b23de6aa66bf416820dfbd62132f5fe"
+    "sha256": "8ca3358332c9410e1afcc00499f4f732821812c6a8c6633491da261b200f65d5"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "3fbe97d78bc8758dc0a948f3088428ea28067278602c974e656bf69738c02071"
+    "sha256": "9691976a24687533b0caa3f5b464968c3477fe108bfd1769552dd31bcd35db81"
   },
   "configuration_variables": {
     "PGM": "Pgm"

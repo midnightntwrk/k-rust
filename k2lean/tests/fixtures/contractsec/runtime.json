@@ -6,15 +6,15 @@
   "syntax_module": "CONTRACTSEC-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "86320a4ba03a032a7ae2ba00c5080b487def374d22cc23d61cecf67d24fdec23"
+    "sha256": "2cb13096f5848c47a35d5693ae3140d7e87e9613122f6e87cfc5a9977c964ea6"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "16b003d9fcc6b108761d1a913534e38f79cf8acbb3c78a70ebf835467dd34565"
+    "sha256": "04d350267fb3d6ddc0a2ff34f5577a6d85fb1d08ef14dc1792522b7052d7cb99"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "3bef6283643ccf9e84757f568315b66720b158f91cdd250beacf844ccb8bbdbc"
+    "sha256": "91dc7ad3b2a029725e93844c7d07fcad74593de5503f33617f4701afbc659a07"
   },
   "configuration_variables": {
     "PGM": "Stmt"

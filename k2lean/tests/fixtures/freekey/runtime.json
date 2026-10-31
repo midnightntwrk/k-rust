@@ -6,15 +6,15 @@
   "syntax_module": "FREEKEY-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "4001e6107e203df805ea24a986cdae944de11497b35ff6d9222c05f25837cc06"
+    "sha256": "f42cacccba56b636fde2190fb9b4343136d30003743e988700a03c6cfe1f7005"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "3b500a5b8c01174bd06dd273b9ed4dc72985ddc54241073a2ead8231cdc58b9c"
+    "sha256": "6766c9a782c11077c0043bc1c818bf60864b7cdb4c31805357dfce4f5e8bafaa"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "f6f7c98876bbc74abcb5f8d4fbfed6738fb26aa5ba63c3100d12a2d56d5792d0"
+    "sha256": "f4eb2c4c6d8a31d2361e5cf50420bf1822d38adf815c5bde6b88789aeaf52705"
   },
   "configuration_variables": {
     "PGM": "Pgm"

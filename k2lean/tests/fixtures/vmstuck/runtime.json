@@ -6,15 +6,15 @@
   "syntax_module": "VMSTUCK-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "d8df03ff8b3f364801919a22a94855d2c86aa4aee82a18b0886bda705f034726"
+    "sha256": "4c93a8f98284855c6cd9a7521d1799c91919c79a2bff45ba15dd8ab04c2f3a24"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "94ae39c9d2439fe306fc8ea27ca4dfcb76031ec9e2186199b055bf4c28a1b104"
+    "sha256": "e16b5e05c193dbc744259a1162fe40de4a242a7c9dc021e2b3545b11051cce78"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "d0375e77e65d55699b514959f2197b26b39d71b7fb95728fc92e3ef8beaf7edc"
+    "sha256": "2911eefd051b3161a08dd3d91a86dadf512157b3b6b154f48f7bac6b97ca89c0"
   },
   "configuration_variables": {
     "PGM": "Pgm"

@@ -6,15 +6,15 @@
   "syntax_module": "RANGE-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "5505f4c78baff536ab8204a720a6240dd3fa96b4445fdc9127c3022441f7c52a"
+    "sha256": "749b70c34c05aa5d33803b712287c53f4af8c4deab0dc4849048568c525d4142"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "30ef6a3de1a2355fa1218d0040202003d97015b690627a0563d83cb11991198d"
+    "sha256": "efef72fab029447cc3c893d4d8d238ed74e29b06b3e6a751ecc937514b6898fc"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "d13c1b383638cbd50ffa7f9019f71623ffc1e995567f5856d42163815e956859"
+    "sha256": "31939e16afe82e8e7c90bbaf99c14214294ef9b8881af20c4886161083fa2bf0"
   },
   "configuration_variables": {
     "PGM": "Cmd"

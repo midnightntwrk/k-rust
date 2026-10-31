@@ -6,15 +6,15 @@
   "syntax_module": "ORPAT-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "cc733ff3c9e27235ed14b4c180f5a7cd0c0a387c475ac4811395cfcfc69a9264"
+    "sha256": "aebfc00de9da2c1140a68b00b8cf6a3ee7c2049096d5028e9281726ae89ba6af"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "097283f44e68f5136e403c3f0ae487961824721ef96fcb6b614d09e49f6d91fd"
+    "sha256": "98eeb2502c576afe02c08ba6208cf1a4173fe964bd1267bddb39e88519e37872"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "181ba25a351fd8435deb6a811e22aefb1324f59a1af838032a870393a93257d8"
+    "sha256": "6869c822673dfdd9cc0cb2240109260596397f78d86065ed913bd93759cb43c7"
   },
   "configuration_variables": {
     "PGM": "Pgm"

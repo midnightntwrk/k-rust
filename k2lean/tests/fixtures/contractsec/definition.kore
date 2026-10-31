@@ -282,7 +282,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,19,18,36)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,19,19,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -292,7 +292,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,19,19,36)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,19,20,36)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -302,7 +302,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,19,20,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,19,21,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -315,7 +315,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -328,7 +328,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -341,7 +341,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,19,25,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,46)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -354,7 +354,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,62)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,62)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -364,7 +364,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,51)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -378,7 +378,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,65)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,19,29,65)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -391,7 +391,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,19,29,44)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,19,30,44)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -401,7 +401,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,19,30,31)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,19,31,31)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -411,7 +411,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(31,19,31,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,19,32,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -421,7 +421,7 @@ module CONTRACTSEC
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(32,26,32,35)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(33,26,33,35)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/contract/contract.k)"
     )
@@ -4157,6 +4157,42 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("5872f0d5b8131216db7bc41e2c3a423e55f4b8581589fcbd1bf93b2ca6862d54")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortBool{}, R}(Lblproject'Coln'Bool{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortBool{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortBool{}, SortKItem{}}(VarK:SortBool{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "5872f0d5b8131216db7bc41e2c3a423e55f4b8581589fcbd1bf93b2ca6862d54.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortBool{}, R}(Lblproject'Coln'Bool{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortBool{}, SortKItem{}}(Lblproject'Coln'Bool{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "5872f0d5b8131216db7bc41e2c3a423e55f4b8581589fcbd1bf93b2ca6862d54.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}())),
       \equals{SortK{}, R}(
         Lblproject'Coln'K{}(X0:SortK{}),
@@ -4164,6 +4200,33 @@ module CONTRACTSEC
       )
     )
     [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})),
+        \exists{R}(VarK:SortK{}, \equals{SortK{}, R}(SelectorInput:SortK{}, VarK:SortK{}))
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        Lblproject'Coln'K{}(SelectorInput:SortK{}),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-inverse"
+      ),
+      simplification{}("")
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -4176,6 +4239,36 @@ module CONTRACTSEC
       )
     )
     [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc55be320cd29")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortKItem{},
+          \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(VarK:SortKItem{}, dotk{}()))
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc55be320cd29.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(Lblproject'Coln'KItem{}(SelectorInput:SortK{}), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc55be320cd29.selector-inverse"
+      ),
+      simplification{}("")
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5004,6 +5097,39 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("afcb3941b7c18d4b91d6ed8981582d58e0dc006425e9889e9891c2a7c2b93554")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortId{}, R}(Lblproject'Coln'Id{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortId{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortId{}, SortKItem{}}(VarK:SortId{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "afcb3941b7c18d4b91d6ed8981582d58e0dc006425e9889e9891c2a7c2b93554.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortId{}, R}(Lblproject'Coln'Id{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortId{}, SortKItem{}}(Lblproject'Coln'Id{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "afcb3941b7c18d4b91d6ed8981582d58e0dc006425e9889e9891c2a7c2b93554.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5064,6 +5190,39 @@ module CONTRACTSEC
       )
     )
     [UNIQUE'Unds'ID{}("f316b871091516c401f1d2382cc5f66322602b782c7b01e1aeb6c2ddab50e24b")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortInt{}, R}(Lblproject'Coln'Int{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortInt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortInt{}, SortKItem{}}(VarK:SortInt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "f316b871091516c401f1d2382cc5f66322602b782c7b01e1aeb6c2ddab50e24b.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortInt{}, R}(Lblproject'Coln'Int{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortInt{}, SortKItem{}}(Lblproject'Coln'Int{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "f316b871091516c401f1d2382cc5f66322602b782c7b01e1aeb6c2ddab50e24b.selector-inverse"
+      ),
+      simplification{}("")
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5134,6 +5293,42 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("b0287590689cac0295505f65d981263cb11066c9fd8f2c68a0c9644733441f74")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortExpr{}, R}(Lblproject'Coln'Expr{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortExpr{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortExpr{}, SortKItem{}}(VarK:SortExpr{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "b0287590689cac0295505f65d981263cb11066c9fd8f2c68a0c9644733441f74.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortExpr{}, R}(Lblproject'Coln'Expr{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortExpr{}, SortKItem{}}(Lblproject'Coln'Expr{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "b0287590689cac0295505f65d981263cb11066c9fd8f2c68a0c9644733441f74.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5150,6 +5345,42 @@ module CONTRACTSEC
       )
     )
     [UNIQUE'Unds'ID{}("07a916f84d6294528a6d07f273fb778b316d52b4ef8204a1817b105750b2b734")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortKResult{}, R}(Lblproject'Coln'KResult{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortKResult{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortKResult{}, SortKItem{}}(VarK:SortKResult{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "07a916f84d6294528a6d07f273fb778b316d52b4ef8204a1817b105750b2b734.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortKResult{}, R}(Lblproject'Coln'KResult{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortKResult{}, SortKItem{}}(Lblproject'Coln'KResult{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "07a916f84d6294528a6d07f273fb778b316d52b4ef8204a1817b105750b2b734.selector-inverse"
+      ),
+      simplification{}("")
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -5170,6 +5401,42 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("dea7f879e640dc866a6ac853d51a70b1ded2d1fda72c3c4a7fbded3b9e6e2500")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortStmt{}, R}(Lblproject'Coln'Stmt{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortStmt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortStmt{}, SortKItem{}}(VarK:SortStmt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "dea7f879e640dc866a6ac853d51a70b1ded2d1fda72c3c4a7fbded3b9e6e2500.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortStmt{}, R}(Lblproject'Coln'Stmt{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortStmt{}, SortKItem{}}(Lblproject'Coln'Stmt{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "dea7f879e640dc866a6ac853d51a70b1ded2d1fda72c3c4a7fbded3b9e6e2500.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -5186,6 +5453,42 @@ module CONTRACTSEC
       )
     )
     [UNIQUE'Unds'ID{}("4257d48656c7a4bf6f38a0d886dbc8bb6bbd4699c574e33d06758072043e08c2")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortValue{}, R}(Lblproject'Coln'Value{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortValue{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortValue{}, SortKItem{}}(VarK:SortValue{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "4257d48656c7a4bf6f38a0d886dbc8bb6bbd4699c574e33d06758072043e08c2.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortValue{}, R}(Lblproject'Coln'Value{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortValue{}, SortKItem{}}(Lblproject'Coln'Value{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "4257d48656c7a4bf6f38a0d886dbc8bb6bbd4699c574e33d06758072043e08c2.selector-inverse"
+      ),
+      simplification{}("")
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -6748,6 +7051,42 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("2b75eac5a59779d336e6cf9632bf9ba7d67286f322e753108b34e62f2443efe5")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortList{}, R}(Lblproject'Coln'List{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortList{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortList{}, SortKItem{}}(VarK:SortList{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2b75eac5a59779d336e6cf9632bf9ba7d67286f322e753108b34e62f2443efe5.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortList{}, R}(Lblproject'Coln'List{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortList{}, SortKItem{}}(Lblproject'Coln'List{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2b75eac5a59779d336e6cf9632bf9ba7d67286f322e753108b34e62f2443efe5.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -6841,6 +7180,39 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("0e7f5070c993161786e314f7199d985afebac9e07b5c784f6f623780c60ce9d0")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortSet{}, R}(Lblproject'Coln'Set{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortSet{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortSet{}, SortKItem{}}(VarK:SortSet{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "0e7f5070c993161786e314f7199d985afebac9e07b5c784f6f623780c60ce9d0.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortSet{}, R}(Lblproject'Coln'Set{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortSet{}, SortKItem{}}(Lblproject'Coln'Set{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "0e7f5070c993161786e314f7199d985afebac9e07b5c784f6f623780c60ce9d0.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -6904,6 +7276,39 @@ module CONTRACTSEC
       )
     )
     [UNIQUE'Unds'ID{}("031237d4aae58d86914d6370d37ccd15f4738378ed780333c59cc81b4f7bc598")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortMap{}, R}(Lblproject'Coln'Map{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortMap{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortMap{}, SortKItem{}}(VarK:SortMap{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "031237d4aae58d86914d6370d37ccd15f4738378ed780333c59cc81b4f7bc598.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortMap{}, R}(Lblproject'Coln'Map{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(inj{SortMap{}, SortKItem{}}(Lblproject'Coln'Map{}(SelectorInput:SortK{})), dotk{}()),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "031237d4aae58d86914d6370d37ccd15f4738378ed780333c59cc81b4f7bc598.selector-inverse"
+      ),
+      simplification{}("")
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -8859,7 +9264,7 @@ module CONTRACTSEC
     [
       UNIQUE'Unds'ID{}("72e0af3d284cb027325e5b3a770085dc0ecfb84696cddb5109368e837bf9392a"),
       label{}("CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,19,20,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,19,21,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8912,7 +9317,7 @@ module CONTRACTSEC
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX.disclose(_)_CONTRACT-SYNTAX_Expr_Expr1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,19,20,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,19,21,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -8965,7 +9370,7 @@ module CONTRACTSEC
     [
       UNIQUE'Unds'ID{}("864891b1c3e1a5c0f04e6361499c3717aed04db7a36604800b7e6339d55396f0"),
       label{}("CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9021,7 +9426,7 @@ module CONTRACTSEC
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9077,7 +9482,7 @@ module CONTRACTSEC
     [
       UNIQUE'Unds'ID{}("cd3e116375c8bb1f2febb5be49ccaf1891fc2ebb7347bda315d37959692717fa"),
       label{}("CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9133,7 +9538,7 @@ module CONTRACTSEC
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._+__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,25,22,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,25,23,50)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9186,7 +9591,7 @@ module CONTRACTSEC
     [
       UNIQUE'Unds'ID{}("ec91d49da3995aee42bd6184f78833cb1a0507eb84104f73b555b2276ca4fcc2"),
       label{}("CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9242,7 +9647,7 @@ module CONTRACTSEC
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9298,7 +9703,7 @@ module CONTRACTSEC
     [
       UNIQUE'Unds'ID{}("e4c9a6f634523719123449ee2d9b1dfae44c4b77fc3eaa758c2078b3cf2fd130"),
       label{}("CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9354,7 +9759,7 @@ module CONTRACTSEC
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._<__CONTRACT-SYNTAX_Expr_Expr_Expr2-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,30,23,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,30,24,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9407,7 +9812,7 @@ module CONTRACTSEC
     [
       UNIQUE'Unds'ID{}("cf2a4da4d664193e1cde5f14a03423938fbb87a4f615c8c34000e4584cac79fc"),
       label{}("CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,19,25,46)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,46)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9463,7 +9868,7 @@ module CONTRACTSEC
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX._=_;_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,19,25,46)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,46)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9516,7 +9921,7 @@ module CONTRACTSEC
     [
       UNIQUE'Unds'ID{}("ff65a2c9974f4095b2ba491941a1edd5a7c7368f2e9660551b39010d8a9ec693"),
       label{}("CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,62)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,62)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9572,7 +9977,7 @@ module CONTRACTSEC
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX.write(_,_);_CONTRACT-SYNTAX_Stmt_Id_Expr2-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,19,26,62)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,62)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9622,7 +10027,7 @@ module CONTRACTSEC
     [
       UNIQUE'Unds'ID{}("43c2d5d2c4dd8ac6ffbec59923fa66eb655edd3c24ce5d11434df6228a4c90f6"),
       label{}("CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9675,7 +10080,7 @@ module CONTRACTSEC
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX.emit(_);_CONTRACT-SYNTAX_Stmt_Expr1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,19,27,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,51)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9730,7 +10135,7 @@ module CONTRACTSEC
     [
       UNIQUE'Unds'ID{}("2d4ee5b349358ecb9b8ca04fbc447cf8b3d6dd298e9fa33722d3a2a0928bd8fb"),
       label{}("CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-heat"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,65)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,19,29,65)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9788,7 +10193,7 @@ module CONTRACTSEC
       cool{}(),
       cool-like{}(),
       label{}("CONTRACT-SYNTAX.if(_)_else__CONTRACT-SYNTAX_Stmt_Expr_Stmt_Stmt1-cool"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,19,28,65)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,19,29,65)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/contract/contract.k)"
       )
@@ -9813,6 +10218,42 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("894c13c4c410f11e35bc3781505aeddde4ff400ddda1daf8b35259dbf0de9a24")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortKCell{}, R}(Lblproject'Coln'KCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortKCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortKCell{}, SortKItem{}}(VarK:SortKCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "894c13c4c410f11e35bc3781505aeddde4ff400ddda1daf8b35259dbf0de9a24.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortKCell{}, R}(Lblproject'Coln'KCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortKCell{}, SortKItem{}}(Lblproject'Coln'KCell{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "894c13c4c410f11e35bc3781505aeddde4ff400ddda1daf8b35259dbf0de9a24.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -9829,6 +10270,42 @@ module CONTRACTSEC
       )
     )
     [UNIQUE'Unds'ID{}("3cbce5dc41454b2d5bafa9768e3e17ae9217a30d86670b1a6abc0ab1072a2684")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortLevel{}, R}(Lblproject'Coln'Level{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortLevel{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortLevel{}, SortKItem{}}(VarK:SortLevel{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "3cbce5dc41454b2d5bafa9768e3e17ae9217a30d86670b1a6abc0ab1072a2684.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortLevel{}, R}(Lblproject'Coln'Level{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortLevel{}, SortKItem{}}(Lblproject'Coln'Level{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "3cbce5dc41454b2d5bafa9768e3e17ae9217a30d86670b1a6abc0ab1072a2684.selector-inverse"
+      ),
+      simplification{}("")
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -9906,6 +10383,51 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("63453db9d9aa121b63bb877e2fa4998d399ef82d2a1e4b90f87a32ba55401217")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGeneratedCounterCell{}, R}(
+          Lblproject'Coln'GeneratedCounterCell{}(SelectorInput:SortK{})
+        ),
+        \exists{R}(
+          VarK:SortGeneratedCounterCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(
+              inj{SortGeneratedCounterCell{}, SortKItem{}}(VarK:SortGeneratedCounterCell{}),
+              dotk{}()
+            )
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "63453db9d9aa121b63bb877e2fa4998d399ef82d2a1e4b90f87a32ba55401217.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGeneratedCounterCell{}, R}(
+        Lblproject'Coln'GeneratedCounterCell{}(SelectorInput:SortK{})
+      ),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGeneratedCounterCell{}, SortKItem{}}(
+            Lblproject'Coln'GeneratedCounterCell{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "63453db9d9aa121b63bb877e2fa4998d399ef82d2a1e4b90f87a32ba55401217.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -9930,6 +10452,51 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("9325a900267ae528f7cd09f3b44b825dd9ff344c38d38383c08fa697cc67efca")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGeneratedCounterCellOpt{}, R}(
+          Lblproject'Coln'GeneratedCounterCellOpt{}(SelectorInput:SortK{})
+        ),
+        \exists{R}(
+          VarK:SortGeneratedCounterCellOpt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(
+              inj{SortGeneratedCounterCellOpt{}, SortKItem{}}(VarK:SortGeneratedCounterCellOpt{}),
+              dotk{}()
+            )
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "9325a900267ae528f7cd09f3b44b825dd9ff344c38d38383c08fa697cc67efca.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGeneratedCounterCellOpt{}, R}(
+        Lblproject'Coln'GeneratedCounterCellOpt{}(SelectorInput:SortK{})
+      ),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGeneratedCounterCellOpt{}, SortKItem{}}(
+            Lblproject'Coln'GeneratedCounterCellOpt{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "9325a900267ae528f7cd09f3b44b825dd9ff344c38d38383c08fa697cc67efca.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -9946,6 +10513,44 @@ module CONTRACTSEC
       )
     )
     [UNIQUE'Unds'ID{}("b0fabd8c7c81fe08ebd569aff59747d357e441ae1fcd05d9d594d57e38e3d55e")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGeneratedTopCell{}, R}(Lblproject'Coln'GeneratedTopCell{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortGeneratedTopCell{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortGeneratedTopCell{}, SortKItem{}}(VarK:SortGeneratedTopCell{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "b0fabd8c7c81fe08ebd569aff59747d357e441ae1fcd05d9d594d57e38e3d55e.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGeneratedTopCell{}, R}(Lblproject'Coln'GeneratedTopCell{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGeneratedTopCell{}, SortKItem{}}(
+            Lblproject'Coln'GeneratedTopCell{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "b0fabd8c7c81fe08ebd569aff59747d357e441ae1fcd05d9d594d57e38e3d55e.selector-inverse"
+      ),
+      simplification{}("")
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(
@@ -9972,6 +10577,51 @@ module CONTRACTSEC
     [UNIQUE'Unds'ID{}("2084fac322aa142a07f881814b8a286bf62d5c6d05777b7aa715ccc534cf9a42")]
   axiom{R}
     \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortGeneratedTopCellFragment{}, R}(
+          Lblproject'Coln'GeneratedTopCellFragment{}(SelectorInput:SortK{})
+        ),
+        \exists{R}(
+          VarK:SortGeneratedTopCellFragment{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(
+              inj{SortGeneratedTopCellFragment{}, SortKItem{}}(VarK:SortGeneratedTopCellFragment{}),
+              dotk{}()
+            )
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2084fac322aa142a07f881814b8a286bf62d5c6d05777b7aa715ccc534cf9a42.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortGeneratedTopCellFragment{}, R}(
+        Lblproject'Coln'GeneratedTopCellFragment{}(SelectorInput:SortK{})
+      ),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortGeneratedTopCellFragment{}, SortKItem{}}(
+            Lblproject'Coln'GeneratedTopCellFragment{}(SelectorInput:SortK{})
+          ),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "2084fac322aa142a07f881814b8a286bf62d5c6d05777b7aa715ccc534cf9a42.selector-inverse"
+      ),
+      simplification{}("")
+    ]
+  axiom{R}
+    \implies{R}(
       \and{R}(
         \top{R}(),
         \and{R}(
@@ -9988,6 +10638,42 @@ module CONTRACTSEC
       )
     )
     [UNIQUE'Unds'ID{}("f684dd78d97feadf0cbcb3cbb8892e0842f137c7b29a904cb2f3fc9755b29b30")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{R, R}(
+        \ceil{SortKCellOpt{}, R}(Lblproject'Coln'KCellOpt{}(SelectorInput:SortK{})),
+        \exists{R}(
+          VarK:SortKCellOpt{},
+          \equals{SortK{}, R}(
+            SelectorInput:SortK{},
+            kseq{}(inj{SortKCellOpt{}, SortKItem{}}(VarK:SortKCellOpt{}), dotk{}())
+          )
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "f684dd78d97feadf0cbcb3cbb8892e0842f137c7b29a904cb2f3fc9755b29b30.selector-domain"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \ceil{SortKCellOpt{}, R}(Lblproject'Coln'KCellOpt{}(SelectorInput:SortK{})),
+      \equals{SortK{}, R}(
+        kseq{}(
+          inj{SortKCellOpt{}, SortKItem{}}(Lblproject'Coln'KCellOpt{}(SelectorInput:SortK{})),
+          dotk{}()
+        ),
+        \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}(
+        "f684dd78d97feadf0cbcb3cbb8892e0842f137c7b29a904cb2f3fc9755b29b30.selector-inverse"
+      ),
+      simplification{}("")
+    ]
   axiom{R}
     \implies{R}(
       \and{R}(

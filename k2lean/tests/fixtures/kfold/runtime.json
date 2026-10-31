@@ -6,15 +6,15 @@
   "syntax_module": "KFOLD-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "1dbe5f2ca96f3d1584b42830fbd41b7fd21483ba81128ff15b3403e6b616432d"
+    "sha256": "4ff7b93d4bbcabc466efacd8a87b6f431e516a17164dc2458278851d24e8d8f3"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "6980dcbf2853ec9372ec1dffdefa2bee678c28ca4b410b228b4c0aeffbaae012"
+    "sha256": "988e023f46fc8d81f1f57fdf706a07b8f0a25a9e8addc5f97a1979c81fef7018"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "792fd081855d4ca5ba16c150fcbdc34f39395cae9f268534e7410933b2c46745"
+    "sha256": "5dcdd9ab093da4cb5eed4e6069f0010c768f4f99c37f7f31fa4d68dd0ee4323d"
   },
   "configuration_variables": {
     "PGM": "Cmd"

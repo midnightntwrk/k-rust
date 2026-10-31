@@ -6,15 +6,15 @@
   "syntax_module": "COROUT-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "efbbfb3843a941b477da6d5af7f5c4565e250f78957d3339d471f3ca28272500"
+    "sha256": "074b9203d7679db9666433d6d104cb80ee1d5f3015469bcd7150de203a55307c"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "44d116f54931eb828d078164a3e3104750f2646af8045d10f32d650ca05f3223"
+    "sha256": "7f10429e9cf37bd42d3e103693a2340c717ab0bb22e1c71622aa9cdd23623f1a"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "b75b2012e50304bfc0e811d42cd70b178f78ad9b11f2df79de9f9a3672cc3cdd"
+    "sha256": "7426f292d3ad6d70490ff120625c841d5623c6145a7a4990a4bb5a7bf62f3511"
   },
   "configuration_variables": {
     "PGM": "Stmts"

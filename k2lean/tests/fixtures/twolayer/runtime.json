@@ -6,15 +6,15 @@
   "syntax_module": "TWOLAYER-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "f1c2e59df071f63a308426521f51594b2c34e8a4e24bcec12591344a0c09d935"
+    "sha256": "f471a85d34c40a5bbbd0732895028b0f3a89afc15277b6db4e39ac0cd1648239"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "83fa6725b40deaa8ea5b07e677f1750a9f62cdaa786fdbc733df3f870aaca9d9"
+    "sha256": "5d5bfaaf1127300abc32f81215e2f504893bb90657871620f12c08c8fbe818d9"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "a0e0c2ea7bbe5d9badf3325758581d21100c85d5a69c08a7615957378f285426"
+    "sha256": "e66377c4ec3092c064a736158f4299287aa390387b21a01bfc9f69428def83f4"
   },
   "configuration_variables": {
     "PGM": "Pgm"

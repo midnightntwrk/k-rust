@@ -6,15 +6,15 @@
   "syntax_module": "SYMCOLL-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "3467b9bb361abd1d89bc7f7434af56255b5b808742f4df99f2d3e3f6644f8b73"
+    "sha256": "44326e639d264b85b5552e8fac890048615ef03bb014016286f23a865ed0879f"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "f73e132d2167aead393ff66e51fc24e1f264a43e2b99aeade8abed26d8e22cdb"
+    "sha256": "8f9ddd3e8db29bca9fe0df94a30f38029f2f4ffefd1a75f84dacfe75e8943552"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "5d3ebbb20be2af7e0d57b971d7f72a905a8f8a0026d1024843c1a6a8ddf0784a"
+    "sha256": "c901e50d87606a2b2c308d4c1058cf0510ac94d8de4607a3bffd5df407faa8d5"
   },
   "configuration_variables": {
     "PGM": "Pgm"

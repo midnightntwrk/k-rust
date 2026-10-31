@@ -6,15 +6,15 @@
   "syntax_module": "VM-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "4bafac3f42a9300937e2c3f903d1f92ccae069905e4e8fcb3d7903b9e3482680"
+    "sha256": "599767f8b15eaa8762a532d40714138fd855c5cfa44475fe12dc8347ca8373b9"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "9eaecd9f2daba48c7145bcda09484734d5be6830c2a64be2d44d7c0ecc94cd78"
+    "sha256": "b374bed1f74333693ae8047c6e1ae5e2abb85b17d2d9fa6f604c67645e0a4a9c"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "6282ab928c4478fd94aa58b926afb51e67ab751ae8d64eba91b7454692ef90ba"
+    "sha256": "150b2ad4610860abe68d5dae25e35d4560a0db2bb7b54077b495e8a178dcfbaf"
   },
   "configuration_variables": {
     "PGM": "Pgm"

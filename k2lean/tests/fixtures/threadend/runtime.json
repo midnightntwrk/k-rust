@@ -6,15 +6,15 @@
   "syntax_module": "THREADEND-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "d661b99aee4c67b25f7093eb31677557416545aa21675c8a0a9bfd97e8ea0574"
+    "sha256": "bc920f1f6e6a40492601a81d24114225736359ccef8937df5efc7d348b421c7f"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "01c746d266bef66f5ec4735d58a40b2c53106e5f22c4003f45fc3062f7dba1e0"
+    "sha256": "3f23917a98e86db624fdbc46fd59753d272b38fb4b72879dd36ceaa4384d2f7a"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "4fef0470720d00fa2c0594e4a4bcd3979977149514204606656e519fe22bea9d"
+    "sha256": "c5de6a5f77434cdbb726606ccbdd2b65611331a128097b7396312602480da7b0"
   },
   "configuration_variables": {
     "PGM": "Pgm"

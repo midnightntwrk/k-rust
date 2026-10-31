@@ -6,15 +6,15 @@
   "syntax_module": "UTXO-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "5b54e4cabb9f314d6d0e8b8972601c4e6695610d3d6a9c9031a7b7a499660e1d"
+    "sha256": "c4d87cd58419650ae9fa916c98ff1a6b79c2743d29386516f84b3ae3af85a2e8"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "21c9950929567be20d0ecd64ddf3e6b6781dd0b53faadad6b8c1b8d7832e913e"
+    "sha256": "3aef28193f4f76a7227b45391ad261f1687ac64bcf4d86b4f6b800584b27bfc5"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "6df53a92dae9981425c6ce9f0c83804895cbcc3c711bb89be3ede5ee421acd73"
+    "sha256": "5448bd2140f1ebdd3b11a5aad370f556b832e7b8ca6eb3838a24f5a5a5202c7a"
   },
   "configuration_variables": {
     "PGM": "Pgm"

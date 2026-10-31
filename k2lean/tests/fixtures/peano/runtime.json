@@ -6,15 +6,15 @@
   "syntax_module": "PEANO-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "ddf5404416d4dbb5b497956ebeb1f1c7f3b4e9ede80ef9968362726b8eb1cfa5"
+    "sha256": "cc28ef07f96ffed7fa9100c91d0cd12825baa9bba7c86057a489b7dd5230466a"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "4ddc16af03944e738757693c55ee3d4ba72a30c16a8f9bf9394f8dd48540047d"
+    "sha256": "e6d33f42215a6496d274e7766cd3ee722e295df9fc1b1a7f2760f1ad952ee387"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "d53db37bdb0de5b39de8c0956351658769b7e5f355230453ab2051b05aba15fd"
+    "sha256": "71cba998643e5df4185a3a24b1789e231a45b559e65da0c55c11fd1fa7cbe0fd"
   },
   "configuration_variables": {
     "PGM": "Pgm"

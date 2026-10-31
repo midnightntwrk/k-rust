@@ -6,15 +6,15 @@
   "syntax_module": "COROJOIN-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "1302e4a2032f1c86787cc25d71f6d5c5b896975d87274aa4e853bf5ca5726d22"
+    "sha256": "2b6faa3bb7d9b50fc28f9619990fc5b8c00b9c94b7e4e4a9761e9f9ea87fdd50"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "7044b54e0c8c4c305d6d4f39f681b4e505dbb406d59e1f400d46b49064efcf19"
+    "sha256": "e555df087d4507e5e6a55951479ca52bdc960fb7ba9837ff0dfbf9fc9e2041ab"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "d7a305cf402bbf95cae3502076d31b7777c7bcd9df32365a66f85efaa6c0c653"
+    "sha256": "d97cf9ea9c6f216d1d56876aa1f722920b69825319c93fe525dd497748c7016b"
   },
   "configuration_variables": {
     "PGM": "Pgm"

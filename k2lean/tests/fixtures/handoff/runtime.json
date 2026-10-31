@@ -6,15 +6,15 @@
   "syntax_module": "HANDOFF-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "58897f05c5bbd34d9238ef8792c6d37835d87030ec8efc2bd6a91eb773e9d105"
+    "sha256": "641912cd0cf38bf549f85ac95815a5d65d853ee03ea0a34627df9db2748c960e"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "293c2aacdb40f099a558781826025f15bd6589934a6e27cb2522f809e05742f8"
+    "sha256": "e4be48821699f5c2f8f9020707976292df661a7c94557639f8c8be9cd8db04c2"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "28b61076a141707d3a8327f13a1b48288480d7dc78eec28fad83ad325acaffa2"
+    "sha256": "656a5c2cb9aec0dbd545055b03d53c0377c3d9f08a6874a1ddeef2376c42d769"
   },
   "configuration_variables": {
     "PGM": "Pgm"

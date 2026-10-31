@@ -6,15 +6,15 @@
   "syntax_module": "PRIO-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "b5d55049016a9d036c78fd0854151ea1522195bea85e5b1e41ef0f29fe42cc00"
+    "sha256": "e303d1a7fef25bf710edb45a96bf41bc30401158c28a07f90cdd981e8aceda15"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "6effb18589407ddb6304e7e131d95aca111bbc581df86604ade6331221c8a2f6"
+    "sha256": "b08988573dee79f1e74a33d51618e3e72bd9144df8d37ec7e5581173e28cd5f0"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "bab61c62f0b931c89bc7ceefe95043b70a11bbe660dc20c86bd2a75aff8c953b"
+    "sha256": "5c1f22a00364bd28978b1d3514e33439a7c00eab2f2c89d20f973f242e21a40c"
   },
   "configuration_variables": {
     "PGM": "Pgm"

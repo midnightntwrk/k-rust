@@ -6,15 +6,15 @@
   "syntax_module": "MEASURE-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "f2234b8c467956b86f5124dcb61ed82d546925960b26aa58fc36086fe511a0bf"
+    "sha256": "a7a2d941677cd0b124646615950e0dab76bfa4843af85ee2a992d17194f2126a"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "e8b54c1be891df0e52ec26febfaa269e31bd4932476d2cd5a9db614c640ee301"
+    "sha256": "6c761171f52215219b5b8737321bfb4266fa12dab2f7982b8de8678fbaf4e940"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "896bbc82a74ed92d21c601f1b95f278b2907d3dda1c76707da54361b22f03533"
+    "sha256": "9bdcb439a082e67d7b3964c77faab1aaa31003be9abbd4725f26db49c92ff7c0"
   },
   "configuration_variables": {
     "PGM": "Pgm"
