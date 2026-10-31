@@ -489,6 +489,7 @@ dependencies = [
 name = "krs-compiler"
 version = "0.1.0"
 dependencies = [
+ "k-rust",
  "krs-diagnostic",
  "krs-ir",
  "krs-ir-levels",
