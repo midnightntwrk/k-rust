@@ -7728,7 +7728,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."terms/equation/context-map-key/Size(x)"]
 k = """
 rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
-<env> size ( V0:KItem ) |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+<env> V1:Int |-> V2:KItem ... </env>
+requires V1:Int ==K size ( V0:KItem ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -7736,7 +7737,8 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."terms/equation/context-map-key/k::builtin::int::add(1, 2)"]
 k = """
 rule [[ probe ( cTAG , V0:KItem ) => 0 ]]
-<env> 1 +Int 2 |-> V1:KItem ... </env> [label(krsRule_DIGEST)]
+<env> V1:Int |-> V2:KItem ... </env>
+requires V1:Int ==K (1 +Int 2) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -19043,8 +19045,8 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:KItem , _ ) => .K ... </k>
-<env> size ( {V0:KItem}:>Int ) |-> V1:KItem ... </env>
-requires isInt(V0:KItem)
+<env> V1:Int |-> V2:KItem ... </env>
+requires isInt(V0:KItem) andThenBool (V1:Int ==K size ( {V0:KItem}:>Int ))
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
