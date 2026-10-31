@@ -678,7 +678,8 @@ pub enum DescriptorLoweringError {
     /// An alias or desugar clause does not expand a production of its own
     /// mode, or an alias or desugar production has no clause (KF-028), or a
     /// clause's subject holds below its root an alias or desugar production's
-    /// application whose expansion needs a value (NT-14).
+    /// application whose expansion needs a value (NT-14), or two clauses of one such production
+    /// overlap (NT-22).
     InvalidStaticClause {
         /// Stable reason naming the clause or production and the fix.
         reason: String,
@@ -687,6 +688,11 @@ pub enum DescriptorLoweringError {
         range: Option<Box<SourceRange>>,
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
+        /// Another clause the error involves: the exact authored range of its subject root and
+        /// what it says there.
+        other: Option<(Box<SourceRange>, String)>,
+        /// How to repair it, when the reason does not already say.
+        help: Option<String>,
     },
     /// An alias's or a desugar clause's subject holds below its root a collection of two or more
     /// parts, which static expansion, comparing terms as written, matches in one of its
@@ -1664,6 +1670,19 @@ impl ToDiagnostic for DescriptorLoweringError {
                 krs_diagnostic::Label::new(Location::Source((**first).clone()))
                     .with_message("the first configuration"),
             ),
+            Self::InvalidStaticClause { other, help, .. } => {
+                let diagnostic = match other {
+                    Some((range, message)) => diagnostic.with_secondary(
+                        krs_diagnostic::Label::new(Location::Source((**range).clone()))
+                            .with_message(message.clone()),
+                    ),
+                    None => diagnostic,
+                };
+                match help {
+                    Some(help) => diagnostic.with_help(help.clone()),
+                    None => diagnostic,
+                }
+            }
             Self::IncompatibleBinder {
                 occurrence, help, ..
             } => {

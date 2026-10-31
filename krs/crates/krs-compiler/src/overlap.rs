@@ -24,8 +24,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, GuardMeaning, ItemKind, ListOperation,
-    MapOperation, ProductionAttribute, SemanticId, SetOperation, StableItemId,
+    ApplicationRef, BuiltinOperation, BuiltinSort, GrammarProductionItemKind, GuardMeaning,
+    ItemKind, ListOperation, MapOperation, ProductionAttribute, SemanticId, SetOperation,
+    StableItemId,
 };
 use krs_ir_levels::{
     IrCondition, RuleBodyRef, SemanticApplicationRef, SemanticModule, SemanticRule,
@@ -2483,44 +2484,200 @@ fn chosen_clauses_overlap(
 /// applications, and a static clause states no order (it takes no `priority` or `owise`), so
 /// where two clauses match one term which of them applies is not stated. The subjects are
 /// unified as the transitions' patterns are: by sort, with tokens compared by the value they
-/// denote, a repeated binder standing for one term, and an or-pattern contributing each of its
-/// alternatives.
+/// denote, a repeated binder standing for one term, and `name @ pattern` binding `name` to the
+/// term `pattern` matches. A subject holds no `A | B`: a desugar's alternatives are subjects of
+/// their own by the time they are compared, and an alias's subject refuses `|`.
+///
+/// The answer errs in one direction only. Where the unifier cannot decide whether some term
+/// matches both sides it answers that one does: two map items (two maps' `k |-> v` may be met by
+/// different entries of one map) and two List or Set functions, compared by their sorts alone (a
+/// function's value is not the syntax of its operands). Over-approximating the overlap refuses a
+/// pair of clauses that might be disjoint, which the author sees and can rewrite; it never
+/// accepts two clauses that one term matches, whose order nothing would state. And it is mostly
+/// unreachable here: a subject refuses a function's application and every collection of two or
+/// more parts, so what it holds of a collection is an empty one or a single element.
 pub(crate) struct StaticSubjects {
     graph: SortGraph,
+    /// Each production's argument sorts: the sort a witness's `_` stands for where nothing
+    /// narrower is required of it.
+    arguments: BTreeMap<StableItemId, Vec<SemanticSortRef>>,
+}
+
+/// Two static subjects overlap.
+pub(crate) struct Overlap {
+    /// A term both subjects match, as KRS writes it, when their common instance is built of
+    /// constructors, tokens and names alone (`_` for a term written once, a name for one written
+    /// more than once, either with its sort where a binder requires a narrower one than its
+    /// place's).
+    pub(crate) witness: Option<String>,
 }
 
 impl StaticSubjects {
     /// The overlap judge over `modules`' sorts.
     pub(crate) fn of(modules: &[SemanticModule]) -> Self {
+        let arguments = modules
+            .iter()
+            .flat_map(SemanticModule::productions)
+            .map(|production| {
+                let sorts = production
+                    .items()
+                    .iter()
+                    .filter_map(|item| match item.kind() {
+                        GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort.clone()),
+                        GrammarProductionItemKind::Terminal { .. }
+                        | GrammarProductionItemKind::RegexTerminal { .. } => None,
+                    })
+                    .collect();
+                (production.id().clone(), sorts)
+            })
+            .collect();
         Self {
             graph: SortGraph::from_modules(modules),
+            arguments,
         }
     }
 
-    /// Whether some term matches both `left` and `right`, two subjects of one production.
-    pub(crate) fn overlap(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool {
-        let mut left_nodes = Vec::new();
-        or_nodes(left, &mut left_nodes);
-        let mut right_nodes = Vec::new();
-        or_nodes(right, &mut right_nodes);
-        let right_choices = choices(&right_nodes);
-        choices(&left_nodes).into_iter().any(|left_choice| {
-            right_choices.iter().any(|right_choice| {
-                let mut catalog = VariableCatalog {
-                    choices: [left_choice.clone(), right_choice.clone()],
-                    ..VariableCatalog::default()
-                };
-                let mut unifier = Unifier::new(&self.graph);
-                let left_pattern = pattern(left, 0, &mut catalog);
-                let right_pattern = pattern(right, 1, &mut catalog);
-                unifier.unify(left_pattern, right_pattern)
-                    && std::mem::take(&mut catalog.aliases).into_iter().all(
-                        |(key, sort, aliased)| {
-                            unifier.unify(Pattern::Variable { key, sort }, aliased)
-                        },
-                    )
-            })
+    /// Whether some term matches both `left` and `right`, two subjects of one production, and if
+    /// so a term that does: the unifier's instance of `left`.
+    pub(crate) fn overlap(&self, left: &SemanticTerm, right: &SemanticTerm) -> Option<Overlap> {
+        debug_assert!(
+            [left, right].into_iter().all(|subject| {
+                let mut nodes = Vec::new();
+                or_nodes(subject, &mut nodes);
+                nodes.is_empty()
+            }),
+            "a static subject holds no `|` once its alternatives are apart"
+        );
+        let mut catalog = VariableCatalog::default();
+        let mut unifier = Unifier::new(&self.graph);
+        let left_pattern = pattern(left, 0, &mut catalog);
+        let right_pattern = pattern(right, 1, &mut catalog);
+        let overlapping = unifier.unify(left_pattern.clone(), right_pattern)
+            && std::mem::take(&mut catalog.aliases)
+                .into_iter()
+                .all(|(key, sort, aliased)| {
+                    unifier.unify(Pattern::Variable { key, sort }, aliased)
+                });
+        overlapping.then(|| Overlap {
+            witness: self.witness(&unifier, &left_pattern),
         })
+    }
+
+    /// `subject` under `unifier`'s substitution, written as KRS writes a term, when it is built
+    /// of constructors, tokens and variables alone.
+    fn witness(&self, unifier: &Unifier<'_>, subject: &Pattern) -> Option<String> {
+        let instance = instance(unifier, subject, WITNESS_DEPTH)?;
+        let mut occurrences = BTreeMap::new();
+        count_variables(&instance, &mut occurrences);
+        self.render(unifier, &instance, None, &occurrences, &mut BTreeMap::new())
+    }
+
+    fn render(
+        &self,
+        unifier: &Unifier<'_>,
+        term: &Pattern,
+        place: Option<&SemanticSortRef>,
+        occurrences: &BTreeMap<VariableKey, usize>,
+        names: &mut BTreeMap<VariableKey, String>,
+    ) -> Option<String> {
+        match term {
+            Pattern::Variable { key, sort } => {
+                let required = unifier.requirements.get(key);
+                // The narrowest sort required of the variable; with two incomparable ones, the
+                // term it stands for is of a sort below both, which `_` does not say.
+                let sort = match required {
+                    Some(required) if !required.is_empty() => required
+                        .iter()
+                        .find(|candidate| {
+                            required
+                                .iter()
+                                .all(|other| self.graph.is_subsort(candidate, other))
+                        })?
+                        .clone(),
+                    _ => sort.clone(),
+                };
+                let name = if occurrences.get(key).copied().unwrap_or(0) > 1 {
+                    let next = names.len() + 1;
+                    names
+                        .entry(*key)
+                        .or_insert_with(|| format!("x{next}"))
+                        .clone()
+                } else {
+                    "_".to_owned()
+                };
+                Some(if place == Some(&sort) {
+                    name
+                } else {
+                    format!("{name}: {}", crate::partition::sort_display(&sort))
+                })
+            }
+            Pattern::Token { value, .. } => Some(value.clone()),
+            Pattern::Application {
+                application: ApplicationRef::Declared(production),
+                arguments,
+                ..
+            } => {
+                let places = self.arguments.get(production);
+                let arguments = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        self.render(
+                            unifier,
+                            argument,
+                            places.and_then(|places| places.get(index)),
+                            occurrences,
+                            names,
+                        )
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some(format!(
+                    "{}({})",
+                    crate::partition::production_display_name(production),
+                    arguments.join(", ")
+                ))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// How deep a witness's instance is built before it is given up: a subject is written by hand,
+/// so this bounds only a substitution the unifier left cyclic.
+const WITNESS_DEPTH: usize = 256;
+
+/// `term` with every variable `unifier` binds replaced by its binding, throughout.
+fn instance(unifier: &Unifier<'_>, term: &Pattern, depth: usize) -> Option<Pattern> {
+    let depth = depth.checked_sub(1)?;
+    Some(match unifier.resolve(term.clone()) {
+        Pattern::Application {
+            sort,
+            application,
+            arguments,
+            instance: sorts,
+        } => Pattern::Application {
+            sort,
+            application,
+            arguments: arguments
+                .iter()
+                .map(|argument| instance(unifier, argument, depth))
+                .collect::<Option<_>>()?,
+            instance: sorts,
+        },
+        resolved => resolved,
+    })
+}
+
+/// How often each variable of `term` occurs in it, below its applications.
+fn count_variables(term: &Pattern, output: &mut BTreeMap<VariableKey, usize>) {
+    match term {
+        Pattern::Variable { key, .. } => *output.entry(*key).or_default() += 1,
+        Pattern::Application { arguments, .. } => {
+            for argument in arguments {
+                count_variables(argument, output);
+            }
+        }
+        _ => {}
     }
 }
 

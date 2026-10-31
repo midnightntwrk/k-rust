@@ -325,7 +325,7 @@ pub fn production_display_name(id: &StableItemId) -> String {
     )
 }
 
-fn sort_display(sort: &SemanticSortRef) -> String {
+pub(crate) fn sort_display(sort: &SemanticSortRef) -> String {
     match sort {
         SemanticSortRef::Declared(id) => id.item_name().to_owned(),
         SemanticSortRef::Builtin(sort) => sort.k_name().to_owned(),

@@ -418,6 +418,12 @@ fn check_every_production_expanded(
 /// no `priority` and no `owise`. So where two clauses match one term, which result the program
 /// holds is not stated, and the definition would choose one by an order the author never wrote.
 /// The alternatives of one clause's or-pattern share its result, so they are not compared.
+///
+/// A production's clauses are read in the order they are written, by source file and then
+/// position (a clause without an authored position by its item, before the others), wherever
+/// they stand among the crate's modules. The error is at the first clause in that order whose
+/// subject overlaps an earlier clause's: reading the source top to bottom, the one that adds the
+/// overlap. It names the two clauses in that order and points at the earlier one too.
 fn check_disjoint_clauses(
     modules: &[SemanticModule],
     productions: &Productions<'_>,
@@ -443,36 +449,84 @@ fn check_disjoint_clauses(
         let Some(StaticProduction { mode, .. }) = productions.statics.get(production) else {
             continue;
         };
-        for (index, first) in clauses.iter().enumerate() {
-            let first_subjects = subjects(first);
-            for second in &clauses[index + 1..] {
-                let overlapping = subjects(second)
-                    .into_iter()
-                    .any(|right| first_subjects.iter().any(|left| judge.overlap(left, right)));
-                if !overlapping {
-                    continue;
+        let mut written = clauses.clone();
+        written.sort_by_cached_key(|clause| {
+            (
+                subject_range(clause).map(|range| (range.file, range.start_byte)),
+                clause.id().clone(),
+            )
+        });
+        let written_subjects = written
+            .iter()
+            .map(|clause| subjects(clause))
+            .collect::<Vec<_>>();
+        for (index, later) in written.iter().enumerate() {
+            for (earlier, earlier_subjects) in written[..index].iter().zip(&written_subjects) {
+                let overlap = written_subjects[index].iter().find_map(|right| {
+                    earlier_subjects
+                        .iter()
+                        .find_map(|left| judge.overlap(left, right))
+                });
+                if let Some(overlap) = overlap {
+                    return Err(overlapping_clauses(
+                        *mode,
+                        production,
+                        earlier,
+                        later,
+                        overlap.witness.as_deref(),
+                    ));
                 }
-                let at = second
-                    .body()
-                    .map(|body| body.from().origin())
-                    .filter(|origin| origin.origin().exact_authored_range().is_some())
-                    .unwrap_or_else(|| second.origin());
-                return Err(invalid(
-                    second.id(),
-                    format!(
-                        "{} clauses `{}` and `{}` of `{}` overlap: some term matches both subjects, and the clauses of a production marked `{}` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary; make the two subjects disjoint, so that no term matches both",
-                        mode.clause(),
-                        first.id().item_name(),
-                        second.id().item_name(),
-                        production_display_name(production),
-                        mode.attribute(),
-                    ),
-                    at,
-                ));
             }
         }
     }
     Ok(())
+}
+
+/// The exact authored range of a clause's subject root, else of the clause.
+fn subject_range(clause: &SemanticRule) -> Option<krs_ir::SourceRange> {
+    clause
+        .body()
+        .and_then(|body| body.from().origin().origin().exact_authored_range())
+        .or_else(|| clause.origin().origin().exact_authored_range())
+}
+
+/// The refusal of `later`, a clause written after `earlier` whose subject some term matches
+/// beside `earlier`'s, such as `witness`.
+fn overlapping_clauses(
+    mode: Mode,
+    production: &StableItemId,
+    earlier: &SemanticRule,
+    later: &SemanticRule,
+    witness: Option<&str>,
+) -> DescriptorLoweringError {
+    let (earlier_name, later_name) = (earlier.id().item_name(), later.id().item_name());
+    let some_term = witness.map_or_else(
+        || "some term matches both subjects".to_owned(),
+        |witness| format!("`{witness}` matches both subjects"),
+    );
+    DescriptorLoweringError::InvalidStaticClause {
+        reason: format!(
+            "{} clauses `{earlier_name}` and `{later_name}` of `{}` overlap: {some_term}, and the clauses of a production marked `{}` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary",
+            mode.clause(),
+            production_display_name(production),
+            mode.attribute(),
+        ),
+        range: subject_range(later).map(Box::new),
+        item: Some(Box::new(later.id().clone())),
+        other: subject_range(earlier).map(|range| {
+            let what = witness.map_or_else(
+                || "a term this subject matches".to_owned(),
+                |witness| format!("`{witness}`"),
+            );
+            (
+                Box::new(range),
+                format!("`{earlier_name}`, written earlier, matches {what} too"),
+            )
+        }),
+        help: Some(
+            "make one subject more specific, so that no term matches both; or, where one clause is meant for the terms the other does not match, write the computation as a function whose fallback equation is `#[k::equation(owise)]`, or as rules whose fallback is `#[k::rule(owise)]`, which state the order a static clause cannot".to_owned(),
+        ),
+    }
 }
 
 /// The expansion of the static applications below one clause's subject root.
@@ -1143,6 +1197,8 @@ impl<'m> Expansion<'_, 'm, '_> {
             ),
             range: site.origin().exact_authored_range().map(Box::new),
             item: Some(Box::new(self.clause.id().clone())),
+            other: None,
+            help: None,
         }
     }
 }
@@ -1477,5 +1533,7 @@ fn invalid(item: &StableItemId, reason: String, origin: &NodeOrigin) -> Descript
         reason,
         range: origin.origin().exact_authored_range().map(Box::new),
         item: Some(Box::new(item.clone())),
+        other: None,
+        help: None,
     }
 }

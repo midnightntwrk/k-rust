@@ -323,8 +323,8 @@ fn a_static_result_of_a_sort_not_below_its_productions_is_refused() {
     ]));
 }
 
-/// Two clauses of one static production whose subjects some term matches are refused at the later
-/// one: a static clause takes no `priority` or `owise`, so nothing states which of the two a
+/// Two clauses of one static production whose subjects some term matches are refused at the one
+/// written later: a static clause takes no `priority` or `owise`, so nothing states which of the two a
 /// program's expansion applies where both match, and the emitted definition would pick one by an
 /// order the author never wrote (NT-22). A literal beside a binder (`pairs(1, y)` and
 /// `pairs(x, y)` both match `pairs(1, 2)`), two spellings of one value (`01` is `1`), and one
@@ -334,13 +334,13 @@ fn a_static_result_of_a_sort_not_below_its_productions_is_refused() {
 fn two_static_clauses_whose_subjects_overlap_are_refused() {
     expect_test::expect![[r"
         literal-and-binder:
-        error[krs::analysis::invalid-static-clause]: alias clauses `any_first` and `one_first` of `Al::Pairs` overlap: some term matches both subjects, and the clauses of a production marked `#[k::alias]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary; make the two subjects disjoint, so that no term matches both
-        --> src/lib.rs:85:23
+        error[krs::analysis::invalid-static-clause]: alias clauses `one_first` and `any_first` of `Al::Pairs` overlap: `Al::Pairs(1, _)` matches both subjects, and the clauses of a production marked `#[k::alias]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
+        --> src/lib.rs:90:23
         one-value:
-        error[krs::analysis::invalid-static-clause]: alias clauses `one_two` and `padded` of `Al::Pairs` overlap: some term matches both subjects, and the clauses of a production marked `#[k::alias]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary; make the two subjects disjoint, so that no term matches both
+        error[krs::analysis::invalid-static-clause]: alias clauses `one_two` and `padded` of `Al::Pairs` overlap: `Al::Pairs(1, 2)` matches both subjects, and the clauses of a production marked `#[k::alias]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
         --> src/lib.rs:90:20
         written-twice:
-        error[krs::analysis::invalid-static-clause]: desugar clauses `nought` and `nought_again` of `Sugar::Nought` overlap: some term matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary; make the two subjects disjoint, so that no term matches both
+        error[krs::analysis::invalid-static-clause]: desugar clauses `nought` and `nought_again` of `Sugar::Nought` overlap: `Sugar::Nought()` matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
         --> src/lib.rs:90:26"]]
     .assert_eq(&refusals([
         (
@@ -370,6 +370,204 @@ fn two_static_clauses_whose_subjects_overlap_are_refused() {
             format!(
                 "{OTHER_CLAUSES}#[k::alias]\nfn same(k::term![Al::Pairs(x, x)]: Term<Value>) -> Term<Value> {{\n    Data::Box(x)\n}}\n\n#[k::alias]\nfn one_two(k::term![Al::Pairs(1, 2)]: Term<Value>) -> Term<Value> {{\n    Data::Red()\n}}\n"
             ),
+        ),
+    ] {
+        let manifest = package(&temporary.path().join(name), &source);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{name}: {stderr}");
+    }
+}
+
+/// Desugar productions for the overlap tests, each with the place sorts a case needs: a value, two
+/// integers, two values, and a `KItem`.
+const OVERLAP_PRODUCTIONS: &str = "#[k::constructors(sort = Value, result = KResult)]\n#[rustfmt::skip]\npub enum Pr {\n    #[k::syntax(\"dw({a})\")] #[k::desugar] Dw { a: Value },\n    #[k::syntax(\"dp({a}, {b})\")] #[k::desugar] Dp { a: Int, b: Int },\n    #[k::syntax(\"dv({a}, {b})\")] #[k::desugar] Dv { a: Value, b: Value },\n    #[k::syntax(\"dk({a})\")] #[k::desugar] Dk { a: KItem },\n}\n\n";
+
+/// A desugar clause `name` with the parameters `parameters` (the subject and any typed binders),
+/// whose result is `Data::Tag(result)`.
+fn desugar(name: &str, parameters: &str, result: usize) -> String {
+    format!(
+        "#[k::desugar]\nfn {name}({parameters}: Term<Value>) -> Term<Value> {{\n    Data::Tag({result})\n}}\n\n"
+    )
+}
+
+/// A source holding [`OVERLAP_PRODUCTIONS`] and `clauses`, each `(name, parameters)` a desugar
+/// clause, in the order given; a production of `Pr` none of them expands, and `Al::Pairs`, get a
+/// clause of their own, which no other clause shares a production with.
+fn overlap_case(clauses: &[(&str, &str)]) -> String {
+    let written = clauses
+        .iter()
+        .enumerate()
+        .map(|(index, (name, parameters))| desugar(name, parameters, index))
+        .collect::<String>();
+    let fillers = [("Dw", "a"), ("Dp", "a, b"), ("Dv", "a, b"), ("Dk", "a")]
+        .into_iter()
+        .filter(|(production, _)| !written.contains(&format!("Pr::{production}(")))
+        .map(|(production, arguments)| {
+            desugar(
+                &format!("fill_{}", production.to_lowercase()),
+                &format!("k::term![Pr::{production}({arguments})]"),
+                0,
+            )
+        })
+        .collect::<String>();
+    format!(
+        "{OTHER_CLAUSES}#[k::alias]\nfn pairs(k::term![Al::Pairs(x, y)]: Term<Value>) -> Term<Value> {{\n    Data::Pair(y, x)\n}}\n\n{OVERLAP_PRODUCTIONS}{fillers}{written}"
+    )
+}
+
+/// The overlap is reported where it is added, reading the source top to bottom: at the clause
+/// written later, whatever the two clauses' names (`zz_first` is written above `aa_second`, and
+/// would come second by name), naming the two in the order written. The earlier clause's subject
+/// is labelled, a term both subjects match is named, `_` standing for any integer there, and the
+/// repairs are given.
+#[test]
+fn an_overlap_is_reported_at_the_clause_written_later() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        &temporary.path().join("order"),
+        &overlap_case(&[
+            ("zz_first", "k::term![Pr::Dp(1, y)]"),
+            ("aa_second", "k::term![Pr::Dp(x, y)]"),
+        ]),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(!success, "{stderr}");
+    let directory = format!("{}/", manifest.parent().unwrap().display());
+    let diagnostic = stderr
+        .lines()
+        .skip_while(|line| !line.starts_with("error["))
+        .take_while(|line| !line.is_empty())
+        .map(|line| line.trim_end().replace(&directory, ""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r"
+        error[krs::analysis::invalid-static-clause]: desugar clauses `zz_first` and `aa_second` of `Pr::Dp` overlap: `Pr::Dp(1, _)` matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
+           --> src/lib.rs:119:23
+            |
+        114 | fn zz_first(k::term![Pr::Dp(1, y)]: Term<Value>) -> Term<Value> {
+            |                      ------ `zz_first`, written earlier, matches `Pr::Dp(1, _)` too
+        ...
+        119 | fn aa_second(k::term![Pr::Dp(x, y)]: Term<Value>) -> Term<Value> {
+            |                       ^^^^^^
+            |
+            = help: make one subject more specific, so that no term matches both; or, where one clause is meant for the terms the other does not match, write the computation as a function whose fallback equation is `#[k::equation(owise)]`, or as rules whose fallback is `#[k::rule(owise)]`, which state the order a static clause cannot"]].assert_eq(&diagnostic);
+}
+
+/// What the overlap check compares, each row a case that a narrower check would decide otherwise:
+/// - the subjects as KRS writes them, `dw(zero())` being `dw(red)`, not as authored;
+/// - every alternative of a desugar's `A | B` against the other clause (`dp(2, y)`, the second
+///   alternative, meets `dp(2, 3)`);
+/// - every two clauses, not only neighbours (the first and the third of three);
+/// - a typed binder's sort's subsorts, not that sort alone (`x: Int` meets `3`, and a `KItem`
+///   binder meets `red`, a `Value`);
+/// - every clause of the production wherever it is written, in another Rust module too.
+#[test]
+fn overlapping_static_clauses_are_found_wherever_they_overlap() {
+    expect_test::expect![[r"
+        restated:
+        error[krs::analysis::invalid-static-clause]: desugar clauses `named` and `spelled` of `Pr::Dw` overlap: `Pr::Dw(Data::Red())` matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
+        --> src/lib.rs:119:21
+        second-alternative:
+        error[krs::analysis::invalid-static-clause]: desugar clauses `either` and `two_three` of `Pr::Dp` overlap: `Pr::Dp(2, 3)` matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
+        --> src/lib.rs:119:23
+        first-and-third:
+        error[krs::analysis::invalid-static-clause]: desugar clauses `one_one` and `one` of `Pr::Dp` overlap: `Pr::Dp(1, 1)` matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
+        --> src/lib.rs:124:17
+        typed-subsort:
+        error[krs::analysis::invalid-static-clause]: desugar clauses `int` and `three` of `Pr::Dw` overlap: `Pr::Dw(3)` matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
+        --> src/lib.rs:119:19
+        kitem-binder:
+        error[krs::analysis::invalid-static-clause]: desugar clauses `any` and `red` of `Pr::Dk` overlap: `Pr::Dk(Data::Red())` matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
+        --> src/lib.rs:119:17
+        two-modules:
+        error[krs::analysis::invalid-static-clause]: desugar clauses `first` and `second` of `Pr::Dp` overlap: `Pr::Dp(1, _)` matches both subjects, and the clauses of a production marked `#[k::desugar]` state no order between them (a static clause takes no `priority` or `owise`), so which of the two a program's expansion applies there is arbitrary
+        --> src/lib.rs:122:20"]]
+    .assert_eq(&refusals([
+        (
+            "restated",
+            &overlap_case(&[
+                ("named", "k::term![Pr::Dw(Al::Zero())]"),
+                ("spelled", "k::term![Pr::Dw(Data::Red())]"),
+            ]),
+        ),
+        (
+            "second-alternative",
+            &overlap_case(&[
+                ("either", "k::term![Pr::Dp(1 | 2, y)]"),
+                ("two_three", "k::term![Pr::Dp(2, 3)]"),
+            ]),
+        ),
+        (
+            "first-and-third",
+            &overlap_case(&[
+                ("one_one", "k::term![Pr::Dp(1, 1)]"),
+                ("two", "k::term![Pr::Dp(2, y)]"),
+                ("one", "k::term![Pr::Dp(1, y)]"),
+            ]),
+        ),
+        (
+            "typed-subsort",
+            &overlap_case(&[
+                ("int", "x: Int, k::term![Pr::Dw(x)]"),
+                ("three", "k::term![Pr::Dw(3)]"),
+            ]),
+        ),
+        (
+            "kitem-binder",
+            &overlap_case(&[
+                ("any", "k::term![Pr::Dk(x)]"),
+                ("red", "k::term![Pr::Dk(Data::Red())]"),
+            ]),
+        ),
+        (
+            "two-modules",
+            &format!(
+                "{}pub mod more {{\n    use super::*;\n\n    {}}}\n",
+                overlap_case(&[("first", "k::term![Pr::Dp(1, y)]")]),
+                desugar("second", "k::term![Pr::Dp(x, y)]", 2),
+            ),
+        ),
+    ]));
+}
+
+/// Subjects no term matches both of are accepted, each row a case that a coarser check would
+/// refuse: the alternatives of one clause, which share its result, are not compared with each
+/// other (`1 | 01` are one value); `name @ pattern` binds `name` to the term the pattern matches,
+/// so `dv(n @ box(y), n)` needs two equal arguments, which `dv(box(1), box(2))` does not have; and
+/// a typed binder admits only its sort's terms, so `x: Int` meets neither `y: Bool` nor `red`.
+#[test]
+fn static_clauses_no_term_matches_both_of_are_accepted() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    for (name, source) in [
+        (
+            "own-alternatives",
+            overlap_case(&[
+                ("one", "k::term![Pr::Dp(1 | 01, y)]"),
+                ("two", "k::term![Pr::Dp(2, y)]"),
+            ]),
+        ),
+        (
+            "as-pattern",
+            overlap_case(&[
+                ("same", "k::term![Pr::Dv(n @ Data::Box(y), n)]"),
+                ("different", "k::term![Pr::Dv(Data::Box(1), Data::Box(2))]"),
+            ]),
+        ),
+        (
+            "typed-sorts",
+            overlap_case(&[
+                ("int", "x: Int, k::term![Pr::Dw(x)]"),
+                ("bool", "y: Bool, k::term![Pr::Dw(y)]"),
+            ]),
+        ),
+        (
+            "typed-beside-constructor",
+            overlap_case(&[
+                ("int", "x: Int, k::term![Pr::Dw(x)]"),
+                ("red", "k::term![Pr::Dw(Data::Red())]"),
+            ]),
         ),
     ] {
         let manifest = package(&temporary.path().join(name), &source);
