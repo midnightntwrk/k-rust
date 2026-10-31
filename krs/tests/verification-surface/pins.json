@@ -7,7 +7,8 @@
     "krs-verification-surface-l22-verification": "e675635a7d37be255111d5a2902c64ba128f80a7402c143d41599120aa1de973",
     "krs-verification-surface-cell-maps": "9da3300801b9c0c01be084ed0a91a36c57a2712feb7db8ca3075b376e64fe226",
     "krs-verification-surface-set-instance-claims": "dd30f58cae0e148a8c2dc7de9c5a2864e8f9f055d70f88f2b9e2dbe6c329f827",
-    "krs-verification-surface-local-function-claims": "924f05d4cd6852ee4cea0f9189bc4e08df711ee167d15f54443da5bf7bce572d"
+    "krs-verification-surface-local-function-claims": "924f05d4cd6852ee4cea0f9189bc4e08df711ee167d15f54443da5bf7bce572d",
+    "krs-verification-surface-owise": "1449c8fa4a5a945c041e5ce8e34f78fc2d88816b090187bed6785630acd9459a"
   },
   "emitted": {
     "krs-verification-surface-l21": {
@@ -64,6 +65,10 @@
     "krs-verification-surface-local-function-claims": {
       "definition.k": "271cc30930c7ac4be3fbb90d015918bca0b4bac69cd377fe131273fa8b170aeb",
       "spec.k": "644c3190886a9aa9ad6846393f6fe5f0f877c01b44dd76018115fbace7f4cce4"
+    },
+    "krs-verification-surface-owise": {
+      "definition.k": "22c52b16924e6f92c481088074306675e6fc8b7a479ca9a2160fcdb23c1707a6",
+      "spec.k": "3709975ddcbc8867316ab5cddf6f92550ead4974a59f8782f6a502751cd4218c"
     }
   },
   "capability_refusals": {
@@ -84,7 +89,8 @@
     "krs-verification-surface-l22-lesson": "d8b100205640d26a22331ceb8d5d982442510021261c0f92ecef32d579501b6f",
     "krs-verification-surface-cell-maps": "985a5d89ae1f1acb1599fa85a0d17b70baf5a1f1477534cd7449e178e968553c",
     "krs-verification-surface-set-instance-claims": "4eb9157a327572b8fc0d9eef58a4306bbc9f9d7cf9894009ede7ec8b35b34c3a",
-    "krs-verification-surface-local-function-claims": "e1572270d5cf7c0b04408f549d6a0960c30c13ceda9310a301d7a388e95e39c5"
+    "krs-verification-surface-local-function-claims": "e1572270d5cf7c0b04408f549d6a0960c30c13ceda9310a301d7a388e95e39c5",
+    "krs-verification-surface-owise": "ccf91c020fecbfc4c24d835d98ebe2d6a8ba882a701935b50eb6d4f50c413d29"
   },
   "outcomes": {
     "krs-verification-surface-l21": {
@@ -567,6 +573,33 @@
       "tests": true,
       "tests-wrong": false,
       "twice": true
+    }
+  },
+  "owise_proofs": {
+    "krs-verification-surface-owise": {
+      "statuses": {
+        "one-reaches-one": "proven",
+        "one-reaches-two": "failed",
+        "pick-any-one": "disproved",
+        "pick-one": "proven",
+        "pick-other-zero": "proven",
+        "pick-zero": "disproved"
+      },
+      "exit": 1,
+      "summary": [
+        "krs prove: 3 of 6 claims proven"
+      ],
+      "warnings": []
+    }
+  },
+  "owise_kprove": {
+    "krs-verification-surface-owise": {
+      "one-reaches-one": true,
+      "one-reaches-two": false,
+      "pick-one": true,
+      "pick-zero": false,
+      "pick-any-one": false,
+      "pick-other-zero": true
     }
   }
 }
