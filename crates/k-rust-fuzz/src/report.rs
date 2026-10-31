@@ -2858,7 +2858,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":10,"identity":{"engine-version":8,"#,
+            r#"{"schema":"krust-fuzz-report","version":10,"identity":{"engine-version":9,"#,
             r#""k-rust-revision":"b322de1ab","fuzz-revision":"0.8.0+src.0","#,
             r#""definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,

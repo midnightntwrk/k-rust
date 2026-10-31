@@ -2,9 +2,9 @@
 //! (P7-ADDENDUM section 4; FZ-COMPARABLE-A and -Q).
 //!
 //! kink compares a program's ends only when its all-paths run is *comparable*: complete (every
-//! leaf an end or an undefined step, no bound, stop or timeout), decided, every leaf's term a
-//! value, with no diagnostic of any kind on any leaf (`kink-native` `bridge.rs`, a diagnosed
-//! leaf is `BackendLimit`), and no stack stop, chosen value, contradicted claim, allowance
+//! leaf an end or an undefined step, no bound, stop or timeout), decided, every end's term a
+//! value (an undefined step's configuration need only exist), with no diagnostic of any kind on
+//! any leaf (`kink-native` `bridge.rs`, a diagnosed leaf is `BackendLimit`), and no stack stop, chosen value, contradicted claim, allowance
 //! refusal or unsupported hook in the run or the definition's load. kink's query confirms a pattern hit only on a match with no
 //! diagnostic on the match or on the matching state, whose facts include those of converging
 //! paths its search absorbed, on a state with no term-level `\and`.
@@ -14,12 +14,14 @@
 //! through kink itself, FZ-COMPARABLE-B). Each condition is read conservatively:
 //! - [`end_conditions`] names every fact of a result that keeps it from being a comparable
 //!   all-paths run (conditions P1 to P5, and `smtUnknowns`, P8, which kink reports but the
-//!   fuzz's determinism contract refuses). P3, every leaf's term a value, is judged by k-rust's
+//!   fuzz's determinism contract refuses). P3, every end's term a value, is judged by k-rust's
 //!   data judgement ([`super::LeafReport::data_end`], `BackendDefinition::is_data`) on every end
-//!   and undefined step: two ends are compared by their terms, which is sound only for terms
-//!   that denote themselves and differ from every other value (an irreducible application such
-//!   as `g(3)` may equal another term in another theory of `g`). kink judges P3 by its own TV-01,
-//!   which reaches the fuzz through kink (FZ-COMPARABLE-B). Its refusals include those of the differential
+//!   (`stuck` leaf): two ends are compared by their terms, which is sound only for terms that
+//!   denote themselves and differ from every other value (an irreducible application such as
+//!   `g(3)` may equal another term in another theory of `g`). An undefined step is no end, its
+//!   term is never compared, and P2 already asks that its configuration be decided and exist
+//!   (`ground_defined`), as the differential judge's complete run does. kink judges P3 by its
+//!   own TV-01, which reaches the fuzz through kink (FZ-COMPARABLE-B). Its refusals include those of the differential
 //!   judge's complete run (`target::differential`), except the fuzz's own judgements of a leaf
 //!   (a target's undecided match, an undecided natural end), which are no k-rust facts.
 //! - [`query_conditions`] names every diagnostic or run-level fact anywhere in the result, and a
@@ -168,7 +170,7 @@ pub enum ComparableCondition {
     UndecidedPredicate,
     /// P1: a leaf carries an `unsupported-hook-unevaluated` diagnostic, likewise.
     UnsupportedHookUnevaluated,
-    /// P3: a decided end or undefined step whose term is not data
+    /// P3: a decided end (`stuck`) whose term is not data
     /// ([`super::LeafReport::data_end`]): it may not denote itself, or may equal another value,
     /// so it cannot be compared by its term. It comes after the diagnostics, which often say why
     /// an application stayed unevaluated. Every end of a definition whose full critical-pair
@@ -257,8 +259,8 @@ impl ComparableCondition {
 /// `result` fails, sorted, each once; empty when `result` is a comparable run of every path.
 /// `result` must be an all-paths run without terminal rules for the answer to be about the
 /// program: a one-path run or one stopped by the target's rule is not the program's run. P3 reads
-/// each decided end's and undefined step's [`super::LeafReport::data_end`], so `result` must
-/// carry the data judgement; a decided end without one counts as not data.
+/// each decided end's [`super::LeafReport::data_end`], so `result` must carry the data
+/// judgement; a decided end without one counts as not data.
 #[must_use]
 pub fn end_conditions(result: &CaseResult) -> Vec<ComparableCondition> {
     use ComparableCondition as C;
@@ -345,19 +347,19 @@ pub fn query_conditions(result: &CaseResult, term_conjunction: bool) -> Vec<Comp
     conditions
 }
 
-/// P3 on `leaf`: it is an end (`stuck`) or an undefined step (`trivial`) whose state was
-/// decided (it internalized, with no constraint and no variable; otherwise P2 names it) and whose
-/// term is not shown to be data.
+/// P3 on `leaf`: it is an end (`stuck`) whose state was decided (it internalized, with no
+/// constraint and no variable; otherwise P2 names it) and whose term is not shown to be data. An
+/// undefined step (`trivial`) is no end and its term is never compared: it needs only to be
+/// decided and to exist, which P2 reads on every leaf.
 fn not_data(leaf: &super::LeafReport) -> bool {
-    matches!(
-        leaf.halt,
-        HaltReasonOutput::Stuck | HaltReasonOutput::Trivial
-    ) && !leaf.unclean.iter().any(|reason| {
-        matches!(
-            reason,
-            UncleanReason::Undecided | UncleanReason::Internalization(_)
-        )
-    }) && leaf.data_end != Some(true)
+    matches!(leaf.halt, HaltReasonOutput::Stuck)
+        && !leaf.unclean.iter().any(|reason| {
+            matches!(
+                reason,
+                UncleanReason::Undecided | UncleanReason::Internalization(_)
+            )
+        })
+        && leaf.data_end != Some(true)
 }
 
 /// The conditions a leaf's halt fails: none for an end (`stuck`) or an undefined step
@@ -621,24 +623,17 @@ mod tests {
         assert_eq!(query_conditions(&run, true), [C::TermConjunction]);
     }
 
-    /// P3 (INT9 review S3): an end or an undefined step is compared by its term, so its term
-    /// must be data; a leaf whose state was not decided is named by P2 alone, and a leaf cut by a
-    /// bound by its halt.
+    /// P3 (INT9 review S3): an end is compared by its term, so its term must be data; a leaf
+    /// whose state was not decided is named by P2 alone, and a leaf cut by a bound by its halt.
     #[test]
-    fn an_end_or_undefined_step_that_is_not_data_refuses_comparability() {
-        for halt in [HaltReasonOutput::Stuck, HaltReasonOutput::Trivial] {
-            for data_end in [Some(false), None] {
-                let mut value = leaf(halt, Vec::new());
-                value.data_end = data_end;
-                let run = result(vec![end(), value]);
-                assert_eq!(
-                    end_conditions(&run),
-                    [C::EndNotData],
-                    "{halt:?} {data_end:?}"
-                );
-                // kink's query compares no ends.
-                assert_eq!(query_conditions(&run, false), [], "{halt:?} {data_end:?}");
-            }
+    fn an_end_that_is_not_data_refuses_comparability() {
+        for data_end in [Some(false), None] {
+            let mut value = end();
+            value.data_end = data_end;
+            let run = result(vec![end(), value]);
+            assert_eq!(end_conditions(&run), [C::EndNotData], "{data_end:?}");
+            // kink's query compares no ends.
+            assert_eq!(query_conditions(&run, false), [], "{data_end:?}");
         }
         let mut undecided = leaf(HaltReasonOutput::Stuck, vec![UncleanReason::Undecided]);
         undecided.data_end = None;
@@ -658,6 +653,34 @@ mod tests {
             end_conditions(&result(vec![diagnosed])),
             [C::UndecidedCondition, C::EndNotData]
         );
+    }
+
+    /// P3 (kink27 FUZZ-UNDEF-P3): an undefined step is no end and its term is never compared,
+    /// so whether its term is data does not matter; it needs only to be decided and to exist,
+    /// which P2 reads on every leaf.
+    #[test]
+    fn an_undefined_step_needs_only_to_exist_and_be_decided() {
+        for data_end in [Some(false), None] {
+            let mut step = leaf(HaltReasonOutput::Trivial, vec![UncleanReason::Halt]);
+            step.data_end = data_end;
+            assert_eq!(
+                end_conditions(&result(vec![end(), step.clone()])),
+                [],
+                "{data_end:?}"
+            );
+            step.unclean = vec![UncleanReason::Halt, UncleanReason::NotCeilFree(None)];
+            assert_eq!(
+                end_conditions(&result(vec![end(), step.clone()])),
+                [C::NotCeilFree],
+                "{data_end:?}"
+            );
+            step.unclean = vec![UncleanReason::Halt, UncleanReason::Undecided];
+            assert_eq!(
+                end_conditions(&result(vec![end(), step])),
+                [C::UndecidedState],
+                "{data_end:?}"
+            );
+        }
     }
 
     /// A judgement names a condition that breaks determinism exactly when its run is outside the

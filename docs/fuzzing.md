@@ -568,7 +568,7 @@ witness found
 target rule: imp.k:52 unique id aad2bcfd509bccd60d7e25b0eec1c400a385c8a8ddd49c668f15f83eeac44567
 ```
 
-A rule witness becomes a test only when its program ends cleanly: `--run-to-completion` asks for a natural end, and by default also that the end be data; `--comparable` asks for every path to end in data, as kink requires.
+A rule witness becomes a test only when its program ends cleanly: `--run-to-completion` asks for a natural end, and by default also that the end be data; `--comparable` asks for every path to end in data or in an undefined step from a configuration that exists, as kink requires.
 
 ### Not comparable, and naming findings
 

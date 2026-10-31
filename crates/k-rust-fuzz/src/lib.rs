@@ -186,7 +186,16 @@ pub fn build_identity() -> String {
 /// from judged classes to `baseline-incomplete` or `unsupported` as for any
 /// implementation-chosen value. No golden campaign mints with such a rule or kills on the counter
 /// alone, so the goldens keep their case sequences and digests.
-pub const ENGINE_VERSION: u32 = 8;
+///
+/// Version 9 (kink27 FUZZ-UNDEF-P3): the comparable judgement (P3) reads the data judgement of
+/// ends only; an undefined step, which is no end and whose term is never compared, needs only to
+/// be decided and to exist (P2), as the differential judge's complete run already required.
+/// Under `comparable-end` a hit whose program's run ends some path in an undefined step from a
+/// configuration that exists but is not data moves from `unsupported`
+/// (`end-not-comparable:end-not-data`) to a hit, which the proposers read and which ends the
+/// campaign. No golden campaign sets `comparable`, so the fingerprints are re-pinned with the
+/// same digests.
+pub const ENGINE_VERSION: u32 = 9;
 
 #[cfg(test)]
 mod release_tests {

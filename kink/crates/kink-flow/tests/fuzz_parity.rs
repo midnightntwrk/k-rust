@@ -21,18 +21,14 @@
 //!   undefined path beside the same ends is no difference, and a side whose every path takes an
 //!   undefined step has the empty set of ends, which a clean end of the other side distinguishes.
 //!   kink completes an undefined step whose configuration exists without being a value (kink27
-//!   R3-UNDEF-BRIDGE); the fuzz's comparable conditions do not yet (known divergence below).
+//!   R3-UNDEF-BRIDGE), and so does the fuzz's comparable judgement, whose P3 reads ends only
+//!   (kink27 FUZZ-UNDEF-P3).
 //!
 //! Known divergences, pinned for the final first-principles review, not desired behaviour:
 //! - cond(0): the fuzz holds no end of a definition with an unnamed critical-pair finding to be
 //!   data, while kink's `results` classifies the run by its own end check and lists its coverage;
 //! - a non-ASCII String end: k-rust's data judgement accepts it and kink's end check does not; the
-//!   witness filter closes the gap inside a kink-flow campaign, the library judgement keeps it;
-//! - an undefined step taken from a configuration that exists but is not data (an irreducible
-//!   application of a total function): kink's `results` judges the run `comparable` (kink27
-//!   R3-UNDEF-BRIDGE), while the fuzz's comparable conditions (k-rust-fuzz `end_conditions`, P3)
-//!   still require an undefined step's term to be data (`end-not-data`). The fuzz is the stricter,
-//!   so (c)'s direction (fuzz comparable, then kink comparable) still holds.
+//!   witness filter closes the gap inside a kink-flow campaign, the library judgement keeps it.
 //!
 //! The kill job's agreement of the filter and kink's confirmation on a non-ASCII end is pinned in
 //! `tests/fuzz.rs` (`a_witness_kink_refuses_is_unconfirmed_with_kinks_cause`, and `comparable_b`
@@ -1260,9 +1256,9 @@ endmodule
     ///   ground, without a path condition, `g(1)` irreducible and so no value, but `g` is total, so
     ///   the configuration exists. kink's `results` judges the run comparable, with the empty set
     ///   of final configurations; `out-defined` gives the run a clean end, which kink's whole term
-    ///   and exit stop tell from the baseline's empty sets. Known divergence (module
-    ///   documentation): the fuzz's comparable conditions still read the undefined step's term as
-    ///   an end that must be data, and refuse the run `end-not-data`.
+    ///   and exit stop tell from the baseline's empty sets. The fuzz's comparable judgement holds
+    ///   as well: an undefined step's term is never compared, and its existence is the fuzz's P2
+    ///   (kink27 FUZZ-UNDEF-P3).
     /// - `hgo(1)` builds the partial `h(1)`, whose definedness k-rust does not decide: it records
     ///   it (`\ceil(h(1))`, or its negation) in the path condition, so the run's undefined steps
     ///   are taken from states that carry a path condition, which kink does not show feasible.
@@ -1301,7 +1297,7 @@ endmodule
         let case = witness(&report);
         assert_eq!(
             case["comparable"],
-            json!({"holds": false, "reasons": ["end-not-data"]}),
+            json!({"holds": true, "reasons": []}),
             "{case:#}"
         );
         assert_eq!(case["sides"][0]["halts"], json!(["trivial"]), "{case:#}");
