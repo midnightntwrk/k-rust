@@ -380,7 +380,7 @@
       "error[krs::syntax::unsupported-configuration-field]: unsupported fixed configuration field: an Option field is an optional cell: add `multiplicity = \"?\"` to its `#[k::cell(..)]`"
     ],
     "optional-none-template": [
-      "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `None` gives the `?` cell no template, which K needs to know what a created cell looks like; write `k::absent!(<template>)` for a cell that starts absent, or `Some(<value>)` for one that starts present"
+      "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `None` gives the `?` cell no template, which K needs to know what a created cell looks like; write `k::absent!(..)` with its template for a cell that starts absent, or `Some(..)` with its value for one that starts present"
     ],
     "unknown-instance-label": [
       "error[krs::analysis::unknown-instance-label]: `..ghost` names no instance of `job` labelled `ghost @` in the pattern"

@@ -1056,7 +1056,7 @@ fn parse_initializer_cell(
     }
     if is_option_none(&field.expr) {
         return Err(unsupported_body(
-            "`None` gives the `?` cell no template, which K needs to know what a created cell looks like; write `k::absent!(<template>)` for a cell that starts absent, or `Some(<value>)` for one that starts present",
+            "`None` gives the `?` cell no template, which K needs to know what a created cell looks like; write `k::absent!(..)` with its template for a cell that starts absent, or `Some(..)` with its value for one that starts present",
             field.expr.span(),
         ));
     }
