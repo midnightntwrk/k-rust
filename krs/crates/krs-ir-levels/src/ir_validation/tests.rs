@@ -1221,3 +1221,257 @@ fn configuration_variable_element_types_fit_their_collection_and_name_declared_s
     };
     assert!(theory(vec![int(), undeclared]).is_err());
 }
+
+/// A configuration with a map cell `env`, an optional map cell `opt`, and a Map collection `obj`
+/// (in `objs`) whose instances hold a map cell `slots`.
+fn moved_frame_configuration() -> Configuration<SemanticLevel> {
+    let id = |name: &str| SemanticId::new(name).unwrap();
+    let map_leaf = |name: &str, attributes| {
+        FixedCell::leaf(
+            testing::origin(&format!("{name}-cell")),
+            id(name),
+            name,
+            attributes,
+            SemanticSortRef::map(),
+        )
+        .unwrap()
+    };
+    let obj = FixedCell::nested(
+        testing::origin("obj-cell"),
+        id("obj"),
+        "obj",
+        vec![
+            krs_ir::CellAttribute::multiplicity(
+                testing::origin("obj-multiplicity"),
+                CellMultiplicity::Star,
+            ),
+            krs_ir::CellAttribute::collection_type(
+                testing::origin("obj-type"),
+                CellCollectionType::Map,
+            ),
+        ],
+        vec![map_leaf("slots", vec![])],
+    )
+    .unwrap();
+    FixedConfiguration::new(
+        testing::origin("configuration"),
+        id("configuration"),
+        krs_ir::ConfigurationRoot::GeneratedTop,
+        vec![
+            map_leaf("env", vec![]),
+            map_leaf(
+                "opt",
+                vec![krs_ir::CellAttribute::multiplicity(
+                    testing::origin("opt-multiplicity"),
+                    CellMultiplicity::Optional,
+                )],
+            ),
+            FixedCell::nested(
+                testing::origin("objs-cell"),
+                id("objs"),
+                "objs",
+                vec![],
+                vec![obj],
+            )
+            .unwrap(),
+        ],
+        testing::origin("initializer"),
+        id("initializer"),
+        vec![],
+        vec![],
+    )
+    .unwrap()
+}
+
+/// A remainder bound on the left only (`MovedMapRemainder`) has left its cell, so its clause must
+/// write the cell's whole new content. Validation refuses it on a clause that rewrites in place
+/// (`Local`), on a present optional cell the clause removes or leaves unchanged, on a removed
+/// instance's child, and in a function context, which only reads; each beside the same clause
+/// replacing the content, which validates.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Each refusal stands beside its accepted counterpart over one configuration."
+)]
+fn a_moved_map_remainder_needs_the_cell_s_replaced_content() {
+    let id = |name: &str| SemanticId::new(name).unwrap();
+    let configuration = moved_frame_configuration();
+    let scope = BTreeMap::from([
+        (id("m"), SemanticSortRef::map()),
+        (id("rest"), SemanticSortRef::map()),
+    ]);
+    let cell_ids = ["env", "opt", "objs", "obj", "slots"]
+        .into_iter()
+        .map(id)
+        .collect::<BTreeSet<_>>();
+    let map =
+        |name: &str| SemanticTerm::variable(testing::origin(name), SemanticSortRef::map(), id("m"));
+    let moved = || CellContentFrame::MovedMapRemainder {
+        origin: testing::origin("frame"),
+        binding: id("rest"),
+    };
+    let check = |clause: ConfigurationClause<SemanticId, SemanticTerm>| {
+        let covered = match &clause {
+            ConfigurationClause::Fixed(_) => "env",
+            ConfigurationClause::Optional(_) => "opt",
+            ConfigurationClause::Instances(_) => "slots",
+        };
+        let omitted = ["env", "opt", "slots"]
+            .into_iter()
+            .filter(|leaf| *leaf != covered)
+            .map(id)
+            .collect();
+        let rewrite = FixedConfigurationRewrite::new(
+            testing::origin("rewrite"),
+            id("configuration"),
+            vec![clause],
+            omitted,
+        )
+        .unwrap();
+        validate_configuration_rewrite::<SemanticLevel>(
+            &rewrite,
+            &configuration,
+            &scope,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &cell_ids,
+            &mut BTreeSet::new(),
+        )
+    };
+    let refused = Err(SemanticLevel::error(ValidationError::InvalidCellFraming));
+    let fixed = |after| {
+        ConfigurationClause::Fixed(FixedCellClause::new(
+            testing::origin("env-clause"),
+            id("env"),
+            map("before"),
+            after,
+            moved(),
+        ))
+    };
+    assert_eq!(
+        check(fixed(CellPost::Replace { term: map("after") })),
+        Ok(())
+    );
+    assert_eq!(check(fixed(CellPost::Local)), refused);
+    let optional = |after| {
+        ConfigurationClause::Optional(OptionalCellClause::new(
+            testing::origin("opt-clause"),
+            id("opt"),
+            CellClauseKind::Content,
+            Presence::Present {
+                term: map("before"),
+            },
+            after,
+            moved(),
+        ))
+    };
+    assert_eq!(
+        check(optional(Some(Presence::Present { term: map("after") }))),
+        Ok(())
+    );
+    assert_eq!(check(optional(Some(Presence::Absent))), refused);
+    assert_eq!(check(optional(None)), refused);
+    let instances = |instance| {
+        ConfigurationClause::Instances(InstancesClause::new(
+            testing::origin("obj-clause"),
+            id("obj"),
+            InstanceOrdering::Unordered,
+            vec![instance],
+            Vec::new(),
+            true,
+        ))
+    };
+    assert_eq!(
+        check(instances(InstanceClause::Kept {
+            origin: testing::origin("instance"),
+            label: None,
+            children: vec![FixedCellClause::new(
+                testing::origin("slots-clause"),
+                id("slots"),
+                map("before"),
+                CellPost::Replace { term: map("after") },
+                moved(),
+            )],
+            open: true,
+        })),
+        Ok(())
+    );
+    assert_eq!(
+        check(instances(InstanceClause::Removed {
+            origin: testing::origin("instance"),
+            label: None,
+            children: vec![krs_ir::InstanceChild::new(
+                testing::origin("slots-clause"),
+                id("slots"),
+                CellClauseKind::Content,
+                map("before"),
+                moved(),
+            )],
+            open: true,
+        })),
+        Err(SemanticLevel::error(ValidationError::InvalidCellFraming))
+    );
+
+    // A function context reads its cells: a remainder it binds stays in the cell.
+    let int = |name: &str, value: &str| {
+        SemanticTerm::token(testing::origin(name), SemanticSortRef::int(), value).unwrap()
+    };
+    let function_context = |frame| {
+        let rewrite = SemanticTerm::rewrite(
+            testing::origin("rewrite"),
+            SemanticSortRef::int(),
+            int("from", "0"),
+            int("to", "1"),
+        )
+        .unwrap();
+        crate::SemanticRule::new(
+            testing::origin("rule"),
+            testing::item("M", "f", ItemKind::Rule),
+            SentenceKind::Equation,
+            Vec::new(),
+            rewrite,
+        )
+        .unwrap()
+        .with_function_context(Some(crate::SemanticFunctionContext::new(
+            testing::origin("context"),
+            krs_ir::FixedConfigurationPattern::new(
+                testing::origin("context-cells"),
+                id("configuration"),
+                vec![krs_ir::FixedCellPattern::new(
+                    testing::origin("context-env"),
+                    id("env"),
+                    map("pattern"),
+                    frame,
+                )],
+                Vec::new(),
+            )
+            .unwrap(),
+        )))
+    };
+    let check_context = |rule: &crate::SemanticRule| {
+        let view = SemanticLevel::rule_view(rule);
+        validate_function_context::<SemanticLevel>(
+            &view,
+            view.function_context.unwrap(),
+            Some(&configuration),
+            &scope,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &cell_ids,
+            &mut BTreeSet::new(),
+        )
+    };
+    assert_eq!(
+        check_context(&function_context(CellContentFrame::MapRemainder {
+            origin: testing::origin("frame"),
+            binding: Some(id("rest")),
+        })),
+        Ok(())
+    );
+    assert_eq!(
+        check_context(&function_context(moved())),
+        Err(SemanticLevel::error(ValidationError::InvalidCellFraming))
+    );
+}
