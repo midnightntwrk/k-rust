@@ -291,6 +291,7 @@ mod kink_tier {
                 ("token-float", "token-float.k", "T12TOKEN"),
                 ("flagged", "t13owk.k", "T13OWK"),
                 ("map", "map.k", "CS12-MAP"),
+                ("map-string", "map-string.k", "CS12-MAP-STRING"),
             ] {
                 let mut d = base.clone();
                 d["id"] = json!(id);
@@ -313,10 +314,15 @@ mod kink_tier {
             value["definitions"] = json!(definitions);
             let manifest = decode(&value);
             let store = store("mini");
+            // The end of each run on CS12-MAP holds the Bytes key `b"k"`, which has a trusted
+            // injective codec (kink27 R5-BYTES-ENDS): it is admitted and campaigned.
+            let map = run_definition(&workspace(), &manifest, "map", &store).unwrap();
+            assert!(map.campaign.is_some(), "{}", map.admission);
+            // CS12-MAP-STRING's end holds the non-ASCII String key `"é"`, which has none.
             for (id, stage, reason) in [
                 ("token-float", "representation", "G-T"),
                 ("flagged", "declaration-census", "vi-t13"),
-                ("map", "baseline", "baseline-oracle-failed"),
+                ("map-string", "baseline", "baseline-oracle-failed"),
                 ("let-test", "exclusion", "below-floor"),
                 ("renamed", "exclusion", "below-floor"),
             ] {
@@ -328,10 +334,39 @@ mod kink_tier {
             let report = replay_stored(&manifest, &store);
             let summary_doc = summarize(&store, &manifest.digest().to_string(), profile()).unwrap();
             let summary = summary_doc.value();
-            assert_eq!(summary["totals"]["definitions"]["listed"], 6);
-            assert_eq!(summary["totals"]["definitions"]["admitted"], 1);
+            let map_report: Value = serde_json::from_str(
+                &fs::read_to_string(
+                    store
+                        .profile_path(manifest.digest(), profile())
+                        .join("campaigns")
+                        .join(format!(
+                            "{}.json",
+                            map.campaign.as_ref().unwrap()["manifest_sha256"]
+                                .as_str()
+                                .unwrap()
+                        )),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            // The totals are the two admitted definitions' tallies, clean's and map's.
+            let admitted_tally = report["summary"]["tally"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(key, count)| {
+                    let map_count = &map_report["summary"]["tally"][key];
+                    (
+                        key.clone(),
+                        json!(count.as_u64().unwrap() + map_count.as_u64().unwrap()),
+                    )
+                })
+                .collect::<serde_json::Map<_, _>>();
+            assert_eq!(summary["totals"]["definitions"]["listed"], 7);
+            assert_eq!(summary["totals"]["definitions"]["admitted"], 2);
             assert_eq!(
-                summary["totals"]["tally"], report["summary"]["tally"],
+                summary["totals"]["tally"],
+                Value::Object(admitted_tally),
                 "STOP: refused definition reached totals"
             );
             assert_eq!(summary["exposed"], json!([]));

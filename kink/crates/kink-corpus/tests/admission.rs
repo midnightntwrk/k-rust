@@ -177,10 +177,20 @@ fn every_refusal_stage_and_first_failure() {
     v = clean();
     v["definitions"][0]["tests"][0]["input"]["program"]["text"] = json!("???");
     refused(&v, "inputs", "parse");
-    refused(
-        &named("map.k", "CS12-MAP"),
+    // The end's store key `"é"` is a String domain value outside ASCII, which has no
+    // trusted injective codec, so the baseline's whole-term oracle is unknown (the same store
+    // with the ASCII key `"e"` is admitted).
+    let r = refused(
+        &named("map-string.k", "CS12-MAP-STRING"),
         "baseline",
         "baseline-oracle-failed",
+    );
+    assert!(
+        r.record
+            .text()
+            .contains("a baseline declaration-scoped oracle gate rejected"),
+        "{}",
+        r.record.text()
     );
     v = clean();
     v["definitions"][0]["root"]["path"] =

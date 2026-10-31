@@ -65,6 +65,7 @@ fn mini() -> Value {
         ("token-float", "token-float.k", "T12TOKEN"),
         ("flagged", "t13owk.k", "T13OWK"),
         ("map", "map.k", "CS12-MAP"),
+        ("map-string", "map-string.k", "CS12-MAP-STRING"),
     ] {
         let mut d = base.clone();
         d["id"] = json!(id);
@@ -354,8 +355,9 @@ mod kink_tier {
         );
     }
 
-    /// The binary-library identity on the mini corpus (an admitted definition and refusals at
-    /// representation, census, baseline and exclusion) under Full.
+    /// The binary-library identity on the mini corpus (two admitted definitions, the second's
+    /// ends holding a Bytes key, and refusals at representation, census, baseline and exclusion)
+    /// under Full.
     #[test]
     #[ignore = "kink"]
     fn binary_matches_library_and_resume_and_summary_preserve_store_bytes_under_full() {

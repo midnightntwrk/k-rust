@@ -104,16 +104,31 @@ fn a1_a4_local_admission_rows() {
             ),
             2,
         );
-        let bytes = admission(
+        // A Bytes key has a trusted injective codec (kink27 R5-BYTES-ENDS), so the end holding
+        // `b"k" |-> 1` is compared and both tests are admitted.
+        admitted(
+            admission(
+                "testdata/corpus/admission-v1",
+                "map.k",
+                "CS12-MAP",
+                None,
+                &["true", "false"],
+                20,
+            ),
+            2,
+        );
+        // A non-ASCII String key has none, so the baseline's whole-term oracle is unknown on
+        // every end and admission refuses the definition at its baseline.
+        let string = admission(
             "testdata/corpus/admission-v1",
-            "map.k",
-            "CS12-MAP",
+            "map-string.k",
+            "CS12-MAP-STRING",
             None,
             &["true", "false"],
             20,
         );
-        assert!(bytes.admitted.is_none());
-        let refusal = bytes.record.refusal.unwrap();
+        assert!(string.admitted.is_none());
+        let refusal = string.record.refusal.unwrap();
         assert_eq!(
             (&*refusal.stage, &*refusal.reason),
             ("baseline", "baseline-oracle-failed")
