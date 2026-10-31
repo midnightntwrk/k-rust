@@ -3977,7 +3977,7 @@ provenance = "declared"
 area = "backend"
 name = "equation-condition verdict memoization within a proof or an outermost condition"
 variable = "q = predicates of the instantiated requires and of the binding obligations; k = known predicates; a = active rule-condition keys; f = path facts and e = diagnostics a decision noted and emitted"
-invariant = "A kept verdict is Refuted or Indeterminate, from a decision outside an execution, with no Unspecified attempt or lineage open, no dismissed stack stop, and no undecided solver answer unless the solver's undecided answers are reproducible; its key holds everything that decision reads but the solver's answers. It is served only where the facts and diagnostics it holds are all a new decision would note and emit."
+invariant = "A kept verdict is Refuted or Indeterminate, from a decision outside an execution and outside any run with a console, with no Unspecified attempt or lineage open, no dismissed stack stop, and no undecided solver answer unless the solver's undecided answers are reproducible; its key holds everything that decision reads but the solver's answers. It is served only where the facts and diagnostics it holds are all a new decision would note and emit."
 no_counter = "This procedure has no dedicated counter; a served verdict skips the decision, whose callees keep their own measurements."
 span = "none"
 table = "Algorithm::ALL"
@@ -4039,7 +4039,7 @@ file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "Interned"
 
 [[node.cost]]
-mode = "lookup (every nested equation-condition decision outside an execution)"
+mode = "lookup (every nested equation-condition decision outside an execution and outside any run with a console)"
 bound = "one copy of the q predicate handles, the rule id and the anchor handle into the key's own part; two hash lookups by content, O(k) predicates and O(a) keys hashed (term hashes are cached) and compared on a hit down to the first difference, find the memo's copies of the known list and the active set; then one map lookup, whose shared parts compare by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss pays the decision (backend.simplify.term, rule condition)."
 
 [[node.cost]]

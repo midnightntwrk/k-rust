@@ -82,11 +82,11 @@
 //! counters = []
 //! no_counter = "This procedure has no dedicated counter; a served verdict skips the decision, whose callees keep their own measurements."
 //! span = "none"
-//! invariant = "A kept verdict is Refuted or Indeterminate, from a decision outside an execution, with no Unspecified attempt or lineage open, no dismissed stack stop, and no undecided solver answer unless the solver's undecided answers are reproducible; its key holds everything that decision reads but the solver's answers. It is served only where the facts and diagnostics it holds are all a new decision would note and emit."
+//! invariant = "A kept verdict is Refuted or Indeterminate, from a decision outside an execution and outside any run with a console, with no Unspecified attempt or lineage open, no dismissed stack stop, and no undecided solver answer unless the solver's undecided answers are reproducible; its key holds everything that decision reads but the solver's answers. It is served only where the facts and diagnostics it holds are all a new decision would note and emit."
 //! tests = ["crates/k-rust-backend/src/simplify.rs"]
 //!
 //! [[cost]]
-//! mode = "lookup (every nested equation-condition decision outside an execution)"
+//! mode = "lookup (every nested equation-condition decision outside an execution and outside any run with a console)"
 //! bound = "one copy of the q predicate handles, the rule id and the anchor handle into the key's own part; two hash lookups by content, O(k) predicates and O(a) keys hashed (term hashes are cached) and compared on a hit down to the first difference, find the memo's copies of the known list and the active set; then one map lookup, whose shared parts compare by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss pays the decision (backend.simplify.term, rule condition)."
 //!
 //! [[cost]]
@@ -1979,10 +1979,14 @@ fn evaluate_equation_condition(
 /// its undecided answers (`ExecutionResult::smt_unknowns`). Whether a count is zero is
 /// unchanged, since a served verdict was counted when it was decided in the same scope.
 ///
-/// Nothing is kept in an execution, whose evaluation may read and advance a console, nor while
-/// an attempt on an `Unspecified` application is open or a lineage on one is recording what its
-/// evaluation reads (`UnspecifiedEvaluation`, `UnspecifiedValues`): what such a decision reads of
-/// the open attempts is not in the key. Work isolated from the run (`coverage::isolated`) sets
+/// Nothing is kept in an execution, nor in any run with a console (`console_attached`, a backend
+/// execution with the default options included, which runs in `Proof`): such a run's evaluation
+/// reads and advances its console, and which effects of a decided operand happen is noted
+/// according to it (`note_effect_order`), while no key holds a console position. (An equation's
+/// condition is itself decided without the console, so no verdict reads one; the guard does not
+/// rest on that.) Nor is anything kept while an attempt on an `Unspecified` application is open
+/// or a lineage on one is recording what its evaluation reads (`UnspecifiedEvaluation`,
+/// `UnspecifiedValues`): what such a decision reads of the open attempts is not in the key. Work isolated from the run (`coverage::isolated`) sets
 /// the memo aside ([`condition_memo_aside`]). The verdicts go when the outermost scope closes.
 ///
 /// The memo holds each distinct known-predicate list and active-key set once
@@ -2321,6 +2325,7 @@ impl<'a> ConditionMemoProbe<'a> {
             return None;
         }
         if crate::evaluation::current() == crate::evaluation::EvaluationMode::Execution
+            || crate::evaluation::console_attached()
             || UnspecifiedEvaluation::any_open()
             || UNSPECIFIED_VALUES.with_borrow(|table| table.scopes > 0)
         {
@@ -11688,6 +11693,27 @@ mod condition_memo_tests {
             assert_eq!((again.served, again.checks), (0, first.checks), "{again:?}");
         });
         assert_eq!(kept_verdicts(), 0);
+    }
+
+    /// A run with a console reads and advances it in `Proof` too (a backend execution with the
+    /// default options), and which of its operands' effects happen is noted according to the
+    /// console: nothing is kept there either, so nothing is served.
+    #[test]
+    fn nothing_is_kept_in_a_run_with_a_console() {
+        let definition = definition();
+        let solver = Scripted::new(Validity::Contingent);
+        let scope = condition_memo_scope(&solver);
+        {
+            let _run = crate::evaluation::EvaluationScope::enter_run(EvaluationMode::Proof, true);
+            let first = simplified(&definition, F, &solver, &scope, true);
+            assert!(first.checks > 0, "{first:?}");
+            assert_eq!(kept_verdicts(), 0);
+            let again = simplified(&definition, F, &solver, &scope, true);
+            assert_eq!((again.served, again.checks), (0, first.checks), "{again:?}");
+        }
+        assert_eq!(kept_verdicts(), 0);
+        let first = simplified(&definition, F, &solver, &scope, true);
+        assert!(first.checks > 0 && kept_verdicts() > 0, "{first:?}");
     }
 
     /// While an attempt on an `Unspecified` application is open, or a lineage on one records

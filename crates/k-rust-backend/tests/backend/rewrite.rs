@@ -11238,6 +11238,100 @@ fn a_default_options_execution_reads_two_or_more_console_characters() {
     assert_eq!(result.leaves[0].io.cursor(), 2);
 }
 
+/// A run with a console keeps no equation-condition verdict, also in `EvaluationMode::Proof` (an
+/// execution with the default options), and an equation's condition is decided without the
+/// console. `g(_) = 1 requires #getc(0) ==Int 97`, `g(_) = 2 [owise]` and `f(X) = 0 requires
+/// g(0) +Int g(0) ==Int 3`, on the console "ba": no condition reads the console (`#getc` stays
+/// unevaluated there, and the cursor stays at 0), and the run with default options gives the
+/// leaves the run in `Execution` gives, where no verdict is kept.
+#[test]
+fn a_default_options_execution_with_a_console_serves_no_condition_verdict() {
+    let equation = |symbol: &str, requires: &str, rhs: &str, attributes: &str| {
+        format!(
+            r#"
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    \equals{{SortBool{{}}, R}}({requires}, \dv{{SortBool{{}}}}("true")),
+                    \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, Y:SortInt{{}}), \top{{R}}())
+                ),
+                \equals{{SortInt{{}}, R}}(
+                    {symbol}{{}}(X0:SortInt{{}}),
+                    \and{{SortInt{{}}}}({rhs}, \top{{SortInt{{}}}}())
+                )
+            ) [{attributes}]"#
+        )
+    };
+    let axioms = format!(
+        r#"
+        hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+        hooked-symbol getcInt{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), hook{{}}("IO.getc")]
+        hooked-symbol eqInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+            [function{{}}(), total{{}}(), hook{{}}("INT.eq")]
+        hooked-symbol plusInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+            [function{{}}(), total{{}}(), hook{{}}("INT.add")]
+        symbol g{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+        symbol f{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+        symbol out{{}}(SortInt{{}}) : SortK{{}} [constructor{{}}(), total{{}}()]
+        {g_a}
+        {g_owise}
+        {f}
+        axiom{{}} \rewrites{{SortK{{}}}}(
+            \and{{SortK{{}}}}(initial{{}}(), \top{{SortK{{}}}}()),
+            out{{}}(f{{}}(\dv{{SortInt{{}}}}("1")))
+        ) [label{{}}("start")]
+        "#,
+        g_a = equation(
+            "g",
+            r#"eqInt{}(getcInt{}(\dv{SortInt{}}("0")), \dv{SortInt{}}("97"))"#,
+            r#"\dv{SortInt{}}("1")"#,
+            r#"label{}("g-a")"#,
+        ),
+        g_owise = equation(
+            "g",
+            r#"\dv{SortBool{}}("true")"#,
+            r#"\dv{SortInt{}}("2")"#,
+            r#"label{}("g-owise"), owise{}()"#,
+        ),
+        f = equation(
+            "f",
+            r#"eqInt{}(plusInt{}(g{}(\dv{SortInt{}}("0")), g{}(\dv{SortInt{}}("0"))), \dv{SortInt{}}("3"))"#,
+            r#"\dv{SortInt{}}("0")"#,
+            r#"label{}("f")"#,
+        ),
+    );
+    let definition = console_io_definition(&axioms);
+    let run = |evaluation| {
+        execute_with_io_state(
+            &definition,
+            console_pattern(&definition, "initial{}()"),
+            ExecutionOptions {
+                evaluation,
+                ..ExecutionOptions::default()
+            },
+            ExecutionIoState::new(b"ba".to_vec()),
+        )
+    };
+    let proof = run(ExecutionOptions::default().evaluation);
+    let execution = run(k_rust_backend::evaluation::EvaluationMode::Execution);
+    let leaves = |result: &ExecutionResult| {
+        result
+            .leaves
+            .iter()
+            .map(|leaf| (leaf.pattern.clone(), leaf.halt_reason.clone(), leaf.io.cursor()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(leaves(&proof), leaves(&execution), "{proof:#?}\n{execution:#?}");
+    assert!(!proof.leaves.is_empty(), "{proof:#?}");
+    assert!(proof.leaves.iter().all(|leaf| leaf.io.cursor() == 0), "{proof:#?}");
+    assert!(
+        proof
+            .unsupported_hooks
+            .iter()
+            .all(|unevaluated| unevaluated.hook == "IO.getc"),
+        "{proof:#?}"
+    );
+}
+
 #[test]
 fn console_read_preserves_arbitrary_short_reads_and_utf8_boundaries() {
     let definition = console_io_definition("");
