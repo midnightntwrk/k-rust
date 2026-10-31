@@ -6318,6 +6318,7 @@ fn a_macro_matches_a_parametric_application_by_its_instance() {
                        | "rep" "(" Wrap ")" [macro, symbol(rep)]
                        | "any" "(" Wrap ")" [macro, symbol(any)]
                        | "idv" "(" Stmt ")" [macro, symbol(idv)]
+                       | "dup" "(" Wrap "," Wrap ")" [macro, symbol(dup)]
           rule mk1(X:Stmt) => pair(X, X)
           rule mk2(X:Stmt, Z:Stmt) => pair(X, Z)
           rule mk3(X:Stmt, Z:Value) => pair(X, Z)
@@ -6333,16 +6334,18 @@ fn a_macro_matches_a_parametric_application_by_its_instance() {
           rule any(_) => two
           rule idv(id(vv)) => one
           rule idv(_) => two
+          rule dup(A, A) => one
+          rule dup(_, _) => two
         endmodule
     "#};
     let definition = parsed(source);
     let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
     let leaf = |name: &str| application(name, Vec::new());
-    let expand = |head: &str, argument: Term| {
+    let expand = |head: &str, arguments: Vec<Term>| {
         let expanded = prepared
             .expand_program(
                 "MAIN",
-                k_rust::inner::ParsedProgram::from_term(application(head, vec![argument])),
+                k_rust::inner::ParsedProgram::from_term(application(head, arguments)),
                 &Sort::new("Res"),
             )
             .unwrap();
@@ -6366,11 +6369,75 @@ fn a_macro_matches_a_parametric_application_by_its_instance() {
     ] {
         let shown = Printer::new().print_term(&argument);
         assert_eq!(
-            expand(head, argument),
+            expand(head, vec![argument]),
             format!("{expected}(.KList)"),
             "{head}({shown})"
         );
     }
+    // Two occurrences of a variable are one term modulo placement where the applications that
+    // place an argument differently have one instance: `mk2(vv, ss)` and the program's
+    // `pair(vv, ss)` are both the pair at `Stmt`; `mk1(vv)`, the pair at `Stmt` of `vv` placed
+    // twice, is another term than the program's `pair(vv, vv)`, the pair at `Value`.
+    let pair = |left: &str, right: &str| made("pair", &[left, right]);
+    assert_eq!(
+        expand("dup", vec![made("mk2", &["vv", "ss"]), pair("vv", "ss")]),
+        "one(.KList)"
+    );
+    assert_eq!(
+        expand("dup", vec![made("mk1", &["vv"]), pair("vv", "vv")]),
+        "two(.KList)"
+    );
+    assert_eq!(
+        expand("dup", vec![made("mk1", &["vv"]), made("mk1", &["vv"])]),
+        "one(.KList)"
+    );
+}
+
+/// A binding is placed at its variable's sort only at an argument of a parametric application,
+/// where its sort would otherwise fix another instance: at an argument of a production with no
+/// sort parameter, `hold(X)` with `X:Stmt` bound to `vv`, the binding is written as it is, and
+/// injection places it at the argument's declared sort, `inj{Value, Top}(vv)`.
+#[test]
+fn a_macro_places_a_binding_only_at_a_parametric_argument() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Value ::= "vv" [symbol(vv)]
+          syntax Stmt ::= Value | "ss" [symbol(ss)]
+          syntax Top ::= Stmt
+          syntax Stmt ::= "hold" "(" Top ")" [symbol(hold)]
+          syntax Stmt ::= "keep" "(" Stmt ")" [macro, symbol(keep)]
+          rule keep(X:Stmt) => hold(X)
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = k_rust::kompile::SortInjector::new(&resolved, "MAIN").unwrap();
+    let expanded = prepared
+        .expand_program(
+            "MAIN",
+            k_rust::inner::ParsedProgram::from_term(application(
+                "keep",
+                vec![application("vv", Vec::new())],
+            )),
+            &Sort::new("Stmt"),
+        )
+        .unwrap();
+    assert_eq!(
+        Printer::new().print_term(expanded.term()),
+        "hold(vv(.KList))"
+    );
+    let injected = injector
+        .inject(expanded.term(), &Sort::new("Stmt"))
+        .unwrap();
+    let kore = k_rust::kompile::term_to_kore_from_resolved_with_token_module(
+        &resolved, "MAIN", "MAIN", &injected,
+    )
+    .unwrap();
+    assert_eq!(
+        format!("{kore}"),
+        "Lblhold{}(inj{SortValue{}, SortTop{}}(Lblvv{}()))"
+    );
 }
 
 /// A rule that applies a macro keeps the instance the macro rule's typing gives its result, as
