@@ -597,15 +597,15 @@ impl Worker<'_> {
             let K7::Run(plan) = &placed.case.k7 else {
                 continue;
             };
+            let own = placed.case.command().map(|command| command.name.as_str());
             let started = Instant::now();
             let mut panicked = false;
             let mut once = |plan| {
-                catch_unwind(AssertUnwindSafe(|| run_case(semantics, plan, limit))).unwrap_or_else(
-                    |panic| {
+                catch_unwind(AssertUnwindSafe(|| run_case(semantics, plan, limit, own)))
+                    .unwrap_or_else(|panic| {
                         panicked = true;
                         Ran::Deviates(format!("panic: {}", panic_message(&*panic)))
-                    },
-                )
+                    })
             };
             let mut verdict = once(plan);
             for counter in &placed.case.k7_counters {

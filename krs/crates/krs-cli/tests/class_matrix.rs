@@ -1363,7 +1363,7 @@ fn k7_bounds_a_program_whose_expansion_or_run_does_not_end() {
         let ran = Mutex::new(None);
         let visit = |semantics: &mut krs_exec::Semantics| {
             let started = std::time::Instant::now();
-            let verdict = runs::run_case(semantics, &plan, limit);
+            let verdict = runs::run_case(semantics, &plan, limit, None);
             *ran.lock().expect("not poisoned") = Some((verdict, started.elapsed()));
         };
         let checked = collected.check_visiting(collected.bundle.clone(), Some(&visit));

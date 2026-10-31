@@ -89,6 +89,15 @@ impl Term {
         None
     }
 
+    /// Every leaf cell of the configuration, a cell no cell is inside, in the order the term
+    /// holds them: its KORE symbol (`Lbl'-LT-'env'-GT-'`) and its content.
+    #[must_use]
+    pub fn leaf_cells(&self) -> Vec<(&str, &Pattern)> {
+        let mut cells = Vec::new();
+        leaf_cells(&self.kore, &mut cells);
+        cells
+    }
+
     /// The KAST JSON envelope text.
     ///
     /// # Errors
@@ -96,6 +105,41 @@ impl Term {
     /// Returns an error when the term cannot be encoded.
     pub fn kast_json(&self) -> Result<String, kast_json::Error> {
         kast_json::to_string(&self.kast)
+    }
+}
+
+/// The cell `pattern` is, if it is one: its symbol and content.
+fn cell(pattern: &Pattern) -> Option<(&str, &Pattern)> {
+    let (Pattern::Application { symbol, arguments }
+    | Pattern::AssociativeApplication {
+        symbol, arguments, ..
+    }) = pattern
+    else {
+        return None;
+    };
+    let label = krs_unparse::label_name(&symbol.name);
+    match arguments.as_slice() {
+        [content] if label.starts_with('<') && label.ends_with('>') => {
+            Some((symbol.name.as_str(), content))
+        }
+        _ => None,
+    }
+}
+
+/// Whether a cell is inside `pattern`, or `pattern` is one.
+fn holds_cell(pattern: &Pattern) -> bool {
+    cell(pattern).is_some() || walk::children(pattern).into_iter().any(holds_cell)
+}
+
+fn leaf_cells<'t>(pattern: &'t Pattern, cells: &mut Vec<(&'t str, &'t Pattern)>) {
+    if let Some((symbol, content)) = cell(pattern)
+        && !holds_cell(content)
+    {
+        cells.push((symbol, content));
+        return;
+    }
+    for child in walk::children(pattern) {
+        leaf_cells(child, cells);
     }
 }
 

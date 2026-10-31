@@ -243,8 +243,9 @@ const COUNTERLESS: &[&str] = &[
 
 /// Each production of the terms base that a static clause expands (a `Cmd` variant marked
 /// `#[k::desugar]` or `#[k::alias]`) is applied by a spelling, so a static production kind the
-/// base gains without a spelling is named here. `Ah` is the exception: its clauses are there for
-/// printing, which reverses them on the states K7 reads back, and no spelling writes it.
+/// base gains without a spelling is named here. The aliases there for printing (`Ah`, `Am`, `Av`,
+/// `Ac`, `Bp`, `Bq`, `Ak`) are the exception: printing reverses them on the states K7 reads back,
+/// and no spelling writes them.
 #[test]
 fn every_static_production_of_the_terms_base_has_a_spelling() {
     let base = Base::Terms.preamble();
@@ -283,6 +284,12 @@ fn every_static_production_of_the_terms_base_has_a_spelling() {
             ("#[k::desugar]", "Dz".to_owned()),
             ("#[k::alias]", "Az".to_owned()),
             ("#[k::alias]", "Ah".to_owned()),
+            ("#[k::alias]", "Am".to_owned()),
+            ("#[k::alias]", "Av".to_owned()),
+            ("#[k::alias]", "Ac".to_owned()),
+            ("#[k::alias]", "Bp".to_owned()),
+            ("#[k::alias]", "Bq".to_owned()),
+            ("#[k::alias]", "Ak".to_owned()),
             ("#[k::desugar]", "Dn".to_owned()),
             ("#[k::desugar]", "Rc".to_owned()),
             ("#[k::desugar]", "Tw".to_owned()),
@@ -292,7 +299,11 @@ fn every_static_production_of_the_terms_base_has_a_spelling() {
         ],
         "the terms base's static productions"
     );
-    for (marker, name) in marked.into_iter().filter(|(_, name)| name != "Ah") {
+    const PRINTING: &[&str] = &["Ah", "Am", "Av", "Ac", "Bp", "Bq", "Ak"];
+    for (marker, name) in marked
+        .into_iter()
+        .filter(|(_, name)| !PRINTING.contains(&name.as_str()))
+    {
         let application = format!("Cmd::{name}(");
         assert!(
             cases.iter().any(

@@ -55,6 +55,8 @@ pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
 pub use configuration::Configuration;
 pub use k_rust::backend::BackendError;
+/// The printer crate, for callers that print a term through [`Semantics::unparser`].
+pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Halt, Modality, ProofLeaf, ProofReport, REPORT_SCHEMA,
@@ -1218,7 +1220,18 @@ impl Semantics {
     /// A symbol without a printable production is printed as KAST and reported in [`Printed::warnings`].
     #[must_use]
     pub fn unparse_k_head(&self, term: &Term) -> Option<Option<Printed>> {
-        self.unparse_k_head_with(term, true)
+        term.k_head_kore().map(|head| {
+            head.map(|item| {
+                self.unparser
+                    .print_kore(item, &krs_unparse::Options::new(krs_unparse::Mode::Pretty))
+            })
+        })
+    }
+
+    /// The printer `krs run` prints this definition's results with.
+    #[must_use]
+    pub const fn unparser(&self) -> &krs_unparse::Unparser {
+        &self.unparser
     }
 
     /// Read a `<k>` cell's first item back from the text [`Semantics::unparse_k_head`] prints:
@@ -1238,21 +1251,21 @@ impl Semantics {
             })
     }
 
-    /// Print the first item of a term's `<k>` cell as [`Semantics::unparse_k_head`] does, with
-    /// the definition's aliases reversed or, when `reverse_aliases` is false, each term printed as
-    /// the state holds it.
-    #[must_use]
-    pub fn unparse_k_head_with(
-        &self,
-        term: &Term,
-        reverse_aliases: bool,
-    ) -> Option<Option<Printed>> {
-        let options = krs_unparse::Options {
-            reverse_aliases,
-            ..krs_unparse::Options::new(krs_unparse::Mode::Pretty)
-        };
-        term.k_head_kore()
-            .map(|head| head.map(|item| self.unparser.print_kore(item, &options)))
+    /// Read a cell's content back from its printed text: parsed with the main module's grammar
+    /// at `sort`, the cell's declared sort (a `K` cell's as a sequence), with its aliases and
+    /// desugars expanded as a program's are.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Parse`] when the text does not parse.
+    pub fn parse_cell(&mut self, cell: &str, sort: &str, text: &str) -> Result<Pattern, ExecError> {
+        self.configuration
+            .parse_cell(cell, &KastSort::new(sort), text)
+            .map_err(|error| ExecError::Parse {
+                input: format!("the printed <{cell}>"),
+                sort: sort.to_owned(),
+                message: error.to_string(),
+            })
     }
 
     fn steps(&mut self, trace: &[TraceEntry]) -> Vec<Step> {

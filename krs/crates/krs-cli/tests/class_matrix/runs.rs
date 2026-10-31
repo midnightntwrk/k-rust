@@ -12,10 +12,10 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use k_rust::backend::CancellationToken;
-use k_rust::kore::ast::Pattern;
+use k_rust::kore::ast::{Pattern, Sort as KoreSort};
 use krs_exec::{
     CellError, ConfigInputs, Halt, ProgramInput, RunOptions, RunReport, Semantics, SortRef,
-    StateView, Term, Value, ValueIndex, View,
+    StateView, Term, Value, ValueIndex, View, unparse,
 };
 use krs_test_support::class_matrix::k7::{Ground, Run, Status};
 
@@ -39,8 +39,9 @@ impl Ran {
     }
 }
 
-/// Run `run` on `semantics`, the definition `krs run` loads, within `limit`.
-pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration) -> Ran {
+/// Run `run` on `semantics`, the definition `krs run` loads, within `limit`; `own` is the name of
+/// the case's command (`C64289ea3`), whose aliases the case prints with beside the base's.
+pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Option<&str>) -> Ran {
     let inputs = ConfigInputs {
         program: Some(ProgramInput {
             name: "program".to_owned(),
@@ -95,54 +96,153 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration) -> Ran {
         .map(|(cell, expected)| (cell, expected, read(view, index, cell)))
         .collect::<Vec<_>>();
     match verdict(run, &report, &observed) {
-        Ran::Conforms(status) => printed_reads_back(semantics, &report.state)
+        Ran::Conforms(status) => printed_reads_back(semantics, &report.state, own)
             .map_or(Ran::Conforms(status), Ran::Deviates),
         deviates @ Ran::Deviates(_) => deviates,
     }
 }
 
-/// Whether the computation cell's first item, as `krs run` prints it, is the state's: where the
-/// printer reverses an alias there, the printed text, read back with the definition's grammar
-/// (which expands its aliases again, [`Semantics::parse_k_head`]), must be the item, value for
-/// value. `None` when it is, or when no alias was reversed; otherwise the deviation.
+/// Whether the state, as `krs run` prints it, is the state: the computation cell's first item and
+/// every other leaf cell's content, each printed and read back with the definition's grammar
+/// (which expands its aliases again, [`Semantics::parse_k_head`], [`Semantics::parse_cell`]),
+/// must be the term the state holds, value for value. `None` when each is; otherwise the first
+/// deviation.
 ///
-/// Only a reversal is read back: a term printed as the state holds it denotes itself, though the
-/// grammar may have no syntax for parts of it (a freezer, a function's symbolic result).
-fn printed_reads_back(semantics: &mut Semantics, state: &Term) -> Option<String> {
-    let (Some(Some(printed)), Some(Some(unreversed)), Some(Some(item))) = (
-        semantics.unparse_k_head(state),
-        semantics.unparse_k_head_with(state, false),
-        state.k_head_kore(),
-    ) else {
-        return None;
+/// The printer is the one the case prints with alone ([`case_printer`]), so that a verdict does
+/// not depend on the batch. A print with a warning (a symbol printed as KAST) is not read back,
+/// and neither is a cell of a sort with parameters, nor a print that does not parse where the
+/// term printed without reversing an alias does not parse either. Tokens compare by text
+/// ([`untyped_tokens`]).
+fn printed_reads_back(
+    semantics: &mut Semantics,
+    state: &Term,
+    own: Option<&str>,
+) -> Option<String> {
+    let case = case_printer(semantics.unparser(), own);
+    let options = unparse::Options::new(unparse::Mode::Pretty);
+    let as_held = unparse::Options {
+        reverse_aliases: false,
+        ..options
     };
-    if printed.text == unreversed.text {
-        return None;
+    let mut cells = Vec::new();
+    if let Some(Some(item)) = state.k_head_kore() {
+        cells.push(("<k>".to_owned(), None, item));
     }
-    let read = match semantics.parse_k_head(&printed.text) {
-        Ok(read) => read,
-        Err(error) => {
+    for (symbol, content) in state.leaf_cells() {
+        let label = unparse::label_name(symbol);
+        if label == "<k>" {
+            continue;
+        }
+        let Some(sort) = case
+            .argument_sorts(symbol)
+            .and_then(<[KoreSort]>::first)
+            .and_then(k_sort)
+        else {
+            continue;
+        };
+        cells.push((label, Some(sort), content));
+    }
+    for (cell, sort, content) in cells {
+        let printed = case.print_kore(content, &options);
+        if !printed.warnings.is_empty() {
+            continue;
+        }
+        let name = cell.trim_start_matches('<').trim_end_matches('>');
+        let mut read_back = |text: &str| match &sort {
+            None => semantics.parse_k_head(text),
+            Some(sort) => semantics.parse_cell(name, sort, text),
+        };
+        let place = if sort.is_none() {
+            "<k> head"
+        } else {
+            cell.as_str()
+        };
+        let read = match read_back(&printed.text) {
+            Ok(read) => read,
+            // Where the term printed as the state holds it does not parse either, the grammar
+            // has no syntax for a part of it (an `Id` token `$x`, a parametric instance), which
+            // is no property of the print.
+            Err(_) if read_back(&case.print_kore(content, &as_held).text).is_err() => {
+                continue;
+            }
+            Err(error) => {
+                return Some(format!(
+                    "{place} printed `{}`, which does not read back: {}",
+                    printed.text,
+                    first_line(&error.to_string())
+                ));
+            }
+        };
+        let index = semantics.values();
+        let value = |pattern: &Pattern| {
+            untyped_tokens(index.decode(pattern).map_or_else(
+                |_| Ground::Opaque(pattern.to_string()),
+                |value| ground(index, &value),
+            ))
+        };
+        let (held, read) = (value(content), value(&read));
+        if held != read {
             return Some(format!(
-                "printed `{}`, which does not read back: {}",
-                printed.text,
-                first_line(&error.to_string())
+                "{place} printed `{}`, which reads back as {read}, where the state holds {held}",
+                printed.text
             ));
         }
-    };
-    let index = semantics.values();
-    let value = |pattern: &Pattern| {
-        index.decode(pattern).map_or_else(
-            |_| Ground::Opaque(pattern.to_string()),
-            |value| ground(index, &value),
-        )
-    };
-    let (held, read) = (value(item), value(&read));
-    (held != read).then(|| {
-        format!(
-            "printed `{}`, which reads back as {read}, where the state holds {held}",
-            printed.text
-        )
+    }
+    None
+}
+
+/// `ground` with every token's sort left out: a token prints as its text alone, so where two
+/// token sorts read the same text (`word`, a `Word` and an `Id`), the text reads back as the one
+/// the grammar picks, and the print says no more than the text.
+fn untyped_tokens(ground: Ground) -> Ground {
+    let all = |items: Vec<Ground>| items.into_iter().map(untyped_tokens).collect();
+    match ground {
+        Ground::Token { text, .. } => Ground::Token {
+            sort: String::new(),
+            text,
+        },
+        Ground::Ctor { path, fields } => Ground::Ctor {
+            path,
+            fields: all(fields),
+        },
+        Ground::Unevaluated { label, arguments } => Ground::Unevaluated {
+            label,
+            arguments: all(arguments),
+        },
+        Ground::List(items) => Ground::List(all(items)),
+        Ground::Seq(items) => Ground::Seq(all(items)),
+        Ground::Set(elements) => Ground::set(all(elements)),
+        Ground::Map(entries) => Ground::map(
+            entries
+                .into_iter()
+                .map(|(key, value)| (untyped_tokens(key), untyped_tokens(value)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+/// The printer of the case whose command is `own` alone: the definition's, without the aliases
+/// of the other cases' commands (a production `Lblcmd` + `C` and eight hexadecimal digits,
+/// [`krs_test_support::class_matrix::Command`]), which a batch's definition holds beside it.
+fn case_printer(printer: &unparse::Unparser, own: Option<&str>) -> unparse::Unparser {
+    let own = own.map(|name| format!("Lblcmd{name}"));
+    printer.retaining_aliases(|symbol| {
+        let other_case = symbol.strip_prefix("LblcmdC").is_some_and(|digits| {
+            digits.len() == 8 && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+        });
+        !other_case || own.as_deref() == Some(symbol)
     })
+}
+
+/// The K name of a KORE sort without parameters (`SortMap{}` is `Map`).
+fn k_sort(sort: &KoreSort) -> Option<String> {
+    match sort {
+        KoreSort::Application { name, arguments } if arguments.is_empty() => {
+            name.strip_prefix("Sort").map(unparse::decode_kore)
+        }
+        _ => None,
+    }
 }
 
 /// Configure `inputs` and run the state within `depth` steps, both within `limit`: the program's
@@ -370,4 +470,24 @@ fn opaque(index: &ValueIndex, pattern: &Pattern) -> Ground {
         );
     }
     Ground::Opaque(pattern.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Ground, untyped_tokens};
+
+    /// A token read back as another sort's token of the same text (`word`, a `Word` the state
+    /// holds, an `Id` the grammar reads) is the same print; another text is not.
+    #[test]
+    fn a_token_reads_back_by_its_text() {
+        let token = |sort: &str, text: &str| Ground::Token {
+            sort: sort.to_owned(),
+            text: text.to_owned(),
+        };
+        let held = Ground::ctor("Cmd::Hold", vec![Ground::set(vec![token("Word", "word")])]);
+        let read = Ground::ctor("Cmd::Hold", vec![Ground::set(vec![token("Id", "word")])]);
+        assert_eq!(untyped_tokens(held.clone()), untyped_tokens(read));
+        let other = Ground::ctor("Cmd::Hold", vec![Ground::set(vec![token("Word", "wa")])]);
+        assert_ne!(untyped_tokens(held), untyped_tokens(other));
+    }
 }

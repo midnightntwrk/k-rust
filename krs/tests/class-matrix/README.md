@@ -185,12 +185,15 @@ the descriptors of the base and its own. A case is judged by
   with another value all look accepted to K1 to K6.
 
   *The printed state is the state* (NT-23): K7 reads values structurally, so it also reads a
-  conforming run's computation cell back as `krs run` prints it. Where printing reverses an alias
-  in the cell's first item, the printed text, parsed with the definition's grammar and its aliases
-  expanded again, must be the item, value for value (`printed_reads_back`). The terms base's
-  `ah(1) => hold(1)` and `ah(2) => hold(2)` make it read back every run ending in `hold(1)`, where
-  `hold(0)` is a value neither clause matches; a reversal of a term whose literal its clause does
-  not write (`ah(1 #And 0)`) would deviate there.
+  conforming run's state back as `krs run` prints it: the computation cell's first item and every
+  other leaf cell, each printed, parsed with the definition's grammar at the cell's sort with its
+  aliases expanded again, must be the term the state holds, value for value, tokens by their text
+  (`printed_reads_back`). The printer is the one the case has alone, the base's aliases and its
+  own, so a verdict does not depend on the batch (`KRS_CLASS_NATIVE=alone` gives the same). A print
+  with a KAST fallback is not read back, nor one that does not parse where the term printed without
+  reversal does not parse either (the grammar has no syntax for part of it, `$x`). The terms base
+  holds aliases for printing of each shape of clause (`ah`, `am`, `av`, `ac`, `bp`, `bq`, `ak`; see
+  `DRIVER_BASE` in `class_matrix/terms.rs`).
 
   *Witnesses and values* (`class_matrix::k7`, the spellings in `class_matrix/terms.rs`) are
   generator data, stated from what each construct denotes, never from what KRS emits or runs,
