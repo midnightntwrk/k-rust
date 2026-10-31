@@ -609,7 +609,7 @@ impl Worker<'_> {
             };
             let mut verdict = once(plan);
             for counter in &placed.case.k7_counters {
-                if !matches!(verdict, Ran::Conforms(_)) {
+                if !matches!(verdict, Ran::Conforms(..)) {
                     break;
                 }
                 if let Ran::Deviates(deviation) = once(counter) {

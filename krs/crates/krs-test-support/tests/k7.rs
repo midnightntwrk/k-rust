@@ -916,3 +916,69 @@ fn every_term_collection_spelling_follows_the_rule() {
         ))
     );
 }
+
+/// The twin check's pairs ([`class_matrix::twins`]): every case at a desugar's or an alias's
+/// result has its twin at a `#[k::rule]` fn's result, the same construct at the same openings, and
+/// K7 runs both or neither, so the check compares every pair K7 runs. The pairs neither runs are
+/// those whose construct has no value under `x` = 1, by reason; their count is pinned.
+#[test]
+fn every_static_result_has_a_rule_twin_that_k7_runs_alike() {
+    let cases = class_matrix::cases();
+    let twins = class_matrix::twins(&cases);
+    let paired = twins
+        .iter()
+        .map(|(case, _)| case.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let unpaired = cases
+        .iter()
+        .filter(|case| {
+            case.term.as_ref().is_some_and(|term| {
+                term.position.slot == class_matrix::positions::Slot::Result
+                    && matches!(
+                        term.position.form,
+                        class_matrix::positions::Form::Alias
+                            | class_matrix::positions::Form::Desugar
+                    )
+            }) && !paired.contains(case.id.as_str())
+        })
+        .map(|case| case.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(unpaired, Vec::<&str>::new());
+    let mut uncompared = BTreeMap::<String, usize>::new();
+    for (case, twin) in &twins {
+        match (&case.k7, &twin.k7) {
+            (K7::Run(run), K7::Run(rule)) => assert_eq!(
+                run.status, rule.status,
+                "{} and its twin {} check alike",
+                case.id, twin.id
+            ),
+            (K7::Skip(skip), K7::Skip(rule)) => {
+                assert_eq!(skip.reason, rule.reason, "{}", case.id);
+                *uncompared.entry(skip.reason.clone()).or_default() += 1;
+            }
+            _ => panic!("K7 runs one of {} and its twin {}", case.id, twin.id),
+        }
+    }
+    let uncompared = uncompared
+        .iter()
+        .map(|(reason, count)| format!("{count}: {reason}"))
+        .collect::<Vec<_>>();
+    let uncompared = uncompared.iter().map(String::as_str).collect::<Vec<_>>();
+    assert_eq!(
+        (twins.len(), uncompared.as_slice()),
+        (306, TWINS_UNCOMPARED),
+        "{uncompared:#?}"
+    );
+}
+
+/// The twin pairs K7 runs neither of, by the reason both plans give, with their counts.
+const TWINS_UNCOMPARED: &[&str] = &[
+    "4: a cell fragment, which no term of a KItem position is",
+    "4: a matching-logic predicate, which only a prover reads",
+    "20: a pattern, which names or tests a term and builds none",
+    "4: an anonymous variable, which names no value",
+    "8: the empty map has no entry at 1",
+    "8: the let's pattern does not match x = 1",
+    "4: the update's base, x = 1, is no Pair",
+    "8: x = 1 is no Bool",
+];

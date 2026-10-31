@@ -22,8 +22,10 @@ use krs_test_support::class_matrix::k7::{Ground, Run, Status};
 /// K7's verdict on one run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Ran {
-    /// The run showed what the plan states.
-    Conforms(Status),
+    /// The run showed what the plan states, with the cells it read (none for a static clause's
+    /// counter run, which ends before a state), which the twin check compares
+    /// ([`krs_test_support::class_matrix::twins`]).
+    Conforms(Status, Vec<(String, Ground)>),
     /// It did not: what it showed instead.
     Deviates(String),
 }
@@ -33,7 +35,7 @@ impl Ran {
     #[must_use]
     pub fn signature(&self) -> String {
         match self {
-            Self::Conforms(status) => format!("applied as stated ({})", status.name()),
+            Self::Conforms(status, _) => format!("applied as stated ({})", status.name()),
             Self::Deviates(observed) => observed.clone(),
         }
     }
@@ -61,7 +63,7 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
         Err(deviation)
             if run.status == Status::Unexpanded && deviation.contains("survived expansion") =>
         {
-            return Ran::Conforms(Status::Unexpanded);
+            return Ran::Conforms(Status::Unexpanded, Vec::new());
         }
         Ok(report) => report,
         Err(deviation) => return Ran::Deviates(deviation),
@@ -325,7 +327,13 @@ fn verdict(run: &Run, report: &RunReport, observed: &[(&String, &Ground, Ground)
         .iter()
         .all(|(_, expected, value)| expected.agrees(value))
     {
-        Ran::Conforms(run.status)
+        Ran::Conforms(
+            run.status,
+            observed
+                .iter()
+                .map(|(cell, _, value)| ((*cell).clone(), value.clone()))
+                .collect(),
+        )
     } else {
         let expected = show(|(cell, expected, _)| format!("{cell} = {expected}"));
         Ran::Deviates(format!(

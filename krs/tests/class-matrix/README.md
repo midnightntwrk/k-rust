@@ -345,6 +345,21 @@ the descriptors of the base and its own. A case is judged by
   nothing (`no driver`, `no witness`, `no value`). `KRS_CLASS_RUN=0` skips K7; without K6
   (`KRS_CLASS_NATIVE=0`) it does not run, and says so.
 
+  *The twin check* (`class_matrix::twins`, keyed `twin/<case ID>`). A static clause's result is
+  the term a program's expansion writes in place of the clause's production, which then evaluates
+  as the same term in a rule's result does. So each case at a desugar's or an alias's result (its
+  root, ground or not, or a constructor's argument there) has a twin, the case of the same family,
+  openings and construct at a `#[k::rule]` fn's result, and where K7 ran both and the twin's run
+  conforms, the static case's run must build the twin's value at the hole (the computation's item,
+  or that item's last field: `hold(v)`, `pair(1, v)`), whatever the generator states: K7 judges
+  each case against its own plan, so a construct whose static result is lowered or read otherwise
+  shows there only where its plan states a value the static run misses (NT-12-1 and NT-12-2 each
+  needed one), and a `liveness` plan (`Size(x)`) shows nothing; the twin check states the class
+  once. A static run that deviates is a disagreement too. `cargo test -p krs-test-support --test
+  k7 every_static_result_has_a_rule_twin_that_k7_runs_alike` checks that every static result case
+  has its twin and that K7 runs both or neither, and pins the pairs neither runs by reason (a
+  construct with no value at `x` = 1).
+
   K7 runs on K6's compile, so it costs its programs' runs (a few milliseconds each) and the
   checks apart: on 2026-10-30, 1,489 programs in the `terms` shard took 9.5 s of worker time and 2
   checks apart 4.1 s, 870 in `notation` 5.2 s, 99 in `import` 0.6 s and 1 check apart 2.2 s; each

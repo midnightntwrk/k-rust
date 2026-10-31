@@ -27,13 +27,16 @@
 //! under the same rules.
 //!
 //! Both tiers read a case's entry, so for a case the front refuses they must observe it alike.
-//! Six prefixes name a case's entries that only the full tier reads:
+//! Seven prefixes name a case's entries that only the full tier reads:
 //! - [`KEYS`], `k1/CASE`: K1's verdict after lowering, on the semantic keys and anchors of the
 //!   collected case;
 //! - [`CLOSURE`], `k3/CASE`: K3's verdict on the source `krs expand` prints for the case;
 //! - [`NATIVE`], `k6/CASE`: K6's verdict on the definition the accepted case emits, judged as
 //!   `krs check` judges it on the native routes;
 //! - [`RUN`], `k7/CASE`: K7's verdict on the case's program, run on that definition;
+//! - [`TWIN`], `twin/CASE`: the twin check's verdict on a static clause's result case: the value
+//!   its run built beside the value its twin at a `#[k::rule]` fn's result built
+//!   ([`super::twins`]);
 //! - [`ADVICE`], `k8/CASE`: K8's verdict on a class's advised case (accepted, by K6, by K7), or
 //!   on a refused case whose message advises a rewrite while its class names no advised case;
 //! - [`FULL`], `full/CASE`: the full tier's deviation of a case that the front refuses and the
@@ -63,6 +66,9 @@ pub const NATIVE: &str = "k6/";
 /// The ID prefix of the full tier's K7 entries, `k7/CASE`.
 pub const RUN: &str = "k7/";
 
+/// The ID prefix of the full tier's twin-check entries, `twin/CASE` ([`super::twins`]).
+pub const TWIN: &str = "twin/";
+
 /// The ID prefix of the full tier's K8 entries, `k8/CASE`: the advice check's verdict on a class's
 /// advised case, or on a refused case whose message advises a rewrite its class names no case of.
 pub const ADVICE: &str = "k8/";
@@ -71,8 +77,8 @@ pub const ADVICE: &str = "k8/";
 pub const FULL: &str = "full/";
 
 /// The case an entry's ID names: the ID itself, or the ID after [`KEYS`], [`CLOSURE`],
-/// [`NATIVE`], [`RUN`], [`ADVICE`] or [`FULL`]; `None` for a [`LATTICE`] entry, which names no
-/// case.
+/// [`NATIVE`], [`RUN`], [`TWIN`], [`ADVICE`] or [`FULL`]; `None` for a [`LATTICE`] entry, which
+/// names no case.
 #[must_use]
 pub fn case_of(id: &str) -> Option<&str> {
     if id.starts_with(LATTICE) {
@@ -83,6 +89,7 @@ pub fn case_of(id: &str) -> Option<&str> {
             .or_else(|| id.strip_prefix(CLOSURE))
             .or_else(|| id.strip_prefix(NATIVE))
             .or_else(|| id.strip_prefix(RUN))
+            .or_else(|| id.strip_prefix(TWIN))
             .or_else(|| id.strip_prefix(ADVICE))
             .or_else(|| id.strip_prefix(FULL))
             .unwrap_or(id),

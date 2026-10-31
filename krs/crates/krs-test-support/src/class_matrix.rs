@@ -774,6 +774,74 @@ pub fn run_readings(case: &Case) -> Option<Result<Vec<Reading>, &'static str>> {
     config_drivers::readings(readable, kind, case.side, &case.construct)
 }
 
+/// The twin check, K7's: a spelling at a desugar's or an alias's result means what it means at a
+/// `#[k::rule]` fn's result.
+///
+/// A static clause's result is the term a program's expansion writes in place of the clause's
+/// production, which then evaluates as the same term in a rule's result does. So where both a
+/// rule's result and a static clause's result hold one spelling on one base, both runs build one
+/// value on the same witness (`x` = 1), whether or not the generator states it: K7 judges each
+/// case against what its plan states, and a construct whose static result is lowered otherwise
+/// shows only where its plan states a value the static run misses; the twin check states the
+/// class once, for every construct, stated or not.
+///
+/// The pairs: each case of a term family at a desugar's or an alias's result (its root, ground or
+/// not, or a constructor's argument there), with the case of the same family, the same openings
+/// from the result's root and the same construct at a `#[k::rule]` fn's result.
+#[must_use]
+pub fn twins<'c>(cases: impl IntoIterator<Item = &'c Case>) -> Vec<(&'c Case, &'c Case)> {
+    let cases = cases.into_iter().collect::<Vec<_>>();
+    let key = |case: &Case| {
+        let term = case.term.as_ref()?;
+        (term.position.slot == positions::Slot::Result)
+            .then(|| (case.family, term.path.clone(), case.construct.clone()))
+    };
+    let rules = cases
+        .iter()
+        .filter(|case| {
+            case.term
+                .as_ref()
+                .is_some_and(|term| term.position.form == positions::Form::RuleFn)
+        })
+        .filter_map(|case| Some((key(case)?, *case)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    cases
+        .iter()
+        .filter(|case| {
+            case.term.as_ref().is_some_and(|term| {
+                matches!(
+                    term.position.form,
+                    positions::Form::Alias | positions::Form::Desugar
+                )
+            })
+        })
+        .filter_map(|case| Some((*case, *rules.get(&key(case)?)?)))
+        .collect()
+}
+
+/// The value a twin's run built at its result's hole ([`twins`]), from the cells its run ended
+/// with: the computation's one item where the hole is the result's root, and that item's last
+/// field where the hole is a constructor's argument there (`Cmd::Hold(HOLE)` in a rule's and a
+/// desugar's result, `Cmd::Pair(x, HOLE)` in an alias's); `None` for cells of another shape.
+#[must_use]
+pub fn twin_value(case: &Case, cells: &[(String, k7::Ground)]) -> Option<k7::Ground> {
+    let root = case.term.as_ref()?.path.is_empty();
+    let [item] = cells.iter().find_map(|(cell, value)| match value {
+        k7::Ground::Seq(items) if cell == "k" => Some(items.as_slice()),
+        _ => None,
+    })?
+    else {
+        return None;
+    };
+    if root {
+        return Some(item.clone());
+    }
+    match item {
+        k7::Ground::Ctor { fields, .. } => fields.last().cloned(),
+        _ => None,
+    }
+}
+
 /// What a spelling of the term families matches and denotes, as K7 reads it ([`k7`]).
 #[derive(Clone, Debug)]
 pub struct SpellingMeaning {

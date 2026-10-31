@@ -24,8 +24,9 @@
 //! A K2 entry of `pending.toml` is keyed by the case's ID, and the fast tier reads the same entry
 //! for a case the front refuses; where the two tiers observe such a case differently, this tier
 //! reads `full/<case ID>` instead. A K1 entry of this tier, which judges keys after lowering, is
-//! keyed `k1/<case ID>`, a K6 entry `k6/<case ID>`, a K7 entry `k7/<case ID>`, and a K8 entry
-//! `k8/<case ID>` (`class_matrix::pending`).
+//! keyed `k1/<case ID>`, a K6 entry `k6/<case ID>`, a K7 entry `k7/<case ID>`, an entry of K7's
+//! twin check `twin/<case ID>` (a static clause's result against the same term at a rule's
+//! result, [`class_matrix::twins`]), and a K8 entry `k8/<case ID>` (`class_matrix::pending`).
 //!
 //! The run is set by the environment (the script sets every variable from measured headroom):
 //! - `KRS_CLASS_WORKERS`: concurrent workers, each with one Cargo target (default 1);
@@ -71,7 +72,8 @@ use krs_test_support::class_matrix::invariants::{
 };
 use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::pending::{
-    ADVICE, CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, RUN, case_of,
+    ADVICE, CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, RUN, TWIN,
+    case_of,
 };
 use krs_test_support::class_matrix::table::{
     Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, in_term_accepts,
@@ -297,8 +299,8 @@ struct Shard {
 
 impl Shard {
     /// Add `test`'s verdict on the case `id`, keyed `k1/<ID>` for K1, `k3/<ID>` for K3, `k6/<ID>`
-    /// for K6, `k7/<ID>` for K7, and for K2 by the case's ID, or `full/<ID>` when `pending.toml`
-    /// has that entry.
+    /// for K6, `k7/<ID>` for K7, `twin/<ID>` for K7's twin check, and for K2 by the case's ID, or
+    /// `full/<ID>` when `pending.toml` has that entry.
     fn add(&mut self, test: &'static str, id: &str, signature: String, misses: Vec<String>) {
         let full = format!("{FULL}{id}");
         self.verdicts.entry(test).or_default().push(Verdict {
@@ -307,6 +309,7 @@ impl Shard {
                 "k3" => format!("{CLOSURE}{id}"),
                 "k6" => format!("{NATIVE}{id}"),
                 "k7" => format!("{RUN}{id}"),
+                "twin" => format!("{TWIN}{id}"),
                 "k8" => format!("{ADVICE}{id}"),
                 "k5" => id.to_owned(),
                 _ if spec().pending.entries.contains_key(&full) => full,
@@ -778,6 +781,8 @@ fn test_of(key: &str) -> &'static str {
         "k6"
     } else if key.starts_with(RUN) {
         "k7"
+    } else if key.starts_with(TWIN) {
+        "twin"
     } else if key.starts_with(ADVICE) {
         "k8"
     } else if key.starts_with("entry/") {
@@ -937,12 +942,55 @@ fn k6(shard: &mut Shard, judged: &Judged) {
 fn k7(shard: &mut Shard, judged: &Judged) {
     if let Some(ran) = &judged.ran {
         let misses = match ran {
-            Ran::Conforms(_) => Vec::new(),
+            Ran::Conforms(..) => Vec::new(),
             Ran::Deviates(_) => {
                 vec!["the run does not show what the case's sentence denotes".to_owned()]
             }
         };
         shard.add("k7", &judged.id, ran.signature(), misses);
+    }
+}
+
+/// K7's twin check ([`class_matrix::twins`]): a static clause's result case whose run K7 made
+/// builds the value its twin at a `#[k::rule]` fn's result built, where the twin's run conforms
+/// (otherwise K7 reports the twin). A run of the static case that deviates is a disagreement:
+/// its twin's value is the meaning the same term has in a rule's result.
+fn twins(shard: &mut Shard, judged: &[Judged], by_id: &BTreeMap<&str, &Case>) {
+    let ran = judged
+        .iter()
+        .filter_map(|judged| Some((judged.id.as_str(), judged.ran.as_ref()?)))
+        .collect::<BTreeMap<_, _>>();
+    for (case, twin) in class_matrix::twins(by_id.values().copied()) {
+        let (Some(ran), Some(Ran::Conforms(_, cells))) =
+            (ran.get(case.id.as_str()), ran.get(twin.id.as_str()))
+        else {
+            continue;
+        };
+        let Some(expected) = class_matrix::twin_value(twin, cells) else {
+            continue;
+        };
+        let observed = match ran {
+            Ran::Conforms(_, cells) => class_matrix::twin_value(case, cells)
+                .ok_or_else(|| "no value at its hole".to_owned()),
+            Ran::Deviates(deviation) => Err(deviation.clone()),
+        };
+        let misses = if observed.as_ref() == Ok(&expected) {
+            Vec::new()
+        } else {
+            vec![format!(
+                "the same term at a rule's result, `{}`, builds {expected}",
+                twin.id
+            )]
+        };
+        shard.add(
+            "twin",
+            &case.id,
+            format!(
+                "{}, where its rule twin builds {expected}",
+                observed.map_or_else(|deviation| deviation, |value| value.to_string())
+            ),
+            misses,
+        );
     }
 }
 
@@ -1070,6 +1118,7 @@ fn shard(name: &str, families: &[Family]) {
         k7(&mut shard, judged);
         k8(&mut shard, &resolution, &advised, &corpus, judged);
     }
+    twins(&mut shard, &judged, &by_id);
     if recording {
         record(&recorded);
         eprintln!(
