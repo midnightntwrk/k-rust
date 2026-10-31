@@ -71,6 +71,7 @@ use kink_native::execution::SolverProfile;
 use kink_patch::{Baseline, Claim, SentenceOrigin, TypingDiagnostic, Withdrawal};
 use serde_json::{Value, json};
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -273,9 +274,11 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
             "fix the mutation: two equations of one function are not shown to agree where both \
              apply, so the mutant may have no model (inconsistent_pairs). If the edit widened a \
              guard, make the guards exclusive or the results equal; if it only narrowed one (the \
-             equation applies to fewer inputs with the same right-hand side), no program can \
-             kill it whatever the check says, since the specification is one of its models: \
-             change a right-hand side or a rewrite rule instead"
+             equation applies to fewer inputs with the same sides, ensures and attributes) and \
+             no equation of that function ranks after it (priority, owise), no program can kill \
+             it whatever the check says, since the specification is one of its models: change a \
+             right-hand side or a rewrite rule instead; a narrowing ranked before another \
+             equation of its function widens that one, and the mutant may have no model"
         }
         "invalid" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",
@@ -359,7 +362,7 @@ fn slot_sides(
             Some(OracleSide::Normal(OracleValue::ExitStop(baseline))),
             Some(OracleSide::Normal(OracleValue::ExitStop(mutant))),
         ) => {
-            let kinds = |stops: &std::collections::BTreeSet<kink_campaign::ExitStop>| {
+            let kinds = |stops: &BTreeSet<kink_campaign::ExitStop>| {
                 stops
                     .iter()
                     .map(|stop| kebab(&format!("{:?}", stop.class)))
@@ -420,18 +423,25 @@ pub fn census_clause(census: &LeafCensus) -> String {
 }
 
 /// [`census_clause`] of a mutant's run, and, when an indeterminate leaf of it holds an application
-/// of a function no equation reduces (kink-campaign `LeafCensus::open`), that leaf's depth and the
-/// function: the mutant leaves the application's value open there, so the run decides nothing past
-/// it (kink27 R5-WEAKENING). A baseline's census is described by [`census_clause`] alone.
-fn mutant_census_clause(census: &LeafCensus) -> String {
+/// of a function whose equations the mutation edits (`edited`, kink-patch
+/// `ClaimSupport::edited_equation_heads`) that no equation of the mutant reduces (kink-campaign
+/// `LeafCensus::open`), that leaf's depth and the first such function (kink27 R5-WEAKENING, fix
+/// round 1). Only an edited function is named: an application of any other function is unreduced
+/// for a reason the edit does not name (it may be irreducible in the baseline as well), and an
+/// open value that only a rule's condition reads is in no state, so then no function is named.
+/// A baseline's census is described by [`census_clause`] alone.
+fn mutant_census_clause(census: &LeafCensus, edited: &BTreeSet<String>) -> String {
     let mut clause = census_clause(census);
-    if let Some(open) = &census.open {
+    let named = census.open.iter().find_map(|open| {
+        let label = k_rust::kast::identifier::label_or_name(&open.symbol);
+        edited.contains(&label).then_some((open, label))
+    });
+    if let Some((open, label)) = named {
         clause.push_str(&format!(
-            "; its indeterminate leaf at depth {} holds an application of the function `{}` that \
-             no equation of the mutant reduces, so its value is open and the run decides nothing \
-             past it",
+            "; its indeterminate leaf at depth {} holds an application of the function `{label}`, \
+             whose equations the mutation edits, that no equation of the mutant reduces: the \
+             mutant leaves its value open there",
             open.depth,
-            k_rust::kast::identifier::label_or_name(&open.symbol)
         ));
     }
     clause
@@ -445,20 +455,20 @@ pub fn executed_cause(
     mutant: Option<&SideRun>,
     across: &[CrossRefusal],
     budget: Budget,
-    census: Option<&LeafCensus>,
+    census: Option<(&LeafCensus, &BTreeSet<String>)>,
 ) -> Option<String> {
     match run {
         TestRun::SkippedAfterKill => None,
         TestRun::Failed(kind) => Some(match (kind, census) {
-            (ExecutionFailureKind::TimeLimit, Some(census)) => format!(
+            (ExecutionFailureKind::TimeLimit, Some((census, edited))) => format!(
                 "{}; when the bound fired {}",
                 failure_cause(*kind, budget),
-                mutant_census_clause(census)
+                mutant_census_clause(census, edited)
             ),
-            (ExecutionFailureKind::ResourceLimit, Some(census)) => format!(
+            (ExecutionFailureKind::ResourceLimit, Some((census, edited))) => format!(
                 "{}; the mutant's run: {}",
                 failure_cause(*kind, budget),
-                mutant_census_clause(census)
+                mutant_census_clause(census, edited)
             ),
             _ => failure_cause(*kind, budget),
         }),
@@ -517,10 +527,10 @@ pub fn executed_cause(
                 .map(|(names, cause)| format!("{}: {cause}", names.join(", ")))
                 .collect::<Vec<_>>()
                 .join("; ");
-            if let (true, Some(census)) = (incomplete, census) {
+            if let (true, Some((census, edited))) = (incomplete, census) {
                 cause.push_str(&format!(
                     "; the mutant's run: {}",
-                    mutant_census_clause(census)
+                    mutant_census_clause(census, edited)
                 ));
             }
             Some(cause)
@@ -720,7 +730,7 @@ pub fn unusable_programs(programs: &[Value]) -> Vec<Value> {
 /// Informational only: outside every digest and key.
 pub fn untargeted_rules(
     rules: &[RuleText],
-    targeted: &std::collections::BTreeSet<kink_patch::SentenceRef>,
+    targeted: &BTreeSet<kink_patch::SentenceRef>,
 ) -> Vec<Value> {
     rules
         .iter()

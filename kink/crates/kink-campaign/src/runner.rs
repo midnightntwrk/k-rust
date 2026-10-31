@@ -146,7 +146,7 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, open_application,
+    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, open_applications,
     paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
     work_bound_stuck_terminals,
 };
@@ -776,10 +776,10 @@ pub struct LeafCensus {
     pub rule_ids: BTreeSet<String>,
     /// The states the run visited (k-rust `work`); `None` for a failed or timed-out run.
     pub work: Option<u64>,
-    /// The first indeterminate leaf, in run order, that holds an application of a function no
-    /// equation reduces (kink-native [`open_application`]): the definition leaves its value open
-    /// there (kink27 R5-WEAKENING).
-    pub open: Option<OpenApplication>,
+    /// The functions applied unreduced in the states of the indeterminate leaves (kink-native
+    /// [`open_applications`]), each once, with the first such leaf in run order: the definition
+    /// leaves the application's value open there (kink27 R5-WEAKENING).
+    pub open: Vec<OpenApplication>,
 }
 
 impl LeafCensus {
@@ -795,7 +795,7 @@ impl LeafCensus {
                 deepest: None,
                 rule_ids: BTreeSet::new(),
                 work: None,
-                open: None,
+                open: Vec::new(),
             };
         };
         let mut leaves = BTreeMap::new();
@@ -823,7 +823,16 @@ impl LeafCensus {
             open: execution
                 .leaves()
                 .iter()
-                .find_map(|leaf| open_application(leaf, functions)),
+                .flat_map(|leaf| open_applications(leaf, functions))
+                .fold(Vec::new(), |mut open, application| {
+                    if !open
+                        .iter()
+                        .any(|seen: &OpenApplication| seen.symbol == application.symbol)
+                    {
+                        open.push(application);
+                    }
+                    open
+                }),
         }
     }
 

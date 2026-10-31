@@ -7,7 +7,10 @@
 //!    whose edit only weakens the specification (kink-patch `ClaimSupport::weakening`: it deletes
 //!    equations of functions or lemmas, or narrows an equation's `requires`) is `unkillable`
 //!    there too, with reason `weakening`: every model of the specification is a model of the
-//!    mutant, so no program can kill it, and nothing runs (kink27 R5-WEAKENING).
+//!    mutant, so no program can kill it, and nothing runs (kink27 R5-WEAKENING). It is decided
+//!    after the `baseline-findings` check (before tier 1, a baseline with a finding no
+//!    `[spec] assume_joined` name assumes makes every mutation with a program in O `unknown`),
+//!    since the argument reads the baseline's normal forms as a model (fix round 1).
 //! 2. Choose the programs O: the comparable programs of the up-to-date result cache, the ones
 //!    whose cached coverage witnesses an edited rule's edit first (reached for an edit of its
 //!    `requires`, applied, k-rust `applied`, for any other edit; re-pin L2-1-tail), then the
@@ -350,6 +353,9 @@ struct LiveCall {
     mutant: MutantRun,
     baseline: Vec<TestEvidence>,
     recording: CallRecording,
+    /// The functions some of whose equations the mutation edits (kink-patch
+    /// `ClaimSupport::edited_equation_heads`): the open applications a cause may name.
+    edited: BTreeSet<String>,
 }
 
 /// The campaign calls of one mutation row: the programs of each call (candidate indices), its
@@ -524,6 +530,10 @@ impl Search<'_, '_> {
             mutant: run.mutants.remove(0),
             baseline: run.baseline,
             recording: self.runner.last_call(),
+            edited: self.support.edited_equation_heads(
+                self.spec.validator.baseline(),
+                &generation.candidates()[0].patch,
+            ),
         })
     }
 
@@ -948,9 +958,21 @@ impl Search<'_, '_> {
         row.insert("inconsistent_pairs".into(), json!([]));
         row.insert("weakening".into(), facts.weakening.clone());
         let key = hint_key_of(mutation, &facts.rules);
+        // fz26 KINK-BASELINE-FINDINGS: on a baseline with a finding no `[spec] assume_joined`
+        // name assumes, no end is data, so no program can kill: the mutation is unknown before
+        // any store is read or any call made (no cached outcome decides it, whatever it says).
+        if !order.is_empty() && self.gated() {
+            if self.mode == RunMode::Search {
+                self.hints.remove(key);
+            }
+            return Some((self.baseline_findings_row(row, &order), false));
+        }
         // kink27 R5-WEAKENING: a mutation whose edit only weakens the specification has every
         // model of the specification among its models, so no program can kill it. The verdict
-        // depends on the mutation alone: no store is read, no call made, nothing re-run.
+        // depends on the mutation alone: no store is read, no call made, nothing re-run. It is
+        // decided after the baseline-findings check (fix round 1): the argument reads the
+        // baseline's normal forms as a model, which an unassumed finding puts in doubt, and the
+        // specification's own findings are what the author has to fix first.
         if !facts.weakening.is_null() {
             row.insert("status".into(), json!(UNKILLABLE));
             row.insert("reason".into(), json!(WEAKENING_REASON));
@@ -961,15 +983,6 @@ impl Search<'_, '_> {
                 finish(row, None, None, RowCalls::default(), Vec::new()),
                 false,
             ));
-        }
-        // fz26 KINK-BASELINE-FINDINGS: on a baseline with a finding no `[spec] assume_joined`
-        // name assumes, no end is data, so no program can kill: the mutation is unknown before
-        // any store is read or any call made (no cached outcome decides it, whatever it says).
-        if !order.is_empty() && self.gated() {
-            if self.mode == RunMode::Search {
-                self.hints.remove(key);
-            }
-            return Some((self.baseline_findings_row(row, &order), false));
         }
         let records = self.valid_records(identity, &order, &mut row);
         // A memo's facts carry no generation (re-pin L1-4): they are used only when tier 1
@@ -1440,7 +1453,7 @@ fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<
                 evidence,
                 found.map_or(&[][..], |evidence| evidence.notes.across.as_slice()),
                 budget,
-                run.map(|run| &run.census),
+                run.map(|run| (&run.census, &live.edited)),
             );
             let mut entry = match &test.run {
                 TestRun::SkippedAfterKill => return None,

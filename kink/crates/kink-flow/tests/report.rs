@@ -177,6 +177,27 @@ fn walkthrough() -> Vec<Step> {
     steps
 }
 
+/// kink27 R5-WEAKENING fix round 1: the `inconsistent-mutant` action says a narrowing is
+/// unkillable only under the rank condition. Narrowing an equation widens every equation of its
+/// function ranked after it, so a narrowing beside a later-ranked equation can leave the mutant
+/// with no model (review s5: `h(1)` then equals both a rank-60 `v(5)` and `v(9)`).
+#[test]
+fn the_inconsistent_mutant_action_states_the_rank_condition() {
+    assert_eq!(
+        kink_flow::report::action("invalid", Some("inconsistent-mutant")),
+        Some(
+            "fix the mutation: two equations of one function are not shown to agree where both \
+             apply, so the mutant may have no model (inconsistent_pairs). If the edit widened a \
+             guard, make the guards exclusive or the results equal; if it only narrowed one (the \
+             equation applies to fewer inputs with the same sides, ensures and attributes) and \
+             no equation of that function ranks after it (priority, owise), no program can kill \
+             it whatever the check says, since the specification is one of its models: change a \
+             right-hand side or a rewrite rule instead; a narrowing ranked before another \
+             equation of its function widens that one, and the mutant may have no model"
+        )
+    );
+}
+
 // The light tier's CLI and report smoke test (review of TG-F): `run` and `report` through the
 // binary.
 #[test]
@@ -735,7 +756,10 @@ mod kink_tier {
     /// `I >Int 0` into `I >Int 1`, so no equation of the mutant reduces `f(1)`. The mutant's run
     /// of `f1` steps `runf(1)` to `f(1)` and stops there indeterminate: `out`'s left-hand side
     /// `v(I)` cannot be matched against the open application. The cause names the function and
-    /// that leaf's depth (1: the one step of `runf`).
+    /// that leaf's depth (1: the one step of `runf`). Fix round 1: only a function whose equations
+    /// the mutation edits is named. `fz1`'s state `pair(z(5), f(1))` holds `z(5)` first, which no
+    /// equation reduces in the baseline either, and `pair`'s `v(I)` cannot be matched against the
+    /// open `f(1)`: the cause names `f`, never `z`.
     #[test]
     #[ignore = "kink"]
     fn an_open_function_application_is_named_in_the_cause() {
@@ -748,20 +772,31 @@ mod kink_tier {
         assert!(ok, "{document:#}");
         assert_eq!(mutation(&document, "f-pos-shift")["status"], "unknown");
         let entries = executed(&document, "f-pos-shift");
-        let f1 = entries
-            .iter()
-            .find(|(program, ..)| program == "f1")
-            .expect("f1 ran");
-        assert_eq!(f1.1, "unknown");
-        let cause = f1.2.as_str().unwrap();
+        let cause_of = |id: &str| {
+            let entry = entries
+                .iter()
+                .find(|(program, ..)| program == id)
+                .unwrap_or_else(|| panic!("{id} ran"));
+            assert_eq!(entry.1, "unknown", "{id}");
+            entry.2.as_str().unwrap().to_owned()
+        };
+        let f1 = cause_of("f1");
         assert!(
-            cause.contains(
+            f1.contains(
                 "k-rust returned 2 leaves (trivial 1, indeterminate 1), the deepest at depth 1; \
-                 its indeterminate leaf at depth 1 holds an application of the function `f` that \
-                 no equation of the mutant reduces, so its value is open and the run decides \
-                 nothing past it"
+                 its indeterminate leaf at depth 1 holds an application of the function `f`, \
+                 whose equations the mutation edits, that no equation of the mutant reduces: the \
+                 mutant leaves its value open there"
             ),
-            "{cause}"
+            "{f1}"
         );
+        let fz1 = cause_of("fz1");
+        assert!(
+            fz1.contains(
+                "holds an application of the function `f`, whose equations the mutation edits"
+            ),
+            "{fz1}"
+        );
+        assert!(!fz1.contains("`z`"), "{fz1}");
     }
 }

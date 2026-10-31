@@ -1307,7 +1307,9 @@ fn weakening_is_decided_from_the_edit_alone() {
         );
     }
     // Deleting an equation ranked before a kept one widens it (`g-zero-del` beside an owise
-    // equation, `h-one-del` beside a rank-60 one); every other edit is not a weakening.
+    // equation, `h-one-del` beside a rank-60 one); `s-macro-and` conjoins `true` through `&&&`,
+    // hooked `BOOL.and` but a macro whose rule makes `A &&& _` mean `notBool A`, so it is no
+    // conjunction and the edit swaps the guards of `s`; every other edit is not a weakening.
     for id in [
         "g-zero-del",
         "h-one-del",
@@ -1316,6 +1318,7 @@ fn weakening_is_decided_from_the_edit_alone() {
         "f-zero-attr",
         "out-del",
         "mixed",
+        "s-macro-and",
     ] {
         let resolved = fixture_mutation(&spec, &list, id);
         assert_eq!(

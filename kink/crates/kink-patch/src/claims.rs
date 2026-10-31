@@ -77,6 +77,7 @@ use crate::failure::PatchFailure;
 use crate::{Baseline, Edit, POSITION_KEYS, Patch, SentenceRef};
 use k_rust::definition::{AttributeKey, Definition, Sentence};
 use k_rust::kast::{InternalLabel, Term};
+use k_rust::kompile::CompileOptions;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -90,8 +91,11 @@ pub const CLAIM_REMOVAL_VERSION: &str = "kink-patch/claim-removal/v3";
 
 /// The version of the weakening test ([`ClaimSupport::weakening`]): whether a mutation is
 /// `unkillable` is a verdict this algorithm decides, so kink's semantics identity names it
-/// (kink-campaign `identity`), on which every store keys. v1: kink27 R5-WEAKENING.
-pub const WEAKENING_VERSION: &str = "kink-patch/weakening/v1";
+/// (kink-campaign `identity`), on which every store keys. v1: kink27 R5-WEAKENING. v2 (its fix
+/// round 1): a label is a conjunction only when it denotes conjunction in every model (a
+/// `function` hooked `BOOL.and` or `BOOL.andThen`, not macro-like, heading no rule outside the
+/// builtin catalog), so a macro production hooked `BOOL.and` no longer makes an edit a narrowing.
+pub const WEAKENING_VERSION: &str = "kink-patch/weakening/v2";
 
 /// One kind of claim k-rust trusts, how kink removes it from a mutant, and where k-rust 0068938b1
 /// says it is trusted (paths relative to `crates/` or `docs/` of the k-rust tree).
@@ -338,8 +342,8 @@ pub struct ClaimSupport {
     /// Labels of productions with an `overload` attribute: kompile's overload axiom ties a
     /// family's equations together, so [`Self::weakening`] leaves them to execution.
     overloaded: BTreeSet<String>,
-    /// Labels whose production's `hook` is `BOOL.and` or `BOOL.andThen`: the conjunctions
-    /// [`Self::weakening`] flattens a `requires` through.
+    /// Labels that denote conjunction in every model: the conjunctions [`Self::weakening`]
+    /// flattens a `requires` through ([`conjunction_labels`]).
     conjunctions: BTreeSet<String>,
 }
 
@@ -381,12 +385,7 @@ impl ClaimSupport {
                     && !attributes.has_any(&AttributeKey::MACRO_LIKE)
             }),
             overloaded: labels_where(&|attributes| attributes.has(AttributeKey::Overload)),
-            conjunctions: labels_where(&|attributes| {
-                matches!(
-                    attributes.string(AttributeKey::Hook),
-                    Some("BOOL.and" | "BOOL.andThen")
-                )
-            }),
+            conjunctions: conjunction_labels(definition, &defined),
             defined,
             hooked: hooked_labels(definition),
             dependents,
@@ -730,6 +729,23 @@ impl ClaimSupport {
         Some(Weakening { equations })
     }
 
+    /// The labels of the functions some of whose baseline equations `patch` edits: the heads of
+    /// the equations it deletes, replaces, or edits a term or attribute of (kink27 R5-WEAKENING
+    /// fix round 1). An application of one of them that a mutant's state holds unreduced is one
+    /// whose value the edit can have left open; any other application is unreduced in the
+    /// baseline as well, or open for a reason the edit does not name. A lemma or an `anywhere`
+    /// or macro rule whose head cannot be read names no head.
+    #[must_use]
+    pub fn edited_equation_heads(&self, baseline: &Baseline, patch: &Patch) -> BTreeSet<String> {
+        touched_sentences(patch.edits())
+            .into_iter()
+            .filter_map(|at| match role(baseline.sentence(at)?, &self.defined) {
+                Role::Equation(head) => Some(head),
+                Role::Lemma | Role::Rewrite | Role::Unknown => None,
+            })
+            .collect()
+    }
+
     /// The head of a rule whose deletion can weaken the theory: `Some(None)` for a
     /// `simplification` lemma, `Some(Some(f))` for an equation of a `function` head `f` outside
     /// every `overload` family with no `anywhere` or macro-like attribute, `None` otherwise.
@@ -755,7 +771,8 @@ impl ClaimSupport {
     /// original's, decided syntactically: the same body and `ensures` (term equality ignores
     /// annotations), the same attributes without the position keys, and every conjunct of the
     /// original `requires` a conjunct of the replacement's ([`Self::conjuncts`]). Sound because
-    /// a conjunction (`andBool`, `andThenBool`) is `true` only when both operands are `true`; it
+    /// a conjunction (`andBool`, `andThenBool`, or another label that denotes conjunction in
+    /// every model, [`conjunction_labels`]) is `true` only when both operands are `true`; it
     /// misses a narrowing that rewrites a guard (`W -Int 1` to `W -Int 2`).
     fn narrows(&self, original: &Sentence, replacement: &Sentence) -> bool {
         let (
@@ -994,6 +1011,65 @@ fn hooked_labels(definition: &Definition) -> BTreeSet<String> {
             _ => None,
         })
         .collect()
+}
+
+/// The labels that denote conjunction in every model of `definition`: each production with the
+/// label is a `function` hooked `BOOL.and` or `BOOL.andThen` with no macro-like attribute, and no
+/// rule outside the builtin catalog is headed by it.
+///
+/// The hook alone does not fix what an application denotes. A macro-like production is expanded
+/// by its rules into whatever they say before anything runs (`rule A &&& _ => notBool A` makes
+/// `c &&& true` mean `notBool c`), and an equation of the label, `macro`, `anywhere` or function
+/// rule, is an axiom about it that the hook need not satisfy. Without either, the label's only
+/// meaning is the hook's, and `a ∧ b` is true only when both operands are, which is what the
+/// conjunct test needs. The builtin catalog's equations of `andBool` and `andThenBool` (`true
+/// andBool B => B` and the like) are laws of conjunction, so they leave its meaning the hook's.
+/// A weakening's edits only delete rules or replace one by a rule with the same body, so the
+/// mutant's rules headed by a label are among the baseline's: reading the baseline decides
+/// both. A rule with `anywhere` or a macro-like attribute whose head cannot be read could be
+/// headed by any label, so one outside the catalog leaves no label a conjunction (fail closed).
+fn conjunction_labels(definition: &Definition, defined: &BTreeSet<String>) -> BTreeSet<String> {
+    let builtin_source_prefixes = CompileOptions::default().builtin_source_prefixes;
+    let builtin = |sentence: &Sentence| {
+        sentence.attributes().source().is_some_and(|source| {
+            builtin_source_prefixes
+                .iter()
+                .any(|prefix| source.starts_with(prefix))
+        })
+    };
+    let mut conjunctions = BTreeSet::new();
+    let mut refused = BTreeSet::new();
+    for (_, sentence) in sentences(definition) {
+        match sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } => {
+                let conjunction = attributes.has(AttributeKey::Function)
+                    && !attributes.has_any(&AttributeKey::MACRO_LIKE)
+                    && matches!(
+                        attributes.string(AttributeKey::Hook),
+                        Some("BOOL.and" | "BOOL.andThen")
+                    );
+                if conjunction {
+                    conjunctions.insert(label.name.clone());
+                } else {
+                    refused.insert(label.name.clone());
+                }
+            }
+            Sentence::Rule { body, .. } if !builtin(sentence) => match head(matched_term(body)) {
+                Some(head) => {
+                    refused.insert(head.to_owned());
+                }
+                None if role(sentence, defined) == Role::Unknown => return BTreeSet::new(),
+                None => {}
+            },
+            _ => {}
+        }
+    }
+    conjunctions.retain(|label| !refused.contains(label));
+    conjunctions
 }
 
 fn role(sentence: &Sentence, defined: &BTreeSet<String>) -> Role {

@@ -568,8 +568,8 @@ struct SplitState {
     predicates: Vec<Pattern>,
 }
 
-/// An application of a function that an indeterminate leaf holds unreduced ([`open_application`]):
-/// the definition leaves its value open there.
+/// An application of a function that an indeterminate leaf holds unreduced
+/// ([`open_applications`]): the definition leaves its value open there.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OpenApplication {
     /// The KORE symbol of the function.
@@ -578,23 +578,25 @@ pub struct OpenApplication {
     pub depth: u64,
 }
 
-/// The first application, in pre-order of the state's terms (its path predicates aside), of a
-/// symbol of `functions` in the state of an [`HaltClass::Indeterminate`] leaf; `None` for every
-/// other leaf, an undecodable state, or a state without one (kink27 R5-WEAKENING).
+/// The functions applied in the state of an [`HaltClass::Indeterminate`] leaf, each once, in
+/// pre-order of the state's terms (its path predicates aside), among the symbols of `functions`;
+/// empty for every other leaf, an undecodable state, or a state without one (kink27
+/// R5-WEAKENING).
 ///
 /// k-rust's states are normal forms, so a function application left in one is an application
-/// that no equation reduces: its value is open, and a step that must match it (the
-/// indeterminate halt) cannot decide. `functions` names the function symbols that equations
-/// define (a hooked symbol's halt is `unsupported-hook` instead).
+/// that no equation reduces: its value is open there. Which of them, if any, blocked the step
+/// that could not be decided (the indeterminate halt) is not read: a reader names the one it
+/// can attribute (kink-flow names an application of a function whose equations the mutation
+/// edits). `functions` names the function symbols that equations define (a hooked symbol's
+/// halt is `unsupported-hook` instead).
 #[must_use]
-pub fn open_application(
-    leaf: &AdaptedLeaf,
-    functions: &BTreeSet<String>,
-) -> Option<OpenApplication> {
+pub fn open_applications(leaf: &AdaptedLeaf, functions: &BTreeSet<String>) -> Vec<OpenApplication> {
     if leaf.halt != HaltClass::Indeterminate {
-        return None;
+        return Vec::new();
     }
-    let state = codec::from_value(&leaf.branch.state).ok()?;
+    let Ok(state) = codec::from_value(&leaf.branch.state) else {
+        return Vec::new();
+    };
     // The state's term conjuncts, left to right, through its top conjunctions.
     let mut terms = Vec::new();
     let mut conjuncts = vec![state.strip_exists()];
@@ -605,19 +607,23 @@ pub fn open_application(
             _ => {}
         }
     }
+    let mut open = Vec::<OpenApplication>::new();
     let mut pending = terms.into_iter().rev().collect::<Vec<_>>();
     while let Some(node) = pending.pop() {
         if let Pattern::Application { symbol, .. } = node
             && functions.contains(&symbol.name)
+            && !open
+                .iter()
+                .any(|application| application.symbol == symbol.name)
         {
-            return Some(OpenApplication {
+            open.push(OpenApplication {
                 symbol: symbol.name.clone(),
                 depth: leaf.branch.depth,
             });
         }
         pending.extend(walk::children(node).into_iter().rev());
     }
-    None
+    open
 }
 
 fn split_state(

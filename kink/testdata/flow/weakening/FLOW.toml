@@ -1,6 +1,7 @@
 # kink-flow corpus manifest for the weakening fixture (kink27 R5-WEAKENING): functions whose
 # equations a mutation deletes or narrows, beside owise and priority equations whose deletion
-# widens another.
+# widens another, a macro production hooked BOOL.and that is no conjunction, and a program whose
+# state holds an application irreducible in the baseline too beside an open one (fix round 1).
 [spec]
 entry = "weakening.k"
 main_module = "WEAK"
@@ -25,3 +26,11 @@ text = "runh(1)"
 [[program]]
 id = "h3"
 text = "runh(3)"
+
+[[program]]
+id = "s5"
+text = "runs(5)"
+
+[[program]]
+id = "fz1"
+text = "runfz(1)"

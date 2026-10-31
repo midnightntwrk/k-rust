@@ -878,6 +878,14 @@ note = "requires and right-hand side"
                 .unwrap()
                 .contains("inconsistent_pairs")
         );
+        // kink27 R5-WEAKENING fix round 1: a narrowing is unkillable only under the rank
+        // condition, which the action states.
+        assert!(
+            refused["action"]
+                .as_str()
+                .unwrap()
+                .contains("no equation of that function ranks after it (priority, owise)")
+        );
         assert_eq!(
             mutation(&document, "sgn-plus-one")["inconsistent_pairs"],
             json!([])
@@ -1435,10 +1443,13 @@ note = "requires and right-hand side"
             );
             assert_eq!(weakening[0]["kind"], kind, "{id}");
         }
+        // `s-macro-and` conjoins `true` through a macro hooked `BOOL.and` that negates its left
+        // operand: the guards of `s` swap, so s5 ends `out(5)` where the baseline ends `out(6)`.
         for (id, killer) in [
             ("g-zero-del", "g0"),
             ("h-one-del", "h1"),
             ("f-zero-value", "f0"),
+            ("s-macro-and", "s5"),
         ] {
             let row = mutation(&document, id);
             assert_eq!(row["status"], "killed", "{id}");

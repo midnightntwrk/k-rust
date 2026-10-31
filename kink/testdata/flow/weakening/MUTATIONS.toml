@@ -123,3 +123,17 @@ note = "deletes an equation of f and edits a rewrite rule"
   rule = "runf"
   find = "=> f(I)"
   replace = "=> f(I +Int 0)"
+
+[[mutation]]
+id = "s-macro-and"
+note = "conjoins `true` through a macro production hooked BOOL.and whose rule negates its left operand: the guards swap, s(5) = v(5) where the baseline gives v(6); not a weakening"
+
+  [[mutation.edit]]
+  rule = "s-big"
+  find = "I >Int 10"
+  replace = "I >Int 10 &&& true"
+
+  [[mutation.edit]]
+  rule = "s-small"
+  find = "I <=Int 10"
+  replace = "I <=Int 10 &&& true"
