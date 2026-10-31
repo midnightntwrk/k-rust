@@ -251,11 +251,21 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
     };
     let reason = match (found.place, found.root) {
         (Place::AsWritten(kind), _) => format!(
-            "{function} stands in the subject of {clause}, which static expansion matches against a program's terms as they are written, before anything evaluates: there an application stands for its own spelling, not for the value it denotes everywhere else (`f(x + 1)` would expand the program `f(y + 1)` but not `f(1 + y)`), so the clause would rewrite some spellings of a value and not others: to rewrite a computation, write a rule (`#[k::rule]`) or the function's equation (`#[k::equation]`); to expand a term a program writes, write it with constructors",
+            "{written} stands in the subject of {clause}, which static expansion matches against a program's terms as they are written, before anything evaluates: there an application stands for its own spelling, not for the value it denotes everywhere else (`f(x + 1)` would expand the program `f(y + 1)` but not `f(1 + y)`), so the clause would rewrite some spellings of a value and not others: to rewrite a computation, write a rule (`#[k::rule]`) or the function's equation (`#[k::equation]`); to expand a term a program writes, write it with constructors",
             clause = if kind == SentenceKind::Alias {
                 "an alias clause"
             } else {
                 "a desugar clause"
+            },
+            // A map literal denotes its updates, the one way KRS writes a map it builds; read
+            // as written, even `map![k -> v]` would meet no term KRS writes as its entry.
+            written = if matches!(
+                found.application,
+                Some(DescriptorApplicationRef::Map(TermMapOperation::Update))
+            ) {
+                format!("{function}, which a map literal `map![k -> v, ..]` denotes,")
+            } else {
+                function.clone()
             },
         ),
         (Place::Local, _) => format!(

@@ -801,7 +801,7 @@ impl Class {
                 "`..base` builds a record whose unlisted fields are those of the record the alias `base` matched, which only a term a sentence builds can say; a pattern denotes no record by it, and leaves out the fields it does not constrain with `..`"
             }
             Self::RestInAliasSubject => {
-                "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); name the rest, `rest @ ..`, and use it in the result, or write `#[k::desugar]` for an expansion that runs one way"
+                "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); a list of an element and a rest is moreover one spelling of the list, which static expansion matches as written: name the whole list and use the name in the result"
             }
             Self::RewriteInMapKey => {
                 "a map key is what the map is looked up by, and a rewrite there would move the entry to another key, a removal and an insertion that may meet a key the map already holds: a rewrite in a map changes a value, `key -> k::rewrite!(old => new)`, and a rule with a result moves an entry with `map::remove` and `map::update`"
@@ -839,9 +839,9 @@ pub enum Rule {
     /// function.
     ConstantAppliesFunction,
     /// `function-in-pattern`: whether an application where a pattern matches a term applies a
-    /// function, and, at an equation's slot root, whether that root is the subject's. In an
-    /// alias clause's subject the compiler also tells a set's concatenation by its head
-    /// (`concatenation-in-alias-subject`), which printing may write over overlapping parts.
+    /// function, and, at an equation's slot root, whether that root is the subject's. In a
+    /// static clause's subject the compiler also tells a collection of two or more parts by its
+    /// head (`collection-in-static-subject`), which static expansion matches in one spelling.
     FunctionInPattern,
     /// `ml-in-condition`: a matching-logic predicate in the condition of a transition or an
     /// equation, which the compiler recognizes for every connective alike.
@@ -1101,8 +1101,8 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // clause's subject is matched against a program as written, where a function's
         // application would stand for its spelling, a key's or a set element's too, since nothing
         // is looked up there (decision NT-11-5); the compiler tells a function from a
-        // constructor, and in an alias clause's subject, which is built backwards too, a set's
-        // concatenation, which matches only disjoint parts printing cannot make sure of.
+        // constructor, and a collection of two or more parts, which static expansion matches in
+        // one of its spellings, by its head.
         Construct::FunctionApplication => {
             if position.matches_evaluated_terms()
                 || position.matches_terms_as_written()

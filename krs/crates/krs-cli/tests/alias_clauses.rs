@@ -174,13 +174,13 @@ fn a_construct_printing_cannot_build_is_refused_in_an_alias_subject() {
         error[krs::expand::irreversible-alias]: an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the fields `..` leaves open have no value from that match: they print as variables (`_Krs_Wildcard0`); name every field and use it in the result, or write `#[k::desugar]` for an expansion that runs one way; here it stands in the subject of a `#[k::alias]` fn
         --> src/lib.rs:70:27
         anonymous-rest:
-        error[krs::expand::irreversible-alias]: an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); name the rest, `rest @ ..`, and use it in the result, or write `#[k::desugar]` for an expansion that runs one way; here it stands in the subject of a `#[k::alias]` fn
+        error[krs::expand::irreversible-alias]: an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); a list of an element and a rest is moreover one spelling of the list, which static expansion matches as written: name the whole list and use the name in the result; here it stands in the subject of a `#[k::alias]` fn
         --> src/lib.rs:70:32
         back-rest:
-        error[krs::expand::irreversible-alias]: an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); name the rest, `rest @ ..`, and use it in the result, or write `#[k::desugar]` for an expansion that runs one way; here it stands in the subject of a `#[k::alias]` fn
+        error[krs::expand::irreversible-alias]: an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); a list of an element and a rest is moreover one spelling of the list, which static expansion matches as written: name the whole list and use the name in the result; here it stands in the subject of a `#[k::alias]` fn
         --> src/lib.rs:70:29
         middle-rest:
-        error[krs::expand::irreversible-alias]: an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); name the rest, `rest @ ..`, and use it in the result, or write `#[k::desugar]` for an expansion that runs one way; here it stands in the subject of a `#[k::alias]` fn
+        error[krs::expand::irreversible-alias]: an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the elements an anonymous `..` leaves unnamed have no value from that match: they print as a variable (`_Krs_Wildcard0`); a list of an element and a rest is moreover one spelling of the list, which static expansion matches as written: name the whole list and use the name in the result; here it stands in the subject of a `#[k::alias]` fn
         --> src/lib.rs:70:32
         unused-name:
         error[krs::expand::irreversible-alias]: alias clause `free`: its subject binds `y`, which its result does not use; an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and no match binds `y`, so it would print as a variable where the term stood; use `y` in the result, or write `#[k::desugar]` for an expansion that runs one way
@@ -236,21 +236,22 @@ fn a_construct_printing_cannot_build_is_refused_in_an_alias_subject() {
 }
 
 /// Below an alias subject's root, what a term's head tells is refused at the term once names and
-/// sorts are resolved: a set's concatenation, which forward matches only disjoint parts and whose
-/// parts the result's match may bind overlapping (on main `bs(1, set::item(1))` printed
+/// sorts are resolved: a set's concatenation, which static expansion matches as written, in one
+/// order of its parts, as in a desugar's subject (NT-14), and whose parts the result's match may
+/// moreover bind overlapping (on main `bs(1, set::item(1))` printed
 /// `elems(SetItem ( 1 ) SetItem ( 1 ))`, no set). An alias's or a desugar's application there is
-/// written expanded, where the expansion needs no value, and refused otherwise (NT-14,
-/// `static_subjects.rs`); a function's application is refused at the construct. A
+/// written expanded, where the expansion needs no value, and refused otherwise
+/// (`static_subjects.rs`); a function's application is refused at the construct. A
 /// reference-code subject spells no map's concatenation: `map![..]` there is the update it
 /// denotes.
 #[test]
 fn what_a_head_tells_is_refused_below_an_alias_subject_root() {
     expect_test::expect![[r"
         set-concatenation-rest:
-        error[krs::analysis::irreversible-alias]: alias clause `elems`: a set's concatenation matches only a set whose parts are disjoint, a test the backward reading cannot make: when a result is printed, each term the clause's result matches prints as its subject, built from what the match bound, and parts that overlap print as a concatenation that denotes no set (`SetItem ( 1 ) SetItem ( 1 )`); write `#[k::desugar]` for an expansion that runs one way
+        error[krs::analysis::collection-in-static-subject]: alias clause `elems`: a set of two or more parts matches only one way of writing it: static expansion matches a program's terms as they are written, before anything evaluates, and does not reorder a set's elements or a map's entries or regroup a list's parts, so the clause would rewrite one spelling of the collection and not the others (`[1, 2, 3]` but not `list::concat([1, 2], [3])`); the empty collection and one element or entry have one spelling: write the parts as a constructor's arguments, or rewrite the collection with a rule
         --> src/lib.rs:70:29
         set-concatenation-items:
-        error[krs::analysis::irreversible-alias]: alias clause `elems`: a set's concatenation matches only a set whose parts are disjoint, a test the backward reading cannot make: when a result is printed, each term the clause's result matches prints as its subject, built from what the match bound, and parts that overlap print as a concatenation that denotes no set (`SetItem ( 1 ) SetItem ( 1 )`); write `#[k::desugar]` for an expansion that runs one way
+        error[krs::analysis::collection-in-static-subject]: alias clause `elems`: a set of two or more parts matches only one way of writing it: static expansion matches a program's terms as they are written, before anything evaluates, and does not reorder a set's elements or a map's entries or regroup a list's parts, so the clause would rewrite one spelling of the collection and not the others (`[1, 2, 3]` but not `list::concat([1, 2], [3])`); the empty collection and one element or entry have one spelling: write the parts as a constructor's arguments, or rewrite the collection with a rule
         --> src/lib.rs:70:29"]]
     .assert_eq(&refusals([
         (
@@ -266,7 +267,7 @@ fn what_a_head_tells_is_refused_below_an_alias_subject_root() {
 
 /// A clause for each alias production of the preamble but `Al::Pairs`, so that a package whose
 /// mistake is told after the clauses are matched with their productions has no other.
-const OTHER_CLAUSES: &str = "#[k::alias]\nfn whole(k::term![Al::Whole(a)]: Term<Value>) -> Term<Value> {\n    Data::One(a)\n}\n\n#[k::alias]\nfn items(k::term![Al::Items([x, rest @ ..])]: Term<Value>) -> Term<Value> {\n    Data::Two(x, rest)\n}\n\n#[k::alias]\nfn elems(k::term![Al::Elems(set::item(x))]: Term<Value>) -> Term<Value> {\n    Data::Two(x, [])\n}\n\n";
+const OTHER_CLAUSES: &str = "#[k::alias]\nfn whole(k::term![Al::Whole(a)]: Term<Value>) -> Term<Value> {\n    Data::One(a)\n}\n\n#[k::alias]\nfn items(k::term![Al::Items([x])]: Term<Value>) -> Term<Value> {\n    Data::Two(x, [])\n}\n\n#[k::alias]\nfn elems(k::term![Al::Elems(set::item(x))]: Term<Value>) -> Term<Value> {\n    Data::Two(x, [])\n}\n\n";
 
 /// A function's application in an alias subject would stand for its spelling, which static
 /// expansion matches as written, rather than its value (finding NT-8-2, decided with NT-11-5):
@@ -307,8 +308,8 @@ fn rules(k: &str, needle: &str) -> String {
 
 const TWO_WAY: &str = r"
 #[k::alias]
-fn items(k::term![Al::Items([x, rest @ ..])]: Term<Value>) -> Term<Value> {
-    Data::Two(x, rest)
+fn items(k::term![Al::Items([x])]: Term<Value>) -> Term<Value> {
+    Data::Two(x, [])
 }
 
 #[k::alias]
@@ -334,7 +335,7 @@ fn elems(k::term![Al::Elems(set::item(x))]: Term<Value>) -> Term<Value> {
 
 #[k::rule]
 fn mk(k::term![Data::Mk(a, b)]: Term<Value>) -> Term<Value> {
-    Data::Two(a, [b, b])
+    Data::Two(a, [])
 }
 
 #[k::rule]
@@ -348,10 +349,11 @@ fn calc(k::term![Data::Calc(a, b)]: Term<Value>) -> Term<Value> {
 }
 ";
 
-/// An alias whose subject every result match builds is accepted: a named rest the result uses
-/// is the list the match bound, and the result may compute (`k::matches!`, a `let`, an operator).
-/// A printed value the result matches prints as the alias: `two(1, [2, 2])` as
-/// `items([1, 2, 2])`. A computed result's printed value is evaluated, which holds no application
+/// An alias whose subject every result match builds is accepted, a list of one element among
+/// them, and the result may compute (`k::matches!`, a `let`, an operator). A printed value the
+/// result matches prints as the alias: `two(1, [])` as `items([1])`. A list of an element and a
+/// named rest is refused, as a list of several parts in any static subject is: static expansion
+/// matches it as written, one of its spellings (`static_subjects.rs`). A computed result's printed value is evaluated, which holds no application
 /// of the clause's generated function, so it prints expanded: `flag(true)`, `pair(5, 5)`. The
 /// computing aliases are written in rules, whose `#let` and `:=K` k-rust lowers; a program that
 /// writes one meets them unlowered (finding NT-8-1).
@@ -386,10 +388,10 @@ fn a_two_way_alias_is_accepted_and_prints_backwards() {
         printed.push(format!("{program} => {state}"));
     }
     expect_test::expect![[r"
-        rule items ( ListItem(X:KItem) Rest:List ) => two ( X:KItem , Rest:List ) [label(krsRule_DIGEST)]
+        rule items ( ListItem(X:KItem) ) => two ( X:KItem , .List ) [label(krsRule_DIGEST)]
         rule whole ( A:Value ) => flag ( ( box ( _ ) :=K A:Value ) ) [label(krsRule_DIGEST)]
         rule pairs ( X:Int , Y:Int ) => pair ( ( #let Z:Int = Y:Int #in Z:Int ) , X:Int +Int 1 ) [label(krsRule_DIGEST)]
-        mk(1, 2) => items(ListItem ( 1 ) ListItem ( 2 ) ListItem ( 2 )) ~> .K
+        mk(1, 2) => items(ListItem ( 1 )) ~> .K
         probe(box(3)) => flag(true) ~> .K
         calc(4, 5) => pair(5, 5) ~> .K"]]
     .assert_eq(

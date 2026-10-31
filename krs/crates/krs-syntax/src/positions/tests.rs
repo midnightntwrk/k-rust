@@ -344,7 +344,7 @@ fn an_alias_subject_is_built_backwards_and_refuses_what_only_matches() {
     }
     // A static clause's subject matches a program as written, where a function's application
     // or a sort test would stand for its spelling (decision NT-11-5): the compiler tells a
-    // function, and a set's concatenation, which matches only disjoint parts, by its head.
+    // function, and a collection of two or more parts, one of its spellings, by its head.
     assert!(subject.matches_terms_as_written());
     assert_eq!(
         admits(subject, Construct::FunctionApplication),

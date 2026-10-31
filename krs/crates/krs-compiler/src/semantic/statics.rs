@@ -24,9 +24,6 @@
 //!   ([`alternatives`]): static expansion does not match an or-pattern, and a
 //!   desugar runs only forward, so `A | B` means "either", which one clause
 //!   each states exactly. An alias clause's subject holds no `|` (NT-Q5);
-//! - a Bytes token is written as a program writes it
-//!   ([`krs_ir::bytes_token::program_spelling`]): static expansion compares
-//!   tokens as they are written.
 //!
 //! An alias clause also runs backwards: when a result is printed, each term its result matches
 //! prints as its subject, built from what the match bound. So below its root the subject holds
@@ -36,8 +33,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    ApplicationRef, BuiltinSort, GrammarProductionItemKind, NodeOrigin, ProductionAttribute,
-    SemanticId, SemanticIdKind, SentenceKind, SourceMapKey, StableItemId,
+    ApplicationRef, GrammarProductionItemKind, NodeOrigin, ProductionAttribute, SemanticId,
+    SemanticIdKind, SentenceKind, SourceMapKey, StableItemId,
 };
 use krs_ir_levels::{
     IrTermKind, ListOperands, MapOperands, SemanticModule, SemanticRule, SemanticSortRef,
@@ -52,6 +49,10 @@ use crate::partition::production_display_name;
 /// each recursive step: a recursive production's ground expansion that has not
 /// ended by then is refused.
 const EXPANSION_STEPS: usize = 10_000;
+
+/// The most rewrites KRS follows on one path of an expansion, one inside the result of
+/// another: an expansion that grows without repeating an application, past this, is refused.
+const EXPANSION_DEPTH: usize = 256;
 
 /// The static mode of a production marker, with its attribute origin.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -215,10 +216,10 @@ pub(super) fn static_clauses(
             steps: EXPANSION_STEPS,
             copies: &mut copies,
         };
-        let subject = expansion.subject(body.from())?;
-        if mode == Mode::Alias {
-            reversible_subject(rule.id(), &subject)?;
+        if let Some(collection) = first_collection_of_parts(body.from()) {
+            return Err(collection_in_subject(rule, mode, collection));
         }
+        let subject = expansion.subject(body.from())?;
         let subjects = if mode == Mode::Desugar {
             alternatives(&subject)
         } else {
@@ -227,7 +228,7 @@ pub(super) fn static_clauses(
         let clauses = subjects
             .into_iter()
             .enumerate()
-            .map(|(index, subject)| restate(rule, index, &written_tokens(&subject)))
+            .map(|(index, subject)| restate(rule, index, &subject))
             .collect::<Result<Vec<_>, _>>()?;
         restated.insert(rule.id().clone(), clauses);
     }
@@ -354,6 +355,15 @@ struct Expansion<'p, 'm, 'c> {
     copies: &'c mut usize,
 }
 
+/// What a program's expansion has done on the way to one of its terms: the clauses that
+/// rewrote an enclosing application, each of which, unless its production is recursive,
+/// applies no more on this path; the applications they rewrote; and how many there are.
+#[derive(Clone, Default)]
+struct Path<'m> {
+    applied: BTreeSet<&'m StableItemId>,
+    rewritten: Vec<SemanticTerm>,
+}
+
 /// Whether a clause's subject matches a ground term.
 enum Match {
     Yes,
@@ -362,104 +372,183 @@ enum Match {
     Unknown,
 }
 
+/// Why KRS cannot write an application expanded, and what to write instead.
+struct Refused {
+    reason: String,
+    instead: Instead,
+}
+
+/// What a refusal advises writing instead of the application.
+enum Instead {
+    /// The term it expands to, which the clauses determine.
+    Expansion,
+    /// One clause per clause of the inner production, each with its expansion written out: the
+    /// expansion depends on what a program writes.
+    Cases,
+    /// Arguments a clause of the production matches.
+    Arguments,
+}
+
+impl Refused {
+    fn new(reason: String, instead: Instead) -> Self {
+        Self { reason, instead }
+    }
+}
+
 impl<'m> Expansion<'_, 'm, '_> {
     /// The clause's subject with every static application below its root, the production the
-    /// clause expands, expanded.
+    /// clause expands, expanded. A program writes the subject's applications itself, so each is
+    /// expanded from an empty path.
     fn subject(&mut self, root: &SemanticTerm) -> Result<SemanticTerm, DescriptorLoweringError> {
-        map_children(root, &mut |argument| self.term(argument, None))
+        map_children(root, &mut |argument| {
+            self.term(argument, None, &Path::default())
+        })
     }
 
-    /// `term` with its static applications expanded, innermost first, as a program's are; a
-    /// refusal is told at `site`, the outermost static application the clause's subject writes,
-    /// which is `term`'s own when `site` is `None`.
+    /// `term`, on the expansion path `path`, with its static applications expanded, innermost
+    /// first, as a program's are; a refusal is told at `site`, the outermost static application
+    /// the clause's subject writes, which is `term`'s own when `site` is `None`. Alternatives in
+    /// a desugar's application's arguments are distributed first, since the application of each
+    /// alternative is one term a program writes.
     fn term(
         &mut self,
         term: &SemanticTerm,
         site: Option<&NodeOrigin>,
+        path: &Path<'m>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        let site = match (site, term.kind()) {
-            (
-                None,
-                IrTermKind::Application {
-                    application: ApplicationRef::Declared(production),
-                    ..
-                },
-            ) if self.productions.is_static(production) => Some(term.origin()),
-            _ => site,
-        };
-        let term = map_children(term, &mut |child| self.term(child, site))?;
-        match term.kind() {
+        let is_static = matches!(
+            term.kind(),
             IrTermKind::Application {
+                application: ApplicationRef::Declared(production),
+                ..
+            } if self.productions.is_static(production)
+        );
+        let site = match site {
+            None if is_static => Some(term.origin()),
+            site => site,
+        };
+        if is_static && self.mode == Mode::Desugar {
+            let mut branches = alternatives(term).into_iter();
+            if let (Some(first), Some(second)) = (branches.next(), branches.next()) {
+                let expand = |expansion: &mut Self, branch: SemanticTerm| {
+                    expansion.term(&branch, site, path)
+                };
+                let first = expand(self, first)?;
+                let second = expand(self, second)?;
+                let rest = branches
+                    .map(|branch| expand(self, branch))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(term.with_kind(IrTermKind::Or {
+                    alternatives: krs_ir::AtLeastTwo::new(first, second, rest),
+                }));
+            }
+        }
+        let term = map_children(term, &mut |child| self.term(child, site, path))?;
+        self.rewrite(term, site, path)
+    }
+
+    /// `term`, whose arguments are expanded, rewritten at its root as long as it is a static
+    /// application: each rewrite's result is expanded below its root on the path the rewrite
+    /// extends, and rewritten at its root again in this loop, so a chain of root rewrites takes
+    /// no native stack. An application that repeats on its path, or a path past
+    /// [`EXPANSION_DEPTH`] rewrites, would never end, and is refused.
+    fn rewrite(
+        &mut self,
+        term: SemanticTerm,
+        site: Option<&NodeOrigin>,
+        path: &Path<'m>,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let mut current = term;
+        let mut path = path.clone();
+        loop {
+            let IrTermKind::Application {
                 application: ApplicationRef::Declared(production),
                 arguments,
                 ..
-            } if self.productions.is_static(production) => self.expand(
-                production,
-                arguments,
-                site.expect("a static application is a site, or below one"),
-            ),
-            _ => Ok(term),
+            } = current.kind()
+            else {
+                return Ok(current);
+            };
+            if !self.productions.is_static(production) {
+                return Ok(current);
+            }
+            let production = production.clone();
+            let site = site.expect("a static application is a site, or below one");
+            let refused =
+                |expansion: &Self, refused: Refused| expansion.refusal(&production, site, &refused);
+            if path.rewritten.iter().any(|earlier| same(earlier, &current)) {
+                return Err(refused(
+                    self,
+                    Refused::new(
+                        "its expansion writes this very application again on its own path, so it never ends"
+                            .to_owned(),
+                        Instead::Expansion,
+                    ),
+                ));
+            }
+            if path.rewritten.len() >= EXPANSION_DEPTH || self.steps == 0 {
+                return Err(refused(
+                    self,
+                    Refused::new(
+                        format!(
+                            "expanding it takes more than {EXPANSION_DEPTH} nested or {EXPANSION_STEPS} rewrites, so it may not end"
+                        ),
+                        Instead::Expansion,
+                    ),
+                ));
+            }
+            self.steps -= 1;
+            let (clause, bindings) = self
+                .clause_for(&production, arguments, &path.applied)
+                .map_err(|refusal| refused(self, refusal))?;
+            let result = clause
+                .body()
+                .expect("a static clause has a term rewrite")
+                .to();
+            let expanded = self
+                .instantiate(result, &bindings)
+                .map_err(|reason| refused(self, Refused::new(reason, Instead::Expansion)))?;
+            path.applied.insert(clause.id());
+            path.rewritten.push(current.clone());
+            current = map_children(&expanded, &mut |child| self.term(child, Some(site), &path))?;
         }
-    }
-
-    /// The expansion of `production` applied to `arguments`, whose own static applications are
-    /// expanded.
-    fn expand(
-        &mut self,
-        production: &StableItemId,
-        arguments: &[SemanticTerm],
-        site: &NodeOrigin,
-    ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        if self.steps == 0 {
-            return Err(self.refusal(
-                production,
-                site,
-                &format!("expanding it takes more than {EXPANSION_STEPS} steps, so it may not end"),
-            ));
-        }
-        self.steps -= 1;
-        let (clause, bindings) = self
-            .clause_for(production, arguments)
-            .map_err(|reason| self.refusal(production, site, &reason))?;
-        let result = clause
-            .body()
-            .expect("a static clause has a term rewrite")
-            .to();
-        let expanded = self
-            .instantiate(result, &bindings)
-            .map_err(|reason| self.refusal(production, site, &reason))?;
-        self.term(&expanded, Some(site))
     }
 
     /// The clause that expands `production` applied to `arguments`, with what its parameters
-    /// bind, or why the expansion needs a value.
+    /// bind, or why the expansion needs a value; a clause in `applied`, which rewrote an
+    /// application this one stands in, applies no more unless its production is recursive.
     fn clause_for(
         &self,
         production: &StableItemId,
         arguments: &[SemanticTerm],
-    ) -> Result<(&'m SemanticRule, BTreeMap<SemanticId, SemanticTerm>), String> {
+        applied: &BTreeSet<&'m StableItemId>,
+    ) -> Result<(&'m SemanticRule, BTreeMap<SemanticId, SemanticTerm>), Refused> {
         let clauses = self
             .productions
             .clauses
             .get(production)
             .map_or(&[][..], Vec::as_slice);
+        let recursive = self.productions.statics[production].recursive;
+        let blocked = |clause: &SemanticRule| !recursive && applied.contains(clause.id());
         if arguments.iter().all(|argument| self.ground(argument)) {
-            self.matching_clause(production, clauses, arguments)
+            self.matching_clause(production, clauses, arguments, &blocked)
         } else {
-            self.only_clause(production, clauses, arguments)
+            self.only_clause(production, clauses, arguments, &blocked)
         }
     }
 
-    /// The one clause of `clauses` whose subject matches the ground `arguments`, with what its
-    /// names bind.
+    /// The one clause of `clauses`, not `blocked`, whose subject matches the ground
+    /// `arguments`, with what its names bind.
     fn matching_clause(
         &self,
         production: &StableItemId,
         clauses: &[&'m SemanticRule],
         arguments: &[SemanticTerm],
-    ) -> Result<(&'m SemanticRule, BTreeMap<SemanticId, SemanticTerm>), String> {
+        blocked: &dyn Fn(&SemanticRule) -> bool,
+    ) -> Result<(&'m SemanticRule, BTreeMap<SemanticId, SemanticTerm>), Refused> {
         let name = production_display_name(production);
         let mut found = None;
+        let mut spent = None;
         for clause in clauses {
             let root = clause
                 .body()
@@ -476,22 +565,36 @@ impl<'m> Expansion<'_, 'm, '_> {
             match self.all_match(parameters, arguments, &mut bindings) {
                 Match::No => {}
                 Match::Unknown => {
-                    return Err(format!(
-                        "telling which clause of `{name}` matches these arguments takes more than comparing constructors, names and tokens"
+                    return Err(Refused::new(
+                        format!(
+                            "telling which clause of `{name}` matches these arguments takes more than comparing constructors, names and tokens"
+                        ),
+                        Instead::Expansion,
                     ));
                 }
+                Match::Yes if blocked(clause) => spent = Some(clause.id().item_name()),
                 Match::Yes if found.is_some() => {
-                    return Err(format!(
-                        "more than one clause of `{name}` matches these arguments"
+                    return Err(Refused::new(
+                        format!("more than one clause of `{name}` matches these arguments"),
+                        Instead::Expansion,
                     ));
                 }
                 Match::Yes => found = Some((*clause, bindings)),
             }
         }
-        found.ok_or_else(|| {
-            format!(
-                "no clause of `{name}` matches these arguments, so a program's application stays unexpanded and this clause never applies"
-            )
+        found.ok_or_else(|| match spent {
+            Some(clause) => Refused::new(
+                format!(
+                    "the clause of `{name}` that matches it, `{clause}`, already rewrote an application this one stands in, and `{name}` is not recursive, so a program's expansion leaves this application unexpanded and this clause never applies"
+                ),
+                Instead::Expansion,
+            ),
+            None => Refused::new(
+                format!(
+                    "no clause of `{name}` matches these arguments, so a program's application stays unexpanded and this clause never applies"
+                ),
+                Instead::Arguments,
+            ),
         })
     }
 
@@ -502,19 +605,35 @@ impl<'m> Expansion<'_, 'm, '_> {
         production: &StableItemId,
         clauses: &[&'m SemanticRule],
         arguments: &[SemanticTerm],
-    ) -> Result<(&'m SemanticRule, BTreeMap<SemanticId, SemanticTerm>), String> {
+        blocked: &dyn Fn(&SemanticRule) -> bool,
+    ) -> Result<(&'m SemanticRule, BTreeMap<SemanticId, SemanticTerm>), Refused> {
         let name = production_display_name(production);
         if self.productions.statics[production].recursive {
-            return Err(format!(
-                "these arguments are not ground, and `{name}` is recursive, so its expansion depends on the values a program gives them"
+            return Err(Refused::new(
+                format!(
+                    "these arguments are not ground, and `{name}` is recursive, so its expansion depends on the values a program gives them"
+                ),
+                Instead::Cases,
             ));
         }
         let [clause] = clauses else {
-            return Err(format!(
-                "these arguments are not ground, and `{name}` has {} clauses, so which one expands it depends on the values a program gives them",
-                clauses.len()
+            return Err(Refused::new(
+                format!(
+                    "these arguments are not ground, and `{name}` has {} clauses, so which one expands it depends on the values a program gives them",
+                    clauses.len()
+                ),
+                Instead::Cases,
             ));
         };
+        if blocked(clause) {
+            return Err(Refused::new(
+                format!(
+                    "its clause, `{}`, already rewrote an application this one stands in, and `{name}` is not recursive, so a program's expansion leaves this application unexpanded and this clause never applies",
+                    clause.id().item_name()
+                ),
+                Instead::Expansion,
+            ));
+        }
         let root = clause
             .body()
             .expect("a static clause has a term rewrite")
@@ -546,8 +665,11 @@ impl<'m> Expansion<'_, 'm, '_> {
             _ => None,
         };
         let Some(parameters) = parameters else {
-            return Err(format!(
-                "these arguments are not ground, and the parameters of `{name}`'s clause are not distinct plain names of its argument sorts, so whether the clause applies depends on the values a program gives them"
+            return Err(Refused::new(
+                format!(
+                    "these arguments are not ground, and the parameters of `{name}`'s clause are not distinct plain names of its argument sorts, so whether the clause applies depends on the values a program gives them"
+                ),
+                Instead::Cases,
             ));
         };
         let result = clause
@@ -557,19 +679,24 @@ impl<'m> Expansion<'_, 'm, '_> {
         for (index, (parameter, argument)) in parameters.iter().zip(arguments).enumerate() {
             let uses = occurrences(result, parameter);
             if uses == 0
-                && let Some(bound) = first_binder(argument)
+                && let Some(bound) = self.used_elsewhere(argument)
             {
-                return Err(format!(
-                    "its clause drops argument {}, which binds `{}` here, so `{}` would have no value",
-                    index + 1,
-                    bound.as_str(),
-                    bound.as_str(),
+                return Err(Refused::new(
+                    format!(
+                        "its clause drops argument {}, which binds `{}` here, a name this clause uses elsewhere, which would have no value",
+                        index + 1,
+                        bound.as_str(),
+                    ),
+                    Instead::Expansion,
                 ));
             }
             if uses > 1 && !self.determined(argument) {
-                return Err(format!(
-                    "its clause copies argument {}, which here holds a pattern that matches more than one term apart from its names (`_`, `A | B`, `name @ P`), so each copy would match a term of its own",
-                    index + 1
+                return Err(Refused::new(
+                    format!(
+                        "its clause copies argument {}, which here holds a pattern that matches more than one term apart from its names (`_`, `A | B`), so each copy would match a term of its own",
+                        index + 1
+                    ),
+                    Instead::Expansion,
                 ));
             }
         }
@@ -579,6 +706,22 @@ impl<'m> Expansion<'_, 'm, '_> {
             .zip(arguments.iter().cloned())
             .collect();
         Ok((*clause, bindings))
+    }
+
+    /// A name `argument` binds that this clause names outside it, in its result or elsewhere in
+    /// its subject: dropped with the argument, it would have no value.
+    fn used_elsewhere<'t>(&self, argument: &'t SemanticTerm) -> Option<&'t SemanticId> {
+        let body = self
+            .clause
+            .body()
+            .expect("a static clause has a term rewrite");
+        let mut bound = BTreeSet::new();
+        binders(argument, &mut bound);
+        bound.into_iter().find(|name| {
+            !matches!(name.kind(), SemanticIdKind::Wildcard)
+                && occurrences(body.from(), name) + occurrences(body.to(), name)
+                    > occurrences(argument, name)
+        })
     }
 
     /// Whether `term` denotes one term, which a program writes as it stands: constructors,
@@ -593,20 +736,8 @@ impl<'m> Expansion<'_, 'm, '_> {
                     && below()
             }
             IrTermKind::KSequence { .. } => below(),
-            IrTermKind::List(operands) => {
-                matches!(
-                    **operands,
-                    ListOperands::Empty | ListOperands::Item { .. } | ListOperands::Concat { .. }
-                ) && below()
-            }
-            IrTermKind::Set(operands) => {
-                matches!(
-                    **operands,
-                    SetOperands::Empty | SetOperands::Item { .. } | SetOperands::Concat { .. }
-                ) && below()
-            }
-            IrTermKind::Map(operands) => {
-                matches!(**operands, MapOperands::Empty | MapOperands::Items(_)) && below()
+            IrTermKind::List(_) | IrTermKind::Set(_) | IrTermKind::Map(_) => {
+                one_spelling(term) && below()
             }
             IrTermKind::Variable { .. }
             | IrTermKind::Cell { .. }
@@ -618,8 +749,9 @@ impl<'m> Expansion<'_, 'm, '_> {
         }
     }
 
-    /// Whether `term` is one term once its names are: constructors, tokens, the collections they
-    /// build and names, so that two copies of it, matching their names alike, match one term.
+    /// Whether `term` is one term once its names are: constructors, tokens, the collections of
+    /// one spelling they build, names, and a name's alias of such a term, so that two copies of
+    /// it, matching their names alike, match one term.
     fn determined(&self, term: &SemanticTerm) -> bool {
         let below = || {
             term.children()
@@ -632,26 +764,17 @@ impl<'m> Expansion<'_, 'm, '_> {
             IrTermKind::Application { application, .. } => {
                 !self.productions.is_function(application) && below()
             }
-            IrTermKind::KSequence { .. } => below(),
-            IrTermKind::List(operands) => {
-                matches!(
-                    **operands,
-                    ListOperands::Empty | ListOperands::Item { .. } | ListOperands::Concat { .. }
-                ) && below()
+            IrTermKind::KSequence { .. } | IrTermKind::As { .. } => below(),
+            IrTermKind::List(_) | IrTermKind::Set(_) | IrTermKind::Map(_) => {
+                one_spelling(term) && below()
             }
-            IrTermKind::Set(operands) => {
-                matches!(**operands, SetOperands::Empty | SetOperands::Item { .. }) && below()
-            }
-            IrTermKind::Map(operands) => matches!(**operands, MapOperands::Empty) && below(),
             IrTermKind::Cell { .. }
             | IrTermKind::Rewrite { .. }
-            | IrTermKind::As { .. }
             | IrTermKind::Or { .. }
             | IrTermKind::Matches { .. }
             | IrTermKind::Let { .. } => false,
         }
     }
-
     /// Whether each parameter matches its ground argument.
     fn all_match(
         &self,
@@ -817,26 +940,18 @@ impl<'m> Expansion<'_, 'm, '_> {
                 self.instantiate_children(result, bindings)
             }
             IrTermKind::KSequence { .. } => self.instantiate_children(result, bindings),
-            IrTermKind::List(operands)
-                if matches!(
-                    **operands,
-                    ListOperands::Empty | ListOperands::Item { .. } | ListOperands::Concat { .. }
-                ) =>
+            IrTermKind::List(_) | IrTermKind::Set(_) | IrTermKind::Map(_)
+                if one_spelling(result) =>
             {
                 self.instantiate_children(result, bindings)
             }
-            IrTermKind::Set(operands)
-                if matches!(
-                    **operands,
-                    SetOperands::Empty | SetOperands::Item { .. } | SetOperands::Concat { .. }
-                ) =>
+            IrTermKind::List(_) | IrTermKind::Set(_) | IrTermKind::Map(_)
+                if collection_of_parts(result) =>
             {
-                self.instantiate_children(result, bindings)
-            }
-            IrTermKind::Map(operands)
-                if matches!(**operands, MapOperands::Empty | MapOperands::Items(_)) =>
-            {
-                self.instantiate_children(result, bindings)
+                Err(format!(
+                    "its clause expands it to {}, which matches only one way of writing it",
+                    collection_noun(result)
+                ))
             }
             IrTermKind::List(_) | IrTermKind::Set(_) | IrTermKind::Map(_) => {
                 Err(computes("a collection's function"))
@@ -871,25 +986,88 @@ impl<'m> Expansion<'_, 'm, '_> {
         suffixed(origin, &format!("~expansion-{}", self.copies))
     }
 
-    /// The refusal of the static application of `production` at `site`, for `reason`.
+    /// The refusal of the static application of `production` at `site`.
     fn refusal(
         &self,
         production: &StableItemId,
         site: &NodeOrigin,
-        reason: &str,
+        refused: &Refused,
     ) -> DescriptorLoweringError {
         let name = production_display_name(production);
+        let instead = match refused.instead {
+            Instead::Expansion => "write the term it expands to instead".to_owned(),
+            Instead::Cases => format!(
+                "write one clause for each clause of `{name}` instead, each with that clause's arguments and its expansion written out"
+            ),
+            Instead::Arguments => format!("write arguments a clause of `{name}` matches"),
+        };
         DescriptorLoweringError::InvalidStaticClause {
             reason: format!(
-                "{} clause `{}`: `{name}` is marked `{}`, so a program's `{name}` is expanded before this clause is tried, and the clause matches its expansion, which KRS writes here where it needs no value; but {reason}: write the term it expands to instead",
+                "{} clause `{}`: `{name}` is marked `{}`, so a program's `{name}` is expanded before this clause is tried, and the clause matches its expansion, which KRS writes here where it needs no value; but {}: {instead}",
                 self.mode.clause(),
                 self.clause.id().item_name(),
                 self.productions.statics[production].mode.attribute(),
+                refused.reason,
             ),
             range: site.origin().exact_authored_range().map(Box::new),
             item: Some(Box::new(self.clause.id().clone())),
         }
     }
+}
+
+/// Whether `term`, a collection, has one spelling: the empty collection, one element or one
+/// entry. Static expansion compares a collection's parts as they are written, without reordering
+/// a set's elements or a map's entries or regrouping a list's (`[1, 2, 3]` meets `list::concat([1],
+/// [2, 3])` and misses `list::concat([1, 2], [3])`), so a collection of two or more parts matches
+/// only one of its spellings.
+fn one_spelling(term: &SemanticTerm) -> bool {
+    match term.kind() {
+        IrTermKind::List(operands) => {
+            matches!(**operands, ListOperands::Empty | ListOperands::Item { .. })
+        }
+        IrTermKind::Set(operands) => {
+            matches!(**operands, SetOperands::Empty | SetOperands::Item { .. })
+        }
+        IrTermKind::Map(operands) => match &**operands {
+            MapOperands::Empty => true,
+            MapOperands::Items(entries) => entries.len() == 1,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Whether `term` is a collection of two or more parts: a concatenation of lists or of sets, or
+/// a map of several entries.
+fn collection_of_parts(term: &SemanticTerm) -> bool {
+    match term.kind() {
+        IrTermKind::List(operands) => matches!(**operands, ListOperands::Concat { .. }),
+        IrTermKind::Set(operands) => matches!(**operands, SetOperands::Concat { .. }),
+        IrTermKind::Map(operands) => {
+            matches!(&**operands, MapOperands::Items(entries) if entries.len() > 1)
+        }
+        _ => false,
+    }
+}
+
+/// What a collection of parts is, for a diagnostic.
+fn collection_noun(term: &SemanticTerm) -> &'static str {
+    match term.kind() {
+        IrTermKind::List(_) => "a list of two or more parts",
+        IrTermKind::Set(_) => "a set of two or more parts",
+        _ => "a map of two or more entries",
+    }
+}
+
+/// The first collection of two or more parts below the subject's root, in preorder.
+fn first_collection_of_parts(subject: &SemanticTerm) -> Option<&SemanticTerm> {
+    subject.children().into_iter().find_map(|child| {
+        if collection_of_parts(child) {
+            Some(child)
+        } else {
+            first_collection_of_parts(child)
+        }
+    })
 }
 
 /// How many times `variable` occurs in `term`.
@@ -902,17 +1080,6 @@ fn occurrences(term: &SemanticTerm, variable: &SemanticId) -> usize {
         .into_iter()
         .map(|child| occurrences(child, variable))
         .sum::<usize>()
-}
-
-/// The first name `term` binds: a named variable, or an alias's.
-fn first_binder(term: &SemanticTerm) -> Option<&SemanticId> {
-    match term.kind() {
-        IrTermKind::Variable { variable } if matches!(variable.kind(), SemanticIdKind::Named) => {
-            Some(variable)
-        }
-        IrTermKind::As { alias, .. } => Some(alias),
-        _ => term.children().into_iter().find_map(first_binder),
-    }
 }
 
 /// Whether two terms are the same term, wherever each was written.
@@ -1055,28 +1222,6 @@ fn alternatives(term: &SemanticTerm) -> Vec<SemanticTerm> {
         .collect()
 }
 
-/// `subject` with each Bytes token in the spelling a program writes it in.
-fn written_tokens(subject: &SemanticTerm) -> SemanticTerm {
-    match subject.kind() {
-        IrTermKind::Token { value }
-            if *subject.sort() == SemanticSortRef::Builtin(BuiltinSort::Bytes) =>
-        {
-            krs_ir::bytes_token::decode(value).map_or_else(
-                |_| subject.clone(),
-                |bytes| {
-                    subject.with_kind(IrTermKind::Token {
-                        value: krs_ir::bytes_token::program_spelling(&bytes),
-                    })
-                },
-            )
-        }
-        _ => map_children(subject, &mut |child| {
-            Ok::<_, std::convert::Infallible>(written_tokens(child))
-        })
-        .unwrap_or_else(|never| match never {}),
-    }
-}
-
 /// `rule` with `subject` as KRS emits it: in its place for the first alternative, and beside it,
 /// under the rule's name with the alternative's number and fresh source-map keys, for each other
 /// one. Its binders are those the new clause holds.
@@ -1155,47 +1300,27 @@ fn binders<'t>(term: &'t SemanticTerm, output: &mut BTreeSet<&'t SemanticId>) {
     }
 }
 
-/// What an alias clause's subject holds below its root must be built from what the clause's
-/// result matched in a printed term (the module documentation), so it refuses, at the term, in
-/// preorder, a set's concatenation `set::concat(a, b)` (K's `A B`), and a map's of more than one
-/// entry: forward the clause matches only a term whose parts are disjoint, a test of the term;
-/// the printed alias writes the parts the match bound, which may overlap, and a concatenation of
-/// overlapping parts denotes no set or map. A list's concatenation is defined for any two lists,
-/// and a single element or entry and the empty collection are no concatenation. Its static
-/// applications are expanded first ([`Expansion`]).
-fn reversible_subject(
-    clause: &StableItemId,
-    root: &SemanticTerm,
-) -> Result<(), DescriptorLoweringError> {
-    let name = clause.item_name();
-    let mut pending = root.children();
-    pending.reverse();
-    while let Some(term) = pending.pop() {
-        let refusal = match term.kind() {
-            IrTermKind::Set(operands) if matches!(**operands, SetOperands::Concat { .. }) => {
-                Some(format!(
-                    "alias clause `{name}`: a set's concatenation matches only a set whose parts are disjoint, a test the backward reading cannot make: when a result is printed, each term the clause's result matches prints as its subject, built from what the match bound, and parts that overlap print as a concatenation that denotes no set (`SetItem ( 1 ) SetItem ( 1 )`); write `#[k::desugar]` for an expansion that runs one way"
-                ))
-            }
-            IrTermKind::Map(operands) if matches!(&**operands, MapOperands::Items(entries) if entries.len() > 1) => {
-                Some(format!(
-                    "alias clause `{name}`: a map's concatenation of entries matches only a map whose keys are distinct, a test the backward reading cannot make: when a result is printed, each term the clause's result matches prints as its subject, built from what the match bound, and keys that coincide print as a concatenation that denotes no map; write `#[k::desugar]` for an expansion that runs one way"
-                ))
-            }
-            _ => None,
-        };
-        if let Some(reason) = refusal {
-            return Err(DescriptorLoweringError::IrreversibleAlias {
-                reason,
-                range: term.origin().origin().exact_authored_range().map(Box::new),
-                item: Some(Box::new(clause.clone())),
-            });
-        }
-        let mut children = term.children();
-        children.reverse();
-        pending.extend(children);
+/// The refusal of `collection`, a collection of two or more parts below the subject's root of
+/// `rule`, a clause of `mode`.
+fn collection_in_subject(
+    rule: &SemanticRule,
+    mode: Mode,
+    collection: &SemanticTerm,
+) -> DescriptorLoweringError {
+    DescriptorLoweringError::CollectionInStaticSubject {
+        reason: format!(
+            "{} clause `{}`: {} matches only one way of writing it: static expansion matches a program's terms as they are written, before anything evaluates, and does not reorder a set's elements or a map's entries or regroup a list's parts, so the clause would rewrite one spelling of the collection and not the others (`[1, 2, 3]` but not `list::concat([1, 2], [3])`); the empty collection and one element or entry have one spelling: write the parts as a constructor's arguments, or rewrite the collection with a rule",
+            mode.clause(),
+            rule.id().item_name(),
+            collection_noun(collection),
+        ),
+        range: collection
+            .origin()
+            .origin()
+            .exact_authored_range()
+            .map(Box::new),
+        item: Some(Box::new(rule.id().clone())),
     }
-    Ok(())
 }
 
 fn invalid(item: &StableItemId, reason: String, origin: &NodeOrigin) -> DescriptorLoweringError {
