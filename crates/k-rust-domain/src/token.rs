@@ -20,7 +20,8 @@ use crate::string::{unquote_bytes, unquote_text};
 use crate::text::{canonical_text, validate_text};
 
 /// The value a token denotes ([`token_value`]): two tokens of one sort are one term exactly when
-/// their values are equal, or, when neither has one, their texts are.
+/// their values are equal, or, when neither has one, their texts are. A value holds the
+/// canonical payload only, not its sort, so compare values only within one sort.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TokenValue(Box<[u8]>);
 

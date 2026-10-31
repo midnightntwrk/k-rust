@@ -70,6 +70,6 @@ choice-sampling = []
 # so that the test suites of this crate and of its dependents build terms without a definition.
 # For tests; off in every normal build, where every domain value is built with its sort's kind.
 raw-domain-values = []
-measure = ["k-rust-domain/measure", "k-rust-kore/measure"]
+measure = ["k-rust-kore/measure"]
 z3 = ["dep:z3", "dep:z3-sys"]
 z3-gh-release = ["z3", "z3/gh-release"]
