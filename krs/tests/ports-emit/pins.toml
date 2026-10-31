@@ -41,8 +41,8 @@ source_map_sha256 = "365a0b0890ac9b29010babb0749b5f1a89e02416f6f0d4e14da861fcc33
 [macro_output.kevm]
 
 [macro_output.kevm."semantics/kevm/src/lib.rs"]
-text_sha256 = "85785180b3fea23bee14a2b84953caaa8c1d7f07a00daa99b199390b075d7dea"
-source_map_sha256 = "afa7a5e92e5431b7e49416fafb4c3000153ec706eeca15a0266a844d8881e82d"
+text_sha256 = "bcab9b3b95c5be09e5948bc37915b715bfe0fc7cf4800f71f3c749746f6be381"
+source_map_sha256 = "b3fa3e173ac3f93eb761d279ce11761c9428786e4f2d15e9e0dca0cf26ded703"
 
 [macro_output.kmir]
 
