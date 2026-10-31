@@ -94,9 +94,9 @@ pub(super) fn plan(slot: &Slot, spelling: &Spelling, command: &Command) -> K7 {
 /// not apply the case's sentence. A run takes one step fewer than the sentence's plan (it stops
 /// before the sentence), and an equation's call leaves `Probe` unevaluated. A static clause's
 /// counter run is a program its subject does not match, whose expansion therefore leaves the
-/// case's production unexpanded ([`Status::Unexpanded`]); and the Bytes token `b"ab"` is also
-/// written `b"\x61\x62"`, the same value, which the clause must expand too (finding NT-14-2:
-/// static expansion compares the token's text).
+/// case's production unexpanded ([`Status::Unexpanded`]); and a program writing a token subject's
+/// value in another spelling ([`second_spelling`]) is the same term, which the clause must expand
+/// too (finding NT-14-2: static expansion matched a token by its text).
 pub(super) fn counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> Vec<Run> {
     if matches!(
         (slot.form, slot.position, slot.opener),
@@ -174,9 +174,9 @@ fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> 
             Some(run)
         })
         .collect::<Vec<_>>();
-    if spelling.text == "k::bytes!(b\"ab\")" {
+    if let Some(second) = spelling.witness.as_ref().ok().and_then(second_spelling) {
         runs.push(Run {
-            program: format!("{}(1, b\"\\x61\\x62\")", command.terminal()),
+            program: format!("{}(1, {second})", command.terminal()),
             variables: Vec::new(),
             depth: 0,
             steps: 0,
@@ -185,6 +185,52 @@ fn static_counter_plans(slot: &Slot, spelling: &Spelling, command: &Command) -> 
         });
     }
     runs
+}
+
+/// A program spelling of the builtin token `witness` other than the one K7 writes
+/// ([`Ground::literal_program`]), of the same value: an `Int` with a leading zero (`01`, `-01`),
+/// a `Float` with a trailing zero in its fraction (`1.50`), a `String` with every character
+/// escaped (`"\x73"`), and a `Bytes` value with every byte escaped (`b"\x61\x62"`). `None` where
+/// no other spelling of the value differs: a `Bool` (`true` and `false` are the only texts of
+/// their values), a token of a sort without a builtin hook (its text is its value), a `Bytes`
+/// value K7 already writes escaped byte by byte, and every other term.
+fn second_spelling(witness: &Ground) -> Option<String> {
+    use std::fmt::Write as _;
+    let second = match witness {
+        Ground::Int(value) if *value < 0 => format!("-0{}", value.unsigned_abs()),
+        Ground::Int(value) => format!("0{value}"),
+        Ground::Float(text)
+            if text.contains('.')
+                && text
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || b"-.".contains(&byte)) =>
+        {
+            format!("{text}0")
+        }
+        Ground::String(text) => {
+            let mut written = String::from("\"");
+            for character in text.chars() {
+                match u32::from(character) {
+                    code @ 0..=0xff => write!(written, "\\x{code:02x}"),
+                    code @ 0x100..=0xffff => write!(written, "\\u{code:04x}"),
+                    code => write!(written, "\\U{code:08x}"),
+                }
+                .expect("writing to a String cannot fail");
+            }
+            written.push('"');
+            written
+        }
+        Ground::Bytes(bytes) => {
+            let mut written = String::from("b\"");
+            for byte in bytes {
+                write!(written, "\\x{byte:02x}").expect("writing to a String cannot fail");
+            }
+            written.push('"');
+            written
+        }
+        _ => return None,
+    };
+    (Some(second.as_str()) != witness.literal_program().as_deref()).then_some(second)
 }
 
 impl<'a> Driver<'a> {

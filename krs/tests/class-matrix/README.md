@@ -76,9 +76,10 @@ rule of the case's own writes the clause's production applied to the witness (`d
 cNAME(1, w)`, `N` the case's own number), which kompile expands as it expands every rule, so a
 term KRS writes must meet the subject KRS writes, or the definition does not build (K6). A static
 subject's counter runs are programs its subject does not match, whose expansion must leave the
-case's production unexpanded ("survived expansion", the status `unexpanded`); and the Bytes
-witness `b"ab"` is also written `b"\x61\x62"`, one value, which the subject should meet and
-does not, since static expansion compares token text (finding NT-14-2). The slot `terms/cells/result-map-framed/..` writes one key under two
+case's production unexpanded ("survived expansion", the status `unexpanded`); and a builtin
+token witness is also written in a second spelling of its value (`01`, `1.50`, `"\x73"`,
+`b"\x61\x62"`), which the subject must meet, since static expansion matches a token by its value
+(finding NT-14-2; a `Bool` has one spelling per value). The slot `terms/cells/result-map-framed/..` writes one key under two
 spellings over the map a framed `cells!` subject leaves (`map![x -> 1, (x) -> HOLE, ..rest]`); the
 slot `terms/cells/result-map-whole/..` writes an entry over a map the subject binds whole
 (`map![x -> HOLE, ..m]` over `Cell(m)`, the form the class `framed-map-unmatched-key` advises),
