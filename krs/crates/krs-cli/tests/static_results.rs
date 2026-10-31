@@ -2,9 +2,9 @@
 //! production's application, which then evaluates as the same term in a rule's result does
 //! (NT-20). So the program is typed over the sort predicates and projections the definition
 //! generates, as the compiled definition is, while programs are parsed with the syntax as
-//! written; a parametric application whose instance would follow
-//! from a program's term is refused; and a rule fn whose result is a cell's value is written
-//! inside the computation cell. The class tiers run the generated cases; the cases here are
+//! written; a parametric application keeps the instance its clause states, whatever term a
+//! program binds; and a rule fn whose result is a cell's value is written inside the computation
+//! cell. The class tiers run the generated cases; the cases here are
 //! those no generated case writes.
 
 use std::fs;
@@ -213,60 +213,47 @@ fn a_static_result_evaluates_as_in_a_rule_and_programs_keep_their_syntax() {
     ));
 }
 
-/// A static clause's `KItem` binder should match a program's term of every sort, as a rule's
-/// does (`cq(go)` runs), but `keep(go)` survives the program's expansion while `keep(1)` expands
-/// (finding NT-20-1): k-rust's macro matcher compares a binder's sort with the subject's over the
-/// subsorts the definition declares (`expand_macros.rs`), which lack K's `S < KItem` for a sort
-/// declared below no other (`Stmt` here; `Value`, a `KResult`, has the edge). The expected output
-/// is the run it should give.
+/// A static clause's `KItem` binder matches a program's term of every sort, as a rule's does:
+/// every sort is below `KItem` in the order a program is expanded under, so `keep(go)` expands as
+/// `keep(1)` does, though `Stmt` is declared below no sort (finding NT-20-1, where `keep(go)`
+/// survived the expansion).
 #[test]
-#[ignore = "finding NT-20-1: a static clause's KItem binder does not match a term of a sort the definition declares below no sort"]
 fn a_static_kitem_binder_matches_a_term_of_every_sort() {
     expect_test::expect![[r"
-        keep(go) => hold(go) ~> .K"]]
-    .assert_eq(&runs("", &["keep(go)"]));
+        keep(go) => hold(go) ~> .K
+        keep(1) => hold(1) ~> .K"]]
+    .assert_eq(&runs("", &["keep(go)", "keep(1)"]));
 }
 
-/// A parametric application in a static result whose instance follows from a binder of a sort
-/// with a sort below it is refused (finding NT-12-2): with `Value < Stmt`, the desugar
-/// `dus(x: Stmt) => uns(Wrap::<Stmt>(x))` expanded `dus(vv)` to `wrap` at `Value`, which the rule
-/// `uns(Wrap::<Stmt>(y)) => got(y)` does not match, where the rule `rus(vv)` gives `got(vv)`. A
-/// binder whose sort has none below it keeps the instance and is admitted.
+/// A parametric application in a static result is at the instance the clause's typing gives it,
+/// whatever term a program binds in its binders' places (finding NT-12-2): with `Value < Stmt`,
+/// the desugar `dus(x: Stmt) => uns(Wrap::<Stmt>(x))` expands `dus(vv)` to `wrap` at `Stmt` over
+/// `vv`, which the rule `uns(Wrap::<Stmt>(y)) => got(y)` matches, as it matches the rule result
+/// `rus(vv)` writes. A binder whose sort has none below it keeps the instance too.
 #[test]
-fn a_static_result_whose_instance_a_program_term_would_choose_is_refused() {
-    let target = shared_fixture_target();
-    let temporary = temp_dir();
+fn a_static_result_keeps_the_instance_its_clause_states() {
     let source = "
 #[k::constructors(sort = Stmt, result = KResult)]
 #[rustfmt::skip]
 pub enum More {
     #[k::syntax(\"dus({a})\")] #[k::desugar] Dus { a: Stmt },
+    #[k::syntax(\"rus({a})\")] Rus { a: Stmt },
+    #[k::syntax(\"dui({a})\")] #[k::desugar] Dui { a: Leaf },
 }
 
 #[k::desugar]
 fn dus(k::term![More::Dus(x)]: Term<Stmt>) -> Term<Stmt> {
     Cmd::Uns(Wrap::<dyn StmtSort>(x))
 }
-";
-    let manifest = package(&temporary.path().join("refused"), source);
-    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
-    assert!(!success, "{stderr}");
-    let directory = format!("{}/", manifest.parent().unwrap().display());
-    let lines = stderr
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with("error") || line.starts_with("--> "))
-        .map(|line| line.replace(&directory, ""))
-        .collect::<Vec<_>>()
-        .join("\n");
-    expect_test::expect![[r"
-        error[krs::analysis::parametric-instance]: `Wrap::<Stmt>` in the result of desugar clause `dus` takes its instance from `x`, a `Stmt`: a program's expansion writes the program's term in `x`'s place, and a value takes its instance from its arguments, so where the program writes a term of a sort below `Stmt` the application is at that sort, another term than the clause states; write the clause as a rule, `#[k::rule(..)]`, whose result keeps `x` at `Stmt`
-        --> src/lib.rs:101:14"]].assert_eq(&lines);
-    let admitted = "
-#[k::constructors(sort = Stmt, result = KResult)]
-#[rustfmt::skip]
-pub enum More {
-    #[k::syntax(\"dui({a})\")] #[k::desugar] Dui { a: Leaf },
+
+#[k::rule(label = \"rus\")]
+fn rus(k::term![More::Rus(x)]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Uns(Wrap::<dyn StmtSort>(x))
+}
+
+#[k::rule(label = \"uns\")]
+fn uns(k::term![Cmd::Uns(Wrap::<dyn StmtSort>(y))]: Term<Stmt>) -> Term<Stmt> {
+    Cmd::Got(y)
 }
 
 #[k::desugar]
@@ -274,6 +261,10 @@ fn dui(k::term![More::Dui(x)]: Term<Stmt>) -> Term<Stmt> {
     Cmd::Hold(Wrap::<dyn LeafSort>(x))
 }
 ";
-    expect_test::expect!["dui(lf) => hold(wrap ( lf )) ~> .K"]
-        .assert_eq(&runs(admitted, &["dui(lf)"]));
+    expect_test::expect![[r"
+        dus(vv) => got(vv) ~> .K
+        rus(vv) => got(vv) ~> .K
+        dus(go) => got(go) ~> .K
+        dui(lf) => hold(wrap ( lf )) ~> .K"]]
+    .assert_eq(&runs(source, &["dus(vv)", "rus(vv)", "dus(go)", "dui(lf)"]));
 }

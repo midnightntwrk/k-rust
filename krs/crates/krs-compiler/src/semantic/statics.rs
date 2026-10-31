@@ -28,7 +28,9 @@
 //! A clause's result is the term a program's expansion writes in place of the production's
 //! application, which then evaluates as the same term in a rule's result does; so it is a term of
 //! the production's sort or of a sort below it ([`check_result_sort`]), since the production's
-//! sort is what the application's place requires.
+//! sort is what the application's place requires. A parametric application in the result is at
+//! the instance the clause's typing gives it, which the expansion keeps whatever term a program
+//! binds in its binders' places.
 //!
 //! An alias clause also runs backwards: when a result is printed, each term its result matches
 //! prints as its subject, built from what the match bound. So below its root the subject holds
@@ -178,13 +180,6 @@ impl<'m> Productions<'m> {
     fn is_subsort(&self, candidate: &SemanticSortRef, expected: &SemanticSortRef) -> bool {
         semantic_is_subsort(candidate, expected, self.sort_parents)
     }
-
-    /// Whether some other sort is below `sort`.
-    fn has_strict_subsort(&self, sort: &SemanticSortRef) -> bool {
-        self.sort_parents
-            .keys()
-            .any(|candidate| candidate != sort && self.is_subsort(candidate, sort))
-    }
 }
 
 /// The production a static clause expands: the head of its subject's root.
@@ -223,7 +218,6 @@ pub(super) fn static_clauses(
             continue;
         };
         check_result_sort(rule, mode, body.from(), body.to(), &productions)?;
-        check_result_instances(rule, mode, body.to(), &productions)?;
         let mut expansion = Expansion {
             productions: &productions,
             clause: rule,
@@ -385,91 +379,6 @@ fn check_result_sort(
 fn result_binder(result: &SemanticTerm) -> Option<&str> {
     match result.kind() {
         IrTermKind::Variable { variable } => Some(variable.as_str()),
-        _ => None,
-    }
-}
-
-/// Checks that no parametric application in the result of an alias or desugar clause, of mode
-/// `clause`, takes its instance from a binder that a program may give a term of a narrower sort.
-///
-/// A rule's result keeps each binder at the sort the clause gives it, so `Wrap::<Stmt>(x)` over
-/// `x: Stmt` is `wrap` at `Stmt` whatever `x` is bound to. A program's expansion writes the
-/// program's term in the binder's place, and a value takes a parametric application's instance
-/// from its arguments, so where the program writes a term of a sort below the binder's (`vv`, a
-/// `Value`) the expansion is `wrap` at that sort, another term, which matches another pattern or
-/// none. No term a static result can write fixes the instance: a projection to it computes, so
-/// it is refused where a rule's pattern applies the clause. An argument whose instance follows
-/// from its own constructors, or a binder of a sort with no sort below it, keeps the instance.
-fn check_result_instances(
-    rule: &SemanticRule,
-    clause: Mode,
-    result: &SemanticTerm,
-    productions: &Productions<'_>,
-) -> Result<(), DescriptorLoweringError> {
-    if let IrTermKind::Application {
-        application: ApplicationRef::Declared(production),
-        arguments,
-        instance,
-        ..
-    } = result.kind()
-        && !instance.is_empty()
-        && let Some(fields) = productions.arguments.get(production)
-    {
-        for (argument, field) in arguments.iter().zip(fields) {
-            if matches!(field, SemanticSortRef::Parameter(_))
-                && let Some(binder) = instance_binder(argument, productions)
-                && productions.has_strict_subsort(binder.sort())
-            {
-                let IrTermKind::Variable { variable } = binder.kind() else {
-                    unreachable!("an instance binder is a variable");
-                };
-                let (name, sort) = (variable.as_str(), sort_name(binder.sort()));
-                return Err(DescriptorLoweringError::ParametricInstance {
-                    item: Box::new(rule.id().clone()),
-                    reason: format!(
-                        "`{}::<{}>` in the result of {} clause `{}` takes its instance from `{name}`, a `{sort}`: a program's expansion writes the program's term in `{name}`'s place, and a value takes its instance from its arguments, so where the program writes a term of a sort below `{sort}` the application is at that sort, another term than the clause states; write the clause as a rule, `#[k::rule(..)]`, whose result keeps `{name}` at `{sort}`",
-                        production_display_name(production),
-                        sort_name(result.sort()),
-                        clause.clause(),
-                        rule.id().item_name(),
-                    ),
-                    range: result
-                        .origin()
-                        .origin()
-                        .exact_authored_range()
-                        .map(Box::new),
-                });
-            }
-        }
-    }
-    for child in result.children() {
-        check_result_instances(rule, clause, child, productions)?;
-    }
-    Ok(())
-}
-
-/// The binder a parametric application's argument takes its sort from in a program's expansion:
-/// the argument itself when it is a binder, or the one an argument at a parameter of a parametric
-/// application in it takes it from.
-fn instance_binder<'t>(
-    argument: &'t SemanticTerm,
-    productions: &Productions<'_>,
-) -> Option<&'t SemanticTerm> {
-    match argument.kind() {
-        IrTermKind::Variable { .. } => Some(argument),
-        IrTermKind::Application {
-            application: ApplicationRef::Declared(production),
-            arguments,
-            instance,
-            ..
-        } if !instance.is_empty() => {
-            let fields = productions.arguments.get(production)?;
-            arguments
-                .iter()
-                .zip(fields)
-                .filter(|(_, field)| matches!(field, SemanticSortRef::Parameter(_)))
-                .find_map(|(argument, _)| instance_binder(argument, productions))
-        }
         _ => None,
     }
 }

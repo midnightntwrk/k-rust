@@ -532,15 +532,20 @@ impl Machine {
 /// A Bytes token is written in one spelling wherever KRS writes it, which a program writes too
 /// (`b"a\x22\\\n\f'\x00\xff"`: `krs run`'s, but for `"`, which emitted K's `#token` cannot carry as
 /// `\"`), so a static subject KRS writes meets the terms a rule, an equation and an initializer
-/// write, and a program's own spelling. A program writing
-/// the same bytes with other escapes (`b"\x61.."`) is not expanded: static expansion compares
-/// tokens as written (finding NT-14-2).
+/// write, and a program's own spelling. A program writing the same bytes with other escapes
+/// (`b"\x61\x22.."`) is the same term, which the clause expands too: static expansion matches a
+/// token by its value (finding NT-14-2).
 #[test]
 fn a_bytes_token_is_written_in_one_spelling() {
     let (k, printed) = emitted_and_run_with(
         BYTES,
         "",
-        &["mk(0)", "mk(1)", "bz(b\"a\\x22\\\\\\n\\f'\\x00\\xff\")"],
+        &[
+            "mk(0)",
+            "mk(1)",
+            "bz(b\"a\\x22\\\\\\n\\f'\\x00\\xff\")",
+            r#"bz(b"\x61\x22\x5c\x0a\x0c\x27\x00\xFF")"#,
+        ],
         "k",
     );
     let (_, seen) = emitted_and_run_with(BYTES, "", &["mk(0)"], "seen");
@@ -549,6 +554,7 @@ fn a_bytes_token_is_written_in_one_spelling() {
         mk(0) => red ~> .K
         mk(1) => one(red) ~> .K
         bz(b"a\x22\\\n\f'\x00\xff") => red ~> .K
+        bz(b"\x61\x22\x5c\x0a\x0c\x27\x00\xFF") => red ~> .K
         mk(0) => red"#]]
     .assert_eq(&[rules(&k, &["bz"]), printed.join("\n"), seen.join("\n")].join("\n"));
 }
