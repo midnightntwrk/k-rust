@@ -180,6 +180,14 @@ impl Form {
         matches!(self, Self::Alias)
     }
 
+    /// Whether the form's subject root is the whole left side of a rewrite K writes as a term
+    /// rule's or a context's: a `#[k::rule]` fn's, a single-body one's and a context's. Below
+    /// that root a pattern holds terms; at it, K reads the root's symbol as the rule's.
+    #[must_use]
+    pub const fn subject_root_is_term_rule(self) -> bool {
+        matches!(self, Self::RuleFn | Self::LocalRule | Self::Context)
+    }
+
     /// Whether the root of the form's subject is the production the clause expands: a static
     /// clause's, a production marked as the clause is.
     #[must_use]
@@ -722,6 +730,11 @@ pub enum Construct {
     /// A set's concatenation of parts, `k::builtin::set::concat(a, b)` (K's `A B`): a pattern
     /// that matches a set split into disjoint parts, and their union where it is built.
     Concatenation,
+    /// A collection's unit or a set's singleton written as its call, `k::builtin::map::empty()`,
+    /// `k::builtin::set::empty()` or `k::builtin::set::item(x)`: a value, which a pattern matches
+    /// as the collection, written in K as the application of one of the collection's functions
+    /// (`.Map`, `.Set`, `SetItem`).
+    CollectionValue,
     /// A notation form, which denotes a builtin operation's application.
     Notation(Notation),
     /// `_`.
@@ -764,7 +777,7 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 44] = [
+    pub const ALL: [Self; 45] = [
         Self::Reference,
         Self::Fresh,
         Self::Constructor,
@@ -775,6 +788,7 @@ impl Construct {
         Self::FunctionApplication,
         Self::BuiltinApplication,
         Self::Concatenation,
+        Self::CollectionValue,
         Self::Notation(Notation::Arithmetic),
         Self::Notation(Notation::Bitwise),
         Self::Notation(Notation::BitwiseOr),

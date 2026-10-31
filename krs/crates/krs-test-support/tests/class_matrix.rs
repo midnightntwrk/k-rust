@@ -335,13 +335,15 @@ fn reads_x_and_applies(case: &Case) -> bool {
     let value = root.is_some_and(|root| {
         matches!(
             root.construct,
-            Construct::Constructor | Construct::Notation(Notation::CollectionValue)
+            Construct::Constructor
+                | Construct::CollectionValue
+                | Construct::Notation(Notation::CollectionValue)
         )
     });
     reads_x && !value
 }
 
-const OVERRIDDEN: [(&str, &str); 64] = [
+const OVERRIDDEN: [(&str, &str); 75] = [
     (
         "import/alias/subject-root-binding/Go()",
         "static-clause-root-not-marked",
@@ -593,6 +595,51 @@ const OVERRIDDEN: [(&str, &str); 64] = [
     ),
     (
         "terms/sort-rule/result/matches-pattern/map![x -> 1]",
+        "function-in-pattern",
+    ), // A collection's value as a single-body rule's or a context's whole subject (decision
+    // NT-11-2), where the table refuses the subject that holds no `k::rewrite!` first.
+    (
+        "notation/context/subject-root/k::builtin::map::empty()",
+        "function-in-pattern",
+    ),
+    (
+        "notation/context/subject-root/k::builtin::set::empty()",
+        "function-in-pattern",
+    ),
+    (
+        "notation/context/subject-root/map![]",
+        "function-in-pattern",
+    ),
+    (
+        "notation/context/subject-root/set![]",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/k::builtin::map::empty()",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/k::builtin::set::empty()",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/k::builtin::set::item(x)",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/map![]",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/set![]",
+        "function-in-pattern",
+    ),
+    (
+        "notation/local-rule/subject-root/set![x]",
+        "function-in-pattern",
+    ),
+    (
+        "terms/local-rule/subject-root/k::builtin::set::item(x)",
         "function-in-pattern",
     ),
 ];

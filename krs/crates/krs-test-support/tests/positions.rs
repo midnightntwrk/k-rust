@@ -343,6 +343,7 @@ const fn product_construct(construct: model::Construct) -> Option<Construct> {
         M::Reference
         | M::Fresh
         | M::Constructor
+        | M::CollectionValue
         | M::StaticApplication
         | M::ListBrackets
         | M::Notation(Notation::CollectionValue) => return None,

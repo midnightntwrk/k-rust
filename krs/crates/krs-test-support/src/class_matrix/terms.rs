@@ -1010,7 +1010,7 @@ fn spellings() -> Vec<Spelling> {
         // with an element more is it.
         spelling(
             "k::builtin::set::item(x)",
-            &[node(C::Constructor, &[]), node(C::Reference, &[SetElement])],
+            &[node(C::CollectionValue, &[]), node(C::Reference, &[SetElement])],
         ).refuting(Ground::set(Vec::new()))
         .refuting(Ground::set(vec![int(1), int(2)]))
         .value(Ground::set(vec![int(1)])),
@@ -1280,7 +1280,7 @@ fn literal_spellings() -> Vec<Spelling> {
             "map![]",
             "k::builtin::map::empty()",
             vec![at(C::Notation(Notation::CollectionValue), 0)],
-            vec![at(C::Constructor, 0)],
+            vec![at(C::CollectionValue, 0)],
         ),
         (
             "set![x, 1]",
@@ -1324,13 +1324,13 @@ fn literal_spellings() -> Vec<Spelling> {
                 at(C::Notation(Notation::CollectionValue), 0),
                 element(C::Reference, 0),
             ],
-            vec![at(C::Constructor, 0), element(C::Reference, 0)],
+            vec![at(C::CollectionValue, 0), element(C::Reference, 0)],
         ),
         (
             "set![]",
             "k::builtin::set::empty()",
             vec![at(C::Notation(Notation::CollectionValue), 0)],
-            vec![at(C::Constructor, 0)],
+            vec![at(C::CollectionValue, 0)],
         ),
     ] {
         spellings.push(collection_meaning(spelling(written, &literal)));

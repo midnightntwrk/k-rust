@@ -462,8 +462,10 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         | Construct::IdToken
         | Construct::BytesToken
         | Construct::Lexeme
-        | Construct::Turbofish
-        | Construct::Notation(Notation::CollectionValue) => value_at_root(position),
+        | Construct::Turbofish => value_at_root(position),
+        Construct::CollectionValue | Construct::Notation(Notation::CollectionValue) => {
+            collection_value(position)
+        }
         Construct::FunctionApplication | Construct::BuiltinApplication => {
             application(construct, position)
         }
@@ -560,8 +562,23 @@ const fn application(construct: Construct, position: Position) -> Option<Refusal
     }
 }
 
+/// A collection's unit or a set's singleton (`map![]`, `set![x]`, their calls) is a value, a
+/// pattern below a root as a constructor is. At the whole left side of a term rule or a context
+/// it is what K writes it as, the application of the collection's function (`.Map`, `SetItem`),
+/// and a rewrite whose left side is a function's application is that function's equation, which
+/// a builtin collection's function is not open to, while a context is rooted at the production
+/// whose argument it evaluates: a function at a matched root (decision NT-11-2). Elsewhere a root
+/// decides as a value's ([`value_at_root`]).
+const fn collection_value(position: Position) -> Option<Refusal> {
+    if at_subject_root(position) && position.form.subject_root_is_term_rule() {
+        Some(resolution(Class::FunctionInPattern))
+    } else {
+        value_at_root(position)
+    }
+}
+
 /// A set's concatenation matches a set split into disjoint parts, a pattern as a constructor is
-/// (at a root too), and builds their union where the parts are disjoint. Below a static clause's
+/// (at a root too, but a term rule's or a context's, as [`collection_value`]), and builds their union where the parts are disjoint. Below a static clause's
 /// subject root it is matched as written, and static expansion neither reorders a set's parts nor
 /// regroups a list's (decision NT-14, finding S2 of its review: `[1, 2, 3]` misses
 /// `list::concat([1, 2], [3])`), so a collection of two or more parts there is one of its
@@ -574,7 +591,7 @@ const fn concatenation(position: Position) -> Option<Refusal> {
     } else if in_constant(position) {
         Some(resolution(Class::ConstantAppliesFunction))
     } else if matches!(position.kind, Kind::Matched | Kind::Evaluated) {
-        value_at_root(position)
+        collection_value(position)
     } else {
         None
     }
