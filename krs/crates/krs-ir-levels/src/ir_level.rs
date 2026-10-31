@@ -768,6 +768,24 @@ impl<L: IrLevel> IrCondition<L> {
             Self::Predicate(predicate) => predicate.terms(),
         }
     }
+    /// The same condition with each of its object terms ([`Self::terms`]) replaced by `map`'s
+    /// image of it, in that order.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error `map` returns.
+    pub fn try_map_terms<E>(
+        &self,
+        map: &mut impl FnMut(&IrTerm<L>) -> Result<IrTerm<L>, E>,
+    ) -> Result<Self, E> {
+        Ok(match self {
+            Self::Bool(condition) => Self::Bool(IrRuleCondition {
+                origin: condition.origin.clone(),
+                term: map(&condition.term)?,
+            }),
+            Self::Predicate(predicate) => Self::Predicate(predicate.try_map_terms(map)?),
+        })
+    }
 }
 
 impl<L: IrLevel> From<IrRuleCondition<L>> for IrCondition<L> {
@@ -899,6 +917,58 @@ impl<L: IrLevel> IrMlPredicate<L> {
             IrMlKind::Exists { body, .. } => body.visit(visit),
         }
     }
+    /// The same predicate with the operands of its `#Equals` and `#Ceil` nodes replaced by
+    /// `map`'s images of them, in [`Self::terms`]'s order.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error `map` returns.
+    pub fn try_map_terms<E>(
+        &self,
+        map: &mut impl FnMut(&IrTerm<L>) -> Result<IrTerm<L>, E>,
+    ) -> Result<Self, E> {
+        let mut predicate = |operand: &Self| operand.try_map_terms(&mut *map).map(Box::new);
+        let kind = match &self.kind {
+            IrMlKind::Top => IrMlKind::Top,
+            IrMlKind::Bottom => IrMlKind::Bottom,
+            IrMlKind::Not { operand } => IrMlKind::Not {
+                operand: predicate(operand)?,
+            },
+            IrMlKind::And { left, right } => IrMlKind::And {
+                left: predicate(left)?,
+                right: predicate(right)?,
+            },
+            IrMlKind::Or { left, right } => IrMlKind::Or {
+                left: predicate(left)?,
+                right: predicate(right)?,
+            },
+            IrMlKind::Implies { left, right } => IrMlKind::Implies {
+                left: predicate(left)?,
+                right: predicate(right)?,
+            },
+            IrMlKind::Equals {
+                operand_sort,
+                left,
+                right,
+            } => IrMlKind::Equals {
+                operand_sort: operand_sort.clone(),
+                left: Box::new(map(left)?),
+                right: Box::new(map(right)?),
+            },
+            IrMlKind::Ceil { operand_sort, term } => IrMlKind::Ceil {
+                operand_sort: operand_sort.clone(),
+                term: Box::new(map(term)?),
+            },
+            IrMlKind::Exists { binder, body } => IrMlKind::Exists {
+                binder: binder.clone(),
+                body: predicate(body)?,
+            },
+        };
+        Ok(Self {
+            origin: self.origin.clone(),
+            kind,
+        })
+    }
 }
 
 /// A predicate simplification's body (KF-039): one matching-logic predicate
@@ -1007,6 +1077,28 @@ impl<L: IrLevel> IrRewrite<L> {
             sort: self.sort.clone(),
             from: Box::new(from),
             to: Box::new(self.to.map_origins(origin)),
+            local: None,
+        })
+    }
+    /// The same rewrite with its pre-pattern and post-term replaced by `map`'s images of them;
+    /// a single-body rule's (KF-011) authored term is mapped instead, and its two images taken
+    /// from the mapped term.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error `map` returns.
+    pub fn try_map_terms<E>(
+        &self,
+        map: &mut impl FnMut(&IrTerm<L>) -> Result<IrTerm<L>, E>,
+    ) -> Result<Self, E> {
+        if let Some(local) = &self.local {
+            return Ok(Self::local(map(local)?));
+        }
+        Ok(Self {
+            origin: self.origin.clone(),
+            sort: self.sort.clone(),
+            from: Box::new(map(&self.from)?),
+            to: Box::new(map(&self.to)?),
             local: None,
         })
     }
@@ -1152,6 +1244,30 @@ impl<L: IrLevel> RuleContent<L> {
             Self::Configuration { kind, body } => RuleBodyRef::Configuration { kind: *kind, body },
             Self::Predicate { body } => RuleBodyRef::Predicate(body),
         }
+    }
+
+    /// The same content with every object term replaced by `map`'s image of it.
+    pub(crate) fn try_map_terms<E>(
+        &self,
+        map: &mut impl FnMut(&IrTerm<L>) -> Result<IrTerm<L>, E>,
+    ) -> Result<Self, E> {
+        Ok(match self {
+            Self::Term { kind, body } => Self::Term {
+                kind: *kind,
+                body: body.try_map_terms(map)?,
+            },
+            Self::Configuration { kind, body } => Self::Configuration {
+                kind: *kind,
+                body: body.try_map_terms(map)?,
+            },
+            Self::Predicate { body } => Self::Predicate {
+                body: Box::new(IrPredicateRewrite {
+                    origin: body.origin.clone(),
+                    predicate_lhs: body.predicate_lhs.try_map_terms(map)?,
+                    predicate_rhs: body.predicate_rhs.try_map_terms(map)?,
+                }),
+            },
+        })
     }
 }
 

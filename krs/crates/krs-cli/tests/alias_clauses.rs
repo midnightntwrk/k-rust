@@ -633,9 +633,11 @@ fn calc(k::term![Data::Calc(a, b)]: Term<Value>) -> Term<Value> {
 /// result matches prints as the alias: `two(1, [])` as `items([1])`. A list of an element and a
 /// named rest is refused, as a list of several parts in any static subject is: static expansion
 /// matches it as written, one of its spellings (`static_subjects.rs`). A computed result's printed value is evaluated, which holds no application
-/// of the clause's generated function, so it prints expanded: `flag(true)`, `pair(5, 5)`. The
-/// computing aliases are written in rules, whose `#let` and `:=K` k-rust lowers; a program that
-/// writes one meets them unlowered (finding NT-8-1).
+/// of the clause's generated function, so it prints expanded: `flag(true)`, `pair(5, 5)`. A
+/// result's `k::matches!` and `let` are lifted into functions of their own, `krsLocal_<digest>`,
+/// whose one equation's result is the construct (NT-15), so a program that writes the alias runs
+/// as a rule writing it does: a program's expansion writes the function's application, which
+/// evaluates, where it would write `#let` or `:=K`, which no backend reads in a program.
 #[test]
 fn a_two_way_alias_is_accepted_and_prints_backwards() {
     let target = shared_fixture_target();
@@ -651,7 +653,13 @@ fn a_two_way_alias_is_accepted_and_prints_backwards() {
     assert!(success, "{stderr}");
     let k = fs::read_to_string(output.join("definition.k")).unwrap();
     let mut printed = Vec::new();
-    for program in ["mk(1, 2)", "probe(box(3))", "calc(4, 5)"] {
+    for program in [
+        "mk(1, 2)",
+        "probe(box(3))",
+        "calc(4, 5)",
+        "whole(box(3))",
+        "pairs(4, 5)",
+    ] {
         let file = manifest.with_file_name("program.txt");
         fs::write(&file, program).unwrap();
         let (_, stdout, stderr) = krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
@@ -668,11 +676,13 @@ fn a_two_way_alias_is_accepted_and_prints_backwards() {
     }
     expect_test::expect![[r"
         rule items ( ListItem(X:KItem) ) => two ( X:KItem , .List ) [label(krsRule_DIGEST)]
-        rule whole ( A:Value ) => flag ( ( box ( _ ) :=K A:Value ) ) [label(krsRule_DIGEST)]
-        rule pairs ( X:Int , Y:Int ) => pair ( ( #let Z:Int = Y:Int #in Z:Int ) , X:Int +Int 1 ) [label(krsRule_DIGEST)]
+        rule whole ( A:Value ) => flag ( krsLocal_9e1eea9cace393af4676ba13 ( A:Value ) ) [label(krsRule_DIGEST)]
+        rule pairs ( X:Int , Y:Int ) => pair ( krsLocal_5242f5c7fc0f7997f00d61a0 ( Y:Int ) , X:Int +Int 1 ) [label(krsRule_DIGEST)]
         mk(1, 2) => items(ListItem ( 1 )) ~> .K
         probe(box(3)) => flag(true) ~> .K
-        calc(4, 5) => pair(5, 5) ~> .K"]]
+        calc(4, 5) => pair(5, 5) ~> .K
+        whole(box(3)) => flag(true) ~> .K
+        pairs(4, 5) => pair(5, 5) ~> .K"]]
     .assert_eq(
         &[
             rules(&k, "rule items"),

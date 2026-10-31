@@ -985,7 +985,10 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
-        if subject || self.locals.inferring.is_some() || self.locals.scope.is_some() {
+        if self.pattern_subject(subject)
+            || self.locals.inferring.is_some()
+            || self.locals.scope.is_some()
+        {
             return Err(self.refused_position(key, "a `let` block"));
         }
         super::function_patterns::check_local_pattern(self.descriptor, pattern, self.catalog)?;
@@ -1156,7 +1159,10 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
-        if subject || self.locals.inferring.is_some() || self.locals.scope.is_some() {
+        if self.pattern_subject(subject)
+            || self.locals.inferring.is_some()
+            || self.locals.scope.is_some()
+        {
             return Err(self.refused_position(key, "`k::matches!`"));
         }
         let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
@@ -3787,6 +3793,12 @@ impl StructuredTermBuilder<'_> {
             reason,
             range: self.authored_range(key),
         }
+    }
+
+    /// Whether a term in the subject (`subject`) is matched: a claim's subject is a symbolic state,
+    /// which holds the terms its end state may, a computed one among them.
+    fn pattern_subject(&self, subject: bool) -> bool {
+        subject && !super::function_patterns::is_claim_sentence(self.descriptor.payload())
     }
 
     /// The error of `construct` lowered at a position the position table refuses it at

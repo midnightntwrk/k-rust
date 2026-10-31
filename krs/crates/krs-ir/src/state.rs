@@ -1694,6 +1694,144 @@ where
     pub fn omitted_siblings(&self) -> &[C] {
         &self.omitted_siblings
     }
+
+    /// The same rewrite with every term, pre-state and post-state alike, replaced by `map`'s image
+    /// of it, in clause order; cells, frames, presence and instances are kept.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error `map` returns.
+    pub fn try_map_terms<E>(&self, map: &mut impl FnMut(&T) -> Result<T, E>) -> Result<Self, E> {
+        Ok(Self {
+            origin: self.origin.clone(),
+            configuration: self.configuration.clone(),
+            clauses: self
+                .clauses
+                .iter()
+                .map(|clause| clause.try_map_terms(map))
+                .collect::<Result<_, _>>()?,
+            omitted_siblings: self.omitted_siblings.clone(),
+        })
+    }
+}
+
+impl<C: Clone, T> ConfigurationClause<C, T> {
+    fn try_map_terms<E>(&self, map: &mut impl FnMut(&T) -> Result<T, E>) -> Result<Self, E> {
+        Ok(match self {
+            Self::Fixed(clause) => Self::Fixed(clause.try_map_terms(map)?),
+            Self::Optional(clause) => Self::Optional(OptionalCellClause {
+                origin: clause.origin.clone(),
+                cell: clause.cell.clone(),
+                before: clause.before.try_map_term(map)?,
+                after: clause
+                    .after
+                    .as_ref()
+                    .map(|after| after.try_map_term(map))
+                    .transpose()?,
+                frame: clause.frame.clone(),
+                kind: clause.kind,
+            }),
+            Self::Instances(clause) => {
+                let mut instances = |instances: &[InstanceClause<C, T>]| {
+                    instances
+                        .iter()
+                        .map(|instance| instance.try_map_terms(map))
+                        .collect::<Result<Vec<_>, E>>()
+                };
+                let front = instances(&clause.front)?;
+                let back = instances(&clause.back)?;
+                Self::Instances(InstancesClause {
+                    origin: clause.origin.clone(),
+                    cell: clause.cell.clone(),
+                    ordering: clause.ordering,
+                    front,
+                    back,
+                    open: clause.open,
+                })
+            }
+        })
+    }
+}
+
+impl<C: Clone, T> FixedCellClause<C, T> {
+    fn try_map_terms<E>(&self, map: &mut impl FnMut(&T) -> Result<T, E>) -> Result<Self, E> {
+        Ok(Self {
+            origin: self.origin.clone(),
+            cell: self.cell.clone(),
+            before: map(&self.before)?,
+            after: match &self.after {
+                CellPost::Preserve => CellPost::Preserve,
+                CellPost::Replace { term } => CellPost::Replace { term: map(term)? },
+                CellPost::Local => CellPost::Local,
+            },
+            frame: self.frame.clone(),
+            kind: self.kind,
+        })
+    }
+}
+
+impl<T> Presence<T> {
+    fn try_map_term<E>(&self, map: &mut impl FnMut(&T) -> Result<T, E>) -> Result<Self, E> {
+        Ok(match self {
+            Self::Present { term } => Self::Present { term: map(term)? },
+            Self::Absent => Self::Absent,
+        })
+    }
+}
+
+impl<C: Clone, T> InstanceClause<C, T> {
+    fn try_map_terms<E>(&self, map: &mut impl FnMut(&T) -> Result<T, E>) -> Result<Self, E> {
+        let mut children = |children: &[InstanceChild<C, T>]| {
+            children
+                .iter()
+                .map(|child| {
+                    Ok(InstanceChild {
+                        origin: child.origin.clone(),
+                        cell: child.cell.clone(),
+                        term: map(&child.term)?,
+                        frame: child.frame.clone(),
+                        kind: child.kind,
+                    })
+                })
+                .collect::<Result<Vec<_>, E>>()
+        };
+        Ok(match self {
+            Self::Kept {
+                origin,
+                label,
+                children: kept,
+                open,
+            } => Self::Kept {
+                origin: origin.clone(),
+                label: label.clone(),
+                children: kept
+                    .iter()
+                    .map(|child| child.try_map_terms(map))
+                    .collect::<Result<_, _>>()?,
+                open: *open,
+            },
+            Self::Removed {
+                origin,
+                label,
+                children: removed,
+                open,
+            } => Self::Removed {
+                origin: origin.clone(),
+                label: label.clone(),
+                children: children(removed)?,
+                open: *open,
+            },
+            Self::Created {
+                origin,
+                children: created,
+                defaults,
+            } => Self::Created {
+                origin: origin.clone(),
+                children: children(created)?,
+                defaults: *defaults,
+            },
+        })
+    }
 }
 
 /// Locally invalid fixed-state structure.

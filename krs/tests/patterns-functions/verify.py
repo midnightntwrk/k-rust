@@ -84,11 +84,10 @@ the outcomes must agree:
   `..` remainder, a `k::matches!` name that shadows a rule binder, one read
   once, an `if` guard, std's bare `matches!`, `k::matches!` in a pattern, `@`
   in a `k::matches!` in a result, a pattern whose sort cannot meet its
-  subject's, and `k::matches!` in a claim (the pinned native prover cannot
-  resolve `:=K` there), a term block whose result ends in a semicolon, `|`
+  subject's, a term block whose result ends in a semicolon, `|`
   and `@` in a `let` pattern, a block in a pattern, a let-bound name used
   outside its block, a `let` pattern whose sort cannot meet its value's, a
-  `let` in a claim, a function context without its anonymous `..`, one
+  function context without its anonymous `..`, one
   binding `state @ ..`, a context on a `#[k::rule]` or a
   `#[k::simplification]`, a context that is not `k::cells!`, a binder list
   that omits a context binder, a context binder at a sort its cell does not
@@ -295,14 +294,12 @@ NEGATIVE = (
     "matches-lhs",
     "matches-alias-result",
     "matches-sort",
-    "matches-claim",
     "let-shape",
     "let-or",
     "let-alias",
     "let-pattern",
     "let-scope",
     "let-sort",
-    "let-claim",
     "context-remainder",
     "context-bound-rest",
     "context-on-rule",

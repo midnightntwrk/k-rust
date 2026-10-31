@@ -21,6 +21,7 @@ mod infer;
 mod lexicals;
 mod list_patterns;
 mod lists;
+mod local_functions;
 pub(crate) use lists::value_list_overloads;
 mod ml;
 mod open_sorts;
@@ -431,6 +432,7 @@ pub fn lower_descriptor_bundle(
             second_head_range: range,
         });
     }
+    let modules = local_functions::lift_local_functions(modules)?;
     // A validator failure is located at the innermost term the validator was checking, and
     // names the item whose sentence it was checking.
     SemanticTheory::new_located(modules).map_err(|failure| {

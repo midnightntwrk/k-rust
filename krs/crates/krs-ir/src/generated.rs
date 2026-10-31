@@ -130,3 +130,57 @@ pub fn generated_production_id(
     )
     .map_err(GeneratedProductionIdError::InvalidDerivedIdentity)
 }
+
+/// The stable identities of the function KRS lifts out of one `let` block or `k::matches!` of a
+/// sentence that holds it where no tool lowers it: the function's production and its equation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocalFunctionIds {
+    /// The lifted function's production.
+    pub production: StableItemId,
+    /// The lifted function's one equation.
+    pub equation: StableItemId,
+}
+
+/// Derives the identities of the `index`th local function lifted out of the sentence `host`.
+///
+/// The derivation is injective over the host's identity and the index: it keeps the package
+/// and module, places the production in the constructor namespace and the equation in the
+/// equation namespace, both under the reserved generated item name, and encodes the host's
+/// namespace, item name and disambiguator as hexadecimal UTF-8 under a versioned domain tag,
+/// which no token or bracket production's disambiguator carries. It depends on nothing but the
+/// host's identity and the index, so a host lifted again gets the same identities. Changing this
+/// recipe is a stable-IR compatibility change.
+///
+/// # Errors
+///
+/// An invariant failure of the derived identities is returned as
+/// [`GeneratedProductionIdError::InvalidDerivedIdentity`].
+pub fn local_function_ids(
+    host: &StableItemId,
+    index: usize,
+) -> Result<LocalFunctionIds, GeneratedProductionIdError> {
+    let disambiguator = format!(
+        "krs-local-function-v1:{}:{}:{}:{index}",
+        lower_hex(host.item_kind().to_string().as_bytes()),
+        lower_hex(host.item_name().as_bytes()),
+        lower_hex(host.disambiguator().as_bytes())
+    );
+    let production = StableItemId::generated_production(
+        host.package().clone(),
+        host.module_path().iter().cloned(),
+        disambiguator.clone(),
+    )
+    .map_err(GeneratedProductionIdError::InvalidDerivedIdentity)?;
+    let equation = StableItemId::new(
+        host.package().clone(),
+        host.module_path().iter().cloned(),
+        production.item_name(),
+        ItemKind::Equation,
+        disambiguator,
+    )
+    .map_err(GeneratedProductionIdError::InvalidDerivedIdentity)?;
+    Ok(LocalFunctionIds {
+        production,
+        equation,
+    })
+}

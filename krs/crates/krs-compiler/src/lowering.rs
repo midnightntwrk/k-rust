@@ -3193,7 +3193,7 @@ fn validate_label_name(role: &'static str, value: &str) -> Result<(), LoweringEr
     }
 }
 
-fn stable_item_text(id: &StableItemId) -> String {
+pub(crate) fn stable_item_text(id: &StableItemId) -> String {
     let mut text = String::new();
     push_component(&mut text, id.package().k_namespace());
     for component in id.module_path() {
@@ -3375,7 +3375,7 @@ fn push_component(output: &mut String, value: &str) {
     output.push_str(value);
 }
 
-fn short_hash(value: &str) -> String {
+pub(crate) fn short_hash(value: &str) -> String {
     let digest = Sha256::digest(value.as_bytes());
     lower_hex(&digest[..12])
 }

@@ -1316,7 +1316,7 @@ fn suffixed(origin: &NodeOrigin, suffix: &str) -> NodeOrigin {
 }
 
 /// `term` with each child replaced by `map`'s image of it, in [`SemanticTerm::children`]'s order.
-fn map_children<E>(
+pub(super) fn map_children<E>(
     term: &SemanticTerm,
     map: &mut impl FnMut(&SemanticTerm) -> Result<SemanticTerm, E>,
 ) -> Result<SemanticTerm, E> {

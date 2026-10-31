@@ -14,6 +14,7 @@ members = [
     "packages/l22-lesson",
     "packages/cell-maps",
     "packages/set-instance-claims",
+    "packages/local-function-claims",
 ]
 resolver = "3"
 

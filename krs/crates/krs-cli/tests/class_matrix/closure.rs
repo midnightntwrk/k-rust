@@ -7,8 +7,9 @@
 //!   `<k> A ~> T:K </k>`, when `T` occurs nowhere else in the sentence;
 //! - an anonymous frame `...` ≡ a named frame variable that occurs once, at the end of its cell,
 //!   and ≡ the anonymous variable `_` there, which is such a variable;
-//! - a generated sentence label, `label(krsRule_<digest>)`, is `label(krsRule_DIGEST)`: the digest
-//!   names the sentence's source, not its meaning.
+//! - a generated sentence label, `label(krsRule_<digest>)`, is `label(krsRule_DIGEST)`, and a
+//!   lifted local function's symbol, `krsLocal_<digest>`, is `krsLocal_DIGEST`: the digest names
+//!   the sentence's source, not its meaning.
 
 use std::collections::BTreeMap;
 
@@ -258,13 +259,20 @@ pub fn normalize(sentence: &str) -> String {
         .collect()
 }
 
-/// `text` with the digest of every generated sentence label, `krsRule_<hex>`, written `DIGEST`.
+/// `text` with the digest of every generated sentence label, `krsRule_<hex>`, and of every lifted
+/// local function's symbol, `krsLocal_<hex>`, written `DIGEST`.
 fn generated_labels(text: &str) -> String {
-    const PREFIX: &str = "krsRule_";
+    ["krsRule_", "krsLocal_"]
+        .into_iter()
+        .fold(text.to_owned(), |text, prefix| digests(&text, prefix))
+}
+
+/// `text` with the hex digits after each `prefix` written `DIGEST`.
+fn digests(text: &str, prefix: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(index) = rest.find(PREFIX) {
-        let (before, after) = rest.split_at(index + PREFIX.len());
+    while let Some(index) = rest.find(prefix) {
+        let (before, after) = rest.split_at(index + prefix.len());
         out.push_str(before);
         let digits = after
             .find(|character: char| !character.is_ascii_hexdigit())

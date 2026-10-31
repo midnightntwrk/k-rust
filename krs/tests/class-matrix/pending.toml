@@ -1621,6 +1621,67 @@ deviation = "krs::analysis::invalid-list-notation @ item"
 step = "S5"
 
 # S0-17: a readable or `for Stmt` result accepts `k::matches!` and `let` blocks that the `cells!` rule `krs expand` prints refuses
+# A readable claim's states hold them too since NT-15, and its printed `cells!` claim fn refuses them alike.
+
+["k3/terms/claim/item-root/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/claim/item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/claim/item-root/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/claim/result-item-root/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/claim/result-item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/claim/result-item-root/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/claim/result/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/claim/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/claim/result/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/claim/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/claim/subject/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/claim/subject/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
 
 ["k3/terms/readable/result-list-element/k::matches!(x, Cmd::Hold(_))"]
 finding = "S0-17"
@@ -5462,181 +5523,6 @@ deviation = "krs::analysis::invalid-constant @ spelling"
 finding = "NT-6-1"
 deviation = "krs::analysis::invalid-constant @ spelling"
 
-# NT-7-1: no prover takes a `let` block or `k::matches!` in a claim
-# A claim's start and end states are terms over its variables, as a rule's sides are, and its
-# conditions Bools: a `let` block denotes the term it computes and `k::matches!` a Bool, so the
-# oracle admits both in a readable claim's states and in a claim's conditions (a `cells!` claim's
-# cell values keep S0-17's boundary). They lower as in a rule, to `#let` and `:=K`, and no tool that
-# reads a claim takes them: the native prover (`krs prove`) refuses `#let` in a claim's condition and
-# end state at k-rust's definition check ("a claim's local function is lowered to no function its
-# proof can apply") and fails on `:=K` ("cannot find a production for KLabel _:=K_"); Java K's
-# `kprove` refuses both in a claim's start state, end state, `requires` and `ensures` ("Could not
-# find productions for KApply with label #let" / "_:=K_"; "Found #fun expression in a pattern
-# location" for `#let` in the start state). Both lower `#let`, `#fun` and `:=K` to generated
-# functions only in a definition's sentences, never in a claim. So the product refuses them in a
-# claim, by the classes `let-in-claim` and `matches-in-claim`, whose message says so. The entries
-# include cases the oracle refuses for another reason, the `let` whose pattern holds `@` or `|`
-# (`alias-in-let-pattern`, `alternatives-in-let-pattern`), the closure body's `let` and
-# `k::matches!` (`object-term-as-predicate`) and the guard's `let` whose value is no Bool
-# (`let-sort`): the product refuses the block in a claim before it reads its pattern, its sort or
-# the predicate it stands in. Plan: lower a claim's local functions where the provers read the claim (k-rust's
-# `resolve_fun` over claims, or KRS generating the functions into the definition), then admit them.
-
-["terms/cells-claim/guard/closure-body/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-7-1"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/cells-claim/guard/closure-body/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/cells-claim/guard/closure-body/{ let y = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/cells-claim/guard/closure-body/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/cells-claim/guard/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-7-1"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/cells-claim/guard/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/cells-claim/guard/{ let y = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/cells-claim/guard/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/item-root/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-7-1"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/claim/item-root/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/item-root/{ let y = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/item-root/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/result-item-root/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-7-1"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/claim/result-item-root/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/result-item-root/{ let y = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/result-item-root/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/result/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-7-1"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/claim/result/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/result/{ let y = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/result/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/subject/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-7-1"
-deviation = "krs::expand::matches-outside-condition @ spelling"
-
-["terms/claim/subject/{ let (Cmd::Go() | Cmd::Hold(_)) = x; x }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/subject/{ let y = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/subject/{ let y @ Cmd::Hold(_) = x; y }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-
-# NT-8-1 (K7): a program writing an alias or a desugar production whose clause result holds `let`
-# or `k::matches!`: the program's expansion writes the result's `#let` or `:=K`, which k-rust lowers
-# only in a definition's sentences, and `krs run` fails ("cannot find a production for KLabel"). The
-# same terms in a rule's result run as stated. NT-15 decides it.
-
-["k7/terms/alias/result/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-8-1"
-deviation = "failed: cannot find a production for KLabel \"_:=K_\""
-
-["k7/terms/alias/result/{ let y = x; y }"]
-finding = "NT-8-1"
-deviation = "failed: cannot find a production for KLabel \"#let\""
-
-["k7/terms/desugar/result/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-8-1"
-deviation = "failed: cannot find a production for KLabel \"_:=K_\""
-
-["k7/terms/desugar/result/{ let y = x; y }"]
-finding = "NT-8-1"
-deviation = "failed: cannot find a production for KLabel \"#let\""
-
-# NT-8-1 (twin): the same failures, seen by K7's twin check: the rule twin's run builds the value,
-# the static clause's program expansion fails at x = 1 and at x = go.
-# The record update written as a `let` (`{ let Cmd::Pair { a: _, b } = x; .. }`) fails the same way;
-# its rule twin has no value at either witness, since neither 1 nor go is a Pair: the end the
-# static clause's run reaches at both once its expansion writes the `#let`.
-
-["twin/terms/alias/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-8-1"
-deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: failed: cannot find a production for KLabel \"#let\"; its rule twin: x = 1: has no value; x = go: has no value"
-
-["twin/terms/alias/result/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-8-1"
-deviation = "x = 1: failed: cannot find a production for KLabel \"_:=K_\"; x = go: failed: cannot find a production for KLabel \"_:=K_\"; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
-
-["twin/terms/alias/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-8-1"
-deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: failed: cannot find a production for KLabel \"#let\"; its rule twin: x = 1: has no value; x = go: has no value"
-
-["twin/terms/alias/result/{ let y = x; y }"]
-finding = "NT-8-1"
-deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: failed: cannot find a production for KLabel \"#let\"; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
-
-["twin/terms/desugar/result-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-8-1"
-deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: failed: cannot find a production for KLabel \"#let\"; its rule twin: x = 1: has no value; x = go: has no value"
-
-["twin/terms/desugar/result/k::matches!(x, Cmd::Hold(_))"]
-finding = "NT-8-1"
-deviation = "x = 1: failed: cannot find a production for KLabel \"_:=K_\"; x = go: failed: cannot find a production for KLabel \"_:=K_\"; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
-
-["twin/terms/desugar/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-8-1"
-deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: failed: cannot find a production for KLabel \"#let\"; its rule twin: x = 1: has no value; x = go: has no value"
-
-["twin/terms/desugar/result/{ let y = x; y }"]
-finding = "NT-8-1"
-deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: failed: cannot find a production for KLabel \"#let\"; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
 
 # NT-12-6 (K7): an optional cell an initializer writes present (`counter: Some(0)`, the typed base's
 # `opt: Some(Val::Unit())`) starts absent: KRS emits `<counter multiplicity="?"> 0 </counter>`,
@@ -7466,30 +7352,6 @@ deviation = "<k> head printed `cced49ed0(ak, word)`, which reads back as cmdCced
 # so no generated case writes the advised form there) and where the refusal is another class's
 # (S0-14).
 
-["terms/cells-claim/guard/closure-body/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/cells-claim/guard/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/result-item-root/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
-["terms/claim/subject/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-7-1"
-deviation = "krs::expand::let-outside-term @ spelling"
-
 ["terms/local-rule/subject/rewrite-left/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 finding = "NT-2-6"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -7594,10 +7456,6 @@ step = "S6"
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 step = "S6"
-
-["k8/terms/claim/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
-finding = "NT-7-1"
-deviation = "advice of record-update-base: refused: krs::expand::let-outside-term"
 
 ["k8/terms/context/guard/Cmd::Pair { a: x, ..x }"]
 finding = "NT-16-4"

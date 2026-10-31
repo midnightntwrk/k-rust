@@ -150,6 +150,17 @@ pub(super) fn matches_evaluated_sentence(payload: &DescriptorPayload) -> bool {
     }
 }
 
+/// Whether a sentence is a claim, whose subject is a symbolic state: a term over the claim's
+/// variables, which holds what its end state may, computed constructs among them.
+pub(super) fn is_claim_sentence(payload: &DescriptorPayload) -> bool {
+    match payload {
+        DescriptorPayload::StructuredRule(rule) => rule.sentence_kind == SentenceKind::Claim,
+        DescriptorPayload::HeadRule(rule) => rule.claim.is_some(),
+        DescriptorPayload::ConfigurationRule(rule) => rule.claim.is_some(),
+        _ => false,
+    }
+}
+
 /// Checks the subject of an alias or a desugar clause below its root, which
 /// static expansion matches against a program's terms as they are written. A
 /// root that is no production the clause expands is `statics`'s to report.

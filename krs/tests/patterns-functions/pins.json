@@ -390,9 +390,6 @@
     "matches-sort": [
       "error[krs::analysis::invalid-matches]: the pattern has sort `Color` and the subject has sort `Exp`, which share no subsort, so this test is always false"
     ],
-    "matches-claim": [
-      "error[krs::expand::matches-outside-condition]: `k::matches!` (K's :=K) denotes a Bool, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower :=K to the function it applies only in a definition's sentences, so a claim's :=K reaches them unlowered and is refused; define a function whose equations match the pattern, and apply it; here it stands in the `requires` condition of a `cells!` claim"
-    ],
     "let-shape": [
       "error[krs::syntax::invalid-let]: a term block is `let pattern = term;`* followed by one result term (K's #let)"
     ],
@@ -410,9 +407,6 @@
     ],
     "let-sort": [
       "error[krs::analysis::invalid-let]: the pattern has sort `Bool` and the value has sort `Exp`, which share no subsort, so this `let` is always undefined"
-    ],
-    "let-claim": [
-      "error[krs::expand::let-outside-term]: a `let` block (K's #let) denotes the term it computes, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower #let to the function it applies only in a definition's sentences, so a claim's #let reaches them unlowered and is refused; write the term the block computes, or define a function and apply it; here it stands in the `requires` condition of a `cells!` claim"
     ],
     "context-remainder": [
       "error[krs::syntax::invalid-function-context]: a function context frames the rest of the configuration with an anonymous `..`"

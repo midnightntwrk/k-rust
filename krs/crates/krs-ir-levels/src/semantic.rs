@@ -737,6 +737,13 @@ impl SemanticModule {
         self
     }
 
+    /// Replaces the module's productions.
+    #[must_use]
+    pub fn with_productions(mut self, productions: Vec<SemanticProduction>) -> Self {
+        self.productions = SortedByKey::new(productions);
+        self
+    }
+
     /// Sets the module's named lexicals (`k::lexical!`).
     #[must_use]
     pub fn with_lexicals(mut self, lexicals: Vec<krs_ir::LexicalSentence>) -> Self {
@@ -1669,6 +1676,42 @@ impl SemanticRule {
     #[must_use]
     pub fn variables(&self) -> &[SemanticVariable] {
         &self.variables
+    }
+    /// Replaces the rule's binders.
+    #[must_use]
+    pub fn with_variables(mut self, variables: Vec<SemanticVariable>) -> Self {
+        self.variables = variables;
+        self
+    }
+    /// The same rule with every object term of its body and of its `requires` and `ensures`
+    /// conditions replaced by `map`'s image of it: the body's first (a rewrite's pre-pattern before
+    /// its post-term, a configuration rewrite's clauses in order), then `requires`, then `ensures`.
+    /// Everything else, its binders among it, is kept.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error `map` returns.
+    pub fn try_map_terms<E>(
+        &self,
+        map: &mut impl FnMut(&SemanticTerm) -> Result<SemanticTerm, E>,
+    ) -> Result<Self, E> {
+        let content = self.content.try_map_terms(map)?;
+        let requires = self
+            .requires
+            .as_ref()
+            .map(|condition| condition.try_map_terms(map))
+            .transpose()?;
+        let ensures = self
+            .ensures
+            .as_ref()
+            .map(|condition| condition.try_map_terms(map))
+            .transpose()?;
+        Ok(Self {
+            requires,
+            ensures,
+            content,
+            ..self.clone()
+        })
     }
     /// Returns a static clause as KRS emits it (KF-028), in this rule's place
     /// or beside it: under `id`, with `from` as the left side of its term

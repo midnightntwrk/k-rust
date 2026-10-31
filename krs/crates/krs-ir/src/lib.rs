@@ -77,8 +77,8 @@ pub use error_detail::{
     SemanticIdentityKind,
 };
 pub use generated::{
-    GeneratedProductionIdError, GeneratedProductionKind, TokenProductionContent,
-    generated_production_id,
+    GeneratedProductionIdError, GeneratedProductionKind, LocalFunctionIds, TokenProductionContent,
+    generated_production_id, local_function_ids,
 };
 pub use grammar::{
     ApplicationRef, BuiltinOperation, FormatFragment, GeneratedOperation, GrammarProductionItem,

@@ -595,12 +595,8 @@ pub enum Class {
     ConstantNotGround,
     /// `fragment-in-initializer`.
     FragmentInInitializer,
-    /// `let-in-claim`.
-    LetInClaim,
     /// `let-outside-term`.
     LetOutsideTerm,
-    /// `matches-in-claim`.
-    MatchesInClaim,
     /// `matches-outside-condition`.
     MatchesOutsideCondition,
     /// `open-record-in-alias-subject`.
@@ -633,7 +629,7 @@ pub enum Class {
 
 impl Class {
     /// Every class.
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 25] = [
         Self::AliasInAliasSubject,
         Self::AliasInLetPattern,
         Self::AliasOutsidePattern,
@@ -644,9 +640,7 @@ impl Class {
         Self::ClaimSubjectOnlyTerm,
         Self::ConstantNotGround,
         Self::FragmentInInitializer,
-        Self::LetInClaim,
         Self::LetOutsideTerm,
-        Self::MatchesInClaim,
         Self::MatchesOutsideCondition,
         Self::OpenRecordInAliasSubject,
         Self::OpenRecordOutsidePattern,
@@ -677,9 +671,7 @@ impl Class {
             Self::ClaimSubjectOnlyTerm => "claim-subject-only-term",
             Self::ConstantNotGround => "constant-not-ground",
             Self::FragmentInInitializer => "fragment-in-initializer",
-            Self::LetInClaim => "let-in-claim",
             Self::LetOutsideTerm => "let-outside-term",
-            Self::MatchesInClaim => "matches-in-claim",
             Self::MatchesOutsideCondition => "matches-outside-condition",
             Self::OpenRecordInAliasSubject => "open-record-in-alias-subject",
             Self::OpenRecordOutsidePattern => "open-record-outside-pattern",
@@ -713,10 +705,8 @@ impl Class {
             Self::ClaimSubjectOnlyTerm => codes::expand::CLAIM_SUBJECT_ONLY_TERM,
             Self::ConstantNotGround => codes::syntax::INVALID_CONSTANT,
             Self::FragmentInInitializer => codes::expand::INITIALIZER_FRAGMENT,
-            Self::LetInClaim | Self::LetOutsideTerm => codes::expand::LET_OUTSIDE_TERM,
-            Self::MatchesInClaim | Self::MatchesOutsideCondition => {
-                codes::expand::MATCHES_OUTSIDE_CONDITION
-            }
+            Self::LetOutsideTerm => codes::expand::LET_OUTSIDE_TERM,
+            Self::MatchesOutsideCondition => codes::expand::MATCHES_OUTSIDE_CONDITION,
             Self::MlInInitializer => codes::expand::ML_PLACEMENT,
             Self::MlPredicateAsTerm => codes::analysis::INVALID_ML_PREDICATE,
             Self::RecordRemainderInCellsTerm => codes::analysis::INVALID_RECORD_UPDATE,
@@ -767,14 +757,8 @@ impl Class {
             Self::FragmentInInitializer => {
                 "`k::fragment!` names a nested cell term, and an initializer builds its nested cells with their structs"
             }
-            Self::LetInClaim => {
-                "a `let` block (K's #let) denotes the term it computes, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower #let to the function it applies only in a definition's sentences, so a claim's #let reaches them unlowered and is refused; write the term the block computes, or define a function and apply it"
-            }
             Self::LetOutsideTerm => {
                 "a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed; a pattern's map key computes its value, but `#let` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the block in a rule's or an equation's result or condition, a fn body, or an initializer"
-            }
-            Self::MatchesInClaim => {
-                "`k::matches!` (K's :=K) denotes a Bool, which a claim's states and conditions could hold as a rule's do, but no prover takes one in a claim: the native prover and Java K's kprove lower :=K to the function it applies only in a definition's sentences, so a claim's :=K reaches them unlowered and is refused; define a function whose equations match the pattern, and apply it"
             }
             Self::MatchesOutsideCondition => {
                 "`k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed; a pattern's map key computes its value, but `:=K` binds its pattern's names, and in a rule's left side those names would read as the rule's pattern variables; a `cells!` cell value holds none for now, in a result as in a pattern: write the test in a rule's or an equation's result or condition, a fn body, or an initializer"
@@ -967,17 +951,17 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // `k::matches!` tests and `let` computes, each by applying a function generated for it
         // alone, which no term holds: a pattern, which matches terms as they are, never meets
         // one. A claim's states hold applications, which denote their values, so its start state
-        // could hold either, as its end state and conditions could; but the provers lower the
-        // generated functions only in a definition's sentences, so a claim holds neither (finding
-        // NT-7-1). A `cells!` value is a cell's content (S6 decides whether that changes for
+        // holds either, as its end state and conditions do; KRS lifts a claim's into functions its
+        // spec module declares, since the provers lower them only in a definition's sentences
+        // (NT-15). A `cells!` value is a cell's content (S6 decides whether that changes for
         // readable rules written as `cells!` rules). A key a pattern looks up computes its value,
         // but `#let` and `:=K` bind their patterns' names, which in a rule's left side would read
         // as its pattern variables, so a key holds neither, at any depth (finding NT-3-2).
         Construct::Matches | Construct::Let => {
-            let (outside, in_claim) = if matches!(construct, Construct::Matches) {
-                (Class::MatchesOutsideCondition, Class::MatchesInClaim)
+            let outside = if matches!(construct, Construct::Matches) {
+                Class::MatchesOutsideCondition
             } else {
-                (Class::LetOutsideTerm, Class::LetInClaim)
+                Class::LetOutsideTerm
             };
             if position.in_local_pattern()
                 || in_pattern_key
@@ -985,8 +969,6 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 || (pattern && !form.is_claim())
             {
                 Refuse(outside)
-            } else if form.is_claim() {
-                Refuse(in_claim)
             } else {
                 Admit
             }

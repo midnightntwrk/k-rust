@@ -590,26 +590,24 @@ fn claims_hold_the_symbolic_islands() {
         assert_eq!(admits(result, Construct::OrBool), Admission::Admit);
         assert_eq!(admits(result, Construct::SortTest), Admission::Admit);
     }
-    // A readable claim's states and conditions could hold `let` and `k::matches!`, but no prover
-    // takes them there (finding NT-7-1); a `cells!` claim's cell values are `cells!` values.
+    // A readable claim's states and conditions hold `let` and `k::matches!` as a rule's do: KRS
+    // lifts them into functions the claim's spec module declares (NT-15); a `cells!` claim's cell
+    // values are `cells!` values.
     for slot in [Slot::Subject, Slot::Result, Slot::Requires, Slot::Ensures] {
         let position = Position::root(Form::ReadableClaim, slot);
         assert_eq!(
             admits(position, Construct::Matches),
-            Admission::Refuse(Class::MatchesInClaim),
+            Admission::Admit,
             "{slot:?}"
         );
         assert_eq!(
             admits(position, Construct::Let),
-            Admission::Refuse(Class::LetInClaim),
+            Admission::Admit,
             "{slot:?}"
         );
     }
     let requires = Position::root(Form::CellsClaim, Slot::Requires);
-    assert_eq!(
-        admits(requires, Construct::Let),
-        Admission::Refuse(Class::LetInClaim)
-    );
+    assert_eq!(admits(requires, Construct::Let), Admission::Admit);
     let result = Position::root(Form::CellsClaim, Slot::Result);
     assert_eq!(
         admits(result, Construct::Let),

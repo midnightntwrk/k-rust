@@ -317,14 +317,6 @@ code = "krs::syntax::invalid-rule-key"
 doc = "keys that cannot stand on one sentence: `owise` and `priority`, `heat` and `cool`, `anywhere` or a heating or cooling step with an order, `circularity` on a one-path or trusted claim"
 advice = "attrs/rule/heat, hole = x"
 
-# A class of the position table that no generated case is expected to make: a `let` block in a
-# claim means what it means in a rule, which the oracle admits; the product's refusal, for want of a
-# prover that takes it, is finding NT-7-1's.
-[class.let-in-claim]
-code = "krs::expand::let-outside-term"
-doc = "a `let` block (K's `#let`) in a claim's state or condition, which no prover takes there: the native prover and Java K's kprove lower `#let` only in a definition's sentences (finding NT-7-1)"
-advice = "none"
-
 [class.let-outside-term]
 code = "krs::expand::let-outside-term"
 doc = "a `let` block (K's `#let`) in a pattern, a pattern's map key or a `cells!` cell value: it applies a function generated for it alone, which no matched term holds"
@@ -363,15 +355,6 @@ advice = "none"
 [class.map-read-value-bound]
 code = "krs::syntax::rust-syntax"
 doc = "a readable map read whose value names a binder the record binds elsewhere: the read introduces its value's name"
-advice = "none"
-
-# A class of the position table that no generated case is expected to make: `k::matches!` in a
-# claim means what it means in a rule, which the oracle admits; the product's refusal, for want of a
-# prover that takes it, is finding NT-7-1's.
-
-[class.matches-in-claim]
-code = "krs::expand::matches-outside-condition"
-doc = "`k::matches!` (K's `:=K`) in a claim's state or condition, which no prover takes there: the native prover and Java K's kprove lower `:=K` only in a definition's sentences (finding NT-7-1)"
 advice = "none"
 
 [class.matches-outside-condition]

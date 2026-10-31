@@ -168,6 +168,14 @@ object with one hit) are proved by `krs prove` and by Java `kprove --claims`;
 `other-hits` gives that object one hit, so no rule applies, and both routes
 must fail it.
 
+Local functions in claims (NT-15): `local-function-claims` holds `let` blocks
+and `k::matches!` in claims' start states, end states, `requires` and
+`ensures`, a refutable `let` pattern among them, which KRS lifts into
+functions the definition declares (no prover lowers `#let` or `:=K` in a
+claim). The five claims are proved by `krs prove` and by Java
+`kprove --claims`; `off-by-one` ends with the length plus one, which no run
+reaches, and both routes must fail it.
+
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
 replaying the per-user reference cache.
@@ -396,6 +404,16 @@ CELL_MAPS_FRAGMENTS = (
 SET_INSTANCE_CLAIMS = Fixture(MANIFEST, "krs-verification-surface-set-instance-claims")
 SET_INSTANCE_CLAIMS_SPEC = "KRS-SET-INSTANCE-CLAIMS-SPEC"
 SET_INSTANCE_CLAIMS_STATUSES = {"found": "proven", "found-among-two": "proven", "other-hits": "failed"}
+LOCAL_FUNCTION_CLAIMS = Fixture(MANIFEST, "krs-verification-surface-local-function-claims")
+LOCAL_FUNCTION_CLAIMS_SPEC = "KRS-LOCAL-FUNCTION-CLAIMS-SPEC"
+LOCAL_FUNCTION_CLAIMS_STATUSES = {
+    "ends": "proven",
+    "ensured": "proven",
+    "off-by-one": "failed",
+    "refutes": "proven",
+    "starts": "proven",
+    "tests": "proven",
+}
 
 NEGATIVE = (
     "exists-equation",
@@ -1360,6 +1378,27 @@ def verify_set_instance_claims(harness: FixtureGate, fixture: Fixture) -> None:
     print(f"PASS {fixture.package}: found and found-among-two proven, other-hits failed, on both routes")
 
 
+def verify_local_function_claims(harness: FixtureGate, fixture: Fixture) -> None:
+    """Claims holding `let` and `k::matches!`, lifted into the definition's functions, on both routes (NT-15)."""
+
+    harness.check(fixture)
+    harness.expand(fixture)
+    emitted = harness.emit(fixture)
+    for construct in ("#let", ":=K"):
+        if construct in (emitted.directory / "spec.k").read_text(encoding="utf-8"):
+            raise GateError(f"{fixture.package}: the emitted spec holds {construct}, which no prover lowers in a claim")
+    native = native_trusted_proof(harness, fixture, LOCAL_FUNCTION_CLAIMS_SPEC)
+    if native["statuses"] != LOCAL_FUNCTION_CLAIMS_STATUSES or native["exit"] != 1:
+        raise GateError(f"{fixture.package}: krs prove reported {json.dumps(native)}")
+    harness.pins.expect(("local_function_proofs", fixture.package), native)
+    java = java_claim_proofs(harness, emitted, LOCAL_FUNCTION_CLAIMS_SPEC, tuple(LOCAL_FUNCTION_CLAIMS_STATUSES))
+    expected = {label: status == "proven" for label, status in LOCAL_FUNCTION_CLAIMS_STATUSES.items()}
+    if java != expected:
+        raise GateError(f"{fixture.package}: kprove per claim reported {json.dumps(java)}, native {json.dumps(native['statuses'])}")
+    harness.pins.expect(("local_function_kprove", fixture.package), java)
+    print(f"PASS {fixture.package}: five claims proven, off-by-one failed, on both routes")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -1395,6 +1434,7 @@ def main() -> int:
         verify_ml_predicates(harness, L22)
         verify_cell_maps(harness, CELL_MAPS)
         verify_set_instance_claims(harness, SET_INSTANCE_CLAIMS)
+        verify_local_function_claims(harness, LOCAL_FUNCTION_CLAIMS)
         for name in NEGATIVE:
             manifest = materialize(name, workspace)
             message = harness.diagnostic(name, Fixture(manifest, f"krs-verification-surface-{name}"))
