@@ -1788,6 +1788,82 @@ endmodule
         }
     }
 
+    const CONSOLE: &str = r#"
+module MAIN
+  imports INT
+  imports STRING
+  imports K-IO
+  syntax Pgm ::= echo(Int) | wr(String) | pc(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule echo(N) => #write(1, {#read(0, N)}:>String)
+  rule wr(S) => #write(1, S)
+  rule pc(I) => #putc(1, I)
+endmodule
+"#;
+
+    /// k-rust's console contract (docs/compatibility.md, "Strings and their literals"): the file
+    /// behind descriptor 0 holds one character per input byte, the code point of its value, and
+    /// the files behind descriptors 1 and 2 are written one byte per character, its code point,
+    /// so writing back what a run read reproduces its bytes, and no value is marked. A character
+    /// above U+00FF has no place in that presentation, where the text's files hold any
+    /// character: `#write` of one, and `#putc` of a value above 255, are refused and write
+    /// nothing (a k-rust deviation; no file is both written and read in one run, so a run
+    /// cannot read back what it wrote).
+    #[test]
+    fn the_console_presents_each_byte_as_one_character_up_to_u00ff() {
+        let input = vec![0xff, 0x80, 0x00, b'A', 0xe9];
+        for (program, written) in [
+            ("echo(5)", Some(input.clone())),
+            (r#"wr("aé")"#, Some(vec![b'a', 0xe9])),
+            ("pc(233)", Some(vec![0xe9])),
+            (r#"wr("aā")"#, None),
+            ("pc(257)", None),
+        ] {
+            let (kore, initial) = compile(CONSOLE, program);
+            let (mut backend, pattern) = internal(&kore, &initial);
+            let definition = backend.select_definition(None).unwrap();
+            let result = execute_with_io_state(
+                &definition,
+                pattern,
+                ExecutionOptions {
+                    evaluation: EvaluationMode::Execution,
+                    ..ExecutionOptions::default()
+                },
+                ExecutionIoState::new(input.clone()),
+            );
+            let [leaf] = result.leaves.as_slice() else {
+                panic!("{program}: one leaf expected: {result:#?}");
+            };
+            let bytes = leaf
+                .io
+                .transcript()
+                .iter()
+                .filter(|entry| entry.descriptor == 1)
+                .flat_map(|entry| entry.bytes.iter().copied())
+                .collect::<Vec<_>>();
+            match written {
+                Some(written) => {
+                    assert_eq!(bytes, written, "{program}: {result:#?}");
+                    assert!(
+                        !format!("{:?}", leaf.halt_reason).contains("UnsupportedHook"),
+                        "{program}: {result:#?}"
+                    );
+                }
+                None => {
+                    assert!(bytes.is_empty(), "{program}: {result:#?}");
+                    assert!(
+                        format!("{:?}", leaf.halt_reason).contains("UnsupportedHook"),
+                        "{program}: {result:#?}"
+                    );
+                }
+            }
+            // `#read(0, 5)` taking all five characters is the one implementation-chosen value
+            // here (class `read-count`); the presentation itself is never marked.
+            let expected = usize::from(program == "echo(5)");
+            assert_eq!(leaf_marks(&result), [expected], "{program}: {result:#?}");
+        }
+    }
+
     const EFFECTS: &str = r#"
 module MAIN
   imports INT

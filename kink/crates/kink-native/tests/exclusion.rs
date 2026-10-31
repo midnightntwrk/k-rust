@@ -1207,6 +1207,12 @@ fn the_run_list_hooks_are_k_rusts_unevaluated_open_hooks() {
 /// Re-pin kink27 R2-PIN-BY-ANCHOR: the passage is located by its anchor and opening
 /// (`testdata/k/passage.rs`), not by line; its digest is unchanged, the passage found at 3ebd1f8f6
 /// at line 117, where it was pinned.
+///
+/// GAP final fix round re-pin (text only): the line's first sentence (0e21af4d -> 997e7ef8, the
+/// opening with it) now says what is determined given the files the request's console presents,
+/// and points to k-rust's console contract; the sentences `RUN_LIST_HOOKS` rests on (an execute
+/// request has no console, evaluates none of these hooks, and lists an application whose value
+/// the run needs on `unsupportedHooks`) are byte-identical, so the run list reads the same.
 #[test]
 fn the_console_passage_the_run_list_rests_on_is_pinned() {
     passage::assert_pinned(
@@ -1214,9 +1220,9 @@ fn the_console_passage_the_run_list_rests_on_is_pinned() {
         &[passage::Passage {
             file: "docs/compatibility.md",
             anchor: "## Backend scope",
-            opening: "Given the console of the request, `#getc`, `#putc` and `#write` are",
+            opening: "Given the files the request's console presents (k-rust's console contract",
             lines: 1,
-            digest: "0e21af4d52506fe9e9cdfae85637b1613bc289ac3859c2b4a86dad061e2ee85b",
+            digest: "997e7ef84f55532a8cb0ea2a7e2af9b2b49ec05ee4a4123b27d4942f5fd4f20c",
         }],
     );
 }
