@@ -602,6 +602,7 @@ fn normalize_labels(
 
 fn alpha_normalize_sentence(sentence: &mut Sentence) {
     canonicalize_no_junk_axiom(sentence);
+    canonicalize_owise_competitors(sentence);
     canonicalize_no_confusion_pair(sentence);
     let mut names = BTreeMap::<(VariableKind, String, Sort), String>::new();
     for pattern in sentence_patterns_mut(sentence) {
@@ -634,6 +635,78 @@ fn canonicalize_no_junk_axiom(sentence: &mut Sentence) {
         alpha_normalize_pattern(argument, &mut BTreeMap::new());
     }
     arguments.sort();
+}
+
+/// Canonicalize the competitor disjunction of one `owise` equation.
+///
+/// An `owise` equation gives its value where no other equation of its function applies, which
+/// its axiom states as the negation of the disjunction of the other equations' applicability
+/// conditions. A disjunction is associative and commutative, and the two frontends list the
+/// competitors in different orders (the reference from an unordered set, k-rust's N6), so the
+/// comparator flattens each negated disjunction of the axiom's condition and orders its
+/// disjuncts by their shape under a local alpha normalization, before its ordinary
+/// per-sentence alpha normalization.
+fn canonicalize_owise_competitors(sentence: &mut Sentence) {
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return;
+    };
+    if !has_owise_marker(attributes) {
+        return;
+    }
+    let Pattern::Implies { left, .. } = pattern.as_mut() else {
+        return;
+    };
+    let Pattern::And { arguments, .. } = left.as_mut() else {
+        return;
+    };
+    for conjunct in arguments.iter_mut() {
+        let Pattern::Not { argument, .. } = conjunct else {
+            continue;
+        };
+        let Pattern::Or { sort, arguments } = argument.as_mut() else {
+            continue;
+        };
+        let mut disjuncts = Vec::new();
+        flatten_disjunction(sort, std::mem::take(arguments), &mut disjuncts);
+        disjuncts.sort_by_cached_key(|disjunct| {
+            let mut key = disjunct.clone();
+            normalize_commuting_exists(&mut key);
+            alpha_normalize_pattern(&mut key, &mut BTreeMap::new());
+            key
+        });
+        *arguments = disjuncts;
+    }
+}
+
+/// The disjuncts of a nested disjunction of one sort, in order.
+fn flatten_disjunction(sort: &Sort, disjuncts: Vec<Pattern>, output: &mut Vec<Pattern>) {
+    for mut disjunct in disjuncts {
+        if let Pattern::Or {
+            sort: nested,
+            arguments,
+        } = &mut disjunct
+            && nested == sort
+        {
+            flatten_disjunction(sort, std::mem::take(arguments), output);
+        } else {
+            output.push(disjunct);
+        }
+    }
+}
+
+fn has_owise_marker(attributes: &Attributes) -> bool {
+    attributes.0.iter().any(|attribute| {
+        matches!(
+            attribute,
+            Pattern::Application { symbol, arguments }
+                if symbol.name == "owise" && arguments.is_empty()
+        )
+    })
 }
 
 /// Canonicalize the commutative constructor pair in one generated no-confusion axiom.
@@ -1152,6 +1225,40 @@ fn format_difference(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An `owise` equation's competitors are a disjunction under a negation: the order in which
+    /// a frontend lists them, and how it nests the disjunction, state nothing.
+    #[test]
+    fn owise_competitor_order_is_normalized() {
+        let competitor = |value: &str| {
+            format!(
+                "\\and{{R}}(\\top{{R}}(), \\in{{SortInt{{}}, R}}(X0:SortInt{{}}, \\dv{{SortInt{{}}}}(\"{value}\")))"
+            )
+        };
+        let module = |disjunction: &str, marker: &str| {
+            format!(
+                "[] module M axiom{{R}} \\implies{{R}}(\\and{{R}}(\\not{{R}}({disjunction}), \\in{{SortInt{{}}, R}}(X0:SortInt{{}}, VarN:SortInt{{}})), \\equals{{SortInt{{}}, R}}(Lblf{{}}(X0:SortInt{{}}), \\dv{{SortInt{{}}}}(\"0\"))) [{marker}] endmodule []"
+            )
+        };
+        let normalized = |source: &str| {
+            let mut definition = parse_definition(source).unwrap();
+            let mut module = definition.modules.remove(0);
+            normalize_module(&mut module, &ComparePolicy::default()).unwrap();
+            module
+        };
+        let (one, minus) = (competitor("1"), competitor("-1"));
+        let first = format!("\\or{{R}}({one}, \\or{{R}}({minus}, \\bottom{{R}}()))");
+        let second = format!("\\or{{R}}({minus}, \\or{{R}}({one}, \\bottom{{R}}()))");
+        assert_eq!(
+            normalized(&module(&first, "owise{}()")),
+            normalized(&module(&second, "owise{}()"))
+        );
+        // Only an `owise` axiom's competitors are reordered.
+        assert_ne!(
+            normalized(&module(&first, "")),
+            normalized(&module(&second, ""))
+        );
+    }
 
     #[test]
     fn predicate_simplification_sort_variables_are_alpha_normalized() {
