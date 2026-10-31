@@ -2584,13 +2584,6 @@ rule cTAG ( V0:KItem ) => pair ( V0:KItem , size ( V0:KItem ) ) [label(krsRule_D
 syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
 """
 
-[accept."terms/alias/result/Wrap::<dyn k::KItemSort>(x)"]
-k = """
-rule cTAG ( V0:KItem ) => pair ( V0:KItem , wrap ( V0:KItem ) ) [label(krsRule_DIGEST)]
-
-syntax Stmt ::= "cTAG" "(" KItem ")" [symbol(cmdCTAG), alias, format(%1%2%3%4)]
-"""
-
 [accept."terms/alias/result/k::builtin::int::add(1, 2)"]
 k = """
 rule cTAG ( V0:KItem ) => pair ( V0:KItem , 1 +Int 2 ) [label(krsRule_DIGEST)]
@@ -6943,13 +6936,6 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%
 [accept."terms/desugar/result/Size(x)"]
 k = """
 rule cTAG ( V0:KItem , _ ) => hold ( size ( V0:KItem ) ) [label(krsRule_DIGEST)]
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
-"""
-
-[accept."terms/desugar/result/Wrap::<dyn k::KItemSort>(x)"]
-k = """
-rule cTAG ( V0:KItem , _ ) => hold ( wrap ( V0:KItem ) ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), macro, format(%1%2%3%4 %5%6)]
 """
@@ -13313,6 +13299,14 @@ rule cTAG ( V0:KItem , _ ) => #token("b\"ab\"","Bytes") [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 '''
+
+[accept."terms/rule/result-root/k::fragment![crate::Frame { ret: 1 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:KItem , _ ) => <frame> <ret> 1 </ret> </frame> ... </k>
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept.'terms/rule/result-root/k::id!("$x")']
 k = """

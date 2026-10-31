@@ -5807,51 +5807,496 @@ finding = "NT-8-1"
 deviation = "failed: cannot find a production for KLabel \"#let\""
 
 # NT-8-1 (twin): the same failures, seen by K7's twin check: the rule twin's run builds the value,
-# the static clause's program expansion fails.
+# the static clause's program expansion fails at x = 1 (at x = go it does not apply, NT-20-1).
 
 ["twin/terms/alias/result/k::matches!(x, Cmd::Hold(_))"]
 finding = "NT-8-1"
-deviation = "failed: cannot find a production for KLabel \"_:=K_\", where its rule twin builds false"
+deviation = "x = 1: failed: cannot find a production for KLabel \"_:=K_\"; x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
 
 ["twin/terms/alias/result/{ let y = x; y }"]
 finding = "NT-8-1"
-deviation = "failed: cannot find a production for KLabel \"#let\", where its rule twin builds 1"
+deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
 
 ["twin/terms/desugar/result/k::matches!(x, Cmd::Hold(_))"]
 finding = "NT-8-1"
-deviation = "failed: cannot find a production for KLabel \"_:=K_\", where its rule twin builds false"
+deviation = "x = 1: failed: cannot find a production for KLabel \"_:=K_\"; x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
 
 ["twin/terms/desugar/result/{ let y = x; y }"]
 finding = "NT-8-1"
-deviation = "failed: cannot find a production for KLabel \"#let\", where its rule twin builds 1"
+deviation = "x = 1: failed: cannot find a production for KLabel \"#let\"; x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
 
-# NT-12-2 (K7): a parametric constructor at an explicit instance, `Wrap::<KItem>(x)`, in an alias's
-# or a desugar's result: the program's expansion writes `wrap(1)` without its instance, and the run
-# refuses it ("the instance of `wrap` .. is at sort Int"); in a rule's result the same term runs as
-# stated, so the static clause's expansion of a program drops the turbofish's instance. NT-20
-# stopped here: a program's value takes its instance from its arguments, so only a term that
-# computes (a projection of `x` to `KItem`, or a lifted function) carries it into a program, and a
-# desugar's result is also a pattern where a rule's pattern applies the desugar, where such a term
-# is refused natively (`IllegalFunctionOnLhs`). Keeping the instance needs k-rust's program
-# expansion to keep the instance the macro rule's typing fixed (NT-20's report).
+# NT-20-1 (twin): a static clause's `KItem` binder does not match a program's term of a user sort
+# the definition declares below no sort: `cTAG(go, 0)` (`go` a `Stmt`) leaves the clause's
+# production unexpanded ("survived expansion"), while `cTAG(1, 0)` expands and the rule twin
+# applies to `go` as to `1`. k-rust's macro matcher compares the binder's sort with the subject's
+# over the declared subsorts (`crates/k-rust/src/kompile/passes/expand_macros.rs`, `matches`),
+# which lack K's implicit `S < KItem` for such a sort (`Stmt` on the terms base; `Value`, below
+# `KResult`, has it). The backend's question (NT-22); the ignored krs-cli test
+# `static_results::a_static_kitem_binder_matches_a_term_of_every_sort` states the expected run.
 
-["k7/terms/alias/result/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-12-2"
-deviation = "failed: the instance of `wrap` in `wrap(#token(\"1\",\"Int\"))` is at sort Int, whose values its hook or its domain values fix; the result sort of `wrap` is its own sort parameter, so its applications are values with their own root at the instance sort, and none is a value of Int"
+["twin/import/alias/result-root/Hold(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
 
-["k7/terms/desugar/result/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-12-2"
-deviation = "failed: the instance of `wrap` in `wrap(#token(\"1\",\"Int\"))` is at sort Int, whose values its hook or its domain values fix; the result sort of `wrap` is its own sort parameter, so its applications are values with their own root at the instance sort, and none is a value of Int"
+["twin/import/alias/result/Go()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
 
-# NT-12-2 (twin): the same failure, seen by K7's twin check against `terms/rule/result/Wrap::<..>(x)`.
+["twin/import/alias/result/Hold(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
 
-["twin/terms/alias/result/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-12-2"
-deviation = "failed: the instance of `wrap` in `wrap(#token(\"1\",\"Int\"))` is at sort Int, whose values its hook or its domain values fix; the result sort of `wrap` is its own sort parameter, so its applications are values with their own root at the instance sort, and none is a value of Int, where its rule twin builds Wrap(1)"
+["twin/import/desugar/result-root/Go()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
 
-["twin/terms/desugar/result/Wrap::<dyn k::KItemSort>(x)"]
-finding = "NT-12-2"
-deviation = "failed: the instance of `wrap` in `wrap(#token(\"1\",\"Int\"))` is at sort Int, whose values its hook or its domain values fix; the result sort of `wrap` is its own sort parameter, so its applications are values with their own root at the instance sort, and none is a value of Int, where its rule twin builds Wrap(1)"
+["twin/import/desugar/result-root/Hold(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/import/desugar/result/Go()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/import/desugar/result/Hold(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/alias/result-root/k::builtin::list::item(x).len()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/notation/alias/result-root/k::builtin::list::size(k::builtin::list::item(x))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/notation/alias/result/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/notation/alias/result/k::builtin::list::item(x).len()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/notation/alias/result/k::builtin::list::item(x)[0]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/notation/alias/result/k::builtin::list::size(k::builtin::list::item(x))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/notation/alias/result/k::builtin::map::empty()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}()); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}())"
+
+["twin/notation/alias/result/k::builtin::map::empty().contains_key(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
+
+["twin/notation/alias/result/k::builtin::map::empty().update(x, 1)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/alias/result/k::builtin::map::empty()[x]"]
+finding = "NT-20-1"
+deviation = "x = 1: has no value; x = go: does not apply; its rule twin: x = 1: has no value; x = go: has no value"
+
+["twin/notation/alias/result/k::builtin::map::get(k::builtin::map::empty(), x)"]
+finding = "NT-20-1"
+deviation = "x = 1: has no value; x = go: does not apply; its rule twin: x = 1: has no value; x = go: has no value"
+
+["twin/notation/alias/result/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
+
+["twin/notation/alias/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/alias/result/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/alias/result/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))))"
+
+["twin/notation/alias/result/k::builtin::set::empty()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}()); x = go: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}())"
+
+["twin/notation/alias/result/k::builtin::set::item(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/alias/result/k::builtin::set::item(x).to_list()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/alias/result/k::builtin::set::to_list(k::builtin::set::item(x))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/alias/result/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/alias/result/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(Lbl'Unds'Set'Unds'{}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()))))"
+
+["twin/notation/alias/result/map![0 -> 1]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/alias/result/map![]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}()); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}())"
+
+["twin/notation/alias/result/map![x -> 1, ..k::builtin::map::empty()]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/alias/result/map![x -> 1, 2 -> 3]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))))"
+
+["twin/notation/alias/result/set![]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}()); x = go: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}())"
+
+["twin/notation/alias/result/set![x, ..k::builtin::set::empty()]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/alias/result/set![x, 1]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(Lbl'Unds'Set'Unds'{}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()))))"
+
+["twin/notation/alias/result/set![x]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/desugar/result-root/k::builtin::list::item(x).len()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/notation/desugar/result-root/k::builtin::list::size(k::builtin::list::item(x))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/notation/desugar/result/k::builtin::list::get(k::builtin::list::item(x), 0)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/notation/desugar/result/k::builtin::list::item(x).len()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/notation/desugar/result/k::builtin::list::item(x)[0]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/notation/desugar/result/k::builtin::list::size(k::builtin::list::item(x))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/notation/desugar/result/k::builtin::map::empty()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}()); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}())"
+
+["twin/notation/desugar/result/k::builtin::map::empty().contains_key(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
+
+["twin/notation/desugar/result/k::builtin::map::empty().update(x, 1)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/desugar/result/k::builtin::map::empty()[x]"]
+finding = "NT-20-1"
+deviation = "x = 1: has no value; x = go: does not apply; its rule twin: x = 1: has no value; x = go: has no value"
+
+["twin/notation/desugar/result/k::builtin::map::get(k::builtin::map::empty(), x)"]
+finding = "NT-20-1"
+deviation = "x = 1: has no value; x = go: does not apply; its rule twin: x = 1: has no value; x = go: has no value"
+
+["twin/notation/desugar/result/k::builtin::map::in_keys(x, k::builtin::map::empty())"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
+
+["twin/notation/desugar/result/k::builtin::map::update(k::builtin::map::empty(), 0, 1)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/desugar/result/k::builtin::map::update(k::builtin::map::empty(), x, 1)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/desugar/result/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))))"
+
+["twin/notation/desugar/result/k::builtin::set::empty()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}()); x = go: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}())"
+
+["twin/notation/desugar/result/k::builtin::set::item(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/desugar/result/k::builtin::set::item(x).to_list()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/desugar/result/k::builtin::set::to_list(k::builtin::set::item(x))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortList{}, SortKItem{}}(LblListItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/desugar/result/k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/desugar/result/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(Lbl'Unds'Set'Unds'{}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()))))"
+
+["twin/notation/desugar/result/map![0 -> 1]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"0\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/desugar/result/map![]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}()); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'Stop'Map{}())"
+
+["twin/notation/desugar/result/map![x -> 1, ..k::builtin::map::empty()]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/notation/desugar/result/map![x -> 1, 2 -> 3]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"2\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))), Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))))"
+
+["twin/notation/desugar/result/set![]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}()); x = go: builds inj{SortSet{}, SortKItem{}}(Lbl'Stop'Set{}())"
+
+["twin/notation/desugar/result/set![x, ..k::builtin::set::empty()]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/notation/desugar/result/set![x, 1]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(Lbl'Unds'Set'Unds'{}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))), LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()))))"
+
+["twin/notation/desugar/result/set![x]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/alias/result-root/Cmd::Hold(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/alias/result-root/Size(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/alias/result-root/k::project!(Int, x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: has no value"
+
+["twin/terms/alias/result/-1"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"-1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"-1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"-1\"))"
+
+["twin/terms/alias/result/1"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/terms/alias/result/1.5"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortFloat{}, SortKItem{}}(\\dv{SortFloat{}}(\"0.15000000000000000e1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortFloat{}, SortKItem{}}(\\dv{SortFloat{}}(\"0.15000000000000000e1\")); x = go: builds inj{SortFloat{}, SortKItem{}}(\\dv{SortFloat{}}(\"0.15000000000000000e1\"))"
+
+["twin/terms/alias/result/Cmd::Go"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/terms/alias/result/Cmd::Go()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/terms/alias/result/Cmd::Hold(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/alias/result/Size(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/alias/result/\"s\""]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"s\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"s\")); x = go: builds inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"s\"))"
+
+["twin/terms/alias/result/k::builtin::int::add(1, 2)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))"
+
+["twin/terms/alias/result/k::builtin::set::item(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/alias/result/k::bytes!(b\"ab\")"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBytes{}, SortKItem{}}(\\dv{SortBytes{}}(\"ab\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBytes{}, SortKItem{}}(\\dv{SortBytes{}}(\"ab\")); x = go: builds inj{SortBytes{}, SortKItem{}}(\\dv{SortBytes{}}(\"ab\"))"
+
+["twin/terms/alias/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortFrameCell{}, SortKItem{}}(Lbl'-LT-'frame'-GT-'{}(Lbl'-LT-'ret'-GT-'{}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortFrameCell{}, SortKItem{}}(Lbl'-LT-'frame'-GT-'{}(Lbl'-LT-'ret'-GT-'{}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortFrameCell{}, SortKItem{}}(Lbl'-LT-'frame'-GT-'{}(Lbl'-LT-'ret'-GT-'{}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/terms/alias/result/k::id!(\"$x\")"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortId{}, SortKItem{}}(\\dv{SortId{}}(\"$x\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortId{}, SortKItem{}}(\\dv{SortId{}}(\"$x\")); x = go: builds inj{SortId{}, SortKItem{}}(\\dv{SortId{}}(\"$x\"))"
+
+["twin/terms/alias/result/k::is!(Int, x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
+
+["twin/terms/alias/result/k::lexeme!(Word, \"word\")"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortWord{}, SortKItem{}}(\\dv{SortWord{}}(\"word\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortWord{}, SortKItem{}}(\\dv{SortWord{}}(\"word\")); x = go: builds inj{SortWord{}, SortKItem{}}(\\dv{SortWord{}}(\"word\"))"
+
+["twin/terms/alias/result/k::map![x -> 1]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/terms/alias/result/k::project!(Int, x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: has no value"
+
+["twin/terms/alias/result/map![x -> 1]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/terms/alias/result/true"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\"))"
+
+["twin/terms/alias/result/x"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/terms/desugar/result-root/-1"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"-1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"-1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"-1\"))"
+
+["twin/terms/desugar/result-root/1"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/terms/desugar/result-root/Cmd::Go"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/terms/desugar/result-root/Cmd::Go()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/terms/desugar/result-root/Cmd::Hold(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/desugar/result-root/Size(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/desugar/result-root/k::builtin::int::add(1, 2)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))"
+
+["twin/terms/desugar/result-root/k::project!(Int, x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: has no value"
+
+["twin/terms/desugar/result/-1"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"-1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"-1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"-1\"))"
+
+["twin/terms/desugar/result/1"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))"
+
+["twin/terms/desugar/result/1.5"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortFloat{}, SortKItem{}}(\\dv{SortFloat{}}(\"0.15000000000000000e1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortFloat{}, SortKItem{}}(\\dv{SortFloat{}}(\"0.15000000000000000e1\")); x = go: builds inj{SortFloat{}, SortKItem{}}(\\dv{SortFloat{}}(\"0.15000000000000000e1\"))"
+
+["twin/terms/desugar/result/Cmd::Go"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/terms/desugar/result/Cmd::Go()"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
+
+["twin/terms/desugar/result/Cmd::Hold(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdHold{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/desugar/result/Size(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortInt{}, SortKItem{}}(Lblsize{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/desugar/result/\"s\""]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"s\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"s\")); x = go: builds inj{SortString{}, SortKItem{}}(\\dv{SortString{}}(\"s\"))"
+
+["twin/terms/desugar/result/k::builtin::int::add(1, 2)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\")); x = go: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"3\"))"
+
+["twin/terms/desugar/result/k::builtin::set::item(x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortSet{}, SortKItem{}}(LblSetItem{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())))"
+
+["twin/terms/desugar/result/k::bytes!(b\"ab\")"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBytes{}, SortKItem{}}(\\dv{SortBytes{}}(\"ab\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBytes{}, SortKItem{}}(\\dv{SortBytes{}}(\"ab\")); x = go: builds inj{SortBytes{}, SortKItem{}}(\\dv{SortBytes{}}(\"ab\"))"
+
+["twin/terms/desugar/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortFrameCell{}, SortKItem{}}(Lbl'-LT-'frame'-GT-'{}(Lbl'-LT-'ret'-GT-'{}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortFrameCell{}, SortKItem{}}(Lbl'-LT-'frame'-GT-'{}(Lbl'-LT-'ret'-GT-'{}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortFrameCell{}, SortKItem{}}(Lbl'-LT-'frame'-GT-'{}(Lbl'-LT-'ret'-GT-'{}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/terms/desugar/result/k::id!(\"$x\")"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortId{}, SortKItem{}}(\\dv{SortId{}}(\"$x\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortId{}, SortKItem{}}(\\dv{SortId{}}(\"$x\")); x = go: builds inj{SortId{}, SortKItem{}}(\\dv{SortId{}}(\"$x\"))"
+
+["twin/terms/desugar/result/k::is!(Int, x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"false\"))"
+
+["twin/terms/desugar/result/k::lexeme!(Word, \"word\")"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortWord{}, SortKItem{}}(\\dv{SortWord{}}(\"word\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortWord{}, SortKItem{}}(\\dv{SortWord{}}(\"word\")); x = go: builds inj{SortWord{}, SortKItem{}}(\\dv{SortWord{}}(\"word\"))"
+
+["twin/terms/desugar/result/k::map![x -> 1]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/terms/desugar/result/k::project!(Int, x)"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: has no value"
+
+["twin/terms/desugar/result/map![x -> 1]"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: does not apply; its rule twin: x = 1: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")))); x = go: builds inj{SortMap{}, SortKItem{}}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortStmt{}, SortKItem{}}(LblcmdGo{}()), inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\"))))"
+
+["twin/terms/desugar/result/true"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\")); x = go: builds inj{SortBool{}, SortKItem{}}(\\dv{SortBool{}}(\"true\"))"
+
+["twin/terms/desugar/result/x"]
+finding = "NT-20-1"
+deviation = "x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: does not apply; its rule twin: x = 1: builds inj{SortInt{}, SortKItem{}}(\\dv{SortInt{}}(\"1\")); x = go: builds inj{SortStmt{}, SortKItem{}}(LblcmdGo{}())"
 
 # NT-12-6 (K7): an optional cell an initializer writes present (`counter: Some(0)`, the typed base's
 # `opt: Some(Val::Unit())`) starts absent: KRS emits `<counter multiplicity="?"> 0 </counter>`,

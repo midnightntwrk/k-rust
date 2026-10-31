@@ -551,15 +551,15 @@ code = "krs::analysis::invalid-sort-test"
 doc = "`k::is!`/`k::project!`, which apply a generated function, in a matched position over evaluated terms: a rule's or an equation's pattern, or a local pattern; or in an alias's or a desugar's subject, which static expansion matches as written, where the test would stand for its spelling (decision NT-11-5)"
 advice = ["cells/subject/pc/k::configuration::Cell(x)", "terms/rule/guard/k::is!(Int, x)", "terms/desugar/subject-typed/x"]
 
-[class.cell-at-rule-result-root]
-code = "krs::analysis::invalid-term"
-doc = "a cell fragment as the whole result of a `#[k::rule]` fn whose subject is no cell (finding NT-11-4): K completes the fn's bare rewrite to the configuration by its sides' roots, and a cell at a side's root is the configuration's cell, so the rule would not replace the matched item by the cell's value (a `for Stmt` clause writes it inside the computation cell) but put its two sides in different cells"
-advice = ["terms/sort-rule/result-root/k::fragment![crate::Frame { ret: 1 }]", "cells/result/frame/k::fragment![crate::Frame { ret: x }]"]
+[class.static-result-instance]
+code = "krs::analysis::parametric-instance"
+doc = "a parametric application in a desugar's or an alias's result whose instance follows from a binder of a sort with a sort below it: a program's expansion writes the program's term in the binder's place, and a value takes its instance from its arguments, so the expansion is the application at the program's term's sort, not at the instance the clause states (finding NT-12-2)"
+advice = "terms/rule/result/Wrap::<dyn k::KItemSort>(x)"
 
 [class.static-result-sort]
 code = "krs::analysis::invalid-term"
 doc = "a desugar's or an alias's result root whose sort is not below its production's: the clause says the production's application is the result, which a term of another sort cannot be where the production's sort is required"
-advice = "terms/{form}/result-root/x + 1"
+advice = ["terms/{form}/result-root/x + 1", "terms/{form}/result/x"]
 
 [class.static-clause-root-not-marked]
 code = "krs::analysis::invalid-static-clause"
@@ -826,16 +826,6 @@ at = "spelling"
 [[refuse]]
 match = '{claim,readable}/{result,subject}/{env,stack}/{0,Frame \{ ret: x \}}'
 class = "content-sort"
-at = "spelling"
-
-# cell-at-rule-result-root (finding NT-11-4): a cell fragment as a `#[k::rule]` fn's whole result,
-# from a `Stmt` subject. The two sides share a sort (a cell sort is below `KItem`), but K completes
-# the fn's bare rewrite by its sides' roots, reading the fragment as the configuration's `<frame>`,
-# so the rule would not replace the item by the frame's value; the `for Stmt` clause writes that
-# value inside the computation cell (`terms/sort-rule/result-root/..`), a `cells!` rule the cell.
-[[refuse]]
-match = 'terms/rule/result-root/k::fragment![crate::Frame \{ ret: 1 \}]'
-class = "cell-at-rule-result-root"
 at = "spelling"
 
 # initializer-remainder
@@ -1429,6 +1419,13 @@ at = "spelling"
 [[refuse]]
 match = 'terms/{context/subject-root,desugar/subject-root,equation/subject-root,init/item,init/item-depth-2,init/item-root,rule/subject-root,sort-rule/subject-root,sort-rule/subject-root-term}/x | 1'
 class = "unbound-name"
+at = "spelling"
+
+# static-result-instance (finding NT-12-2): `Wrap::<KItem>(x)` in a desugar's or an alias's result,
+# `x` a `KItem`, whose instance a program's expansion takes from the term it writes for `x`.
+[[refuse]]
+match = 'terms/{alias,desugar}/result/Wrap::<dyn k::KItemSort>(x)'
+class = "static-result-instance"
 at = "spelling"
 
 # static-result-sort (NT-12 review S3): a desugar's or an alias's result root whose sort is not below
