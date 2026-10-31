@@ -690,7 +690,12 @@ def native_states(harness: FixtureGate, fixture: Fixture, program: Path) -> list
 
 
 def native_chosen_values(harness: FixtureGate, fixture: Fixture, program: Path) -> list[str]:
-    """The sorted open values (`<hook> <class>`) k-rust marked in the native search of `program`."""
+    """The sorted open values (`<hook> <class>`) k-rust marked in the native search of `program`.
+
+    A second search of the program: its `--output json` report carries the marks, which the
+    `--output kast` text `native_states` reads does not, and the report spells the states as KAST
+    JSON, not the KAST text `KastParser` normalizes on both routes (krun prints that text too).
+    """
 
     report = json.loads(harness.run_command(fixture, "search", "--output", "json", program))
     return sorted(krs_gate.chosen_values(report["search"]))

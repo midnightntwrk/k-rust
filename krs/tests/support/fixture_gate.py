@@ -21,7 +21,10 @@ that ends in several leaves is `branches:` followed by their sorted reasons.
 Each program the native route runs also pins, as `implementation_chosen.<package>.<program>`,
 the sorted open values (`<hook> <class>`) k-rust marked in its runs and searches
 (`krs_gate.chosen_values`); every such program has an entry, an empty list when no run read an
-open value. The Java route has no marks.
+open value. The Java route has no marks. A `fresh-association` mark names no hook:
+its `hook` is the rule's `UNIQUE_ID`, a digest of the emitted rule, so the entry
+`<UNIQUE_ID> fresh-association` moves whenever that rule's text does (with the
+emitted artifact's digest), with no change in what the run marked.
 
 A fixture may pin a named divergence in its ledger's `known_divergences` table,
 with the native and Java outcomes recorded separately. The gate fails closed when

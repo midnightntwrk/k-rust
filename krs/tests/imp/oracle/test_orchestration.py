@@ -16,7 +16,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import behavior  # noqa: E402
 import proofs  # noqa: E402
 import run_proofs  # noqa: E402
-from support import GateError  # noqa: E402
+from support import GateError, krs_gate  # noqa: E402
+
+
+class _CannedSession(krs_gate.Session):
+    """A gate session answered in process: `exec.run` and `exec.search` reports, identity KAST requests.
+
+    `marks` maps `(program_name, operation, depth)` to the `(hook, class)` pairs that request's
+    report carries; collection is the real `Session.request`'s.
+    """
+
+    def __init__(self, marks: dict[tuple[str, str, int | None], list[tuple[str, str]]]) -> None:
+        super().__init__(Path("gate"))
+        self.marks = marks
+
+    def __enter__(self) -> "_CannedSession":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def _request(self, operation: str, *, timeout: float, **fields: object) -> object:
+        if operation in ("kast.normalize", "kast.inspect"):
+            return fields["value"]
+        if operation == "exec.run":
+            report: dict[str, object] = {
+                "state": fields["program"], "halt": "stuck", "steps": 1,
+                "printed": {"text": fields["program"], "warnings": []},
+            }
+        elif operation == "exec.search":
+            report = {"solutions": [], "complete": True}
+        else:
+            return {}
+        marks = self.marks.get((fields["program_name"], operation, fields.get("depth")), [])
+        if marks:
+            report["implementation_chosen_values"] = [{"hook": hook, "class": cls} for hook, cls in marks]
+        return report
 
 
 class BehaviorTests(unittest.TestCase):
@@ -48,6 +83,39 @@ class BehaviorTests(unittest.TestCase):
             prefix=("timeout", "--signal=KILL", "8s", "prlimit", "--as=unlimited", "--"),
             streams={"stderr": behavior.reduce_kore_exec_log},
         )
+
+    def test_native_run_pins_each_execution_cases_own_open_values(self) -> None:
+        cases = (
+            behavior.ExecutionCase("a.imp", Path("a.imp"), depths=(1,), search_depths=(2,), input_text="a"),
+            behavior.ExecutionCase("b.imp", Path("b.imp"), input_text="b"),
+            behavior.ExecutionCase(
+                "c.imp", Path("c.imp"), search_depths=(3,), run_to_completion=False, input_text="c",
+            ),
+        )
+        plan = behavior.BehaviorPlan(parse_cases=(), execution_cases=cases, rejection_cases=())
+        evidence = {
+            "pretty": {"a.imp": "a\n", "b.imp": "b\n"},
+            "execution": {"a.imp": {"term": "a"}, "b.imp": {"term": "b"}, "a.imp@001": "a"},
+            "search": {"a.imp@002": [], "c.imp@003": []},
+        }
+        session = _CannedSession({
+            ("a.imp", "exec.run", 1): [("MAP.keys_list", "order")],
+            ("a.imp", "exec.search", 2): [("STRING.base2string", "letter-case")],
+            ("c.imp", "exec.search", 3): [("MAP.keys_list", "order")],
+        })
+        with patch.object(behavior.krs_gate, "Session", return_value=session), \
+                patch.object(behavior, "z3_environment", return_value={}):
+            summary = behavior.compare_native(
+                gate=Path("gate"), definition_ir=Path("definition-ir.json"), module="IMP", plan=plan,
+                policy={}, evidence=evidence, divergences={},
+            )
+        # Every execution case has an entry, the union of its own runs and searches, and the
+        # marks of `a.imp` do not reach `b.imp`.
+        self.assertEqual(summary.chosen_values, {
+            "a.imp": ["MAP.keys_list order", "STRING.base2string letter-case"],
+            "b.imp": [],
+            "c.imp": ["MAP.keys_list order"],
+        })
 
     def test_hook_abort_precedes_secondary_wrapper_parse_error(self) -> None:
         stderr = (

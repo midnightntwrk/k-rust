@@ -2,7 +2,7 @@
 
 Run `python3 tests/kevm/verify.py` from the repository root to check the pinned KEVM corpus with the native K-Rust route.
 The gate compiles Definition IR to KORE through the pinned K-Rust frontend, executes every corpus case with the K-Rust backend, checks each expected outcome, and checks the native behavior digest against `pins.toml`.
-It also pins, per case in `pins.toml` `[implementation_chosen]`, the sorted open values (`<hook> <class>`) k-rust marked in the case's runs and searches (k-rust's `docs/compatibility.md`, "Implementation-chosen hook values"); every case has an entry, an empty list when no run read an open value, so a k-rust change that marks a run differs at exactly that case.
+It also pins, per case in `pins.toml` `[implementation_chosen]`, the sorted open values (`<hook> <class>`) k-rust marked in the case's runs and searches (k-rust's `docs/compatibility.md`, "Implementation-chosen hook values"); every case has an entry, an empty list when no run read an open value, so a k-rust change that marks a run differs at exactly that case. A `fresh-association` mark names no hook: its `hook` is the rule's `UNIQUE_ID`, a digest of the emitted rule, so an entry `<UNIQUE_ID> fresh-association` moves whenever that rule's text does, with no change in what the run marked.
 This route does not require the Java K toolchain.
 
 Each case declares what it observes and expects as data, in the format `tests/support/behavior.py` describes.
