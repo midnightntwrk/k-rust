@@ -676,10 +676,10 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
         }
         ("STRING.length", [Str(value)]) => Spec::value(Val::int(units(value).len())),
         // `[startIndex..endIndex)` on valid indices `0 <= start < end <= length`, and `""` on
-        // the empty ranges at 0 and at the length, which the `replaceFirst` equation fixes. The
-        // symbol is declared total, so elsewhere it has a value the documentation does not
-        // give; on an empty range strictly inside the string the hook computes one, of class
-        // `outside-domain`.
+        // the empty ranges at 0 and at the length, which `domains.md`'s `replaceFirst` rule
+        // fixes. The symbol is declared total, so elsewhere it has a value the documentation
+        // does not give; on an empty range strictly inside the string the hook computes one, of
+        // class `outside-domain`.
         ("STRING.substr", [Str(value), Int(start), Int(end)]) => {
             let units = units(value);
             match at_most(end, units.len())

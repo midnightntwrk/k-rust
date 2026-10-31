@@ -556,10 +556,11 @@ endmodule
 
 /// Values the `STRING` text does not describe, which k-rust computes: `substrString` "is only
 /// defined on valid indices (... `startIndex < endIndex` ...)", so an empty range strictly inside
-/// the string, which no rule of the definition reaches (`sub(1, 1)`, `sub(2, 2)`), is k-rust's
-/// `""`, taken and marked. The empty ranges at 0 and at the length are fixed by the `replaceFirst`
-/// equation (`sub(0, 0)`, `sub(3, 3)`), a nonempty range inside the string is described, and one
-/// outside the valid indices is left unevaluated, with no pick (`sub(2, 1)`): none is marked.
+/// the string, which no `domains.md` rule reaches (`sub(1, 1)`, `sub(2, 2)`), is k-rust's `""`,
+/// taken and marked. The empty ranges at 0 and at the length are fixed by `domains.md`'s own
+/// `replaceFirst` rule (STRING-COMMON) (`sub(0, 0)`, `sub(3, 3)`), a nonempty range inside the
+/// string is described, and one outside the valid indices is left unevaluated, with no pick
+/// (`sub(2, 1)`): none is marked.
 /// `findString` and `rfindString` search "starting at a certain `index`", one of the positions
 /// `0..=lengthString` of the haystack: a negative start or one past the end is k-rust's value,
 /// marked (`fnd("a", -1)`, `fnd("a", 4)`, `rfnd("a", -1)`, `rfnd("a", 4)`), and a start at the

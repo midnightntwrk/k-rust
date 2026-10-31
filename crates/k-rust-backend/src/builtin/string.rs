@@ -98,17 +98,21 @@ fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// indices the application is defined and the text gives it no value.
 /// - `0 <= START < END <= lengthString(S)`: the described substring.
 /// - `START == END`: `START < END` fails, so the empty range is outside this sentence, although
-///   `[START..END)` holds no code point. At `0` and at `lengthString(S)` the definition's own
-///   rules fix it nonetheless: `replaceFirst(S, S, R)` "replaces exactly one ocurrence of the
-///   string, the first occurrence" (`domains.md`:1844-1845), which gives `R`, and its equation
-///   (:1901-1902) gives `substrString(S, 0, 0) +String R +String substrString(S, |S|, |S|)`
-///   (`findString(S, S, 0)` is 0), so both have length 0 and are `""` in every model. Strictly
-///   inside the string (`0 < START == END < lengthString(S)`) no text or equation reaches the
-///   application (the equations of `replaceFirst`, `replace`, `countAllOccurrences`,
-///   `findChar` and `rfindChar` take a prefix from 0 or a suffix up to the length): the text
-///   gives it no value. The evaluator gives `""`, which [`takes_an_empty_range`] makes class
-///   `outside-domain` for `chosen_value` there: an execution takes it, marked, and every other
-///   evaluation leaves the application unevaluated, defined.
+///   `[START..END)` holds no code point. At `0` and at `lengthString(S)` `domains.md`'s own
+///   `replaceFirst` rule (STRING-COMMON, beside `substrString`'s declaration), part of the
+///   hook's specification, fixes it nonetheless: `replaceFirst(S, S, R)` "replaces exactly one
+///   ocurrence of the string, the first occurrence" (`domains.md`:1844-1845), which gives `R`,
+///   and its rule (:1901-1902) gives `substrString(S, 0, 0) +String R +String substrString(S,
+///   |S|, |S|)` (`findString(S, S, 0)` is 0), so both have length 0 and are `""` in every model.
+///   At `S = ""` that search starts at the length, so this rests on a search from
+///   `lengthString(S)` being described (the empty needle occurs at the length, [`find`]): the
+///   two readings stand or fall together. Strictly inside the string (`0 < START == END <
+///   lengthString(S)`) no `domains.md` text or rule reaches the application (the rules of
+///   `replaceFirst`, `replace`, `countAllOccurrences`, `findChar` and `rfindChar` take a prefix
+///   from 0 or a suffix up to the length): the text gives it no value. The evaluator gives
+///   `""`, which [`takes_an_empty_range`] makes class `outside-domain` for `chosen_value` there:
+///   an execution takes it, marked, and every other evaluation leaves the application
+///   unevaluated, defined.
 /// - Everywhere else (`END < START`, `END` past the length, a negative `START`; a negative
 ///   `START` below `END` satisfies the words but names no code point at `[START..`): no value is
 ///   computed on any route (`Unspecified`, defined), so nothing is picked.
@@ -156,7 +160,7 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
 
 /// Whether `substrString(S, START, END)` takes an empty range strictly inside `S`,
 /// `0 < START == END < lengthString(S)`, which the text's valid indices (`startIndex <
-/// endIndex`) leave out and no rule of the definition reaches ([`substring`]): the evaluator's
+/// endIndex`) leave out and no `domains.md` rule reaches ([`substring`]): the evaluator's
 /// `""` there is one model's value.
 pub(super) fn takes_an_empty_range(arguments: &[Term]) -> bool {
     let [value, start, end] = arguments else {
@@ -264,7 +268,8 @@ fn empty_needle(operation: &str, needle: &Term) -> Option<BuiltinResult> {
 /// occurrence of a needle can start are `0..=lengthString(S)` (the empty needle occurs at the
 /// length), the same range the section's valid indices give an end index (`endIndex` "less than
 /// or equal to the string length"), so a start in it is a described search, the length
-/// included. A negative `I`, or one past the length, is no position of the haystack, and the
+/// included; `substrString("", 0, 0)` being `""` rests on this reading ([`substring`]). A
+/// negative `I`, or one past the length, is no position of the haystack, and the
 /// text does not say what a search from it is: no value is excluded, and neither is `\bottom`,
 /// both symbols being partial. The evaluator searches `find` from 0 and gives `rfind` -1 at a
 /// negative `I`, and gives `find` -1 and searches `rfind` from the end past the length; that
@@ -919,7 +924,7 @@ mod tests {
     }
 
     /// `substrString` has its value on the valid indices `0 <= start < end <= length`, and the
-    /// definition's `replaceFirst` equation fixes the empty range at 0 and at the length; on an
+    /// `replaceFirst` rule of `domains.md` fixes the empty range at 0 and at the length; on an
     /// empty range strictly inside, which nothing describes, the evaluator gives `""`, which
     /// `chosen_value` makes `outside-domain` ([`takes_an_empty_range`]); elsewhere the
     /// application is left unevaluated.

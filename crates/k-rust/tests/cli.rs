@@ -8984,7 +8984,7 @@ type FoldedHookCase = (
 /// 100 and from -1 search from no position of the haystack, which the text does not describe
 /// (class `outside-domain`), so the fold leaves them. The edges kept are the searches from the end
 /// of the haystack, the length being a position, and the empty range at the end of a string,
-/// which the definition's own `replaceFirst` equation fixes (`string::substring`).
+/// which `domains.md`'s own `replaceFirst` rule (STRING-COMMON) fixes (`string::substring`).
 const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
     (
         "BOOL.and",
@@ -14355,11 +14355,16 @@ endmodule
 /// GAP K2 fix round 2: values the description does not give. The `total` `substrString` of an
 /// empty range strictly inside its string (`ss-*`) is defined with no value the text gives, so
 /// neither branch on it is proven, while that some result is reached is (`ss-some`); the empty
-/// range at the length, which the `replaceFirst` equation fixes, is `""` (`ss-end`).
+/// range at the length, which `domains.md`'s `replaceFirst` rule fixes, is `""` (`ss-end`).
 /// `findString` and `rfindString` from a start below 0 or past the length, and `findChar`
 /// through `findString`, have a value of unknown definedness (`fnd-*`, `rfnd-*`,
 /// `fch-negative`); from a start in `0..=length` they are determined (`*-end`, `*-in-range`).
 /// The vacuous forms (`vac-ss`, `vac-fnd`, `vac-rfnd`) are undecided; `vac-fnd-end` is proven.
+///
+/// GAP K2 fix round 3: `vac-rpl-tail` is the vacuous form of the tail (`replaceAtBytes` up to the
+/// end from index 1), whose definedness is unknown although its evaluator answers a value: a
+/// proof must not take that value to discharge the `requires`, so it is undecided. It pins
+/// behaviour the head already has (no failure at the base is claimed).
 #[test]
 fn kprove_proves_nothing_from_a_hook_outside_its_described_domain() {
     let source = format!(
@@ -14467,6 +14472,8 @@ module VACUOUS-SPEC
   claim [vac-get]: <k> gu(ListItem(1), 0) => no </k> requires ok(ListItem(1) [ 5 ])
   claim [vac-rpl]: <k> gu(ListItem(1), 0) => no </k>
     requires ok(replaceAtBytes(b"\x01\x02\x03", -1, b"\x00\x00"))
+  claim [vac-rpl-tail]: <k> gu(ListItem(1), 0) => no </k>
+    requires ok(replaceAtBytes(b"\x01\x02\x03", 1, b"\x00\x00"))
   claim [vac-ss]: <k> gu(ListItem(1), 0) => no </k> requires substrString("abc", 1, 1) =/=String ""
   claim [vac-fnd]: <k> gu(ListItem(1), 0) => no </k> requires findString("abc", "a", -1) =/=Int 0
   claim [vac-rfnd]: <k> gu(ListItem(1), 0) => no </k> requires rfindString("abc", "a", 4) =/=Int 0
@@ -14478,7 +14485,14 @@ endmodule
     let (verdicts, output) =
         claim_verdicts_with(&vacuous, "OUTSIDE", "VACUOUS-SPEC", &["--allow-vacuous"]);
     for claim in [
-        "vac-upd", "vac-rng", "vac-ord", "vac-rpl", "vac-ss", "vac-fnd", "vac-rfnd",
+        "vac-upd",
+        "vac-rng",
+        "vac-ord",
+        "vac-rpl",
+        "vac-rpl-tail",
+        "vac-ss",
+        "vac-fnd",
+        "vac-rfnd",
     ] {
         assert_undecided(&verdicts, claim, &output);
     }

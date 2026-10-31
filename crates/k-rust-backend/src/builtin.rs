@@ -644,8 +644,8 @@ impl<'a> HookOutcome<'a> {
 ///   up to the end of its `Bytes`, which "valid index", read as `domains.md` defines it, makes
 ///   `#False` and the description's value clause the replaced `Bytes`
 ///   (`bytes::replaces_up_to_the_end`); `substrString` of an empty range strictly inside its
-///   string, outside its valid indices (`startIndex < endIndex`) and reached by no rule of the
-///   definition (`string::takes_an_empty_range`); and `findString` and
+///   string, outside its valid indices (`startIndex < endIndex`) and reached by no
+///   `domains.md` rule (`string::takes_an_empty_range`); and `findString` and
 ///   `rfindString` from a start that is no position of the haystack
 ///   (`string::starts_outside_the_haystack`).
 /// - `FloatRounding`: `Int2Float` of an integer the format does not hold or of 0, `roundFloat`
@@ -5223,11 +5223,12 @@ mod tests {
     }
 
     /// GAP K2 fix round 2: `substrString` of an empty range strictly inside its string, which
-    /// its valid indices (`startIndex < endIndex`) leave out and no rule reaches, and
+    /// its valid indices (`startIndex < endIndex`) leave out and no `domains.md` rule reaches, and
     /// `findString`/`rfindString` from a start that is no position of the haystack, are k-rust's
     /// values, `outside-domain`: defined at the `total` `substrString`, of open definedness at the
     /// partial searches. Elsewhere, the empty ranges at 0 and at the length (which the
-    /// `replaceFirst` equation fixes) and a start at the length included, they are no class.
+    /// `replaceFirst` rule of `domains.md` fixes) and a start at the length included, they are no
+    /// class.
     #[test]
     fn a_string_value_outside_its_description_is_outside_domain() {
         let empty = Term::string("");

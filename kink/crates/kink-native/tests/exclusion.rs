@@ -213,11 +213,12 @@ fn k_rust_backend() -> PathBuf {
 ///
 /// GAP K2 fix round 2: two arms after the `\bottom` arms, both `outside-domain` on a value the
 /// `STRING` text does not describe: `STRING.substr` on an empty range strictly inside its
-/// string, which its valid indices (`startIndex < endIndex`) leave out and no rule of the
-/// definition reaches (`string::takes_an_empty_range`; the empty ranges at 0 and at the length,
-/// which the prelude's `findChar`, `replaceFirst` and stdin rules apply, are fixed by the
-/// `replaceFirst` equation and stay unmarked), and `STRING.find` and `STRING.rfind` from a start
-/// that is no position `0..=lengthString` of the haystack (`string::starts_outside_the_haystack`).
+/// string, which its valid indices (`startIndex < endIndex`) leave out and no `domains.md` rule
+/// reaches (`string::takes_an_empty_range`; the empty ranges at 0 and at the length, which the
+/// prelude's `findChar`, `replaceFirst` and stdin rules apply, are fixed by `domains.md`'s own
+/// `replaceFirst` rule (STRING-COMMON) and stay unmarked), and `STRING.find` and `STRING.rfind`
+/// from a start that is no position `0..=lengthString` of the haystack
+/// (`string::starts_outside_the_haystack`).
 /// Before, `chosen_value` answered `None` for every outcome of the three hooks (no arm named
 /// them, and the Float fallthrough helpers name no `STRING` hook), so both arms only add
 /// outcomes, and no other arm changed: the classifier narrows nothing. None of the three is a
