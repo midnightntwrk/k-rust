@@ -8979,6 +8979,12 @@ type FoldedHookCase = (
 /// edges kept are the largest exact integers and the largest finite binary32 as integers, a
 /// negative one, the smallest binary32 subnormal (exact), exact roots, and non-ties on both
 /// sides.
+///
+/// GAP K2 fix round 2 re-pin, by the same argument: `findString` from -5 and `rfindString` from
+/// 100 and from -1 search from no position of the haystack, which the text does not describe
+/// (class `outside-domain`), so the fold leaves them. The edges kept are the searches from the end
+/// of the haystack, the length being a position, and the empty range at the end of a string,
+/// which the definition's own `replaceFirst` equation fixes (`string::substring`).
 const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
     (
         "BOOL.and",
@@ -9240,7 +9246,7 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         "Int",
         &[
             &[r#""héllo""#, r#""l""#, "3"],
-            &[r#""abc""#, r#""""#, "-5"],
+            &[r#""abc""#, r#""""#, "3"],
             &[r#""abc""#, r#""d""#, "0"],
         ],
     ),
@@ -9305,10 +9311,7 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
         "STRING.rfind",
         &["String", "String", "Int"],
         "Int",
-        &[
-            &[r#""héllo""#, r#""l""#, "100"],
-            &[r#""abc""#, r#""a""#, "-1"],
-        ],
+        &[&[r#""héllo""#, r#""l""#, "5"], &[r#""abc""#, r#""b""#, "0"]],
     ),
     (
         "STRING.string2base",
@@ -14348,6 +14351,15 @@ endmodule
 /// reaches some result (`upd-some`) holds in every model, the yes one where the update has a
 /// value and the `owise` one where it has none, and is proven along both branches: the proof
 /// neither uses the undefinedness nor assumes a value.
+///
+/// GAP K2 fix round 2: values the description does not give. The `total` `substrString` of an
+/// empty range strictly inside its string (`ss-*`) is defined with no value the text gives, so
+/// neither branch on it is proven, while that some result is reached is (`ss-some`); the empty
+/// range at the length, which the `replaceFirst` equation fixes, is `""` (`ss-end`).
+/// `findString` and `rfindString` from a start below 0 or past the length, and `findChar`
+/// through `findString`, have a value of unknown definedness (`fnd-*`, `rfnd-*`,
+/// `fch-negative`); from a start in `0..=length` they are determined (`*-end`, `*-in-range`).
+/// The vacuous forms (`vac-ss`, `vac-fnd`, `vac-rfnd`) are undecided; `vac-fnd-end` is proven.
 #[test]
 fn kprove_proves_nothing_from_a_hook_outside_its_described_domain() {
     let source = format!(
@@ -14378,6 +14390,19 @@ module OUTSIDE-SPEC
   claim [rpl-in-range]: <k> gp(b"\x01\x02\x03", 0) => yes </k>
   claim [rpl-past]: <k> gp(b"\x01\x02\x03", 2) => no </k>
   claim [rpl-before]: <k> gp(b"\x01\x02\x03", -3) => no </k>
+  claim [ss-empty]: <k> gss("abc", 1) => yes </k>
+  claim [ss-other]: <k> gss("abc", 1) => no </k>
+  claim [ss-some]: <k> gss("abc", 1) => ?_R:Res </k>
+  claim [ss-end]: <k> gss("abc", 3) => yes </k>
+  claim [fnd-negative]: <k> gf("abc", -1) => yes </k>
+  claim [fnd-past]: <k> gf("abc", 4) => yes </k>
+  claim [fnd-end]: <k> gf("abc", 3) => yes </k>
+  claim [fnd-in-range]: <k> gf("abc", 0) => yes </k>
+  claim [rfnd-negative]: <k> grf("abc", -1) => yes </k>
+  claim [rfnd-past]: <k> grf("abc", 4) => yes </k>
+  claim [rfnd-end]: <k> grf("abc", 3) => yes </k>
+  claim [fch-negative]: <k> gfc("abc", -1) => yes </k>
+  claim [fch-in-range]: <k> gfc("abc", 0) => yes </k>
 endmodule
 "#,
         include_str!("fixtures/outside-domain.k")
@@ -14399,6 +14424,13 @@ endmodule
         "rpl-negative",
         "rpl-tail-yes",
         "rpl-tail-no",
+        "ss-empty",
+        "ss-other",
+        "fnd-negative",
+        "fnd-past",
+        "rfnd-negative",
+        "rfnd-past",
+        "fch-negative",
     ] {
         assert_undecided(&verdicts, claim, &output);
     }
@@ -14412,6 +14444,12 @@ endmodule
         "rpl-in-range",
         "rpl-past",
         "rpl-before",
+        "ss-some",
+        "fnd-end",
+        "fnd-in-range",
+        "rfnd-end",
+        "fch-in-range",
+        "ss-end",
     ] {
         assert_eq!(
             claim_verdict(&verdicts, claim, &output),
@@ -14429,20 +14467,28 @@ module VACUOUS-SPEC
   claim [vac-get]: <k> gu(ListItem(1), 0) => no </k> requires ok(ListItem(1) [ 5 ])
   claim [vac-rpl]: <k> gu(ListItem(1), 0) => no </k>
     requires ok(replaceAtBytes(b"\x01\x02\x03", -1, b"\x00\x00"))
+  claim [vac-ss]: <k> gu(ListItem(1), 0) => no </k> requires substrString("abc", 1, 1) =/=String ""
+  claim [vac-fnd]: <k> gu(ListItem(1), 0) => no </k> requires findString("abc", "a", -1) =/=Int 0
+  claim [vac-rfnd]: <k> gu(ListItem(1), 0) => no </k> requires rfindString("abc", "a", 4) =/=Int 0
+  claim [vac-fnd-end]: <k> gu(ListItem(1), 0) => no </k> requires findString("abc", "", 3) =/=Int 3
 endmodule
 "#,
         include_str!("fixtures/outside-domain.k")
     );
     let (verdicts, output) =
         claim_verdicts_with(&vacuous, "OUTSIDE", "VACUOUS-SPEC", &["--allow-vacuous"]);
-    for claim in ["vac-upd", "vac-rng", "vac-ord", "vac-rpl"] {
+    for claim in [
+        "vac-upd", "vac-rng", "vac-ord", "vac-rpl", "vac-ss", "vac-fnd", "vac-rfnd",
+    ] {
         assert_undecided(&verdicts, claim, &output);
     }
-    assert_eq!(
-        claim_verdict(&verdicts, "vac-get", &output),
-        "proven",
-        "vac-get: {output}"
-    );
+    for claim in ["vac-get", "vac-fnd-end"] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
+        );
+    }
 }
 
 /// A Float operation over a binary32 and a binary64 operand is defined whatever format its result

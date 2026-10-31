@@ -381,18 +381,22 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
                 .filter(|(end, start)| start <= end)
                 .map(|(end, start)| Bytes(bytes[start..end].to_vec())),
         ),
+        // `#False` if `index + N` is no valid index (`0 <= i < length`, :2106-2107), read
+        // literally; the value clause gives the replaced bytes up to the end. Where the two
+        // disagree (the range ends at the length), and at a negative start whose end is inside
+        // the value, which the text does not describe, the outcome is open (`outside-domain`).
         ("BYTES.replaceAt", [Bytes(bytes), Int(index), Bytes(source)]) => {
-            match index
-                .to_usize()
-                .filter(|index| index + source.len() <= bytes.len())
-            {
-                Some(index) => {
+            let end = index + BigInt::from(source.len());
+            if end.is_negative() || end > BigInt::from(bytes.len()) {
+                return Spec::bottom();
+            }
+            match index.to_usize() {
+                Some(index) if index + source.len() < bytes.len() => {
                     let mut bytes = bytes.clone();
                     bytes[index..index + source.len()].copy_from_slice(source);
                     Spec::value(Bytes(bytes))
                 }
-                // `#False` unless the replaced range lies inside the value, an empty one too.
-                None => Spec::bottom(),
+                _ => Spec::open(),
             }
         }
         // `#False` if `value` is not in [0..255], or if the length is negative.
@@ -671,23 +675,33 @@ fn string_model(hook: &str, arguments: &[Val]) -> Spec {
             Spec::value(Str(left.iter().chain(right).copied().collect()))
         }
         ("STRING.length", [Str(value)]) => Spec::value(Val::int(units(value).len())),
-        // `[startIndex..endIndex)` on valid indices `0 <= start <= end <= length`. The symbol
-        // is declared total, so outside them it has a value the documentation does not give.
+        // `[startIndex..endIndex)` on valid indices `0 <= start < end <= length`, and `""` on
+        // the empty ranges at 0 and at the length, which the `replaceFirst` equation fixes. The
+        // symbol is declared total, so elsewhere it has a value the documentation does not
+        // give; on an empty range strictly inside the string the hook computes one, of class
+        // `outside-domain`.
         ("STRING.substr", [Str(value), Int(start), Int(end)]) => {
             let units = units(value);
             match at_most(end, units.len())
                 .zip(start.to_usize())
                 .filter(|(end, start)| start <= end)
             {
-                Some((end, start)) => Spec::value(Str(units[start..end].concat())),
+                Some((end, start)) if start < end || start == 0 || start == units.len() => {
+                    Spec::value(Str(units[start..end].concat()))
+                }
+                Some(_) => Spec::open(),
                 None => Spec::unspecified(),
             }
         }
         // The first occurrence at or after `index` (`find`), or the last at or before it
-        // (`rfind`), in code points; -1 if there is none. Every integer index is one: the
-        // candidates are the code point positions on that side of it.
+        // (`rfind`), in code points; -1 if there is none. The index is a position
+        // `0..=length` of the haystack; from any other the search is not described, and the
+        // hook's value there is of class `outside-domain`.
         ("STRING.find" | "STRING.rfind", [Str(haystack), Str(needle), Int(start)]) => {
             let units = units(haystack);
+            if start.is_negative() || *start > BigInt::from(units.len()) {
+                return Spec::open();
+            }
             let occurs =
                 |from: usize| (from..=units.len()).any(|to| units[from..to].concat() == *needle);
             let positions = (0..=units.len()).filter(|&from| {

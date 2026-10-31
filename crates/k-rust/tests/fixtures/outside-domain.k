@@ -4,7 +4,11 @@
 // (`/Int` by zero, `replaceAtBytes` whose `index + N` is no index under either reading of "valid
 // index"). Each `yes` rule's condition holds wherever its application is defined
 // (`ok` is `total`), so the `owise` rule applies exactly where k-rust takes the application as
-// undefined. `kprove_proves_nothing_from_a_hook_outside_its_described_domain` in cli.rs.
+// undefined. `gss` reads the value of the `total` `substrString` on an empty range, which its
+// description leaves out (it requires `startIndex < endIndex`) and no rule reaches strictly
+// inside the string, and `gf`, `grf` and `gfc` search from a start that is no position of the
+// haystack (`findChar` through its prelude equations).
+// `kprove_proves_nothing_from_a_hook_outside_its_described_domain` in cli.rs.
 module OUTSIDE
   imports DOMAINS
   imports BYTES
@@ -15,6 +19,7 @@ module OUTSIDE
   syntax Pgm ::= Res | gu(List, Int) | gr(List, Int) | ga(List, Int) | go(String) | gi(String)
                | gb(String, Int) | gs(Int, Int) | gd(Bytes) | gt(String)
                | ge(List, Int) | gm(Int) | gc(Int) | gz(Int) | gp(Bytes, Int)
+               | gss(String, Int) | gf(String, Int) | grf(String, Int) | gfc(String, Int)
   configuration <k> $PGM:Pgm </k>
   rule gu(L, I) => yes requires ok(L [ I <- 0 ])
   rule gu(_, _) => no [owise]
@@ -44,4 +49,12 @@ module OUTSIDE
   rule gz(_) => no [owise]
   rule gp(B, I) => yes requires ok(replaceAtBytes(B, I, b"\x00\x00"))
   rule gp(_, _) => no [owise]
+  rule gss(S, I) => yes requires substrString(S, I, I) ==String ""
+  rule gss(_, _) => no [owise]
+  rule gf(S, I) => yes requires ok(findString(S, "a", I))
+  rule gf(_, _) => no [owise]
+  rule grf(S, I) => yes requires ok(rfindString(S, "a", I))
+  rule grf(_, _) => no [owise]
+  rule gfc(S, I) => yes requires ok(findChar(S, "a", I))
+  rule gfc(_, _) => no [owise]
 endmodule

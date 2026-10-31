@@ -540,6 +540,78 @@ fn a_bottom_outside_a_described_domain_is_marked_and_a_determined_one_is_not() {
     }
 }
 
+const OUTSIDE_STRING: &str = r#"
+module MAIN
+  imports INT
+  imports STRING
+  syntax Pgm ::= sub(Int, Int) | fnd(String, Int) | rfnd(String, Int) | fch(String, Int)
+               | done(KItem)
+  configuration <k> $PGM:Pgm </k>
+  rule sub(I, J) => done(substrString("abc", I, J))
+  rule fnd(N, I) => done(findString("abc", N, I))
+  rule rfnd(N, I) => done(rfindString("abc", N, I))
+  rule fch(N, I) => done(findChar("abc", N, I))
+endmodule
+"#;
+
+/// Values the `STRING` text does not describe, which k-rust computes: `substrString` "is only
+/// defined on valid indices (... `startIndex < endIndex` ...)", so an empty range strictly inside
+/// the string, which no rule of the definition reaches (`sub(1, 1)`, `sub(2, 2)`), is k-rust's
+/// `""`, taken and marked. The empty ranges at 0 and at the length are fixed by the `replaceFirst`
+/// equation (`sub(0, 0)`, `sub(3, 3)`), a nonempty range inside the string is described, and one
+/// outside the valid indices is left unevaluated, with no pick (`sub(2, 1)`): none is marked.
+/// `findString` and `rfindString` search "starting at a certain `index`", one of the positions
+/// `0..=lengthString` of the haystack: a negative start or one past the end is k-rust's value,
+/// marked (`fnd("a", -1)`, `fnd("a", 4)`, `rfnd("a", -1)`, `rfnd("a", 4)`), and a start at the
+/// end is described (`fnd("", 3)`, `rfnd("", 3)`). `findChar` has no evaluator: its prelude
+/// equations search each needle with `findString` from the same start, so a start outside the
+/// haystack is marked there (`fch("a", -1)`), and go on with `substrString(NEEDLES, 1,
+/// lengthString(NEEDLES))`, the empty range at the length for the last needle, which is fixed
+/// (`fch("a", 0)` is unmarked).
+#[test]
+fn a_string_value_outside_its_description_is_marked() {
+    let outside = |hooks: &[&str]| {
+        hooks
+            .iter()
+            .map(|hook| mark(hook, "outside-domain"))
+            .collect::<Vec<_>>()
+    };
+    for empty in ["sub(1, 1)", "sub(2, 2)"] {
+        assert_marked(OUTSIDE_STRING, empty, &outside(&["STRING.substr"]));
+    }
+    for program in [
+        r#"fnd("a", -1)"#,
+        r#"fnd("a", 4)"#,
+        r#"rfnd("a", -1)"#,
+        r#"rfnd("a", 4)"#,
+    ] {
+        let hook = if program.starts_with("fnd") {
+            "STRING.find"
+        } else {
+            "STRING.rfind"
+        };
+        assert_marked(OUTSIDE_STRING, program, &outside(&[hook]));
+    }
+    assert_marked(
+        OUTSIDE_STRING,
+        r#"fch("a", -1)"#,
+        &outside(&["STRING.find"]),
+    );
+    for determined in [
+        "sub(0, 0)",
+        "sub(3, 3)",
+        r#"fch("a", 0)"#,
+        "sub(1, 2)",
+        "sub(2, 1)",
+        r#"fnd("", 3)"#,
+        r#"fnd("c", 1)"#,
+        r#"rfnd("", 3)"#,
+        r#"rfnd("a", 2)"#,
+    ] {
+        assert_marked(OUTSIDE_STRING, determined, &[]);
+    }
+}
+
 const CONDITIONS: &str = r#"
 module MAIN
   imports INT

@@ -203,20 +203,21 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
 /// `dest` except the `N` elements starting at `index` are replaced with the contents of `src`",
 /// and "`#False` if `index` + `N` is not a valid index".
 ///
-/// "Valid index" is defined two sections above, for `B[I <- V]`: an index that is not "less than
-/// zero or greater than or equal to the length". The sentence applies it to `index + N`, which
-/// is the end of the replaced range, one past its last element, so it admits two readings: an
-/// element index (`0 <= INDEX + N < K`), under which replacing the tail of `DEST` is `#False`, or
-/// the end bound of a range (`0 <= INDEX + N <= K`), under which it is the described value. The
-/// text does not decide between them, so:
+/// "Valid index" is defined two sections above, for `B[I <- V]` (`domains.md`:2106-2107): an
+/// index that is not "less than zero or greater than or equal to the length", `0 <= i < K`. The
+/// sentence applies it to `index + N`, the end of the replaced range, one past its last element.
+/// Read literally, a replacement that ends at the length (`INDEX + N == K`) is `#False`; the
+/// description's value clause ("equal to `dest` except the `N` elements starting at `index` are
+/// replaced") gives the replaced `DEST` there, the end bound of a range (`0 <= INDEX + N <= K`).
+/// k-rust does not decide between the two, so:
 /// - `INDEX + N < 0` or `INDEX + N > K` is no valid index under either reading: `#False` is
 ///   stated (`Undefinedness::Stated`).
 /// - `INDEX < 0` with `0 <= INDEX + N <= K`: "the `N` elements starting at `index`" names no
 ///   element of `DEST` at a negative start, so the description says nothing there (and states no
 ///   `#False` under the end-bound reading), as `updateList` at a negative index: k-rust's
 ///   `\bottom` is one model's (`Undescribed`, class `outside-domain`).
-/// - `0 <= INDEX` and `INDEX + N == K`: the readings disagree, `#False` under one and the
-///   replaced `DEST` under the other, so the outcome is open. The evaluator gives the value, which
+/// - `0 <= INDEX` and `INDEX + N == K`: `#False` read literally, the replaced `DEST` by the value
+///   clause, so the outcome is open. The evaluator gives the value, which
 ///   [`replaces_up_to_the_end`] makes class `outside-domain` for `chosen_value`: an execution takes
 ///   it, marked, and every other evaluation leaves the application of unknown definedness.
 /// - `0 <= INDEX` and `INDEX + N < K`: the described value under both readings.

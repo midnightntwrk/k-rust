@@ -91,11 +91,27 @@ fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(result)))
 }
 
-/// `substrString(S, START, END)` is the code points of S in `[START..END)` when
-/// `0 <= START <= END <= lengthString(S)`. `domains.md` declares it `total` but says it is "only
-/// defined on valid indices", so outside them it has a value the definition does not give: the
-/// application is left unevaluated (`Unspecified`). Valid indices include `START == END`, which
-/// the `domains.md` equations of `replaceFirst`, `findChar` and `countAllOccurrences` use.
+/// `substrString(S, START, END)`, the code points of `S` in `[START..END)`. `domains.md` declares
+/// it `total` and says it "is only defined on valid indices (i.e., it is defined when
+/// `startIndex < endIndex` and `endIndex` is less than or equal to the string length)". A `total`
+/// symbol has a value on every argument, so "only defined" cannot exclude one: outside the valid
+/// indices the application is defined and the text gives it no value.
+/// - `0 <= START < END <= lengthString(S)`: the described substring.
+/// - `START == END`: `START < END` fails, so the empty range is outside this sentence, although
+///   `[START..END)` holds no code point. At `0` and at `lengthString(S)` the definition's own
+///   rules fix it nonetheless: `replaceFirst(S, S, R)` "replaces exactly one ocurrence of the
+///   string, the first occurrence" (`domains.md`:1844-1845), which gives `R`, and its equation
+///   (:1901-1902) gives `substrString(S, 0, 0) +String R +String substrString(S, |S|, |S|)`
+///   (`findString(S, S, 0)` is 0), so both have length 0 and are `""` in every model. Strictly
+///   inside the string (`0 < START == END < lengthString(S)`) no text or equation reaches the
+///   application (the equations of `replaceFirst`, `replace`, `countAllOccurrences`,
+///   `findChar` and `rfindChar` take a prefix from 0 or a suffix up to the length): the text
+///   gives it no value. The evaluator gives `""`, which [`takes_an_empty_range`] makes class
+///   `outside-domain` for `chosen_value` there: an execution takes it, marked, and every other
+///   evaluation leaves the application unevaluated, defined.
+/// - Everywhere else (`END < START`, `END` past the length, a negative `START`; a negative
+///   `START` below `END` satisfies the words but names no code point at `[START..`): no value is
+///   computed on any route (`Unspecified`, defined), so nothing is picked.
 fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.substr", arguments, 3)?;
     let Some(value) = read_string(&arguments[0]) else {
@@ -127,7 +143,7 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
             UnsupportedHookReason::Unspecified {
                 defined: false,
                 detail: format!(
-                    "substrString from {start} to {end} on a string of length {}, outside the valid indices 0 <= start <= end <= length",
+                    "substrString from {start} to {end} on a string of length {}, outside 0 <= start <= end <= length",
                     value.chars().count()
                 ),
             },
@@ -136,6 +152,22 @@ fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(
         &value[start_offset..end_offset],
     )))
+}
+
+/// Whether `substrString(S, START, END)` takes an empty range strictly inside `S`,
+/// `0 < START == END < lengthString(S)`, which the text's valid indices (`startIndex <
+/// endIndex`) leave out and no rule of the definition reaches ([`substring`]): the evaluator's
+/// `""` there is one model's value.
+pub(super) fn takes_an_empty_range(arguments: &[Term]) -> bool {
+    let [value, start, end] = arguments else {
+        return false;
+    };
+    let (Some(value), Some(start), Some(end)) =
+        (read_string(value), read_int(start), read_int(end))
+    else {
+        return false;
+    };
+    start == end && start.sign() == Sign::Plus && start < BigInt::from(value.chars().count())
 }
 
 fn length(arguments: &[Term]) -> HookResult<BuiltinResult> {
@@ -225,10 +257,22 @@ fn empty_needle(operation: &str, needle: &Term) -> Option<BuiltinResult> {
 }
 
 /// `findString(S, N, I)` is the first occurrence of N in S starting at or after code point I,
-/// and `rfindString(S, N, I)` the last starting at or before it, -1 when there is none; both are
-/// defined for every integer I (`domains.md`: "starting at a certain index"). A negative I
-/// searches `find` from 0 and leaves `rfind` nothing; an I past the end leaves `find` nothing
-/// and searches `rfind` from the end.
+/// and `rfindString(S, N, I)` the last starting at or before it, -1 when there is none.
+///
+/// `domains.md` describes a search for an occurrence "starting at a certain `index`" of the
+/// haystack, and "Returns `-1` if the substring is not found". The positions at which an
+/// occurrence of a needle can start are `0..=lengthString(S)` (the empty needle occurs at the
+/// length), the same range the section's valid indices give an end index (`endIndex` "less than
+/// or equal to the string length"), so a start in it is a described search, the length
+/// included. A negative `I`, or one past the length, is no position of the haystack, and the
+/// text does not say what a search from it is: no value is excluded, and neither is `\bottom`,
+/// both symbols being partial. The evaluator searches `find` from 0 and gives `rfind` -1 at a
+/// negative `I`, and gives `find` -1 and searches `rfind` from the end past the length; that
+/// value is one model's, which [`starts_outside_the_haystack`] makes class `outside-domain` for
+/// `chosen_value`: an execution takes it, marked, and every other evaluation leaves the
+/// application of unknown definedness. `findChar` and `rfindChar` have no evaluator: their
+/// `domains.md` equations pass `I` to these two hooks, so a start outside the haystack reaches
+/// one of them there and is marked through it.
 fn find(arguments: &[Term], reverse: bool) -> HookResult<BuiltinResult> {
     let hook = if reverse {
         "STRING.rfind"
@@ -275,6 +319,19 @@ fn find(arguments: &[Term], reverse: bool) -> HookResult<BuiltinResult> {
             .and_then(|index| i64::try_from(index).ok())
             .unwrap_or(-1),
     ))))
+}
+
+/// Whether `findString(S, N, I)` or `rfindString(S, N, I)` searches from an `I` that is no
+/// position of `S`, below 0 or past `lengthString(S)` ([`find`]): the evaluator's value there is
+/// one model's.
+pub(super) fn starts_outside_the_haystack(arguments: &[Term]) -> bool {
+    let [haystack, _, start] = arguments else {
+        return false;
+    };
+    let (Some(haystack), Some(start)) = (read_string(haystack), read_int(start)) else {
+        return false;
+    };
+    start.sign() == Sign::Minus || start > BigInt::from(haystack.chars().count())
 }
 
 /// Byte offsets at which the code points of a `String` value, stored as UTF-8, start.
@@ -861,11 +918,29 @@ mod tests {
         );
     }
 
-    /// `substrString` has its value on `0 <= start <= end <= length`, including empty ranges, and
-    /// a value the definition leaves open elsewhere, so it is left unevaluated there.
+    /// `substrString` has its value on the valid indices `0 <= start < end <= length`, and the
+    /// definition's `replaceFirst` equation fixes the empty range at 0 and at the length; on an
+    /// empty range strictly inside, which nothing describes, the evaluator gives `""`, which
+    /// `chosen_value` makes `outside-domain` ([`takes_an_empty_range`]); elsewhere the
+    /// application is left unevaluated.
     #[test]
     fn substr_is_unspecified_outside_valid_indices() {
-        for (start, end, expected) in [(0, 0, ""), (5, 5, ""), (1, 3, "el"), (0, 5, "hello")] {
+        for (start, end, expected) in [
+            (0, 0, ""),
+            (5, 5, ""),
+            (2, 2, ""),
+            (1, 3, "el"),
+            (0, 5, "hello"),
+        ] {
+            assert_eq!(
+                takes_an_empty_range(&[
+                    string_term("hello"),
+                    int_term(start.into()),
+                    int_term(end.into())
+                ]),
+                start == 2,
+                "substrString(hello, {start}, {end})"
+            );
             assert_eq!(
                 evaluate(
                     "STRING.substr",
@@ -1026,8 +1101,9 @@ mod tests {
         );
     }
 
-    /// `findString` is the first occurrence starting at or after its index, whatever the index:
-    /// a negative one searches from 0, one past the end finds nothing.
+    /// `findString` is the first occurrence starting at or after its index. A negative one
+    /// searches from 0 and one past the end finds nothing, values the text does not describe
+    /// ([`starts_outside_the_haystack`]); a start at the end is a position of the haystack.
     #[test]
     fn find_searches_forward_from_any_index() {
         for (needle, start, expected) in [
@@ -1049,6 +1125,27 @@ mod tests {
                 ),
                 BuiltinResult::Value(int_term(expected.into())),
                 "findString(hello, {needle:?}, {start})"
+            );
+            assert_eq!(
+                starts_outside_the_haystack(&[
+                    string_term("hello"),
+                    string_term(needle),
+                    int_term(start.into()),
+                ]),
+                !(0..=5).contains(&start),
+                "findString(hello, {needle:?}, {start})"
+            );
+        }
+        // Positions are code points: "a🦀é🦀" has four.
+        for (start, outside) in [(4, false), (5, true)] {
+            assert_eq!(
+                starts_outside_the_haystack(&[
+                    string_term("a🦀é🦀"),
+                    string_term(""),
+                    int_term(start.into()),
+                ]),
+                outside,
+                "{start}"
             );
         }
 
@@ -1073,8 +1170,9 @@ mod tests {
         );
     }
 
-    /// `rfindString` is the last occurrence starting at or before its index, whatever the index:
-    /// none for a negative one, the last in the string for one past the end.
+    /// `rfindString` is the last occurrence starting at or before its index: none for a negative
+    /// one and the last in the string for one past the end, values the text does not describe
+    /// (`starts_outside_the_haystack`, checked in `find_searches_forward_from_any_index`).
     #[test]
     fn rfind_searches_back_from_any_index() {
         let beyond_i64: BigInt = BigInt::from(1_u8) << 100;

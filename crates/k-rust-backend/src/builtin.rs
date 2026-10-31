@@ -639,9 +639,15 @@ impl<'a> HookOutcome<'a> {
 ///   `String2Int` and `String2Base` of a text off the radix's syntax, `String2Base` and
 ///   `Base2String` in a radix outside `2..36`, a partial `String2Token` of a text that names no
 ///   element, `L[I <- V]` and `range` out of range, `updateList` at a negative index or past
-///   the end, and `replaceAtBytes` at a negative index whose end is an index; and the value of
-///   `replaceAtBytes` from a nonnegative index up to the end of its `Bytes`, where the two
-///   readings of "valid index" disagree (`bytes::replaces_up_to_the_end`).
+///   the end, and `replaceAtBytes` at a negative index whose end is an index; and the value the
+///   evaluator gives where the description gives none: `replaceAtBytes` from a nonnegative index
+///   up to the end of its `Bytes`, which "valid index", read as `domains.md` defines it, makes
+///   `#False` and the description's value clause the replaced `Bytes`
+///   (`bytes::replaces_up_to_the_end`); `substrString` of an empty range strictly inside its
+///   string, outside its valid indices (`startIndex < endIndex`) and reached by no rule of the
+///   definition (`string::takes_an_empty_range`); and `findString` and
+///   `rfindString` from a start that is no position of the haystack
+///   (`string::starts_outside_the_haystack`).
 /// - `FloatRounding`: `Int2Float` of an integer the format does not hold or of 0, `roundFloat`
 ///   of a value the destination does not hold, `Float2Int` at a tie (`float::rounds`), and
 ///   `rootFloat` of a positive finite value whose root is no float (`float::root_open`).
@@ -697,6 +703,14 @@ pub fn chosen_value(
         "BYTES.replaceAt" => fires(
             ChosenClass::OutsideDomain,
             bytes::replaces_up_to_the_end(arguments),
+        ),
+        "STRING.substr" => fires(
+            ChosenClass::OutsideDomain,
+            string::takes_an_empty_range(arguments),
+        ),
+        "STRING.find" | "STRING.rfind" => fires(
+            ChosenClass::OutsideDomain,
+            string::starts_outside_the_haystack(arguments),
         ),
         "MAP.keys_list" | "MAP.values" => {
             fires(ChosenClass::Order, map::lists_several_items(arguments))
@@ -5205,6 +5219,49 @@ mod tests {
             );
             let chosen = chosen_value(hook, &arguments, HookOutcome::Unknown, false).unwrap();
             assert!(chosen.defined && chosen.withheld_in_proof, "{hook}");
+        }
+    }
+
+    /// GAP K2 fix round 2: `substrString` of an empty range strictly inside its string, which
+    /// its valid indices (`startIndex < endIndex`) leave out and no rule reaches, and
+    /// `findString`/`rfindString` from a start that is no position of the haystack, are k-rust's
+    /// values, `outside-domain`: defined at the `total` `substrString`, of open definedness at the
+    /// partial searches. Elsewhere, the empty ranges at 0 and at the length (which the
+    /// `replaceFirst` equation fixes) and a start at the length included, they are no class.
+    #[test]
+    fn a_string_value_outside_its_description_is_outside_domain() {
+        let empty = Term::string("");
+        let substr = |start: i64, end: i64| [Term::string("abc"), Term::int(start), Term::int(end)];
+        for (start, end, open) in [
+            (1, 1, true),
+            (2, 2, true),
+            (0, 0, false),
+            (3, 3, false),
+            (1, 2, false),
+        ] {
+            let chosen = chosen_value(
+                "STRING.substr",
+                &substr(start, end),
+                HookOutcome::Value(&empty),
+                true,
+            );
+            assert_eq!(
+                chosen.map(|chosen| (chosen.class, chosen.defined, chosen.withheld_in_proof)),
+                open.then_some((ChosenClass::OutsideDomain, true, true)),
+                "substrString(abc, {start}, {end})"
+            );
+        }
+        let found = Term::int(0);
+        for hook in ["STRING.find", "STRING.rfind"] {
+            for (start, open) in [(-1, true), (4, true), (3, false), (0, false)] {
+                let arguments = [Term::string("abc"), Term::string("a"), Term::int(start)];
+                let chosen = chosen_value(hook, &arguments, HookOutcome::Value(&found), false);
+                assert_eq!(
+                    chosen.map(|chosen| (chosen.class, chosen.defined, chosen.withheld_in_proof)),
+                    open.then_some((ChosenClass::OutsideDomain, false, true)),
+                    "{hook}(abc, a, {start})"
+                );
+            }
         }
     }
 
