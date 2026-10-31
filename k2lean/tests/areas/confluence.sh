@@ -68,9 +68,11 @@ relate_confluence() {
 }
 # simple_witnesses DIR: SIMPLE's witness programs, each beside its initial configuration (krust's
 # `krun --depth 0`): `div-nondet`, whose division's strict operands have effects.
+# krun reads stdin, so it gets /dev/null: a gate run in the background whose stdin never closes would
+# block there.
 simple_witnesses() {
   rm -rf "${1:?}" && mkdir -p "$1" && cp "$SD/tests/diverse/div-nondet.simple" "$1/" &&
-    "$KRUST" krun --definition "$(kore_dir simple)" --depth 0 --sort Stmt "$1/div-nondet.simple" > "$1/div-nondet.kore"
+    "$KRUST" krun --definition "$(kore_dir simple)" --depth 0 --sort Stmt "$1/div-nondet.simple" < /dev/null > "$1/div-nondet.kore"
 }
 libs_confluence() {
   case $1 in
